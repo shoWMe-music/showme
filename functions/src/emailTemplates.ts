@@ -1,0 +1,149 @@
+function baseLayout(content: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>shoWMe</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 20px">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+          <!-- Header -->
+          <tr>
+            <td style="padding:32px 32px 0;text-align:center">
+              <span style="font-size:24px;font-weight:700;color:#18181b;letter-spacing:-0.5px">sho<span style="color:#f97316">W</span>Me</span>
+            </td>
+          </tr>
+          <!-- Content -->
+          <tr>
+            <td style="padding:24px 32px 32px">
+              ${content}
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="padding:20px 32px;border-top:1px solid #e4e4e7;text-align:center">
+              <p style="margin:0;font-size:12px;color:#a1a1aa;line-height:1.5">
+                &copy; ${new Date().getFullYear()} shoWMe. All rights reserved.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+export function passwordResetEmail(resetLink: string, recipientName?: string): { subject: string; html: string } {
+  const greeting = recipientName ? `Hi ${recipientName},` : "Hi,";
+
+  const content = `
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b">Reset your password</h2>
+    <p style="margin:0 0 20px;font-size:14px;color:#71717a;line-height:1.6">
+      ${greeting} we received a request to reset your password. Click the button below to choose a new one.
+    </p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td align="center" style="padding:8px 0 24px">
+          <a href="${resetLink}" target="_blank" style="display:inline-block;padding:12px 32px;background:#f97316;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;border-radius:8px">
+            Reset Password
+          </a>
+        </td>
+      </tr>
+    </table>
+    <p style="margin:0 0 8px;font-size:13px;color:#a1a1aa;line-height:1.5">
+      If the button doesn't work, copy and paste this link into your browser:
+    </p>
+    <p style="margin:0 0 20px;font-size:12px;color:#f97316;word-break:break-all;line-height:1.5">
+      ${resetLink}
+    </p>
+    <p style="margin:0;font-size:13px;color:#a1a1aa;line-height:1.5">
+      If you didn't request a password reset, you can safely ignore this email. Your password will remain unchanged.
+    </p>
+    <p style="margin:16px 0 0;font-size:13px;color:#a1a1aa;line-height:1.5">
+      This link expires in 1 hour.
+    </p>`;
+
+  return {
+    subject: "Reset your password — shoWMe",
+    html: baseLayout(content),
+  };
+}
+
+export function otpEmail(code: string, recipientName?: string): { subject: string; html: string } {
+  const greeting = recipientName ? `Hi ${recipientName},` : "Hi,";
+
+  const content = `
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b">Verify your email</h2>
+    <p style="margin:0 0 20px;font-size:14px;color:#71717a;line-height:1.6">
+      ${greeting} use the code below to verify your email address.
+    </p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td align="center" style="padding:8px 0 24px">
+          <span style="display:inline-block;padding:16px 32px;background:#f4f4f5;border-radius:8px;font-size:28px;font-weight:700;letter-spacing:6px;color:#18181b;font-family:monospace">
+            ${code}
+          </span>
+        </td>
+      </tr>
+    </table>
+    <p style="margin:0;font-size:13px;color:#a1a1aa;line-height:1.5">
+      This code expires in 10 minutes. If you didn't request this, you can safely ignore this email.
+    </p>`;
+
+  return {
+    subject: `${code} is your shoWMe verification code`,
+    html: baseLayout(content),
+  };
+}
+
+export function invitationEmail(opts: {
+  recipientName: string;
+  senderName: string;
+  eventName?: string;
+  signupLink: string;
+  invitationCode: string;
+  message?: string;
+}): { subject: string; html: string } {
+  const eventLine = opts.eventName
+    ? ` to collaborate on <strong>${opts.eventName}</strong>`
+    : "";
+  const messageLine = opts.message
+    ? `<p style="margin:16px 0;padding:12px 16px;background:#f4f4f5;border-radius:8px;font-size:14px;color:#3f3f46;line-height:1.6;font-style:italic">"${opts.message}"</p>`
+    : "";
+
+  const content = `
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b">You've been invited</h2>
+    <p style="margin:0 0 16px;font-size:14px;color:#71717a;line-height:1.6">
+      Hi ${opts.recipientName}, <strong>${opts.senderName}</strong> has invited you${eventLine} on shoWMe.
+    </p>
+    ${messageLine}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td align="center" style="padding:8px 0 16px">
+          <a href="${opts.signupLink}" target="_blank" style="display:inline-block;padding:12px 32px;background:#f97316;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;border-radius:8px">
+            Accept Invitation
+          </a>
+        </td>
+      </tr>
+    </table>
+    <p style="margin:0 0 8px;font-size:13px;color:#a1a1aa;line-height:1.5">
+      Your invitation code:
+    </p>
+    <p style="margin:0 0 20px;font-size:16px;font-weight:700;color:#18181b;letter-spacing:2px;font-family:monospace">
+      ${opts.invitationCode}
+    </p>
+    <p style="margin:0;font-size:12px;color:#a1a1aa;line-height:1.5">
+      If the button doesn't work, go to <span style="color:#f97316">${opts.signupLink}</span>
+    </p>`;
+
+  return {
+    subject: `${opts.senderName} invited you to shoWMe`,
+    html: baseLayout(content),
+  };
+}

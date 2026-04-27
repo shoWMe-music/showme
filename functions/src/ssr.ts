@@ -20,8 +20,8 @@ async function getRender() {
 let htmlTemplate: string | null = null;
 function getHtmlTemplate(): string {
   if (!htmlTemplate) {
-    // In production, dist/client is deployed alongside functions
-    const templatePath = path.resolve(__dirname, "../../dist/client/index.html");
+    // In production the template is copied into functions/lib/ by build:all
+    const templatePath = path.resolve(__dirname, "index.template.html");
     htmlTemplate = fs.readFileSync(templatePath, "utf-8");
   }
   return htmlTemplate;

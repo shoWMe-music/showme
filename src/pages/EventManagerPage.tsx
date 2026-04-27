@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { Link } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import AppLayout from "@/components/AppLayout";
 import { useBreadcrumbs, type BreadcrumbItem } from "@/components/TopBreadcrumb";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -29,6 +30,7 @@ import { useEventManager } from "@/components/event-manager/useEventManager";
 
 export default function EventManagerPage() {
   const em = useEventManager();
+  const queryClient = useQueryClient();
   const updateEventMutation = useUpdateEvent();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteDefaults, setInviteDefaults] = useState<{ role?: string; name?: string; eventId?: string }>({});
@@ -251,9 +253,9 @@ export default function EventManagerPage() {
         <InviteCollaboratorDialog open={inviteOpen} onOpenChange={(v) => { setInviteOpen(v); if (!v) setInviteDefaults({}); }} eventName={event.name} eventId={inviteDefaults.eventId || id} defaultRole={inviteDefaults.role} defaultName={inviteDefaults.name} onCollaboratorAdded={em.refreshCollaborators} />
         <ExportEventDialog open={exportOpen} onOpenChange={setExportOpen} eventName={event.name} eventId={id} eventStatus={event.eventStatus} creatorName={em.currentUser.name} teamMembers={em.teamMembers} eventData={{ event, deal: em.effectiveDeal, revenue: em.revenue, settlement: em.settlement, eventMeta: em.eventMeta, currency: em.eventCurrency }} />
         {em.isParent ? (
-          <SuggestToPerformersDialog open={markPendingOpen} onOpenChange={setMarkPendingOpen} parentEventId={id} childEvents={em.childEvents} updateEvent={em.updateEvent} />
+          <SuggestToPerformersDialog open={markPendingOpen} onOpenChange={setMarkPendingOpen} parentEventId={id} childEvents={em.childEvents} updateEvent={em.updateEvent} user={em.user} eventName={event.name} queryClient={queryClient} onCollaboratorAdded={em.refreshCollaborators} senderName={em.currentUser?.name || em.user?.displayName || em.user?.email || "A shoWMe user"} />
         ) : (
-          <MarkPendingDialog open={markPendingOpen} onOpenChange={setMarkPendingOpen} event={event} sourceRequestId={em.effectiveSourceRequestId} sourceRequestDate={em.effectiveSourceRequestDate} updateEvent={em.updateEvent} />
+          <MarkPendingDialog open={markPendingOpen} onOpenChange={setMarkPendingOpen} event={event} sourceRequestId={em.effectiveSourceRequestId} sourceRequestDate={em.effectiveSourceRequestDate} updateEvent={em.updateEvent} user={em.user} eventName={event.name} queryClient={queryClient} onCollaboratorAdded={em.refreshCollaborators} senderName={em.currentUser?.name || em.user?.displayName || em.user?.email || "A shoWMe user"} />
         )}
         <ArchiveDialog open={archiveConfirmOpen} onOpenChange={setArchiveConfirmOpen} eventId={id} event={event} user={em.user} archiveMutate={em.archiveEventMutation.mutate} />
       </div>

@@ -1,6 +1,8 @@
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
+import { getMailTransport, FROM_ADDRESS } from "./mail";
+import { passwordResetEmail } from "./emailTemplates";
 
 export { exchangeRate, supportedCurrencies } from "./currencyHttp";
 export { ssrRender } from "./ssr";
@@ -64,6 +66,56 @@ export const joinEventAsCollaborator = onCall<{ token: string }, Promise<{ ok: t
       [`participant_roles.${uid}`]: eventRole,
     });
     return { ok: true, eventId };
+  },
+);
+
+// ---------------------------------------------------------------------------
+// sendPasswordReset — branded password-reset email
+// ---------------------------------------------------------------------------
+
+interface SendPasswordResetData {
+  email: string;
+}
+
+export const sendPasswordReset = onCall<SendPasswordResetData, Promise<{ ok: true }>>(
+  { region: "europe-west1" },
+  async (request) => {
+    const { email } = request.data;
+    if (!email || typeof email !== "string") {
+      throw new HttpsError("invalid-argument", "email is required.");
+    }
+
+    const trimmed = email.toLowerCase().trim();
+
+    try {
+      const link = await admin.auth().generatePasswordResetLink(trimmed, {
+        url: "https://showme-production.web.app/login",
+      });
+
+      const { subject, html } = passwordResetEmail(link);
+      const transport = getMailTransport();
+
+      const info = await transport.sendMail({
+        from: FROM_ADDRESS,
+        to: trimmed,
+        subject,
+        html,
+      });
+
+      // jsonTransport returns the message as a string (when SMTP isn't configured)
+      if (info.message) {
+        logger.info("Password reset email (SMTP not configured, logged only)", {
+          to: trimmed,
+        });
+      } else {
+        logger.info("Password reset email sent", { to: trimmed });
+      }
+    } catch (err) {
+      // Don't reveal whether the email exists — always return success
+      logger.warn("Password reset error (suppressed for user)", { email: trimmed, error: String(err) });
+    }
+
+    return { ok: true };
   },
 );
 

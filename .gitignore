@@ -16,9 +16,12 @@ dist-ssr
 .env
 .env.*
 !.env.example
+!.env.production
 
 # Firebase emulator dump (dev:local persists here between runs)
 emulator-data/
+firebase-export-*/
+.firebase/
 
 # Editor directories and files
 .vscode/*

@@ -7,15 +7,20 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Loader2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { isPrimaryEventOwner } from "@/lib/eventPermissions";
+import { createPerformerInvitation, sendPerformerInvitationEmail } from "@/lib/createPerformerInvitation";
 import type { Event as AppEvent, EventStatus } from "@/lib/models";
 import type { User } from "firebase/auth";
+import type { QueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 
-// ── Mark as Active dialog ─────────────────────────────────────────────────────
+// ── Mark as Active / Suggest to Performer dialog (single performer) ──────────
 
 interface MarkPendingDialogProps {
   open: boolean;
@@ -24,52 +29,78 @@ interface MarkPendingDialogProps {
   sourceRequestId: string | undefined;
   sourceRequestDate: string | undefined;
   updateEvent: (id: string, updates: Partial<AppEvent>) => void;
+  user: User | null;
+  eventName: string;
+  queryClient: QueryClient;
+  onCollaboratorAdded?: () => void;
+  senderName: string;
 }
 
 function resolveActivation(
   event: AppEvent,
   sourceRequestId: string | undefined,
   sourceRequestDate: string | undefined,
-): { targetStatus: EventStatus; notifyLabel: string; description: string } {
-  const performerInSystem = !!event.performerProfileId;
+): { targetStatus: EventStatus; description: string; needsInvitationForm: boolean } {
   const fromRequest = !!sourceRequestId;
+  const onPlatform = !!event.performerProfileId;
 
-  // Suggested → always advances to Pending
   if (event.eventStatus === "suggested") {
     return {
       targetStatus: "pending",
-      notifyLabel: "Notify performer",
       description: "This will advance the event to Pending, indicating you're moving forward. The performer will be notified of the status change.",
+      needsInvitationForm: false,
     };
   }
 
-  // Draft → pending only if from a request AND the date matches what was requested
   const dateChanged = fromRequest && sourceRequestDate && event.date !== sourceRequestDate;
   const targetStatus: EventStatus = fromRequest && !dateChanged ? "pending" : "suggested";
 
-  let description: string;
   if (fromRequest && dateChanged) {
-    description = `The date was changed from the original request (${sourceRequestDate}), so this will be sent as a counter-proposal. The performer can accept or decline the new date.`;
-  } else if (fromRequest) {
-    description = "This accepts the booking request as-is. The event will move to Pending.";
-  } else {
-    description = "This will suggest the event to the performer. They'll see it in their incoming requests and can accept or decline.";
+    return {
+      targetStatus,
+      description: `The date was changed from the original request (${sourceRequestDate}), so this will be sent as a counter-proposal. The performer can accept or decline the new date.`,
+      needsInvitationForm: false,
+    };
+  }
+  if (fromRequest) {
+    return {
+      targetStatus,
+      description: "This accepts the booking request as-is. The event will move to Pending.",
+      needsInvitationForm: false,
+    };
+  }
+
+  if (onPlatform) {
+    return {
+      targetStatus,
+      description: "This performer is already on shoWMe. They will be notified about this event.",
+      needsInvitationForm: false,
+    };
   }
 
   return {
     targetStatus,
-    notifyLabel: performerInSystem ? "Notify performer" : "Send email invitation",
-    description,
+    description: "Enter the performer's email to send them an invitation to this event on shoWMe.",
+    needsInvitationForm: true,
   };
 }
 
-export function MarkPendingDialog({ open, onOpenChange, event, sourceRequestId, sourceRequestDate, updateEvent }: MarkPendingDialogProps) {
+export function MarkPendingDialog({
+  open, onOpenChange, event, sourceRequestId, sourceRequestDate, updateEvent,
+  user, eventName, queryClient, onCollaboratorAdded, senderName,
+}: MarkPendingDialogProps) {
   const [notify, setNotify] = useState(true);
-  const { targetStatus, notifyLabel, description } = resolveActivation(event, sourceRequestId, sourceRequestDate);
+  const [email, setEmail] = useState("");
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const { targetStatus, description, needsInvitationForm } = resolveActivation(event, sourceRequestId, sourceRequestDate);
 
   const fromRequest = !!sourceRequestId;
   const dateChanged = fromRequest && sourceRequestDate && event.date !== sourceRequestDate;
   const isAcceptingRequest = fromRequest && !dateChanged && event.eventStatus === "draft";
+
+  const onPlatform = !!event.performerProfileId;
 
   const title = event.eventStatus === "suggested"
     ? "Mark as Pending"
@@ -77,7 +108,9 @@ export function MarkPendingDialog({ open, onOpenChange, event, sourceRequestId, 
       ? "Accept Request"
       : dateChanged
         ? "Counter-Propose"
-        : "Suggest to Performer";
+        : onPlatform
+          ? "Notify Performer"
+          : "Invite Performer";
 
   const buttonLabel = event.eventStatus === "suggested"
     ? "Mark as Pending"
@@ -85,41 +118,125 @@ export function MarkPendingDialog({ open, onOpenChange, event, sourceRequestId, 
       ? "Accept Request"
       : dateChanged
         ? "Send Counter-Proposal"
-        : "Send Suggestion";
+        : onPlatform
+          ? "Suggest to Performer"
+          : "Send Invitation";
 
-  const handleConfirm = () => {
+  const canConfirm = needsInvitationForm ? email.trim().length > 0 : true;
+
+  const handleConfirm = async () => {
+    if (needsInvitationForm && user) {
+      setSending(true);
+      try {
+        const result = await createPerformerInvitation({
+          eventId: event.id,
+          email: email.trim(),
+          displayName: event.artist || email.trim().split("@")[0],
+          userUid: user.uid,
+          queryClient,
+          message: message.trim(),
+          onCollaboratorAdded,
+        });
+
+        if (!result) {
+          toast({ title: "Error", description: "Failed to create invitation. Please try again.", variant: "destructive" });
+          setSending(false);
+          return;
+        }
+
+        if (notify) {
+          await sendPerformerInvitationEmail({
+            code: result.code,
+            recipientEmail: email.trim(),
+            recipientName: event.artist || email.trim().split("@")[0],
+            eventName,
+            senderName,
+            message: message.trim() || undefined,
+          });
+        }
+      } catch {
+        toast({ title: "Error", description: "Failed to create invitation.", variant: "destructive" });
+        setSending(false);
+        return;
+      }
+      setSending(false);
+    }
+
     updateEvent(event.id, {
       eventStatus: targetStatus,
-      ...(notify ? { notifyPerformerOnActivation: true } : {}),
+      ...(notify && !needsInvitationForm ? { notifyPerformerOnActivation: true } : {}),
     } as Partial<AppEvent>);
-    const msg = notify
-      ? (event.performerProfileId ? "The performer has been notified." : "An invitation will be sent.")
-      : "No notification will be sent.";
+
+    const msg = needsInvitationForm
+      ? "Invitation sent to the performer."
+      : notify
+        ? (event.performerProfileId ? "The performer has been notified." : "An invitation will be sent.")
+        : "No notification will be sent.";
     toast({ title: isAcceptingRequest ? "Request accepted" : `Event marked as ${targetStatus}`, description: msg });
     onOpenChange(false);
   };
 
+  const handleOpenChange = (v: boolean) => {
+    if (!v) {
+      setNotify(true);
+      setEmail("");
+      setMessage("");
+      setSending(false);
+    }
+    onOpenChange(v);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={v => { if (!v) setNotify(true); onOpenChange(v); }}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription asChild>
-            <div className="space-y-4 text-sm text-muted-foreground">
+            <div className="space-y-2 text-sm text-muted-foreground">
               <p>{description}</p>
-              <p>You can still make changes after this.</p>
-              <div className="flex items-center gap-3 pt-1">
-                <Switch id="notify-toggle" checked={notify} onCheckedChange={setNotify} />
-                <Label htmlFor="notify-toggle" className="cursor-pointer font-normal text-foreground">
-                  {notifyLabel}
-                </Label>
-              </div>
+              {!needsInvitationForm && <p>You can still make changes after this.</p>}
             </div>
           </DialogDescription>
         </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {needsInvitationForm && (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="performer-email">Email (required)</Label>
+                <Input
+                  id="performer-email"
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="performer-message">Message (optional)</Label>
+                <Textarea
+                  id="performer-message"
+                  placeholder="Add a personal message..."
+                  value={message}
+                  onChange={e => setMessage(e.target.value)}
+                  rows={3}
+                />
+              </div>
+            </>
+          )}
+          <div className="flex items-center gap-3">
+            <Switch id="notify-toggle" checked={notify} onCheckedChange={setNotify} />
+            <Label htmlFor="notify-toggle" className="cursor-pointer font-normal text-foreground text-sm">
+              {needsInvitationForm ? "Send email invitation" : (event.performerProfileId ? "Notify performer" : "Send email invitation")}
+            </Label>
+          </div>
+        </div>
+
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleConfirm}>{buttonLabel}</Button>
+          <Button variant="outline" onClick={() => handleOpenChange(false)}>Cancel</Button>
+          <Button onClick={handleConfirm} disabled={!canConfirm || sending}>
+            {sending ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Sending...</> : buttonLabel}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -134,13 +251,37 @@ interface SuggestToPerformersDialogProps {
   parentEventId: string;
   childEvents: AppEvent[];
   updateEvent: (id: string, updates: Partial<AppEvent>) => void;
+  user: User | null;
+  eventName: string;
+  queryClient: QueryClient;
+  onCollaboratorAdded?: () => void;
+  senderName: string;
 }
 
-export function SuggestToPerformersDialog({ open, onOpenChange, parentEventId, childEvents, updateEvent }: SuggestToPerformersDialogProps) {
+export function SuggestToPerformersDialog({
+  open, onOpenChange, parentEventId, childEvents, updateEvent,
+  user, eventName, queryClient, onCollaboratorAdded, senderName,
+}: SuggestToPerformersDialogProps) {
   const draftChildren = childEvents.filter(c => c.eventStatus === "draft");
   const alreadySuggested = childEvents.filter(c => c.eventStatus !== "draft");
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(draftChildren.map(c => c.id)));
-  const [notifyIds, setNotifyIds] = useState<Set<string>>(() => new Set(draftChildren.map(c => c.id)));
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [notifyIds, setNotifyIds] = useState<Set<string>>(new Set());
+  const [emailMap, setEmailMap] = useState<Record<string, string>>({});
+  const [messageMap, setMessageMap] = useState<Record<string, string>>({});
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      const draftIds = new Set(draftChildren.map(c => c.id));
+      setSelectedIds(draftIds);
+      setNotifyIds(new Set(draftIds));
+      setEmailMap({});
+      setMessageMap({});
+      setSending(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const toggleSelected = (id: string) => {
     setSelectedIds(prev => {
@@ -165,72 +306,137 @@ export function SuggestToPerformersDialog({ open, onOpenChange, parentEventId, c
     });
   };
 
-  // Reset selections when the dialog opens (draftChildren may have changed since last close)
-  useEffect(() => {
-    if (open) {
-      const draftIds = new Set(draftChildren.map(c => c.id));
-      setSelectedIds(draftIds);
-      setNotifyIds(new Set(draftIds));
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  const handleConfirm = async () => {
+    if (!user) return;
+    setSending(true);
 
-  const handleConfirm = () => {
-    for (const childId of selectedIds) {
-      updateEvent(childId, {
+    const selectedChildren = draftChildren.filter(c => selectedIds.has(c.id));
+    const needsInvite = selectedChildren.filter(c => !c.performerProfileId);
+    const onPlatform = selectedChildren.filter(c => !!c.performerProfileId);
+
+    // Create invitations for off-platform performers
+    const results = await Promise.allSettled(
+      needsInvite.map(async (child) => {
+        const childEmail = emailMap[child.id]?.trim();
+        if (!childEmail) return;
+
+        const result = await createPerformerInvitation({
+          eventId: child.id,
+          email: childEmail,
+          displayName: child.artist || childEmail.split("@")[0],
+          userUid: user.uid,
+          queryClient,
+          message: messageMap[child.id]?.trim(),
+          onCollaboratorAdded,
+        });
+
+        if (result && notifyIds.has(child.id)) {
+          await sendPerformerInvitationEmail({
+            code: result.code,
+            recipientEmail: childEmail,
+            recipientName: child.artist || childEmail.split("@")[0],
+            eventName,
+            senderName,
+            message: messageMap[child.id]?.trim() || undefined,
+          });
+        }
+
+        return result;
+      }),
+    );
+
+    const failures = results.filter(r => r.status === "rejected");
+    if (failures.length > 0) {
+      console.error("Some invitations failed:", failures);
+    }
+
+    // Update statuses for all selected children
+    for (const child of selectedChildren) {
+      updateEvent(child.id, {
         eventStatus: "suggested",
-        ...(notifyIds.has(childId) ? { notifyPerformerOnActivation: true } : {}),
+        ...(child.performerProfileId && notifyIds.has(child.id) ? { notifyPerformerOnActivation: true } : {}),
       } as Partial<AppEvent>);
     }
-    // Also advance the parent event to "suggested" if it's still in draft
     updateEvent(parentEventId, { eventStatus: "suggested" });
-    const notifiedCount = [...selectedIds].filter(id => notifyIds.has(id)).length;
+
+    const invitedCount = needsInvite.filter(c => emailMap[c.id]?.trim()).length;
+    const notifiedCount = onPlatform.filter(c => notifyIds.has(c.id)).length;
+    const parts: string[] = [];
+    if (invitedCount > 0) parts.push(`${invitedCount} invited`);
+    if (notifiedCount > 0) parts.push(`${notifiedCount} notified`);
     toast({
-      title: "Suggestions sent",
-      description: notifiedCount > 0
-        ? `${selectedIds.size} performer${selectedIds.size === 1 ? "" : "s"} invited, ${notifiedCount} notified.`
-        : `${selectedIds.size} performer${selectedIds.size === 1 ? "" : "s"} invited. No notifications sent.`,
+      title: "Performers updated",
+      description: parts.length > 0
+        ? `${selectedIds.size} performer${selectedIds.size === 1 ? "" : "s"} marked as suggested (${parts.join(", ")}).`
+        : `${selectedIds.size} performer${selectedIds.size === 1 ? "" : "s"} marked as suggested.`,
     });
+
+    setSending(false);
     onOpenChange(false);
   };
 
+  // All off-platform selected performers must have an email
+  const offPlatformSelected = draftChildren.filter(c => selectedIds.has(c.id) && !c.performerProfileId);
+  const allOffPlatformHaveEmail = offPlatformSelected.length === 0 || offPlatformSelected.every(c => emailMap[c.id]?.trim());
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Suggest to Performers</DialogTitle>
-          <DialogDescription asChild>
-            <div className="space-y-4 text-sm text-muted-foreground">
-              <p>Select which performers to invite. You can choose whether to notify each performer.</p>
-            </div>
+      <DialogContent className="sm:max-w-lg max-h-[85vh] flex flex-col overflow-hidden">
+        <DialogHeader className="shrink-0">
+          <DialogTitle>Invite Performers</DialogTitle>
+          <DialogDescription>
+            Send invitations to performers. Performers already on shoWMe will be notified directly.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-2 max-h-64 overflow-y-auto py-1">
+        <div className="space-y-3 overflow-y-auto flex-1 min-h-0 py-1">
           {draftChildren.map(child => {
             const isSelected = selectedIds.has(child.id);
             const isNotified = notifyIds.has(child.id);
+            const onPlatform = !!child.performerProfileId;
             return (
-              <div key={child.id} className="flex items-center gap-3 rounded-lg border p-3 hover:bg-muted/50 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={isSelected}
-                  onChange={() => toggleSelected(child.id)}
-                  className="h-4 w-4 rounded border-input accent-primary shrink-0 cursor-pointer"
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{child.artist}</p>
-                  {child.roomStage && <p className="text-xs text-muted-foreground">{child.roomStage}</p>}
+              <div key={child.id} className="rounded-lg border p-3 space-y-3">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleSelected(child.id)}
+                    className="h-4 w-4 rounded border-input accent-primary shrink-0 cursor-pointer"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">{child.artist}</p>
+                    {child.roomStage && <p className="text-xs text-muted-foreground">{child.roomStage}</p>}
+                    {onPlatform && (
+                      <p className="text-xs text-green-600">On shoWMe — will be notified</p>
+                    )}
+                  </div>
+                  {isSelected && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Switch
+                        checked={isNotified}
+                        onCheckedChange={() => toggleNotify(child.id)}
+                        className="scale-75"
+                      />
+                      <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                        {onPlatform ? "Notify" : "Send email"}
+                      </span>
+                    </div>
+                  )}
                 </div>
-                {isSelected && (
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <Switch
-                      checked={isNotified}
-                      onCheckedChange={() => toggleNotify(child.id)}
-                      className="scale-75"
+                {isSelected && !onPlatform && (
+                  <div className="space-y-2 pl-7">
+                    <Input
+                      type="email"
+                      placeholder="Email (required)"
+                      value={emailMap[child.id] || ""}
+                      onChange={e => setEmailMap(prev => ({ ...prev, [child.id]: e.target.value }))}
                     />
-                    <span className="text-[11px] text-muted-foreground whitespace-nowrap">
-                      {child.performerProfileId ? "Notify" : "Email"}
-                    </span>
+                    <Textarea
+                      placeholder="Personal message (optional)"
+                      value={messageMap[child.id] || ""}
+                      onChange={e => setMessageMap(prev => ({ ...prev, [child.id]: e.target.value }))}
+                      rows={2}
+                      className="text-sm"
+                    />
                   </div>
                 )}
               </div>
@@ -249,10 +455,14 @@ export function SuggestToPerformersDialog({ open, onOpenChange, parentEventId, c
             <p className="text-sm text-muted-foreground py-4 text-center">No performers added yet. Add performers in the Event Details tab first.</p>
           )}
         </div>
-        <DialogFooter>
+        <DialogFooter className="shrink-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleConfirm} disabled={selectedIds.size === 0}>
-            Send {selectedIds.size > 0 ? `${selectedIds.size} ` : ""}Suggestion{selectedIds.size !== 1 ? "s" : ""}
+          <Button onClick={handleConfirm} disabled={selectedIds.size === 0 || !allOffPlatformHaveEmail || sending}>
+            {sending ? (
+              <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Sending...</>
+            ) : (
+              `Send ${selectedIds.size > 0 ? `${selectedIds.size} ` : ""}Invitation${selectedIds.size !== 1 ? "s" : ""}`
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

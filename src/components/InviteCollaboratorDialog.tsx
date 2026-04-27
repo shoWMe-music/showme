@@ -1,9 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { httpsCallable } from "firebase/functions";
-import { setDoc, doc, serverTimestamp } from "firebase/firestore";
-import { getFirestoreDb } from "@/integrations/firebase/app";
-import { getFirebaseFunctions } from "@/integrations/firebase/app";
+import { useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,13 +9,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Send, Copy, Users, Loader2, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast, copyToast } from "@/hooks/use-toast";
-import { insertCollaboratorInvite, addEventCollaborator } from "@/lib/db";
 import { legacyRoleToEventRole, type EventCollaboratorRole, type ContactPerson } from "@/lib/models";
 import { useContacts } from "@/lib/queries";
 import { useMyInvitationCodes } from "@/lib/queries/useInvitationCodes";
 import { useAuth } from "@/lib/auth-context";
-import { queryKeys } from "@/lib/queries/keys";
-import { PROFILE_ROOT_SCHEMA_VERSION } from "@/lib/profiles";
+import { createPerformerInvitation, sendPerformerInvitationEmail } from "@/lib/createPerformerInvitation";
 
 type Permission = "admin" | "editor" | "view_only";
 
@@ -68,13 +62,6 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
   const contacts = useContacts();
   const queryClient = useQueryClient();
   const { data: myInvitationCodes } = useMyInvitationCodes();
-
-  const inviteMutation = useMutation({
-    mutationFn: (data: Parameters<typeof insertCollaboratorInvite>[0]) => insertCollaboratorInvite(data),
-    onError: () => {
-      toast({ title: "Error", description: "Failed to create invite.", variant: "destructive" });
-    },
-  });
 
   const roles = ["Performer", "Venue", "Promoter", "Organizer", "Agent", "Manager", "Custom"];
 
@@ -134,103 +121,31 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
 
   const generateInvite = async () => {
     if (!eventId || !user) return null;
-    const token = `collab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const roleLabel = role === "Custom" ? customRoleName || "Custom" : role;
     const eventRole = inviteToEventRole(roleLabel, permission);
-
-    try {
-      await inviteMutation.mutateAsync({
-        token,
-        event_id: eventId,
-        email: email.trim(),
-        role: roleLabel,
-        eventRole,
-        permission,
-        message: message.trim(),
-      });
-    } catch {
-      return null;
-    }
-
-    // Create stub profile for the invitee
     const displayName = defaultName || email.trim().split("@")[0];
-    const stubProfileId = `stub-${eventId}-${token}`;
-    try {
-      await setDoc(doc(getFirestoreDb(), "profiles", stubProfileId), {
-        name: displayName,
-        owner_uid: user.uid,
-        slot: roleLabel.toLowerCase(),
-        role: roleLabel.toLowerCase(),
-        unclaimed: true,
-        schemaVersion: PROFILE_ROOT_SCHEMA_VERSION,
-        linkedEventId: eventId,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    } catch (err) {
-      console.error("Failed to create stub profile:", err);
-      // Non-critical — continue
-    }
 
-    // Generate invitation code via Cloud Function
-    const createInvitationCode = httpsCallable<
-      {
-        recipientEmail?: string;
-        recipientName?: string;
-        recipientRole?: string;
-        linkedProfileId?: string;
-        linkedEventId?: string;
-        source: string;
-        sourceCollaboratorInviteToken?: string;
-      },
-      { code: string }
-    >(getFirebaseFunctions(), "createInvitationCode");
+    const result = await createPerformerInvitation({
+      eventId,
+      email: email.trim(),
+      displayName,
+      userUid: user.uid,
+      queryClient,
+      role: roleLabel,
+      eventRole,
+      permission,
+      message: message.trim(),
+      onCollaboratorAdded,
+    });
 
-    let code: string;
-    try {
-      const result = await createInvitationCode({
-        source: "collaborator_invite",
-        recipientEmail: email.trim(),
-        recipientName: displayName,
-        recipientRole: roleLabel.toLowerCase(),
-        linkedProfileId: stubProfileId,
-        linkedEventId: eventId,
-        sourceCollaboratorInviteToken: token,
-      });
-      code = result.data.code;
-      setInvitationCode(code);
-
-      // Invalidate invitation codes cache
-      if (user.uid) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.myInvitationCodes(user.uid) });
-      }
-    } catch (err) {
-      console.error("Failed to create invitation code:", err);
-      toast({ title: "Error", description: "Failed to generate invitation code.", variant: "destructive" });
+    if (!result) {
+      toast({ title: "Error", description: "Failed to generate invitation.", variant: "destructive" });
       return null;
     }
 
-    // Add collaborator to event's collaborators subcollection with pending status
-    try {
-      await addEventCollaborator(eventId, {
-        id: token,
-        email: email.trim(),
-        name: displayName,
-        eventRole,
-        role: roleLabel,
-        status: "pending",
-        invitedAt: new Date().toISOString(),
-        profileId: stubProfileId,
-      });
-      // Refresh the collaborators list in the parent
-      if (onCollaboratorAdded) onCollaboratorAdded();
-    } catch (err) {
-      console.error("Failed to add event collaborator:", err);
-    }
-
-    const url = `${window.location.origin}/signup?code=${code}`;
-    setGeneratedLink(url);
-    return { url, code };
+    setInvitationCode(result.code);
+    setGeneratedLink(result.url);
+    return { url: result.url, code: result.code };
   };
 
   const handleCopyLink = async () => {
@@ -266,32 +181,14 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
         return;
       }
 
-      // Call sendInvitationEmail Cloud Function
-      try {
-        const sendInvitationEmail = httpsCallable<
-          {
-            code: string;
-            recipientEmail: string;
-            recipientName: string;
-            eventName?: string;
-            senderName: string;
-            message?: string;
-          },
-          { ok: true }
-        >(getFirebaseFunctions(), "sendInvitationEmail");
-
-        await sendInvitationEmail({
-          code: result.code || "",
-          recipientEmail: email.trim(),
-          recipientName: defaultName || email.trim().split("@")[0],
-          eventName: eventName || undefined,
-          senderName: user?.displayName || user?.email || "A shoWMe user",
-          message: message.trim() || undefined,
-        });
-      } catch (err) {
-        console.error("Failed to send invitation email:", err);
-        // Non-critical — toast will still show success for the invitation itself
-      }
+      await sendPerformerInvitationEmail({
+        code: result.code || "",
+        recipientEmail: email.trim(),
+        recipientName: defaultName || email.trim().split("@")[0],
+        eventName: eventName || undefined,
+        senderName: user?.displayName || user?.email || "A shoWMe user",
+        message: message.trim() || undefined,
+      });
 
       const roleLabel = role === "Custom" ? customRoleName || "Custom" : role;
       toast({
@@ -432,7 +329,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
             onClick={handleCopyLink}
-            disabled={!isValid || generating || sending || inviteMutation.isPending}
+            disabled={!isValid || generating || sending}
             variant="secondary"
             className="gap-2"
           >
@@ -444,7 +341,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
           </Button>
           <Button
             onClick={handleSendEmail}
-            disabled={!isValid || generating || sending || inviteMutation.isPending}
+            disabled={!isValid || generating || sending}
             className="gap-2"
           >
             {sending ? (

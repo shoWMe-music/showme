@@ -44,6 +44,7 @@ import SharedBudgetPage from "@/pages/SharedBudgetPage";
 import SharedEventPage from "@/pages/SharedEventPage";
 import CollaboratorAuthPage from "@/pages/CollaboratorAuthPage";
 import CollaboratorEventView from "@/pages/CollaboratorEventView";
+import ResetPasswordPage from "@/pages/ResetPasswordPage";
 
 function parseOptionalString(raw: Record<string, unknown>, key: string) {
   const v = raw[key];
@@ -392,6 +393,18 @@ const collaborateAuthRoute = createRoute({
   component: CollaboratorAuthPage,
 });
 
+const resetPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/reset-password",
+  component: ResetPasswordPage,
+  staticData: {
+    meta: {
+      title: "Reset Password — shoWMe",
+      description: "Reset your shoWMe account password.",
+    },
+  },
+});
+
 const adminInvitationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/invitations",
@@ -403,6 +416,7 @@ export const routeTree = rootRoute.addChildren([
   landingRoute,
   loginRoute,
   signupRoute,
+  resetPasswordRoute,
   aboutRoute,
   productRoute,
   solutionsRoute,

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback } from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -117,18 +117,18 @@ export function Combobox({
   const open = controlledOpen ?? internalOpen;
   const setOpen = onOpenChange ?? setInternalOpen;
   const inputRef = useRef<HTMLInputElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
+  const prevContentEl = useRef<HTMLDivElement | null>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  // Stop wheel events from bubbling to document so react-remove-scroll
-  // (used by Dialog) doesn't preventDefault() on portaled content.
-  useEffect(() => {
-    const el = contentRef.current;
-    if (!el) return;
-    const stop = (e: WheelEvent) => e.stopPropagation();
-    el.addEventListener("wheel", stop);
-    return () => el.removeEventListener("wheel", stop);
-  });
+  // Callback ref: attaches the wheel handler the instant the DOM node mounts,
+  // before any user interaction. A useEffect-based approach fires too late —
+  // wheel events can arrive before the effect runs on first open.
+  const stopWheel = useCallback((e: WheelEvent) => { e.stopPropagation(); }, []);
+  const contentRef = useCallback((el: HTMLDivElement | null) => {
+    if (prevContentEl.current) prevContentEl.current.removeEventListener("wheel", stopWheel);
+    prevContentEl.current = el;
+    if (el) el.addEventListener("wheel", stopWheel);
+  }, [stopWheel]);
 
   // Reset pagination when search text changes or dropdown reopens
   const prevValueRef = useRef(value);
@@ -192,7 +192,7 @@ export function Combobox({
           ref={contentRef}
           align="start"
           sideOffset={4}
-          className="z-50 w-[var(--radix-popover-trigger-width)] rounded-md border bg-popover shadow-md outline-none max-h-[252px] overflow-y-auto overscroll-contain data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+          className="z-50 w-[var(--radix-popover-trigger-width)] rounded-md border bg-popover shadow-md outline-none max-h-[252px] overflow-y-auto overscroll-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           <ComboboxCtx.Provider value={{ close: () => setOpen(false) }}>
@@ -249,15 +249,13 @@ export function ComboboxTrigger({
   searchPlaceholder = "Search…",
 }: ComboboxTriggerProps) {
   const [open, setOpen] = useState(false);
-  const triggerContentRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = triggerContentRef.current;
-    if (!el) return;
-    const stop = (e: WheelEvent) => e.stopPropagation();
-    el.addEventListener("wheel", stop);
-    return () => el.removeEventListener("wheel", stop);
-  });
+  const prevTriggerEl = useRef<HTMLDivElement | null>(null);
+  const stopTriggerWheel = useCallback((e: WheelEvent) => { e.stopPropagation(); }, []);
+  const triggerContentRef = useCallback((el: HTMLDivElement | null) => {
+    if (prevTriggerEl.current) prevTriggerEl.current.removeEventListener("wheel", stopTriggerWheel);
+    prevTriggerEl.current = el;
+    if (el) el.addEventListener("wheel", stopTriggerWheel);
+  }, [stopTriggerWheel]);
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>

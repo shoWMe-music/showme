@@ -20,7 +20,25 @@ import {
 } from "firebase/firestore";
 import type { QueryDocumentSnapshot } from "firebase/firestore";
 
+import type { DocumentReference, SetOptions } from "firebase/firestore";
 import { getFirestoreDb } from "@/integrations/firebase/app";
+
+/** Wrapper around setDoc that strips `undefined` values (Firestore rejects them). */
+function cleanData(data: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
+async function safeSetDoc(ref: DocumentReference, data: Record<string, unknown>, options?: SetOptions) {
+  if (options) {
+    await setDoc(ref, cleanData(data), options);
+  } else {
+    await setDoc(ref, cleanData(data));
+  }
+}
 import { getAuthClient } from "@/lib/firebaseAuth";
 import {
   PROFILE_COLLECTION,
@@ -127,7 +145,7 @@ async function upsertEventSubdoc<T extends object>(
   subcollection: string,
   data: T,
 ): Promise<void> {
-  await setDoc(
+  await safeSetDoc(
     eventSubDoc(eventId, subcollection, "main"),
     { ...data, updatedAt: serverTimestamp() },
     { merge: true },
@@ -189,7 +207,7 @@ export async function upsertUserSettings(settings: {
 }) {
   const uid = requireUid();
   const ref = doc(getFirestoreDb(), USERS, uid, "settings", "main");
-  await setDoc(
+  await safeSetDoc(
     ref,
     {
       ...settings,
@@ -371,10 +389,11 @@ export async function upsertProfile(role: string, profile: SharedProfile) {
   const uid = requireUid();
   const ref = profileDocumentRef(buildProfileDocId(uid, role));
   const profileId = buildProfileDocId(uid, role);
-  await setDoc(
+  await safeSetDoc(
     ref,
     {
       ...profile,
+      type: profile.role ?? role,
       owner_uid: uid,
       slot: role,
       schemaVersion: PROFILE_ROOT_SCHEMA_VERSION,
@@ -439,7 +458,7 @@ export async function setProfileMemberRole(
   memberUid: string,
   role: "admin" | "editor",
 ) {
-  await setDoc(
+  await safeSetDoc(
     doc(getFirestoreDb(), PROFILE_COLLECTION, profileId, PROFILE_MEMBERS_SUBCOLLECTION, memberUid),
     { role, updatedAt: serverTimestamp() },
     { merge: true },
@@ -460,7 +479,7 @@ export async function inviteProfileAdmin(
 ): Promise<void> {
   const uid = requireUid();
   const inviteId = profileInviteDocId(profileId, email.toLowerCase().trim());
-  await setDoc(doc(getFirestoreDb(), PROFILE_INVITES, inviteId), {
+  await safeSetDoc(doc(getFirestoreDb(), PROFILE_INVITES, inviteId), {
     profileId,
     profileName,
     email: email.toLowerCase().trim(),
@@ -511,7 +530,7 @@ export async function claimProfileInvites(
     const invite = inviteDoc.data() as import("@/lib/profiles").ProfileInviteRecord;
     try {
       // Create member doc first (self-claim rule checks invite existence)
-      await setDoc(
+      await safeSetDoc(
         doc(getFirestoreDb(), PROFILE_COLLECTION, invite.profileId, PROFILE_MEMBERS_SUBCOLLECTION, uid),
         {
           user_uid: uid,
@@ -561,7 +580,7 @@ export async function upsertProfileTemplate(
   data: Record<string, unknown>,
 ) {
   const ref = doc(profileTemplateCol(profileId, category), id);
-  await setDoc(ref, { ...data, updated_at: serverTimestamp() }, { merge: true });
+  await safeSetDoc(ref, { ...data, updated_at: serverTimestamp() }, { merge: true });
 }
 
 export async function deleteProfileTemplate(profileId: string, category: string, id: string) {
@@ -641,7 +660,7 @@ export async function fetchAllProfileTeamMembers(
 }
 
 export async function upsertProfileTeamMember(profileId: string, member: TeamMember) {
-  await setDoc(
+  await safeSetDoc(
     doc(getFirestoreDb(), PROFILE_COLLECTION, profileId, PROFILE_TEAM, member.id),
     {
       name: member.name,
@@ -892,7 +911,7 @@ export async function upsertEvent(event: Event) {
     accessProfileIds.push(event.hostProfileId);
   }
 
-  await setDoc(
+  await safeSetDoc(
     ref,
     {
       ...eventToFirestoreRow(event),
@@ -1028,7 +1047,7 @@ export async function fetchRiders(eventId: string): Promise<Rider[]> {
 }
 
 export async function upsertRider(eventId: string, rider: Rider) {
-  await setDoc(
+  await safeSetDoc(
     eventSubDoc(eventId, SUB_RIDERS, rider.id),
     { ...rider, updatedAt: serverTimestamp() },
     { merge: true },
@@ -1046,7 +1065,7 @@ export async function fetchAgreements(eventId: string): Promise<Agreement[]> {
 }
 
 export async function upsertAgreement(eventId: string, agreement: Agreement) {
-  await setDoc(
+  await safeSetDoc(
     eventSubDoc(eventId, SUB_AGREEMENTS, agreement.id),
     { ...agreement, updatedAt: serverTimestamp() },
     { merge: true },
@@ -1064,7 +1083,7 @@ export async function fetchCrew(eventId: string): Promise<CrewMember[]> {
 }
 
 export async function upsertCrewMember(eventId: string, member: CrewMember) {
-  await setDoc(
+  await safeSetDoc(
     eventSubDoc(eventId, SUB_CREW, member.id),
     { ...member, updatedAt: serverTimestamp() },
     { merge: true },
@@ -1085,7 +1104,7 @@ export async function fetchSchedule(eventId: string): Promise<ScheduleItem[]> {
 }
 
 export async function upsertScheduleItem(eventId: string, item: ScheduleItem) {
-  await setDoc(
+  await safeSetDoc(
     eventSubDoc(eventId, SUB_SCHEDULE, item.id),
     { ...item, updatedAt: serverTimestamp() },
     { merge: true },
@@ -1179,7 +1198,7 @@ export async function fetchEventMeta(eventId: string): Promise<EventMeta> {
 }
 
 export async function upsertEventMeta(eventId: string, data: Partial<EventMeta>) {
-  await setDoc(
+  await safeSetDoc(
     eventSubDoc(eventId, SUB_META, "main"),
     { ...stripUndefined(data), updatedAt: serverTimestamp() },
     { merge: true },
@@ -1187,7 +1206,7 @@ export async function upsertEventMeta(eventId: string, data: Partial<EventMeta>)
 }
 
 export async function clearPendingDateChange(eventId: string) {
-  await setDoc(
+  await safeSetDoc(
     eventSubDoc(eventId, SUB_META, "main"),
     { pendingDateChange: deleteField(), updatedAt: serverTimestamp() },
     { merge: true },
@@ -1269,7 +1288,7 @@ export async function saveEventBudgetCalculator(
   profileDocId: string,
   payload: BudgetCalculatorPersisted,
 ): Promise<void> {
-  await setDoc(
+  await safeSetDoc(
     eventSubDoc(eventId, SUB_BUDGETS, profileDocId),
     { profileDocId, payload, schemaVersion: 1, updatedAt: serverTimestamp() },
     { merge: true },
@@ -1323,7 +1342,7 @@ function collaboratorDocToUi(d: QueryDocumentSnapshot): EventCollaborator {
 /** Add a single collaborator to an event's collaborators subcollection. */
 export async function addEventCollaborator(eventId: string, collaborator: EventCollaborator) {
   const ref = doc(eventCollaboratorsCol(eventId), collaborator.id);
-  await setDoc(ref, collaboratorUiToFirestore(collaborator));
+  await safeSetDoc(ref, collaboratorUiToFirestore(collaborator));
 }
 
 export async function fetchEventCollaborators(eventId: string): Promise<EventCollaborator[]> {
@@ -1388,7 +1407,7 @@ export async function fetchMessagesForEvent(eventId: string): Promise<any[]> {
 export async function insertMessage(eventId: string, row: Record<string, unknown>) {
   const sender_uid = requireUid();
   const id = crypto.randomUUID();
-  await setDoc(doc(getFirestoreDb(), TOP_EVENTS, eventId, SUB_MESSAGES, id), {
+  await safeSetDoc(doc(getFirestoreDb(), TOP_EVENTS, eventId, SUB_MESSAGES, id), {
     ...row,
     event_id: eventId,
     sender_uid,
@@ -1499,7 +1518,7 @@ export async function fetchContacts(): Promise<Contact[]> {
 
 export async function upsertContact(contact: Contact) {
   const uid = requireUid();
-  await setDoc(
+  await safeSetDoc(
     userDataDoc(uid, "contacts", contact.id),
     { ...contact, updatedAt: serverTimestamp() },
     { merge: true },
@@ -1564,10 +1583,10 @@ export async function upsertCalendarItem(item: CalendarItem) {
     updatedAt: serverTimestamp(),
   };
   if (item.profileId) {
-    await setDoc(doc(getFirestoreDb(), PROFILE_COLLECTION, item.profileId, "calendar_items", item.id), payload);
+    await safeSetDoc(doc(getFirestoreDb(), PROFILE_COLLECTION, item.profileId, "calendar_items", item.id), payload);
   } else {
     const uid = requireUid();
-    await setDoc(userDataDoc(uid, "calendar_items", item.id), payload);
+    await safeSetDoc(userDataDoc(uid, "calendar_items", item.id), payload);
   }
 }
 
@@ -1589,7 +1608,7 @@ export async function fetchProfileUnavailability(profileId: string): Promise<str
 }
 
 export async function saveProfileUnavailability(profileId: string, dates: string[]): Promise<void> {
-  await setDoc(
+  await safeSetDoc(
     doc(getFirestoreDb(), PROFILE_COLLECTION, profileId, "unavailability", "main"),
     { dates, updatedAt: serverTimestamp() },
   );
@@ -1612,12 +1631,12 @@ export async function upsertShareToken(
 ) {
   const uid = requireUid();
   const createdAt = new Date().toISOString().slice(0, 10);
-  await setDoc(
+  await safeSetDoc(
     userDataDoc(uid, "share_tokens", token),
     { token, eventId, parties, createdAt },
     { merge: true },
   );
-  await setDoc(
+  await safeSetDoc(
     doc(getFirestoreDb(), PUBLIC_SHARES, token),
     {
       kind: "settlement_review",
@@ -1692,7 +1711,7 @@ export type PublicEventSharePayload = {
 
 export async function createPublicEventShare(token: string, payload: PublicEventSharePayload) {
   const uid = requireUid();
-  await setDoc(doc(getFirestoreDb(), PUBLIC_SHARES, token), {
+  await safeSetDoc(doc(getFirestoreDb(), PUBLIC_SHARES, token), {
     kind: "event_snapshot",
     ownerUid: uid,
     ...payload,
@@ -1712,13 +1731,13 @@ export async function insertShareTokenRow(payload: {
   parties: unknown;
 }) {
   const uid = requireUid();
-  await setDoc(userDataDoc(uid, "share_tokens", payload.token), {
+  await safeSetDoc(userDataDoc(uid, "share_tokens", payload.token), {
     token: payload.token,
     eventId: payload.event_id,
     parties: payload.parties,
     createdAt: new Date().toISOString().slice(0, 10),
   });
-  await setDoc(
+  await safeSetDoc(
     doc(getFirestoreDb(), PUBLIC_SHARES, payload.token),
     {
       kind: "budget",
@@ -1763,7 +1782,7 @@ export async function insertCollaboratorInvite(payload: {
   message?: string;
 }) {
   const uid = requireUid();
-  await setDoc(doc(getFirestoreDb(), COLLAB_INVITES, payload.token), {
+  await safeSetDoc(doc(getFirestoreDb(), COLLAB_INVITES, payload.token), {
     ...payload,
     eventRole: payload.eventRole ?? "staff",
     ownerUid: uid,
@@ -1785,7 +1804,7 @@ export async function saveCollaboratorAgreementDraft(
   eventId: string,
   agreementConfirmations: unknown[],
 ) {
-  await setDoc(
+  await safeSetDoc(
     doc(getFirestoreDb(), COLLAB_WRITES, inviteToken),
     { ownerUid, eventId, inviteToken, agreementConfirmations, updatedAt: serverTimestamp() },
     { merge: true },
@@ -1937,7 +1956,7 @@ export async function insertPublicBookingRequest(row: Record<string, unknown>) {
     throw new Error("owner_uid is required.");
   }
   const id = crypto.randomUUID();
-  await setDoc(doc(getFirestoreDb(), INBOUND_BOOKING_REQUESTS, id), {
+  await safeSetDoc(doc(getFirestoreDb(), INBOUND_BOOKING_REQUESTS, id), {
     ...row,
     owner_uid: ownerUid,
     status: "pending",

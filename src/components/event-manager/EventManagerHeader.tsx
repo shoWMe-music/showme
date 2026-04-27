@@ -122,7 +122,7 @@ export function EventManagerHeader({
                   <SelectItem value="SEK">SEK (kr)</SelectItem>
                 </SelectContent>
               </Select>
-              {event.eventStatus !== "draft" && event.eventStatus !== "suggested" && (
+              {(event.eventStatus === "suggested" || event.eventStatus === "pending") && (
                 <Button variant="outline" className="gap-2" onClick={onInviteOpen}>
                   <UserPlus className="h-4 w-4" /> Invite Collaborator
                 </Button>
