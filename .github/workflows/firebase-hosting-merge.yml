@@ -35,12 +35,4 @@ jobs:
       - run: npm run build:functions
       - run: npm run build:all
 
-      - uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ steps.auth.outputs.credentials_file_path }}
-          channelId: live
-          projectId: ${{ env.PROJECT_ID }}
-
-      # Deploy Cloud Functions + Firestore rules
-      - run: npx firebase-tools deploy --only functions,firestore:rules,firestore:indexes --project ${{ env.PROJECT_ID }}
+      - run: npx firebase-tools deploy --only hosting,functions,firestore:rules,firestore:indexes --project ${{ env.PROJECT_ID }}
