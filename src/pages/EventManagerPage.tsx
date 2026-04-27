@@ -220,7 +220,7 @@ export default function EventManagerPage() {
           <CrewTab eventMeta={em.eventMeta} event={event} collaborators={em.collaborators} onSave={onSaveMeta} actingProfile={em.actingProfile} />
         )}
         {em.activeTab === "todo" && (
-          <TodoTab eventMeta={em.eventMeta} event={event} onSave={onSaveMeta} teamMemberNames={em.teamMembers.map(m => m.name)} />
+          <TodoTab todos={em.profileTodos} event={event} onSaveTodos={em.saveProfileTodos} teamMemberNames={em.teamMembers.map(m => m.name)} />
         )}
         {em.activeTab === "performers" && em.isParent && (
           <PerformersTab childEvents={em.childEvents} childEconomics={em.childEconomics} eventCurrency={em.eventCurrency} />

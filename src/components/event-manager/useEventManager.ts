@@ -11,11 +11,11 @@ import {
   useUpdateDeal, useUpdateRevenue, useUpdateAnyEventMeta,
   queryKeys,
 } from "@/lib/queries";
-import { upsertShareToken, fetchEventCollaborators, fetchBookingRequestByEventId, type EventMeta, type Todo } from "@/lib/db";
+import { upsertShareToken, fetchEventCollaborators, fetchBookingRequestByEventId, fetchProfileTodos, upsertProfileTodos, migrateMetaTodosToProfile, type EventMeta, type Todo } from "@/lib/db";
 import { useUser } from "@/lib/user-context";
 import { useAuth } from "@/lib/auth-context";
 import { usePublishEventToggle } from "@/hooks/usePublishEventToggle";
-import { budgetProfileDocIdsForEvent, canAccessEventBudget, resolveActingProfileName } from "@/lib/eventPermissions";
+import { budgetProfileDocIdsForEvent, canAccessEventBudget, resolveActingProfileName, resolveActingProfileId } from "@/lib/eventPermissions";
 import type { EventCollaborator, DealStructure, TicketRevenue, Settlement } from "@/lib/models";
 
 export type TabId = "budget" | "details" | "agreement" | "crew" | "todo" | "settlement" | "messages" | "performers" | "changelog" | "collaborators";
@@ -108,10 +108,10 @@ export function useEventManager() {
   );
 
   const todoBudgetItems = useMemo(
-    () => (eventMeta?.todos || [])
+    () => profileTodos
       .filter((t: Todo) => t.budgetType && t.budgetAmount && !t.completed)
       .map((t: Todo) => ({ id: t.id, name: t.title, type: t.budgetType!, amount: t.budgetAmount! })),
-    [eventMeta?.todos],
+    [profileTodos],
   );
 
   const budgetProfileChoices = useMemo(
@@ -132,6 +132,41 @@ export function useEventManager() {
   const childEvents = event && isParent ? childEventsList : [];
   const canAccessBudget = Boolean(user?.uid && canAccessEventBudget(event, user.uid));
   const actingProfile = resolveActingProfileName(event, profiles);
+  const actingProfileId = resolveActingProfileId(event, profiles);
+  const todoScopeId = actingProfileId || (user?.uid ? `user_${user.uid}` : "");
+
+  // Profile-scoped todos
+  const [profileTodos, setProfileTodos] = useState<Todo[]>([]);
+  const [todosLoaded, setTodosLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!id || !todoScopeId) return;
+    let cancelled = false;
+
+    (async () => {
+      // Try loading from profile-scoped document first
+      let todos = await fetchProfileTodos(id, todoScopeId);
+
+      // If empty, check for legacy todos in meta/main and migrate
+      if (todos.length === 0) {
+        todos = await migrateMetaTodosToProfile(id, todoScopeId);
+      }
+
+      if (!cancelled) {
+        setProfileTodos(todos);
+        setTodosLoaded(true);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [id, todoScopeId]);
+
+  const saveProfileTodos = useCallback((todos: Todo[]) => {
+    setProfileTodos(todos);
+    if (id && todoScopeId) {
+      upsertProfileTodos(id, todoScopeId, todos);
+    }
+  }, [id, todoScopeId]);
 
   // True when the current user is the performer on this event (not the host).
   // For multi-performer parent events, true if the user is a performer on any child event.
@@ -277,5 +312,6 @@ export function useEventManager() {
     respondToDateChange, cancelDateChange,
     currentUser, teamMembers, user, actingProfile, profiles,
     effectiveSourceRequestId, effectiveSourceRequestDate,
+    profileTodos, saveProfileTodos, todosLoaded, todoScopeId,
   };
 }

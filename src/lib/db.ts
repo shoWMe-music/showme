@@ -1213,6 +1213,52 @@ export async function clearPendingDateChange(eventId: string) {
   );
 }
 
+// ── Profile-scoped todos ──────────────────────────────────────────────────────
+// Stored at events/{eventId}/meta/todos_{scopeId}
+// scopeId = profileId (if user has a profile on this event) or user_{uid}
+
+function todoDocId(scopeId: string) {
+  return `todos_${scopeId}`;
+}
+
+export async function fetchProfileTodos(eventId: string, scopeId: string): Promise<Todo[]> {
+  const snap = await getDoc(eventSubDoc(eventId, SUB_META, todoDocId(scopeId)));
+  if (!snap.exists()) return [];
+  return (snap.data().todos as Todo[]) || [];
+}
+
+export async function upsertProfileTodos(eventId: string, scopeId: string, todos: Todo[]) {
+  await safeSetDoc(
+    eventSubDoc(eventId, SUB_META, todoDocId(scopeId)),
+    { todos, updatedAt: serverTimestamp() },
+    { merge: true },
+  );
+}
+
+/**
+ * Migrate legacy todos from meta/main into a profile-scoped document.
+ * Reads meta/main.todos, writes them to the profile doc, then deletes
+ * the todos field from meta/main. No-op if meta/main has no todos.
+ */
+export async function migrateMetaTodosToProfile(eventId: string, scopeId: string): Promise<Todo[]> {
+  const metaSnap = await getDoc(eventSubDoc(eventId, SUB_META, "main"));
+  if (!metaSnap.exists()) return [];
+  const legacyTodos = (metaSnap.data().todos as Todo[]) || [];
+  if (legacyTodos.length === 0) return [];
+
+  // Write to profile-scoped doc
+  await upsertProfileTodos(eventId, scopeId, legacyTodos);
+
+  // Remove from meta/main
+  await safeSetDoc(
+    eventSubDoc(eventId, SUB_META, "main"),
+    { todos: deleteField(), updatedAt: serverTimestamp() },
+    { merge: true },
+  );
+
+  return legacyTodos;
+}
+
 // ── Event Participants (profiles) ─────────────────────────────────────────────
 
 export interface EventParticipant {

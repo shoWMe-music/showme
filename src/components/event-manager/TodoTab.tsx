@@ -16,7 +16,7 @@ import {
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { toast, copyToast } from "@/hooks/use-toast";
-import { insertShareTokenRow, type EventMeta } from "@/lib/db";
+import { insertShareTokenRow } from "@/lib/db";
 import { type Event as AppEvent } from "@/lib/models";
 import {
   ListTodo, Plus, ChevronDown, Calendar, PenLine, Clock,
@@ -46,23 +46,22 @@ export interface TodoItem {
   assignee?: string;
 }
 
-export function TodoTab({ eventMeta, event, onSave, teamMemberNames = [] }: {
-  eventMeta: EventMeta;
+export function TodoTab({ todos: externalTodos, event, onSaveTodos, teamMemberNames = [] }: {
+  todos: TodoItem[];
   event: AppEvent;
-  onSave: (d: Partial<EventMeta>) => void;
+  onSaveTodos: (todos: TodoItem[]) => void;
   teamMemberNames?: string[];
 }) {
-  const [todos, setTodos] = useState<TodoItem[]>(eventMeta?.todos || []);
-  const prevMetaTodosRef = useRef(eventMeta?.todos);
+  const [todos, setTodos] = useState<TodoItem[]>(externalTodos);
+  const prevExternalRef = useRef(externalTodos);
 
-  // Re-sync local state when the upstream eventMeta.todos changes (e.g. after fetch)
+  // Re-sync local state when external todos change (e.g. after initial fetch)
   useEffect(() => {
-    const incoming = eventMeta?.todos;
-    if (incoming && incoming !== prevMetaTodosRef.current) {
-      prevMetaTodosRef.current = incoming;
-      setTodos(incoming);
+    if (externalTodos !== prevExternalRef.current) {
+      prevExternalRef.current = externalTodos;
+      setTodos(externalTodos);
     }
-  }, [eventMeta?.todos]);
+  }, [externalTodos]);
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -86,7 +85,7 @@ export function TodoTab({ eventMeta, event, onSave, teamMemberNames = [] }: {
 
   const save = (updated: TodoItem[]) => {
     setTodos(updated);
-    onSave({ todos: updated });
+    onSaveTodos(updated);
   };
 
   const addTask = () => {

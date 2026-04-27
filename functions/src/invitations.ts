@@ -330,9 +330,9 @@ export const sendOtpEmail = onCall<SendOtpEmailData, Promise<{ ok: true; devCode
       code: otpCode,
     });
 
-    // In emulator mode, return the code so the dev UI can display it
-    const isEmulator = !!process.env.FUNCTIONS_EMULATOR;
-    return { ok: true, ...(isEmulator ? { devCode: otpCode } : {}) };
+    // Return the code directly until email sending is implemented
+    // TODO: Remove devCode from production response once SMTP emails are live
+    return { ok: true, devCode: otpCode };
   },
 );
 

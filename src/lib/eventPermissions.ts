@@ -163,3 +163,26 @@ export function resolveActingProfileName(
   }
   return undefined;
 }
+
+/**
+ * Resolve the profile ID the user is acting as for a given event.
+ * Returns the first user profile whose ID appears in the event's
+ * hostProfileId or accessProfileIds, or undefined if none match.
+ */
+export function resolveActingProfileId(
+  event: Pick<Event, "hostProfileId" | "accessProfileIds"> | undefined | null,
+  profiles: Record<string, SharedProfile>,
+): string | undefined {
+  if (!event) return undefined;
+  const eventProfileIds = new Set<string>();
+  if (event.hostProfileId) eventProfileIds.add(event.hostProfileId);
+  if (event.accessProfileIds) event.accessProfileIds.forEach((id) => eventProfileIds.add(id));
+  if (eventProfileIds.size === 0) return undefined;
+
+  for (const profile of Object.values(profiles)) {
+    if (profile.id && eventProfileIds.has(profile.id)) {
+      return profile.id;
+    }
+  }
+  return undefined;
+}

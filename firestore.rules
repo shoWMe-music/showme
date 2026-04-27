@@ -237,11 +237,21 @@ service cloud.firestore {
       allow write, delete: if isEventHost(eventId);
     }
 
-    // ── Event metadata (proEstimate, proReporting, amenities) ────────────────
+    // ── Event metadata (proEstimate, proReporting, amenities, todos) ──────────
+    // Shared meta docs (e.g. "main") are accessible to all event collaborators.
+    // Profile-scoped todo docs (e.g. "todos_<profileId>") are restricted to
+    // members of that profile (or the user if keyed by uid).
 
     match /events/{eventId}/meta/{docId} {
-      allow read: if canAccessEvent(eventId);
-      allow write: if canAccessEvent(eventId);
+      allow read, write: if canAccessEvent(eventId)
+        && (
+          // Non-todo docs: open to all event collaborators
+          !docId.matches('todos_.*')
+          // todos_user_{uid}: only that user
+          || docId == ('todos_user_' + uid())
+          // todos_{profileId}: must be a member of that profile
+          || isProfileMember(docId[6:docId.size()])
+        );
     }
 
     // ── Budget per profile ────────────────────────────────────────────────────
