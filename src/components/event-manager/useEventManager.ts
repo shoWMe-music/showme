@@ -107,13 +107,6 @@ export function useEventManager() {
     [dealRaw, event],
   );
 
-  const todoBudgetItems = useMemo(
-    () => profileTodos
-      .filter((t: Todo) => t.budgetType && t.budgetAmount && !t.completed)
-      .map((t: Todo) => ({ id: t.id, name: t.title, type: t.budgetType!, amount: t.budgetAmount! })),
-    [profileTodos],
-  );
-
   const budgetProfileChoices = useMemo(
     () => budgetProfileDocIdsForEvent(event, user?.uid || "", profiles),
     [event, user?.uid, profiles],
@@ -160,6 +153,13 @@ export function useEventManager() {
 
     return () => { cancelled = true; };
   }, [id, todoScopeId]);
+
+  const todoBudgetItems = useMemo(
+    () => profileTodos
+      .filter((t: Todo) => t.budgetType && t.budgetAmount && !t.completed)
+      .map((t: Todo) => ({ id: t.id, name: t.title, type: t.budgetType!, amount: t.budgetAmount! })),
+    [profileTodos],
+  );
 
   const saveProfileTodos = useCallback((todos: Todo[]) => {
     setProfileTodos(todos);
