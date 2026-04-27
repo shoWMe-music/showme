@@ -147,27 +147,6 @@
       "collectionGroup": "profiles",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "owner_uid", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "profileInvites",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "profileId", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "profileInvites",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "email", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "profiles",
-      "queryScope": "COLLECTION",
-      "fields": [
         { "fieldPath": "isPublic", "order": "ASCENDING" },
         { "fieldPath": "slug", "order": "ASCENDING" }
       ]
@@ -186,13 +165,6 @@
       "queryScope": "COLLECTION_GROUP",
       "fields": [
         { "fieldPath": "user_uid", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "eventEconomics",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "owner_uid", "order": "ASCENDING" }
       ]
     },
     {
