@@ -161,13 +161,6 @@
       ]
     },
     {
-      "collectionGroup": "members",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        { "fieldPath": "user_uid", "order": "ASCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "contacts",
       "queryScope": "COLLECTION",
       "fields": [
