@@ -250,7 +250,17 @@ export default function EventManagerPage() {
         {em.activeTab === "messages" && <EventMessages eventId={id} />}
         {em.activeTab === "changelog" && <EventChangeLogTab eventId={id} isPerformer={em.isPerformer} childEvents={em.isParent ? em.childEvents : undefined} />}
 
-        <InviteCollaboratorDialog open={inviteOpen} onOpenChange={(v) => { setInviteOpen(v); if (!v) setInviteDefaults({}); }} eventName={event.name} eventId={inviteDefaults.eventId || id} defaultRole={inviteDefaults.role} defaultName={inviteDefaults.name} onCollaboratorAdded={em.refreshCollaborators} />
+        <InviteCollaboratorDialog open={inviteOpen} onOpenChange={(v) => { setInviteOpen(v); if (!v) setInviteDefaults({}); }} eventName={event.name} eventId={inviteDefaults.eventId || id} defaultRole={inviteDefaults.role} defaultName={inviteDefaults.name} onCollaboratorAdded={() => {
+          em.refreshCollaborators();
+          // When inviting a performer on a child event that's still in draft, promote it to suggested
+          const targetId = inviteDefaults.eventId;
+          if (targetId && targetId !== id) {
+            const child = em.childEvents.find(c => c.id === targetId);
+            if (child && child.eventStatus === "draft") {
+              em.updateEvent(targetId, { eventStatus: "suggested" });
+            }
+          }
+        }} />
         <ExportEventDialog open={exportOpen} onOpenChange={setExportOpen} eventName={event.name} eventId={id} eventStatus={event.eventStatus} creatorName={em.currentUser.name} teamMembers={em.teamMembers} eventData={{ event, deal: em.effectiveDeal, revenue: em.revenue, settlement: em.settlement, eventMeta: em.eventMeta, currency: em.eventCurrency }} />
         {em.isParent ? (
           <SuggestToPerformersDialog open={markPendingOpen} onOpenChange={setMarkPendingOpen} parentEventId={id} childEvents={em.childEvents} updateEvent={em.updateEvent} user={em.user} eventName={event.name} queryClient={queryClient} onCollaboratorAdded={em.refreshCollaborators} senderName={em.currentUser?.name || em.user?.displayName || em.user?.email || "A shoWMe user"} />

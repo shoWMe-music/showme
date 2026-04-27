@@ -10,6 +10,7 @@ import { useQuery, useInfiniteQuery, useQueryClient, keepPreviousData } from "@t
 import type { QueryDocumentSnapshot } from "firebase/firestore";
 
 import { useAuth } from "@/lib/auth-context";
+import { useUser } from "@/lib/user-context";
 import { fetchEvents, fetchEventPage, fetchEventsInRange, upsertEvent, type EventPageFilters } from "@/lib/db";
 import type { Event } from "@/lib/models";
 import { queryKeys } from "./keys";
@@ -19,12 +20,14 @@ import { queryKeys } from "./keys";
 export function useEventsQuery() {
   const { user, loading: authLoading } = useAuth();
   const uid = user?.uid ?? "";
+  const { profiles } = useUser();
+  const profileIds = Object.values(profiles).map(p => p.id).filter(Boolean) as string[];
 
   return useQuery<Event[]>({
     queryKey: queryKeys.events(uid),
     enabled: !!uid && !authLoading,
     staleTime: 5 * 60 * 1000,
-    queryFn: fetchEvents,
+    queryFn: () => fetchEvents(profileIds),
   });
 }
 
@@ -68,13 +71,15 @@ interface EventPage {
 export function usePaginatedEvents(pageSize: number, filters?: EventPageFilters) {
   const { user, loading: authLoading } = useAuth();
   const uid = user?.uid ?? "";
+  const { profiles } = useUser();
+  const profileIds = Object.values(profiles).map(p => p.id).filter(Boolean) as string[];
 
   return useInfiniteQuery<EventPage, Error>({
     queryKey: queryKeys.eventPages(uid, filters as Record<string, unknown>),
     enabled: !!uid && !authLoading,
     staleTime: 5 * 60 * 1000,
     initialPageParam: null as QueryDocumentSnapshot | null,
-    queryFn: ({ pageParam }) => fetchEventPage(pageSize, pageParam, filters),
+    queryFn: ({ pageParam }) => fetchEventPage(pageSize, pageParam, filters, profileIds),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.lastDoc : undefined),
   });
 }

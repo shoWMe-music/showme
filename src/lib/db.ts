@@ -3,6 +3,7 @@ import {
   collection,
   collectionGroup,
   deleteDoc,
+  arrayUnion,
   deleteField,
   doc,
   getDoc,
@@ -761,7 +762,7 @@ function eventToFirestoreRow(event: Event): Record<string, unknown> {
  * Fetch all events accessible to the current user.
  * Queries by accessUids (which includes host profile members + direct collaborators).
  */
-export async function fetchEvents(): Promise<Event[]> {
+export async function fetchEvents(profileIds?: string[]): Promise<Event[]> {
   const uid = getAuthClient().currentUser?.uid;
   if (!uid) return [];
   const byId = new Map<string, Event>();
@@ -794,6 +795,34 @@ export async function fetchEvents(): Promise<Event[]> {
     });
   } catch {
     // Ignore — primary query already ran.
+  }
+
+  // Fallback: events where a user's profile is in accessProfileIds but uid wasn't in accessUids
+  if (profileIds && profileIds.length > 0) {
+    // array-contains-any supports up to 30 values
+    const chunks = [];
+    for (let i = 0; i < profileIds.length; i += 30) {
+      chunks.push(profileIds.slice(i, i + 30));
+    }
+    for (const chunk of chunks) {
+      try {
+        const profileQ = query(
+          collection(getFirestoreDb(), TOP_EVENTS),
+          where("accessProfileIds", "array-contains-any", chunk),
+          orderBy("date", "desc"),
+        );
+        const snap = await getDocs(profileQ);
+        snap.forEach((d) => {
+          if (!byId.has(d.id)) {
+            byId.set(d.id, eventRowToEvent({ id: d.id, ...d.data() }));
+            // Repair: add uid to accessUids so future queries find it
+            updateDoc(d.ref, { accessUids: arrayUnion(uid) }).catch(() => {});
+          }
+        });
+      } catch {
+        // Index may not exist yet
+      }
+    }
   }
 
   return Array.from(byId.values());
@@ -839,6 +868,7 @@ export async function fetchEventPage(
   pageSize: number,
   cursor: QueryDocumentSnapshot | null,
   filters?: EventPageFilters,
+  profileIds?: string[],
 ): Promise<{ events: Event[]; lastDoc: QueryDocumentSnapshot | null; hasMore: boolean }> {
   const uid = getAuthClient().currentUser?.uid;
   if (!uid) return { events: [], lastDoc: null, hasMore: false };
@@ -854,6 +884,28 @@ export async function fetchEventPage(
     limit(pageSize + 1),
   ];
 
+  // On first page, also check for events reachable via profile but missing from accessUids
+  if (!cursor && profileIds && profileIds.length > 0) {
+    for (const chunk of chunkArray(profileIds, 30)) {
+      try {
+        const profileQ = query(
+          collection(getFirestoreDb(), TOP_EVENTS),
+          where("accessProfileIds", "array-contains-any", chunk),
+          orderBy("date", "desc"),
+          limit(200),
+        );
+        const snap = await getDocs(profileQ);
+        snap.forEach((d) => {
+          const data = d.data();
+          const uids: string[] = Array.isArray(data.accessUids) ? data.accessUids : [];
+          if (!uids.includes(uid)) {
+            updateDoc(d.ref, { accessUids: arrayUnion(uid) }).catch(() => {});
+          }
+        });
+      } catch { /* index may not exist */ }
+    }
+  }
+
   try {
     const snap = await getDocs(query(collection(getFirestoreDb(), TOP_EVENTS), ...constraints));
     const hasMore = snap.size > pageSize;
@@ -868,6 +920,12 @@ export async function fetchEventPage(
     // Index may not exist; return empty page
     return { events: [], lastDoc: null, hasMore: false };
   }
+}
+
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
+  return chunks;
 }
 
 /** Published confirmed events for public calendars. */
@@ -1228,9 +1286,11 @@ export async function fetchProfileTodos(eventId: string, scopeId: string): Promi
 }
 
 export async function upsertProfileTodos(eventId: string, scopeId: string, todos: Todo[]) {
+  // Strip undefined values — Firestore rejects them
+  const clean = todos.map(t => JSON.parse(JSON.stringify(t)));
   await safeSetDoc(
     eventSubDoc(eventId, SUB_META, todoDocId(scopeId)),
-    { todos, updatedAt: serverTimestamp() },
+    { todos: clean, updatedAt: serverTimestamp() },
     { merge: true },
   );
 }
