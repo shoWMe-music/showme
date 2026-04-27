@@ -1,0 +1,1 @@
+ALTER TABLE public.booking_requests ADD COLUMN event_id text NOT NULL DEFAULT '';

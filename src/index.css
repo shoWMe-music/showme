@@ -1,0 +1,161 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 220 20% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 20% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 20% 10%;
+
+    --primary: 6 78% 57%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 10% 96%;
+    --secondary-foreground: 220 20% 10%;
+
+    --muted: 220 10% 96%;
+    --muted-foreground: 220 10% 46%;
+
+    --accent: 220 10% 96%;
+    --accent-foreground: 220 20% 10%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --info: 210 80% 55%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 220 10% 90%;
+    --input: 220 10% 90%;
+    --ring: 6 78% 57%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 220 20% 6%;
+    --sidebar-foreground: 220 10% 80%;
+    --sidebar-primary: 6 78% 57%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 15% 12%;
+    --sidebar-accent-foreground: 220 10% 90%;
+    --sidebar-border: 220 15% 15%;
+    --sidebar-ring: 6 78% 57%;
+
+    --font-display: 'Space Grotesk', sans-serif;
+    --font-body: 'Inter', sans-serif;
+
+    /* Event status colors — distinct from settlement statuses */
+    --event-draft: 210 15% 55%;
+    --event-suggested: 270 60% 58%;
+    --event-pending: 28 85% 56%;
+    --event-confirmed: 160 70% 40%;
+    --event-on-hold: 45 90% 50%;
+    --event-concluded: 220 15% 50%;
+    --event-cancelled: 0 60% 50%;
+
+    /* Calendar item colors */
+    --calendar-task: 190 70% 45%;
+    --calendar-appointment: 300 55% 50%;
+    --calendar-note: 50 75% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body);
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+  }
+}
+
+@layer components {
+  /* Settlement status badges */
+  .status-draft {
+    @apply bg-muted text-muted-foreground;
+  }
+  .status-open {
+    background-color: hsl(var(--success) / 0.1);
+    color: hsl(var(--success));
+  }
+  .status-pending-review {
+    @apply bg-warning/10 text-warning;
+  }
+  .status-comments {
+    @apply bg-info/10 text-info;
+  }
+  .status-revised {
+    @apply bg-accent text-accent-foreground border border-border;
+  }
+  .status-partly-paid {
+    background-color: hsl(var(--warning) / 0.12);
+    color: hsl(var(--warning));
+  }
+  .status-finalized {
+    @apply bg-foreground/10 text-foreground;
+  }
+  .status-paid {
+    background-color: hsl(var(--success) / 0.15);
+    color: hsl(var(--success));
+    font-weight: 600;
+  }
+  .status-dispute {
+    @apply bg-destructive/10 text-destructive;
+  }
+
+  /* Event status badges */
+  .event-draft {
+    background-color: hsl(var(--event-draft) / 0.12);
+    color: hsl(var(--event-draft));
+  }
+  .event-suggested {
+    background-color: hsl(var(--event-suggested) / 0.12);
+    color: hsl(var(--event-suggested));
+  }
+  .event-pending {
+    background-color: hsl(var(--event-pending) / 0.12);
+    color: hsl(var(--event-pending));
+  }
+  .event-confirmed {
+    background-color: hsl(var(--event-confirmed) / 0.12);
+    color: hsl(var(--event-confirmed));
+  }
+  .event-on-hold {
+    background-color: hsl(var(--event-on-hold) / 0.12);
+    color: hsl(var(--event-on-hold));
+  }
+  .event-concluded {
+    background-color: hsl(var(--event-concluded) / 0.12);
+    color: hsl(var(--event-concluded));
+  }
+  .event-cancelled {
+    background-color: hsl(var(--event-cancelled) / 0.12);
+    color: hsl(var(--event-cancelled));
+  }
+
+  /* Calendar unavailable dates */
+  .calendar-unavailable {
+    background: repeating-linear-gradient(
+      -45deg,
+      hsl(var(--destructive) / 0.04),
+      hsl(var(--destructive) / 0.04) 4px,
+      hsl(var(--destructive) / 0.08) 4px,
+      hsl(var(--destructive) / 0.08) 8px
+    );
+  }
+}

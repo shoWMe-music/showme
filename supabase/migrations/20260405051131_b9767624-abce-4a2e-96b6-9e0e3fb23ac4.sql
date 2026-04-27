@@ -1,0 +1,1 @@
+ALTER TABLE public.calendar_items ADD COLUMN calendar_entity text DEFAULT NULL;

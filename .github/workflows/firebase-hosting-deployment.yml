@@ -1,0 +1,67 @@
+name: Manual Deploy
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch to deploy from
+        required: true
+        default: main
+      target:
+        description: What to deploy
+        required: true
+        type: choice
+        options:
+          - all
+          - hosting
+          - functions
+          - rules
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: showme-production
+  SERVICE_ACCOUNT: firebase-adminsdk-fbsvc@showme-production.iam.gserviceaccount.com
+  WORKLOAD_IDENTITY_PROVIDER: projects/639849417444/locations/global/workloadIdentityPools/github-actions/providers/github
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - run: npm ci
+      - run: npm --prefix functions ci
+      - run: npm run build:functions
+      - run: npm run build:all
+
+      # Deploy hosting
+      - if: ${{ github.event.inputs.target == 'all' || github.event.inputs.target == 'hosting' }}
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ steps.auth.outputs.credentials_file_path }}
+          channelId: live
+          projectId: ${{ env.PROJECT_ID }}
+
+      # Deploy functions
+      - if: ${{ github.event.inputs.target == 'all' || github.event.inputs.target == 'functions' }}
+        run: npx firebase-tools deploy --only functions --project ${{ env.PROJECT_ID }}
+
+      # Deploy rules
+      - if: ${{ github.event.inputs.target == 'all' || github.event.inputs.target == 'rules' }}
+        run: npx firebase-tools deploy --only firestore:rules,firestore:indexes --project ${{ env.PROJECT_ID }}

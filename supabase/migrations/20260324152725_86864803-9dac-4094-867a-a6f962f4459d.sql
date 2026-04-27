@@ -1,0 +1,1 @@
+ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS default_role text NOT NULL DEFAULT '';

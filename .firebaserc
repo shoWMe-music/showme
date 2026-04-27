@@ -1,0 +1,6 @@
+{
+  "projects": {
+    "default": "showme-local",
+    "production": "showme-production"
+  }
+}

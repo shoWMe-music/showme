@@ -1,0 +1,1 @@
+ALTER TABLE public.events ALTER COLUMN settlement_status SET DEFAULT 'open';

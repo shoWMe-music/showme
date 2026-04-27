@@ -1,0 +1,21 @@
+{
+  "name": "settle-fast-functions",
+  "private": true,
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "node build-ssr.mjs && tsc",
+    "build:tsc": "tsc",
+    "watch": "tsc --watch --preserveWatchOutput"
+  },
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.6.0",
+    "firebase-functions": "^7.2.5"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "typescript": "^5.9.3"
+  }
+}

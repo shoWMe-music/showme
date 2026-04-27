@@ -1,0 +1,495 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    function isAuthed() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    /** True if the signed-in user has a member doc under this profile. */
+    function isProfileMember(profileId) {
+      return isAuthed()
+        && exists(/databases/$(database)/documents/profiles/$(profileId)/members/$(request.auth.uid));
+    }
+
+    /** True if the signed-in user is owner or admin on this profile. */
+    function isProfileAdmin(profileId) {
+      return isAuthed()
+        && exists(/databases/$(database)/documents/profiles/$(profileId)/members/$(request.auth.uid))
+        && get(/databases/$(database)/documents/profiles/$(profileId)/members/$(request.auth.uid)).data.role in ['owner', 'admin'];
+    }
+
+    /**
+     * A user has access to an event if:
+     *  - their uid is in the denormalized accessUids array, OR
+     *  - they are a member of the host profile (covers the host profile before
+     *    accessUids is populated, e.g. immediately after event creation).
+     *
+     * Uses get(field, default) throughout to avoid null-value errors in list queries.
+     */
+    function hasEventAccess(ev) {
+      return isAuthed() && (
+        uid() in ev.get('accessUids', [])
+        || (ev.get('hostProfileId', '') is string && ev.get('hostProfileId', '') != ''
+            && isProfileMember(ev.get('hostProfileId', '')))
+        || (ev.get('performerProfileId', '') is string && ev.get('performerProfileId', '') != ''
+            && isProfileMember(ev.get('performerProfileId', '')))
+        // Legacy: participant_uids kept during transition
+        || uid() in ev.get('participant_uids', [])
+      );
+    }
+
+    /** Host profile admin — can manage collaborators, participants, and delete. */
+    function isHostAdmin(ev) {
+      return isAuthed()
+        && ev.keys().hasAll(['hostProfileId'])
+        && ev.hostProfileId is string
+        && ev.hostProfileId != ''
+        && isProfileAdmin(ev.hostProfileId);
+    }
+
+    /** Profiles whose role allows event creation. */
+    function isEventHostProfileType(profileId) {
+      return exists(/databases/$(database)/documents/profiles/$(profileId))
+        && (
+          (get(/databases/$(database)/documents/profiles/$(profileId)).data.keys().hasAll(['role'])
+            && get(/databases/$(database)/documents/profiles/$(profileId)).data.role in ['venue', 'promoter', 'organizer', 'festival'])
+          || (get(/databases/$(database)/documents/profiles/$(profileId)).data.keys().hasAll(['type'])
+            && get(/databases/$(database)/documents/profiles/$(profileId)).data.type in ['venue', 'promoter', 'organizer', 'festival'])
+        );
+    }
+
+    // ── Events ───────────────────────────────────────────────────────────────
+
+    match /events/{eventId} {
+      allow read: if
+        // Public: published confirmed events (doc must exist)
+        (resource != null && resource.data.get('published', false) == true && resource.data.get('eventStatus', '') == 'confirmed')
+        // Authenticated: allow reads of non-existent docs (getDoc before create) or accessible docs
+        || (isAuthed() && (resource == null || (resource.data is map && hasEventAccess(resource.data))));
+
+      allow create: if
+        isAuthed()
+        && request.resource.data.keys().hasAll(['hostProfileId'])
+        && request.resource.data.hostProfileId is string
+        && request.resource.data.hostProfileId != ''
+        && isProfileAdmin(request.resource.data.hostProfileId)
+        && isEventHostProfileType(request.resource.data.hostProfileId);
+
+      allow update: if
+        isAuthed()
+        && resource.data is map
+        && hasEventAccess(resource.data);
+
+      allow delete: if
+        isAuthed()
+        && resource.data is map
+        && isHostAdmin(resource.data);
+    }
+
+    // ── Event subcollections: helper to get parent event ─────────────────────
+
+    function parentEvent(eventId) {
+      return exists(/databases/$(database)/documents/events/$(eventId))
+        ? get(/databases/$(database)/documents/events/$(eventId)).data
+        : {};
+    }
+
+    function canAccessEvent(eventId) {
+      return exists(/databases/$(database)/documents/events/$(eventId))
+        && isAuthed()
+        && hasEventAccess(parentEvent(eventId));
+    }
+
+    function isEventHost(eventId) {
+      return exists(/databases/$(database)/documents/events/$(eventId))
+        && isAuthed()
+        && isHostAdmin(parentEvent(eventId));
+    }
+
+    // ── Deal ─────────────────────────────────────────────────────────────────
+
+    match /events/{eventId}/deal/{docId} {
+      allow read, write: if canAccessEvent(eventId);
+    }
+
+    // ── Settlement ───────────────────────────────────────────────────────────
+
+    match /events/{eventId}/settlement/{docId} {
+      allow read: if canAccessEvent(eventId);
+      allow write: if canAccessEvent(eventId);
+    }
+
+    // ── Revenue ──────────────────────────────────────────────────────────────
+
+    match /events/{eventId}/revenue/{docId} {
+      allow read, write: if canAccessEvent(eventId);
+    }
+
+    // ── Settlement Activity ───────────────────────────────────────────────────
+
+    match /events/{eventId}/activity/{activityId} {
+      allow read: if canAccessEvent(eventId);
+      allow create: if canAccessEvent(eventId);
+    }
+
+    // ── Event Activity ────────────────────────────────────────────────────────
+
+    match /events/{eventId}/event_activity/{activityId} {
+      allow read: if canAccessEvent(eventId);
+      allow create: if canAccessEvent(eventId);
+    }
+
+    // ── Riders ───────────────────────────────────────────────────────────────
+
+    match /events/{eventId}/riders/{riderId} {
+      allow read: if canAccessEvent(eventId);
+      allow write: if
+        canAccessEvent(eventId)
+        && (
+          isEventHost(eventId)
+          || (resource == null && isProfileMember(request.resource.data.ownerProfileId))
+          || (resource != null && resource.data.keys().hasAll(['ownerProfileId'])
+              && isProfileMember(resource.data.ownerProfileId))
+        );
+      allow delete: if
+        canAccessEvent(eventId)
+        && (
+          isEventHost(eventId)
+          || (resource.data.keys().hasAll(['ownerProfileId'])
+              && isProfileMember(resource.data.ownerProfileId))
+        );
+    }
+
+    // ── Agreements ───────────────────────────────────────────────────────────
+
+    match /events/{eventId}/agreements/{agreementId} {
+      allow read: if canAccessEvent(eventId);
+      allow write: if
+        canAccessEvent(eventId)
+        && (
+          isEventHost(eventId)
+          || (resource == null && isProfileMember(request.resource.data.ownerProfileId))
+          || (resource != null && resource.data.keys().hasAll(['ownerProfileId'])
+              && isProfileMember(resource.data.ownerProfileId))
+        );
+      allow delete: if
+        canAccessEvent(eventId)
+        && (
+          isEventHost(eventId)
+          || (resource.data.keys().hasAll(['ownerProfileId'])
+              && isProfileMember(resource.data.ownerProfileId))
+        );
+    }
+
+    // ── Crew ─────────────────────────────────────────────────────────────────
+
+    match /events/{eventId}/crew/{memberId} {
+      allow read: if canAccessEvent(eventId);
+      allow write: if
+        canAccessEvent(eventId)
+        && (
+          isEventHost(eventId)
+          || (resource == null && isProfileMember(request.resource.data.ownerProfileId))
+          || (resource != null && resource.data.keys().hasAll(['ownerProfileId'])
+              && isProfileMember(resource.data.ownerProfileId))
+        );
+      allow delete: if
+        canAccessEvent(eventId)
+        && (
+          isEventHost(eventId)
+          || (resource.data.keys().hasAll(['ownerProfileId'])
+              && isProfileMember(resource.data.ownerProfileId))
+        );
+    }
+
+    // ── Schedule ─────────────────────────────────────────────────────────────
+
+    match /events/{eventId}/schedule/{itemId} {
+      allow read: if canAccessEvent(eventId);
+      allow write: if
+        canAccessEvent(eventId)
+        && (
+          isEventHost(eventId)
+          || (resource == null && isProfileMember(request.resource.data.ownerProfileId))
+          || (resource != null && resource.data.keys().hasAll(['ownerProfileId'])
+              && isProfileMember(resource.data.ownerProfileId))
+        );
+      allow delete: if
+        canAccessEvent(eventId)
+        && (
+          isEventHost(eventId)
+          || (resource.data.keys().hasAll(['ownerProfileId'])
+              && isProfileMember(resource.data.ownerProfileId))
+        );
+    }
+
+    // ── Participants (profiles invited to event) ──────────────────────────────
+
+    match /events/{eventId}/participants/{profileId} {
+      allow read: if canAccessEvent(eventId);
+      allow write, delete: if isEventHost(eventId);
+    }
+
+    // ── Event metadata (proEstimate, proReporting, amenities) ────────────────
+
+    match /events/{eventId}/meta/{docId} {
+      allow read: if canAccessEvent(eventId);
+      allow write: if canAccessEvent(eventId);
+    }
+
+    // ── Budget per profile ────────────────────────────────────────────────────
+
+    match /events/{eventId}/budgets/{profileId} {
+      allow read, write: if
+        canAccessEvent(eventId)
+        && (
+          // Profile budget: only members of that profile
+          (exists(/databases/$(database)/documents/profiles/$(profileId))
+            && isProfileMember(profileId))
+          // Personal budget: user keyed by their own uid (no profile)
+          || profileId == uid()
+        );
+      allow delete: if isEventHost(eventId);
+    }
+
+    // ── Collaborators ─────────────────────────────────────────────────────────
+
+    match /events/{eventId}/collaborators/{cid} {
+      allow read: if canAccessEvent(eventId);
+      allow create, update, delete: if isEventHost(eventId);
+    }
+
+    // ── Messages ──────────────────────────────────────────────────────────────
+
+    match /events/{eventId}/messages/{messageId} {
+      allow read: if
+        (parentEvent(eventId).published == true && parentEvent(eventId).eventStatus == 'confirmed')
+        || canAccessEvent(eventId);
+
+      allow create: if
+        canAccessEvent(eventId)
+        && request.resource.data.sender_uid == uid()
+        && request.resource.data.created_at is string
+        && request.resource.data.sender_name is string
+        && request.resource.data.event_id == eventId;
+
+      allow delete: if
+        canAccessEvent(eventId)
+        && (
+          resource.data.sender_uid == uid()
+          || isEventHost(eventId)
+        );
+
+      allow update: if false;
+    }
+
+    // ── Profiles ──────────────────────────────────────────────────────────────
+
+    match /profiles/{profileId} {
+      function profileMemberCanEdit() {
+        return exists(/databases/$(database)/documents/profiles/$(profileId)/members/$(uid()))
+          && get(/databases/$(database)/documents/profiles/$(profileId)/members/$(uid())).data.role in ['owner', 'admin', 'editor'];
+      }
+
+      allow read: if
+        // Use get() so missing fields don't throw null-value errors in rule evaluation.
+        resource.data.get('isPublic', false) == true
+        || isProfileMember(profileId)
+        // Profile owners can always read their own profiles.
+        // This also makes list queries scoped by owner_uid work correctly,
+        // because Firestore can statically verify owner_uid == auth.uid from the query.
+        || (isAuthed() && resource.data.get('owner_uid', '') == uid());
+
+      allow create: if
+        isAuthed()
+        && request.resource.data.keys().hasAll(['owner_uid'])
+        && request.resource.data.owner_uid == uid();
+
+      allow update: if
+        isAuthed()
+        && (
+          resource.data.owner_uid == uid()
+          || profileMemberCanEdit()
+        );
+
+      allow delete: if
+        isAuthed()
+        && resource.data.owner_uid == uid();
+    }
+
+    match /profiles/{profileId}/members/{memberUid} {
+      function profOwnerUid() {
+        return exists(/databases/$(database)/documents/profiles/$(profileId))
+          ? get(/databases/$(database)/documents/profiles/$(profileId)).data.owner_uid
+          : null;
+      }
+
+      function requesterCanManageMembers() {
+        return isAuthed() && (
+          uid() == profOwnerUid()
+          || isProfileAdmin(profileId)
+        );
+      }
+
+      // Profile IDs are always "{ownerUid}__{roleSlot}" — verify ownership without a get().
+      function profileBelongsToRequester() {
+        return isAuthed()
+          && uid() == memberUid
+          && profileId.matches(uid() + '__.*');
+      }
+
+      allow read: if
+        isAuthed() && (
+          uid() == memberUid
+          || isProfileMember(profileId)
+          || uid() == profOwnerUid()
+        );
+
+      allow update, delete: if requesterCanManageMembers();
+
+      allow create: if
+        requesterCanManageMembers()
+        // Owner bootstrapping their own member doc (no profile get() needed).
+        || (profileBelongsToRequester()
+            && request.resource.data.user_uid == uid()
+            && request.resource.data.role == 'owner')
+        // Self-claim: invitee can create their own member doc when a matching invite exists.
+        || (isAuthed()
+            && uid() == memberUid
+            && request.resource.data.user_uid == uid()
+            && request.resource.data.role in ['admin', 'editor']
+            && exists(/databases/$(database)/documents/profileInvites/$(profileId + '_' + request.auth.token.email)));
+    }
+
+    // ── Profile admin invites ─────────────────────────────────────────────────
+
+    match /profileInvites/{inviteId} {
+      allow read: if isAuthed() && (
+        isProfileAdmin(resource.data.profileId)
+        || request.auth.token.email == resource.data.email
+      );
+      allow create: if
+        isAuthed()
+        && isProfileAdmin(request.resource.data.profileId)
+        && request.resource.data.email is string
+        && request.resource.data.email.size() > 0;
+      allow delete: if isAuthed() && (
+        isProfileAdmin(resource.data.profileId)
+        || request.auth.token.email == resource.data.email
+      );
+      allow update: if false;
+    }
+
+    // ── Profile unavailability ────────────────────────────────────────────────
+
+    match /profiles/{profileId}/unavailability/{docId} {
+      allow read: if isProfileMember(profileId);
+      allow write: if isProfileMember(profileId);
+    }
+
+    // ── Profile calendar items ─────────────────────────────────────────────────
+
+    match /profiles/{profileId}/calendar_items/{itemId} {
+      allow read, write: if isProfileMember(profileId);
+    }
+
+    // ── Profile notifications ──────────────────────────────────────────────────
+
+    match /profiles/{profileId}/notifications/{notifId} {
+      allow read: if isProfileMember(profileId);
+      allow update: if isProfileMember(profileId);
+      allow create: if false; // only Cloud Functions write notifications
+      allow delete: if isProfileMember(profileId);
+    }
+
+    // ── Profile team (contacts/crew — may not have Firebase accounts) ─────────
+
+    match /profiles/{profileId}/team/{memberId} {
+      allow read, write: if isProfileMember(profileId);
+      allow delete: if isProfileAdmin(profileId);
+    }
+
+    // ── Profile templates ────────────────────────────────────────────────────
+
+    match /profiles/{profileId}/templates/{category}/{templateId} {
+      allow read: if isProfileMember(profileId);
+      allow write, delete: if isProfileAdmin(profileId);
+    }
+
+    // ── User private data ────────────────────────────────────────────────────
+
+    match /users/{userId}/{document=**} {
+      allow read, write: if isAuthed() && uid() == userId;
+    }
+
+    // ── Public shares (settlement review, event snapshots, budget shares) ─────
+
+    match /publicShares/{token} {
+      allow read: if true;
+      allow create: if isAuthed() && request.resource.data.ownerUid == uid();
+      allow update: if true;
+    }
+
+    // ── Collaborator invite tokens ────────────────────────────────────────────
+
+    match /collaboratorInvites/{token} {
+      allow read: if true;
+      allow create: if isAuthed() && request.resource.data.ownerUid == uid();
+      allow update: if
+        (resource.data.password == '' || resource.data.password == null)
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.event_id == resource.data.event_id;
+    }
+
+    match /collaboratorWrites/{token} {
+      allow read, write: if true;
+    }
+
+    // ── Invitation codes ──────────────────────────────────────────────────────
+    match /invitationCodes/{code} {
+      allow read: if true;
+      allow update: if isAuthed()
+        && resource.data.createdByUid == uid()
+        && request.resource.data.status == "revoked"
+        && resource.data.status == "active";
+      allow create, delete: if false;
+    }
+
+    // ── Admin collection ──────────────────────────────────────────────────────
+    match /admins/{adminUid} {
+      allow read: if isAuthed()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      allow write: if false;
+    }
+
+    // ── OTP codes ─────────────────────────────────────────────────────────────
+    match /otpCodes/{id} {
+      allow read, write: if false;
+    }
+
+    // ── Booking requests ──────────────────────────────────────────────────────
+
+    match /inboundBookingRequests/{id} {
+      allow create: if
+        request.resource.data.owner_uid is string
+        && request.resource.data.owner_uid.size() > 0
+        && request.resource.data.created_at is string;
+      allow read, update: if
+        isAuthed()
+        && uid() == resource.data.owner_uid;
+    }
+
+    // Legacy — read-only for any migration
+    match /publicBookingRequests/{id} {
+      allow create: if true;
+      allow read, update: if isAuthed();
+    }
+  }
+}
