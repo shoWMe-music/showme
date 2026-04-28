@@ -9,6 +9,7 @@ export interface BudgetField {
   formula?: FormulaNode;
   isDefault?: boolean;
   removable?: boolean;
+  readOnly?: boolean;
   order: number;
   // Special config for specific fields
   config?: {

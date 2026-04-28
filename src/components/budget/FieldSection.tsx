@@ -90,7 +90,7 @@ export function FieldSection({
               )}
             </div>
             <div className="flex items-center gap-1.5">
-              {field.type === "manual" ? (
+              {field.type === "manual" && !field.readOnly ? (
                 <Input
                   type="number"
                   value={field.value || ""}
@@ -103,9 +103,13 @@ export function FieldSection({
                   {formatCurrency(field.value, currency)}
                 </span>
               )}
-              <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => onRemoveField(field.id)}>
-                <Trash2 className="h-3 w-3 text-destructive" />
-              </Button>
+              {!field.readOnly && field.removable !== false ? (
+                <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => onRemoveField(field.id)}>
+                  <Trash2 className="h-3 w-3 text-destructive" />
+                </Button>
+              ) : (
+                <div className="w-6 shrink-0" />
+              )}
             </div>
           </div>
         ))}

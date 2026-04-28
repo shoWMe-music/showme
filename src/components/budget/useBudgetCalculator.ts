@@ -43,7 +43,7 @@ export function useBudgetCalculator({
       const withoutGeneric = defaults.filter(f => f.id !== "artist_fee");
       const artistFields: BudgetField[] = childArtistFees.map((af, i) => ({
         id: `artist_fee_${i}`, name: `Performer fee — ${af.artist}`, category: "cost" as const,
-        type: "manual" as const, value: af.fee, isDefault: false, removable: true, order: i,
+        type: "manual" as const, value: af.fee, isDefault: false, removable: false, readOnly: true, order: i,
       }));
       const reordered = withoutGeneric.map(f => ({ ...f, order: f.order + artistFields.length }));
       return [...artistFields, ...reordered];
@@ -78,12 +78,12 @@ export function useBudgetCalculator({
     if (!todoBudgetItems) return;
     const todoCosts = todoBudgetItems.filter(t => t.type === "cost").map((t, i) => ({
       id: `todo_${t.id}`, name: `📋 ${t.name}`, category: "cost" as const, type: "manual" as const,
-      value: t.amount, isDefault: false, removable: false, order: 900 + i,
+      value: t.amount, isDefault: false, removable: false, readOnly: true, order: 900 + i,
     }));
     setCostFields(prev => [...prev.filter(f => !f.id.startsWith("todo_")), ...todoCosts]);
     const todoRevenue = todoBudgetItems.filter(t => t.type === "revenue").map((t, i) => ({
       id: `todo_${t.id}`, name: `📋 ${t.name}`, category: "revenue" as const, type: "manual" as const,
-      value: t.amount, isDefault: false, removable: false, order: 900 + i,
+      value: t.amount, isDefault: false, removable: false, readOnly: true, order: 900 + i,
     }));
     setRevenueFields(prev => [...prev.filter(f => !f.id.startsWith("todo_")), ...todoRevenue]);
   }, [todoBudgetItems]);

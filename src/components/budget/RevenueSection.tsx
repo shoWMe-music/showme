@@ -63,7 +63,7 @@ export function RevenueSection({
               )}
             </div>
             <div className="flex items-center gap-1.5">
-              {field.type === "manual" ? (
+              {field.type === "manual" && !field.readOnly ? (
                 <Input
                   type="number"
                   value={field.value || ""}
@@ -76,10 +76,12 @@ export function RevenueSection({
                   {fc(field.value)}
                 </span>
               )}
-              {field.removable !== false && (
+              {field.removable !== false && !field.readOnly ? (
                 <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => onRemoveField(field.id)}>
                   <Trash2 className="h-3 w-3 text-destructive" />
                 </Button>
+              ) : (
+                <div className="w-6 shrink-0" />
               )}
             </div>
           </div>

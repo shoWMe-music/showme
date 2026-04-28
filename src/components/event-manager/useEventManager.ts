@@ -21,7 +21,7 @@ import type { EventCollaborator, DealStructure, TicketRevenue, Settlement } from
 
 export type TabId = "budget" | "details" | "agreement" | "crew" | "todo" | "settlement" | "messages" | "performers" | "changelog" | "collaborators";
 
-const PARENT_TABS: TabId[] = ["details", "performers", "collaborators", "crew", "todo", "budget", "changelog"];
+const PARENT_TABS: TabId[] = ["todo", "budget", "details", "performers", "collaborators", "crew", "changelog"];
 const STANDARD_TABS: TabId[] = ["todo", "budget", "details", "agreement", "crew", "settlement", "messages", "collaborators", "changelog"];
 
 export function useEventManager() {
@@ -252,12 +252,12 @@ export function useEventManager() {
 
   const allTabs: { id: TabId; label: string; badge?: number }[] = isParent
     ? [
+        { id: "todo", label: "To Do" },
+        { id: "budget", label: "Budget Planner" },
         { id: "details", label: "Event Details" },
         { id: "performers", label: `Performers (${childEvents.length})` },
         { id: "collaborators", label: "Collaborators" },
         { id: "crew", label: "Team / Crew" },
-        { id: "todo", label: "To Do" },
-        { id: "budget", label: "Budget" },
         { id: "changelog", label: "Event History", badge: changeLogBadgeCount },
       ]
     : [
