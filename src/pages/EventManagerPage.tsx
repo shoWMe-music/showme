@@ -222,7 +222,7 @@ export default function EventManagerPage() {
           </div>
         )}
         {em.activeTab === "crew" && em.economicsLoaded && (
-          <CrewTab eventMeta={em.eventMeta} event={event} collaborators={em.collaborators} onSave={onSaveMeta} actingProfile={em.actingProfile} />
+          <CrewTab eventMeta={em.eventMeta} event={event} collaborators={em.collaborators} onSave={onSaveMeta} actingProfile={em.actingProfile} profileTodos={em.profileTodos} saveProfileTodos={em.saveProfileTodos} />
         )}
         {em.activeTab === "todo" && (
           <TodoTab todos={em.profileTodos} event={event} onSaveTodos={em.saveProfileTodos} teamMemberNames={em.teamMembers.map(m => m.name)} />

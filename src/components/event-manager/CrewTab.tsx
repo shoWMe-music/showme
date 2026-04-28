@@ -25,12 +25,15 @@ import {
 } from "@/lib/db";
 import { getAuthClient } from "@/lib/firebaseAuth";
 import {
+  Popover, PopoverContent, PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Plus, Trash2, Users, Shield, Clock, CheckCircle2, PenLine,
-  Download, Share2, Copy, Edit2, Check, X,
+  Download, Share2, Copy, Edit2, Check, X, ListTodo,
 } from "lucide-react";
 
 /* ─── Team/Crew Tab ─── */
-export function CrewTab({ eventMeta, event, collaborators: propCollaborators, onSave, actingProfile }: { eventMeta: EventMeta; event: AppEvent; collaborators: EventCollaborator[]; onSave?: (d: Partial<EventMeta>) => void; actingProfile?: string }) {
+export function CrewTab({ eventMeta, event, collaborators: propCollaborators, onSave, actingProfile, profileTodos, saveProfileTodos }: { eventMeta: EventMeta; event: AppEvent; collaborators: EventCollaborator[]; onSave?: (d: Partial<EventMeta>) => void; actingProfile?: string; profileTodos?: Todo[]; saveProfileTodos?: (todos: Todo[]) => void }) {
   const { teamMembers, addTeamMember } = useUser();
 
   const handleCreateTeamMember = (name: string) => {
@@ -274,6 +277,26 @@ th{background:#f5f5f5;font-weight:600}.meta{color:#666;font-size:13px;margin-bot
     }));
   }, [eventMeta?.todos]);
 
+  // ── Create task for crew member ─────────────────────────────────────────────
+  const [createTaskForMemberId, setCreateTaskForMemberId] = useState<string | null>(null);
+  const [createTaskTitle, setCreateTaskTitle] = useState("");
+
+  const handleCreateTaskForMember = (memberName: string) => {
+    if (!createTaskTitle.trim() || !saveProfileTodos) return;
+    const newTodo: Todo = {
+      id: crypto.randomUUID(),
+      title: createTaskTitle.trim(),
+      completed: false,
+      reminders: [],
+      createdAt: new Date().toISOString(),
+      assignee: memberName,
+    };
+    saveProfileTodos([...(profileTodos || []), newTodo]);
+    setCreateTaskTitle("");
+    setCreateTaskForMemberId(null);
+    toast({ title: (<span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-500" />Task created for {memberName}</span>), duration: 2000 });
+  };
+
   const sortScheduleByTime = (items: typeof scheduleItems) =>
     [...items].sort((a, b) => a.time.localeCompare(b.time));
 
@@ -402,6 +425,32 @@ th{background:#f5f5f5;font-weight:600}.meta{color:#666;font-size:13px;margin-bot
                           {m.email && <p>{m.email}</p>}
                           {m.phone && <p>{m.phone}</p>}
                         </div>
+                        {/* Create task for member */}
+                        {saveProfileTodos && (
+                          <Popover open={createTaskForMemberId === m.id} onOpenChange={(open) => { if (!open) { setCreateTaskForMemberId(null); setCreateTaskTitle(""); } else { setCreateTaskForMemberId(m.id); } }}>
+                            <PopoverTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-7 w-7" title="Create task">
+                                <ListTodo className="h-3.5 w-3.5" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-64 p-3" align="end">
+                              <p className="text-xs font-medium mb-2">New task for {m.name}</p>
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  placeholder="Task title..."
+                                  value={createTaskTitle}
+                                  onChange={(e) => setCreateTaskTitle(e.target.value)}
+                                  className="h-8 text-xs flex-1"
+                                  autoFocus
+                                  onKeyDown={(e) => { if (e.key === "Enter") handleCreateTaskForMember(m.name); if (e.key === "Escape") { setCreateTaskForMemberId(null); setCreateTaskTitle(""); } }}
+                                />
+                                <Button size="sm" className="h-8 px-2" disabled={!createTaskTitle.trim()} onClick={() => handleCreateTaskForMember(m.name)}>
+                                  <Plus className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                        )}
                         {/* Section sharing */}
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setSharingOpen(sharingOpen === m.id ? null : m.id)} title="Share sections">
                           <Share2 className="h-3.5 w-3.5" />

@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
 import { queryKeys } from "@/lib/queries";
 import { fetchUserSettings, upsertUserSettings, fetchProfiles, upsertProfile, fetchAllProfileTeamMembers, upsertProfileTeamMember, deleteProfileTeamMember, claimProfileInvites } from "./db";
-import type { UserSettings } from "./db";
+import type { UserSettings, DateFormatOption, TimeFormatOption } from "./db";
 import { useToast } from "@/hooks/use-toast";
 
 const SAVE_DEBOUNCE_MS = 800;
@@ -115,6 +115,8 @@ export interface WorkspaceUser {
   defaultRole?: OperatorRole;
   companyName: string;
   avatarUrl?: string;
+  dateFormat: DateFormatOption;
+  timeFormat: TimeFormatOption;
 }
 
 export const emptyWorkspaceUser: WorkspaceUser = {
@@ -126,6 +128,8 @@ export const emptyWorkspaceUser: WorkspaceUser = {
   defaultRoles: [],
   currency: "EUR",
   companyName: "",
+  dateFormat: "YYYY-MM-DD",
+  timeFormat: "24h",
 };
 
 export interface TeamMember {
@@ -237,6 +241,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       defaultRole: (settings.default_role || undefined) as OperatorRole | undefined,
       companyName: settings.company_name || prev.companyName,
       avatarUrl: settings.avatarUrl,
+      dateFormat: settings.dateFormat || prev.dateFormat,
+      timeFormat: settings.timeFormat || prev.timeFormat,
     }));
   }, [settingsQuery.data]);
 
@@ -292,6 +298,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         roles: user.roles, currency: user.currency,
         defaultRole: user.defaultRole, companyName: user.companyName,
         avatarUrl: user.avatarUrl,
+        dateFormat: user.dateFormat, timeFormat: user.timeFormat,
       });
     }, SAVE_DEBOUNCE_MS);
   }, []);
@@ -355,6 +362,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         name: user.name, email: user.email, initials: user.initials,
         roles: user.roles, currency: user.currency,
         defaultRole: user.defaultRole, companyName: user.companyName,
+        dateFormat: user.dateFormat, timeFormat: user.timeFormat,
       }),
     onError: () => {
       toast({ title: "Failed to save settings", description: "Changes could not be saved.", variant: "destructive" });

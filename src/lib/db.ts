@@ -169,6 +169,9 @@ function stripUndefined<T>(obj: T): T {
 
 // ── User Settings ─────────────────────────────────────────────────────────────
 
+export type DateFormatOption = "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD";
+export type TimeFormatOption = "24h" | "12h";
+
 export interface UserSettings {
   name?: string;
   firstName?: string;
@@ -181,6 +184,8 @@ export interface UserSettings {
   default_role?: string;
   company_name?: string;
   country?: string;
+  dateFormat?: DateFormatOption;
+  timeFormat?: TimeFormatOption;
 }
 
 export async function fetchUserSettings(): Promise<UserSettings | null> {
@@ -203,6 +208,8 @@ export async function upsertUserSettings(settings: {
   companyName?: string;
   avatarUrl?: string;
   country?: string;
+  dateFormat?: DateFormatOption;
+  timeFormat?: TimeFormatOption;
 }) {
   const uid = requireUid();
   const ref = doc(getFirestoreDb(), USERS, uid, "settings", "main");
@@ -213,6 +220,8 @@ export async function upsertUserSettings(settings: {
       default_role: settings.defaultRole || "",
       company_name: settings.companyName || "",
       avatarUrl: settings.avatarUrl || null,
+      dateFormat: settings.dateFormat || "YYYY-MM-DD",
+      timeFormat: settings.timeFormat || "24h",
       updatedAt: serverTimestamp(),
     },
     { merge: true },

@@ -78,7 +78,10 @@ export function EventDetailHeader({ event, deal, revenue, settlement }: EventDet
             <StatusBadge status={event.status} />
           </div>
           <p className="mt-1 text-muted-foreground">
-            {event.artist} · {event.venue} · {event.date}
+            {event.artist} · {event.venue} ·{" "}
+            <Link to="/calendar" search={{ date: event.date }} className="hover:underline hover:text-foreground cursor-pointer transition-colors">
+              {event.date}
+            </Link>
           </p>
         </div>
         <div className="flex gap-2">

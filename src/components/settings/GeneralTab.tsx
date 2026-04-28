@@ -94,6 +94,29 @@ export function GeneralTab() {
             </SelectContent>
           </Select>
         </div>
+        <div className="grid grid-cols-2 gap-4 mt-4">
+          <div>
+            <Label>Date Format</Label>
+            <Select value={currentUser.dateFormat || "YYYY-MM-DD"} onValueChange={(v) => updateUser({ dateFormat: v as "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD" })}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="YYYY-MM-DD">YYYY-MM-DD</SelectItem>
+                <SelectItem value="DD/MM/YYYY">DD/MM/YYYY</SelectItem>
+                <SelectItem value="MM/DD/YYYY">MM/DD/YYYY</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Time Format</Label>
+            <Select value={currentUser.timeFormat || "24h"} onValueChange={(v) => updateUser({ timeFormat: v as "24h" | "12h" })}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="24h">24-hour (14:00)</SelectItem>
+                <SelectItem value="12h">12-hour (2:00 PM)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
         <Button variant="outline" size="sm" className="mt-4">Change Password</Button>
       </div>
 

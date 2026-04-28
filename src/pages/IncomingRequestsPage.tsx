@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, Link } from "@tanstack/react-router";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { QueryDocumentSnapshot } from "firebase/firestore";
 import AppLayout from "@/components/AppLayout";
@@ -450,7 +450,9 @@ export default function IncomingRequestsPage() {
                     <div className="text-xs text-muted-foreground space-y-0.5">
                       <p className="flex items-center gap-1">
                         <CalendarCheck className="h-3 w-3" />
-                        {new Date(event.date + "T00:00").toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
+                        <Link to="/calendar" search={{ date: event.date }} className="hover:underline hover:text-foreground transition-colors">
+                          {new Date(event.date + "T00:00").toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
+                        </Link>
                       </p>
                       <p className="flex items-center gap-1">
                         <MapPin className="h-3 w-3" />
@@ -502,7 +504,9 @@ export default function IncomingRequestsPage() {
                     <div className="text-xs text-muted-foreground space-y-0.5">
                       <p className="flex items-center gap-1">
                         <CalendarCheck className="h-3 w-3" />
-                        {new Date(event.date + "T00:00").toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
+                        <Link to="/calendar" search={{ date: event.date }} className="hover:underline hover:text-foreground transition-colors">
+                          {new Date(event.date + "T00:00").toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
+                        </Link>
                       </p>
                       <p className="flex items-center gap-1">
                         <MapPin className="h-3 w-3" />
