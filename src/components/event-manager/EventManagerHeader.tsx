@@ -7,6 +7,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { EventStatusBadge } from "@/components/StatusBadge";
+import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 import { cn } from "@/lib/utils";
 import type { Event, EventCollaborator } from "@/lib/models";
 import type { TabId } from "./useEventManager";
@@ -84,8 +85,20 @@ export function EventManagerHeader({
                 </Badge>
               )}
             </div>
-            <p className="mt-1 text-muted-foreground">
-              {event.artist} · {event.venue}{event.roomStage ? ` — ${event.roomStage}` : ""} ·{" "}
+            <p className="mt-1 text-muted-foreground flex items-center gap-1 flex-wrap">
+              <ProfilePreviewPopover
+                name={event.artist}
+                profileId={event.performerProfileId}
+                onInvite={onInviteOpen}
+              />
+              <span>·</span>
+              <ProfilePreviewPopover
+                name={event.venue}
+                profileId={event.operatorType === "venue" ? event.hostProfileId : undefined}
+                onInvite={onInviteOpen}
+              />
+              {event.roomStage && <span>— {event.roomStage}</span>}
+              <span>·</span>
               <button
                 onClick={() => navigate({ to: "/calendar", search: { date: event.date } })}
                 className="hover:underline hover:text-foreground cursor-pointer transition-colors"

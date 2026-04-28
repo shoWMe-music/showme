@@ -460,6 +460,35 @@ export async function fetchProfileOwnerUid(profileId: string): Promise<string | 
   return typeof data.owner_uid === "string" ? data.owner_uid : null;
 }
 
+export interface ProfilePreviewData {
+  id: string;
+  name: string;
+  type: string;
+  avatarUrl?: string;
+  slug?: string;
+  city?: string;
+  country?: string;
+  isPublic?: boolean;
+}
+
+export async function fetchProfilePreview(profileId: string): Promise<ProfilePreviewData | null> {
+  const snap = await getDoc(doc(getFirestoreDb(), PROFILE_COLLECTION, profileId));
+  if (!snap.exists()) return null;
+  const data = snap.data();
+  const locations = Array.isArray(data.locations) ? data.locations : [];
+  const primary = locations[0] as { city?: string; country?: string } | undefined;
+  return {
+    id: snap.id,
+    name: typeof data.name === "string" ? data.name : "",
+    type: typeof data.type === "string" ? data.type : "",
+    avatarUrl: typeof data.avatarUrl === "string" ? data.avatarUrl : undefined,
+    slug: typeof data.slug === "string" ? data.slug : undefined,
+    city: primary?.city,
+    country: primary?.country,
+    isPublic: data.isPublic === true,
+  };
+}
+
 export async function setProfileMemberRole(
   profileId: string,
   memberUid: string,

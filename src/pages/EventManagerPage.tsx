@@ -27,6 +27,7 @@ import InviteCollaboratorDialog from "@/components/InviteCollaboratorDialog";
 import ExportEventDialog from "@/components/ExportEventDialog";
 import CreateEventDialog from "@/components/CreateEventDialog";
 import EventMessages from "@/components/EventMessages";
+import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 import { useEventManager } from "@/components/event-manager/useEventManager";
 import type { PrefillData } from "@/components/create-event/types";
 
@@ -177,7 +178,13 @@ export default function EventManagerPage() {
                   return (
                     <div key={child.id} className="flex items-center justify-between rounded-lg border p-3">
                       <div>
-                        <p className="font-medium text-sm">{child.artist}</p>
+                        <p className="font-medium text-sm">
+                          <ProfilePreviewPopover
+                            name={child.artist}
+                            profileId={child.performerProfileId}
+                            onInvite={() => { setInviteDefaults({ role: "Performer", name: child.artist, eventId: child.id }); setInviteOpen(true); }}
+                          />
+                        </p>
                         <p className="text-xs text-muted-foreground capitalize">
                           {deal?.dealType?.replace("_", " ") || "—"}{child.roomStage ? ` · ${child.roomStage}` : ""}
                         </p>
