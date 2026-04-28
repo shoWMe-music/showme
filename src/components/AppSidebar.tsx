@@ -53,7 +53,7 @@ export default function AppSidebar() {
 
   const invitationCount = useMemo(() => {
     const artistProfileIds = Object.values(profiles)
-      .filter(p => p.role === "artist" && p.id)
+      .filter(p => p.role === "performer" && p.id)
       .map(p => p.id!);
     if (artistProfileIds.length === 0) return 0;
     return allEvents.filter(e =>

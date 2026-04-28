@@ -317,7 +317,7 @@ export function calculateSettlement(deal: DealStructure, revenue: TicketRevenue)
 
   // Venue rental paid-by adjustments
   if (deal.venueRental > 0) {
-    if (venueRentalPaidBy === "performer" || venueRentalPaidBy === "artist") {
+    if (venueRentalPaidBy === "performer") {
       artistAdj.push({ label: "Venue Rental (paid by Performer)", amount: -deal.venueRental });
     } else if (venueRentalPaidBy === "organizer") {
       organizerAdj.push({ label: "Venue Rental (paid by Organizer)", amount: -deal.venueRental });
@@ -653,7 +653,6 @@ export function legacyRoleToEventRole(role: string): EventCollaboratorRole {
     promoter: "promoter",
     organizer: "organizer",
     festival: "festival",
-    artist: "performer",
     performer: "performer",
     agent: "agent",
     staff: "staff",

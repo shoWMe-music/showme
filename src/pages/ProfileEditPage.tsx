@@ -345,7 +345,7 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
         </div>
 
         {/* Spotify (Performer) */}
-        {(baseRole === "performer" || baseRole === "artist") && (
+        {baseRole === "performer" && (
           <div className="rounded-xl border bg-card p-6 shadow-sm">
             <h3 className="text-lg font-semibold mb-3 flex items-center gap-2"><Music className="h-5 w-5 text-primary" /> Spotify URL</h3>
             <Input value={spotifyUrl} onChange={e => setSpotifyUrl(e.target.value)} placeholder="https://open.spotify.com/album/..." />
@@ -353,7 +353,7 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
         )}
 
         {/* Setup (Performer) */}
-        {(baseRole === "performer" || baseRole === "artist") && (
+        {baseRole === "performer" && (
           <div className="rounded-xl border bg-card p-6 shadow-sm">
             <h3 className="text-lg font-semibold mb-3 flex items-center gap-2"><Users className="h-5 w-5 text-primary" /> Setup Variations</h3>
             <div className="grid grid-cols-2 gap-4">
@@ -551,7 +551,7 @@ const amenityKeys: import("@/lib/models").AmenityKey[] = ["backline", "partial_b
 
 
         {/* Documents / Riders (Venue & Performer) */}
-        {(baseRole === "venue" || (baseRole === "performer" || baseRole === "artist")) && (
+        {(baseRole === "venue" || baseRole === "performer") && (
           <div className="rounded-xl border bg-card p-6 shadow-sm">
             <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><FileText className="h-5 w-5 text-primary" /> Documents & Riders</h3>
             <p className="text-xs text-muted-foreground mb-4">Upload tech riders, hospitality riders, or other documents. These can be shared automatically with collaborators when invited to an event.</p>

@@ -26,7 +26,7 @@ interface ParsedRow {
   selected: boolean;
 }
 
-const validTypes: ContactType[] = ["promoter", "venue", "artist", "ticketing", "agent", "manager", "production"];
+const validTypes: ContactType[] = ["promoter", "venue", "performer", "ticketing", "agent", "manager", "production"];
 
 function parseCSV(text: string): ParsedRow[] {
   const lines = text.split(/\r?\n/).filter(l => l.trim());

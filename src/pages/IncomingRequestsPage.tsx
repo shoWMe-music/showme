@@ -135,7 +135,7 @@ export default function IncomingRequestsPage() {
   const myArtistProfileIds = useMemo(() => {
     const ids: string[] = [];
     for (const [, p] of Object.entries(profiles)) {
-      if ((p.role === "performer" || p.role === "artist") && p.id) ids.push(p.id);
+      if (p.role === "performer" && p.id) ids.push(p.id);
     }
     return ids;
   }, [profiles]);

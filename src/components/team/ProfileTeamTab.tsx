@@ -26,7 +26,7 @@ import { Mail, Phone, Plus, Trash2, Users } from "lucide-react";
 
 // Profiles that can share team members
 const VENUE_SIDE = new Set<OperatorRole>(["venue", "promoter", "organizer", "festival"]);
-const ARTIST_SIDE = new Set<OperatorRole>(["artist"]);
+const ARTIST_SIDE = new Set<OperatorRole>(["performer"]);
 
 function sameTypeGroup(a: OperatorRole, b: OperatorRole): boolean {
   return (VENUE_SIDE.has(a) && VENUE_SIDE.has(b)) || (ARTIST_SIDE.has(a) && ARTIST_SIDE.has(b));
@@ -234,7 +234,7 @@ export function ProfileTeamTab() {
             {compatibleProfiles.length > 0 && (
               <div>
                 <Label className="mb-2 block">Also add to</Label>
-                <p className="text-xs text-muted-foreground mb-2">Other {primaryRole && VENUE_SIDE.has(primaryRole) ? "venue-side" : "artist"} profiles you own</p>
+                <p className="text-xs text-muted-foreground mb-2">Other {primaryRole && VENUE_SIDE.has(primaryRole) ? "venue-side" : "performer"} profiles you own</p>
                 <div className="space-y-2">
                   {compatibleProfiles.map(([s, p]) => {
                     const pid = buildProfileDocId(user!.uid, s);

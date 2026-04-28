@@ -132,7 +132,7 @@ export function useCreateEventSubmit() {
 
       const childEvents = resolvedPerformers.map((perf, i) => {
         const childId = `${parentId}-P${i + 1}`;
-        ensureContact(perf.artistName, "artist");
+        ensureContact(perf.artistName, "performer");
         const isChildSplitDisabled = perf.dealType === "guarantee" || perf.dealType === "rental";
         const childProfileIds = [hostProfileId, perf.performerProfileId].filter(Boolean) as string[];
         return {
@@ -191,7 +191,7 @@ export function useCreateEventSubmit() {
       if (!onEventCreated) navigate({ to: "/events/$id", params: { id: parentId } });
     } else {
       const id = `EVT-${String(Date.now()).slice(-6)}`;
-      ensureContact(artistName, "artist");
+      ensureContact(artistName, "performer");
 
       // Resolve performer profile — look up by name if not captured from the dropdown
       let resolvedPerformerProfileId = performerProfileId;
@@ -252,7 +252,7 @@ export function useCreateEventSubmit() {
         const profile = profiles[key];
         if (profile?.documents && profile.documents.length > 0) {
           const isRelevantVenue = (key === "venue" || key.startsWith("venue-")) && profile.name === venueName;
-          const isRelevantArtist = (key === "performer" || key === "artist" || key.startsWith("performer-") || key.startsWith("artist-")) && profile.name === artistName;
+          const isRelevantArtist = (key === "performer" || key.startsWith("performer-")) && profile.name === artistName;
           const isSelectedRole = key === selectedRole || key.startsWith(`${selectedRole}-`);
           if (isRelevantVenue || isRelevantArtist || isSelectedRole) {
             for (const doc of profile.documents) {

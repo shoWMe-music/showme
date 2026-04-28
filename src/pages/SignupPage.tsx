@@ -51,7 +51,7 @@ function normalizeToOperatorRole(raw: string | undefined): OperatorRole | undefi
   const lower = raw.toLowerCase();
   const map: Record<string, OperatorRole> = {
     venue: "venue", promoter: "promoter", organizer: "organizer",
-    artist: "performer", performer: "performer", festival: "festival",
+    performer: "performer", festival: "festival",
     agent: "performer", manager: "performer",
   };
   return map[lower] ?? undefined;

@@ -105,7 +105,7 @@ export function getDateChangeParties(
 
   // Performer party
   const performerCollab = collaborators.find(
-    (c) => c.eventRole === "artist" && collaboratorIsActive(c.status),
+    (c) => c.eventRole === "performer" && collaboratorIsActive(c.status),
   );
   const performerProfileId = event.performerProfileId || performerCollab?.profileId;
   if (performerProfileId) {
@@ -984,7 +984,7 @@ export function useConvertToMultiPerformer() {
           id: `collab-${childId}-performer`,
           email: "",
           name: parent.artist,
-          eventRole: "artist",
+          eventRole: "performer",
           status: "active",
           invitedAt: new Date().toISOString(),
           profileId: parent.performerProfileId || undefined,

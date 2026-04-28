@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-const ALL_ROLES: OperatorRole[] = ["venue", "promoter", "organizer", "artist", "festival"];
+const ALL_ROLES: OperatorRole[] = ["venue", "promoter", "organizer", "performer", "festival"];
 
 function nextSlot(profiles: Record<string, SharedProfile>, role: OperatorRole): string {
   if (!profiles[role]?.created) return role;
@@ -201,7 +201,7 @@ export function CreateProfileDialog({ open, onOpenChange, onCreated }: Props) {
                 />
               </div>
             )}
-            {selectedRole === "artist" && (
+            {selectedRole === "performer" && (
               <div>
                 <Label>Setup Type</Label>
                 <Input

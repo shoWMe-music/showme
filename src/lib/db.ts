@@ -321,7 +321,7 @@ export async function searchArtistProfiles(
     // No search term — return all public artist profiles
     const q = query(
       collection(db, PROFILE_COLLECTION),
-      where("type", "in", ["performer", "artist"]),
+      where("type", "==", "performer"),
       where("isPublic", "==", true),
       orderBy("name"),
       ...(cursor ? [startAfter(cursor)] : []),
@@ -347,7 +347,7 @@ export async function searchArtistProfiles(
   for (const variant of variants) {
     const q = query(
       collection(db, PROFILE_COLLECTION),
-      where("type", "in", ["performer", "artist"]),
+      where("type", "==", "performer"),
       where("isPublic", "==", true),
       where("name", ">=", variant),
       where("name", "<=", variant + "\uf8ff"),
@@ -825,7 +825,13 @@ export async function fetchEvents(profileIds?: string[]): Promise<Event[]> {
     }
   }
 
-  return Array.from(byId.values());
+  // Hide draft events the user doesn't host
+  const myPids = new Set(profileIds || []);
+  return Array.from(byId.values()).filter(e => {
+    if (e.eventStatus !== "draft") return true;
+    if (e.hostProfileId && myPids.has(e.hostProfileId)) return true;
+    return false;
+  });
 }
 
 /**
@@ -911,8 +917,17 @@ export async function fetchEventPage(
     const hasMore = snap.size > pageSize;
     const docs = hasMore ? snap.docs.slice(0, pageSize) : snap.docs;
 
+    const myPids = new Set(profileIds || []);
+    const events = docs
+      .map((d) => eventRowToEvent({ id: d.id, ...d.data() }))
+      .filter(e => {
+        if (e.eventStatus !== "draft") return true;
+        if (e.hostProfileId && myPids.has(e.hostProfileId)) return true;
+        return false;
+      });
+
     return {
-      events: docs.map((d) => eventRowToEvent({ id: d.id, ...d.data() })),
+      events,
       lastDoc: docs[docs.length - 1] ?? null,
       hasMore,
     };

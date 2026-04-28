@@ -48,7 +48,7 @@ export function PerformerSearch({
 
   // Contacts matching search
   const contactMatches = contacts
-    .filter(p => p.type === "performer" || p.type === "artist")
+    .filter(p => p.type === "performer")
     .filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
 
   // Deduplicate: remove global profiles already in contacts

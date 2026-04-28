@@ -474,7 +474,6 @@ export function getBaseRole(key: string): OperatorRole {
   if (key.startsWith("promoter")) return "promoter";
   if (key.startsWith("organizer")) return "organizer";
   if (key.startsWith("performer")) return "performer";
-  if (key.startsWith("artist")) return "performer";
   if (key.startsWith("festival")) return "festival";
   return key as OperatorRole;
 }

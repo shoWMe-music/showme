@@ -234,7 +234,7 @@ export default function PublicProfilePage() {
         <div className="p-8 pt-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
-              {(role === "performer" || role === "artist") && getSpotifyEmbedUrl(profile.spotifyUrl || "") && (
+              {role === "performer" && getSpotifyEmbedUrl(profile.spotifyUrl || "") && (
                 <div className="rounded-xl border bg-card p-6 shadow-sm">
                   <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><Music className="h-5 w-5 text-primary" /> Listen</h3>
                   <iframe src={getSpotifyEmbedUrl(profile.spotifyUrl!)!} width="100%" height="352" frameBorder="0" allow="encrypted-media" title="Spotify" className="rounded-md" />
@@ -288,7 +288,7 @@ export default function PublicProfilePage() {
             </div>
 
             <div className="space-y-6">
-              {(role === "performer" || role === "artist") && profile.setupType && (
+              {role === "performer" && profile.setupType && (
                 <div className="rounded-xl border bg-card p-6 shadow-sm">
                   <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Users className="h-4 w-4 text-primary" /> Setup</h3>
                   <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
