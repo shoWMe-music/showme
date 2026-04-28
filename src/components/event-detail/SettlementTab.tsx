@@ -44,7 +44,7 @@ export function SettlementTab({ event, settlement, buildPayoutRows, settlementTo
 
   const handleAddComment = () => {
     if (!commentText.trim()) return;
-    const partyName = currentUser.roles.includes("artist") ? "Performer Agent" : currentUser.name;
+    const partyName = currentUser.roles.includes("performer") ? "Performer Agent" : currentUser.name;
     const attachments = attachedFiles.map(f => ({
       name: f.name,
       size: f.size > 1024 * 1024 ? `${(f.size / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(f.size / 1024)} KB`,

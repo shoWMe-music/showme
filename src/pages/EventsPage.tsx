@@ -9,7 +9,7 @@ import InviteCollaboratorDialog from "@/components/InviteCollaboratorDialog";
 import ExportEventDialog from "@/components/ExportEventDialog";
 import { Link } from "@tanstack/react-router";
 import { Search, Globe, EyeOff, CreditCard, UserPlus, Printer, Trash2, Users, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, ArrowUpDown, Loader2 } from "lucide-react";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -43,6 +43,14 @@ const STATUS_ORDER: Record<string, number> = {
 
 export default function EventsPage() {
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    debounceRef.current = setTimeout(() => setDebouncedSearch(search), 250);
+    return () => clearTimeout(debounceRef.current);
+  }, [search]);
+
   const [statusFilter, setStatusFilter] = useState<EventStatus | "all">("all");
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -93,7 +101,7 @@ export default function EventsPage() {
   const allProfileIds = profileOptions.map((p) => p.id);
 
   // Reset to first page whenever filters change.
-  useEffect(() => { setPage(1); }, [search, statusFilter, profileFilter, sortKey, sortDir]);
+  useEffect(() => { setPage(1); }, [debouncedSearch, statusFilter, profileFilter, sortKey, sortDir]);
 
   const filtered = allLoadedEvents.filter((e) => {
     if (e.archived) return false;
@@ -109,8 +117,8 @@ export default function EventsPage() {
       const profileMatch = idsToMatch.some((pid) => e.hostProfileId === pid || e.accessProfileIds?.includes(pid));
       if (!profileMatch) return false;
     }
-    if (search) {
-      const q = search.toLowerCase();
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase();
       if (!e.name.toLowerCase().includes(q) && !e.artist.toLowerCase().includes(q) && !e.venue.toLowerCase().includes(q)) return false;
     }
     return true;

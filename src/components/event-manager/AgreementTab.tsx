@@ -157,7 +157,7 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
     const myProfileIds = allProfiles.map(p => p.id).filter(Boolean) as string[];
     // Performer: user owns the performer profile on this event
     if (event.performerProfileId) {
-      const myArtistProfiles = allProfiles.filter(p => p.role === "artist" && p.id);
+      const myArtistProfiles = allProfiles.filter(p => (p.role === "performer" || p.role === "artist") && p.id);
       const match = myArtistProfiles.find(p => p.id === event.performerProfileId);
       if (match) { parties.add("Performer"); names["Performer"] = match.name; }
     }

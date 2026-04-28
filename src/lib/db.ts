@@ -321,7 +321,7 @@ export async function searchArtistProfiles(
     // No search term — return all public artist profiles
     const q = query(
       collection(db, PROFILE_COLLECTION),
-      where("type", "==", "artist"),
+      where("type", "in", ["performer", "artist"]),
       where("isPublic", "==", true),
       orderBy("name"),
       ...(cursor ? [startAfter(cursor)] : []),
@@ -347,7 +347,7 @@ export async function searchArtistProfiles(
   for (const variant of variants) {
     const q = query(
       collection(db, PROFILE_COLLECTION),
-      where("type", "==", "artist"),
+      where("type", "in", ["performer", "artist"]),
       where("isPublic", "==", true),
       where("name", ">=", variant),
       where("name", "<=", variant + "\uf8ff"),

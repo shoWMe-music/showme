@@ -157,7 +157,7 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
 
   const handleRoleSelect = (role: OperatorRole) => {
     setSelectedRole(role);
-    if (role === "artist" && profiles["artist"]?.name) setArtistName(profiles["artist"].name);
+    if (role === "performer" && (profiles["performer"]?.name || profiles["artist"]?.name)) setArtistName(profiles["performer"]?.name || profiles["artist"]?.name || "");
     if (role === "venue" && allVenueOptions.length === 1) {
       setVenueName(allVenueOptions[0].name);
       if (allVenueOptions[0].capacity) setCapacity(String(allVenueOptions[0].capacity));

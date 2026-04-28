@@ -91,14 +91,14 @@ export function EventManagerHeader({
             <div className="flex items-center gap-2">
               {(event.eventStatus === "draft" || event.eventStatus === "suggested") && (
                 <Button
-                  variant={event.eventStatus === "suggested" && (event.performerProfileId || collaborators.some(c => c.eventRole === "artist" && c.status === "pending")) ? "outline" : "default"}
-                  className={cn("gap-2", event.eventStatus === "suggested" && (event.performerProfileId || collaborators.some(c => c.eventRole === "artist" && c.status === "pending")) && "border-orange-500 text-orange-600 disabled:opacity-60")}
+                  variant={event.eventStatus === "suggested" && (event.performerProfileId || collaborators.some(c => c.eventRole === "performer" && c.status === "pending")) ? "outline" : "default"}
+                  className={cn("gap-2", event.eventStatus === "suggested" && (event.performerProfileId || collaborators.some(c => c.eventRole === "performer" && c.status === "pending")) && "border-orange-500 text-orange-600 disabled:opacity-60")}
                   onClick={onMarkPendingOpen}
-                  disabled={event.eventStatus === "suggested" && !!(event.performerProfileId || collaborators.some(c => c.eventRole === "artist" && c.status === "pending"))}
+                  disabled={event.eventStatus === "suggested" && !!(event.performerProfileId || collaborators.some(c => c.eventRole === "performer" && c.status === "pending"))}
                 >
                   <Send className="h-4 w-4" />
                   {event.eventStatus === "suggested"
-                    ? (event.performerProfileId || collaborators.some(c => c.eventRole === "artist" && c.status === "pending")
+                    ? (event.performerProfileId || collaborators.some(c => c.eventRole === "performer" && c.status === "pending")
                       ? "Pending Performer Invitation"
                       : "Mark as Pending")
                     : (effectiveSourceRequestId && (!effectiveSourceRequestDate || event.date === effectiveSourceRequestDate))

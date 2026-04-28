@@ -42,7 +42,7 @@ export function CollaboratorsTab({ event, collaborators, profiles, onInviteOpen 
   const hostProfile = event.hostProfileId ? profileById.get(event.hostProfileId) : undefined;
 
   // Group collaborators by role
-  const roleOrder: EventCollaboratorRole[] = ["venue", "promoter", "organizer", "festival", "artist", "agent", "admin", "staff"];
+  const roleOrder: EventCollaboratorRole[] = ["venue", "promoter", "organizer", "festival", "performer", "agent", "admin", "staff"];
   const grouped = new Map<EventCollaboratorRole, EventCollaborator[]>();
   for (const c of collaborators) {
     const list = grouped.get(c.eventRole) || [];

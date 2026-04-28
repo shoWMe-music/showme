@@ -10,13 +10,13 @@ import { useToast } from "@/hooks/use-toast";
 const SAVE_DEBOUNCE_MS = 800;
 const STALE_TIME = 5 * 60 * 1000; // 5 minutes
 
-export type OperatorRole = "venue" | "promoter" | "organizer" | "artist" | "festival";
+export type OperatorRole = "venue" | "promoter" | "organizer" | "performer" | "festival";
 
 export const operatorRoleLabels: Record<OperatorRole, string> = {
   venue: "Venue",
   promoter: "Promoter",
   organizer: "Event Organizer / Producer",
-  artist: "Performer",
+  performer: "Performer",
   festival: "Festival",
 };
 
@@ -473,7 +473,8 @@ export function getBaseRole(key: string): OperatorRole {
   if (key.startsWith("venue")) return "venue";
   if (key.startsWith("promoter")) return "promoter";
   if (key.startsWith("organizer")) return "organizer";
-  if (key.startsWith("artist")) return "artist";
+  if (key.startsWith("performer")) return "performer";
+  if (key.startsWith("artist")) return "performer";
   if (key.startsWith("festival")) return "festival";
   return key as OperatorRole;
 }

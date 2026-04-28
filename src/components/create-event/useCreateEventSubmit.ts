@@ -252,7 +252,7 @@ export function useCreateEventSubmit() {
         const profile = profiles[key];
         if (profile?.documents && profile.documents.length > 0) {
           const isRelevantVenue = (key === "venue" || key.startsWith("venue-")) && profile.name === venueName;
-          const isRelevantArtist = (key === "artist" || key.startsWith("artist-")) && profile.name === artistName;
+          const isRelevantArtist = (key === "performer" || key === "artist" || key.startsWith("performer-") || key.startsWith("artist-")) && profile.name === artistName;
           const isSelectedRole = key === selectedRole || key.startsWith(`${selectedRole}-`);
           if (isRelevantVenue || isRelevantArtist || isSelectedRole) {
             for (const doc of profile.documents) {

@@ -31,7 +31,7 @@ import { CreateProfileDialog } from "@/components/CreateProfileDialog";
 import { EventStatusBadge } from "@/components/StatusBadge";
 import type { Event as AppEvent, EventStatus } from "@/lib/models";
 
-const PROFILE_START_ROLES: OperatorRole[] = ["venue", "promoter", "organizer", "artist", "festival"];
+const PROFILE_START_ROLES: OperatorRole[] = ["venue", "promoter", "organizer", "performer", "festival"];
 
 /* ─── Photo Gallery with Lightbox ─── */
 
@@ -407,7 +407,7 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
 
           {/* Actions */}
           <div className="pt-[5.5rem] shrink-0 flex gap-2">
-            {baseRole === "artist" && (
+            {(baseRole === "performer" || baseRole === "artist") && (
               <>
                 <Button variant="outline" size="sm" className="gap-1.5 text-xs">
                   <Eye className="h-3.5 w-3.5" /> Tech Rider
@@ -459,7 +459,7 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             {/* Listen (Performer) */}
-            {baseRole === "artist" && (
+            {(baseRole === "performer" || baseRole === "artist") && (
               <div className="rounded-xl border bg-card p-6 shadow-sm">
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><Music className="h-5 w-5 text-primary" /> Listen</h3>
                 {getSpotifyEmbedUrl(profile.spotifyUrl || "") ? (
@@ -516,7 +516,7 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
 
           {/* Sidebar */}
           <div className="space-y-6">
-            {baseRole === "artist" && (
+            {(baseRole === "performer" || baseRole === "artist") && (
               <div className="rounded-xl border bg-card p-6 shadow-sm">
                 <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Users className="h-4 w-4 text-primary" /> Setup Variations</h3>
                 {profile.setupType ? (

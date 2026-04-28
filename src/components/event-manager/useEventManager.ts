@@ -173,7 +173,7 @@ export function useEventManager() {
   const isPerformer = useMemo(() => {
     if (!event) return false;
     const myArtistProfileIds = Object.values(profiles)
-      .filter(p => p.role === "artist" && p.id)
+      .filter(p => (p.role === "performer" || p.role === "artist") && p.id)
       .map(p => p.id!);
     if (myArtistProfileIds.length === 0) return false;
     const myProfileIds = Object.values(profiles).map(p => p.id).filter(Boolean) as string[];
@@ -278,7 +278,7 @@ export function useEventManager() {
   useEffect(() => {
     if (!eventsLoaded || !event || !isParent || !isPerformer) return;
     const myArtistProfileIds = Object.values(profiles)
-      .filter(p => p.role === "artist" && p.id)
+      .filter(p => (p.role === "performer" || p.role === "artist") && p.id)
       .map(p => p.id!);
     const myChild = childEventsList.find(
       c => c.performerProfileId && myArtistProfileIds.includes(c.performerProfileId),

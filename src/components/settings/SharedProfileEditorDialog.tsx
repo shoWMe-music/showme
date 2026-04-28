@@ -74,7 +74,7 @@ export function SharedProfileEditorDialog({
               </div>
             )}
 
-            {editingProfile === "artist" && (
+            {(editingProfile === "performer" || editingProfile === "artist") && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Setup Type</Label>

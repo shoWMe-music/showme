@@ -134,7 +134,7 @@ export function roleCanManageEventCore(role: EventCollaboratorRole): boolean {
 }
 
 export function roleCanEditPerformersMaterials(role: EventCollaboratorRole): boolean {
-  return role === "artist" || role === "admin";
+  return role === "performer" || role === "admin";
 }
 
 export function roleCanManageCollaborators(role: EventCollaboratorRole): boolean {

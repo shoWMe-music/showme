@@ -179,7 +179,7 @@ export const claimInvitationCode = onCall<ClaimInvitationCodeData, Promise<Claim
 
       if (oldProfileSnap.exists) {
         const oldData = oldProfileSnap.data() ?? {};
-        const role = recipientRole ?? "artist";
+        const role = recipientRole ?? "performer";
         const newProfileId = `${uid}__${role}`;
         const newProfileRef = db().collection("profiles").doc(newProfileId);
 

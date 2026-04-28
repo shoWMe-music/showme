@@ -32,7 +32,7 @@ const typeIcons: Record<ContactType, typeof Users> = {
   production: Factory,
 };
 
-const allTypes: ContactType[] = ["promoter", "venue", "artist", "ticketing", "agent", "manager", "production"];
+const allTypes: ContactType[] = ["promoter", "venue", "performer", "ticketing", "agent", "manager", "production"];
 
 interface DuplicateGroup {
   key: string;

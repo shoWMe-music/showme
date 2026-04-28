@@ -39,7 +39,7 @@ export function SettlementTab({ event, deal, revenue, settlement, buildPayoutRow
 
   const handleAddComment = () => {
     if (!commentText.trim()) return;
-    const partyName = currentUser.roles.includes("artist") ? "Performer Agent" : currentUser.name;
+    const partyName = currentUser.roles.includes("performer") ? "Performer Agent" : currentUser.name;
     const attachments = attachedFiles.map(f => ({ name: f.name, size: f.size > 1024 * 1024 ? `${(f.size / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(f.size / 1024)} KB`, type: f.type || f.name.split(".").pop() || "file" }));
     addComment(event.id, partyName, commentText.trim(), attachments.length > 0 ? attachments : undefined);
     setCommentText(""); setAttachedFiles([]);

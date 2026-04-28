@@ -51,8 +51,8 @@ function normalizeToOperatorRole(raw: string | undefined): OperatorRole | undefi
   const lower = raw.toLowerCase();
   const map: Record<string, OperatorRole> = {
     venue: "venue", promoter: "promoter", organizer: "organizer",
-    artist: "artist", performer: "artist", festival: "festival",
-    agent: "artist", manager: "artist",
+    artist: "performer", performer: "performer", festival: "festival",
+    agent: "performer", manager: "performer",
   };
   return map[lower] ?? undefined;
 }
@@ -61,7 +61,7 @@ const roleIcons: Record<OperatorRole, typeof Building2> = {
   venue: Building2,
   promoter: Megaphone,
   organizer: CalendarDays,
-  artist: Music,
+  performer: Music,
   festival: Tent,
 };
 
@@ -69,7 +69,7 @@ const roleDescriptions: Record<OperatorRole, string> = {
   venue: "Manage your spaces, bookings, and operations",
   promoter: "Plan, execute, and coordinate events",
   organizer: "Produce and oversee event logistics",
-  artist: "Manage your bookings, riders, and deals as a performer",
+  performer: "Manage your bookings, riders, and deals",
   festival: "Organize multi-stage, multi-performer festivals",
 };
 
@@ -77,7 +77,7 @@ const roleNameLabels: Record<OperatorRole, string> = {
   venue: "Venue Name",
   promoter: "Promoter Name",
   organizer: "Organizer Name",
-  artist: "Artist / Act Name",
+  performer: "Performer / Act Name",
   festival: "Festival Name",
 };
 
@@ -85,7 +85,7 @@ const roleNamePlaceholders: Record<OperatorRole, string> = {
   venue: "What is your venue called?",
   promoter: "What is your promoter company called?",
   organizer: "What is your organization called?",
-  artist: "What is your artist or act name?",
+  performer: "What is your performer or act name?",
   festival: "What is your festival called?",
 };
 
@@ -320,7 +320,7 @@ export default function SignupPage() {
             setEmail(code.recipientEmail);
           }
           if (code.recipientRole) {
-            const role = normalizeToOperatorRole(code.recipientRole) ?? "artist";
+            const role = normalizeToOperatorRole(code.recipientRole) ?? "performer";
             setProfileRole(role);
             setSelectedRoles([role]);
           }
@@ -382,7 +382,7 @@ export default function SignupPage() {
                 });
                 const role = normalizeToOperatorRole(data.role as string)
                   ?? normalizeToOperatorRole(result.data.recipientRole)
-                  ?? "artist";
+                  ?? "performer";
                 setProfileRole(role);
                 setSelectedRoles([role]);
               }
@@ -536,7 +536,7 @@ export default function SignupPage() {
       // Derive roles: from selection, or from the claimed profile role
       const effectiveRoles = selectedRoles.length > 0
         ? selectedRoles
-        : [normalizeToOperatorRole(claimResult?.recipientRole) ?? normalizeToOperatorRole(codeData?.recipientRole) ?? "artist" as OperatorRole];
+        : [normalizeToOperatorRole(claimResult?.recipientRole) ?? normalizeToOperatorRole(codeData?.recipientRole) ?? "performer" as OperatorRole];
 
       await upsertSettingsMutation.mutateAsync({
         name: displayName,
@@ -851,7 +851,7 @@ export default function SignupPage() {
                       <p className="text-xs text-muted-foreground mt-0.5">
                         You were invited as{" "}
                         <span className="font-medium">
-                          {operatorRoleLabels[(linkedProfileData.role as OperatorRole) || "artist"]}
+                          {operatorRoleLabels[(linkedProfileData.role as OperatorRole) || "performer"]}
                         </span>
                         {codeData?.linkedEventId && " and linked to an event"}.
                         Edit the details below or start fresh.
@@ -951,7 +951,7 @@ export default function SignupPage() {
                 </div>
               )}
 
-              {effectiveRole === "artist" && (
+              {effectiveRole === "performer" && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label>Setup Type</Label>

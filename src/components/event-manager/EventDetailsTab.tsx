@@ -1085,7 +1085,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                     <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="promoter">Promoter</SelectItem>
-                      <SelectItem value="artist">Performer</SelectItem>
+                      <SelectItem value="performer">Performer</SelectItem>
                       <SelectItem value="organizer">Organizer</SelectItem>
                       <SelectItem value="split">Split (by prod cost split)</SelectItem>
                     </SelectContent>
@@ -1418,7 +1418,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                     id: `collab-${childId}-performer`,
                     email: "",
                     name,
-                    eventRole: "artist",
+                    eventRole: "performer",
                     status: "active",
                     invitedAt: new Date().toISOString(),
                     profileId: newPerformerProfileId || undefined,

@@ -170,7 +170,7 @@ export default function CalendarPage() {
     const seen = new Set<string>();
     Object.entries(profiles).forEach(([key, profile]) => {
       if (!profile?.created || !profile.name) return;
-      const base = key.startsWith("venue") ? "venue" : key.startsWith("artist") ? "artist" : key.startsWith("festival") ? "festival" : key.startsWith("promoter") ? "promoter" : key.startsWith("organizer") ? "organizer" : null;
+      const base = key.startsWith("venue") ? "venue" : key.startsWith("performer") ? "performer" : key.startsWith("artist") ? "performer" : key.startsWith("festival") ? "festival" : key.startsWith("promoter") ? "promoter" : key.startsWith("organizer") ? "organizer" : null;
       if (!base) return;
       if (!seen.has(profile.name)) {
         seen.add(profile.name);
@@ -207,7 +207,7 @@ export default function CalendarPage() {
     return map;
   }, [calendarEntities]);
 
-  const hasAvailabilityRole = currentUser.roles.some(r => r === "venue" || r === "artist");
+  const hasAvailabilityRole = currentUser.roles.some(r => r === "venue" || r === "performer");
 
   const autoUnavailableDates = useMemo<Record<string, Set<string>>>(() => {
     if (!hasAvailabilityRole) return {};
@@ -641,7 +641,7 @@ export default function CalendarPage() {
         <ImportCalendarDialog open={importOpen} onOpenChange={setImportOpen} onImportEvents={handleImportEvents} onImportCalendarItems={handleImportCalendarItems} />
         {createItemType && <CalendarItemFormDialog type={createItemType} defaultDate={createItemDate} defaultStartTime={createItemTime} onAdd={addCalendarItem} open={!!createItemType} onOpenChange={(v) => { if (!v) { setCreateItemType(null); setCreateItemTime(undefined); } }} profiles={profileOptions} members={memberOptions} currentUserUid={currentUser.id} currentUserName={currentUser.name} />}
         {editingItem && <CalendarItemFormDialog type={editingItem.type} defaultDate={parseISO(editingItem.date)} defaultStartTime={editingItem.startTime} onAdd={(item) => updateCalendarItem({ ...item, id: editingItem.id })} open={!!editingItem} onOpenChange={(v) => { if (!v) setEditingItem(null); }} profiles={profileOptions} members={memberOptions} currentUserUid={currentUser.id} currentUserName={currentUser.name} editingItem={editingItem} />}
-        <ShareAvailabilityDialog open={shareOpen} onOpenChange={setShareOpen} unavailableDates={combinedUnavailable} ownerUid={currentUser.id} calendarEntities={calendarEntities} selectedEntity={shareEntity || (calendarEntities[0]?.name || "")} onEntityChange={setShareEntity} events={events} profileSlug={(() => { for (const [role, profile] of Object.entries(profiles)) { if ((role === "venue" || role === "artist") && profile.created) { return profile.slug || profile.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || role; } } return undefined; })()} profileRole={currentUser.roles.find(r => r === "venue" || r === "artist")} />
+        <ShareAvailabilityDialog open={shareOpen} onOpenChange={setShareOpen} unavailableDates={combinedUnavailable} ownerUid={currentUser.id} calendarEntities={calendarEntities} selectedEntity={shareEntity || (calendarEntities[0]?.name || "")} onEntityChange={setShareEntity} events={events} profileSlug={(() => { for (const [role, profile] of Object.entries(profiles)) { if ((role === "venue" || role === "performer" || role === "artist") && profile.created) { return profile.slug || profile.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || role; } } return undefined; })()} profileRole={currentUser.roles.find(r => r === "venue" || r === "performer")} />
         <MarkRangeDialog open={markRangeOpen} onOpenChange={setMarkRangeOpen} onApply={markRangeUnavailable} calendarEntities={calendarEntities} selectedEntity={markingEntity || (calendarEntities[0]?.name || "")} onEntityChange={setMarkingEntity} />
         <EntitySelectorDialog open={entitySelectorOpen} onOpenChange={setEntitySelectorOpen} entities={calendarEntities} onSelect={(entity) => { if (pendingMarkDate) { toggleUnavailable(pendingMarkDate, entity); setPendingMarkDate(null); } }} />
 

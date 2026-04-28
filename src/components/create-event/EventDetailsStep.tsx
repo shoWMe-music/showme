@@ -107,7 +107,7 @@ export function EventDetailsStep({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Performer</Label>
-              <PerformerSearch value={artistName} onChange={(name, profile) => { setArtistName(name); setPerformerProfileId(profile?.id || ""); }} placeholder={selectedRole === "artist" ? "Your artist name" : "Search or type artist name"} />
+              <PerformerSearch value={artistName} onChange={(name, profile) => { setArtistName(name); setPerformerProfileId(profile?.id || ""); }} placeholder={selectedRole === "performer" ? "Your performer name" : "Search or type performer name"} />
             </div>
             <div className="space-y-2">
               <Label>Venue</Label>

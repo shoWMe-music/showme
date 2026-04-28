@@ -34,7 +34,7 @@ export async function createPerformerInvitation(
     userUid,
     queryClient,
     role = "Performer",
-    eventRole = "artist",
+    eventRole = "performer",
     permission = "editor",
     message = "",
     onCollaboratorAdded,

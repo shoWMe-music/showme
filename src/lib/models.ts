@@ -33,7 +33,7 @@ export type EventCollaboratorRole =
   | "promoter"
   | "organizer"
   | "festival"
-  | "artist"
+  | "performer"
   | "agent"
   | "staff";
 
@@ -317,7 +317,7 @@ export function calculateSettlement(deal: DealStructure, revenue: TicketRevenue)
 
   // Venue rental paid-by adjustments
   if (deal.venueRental > 0) {
-    if (venueRentalPaidBy === "artist") {
+    if (venueRentalPaidBy === "performer" || venueRentalPaidBy === "artist") {
       artistAdj.push({ label: "Venue Rental (paid by Performer)", amount: -deal.venueRental });
     } else if (venueRentalPaidBy === "organizer") {
       organizerAdj.push({ label: "Venue Rental (paid by Organizer)", amount: -deal.venueRental });
@@ -516,7 +516,7 @@ export const calendarItemTypeLabels: Record<CalendarItemType, string> = {
 
 // ── Contact types ──
 
-export type ContactType = "promoter" | "venue" | "artist" | "ticketing" | "agent" | "manager" | "production";
+export type ContactType = "promoter" | "venue" | "performer" | "ticketing" | "agent" | "manager" | "production";
 
 export interface ContactPerson {
   name: string;
@@ -653,8 +653,8 @@ export function legacyRoleToEventRole(role: string): EventCollaboratorRole {
     promoter: "promoter",
     organizer: "organizer",
     festival: "festival",
-    artist: "artist",
-    performer: "artist",
+    artist: "performer",
+    performer: "performer",
     agent: "agent",
     staff: "staff",
   };
