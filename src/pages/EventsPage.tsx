@@ -167,7 +167,7 @@ export default function EventsPage() {
             <h1 className="text-3xl font-bold tracking-tight">Events</h1>
             <p className="mt-1 text-muted-foreground">Manage your events from creation to settlement</p>
           </div>
-          {canCreate && <CreateEventDialog />}
+          {canCreate && statusFilter !== "concluded" && statusFilter !== "cancelled" && statusFilter !== "archived" && <CreateEventDialog />}
         </div>
 
         <div className="mb-4 flex flex-col gap-3">
