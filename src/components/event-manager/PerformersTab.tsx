@@ -5,6 +5,7 @@ import StatusBadge from "@/components/StatusBadge";
 import { formatCurrency } from "@/lib/models";
 import type { Event } from "@/lib/models";
 import type { EventEconomicsData } from "@/lib/queries/useEventEconomics";
+import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 
 interface PerformersTabProps {
   childEvents: Event[];
@@ -64,7 +65,7 @@ export function PerformersTab({ childEvents, childEconomics, eventCurrency }: Pe
                       {child.artist?.charAt(0) || "?"}
                     </div>
                     <div>
-                      <p className="font-semibold">{child.artist}</p>
+                      <p className="font-semibold"><ProfilePreviewPopover name={child.artist} profileId={child.performerProfileId} /></p>
                       <p className="text-xs text-muted-foreground capitalize">
                         {childDeal?.dealType?.replace("_", " ") || "—"} · Guarantee: {formatCurrency(childDeal?.artistGuarantee || 0, eventCurrency)}
                         {child.roomStage ? ` · ${child.roomStage}` : ""}

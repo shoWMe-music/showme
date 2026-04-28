@@ -12,6 +12,7 @@ import {
   Eye, Trash2, Edit2, Copy, Printer, Users, ExternalLink,
 } from "lucide-react";
 import { PopupItemType } from "./calendarConstants";
+import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 
 // ── Item Popup (Google Calendar-style) ──
 
@@ -53,7 +54,7 @@ export function CalendarItemPopup({ item, position, onClose, onDelete, onDuplica
 
   const isEvent = item.kind === "event";
   const title = isEvent ? item.data.name : item.data.title;
-  const subtitle = isEvent ? `${item.data.artist} · ${item.data.venue}` : (item.data.description || "");
+  const subtitle = isEvent ? null : (item.data.description || "");
   const dateStr = isEvent ? item.data.date : item.data.date;
   const timeStr = !isEvent ? [(item.data as CalendarItem).startTime, (item.data as CalendarItem).endTime].filter(Boolean).join(" – ") : "";
   const typeBadge = isEvent ? item.data.eventStatus : (item.data as CalendarItem).type;
@@ -73,7 +74,12 @@ export function CalendarItemPopup({ item, position, onClose, onDelete, onDuplica
           {entityColor && <span className="h-3 w-3 rounded-full shrink-0 mt-0.5" style={{ backgroundColor: entityColor }} />}
           <div className="min-w-0">
             <h3 className="font-display font-semibold text-sm truncate">{title}</h3>
-            {subtitle && <p className="text-xs text-muted-foreground mt-0.5 truncate">{subtitle}</p>}
+            {isEvent && (
+              <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                <ProfilePreviewPopover name={(item.data as AppEvent).artist} profileId={(item.data as AppEvent).performerProfileId} /> · <ProfilePreviewPopover name={(item.data as AppEvent).venue} />
+              </p>
+            )}
+            {!isEvent && subtitle && <p className="text-xs text-muted-foreground mt-0.5 truncate">{subtitle}</p>}
           </div>
         </div>
         <Badge variant="secondary" className="text-[10px] shrink-0">

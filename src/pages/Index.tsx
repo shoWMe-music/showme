@@ -40,6 +40,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 
 // ─── To-Do Section ───────────────────────────────────────────────
 function TodoSection({
@@ -747,7 +748,9 @@ export default function Dashboard() {
                     </div>
                     <div>
                       <p className="font-medium">{event.name}</p>
-                      <p className="text-sm text-muted-foreground">{event.artist} · {event.venue}</p>
+                      <p className="text-sm text-muted-foreground">
+                        <ProfilePreviewPopover name={event.artist} profileId={event.performerProfileId} /> · <ProfilePreviewPopover name={event.venue} />
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
@@ -793,7 +796,7 @@ export default function Dashboard() {
                     const total = s.artistPayout + s.promoterPayout + s.venuePayout + s.commissionPayouts.reduce((sum, c) => sum + c.payout, 0);
                     return (
                       <div key={e.id} className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground truncate">{e.artist}</span>
+                        <span className="text-sm text-muted-foreground truncate"><ProfilePreviewPopover name={e.artist} profileId={e.performerProfileId} /></span>
                         <span className="text-sm font-semibold font-display">{formatCurrency(total)}</span>
                       </div>
                     );

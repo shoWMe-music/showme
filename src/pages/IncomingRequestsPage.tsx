@@ -16,6 +16,7 @@ import InviteCollaboratorDialog from "@/components/InviteCollaboratorDialog";
 import { FileText, Send, X, Archive, Ban, Search, Clock, ExternalLink, Copy, Music, Video, ChevronDown, ChevronLeft, ChevronRight, Mail, CalendarCheck, MapPin, Check, XCircle, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 import { useUser } from "@/lib/user-context";
 import { formatCurrency, type Event } from "@/lib/models";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -456,7 +457,7 @@ export default function IncomingRequestsPage() {
                       </p>
                       <p className="flex items-center gap-1">
                         <MapPin className="h-3 w-3" />
-                        {event.venue}
+                        <ProfilePreviewPopover name={event.venue} />
                       </p>
                       <p>
                         <span className="font-medium">From:</span> {event.operator}
@@ -510,7 +511,7 @@ export default function IncomingRequestsPage() {
                       </p>
                       <p className="flex items-center gap-1">
                         <MapPin className="h-3 w-3" />
-                        {event.venue}
+                        <ProfilePreviewPopover name={event.venue} />
                       </p>
                       <p><span className="font-medium">From:</span> {event.operator}</p>
                     </div>

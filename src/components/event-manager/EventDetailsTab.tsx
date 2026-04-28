@@ -4,6 +4,7 @@ import { type StageOption } from "@/components/StageRoomSelect";
 import { PerformerFormFields, PERFORMER_ROLE_TAG_LABELS } from "@/components/PerformerFormFields";
 import DocumentPreviewDialog from "@/components/DocumentPreviewDialog";
 import { SectionTemplateMenu } from "@/components/SectionTemplateMenu";
+import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
@@ -353,7 +354,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                     {performerLocked ? (
                       <div className="mt-1 flex items-center gap-2 h-10 px-3 rounded-md border bg-muted text-sm">
                         <Music className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span>{event.artist}</span>
+                        <ProfilePreviewPopover name={event.artist} profileId={event.performerProfileId} />
                         <Badge variant="outline" className="text-[10px] ml-auto">Linked</Badge>
                       </div>
                     ) : (
@@ -462,9 +463,9 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
             {[
               { label: "Event Name", value: event.name },
               { label: "Date", value: event.date },
-              { label: "Venue", value: event.venue },
+              { label: "Venue", value: event.venue ? <ProfilePreviewPopover name={event.venue} /> : event.venue },
               ...(event.roomStage && !event.isMultiPerformer ? [{ label: "Room / Stage", value: event.roomStage }] : []),
-              ...(!event.isMultiPerformer ? [{ label: "Performer", value: event.artist }] : []),
+              ...(!event.isMultiPerformer ? [{ label: "Performer", value: event.artist ? <ProfilePreviewPopover name={event.artist} profileId={event.performerProfileId} onInvite={!event.performerProfileId && onInvitePerformer ? () => onInvitePerformer(event.artist) : undefined} /> : event.artist }] : []),
               { label: "Capacity", value: (event.capacity ?? 0).toLocaleString() },
               { label: "Ticketing Provider", value: event.ticketingProvider },
               { label: "Operator", value: `${event.operator} (${event.operatorType})` },
@@ -498,9 +499,11 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                     <div className="flex items-center gap-3">
                       <Music className="h-4 w-4 text-primary" />
                       <div>
-                        <p className="text-sm font-medium">{event.artist}</p>
+                        <p className="text-sm font-medium">
+                          <ProfilePreviewPopover name={event.artist} profileId={event.performerProfileId} onInvite={!event.performerProfileId && onInvitePerformer ? () => onInvitePerformer(event.artist) : undefined} />
+                        </p>
                         <p className="text-xs text-muted-foreground">
-                          {event.venue}{event.roomStage ? ` — ${event.roomStage}` : ""}
+                          <ProfilePreviewPopover name={event.venue} size="sm" className="text-muted-foreground" />{event.roomStage ? ` — ${event.roomStage}` : ""}
                           {event.capacity ? ` (${event.capacity} cap.)` : ""}
                         </p>
                       </div>
@@ -527,7 +530,9 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                       <Music className="h-4 w-4 text-primary" />
                       <div>
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium">{child.artist}</p>
+                          <p className="text-sm font-medium">
+                            <ProfilePreviewPopover name={child.artist} profileId={child.performerProfileId} onInvite={!child.performerProfileId && onInvitePerformer ? () => onInvitePerformer(child.artist, child.id) : undefined} />
+                          </p>
                           {child.performerRoleTag && (
                             <Badge variant="secondary" className="text-[10px]">
                               {PERFORMER_ROLE_TAG_LABELS[child.performerRoleTag]}
@@ -535,7 +540,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          {child.venue}{child.roomStage ? ` — ${child.roomStage}` : ""}
+                          <ProfilePreviewPopover name={child.venue} size="sm" className="text-muted-foreground" />{child.roomStage ? ` — ${child.roomStage}` : ""}
                           {child.capacity ? ` (${child.capacity} cap.)` : ""}
                         </p>
                       </div>

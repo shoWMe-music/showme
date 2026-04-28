@@ -10,6 +10,7 @@ import {
 } from "@/lib/models";
 import { formatLocation, getPrimaryLocation, type SharedProfile } from "@/lib/user-context";
 import { Users, UserPlus, Link as LinkIcon, Mail, Clock, Check, X, Shield, Copy, XCircle } from "lucide-react";
+import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 import { useMyInvitationCodes, useRevokeInvitationCode } from "@/lib/queries/useInvitationCodes";
 import { toast, copyToast } from "@/hooks/use-toast";
 import { useChildEvents } from "@/lib/queries";
@@ -115,7 +116,7 @@ export function CollaboratorsTab({ event, collaborators, profiles, onInviteOpen 
                 </div>
               )}
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium">{hostProfile.name}</p>
+                <p className="text-sm font-medium"><ProfilePreviewPopover name={hostProfile.name} profileId={event.hostProfileId} /></p>
                 <p className="text-xs text-muted-foreground">
                   {formatLocation(getPrimaryLocation(hostProfile.locations))}
                   {hostProfile.role && ` \u00b7 ${hostProfile.role.charAt(0).toUpperCase() + hostProfile.role.slice(1)}`}
@@ -162,7 +163,7 @@ export function CollaboratorsTab({ event, collaborators, profiles, onInviteOpen 
                           )}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
-                              <p className="text-sm font-medium">{c.name}</p>
+                              <p className="text-sm font-medium"><ProfilePreviewPopover name={c.name} profileId={c.profileId} /></p>
                               {c.profileId && (
                                 <Badge variant="outline" className="text-[10px] gap-1 py-0">
                                   <LinkIcon className="h-2.5 w-2.5" /> Profile linked

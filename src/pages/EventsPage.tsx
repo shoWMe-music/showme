@@ -19,6 +19,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 
 const EVENT_STATUS_FILTERS: { value: EventStatus | "all" | "archived"; label: string }[] = [
   { value: "all", label: "All" },
@@ -285,7 +286,7 @@ export default function EventsPage() {
                           <p className={`text-xs text-muted-foreground ${isChildEvent ? "pl-2" : ""}`}>{event.id}</p>
                         </td>
                         <td className="px-6 py-4 text-sm">
-                          {event.artist}
+                          <ProfilePreviewPopover name={event.artist} />
                           {event.isMultiPerformer && (() => {
                             const childNames = allLoadedEvents
                               .filter(e => e.parentEventId === event.id)
@@ -296,7 +297,7 @@ export default function EventsPage() {
                             ) : null;
                           })()}
                         </td>
-                        <td className="px-6 py-4 text-sm text-muted-foreground">{event.venue}</td>
+                        <td className="px-6 py-4 text-sm text-muted-foreground"><ProfilePreviewPopover name={event.venue} /></td>
                         <td className="px-6 py-4 text-sm text-muted-foreground">
                           <Link to="/calendar" search={{ date: event.date }} className="hover:underline hover:text-foreground cursor-pointer transition-colors">
                             {event.date}

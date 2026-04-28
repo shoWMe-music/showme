@@ -35,6 +35,7 @@ import { getAuthClient } from "@/lib/firebaseAuth";
 import {
   FileText, Plus, Download, CheckCircle2, Trash2, Check,
 } from "lucide-react";
+import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 
 /* ─── Agreement Tab ─── */
 export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency, actingProfile, collaborators = [], readOnly, onConfirmed }: { event: AppEvent; deal: DealStructure | null | undefined; revenue?: TicketRevenue; eventMeta: EventMeta; onSave?: (d: Partial<EventMeta>) => void; currency?: string; actingProfile?: string; collaborators?: EventCollaborator[]; readOnly?: boolean; onConfirmed?: () => void }) {
@@ -255,8 +256,8 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div><span className="text-muted-foreground">Event:</span> <span className="font-medium ml-2">{event.name}</span></div>
           <div><span className="text-muted-foreground">Date:</span> <span className="font-medium ml-2">{event.date}</span></div>
-          <div><span className="text-muted-foreground">Artist:</span> <span className="font-medium ml-2">{event.artist}</span></div>
-          <div><span className="text-muted-foreground">Venue:</span> <span className="font-medium ml-2">{event.venue}</span></div>
+          <div><span className="text-muted-foreground">Artist:</span> <span className="font-medium ml-2"><ProfilePreviewPopover name={event.artist} profileId={event.performerProfileId} /></span></div>
+          <div><span className="text-muted-foreground">Venue:</span> <span className="font-medium ml-2"><ProfilePreviewPopover name={event.venue} /></span></div>
           {event.capacity > 0 && <div><span className="text-muted-foreground">Capacity:</span> <span className="font-medium ml-2">{event.capacity.toLocaleString()}</span></div>}
           {event.operator && <div><span className="text-muted-foreground">Operator:</span> <span className="font-medium ml-2">{event.operator}</span></div>}
           {event.ticketingProvider && <div><span className="text-muted-foreground">Ticketing:</span> <span className="font-medium ml-2">{event.ticketingProvider}</span></div>}

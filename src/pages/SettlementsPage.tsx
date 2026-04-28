@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { SETTLEMENT_STATUS_DOT } from "@/components/settlements/settlementConstants";
 import { usePaginatedEvents, useAllEventEconomics } from "@/lib/queries";
+import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 
 export default function SettlementsPage() {
   const { currentUser } = useUser();
@@ -146,7 +147,7 @@ export default function SettlementsPage() {
                     return (
                       <tr key={event.id} className="transition-colors hover:bg-muted/30 cursor-pointer" onClick={() => navigate({ to: "/settlements/$id", params: { id: event.id } })}>
                         <td className="px-6 py-4"><span className="font-medium hover:text-primary transition-colors">{event.name}</span></td>
-                        <td className="px-6 py-4 text-sm">{event.artist}</td>
+                        <td className="px-6 py-4 text-sm"><ProfilePreviewPopover name={event.artist} /></td>
                         <td className="px-6 py-4 text-sm font-semibold font-display text-right">{formatCurrency(total, currentUser.currency)}</td>
                         <td className="px-6 py-4"><StatusBadge status={s.status} /></td>
                         <td className="px-6 py-4 text-sm text-muted-foreground">{approvedCount}/{s.approvals.length}</td>
