@@ -211,7 +211,7 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
   };
 
   const venueRequired = selectedRole === "venue" && !isMultiPerformer;
-  const step1Valid = !!eventName && (!venueRequired || !!venueName.trim()) && (!isMultiPerformer || (multiVenueType === "festival" ? !!festivalName.trim() : multiVenueType === "venue" ? !!venueName.trim() : false));
+  const step1Valid = !!eventName && !!date && (!venueRequired || !!venueName.trim()) && (!isMultiPerformer || (multiVenueType === "festival" ? !!festivalName.trim() : multiVenueType === "venue" ? !!venueName.trim() : false));
   const stepTitles = isMultiPerformer
     ? ["Choose Your Role", "Event Details", "Add Performers"]
     : ["Choose Your Role", "Event Details", "Deal Structure"];
