@@ -1,4 +1,4 @@
-import { buildProfileDocId, eventPersonalBudgetDocId } from "@/lib/profiles";
+import { eventPersonalBudgetDocId } from "@/lib/profiles";
 import type { Event, EventCollaboratorRole, EventStatus } from "@/lib/models";
 import type { OperatorRole, SharedProfile } from "@/lib/user-context";
 import { operatorRoleLabels } from "@/lib/user-context";
@@ -63,12 +63,13 @@ export function isPrimaryEventOwner(
   return Boolean(primary && primary === uid);
 }
 
-/** Budget planner: primary owner, or event collaborator with a core economics / admin role. */
+/** Budget planner: uid in accessUids, legacy primary owner, or event collaborator with a core economics / admin role. */
 export function canAccessEventBudget(
-  event: Pick<Event, "primary_owner_uid" | "owner_uid" | "participant_roles"> | undefined,
+  event: Pick<Event, "primary_owner_uid" | "owner_uid" | "accessUids" | "participant_roles"> | undefined,
   uid: string | undefined,
 ): boolean {
   if (!event || !uid) return false;
+  if (event.accessUids?.includes(uid)) return true;
   if (isPrimaryEventOwner(event, uid)) return true;
   const role = event.participant_roles?.[uid];
   return Boolean(role && roleCanManageEventCore(role));
@@ -76,22 +77,28 @@ export function canAccessEventBudget(
 
 /**
  * Doc ids for `events/{eventId}/budgets/{id}`.
- * - One worksheet per operator profile slot you use (venue / organizer / promoter / festival).
+ * - One worksheet per operator profile slot you own (venue / organizer / promoter / festival).
  * - Profile co-admins use the same doc id as the profile owner (enforced in Firestore rules).
  * - With no named profiles, a uid-keyed personal worksheet is offered.
- * - Event admins may open each of the primary owner’s profile-slot worksheets.
  */
 export function budgetProfileDocIdsForEvent(
-  event: Pick<Event, "primary_owner_uid" | "owner_uid" | "participant_roles"> | undefined,
+  event: Pick<Event, "primary_owner_uid" | "owner_uid" | "hostProfileId" | "accessProfileIds"> | undefined,
   uid: string,
   profiles: Record<string, SharedProfile>,
 ): { id: string; label: string }[] {
   if (!event || !uid) return [];
+
   const primary =
     (typeof event.primary_owner_uid === "string" && event.primary_owner_uid) ||
     (typeof event.owner_uid === "string" && event.owner_uid) ||
-    uid;
-  const isEventAdmin = event.participant_roles?.[uid] === "admin";
+    "";
+  const isPrimaryOwner = primary === uid;
+
+  // Profile IDs that are connected to this event
+  const eventProfileIds = new Set<string>();
+  if (event.hostProfileId) eventProfileIds.add(event.hostProfileId);
+  if (event.accessProfileIds) event.accessProfileIds.forEach((id) => eventProfileIds.add(id));
+
   const seen = new Set<string>();
   const out: { id: string; label: string }[] = [];
   const push = (id: string, label: string) => {
@@ -100,13 +107,13 @@ export function budgetProfileDocIdsForEvent(
     out.push({ id, label });
   };
 
+  // Show profiles the user owns that are connected to this event.
+  // Primary owners always see their profiles (handles events created before accessProfileIds existed).
   let myProfileRows = 0;
   for (const slot of EVENT_CREATOR_PROFILE_SLOTS) {
-    if (profiles[slot]?.name?.trim()) {
-      push(
-        buildProfileDocId(uid, slot),
-        `${operatorRoleLabels[slot]} (your profile)`,
-      );
+    const p = profiles[slot];
+    if (p?.name?.trim() && p.id && (eventProfileIds.has(p.id) || isPrimaryOwner)) {
+      push(p.id, `${operatorRoleLabels[slot]} (your profile)`);
       myProfileRows += 1;
     }
   }
@@ -114,18 +121,6 @@ export function budgetProfileDocIdsForEvent(
     push(eventPersonalBudgetDocId(uid), "Personal worksheet (this event)");
   }
 
-  if (isEventAdmin && primary && primary !== uid) {
-    for (const slot of EVENT_CREATOR_PROFILE_SLOTS) {
-      push(
-        buildProfileDocId(primary, slot),
-        `${operatorRoleLabels[slot]} (event owner)`,
-      );
-    }
-  }
-
-  if (out.length === 0 && primary) {
-    push(buildProfileDocId(primary, "venue"), "Venue (default)");
-  }
   return out;
 }
 

@@ -45,7 +45,6 @@ import {
   PROFILE_COLLECTION,
   PROFILE_MEMBERS_SUBCOLLECTION,
   PROFILE_ROOT_SCHEMA_VERSION,
-  buildProfileDocId,
   deleteAllProfileMembers,
   ensureProfileOwnerMember,
   profileDocumentRef,
@@ -167,7 +166,6 @@ function stripUndefined<T>(obj: T): T {
 
 // ── Profile doc helpers (re-exported for consumers) ───────────────────────────
 
-export { buildProfileDocId } from "@/lib/profiles";
 
 // ── User Settings ─────────────────────────────────────────────────────────────
 
@@ -388,12 +386,13 @@ function docToArtistProfile(d: QueryDocumentSnapshot): ArtistProfileResult {
 
 export async function upsertProfile(role: string, profile: SharedProfile) {
   const uid = requireUid();
-  const ref = profileDocumentRef(buildProfileDocId(uid, role));
-  const profileId = buildProfileDocId(uid, role);
+  const profileId = profile.id || doc(collection(getFirestoreDb(), PROFILE_COLLECTION)).id;
+  const ref = profileDocumentRef(profileId);
+  const { id: _stripId, ...profileData } = profile;
   await safeSetDoc(
     ref,
     {
-      ...profile,
+      ...profileData,
       type: profile.role ?? role,
       owner_uid: uid,
       slot: role,
@@ -405,9 +404,7 @@ export async function upsertProfile(role: string, profile: SharedProfile) {
   await ensureProfileOwnerMember(profileId, uid);
 }
 
-export async function deleteProfile(role: string) {
-  const uid = requireUid();
-  const profileId = buildProfileDocId(uid, role);
+export async function deleteProfile(profileId: string) {
   await deleteAllProfileMembers(profileId);
   await deleteDoc(profileDocumentRef(profileId));
 }
@@ -651,10 +648,9 @@ export async function fetchAllProfileTeamMembers(
   if (!uid || Object.keys(profiles).length === 0) return [];
   const results = await Promise.all(
     Object.entries(profiles)
-      .filter(([, p]) => p.owner_uid === uid || p.id?.startsWith(`${uid}__`))
-      .map(([slot]) => {
-        const profileId = `${uid}__${slot}`;
-        return fetchProfileTeamMembers(profileId).catch(() => [] as TeamMember[]);
+      .filter(([, p]) => p.id && (p.owner_uid === uid))
+      .map(([, p]) => {
+        return fetchProfileTeamMembers(p.id!).catch(() => [] as TeamMember[]);
       }),
   );
   return results.flat();

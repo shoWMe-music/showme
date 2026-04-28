@@ -25,8 +25,10 @@ import { CollaboratorsTab } from "@/components/event-manager/CollaboratorsTab";
 import { EventChangeLogTab } from "@/components/event-manager/EventChangeLogTab";
 import InviteCollaboratorDialog from "@/components/InviteCollaboratorDialog";
 import ExportEventDialog from "@/components/ExportEventDialog";
+import CreateEventDialog from "@/components/CreateEventDialog";
 import EventMessages from "@/components/EventMessages";
 import { useEventManager } from "@/components/event-manager/useEventManager";
+import type { PrefillData } from "@/components/create-event/types";
 
 export default function EventManagerPage() {
   const em = useEventManager();
@@ -37,6 +39,7 @@ export default function EventManagerPage() {
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [markPendingOpen, setMarkPendingOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
 
   const handleAcceptInvitation = () => {
     if (!em.id) return;
@@ -120,9 +123,11 @@ export default function EventManagerPage() {
           onMarkPendingOpen={() => setMarkPendingOpen(true)}
           onExportOpen={() => setExportOpen(true)}
           onArchiveOpen={() => setArchiveConfirmOpen(true)}
+          onDuplicate={() => setDuplicateOpen(true)}
           effectiveSourceRequestId={em.effectiveSourceRequestId}
           effectiveSourceRequestDate={em.effectiveSourceRequestDate}
           isPerformerInvitation={em.isPerformer}
+          onTabChange={(tabId) => { if (tabId === "changelog") em.markChangeLogViewed(); }}
         />
 
         {em.isPerformerInvitation && (
@@ -268,6 +273,16 @@ export default function EventManagerPage() {
           <MarkPendingDialog open={markPendingOpen} onOpenChange={setMarkPendingOpen} event={event} sourceRequestId={em.effectiveSourceRequestId} sourceRequestDate={em.effectiveSourceRequestDate} updateEvent={em.updateEvent} user={em.user} eventName={event.name} queryClient={queryClient} onCollaboratorAdded={em.refreshCollaborators} senderName={em.currentUser?.name || em.user?.displayName || em.user?.email || "A shoWMe user"} />
         )}
         <ArchiveDialog open={archiveConfirmOpen} onOpenChange={setArchiveConfirmOpen} eventId={id} event={event} user={em.user} archiveMutate={em.archiveEventMutation.mutate} />
+
+        <CreateEventDialog
+          externalOpen={duplicateOpen}
+          onExternalOpenChange={setDuplicateOpen}
+          prefillData={{
+            artistName: event.artist,
+            venueName: event.venue,
+          } satisfies PrefillData}
+          onEventCreated={(newId) => em.navigate({ to: "/events/$id", params: { id: newId } })}
+        />
       </div>
     </AppLayout>
   );

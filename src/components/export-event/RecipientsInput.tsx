@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,9 +26,17 @@ export function RecipientsInput({
   onRemove,
   onAddTeamMember,
 }: RecipientsInputProps) {
+  const [popoverOpen, setPopoverOpen] = useState(false);
+
+  const availableMembers = teamMembers.filter(m =>
+    (m.status === "active" || !m.status) &&
+    m.email?.trim() &&
+    !recipients.includes(m.email.toLowerCase().trim())
+  );
+
   return (
     <div className="space-y-2">
-      <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Recipients (required for sharing)</Label>
+      <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Recipients (optional — restricts access by email)</Label>
       <div className="flex gap-2">
         <Input
           value={recipientInput}
@@ -38,7 +47,7 @@ export function RecipientsInput({
         />
         <Button size="sm" className="h-8 text-xs" onClick={onAdd} disabled={!recipientInput.trim()}>Add</Button>
         {teamMembers.length > 0 && (
-          <Popover>
+          <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
             <PopoverTrigger asChild>
               <Button size="sm" variant="outline" className="h-8 text-xs gap-1">
                 <Plus className="h-3 w-3" /> <Users className="h-3 w-3" />
@@ -47,9 +56,7 @@ export function RecipientsInput({
             <PopoverContent className="w-56 p-2" align="end">
               <p className="text-xs font-medium text-muted-foreground mb-2">Add from team</p>
               <div className="space-y-1 max-h-[200px] overflow-y-auto">
-                {teamMembers
-                  .filter(m => m.status === "active" && !recipients.includes(m.email.toLowerCase().trim()))
-                  .map(m => (
+                {availableMembers.map(m => (
                     <button
                       key={m.id}
                       className="w-full text-left px-2 py-1.5 text-sm rounded hover:bg-accent transition-colors"
@@ -58,7 +65,7 @@ export function RecipientsInput({
                       {m.name} <span className="text-xs text-muted-foreground">({m.email})</span>
                     </button>
                   ))}
-                {teamMembers.filter(m => m.status === "active" && !recipients.includes(m.email.toLowerCase().trim())).length === 0 && (
+                {availableMembers.length === 0 && (
                   <p className="text-xs text-muted-foreground px-2 py-1">All active members added</p>
                 )}
               </div>

@@ -1,8 +1,9 @@
 import NumberInput from "@/components/NumberInput";
 import { PerformerSearch } from "@/components/PerformerSearch";
 import { type StageOption } from "@/components/StageRoomSelect";
-import { PerformerFormFields } from "@/components/PerformerFormFields";
+import { PerformerFormFields, PERFORMER_ROLE_TAG_LABELS } from "@/components/PerformerFormFields";
 import DocumentPreviewDialog from "@/components/DocumentPreviewDialog";
+import { SectionTemplateMenu } from "@/components/SectionTemplateMenu";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
@@ -114,6 +115,11 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
     removeChildEventMutation.mutate({ parentId, childId });
   const convertToMultiPerformer = (eventId: string) =>
     convertToMultiPerformerMutation.mutateAsync({ eventId });
+  // Check if the current user is acting as a performer on this event
+  const isPerformerOperator = Boolean(
+    profiles.performer?.id &&
+    (event.performerProfileId === profiles.performer.id || event.accessProfileIds?.includes(profiles.performer.id))
+  );
   const [childRidersMap, setChildRidersMap] = useState<Record<string, Rider[]>>({});
 
   useEffect(() => {
@@ -128,6 +134,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
   const [removePerformerId, setRemovePerformerId] = useState<string | null>(null);
   const [newPerformerName, setNewPerformerName] = useState("");
   const [newPerformerProfileId, setNewPerformerProfileId] = useState("");
+  const [newPerformerRoleTag, setNewPerformerRoleTag] = useState<import("@/components/PerformerFormFields").PerformerRoleTag | undefined>();
   const [newPerformerStage, setNewPerformerStage] = useState("");
   const [newPerformerCapacity, setNewPerformerCapacity] = useState("");
   const [newPerformerDealType, setNewPerformerDealType] = useState<DealType>("guarantee");
@@ -253,6 +260,11 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
   const [editExpenses, setEditExpenses] = useState<ExpenseItem[]>([]);
   const [editAmenities, setEditAmenities] = useState<AmenityKey[]>([]);
   const [editEvent, setEditEvent] = useState({ name: event.name, date: event.date, venue: event.venue, artist: event.artist, capacity: event.capacity, ticketingProvider: event.ticketingProvider, eventStatus: event.eventStatus, roomStage: event.roomStage || "", ticketUrls: event.ticketUrls || [] as string[], holdRank: event.holdRank || 1 as number, holdAutoPromote: event.holdAutoPromote !== false as boolean });
+
+  const venueRoomOptions = useMemo(() => {
+    const venueProfile = Object.values(profiles).find(p => p.role === "venue" && p.name === event.venue);
+    return (venueProfile?.subVenues || []).filter(sv => sv.type === "room" || sv.type === "stage").map(sv => sv.name);
+  }, [profiles, event.venue]);
 
   const commitEventSave = (ev: typeof editEvent) => {
     if (event.eventStatus === "on_hold" && ev.eventStatus !== "on_hold") {
@@ -504,12 +516,24 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                     )}
                   </div>
                 )}
+                {!event.isMultiPerformer && !readOnly && (
+                  <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={() => setAddPerformerOpen(true)}>
+                    <Plus className="h-3 w-3" /> Add Support Act
+                  </Button>
+                )}
                 {event.isMultiPerformer && childEvents && childEvents.map((child) => (
                   <div key={child.id} className="rounded-lg border p-3 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <Music className="h-4 w-4 text-primary" />
                       <div>
-                        <p className="text-sm font-medium">{child.artist}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium">{child.artist}</p>
+                          {child.performerRoleTag && (
+                            <Badge variant="secondary" className="text-[10px]">
+                              {PERFORMER_ROLE_TAG_LABELS[child.performerRoleTag]}
+                            </Badge>
+                          )}
+                        </div>
                         <p className="text-xs text-muted-foreground">
                           {child.venue}{child.roomStage ? ` — ${child.roomStage}` : ""}
                           {child.capacity ? ` (${child.capacity} cap.)` : ""}
@@ -717,6 +741,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                       const mm = item.time ? item.time.split(":")[1] || "00" : "00";
                       const s = [...editSchedule]; s[i] = {...s[i], time: `${val}:${mm}`}; setEditSchedule(s);
                     }}
+                    onFocus={(e) => e.target.select()}
                     placeholder="HH"
                     className="w-14 text-center"
                     maxLength={2}
@@ -730,6 +755,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                       const hh = item.time ? item.time.split(":")[0] || "00" : "00";
                       const s = [...editSchedule]; s[i] = {...s[i], time: `${hh}:${val}`}; setEditSchedule(s);
                     }}
+                    onFocus={(e) => e.target.select()}
                     placeholder="MM"
                     className="w-14 text-center"
                     maxLength={2}
@@ -738,34 +764,99 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                 </div>
                 <Input value={item.label} onChange={(e) => { const s = [...editSchedule]; s[i] = {...s[i], label: e.target.value}; setEditSchedule(s); }} placeholder="Activity" className="flex-1" />
                 <Input value={item.description || ""} onChange={(e) => { const s = [...editSchedule]; s[i] = {...s[i], description: e.target.value}; setEditSchedule(s); }} placeholder="Notes" className="flex-1" />
+                {venueRoomOptions.length > 1 && (
+                  <Select value={item.roomStage || "_all"} onValueChange={v => { const s = [...editSchedule]; s[i] = {...s[i], roomStage: v === "_all" ? undefined : v}; setEditSchedule(s); }}>
+                    <SelectTrigger className="w-28"><SelectValue placeholder="Room" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_all">All</SelectItem>
+                      {venueRoomOptions.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                )}
                 <Button variant="ghost" size="icon" onClick={() => setEditSchedule(editSchedule.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4 text-destructive" /></Button>
               </div>
             ))}
-            <Button variant="outline" size="sm" onClick={() => setEditSchedule([...editSchedule, { id: `SC-${Date.now()}`, time: "", label: "" }])}>
-              <Plus className="h-3.5 w-3.5 mr-1" /> Add Item
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setEditSchedule([...editSchedule, { id: `SC-${Date.now()}`, time: "", label: "" }])}>
+                <Plus className="h-3.5 w-3.5 mr-1" /> Add Item
+              </Button>
+              {editSchedule.length === 0 && (
+                <Button variant="outline" size="sm" onClick={() => setEditSchedule([
+                  { id: `SC-${Date.now()}-1`, time: "15:00", label: "Get-in" },
+                  { id: `SC-${Date.now()}-2`, time: "16:00", label: "Soundcheck" },
+                  { id: `SC-${Date.now()}-3`, time: "19:00", label: "Doors" },
+                  { id: `SC-${Date.now()}-4`, time: "20:00", label: "Show" },
+                  { id: `SC-${Date.now()}-5`, time: "23:00", label: "Curfew" },
+                ])}>
+                  Load Defaults
+                </Button>
+              )}
+              {event.hostProfileId && (
+                <SectionTemplateMenu
+                  profileId={event.hostProfileId}
+                  category="schedules"
+                  currentData={editSchedule.map(s => ({ time: s.time, label: s.label, description: s.description }))}
+                  onLoad={(data) => {
+                    const items = (data as { time: string; label: string; description?: string }[]).map((s, i) => ({
+                      id: `SC-${Date.now()}-${i}`, time: s.time, label: s.label, description: s.description,
+                    }));
+                    setEditSchedule(items);
+                  }}
+                />
+              )}
+            </div>
           </div>
         }
       >
         {schedule.length === 0 ? (
           <p className="text-sm text-muted-foreground">No schedule added yet.</p>
-        ) : (
-          <div className="relative">
-            <div className="absolute left-[52px] top-2 bottom-2 w-px bg-border" />
-            <div className="space-y-3">
-              {schedule.map((item) => (
-                <div key={item.id} className="flex items-start gap-4">
-                  <span className="text-sm font-mono font-semibold text-muted-foreground w-12 text-right shrink-0">{item.time || "—"}</span>
-                  <div className="h-2.5 w-2.5 rounded-full bg-primary mt-1.5 shrink-0 relative z-10" />
-                  <div>
-                    <p className="text-sm font-medium">{item.label}</p>
-                    {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
+        ) : (() => {
+          const hasRooms = schedule.some(s => s.roomStage);
+          if (!hasRooms) {
+            return (
+              <div className="relative">
+                <div className="absolute left-[52px] top-2 bottom-2 w-px bg-border" />
+                <div className="space-y-3">
+                  {schedule.map((item) => (
+                    <div key={item.id} className="flex items-start gap-4">
+                      <span className="text-sm font-mono font-semibold text-muted-foreground w-12 text-right shrink-0">{item.time || "—"}</span>
+                      <div className="h-2.5 w-2.5 rounded-full bg-primary mt-1.5 shrink-0 relative z-10" />
+                      <div>
+                        <p className="text-sm font-medium">{item.label}</p>
+                        {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          }
+          const rooms = [...new Set(schedule.map(s => s.roomStage || "General"))];
+          return (
+            <div className="space-y-4">
+              {rooms.map(room => (
+                <div key={room}>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">{room}</p>
+                  <div className="relative pl-1">
+                    <div className="absolute left-[52px] top-2 bottom-2 w-px bg-border" />
+                    <div className="space-y-3">
+                      {schedule.filter(s => (s.roomStage || "General") === room).map((item) => (
+                        <div key={item.id} className="flex items-start gap-4">
+                          <span className="text-sm font-mono font-semibold text-muted-foreground w-12 text-right shrink-0">{item.time || "—"}</span>
+                          <div className="h-2.5 w-2.5 rounded-full bg-primary mt-1.5 shrink-0 relative z-10" />
+                          <div>
+                            <p className="text-sm font-medium">{item.label}</p>
+                            {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          );
+        })()}
       </EditableSection>
 
       {/* Amenities */}
@@ -773,7 +864,16 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
         title="Amenities"
         icon={<Shield className="h-5 w-5 text-primary" />}
         readOnly={readOnly}
-        onEditStart={() => setEditAmenities([...amenities])}
+        onEditStart={() => {
+          setEditAmenities([...amenities]);
+          // Autofill from venue profile if empty
+          if (amenities.length === 0) {
+            const venueProfile = Object.values(profiles).find(p => p.role === "venue" && p.name === event.venue);
+            if (venueProfile?.amenities && venueProfile.amenities.length > 0) {
+              setEditAmenities(venueProfile.amenities as AmenityKey[]);
+            }
+          }
+        }}
         onSave={() => setAmenities([...editAmenities])}
         editContent={
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -998,7 +1098,16 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
           icon={<DollarSign className="h-5 w-5 text-primary" />}
           readOnly={readOnly}
           onEditStart={() => setEditDeal({ ...deal })}
-          onSave={() => { if (editDeal) updateDeal(event.id, editDeal); }}
+          onSave={() => {
+            if (editDeal) {
+              updateDeal(event.id, editDeal);
+              // Reset agreement confirmations when deal terms change
+              if (eventMeta.agreementConfirmations?.length) {
+                onSave?.({ agreementConfirmations: [], agreementLastChangedAt: new Date().toISOString() });
+                toast({ title: "Approvals reset", description: "The financial deal was changed — all parties need to re-confirm the agreement." });
+              }
+            }
+          }}
           saveDisabled={editDeal ? (() => {
             const revSplitApplies = editDeal.dealType !== "guarantee" && editDeal.dealType !== "rental";
             const revSplitBad = revSplitApplies && (editDeal.artistSplit + editDeal.promoterSplit + editDeal.venueSplit + (editDeal.organizerSplit || 0)) !== 100;
@@ -1131,6 +1240,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                   </div>
                 )}
               </div>
+              {readOnly && isPerformerOperator && (
               <div className="space-y-3">
                 <Label className="font-semibold">Commissions from Performer Share</Label>
                 <p className="text-xs text-muted-foreground -mt-1">Booker/Agent fee always deducted from artist revenue</p>
@@ -1147,6 +1257,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                   <Plus className="h-3.5 w-3.5 mr-1" /> Add Commission
                 </Button>
               </div>
+              )}
             </div>
           ) : null}
         >
@@ -1183,6 +1294,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                 )}
               </div>
             </div>
+            {readOnly && isPerformerOperator && (
             <div>
               <h4 className="text-sm font-semibold mb-2">Commissions from Performer Share</h4>
               {deal.commissions.length === 0 ? (
@@ -1198,6 +1310,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                 </div>
               )}
             </div>
+            )}
           </div>
         </EditableSection>
       )}
@@ -1330,6 +1443,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
               values={{
                 artistName: newPerformerName,
                 performerProfileId: newPerformerProfileId,
+                performerRoleTag: newPerformerRoleTag,
                 stageRoom: newPerformerStage,
                 stageCapacity: newPerformerCapacity,
                 dealType: newPerformerDealType,
@@ -1339,8 +1453,16 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                 venueSplit: newPerformerVenueSplit,
               }}
               onChange={(updates) => {
+                if (updates.performerProfileId !== undefined && updates.performerProfileId.trim()) {
+                  const alreadyAdded = childEvents?.some(c => c.performerProfileId === updates.performerProfileId);
+                  if (alreadyAdded) {
+                    toast({ title: "Performer already added to this event", variant: "destructive" });
+                    return;
+                  }
+                }
                 if (updates.artistName !== undefined) setNewPerformerName(updates.artistName);
                 if (updates.performerProfileId !== undefined) setNewPerformerProfileId(updates.performerProfileId);
+                if (updates.performerRoleTag !== undefined) setNewPerformerRoleTag(updates.performerRoleTag);
                 if (updates.stageRoom !== undefined) setNewPerformerStage(updates.stageRoom);
                 if (updates.stageCapacity !== undefined) setNewPerformerCapacity(updates.stageCapacity);
                 if (updates.dealType !== undefined) setNewPerformerDealType(updates.dealType);
@@ -1393,6 +1515,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                     roomStage: newPerformerStage.trim() || undefined,
                     hostProfileId: event.hostProfileId,
                     performerProfileId: newPerformerProfileId || undefined,
+                    performerRoleTag: newPerformerRoleTag || undefined,
                     accessUids: childAccessUids,
                     accessProfileIds: childAccessProfileIds,
                   };

@@ -125,6 +125,9 @@ export function CalendarMonthView({
           const selected = selectedDate && isSameDay(day, selectedDate);
           const isUnavailable = flatCombinedUnavailable.has(dateKey);
           const isDragOver = dragOverTarget === dateKey;
+          const hasConfirmed = dayEvents.some(e => e.eventStatus === "confirmed");
+          const hasOnHold = dayEvents.some(e => e.eventStatus === "on_hold");
+          const isDoubleBooked = hasConfirmed && isUnavailable;
 
           const inSelection =
             markingMode &&
@@ -150,7 +153,9 @@ export function CalendarMonthView({
                 !inMonth && "bg-muted/30",
                 selected && "bg-primary/5 ring-1 ring-inset ring-primary/30",
                 !selected && !isUnavailable && !inSelection && "hover:bg-muted/50",
-                isUnavailable && "calendar-unavailable",
+                isDoubleBooked && "bg-destructive/10",
+                isUnavailable && !isDoubleBooked && "calendar-unavailable",
+                !isUnavailable && hasOnHold && !selected && "bg-amber-50 dark:bg-amber-950/20",
                 markingMode ? "cursor-crosshair" : "cursor-pointer",
                 isDragOver && "ring-2 ring-inset ring-primary/50 bg-primary/10",
                 inSelection && "bg-primary/10 ring-2 ring-inset ring-primary/40",
@@ -160,7 +165,7 @@ export function CalendarMonthView({
                 <span className={cn(
                   "text-xs font-medium h-6 w-6 flex items-center justify-center rounded-full",
                   !inMonth && "text-muted-foreground/50",
-                  today && "bg-primary text-primary-foreground",
+                  today && "bg-[#FF6B6B] text-white",
                   !today && inMonth && "text-foreground",
                 )}>{format(day, "d")}</span>
                 <div className="flex items-center gap-1">

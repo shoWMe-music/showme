@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "@tanstack/react-router";
-import { useUser, operatorRoleLabels, getBaseRole, formatLocation, getPrimaryLocation, type OperatorRole, type SharedProfile, type SubVenue } from "@/lib/user-context";
+import { useUser, operatorRoleLabels, getBaseRole, formatLocation, getPrimaryLocation, type OperatorRole, type SharedProfile, type SubVenue, type ProfileLocation } from "@/lib/user-context";
 import { useEvents } from "@/lib/queries";
 import type { Event as AppEvent } from "@/lib/models";
 import { fetchPublicProfileBySlug } from "@/lib/db";
@@ -16,6 +16,11 @@ function getVideoEmbed(url: string): { embedUrl: string | null } {
   const vimeoMatch = url.match(/vimeo\.com\/(\d+)/);
   if (vimeoMatch) return { embedUrl: `https://player.vimeo.com/video/${vimeoMatch[1]}` };
   return { embedUrl: null };
+}
+
+function formatPerformerLocation(loc: ProfileLocation | undefined): string {
+  if (!loc) return "No location";
+  return [loc.city, loc.country].filter(Boolean).join(", ") || "No location";
 }
 
 export default function PublicProfilePage() {
@@ -202,7 +207,11 @@ export default function PublicProfilePage() {
               </div>
               <div className="flex items-center gap-2 mt-2">
                 <MapPin className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">{formatLocation(getPrimaryLocation(profile.locations)) || "No location"}</span>
+                <span className="text-sm text-muted-foreground">
+                  {role === "performer"
+                    ? formatPerformerLocation(getPrimaryLocation(profile.locations))
+                    : formatLocation(getPrimaryLocation(profile.locations)) || "No location"}
+                </span>
               </div>
               <div className="flex flex-wrap gap-2 mt-3">
                 {profile.socialLinks?.filter(l => l.url).map((link, i) => (
@@ -234,12 +243,16 @@ export default function PublicProfilePage() {
         <div className="p-8 pt-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
-              {role === "performer" && getSpotifyEmbedUrl(profile.spotifyUrl || "") && (
-                <div className="rounded-xl border bg-card p-6 shadow-sm">
-                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><Music className="h-5 w-5 text-primary" /> Listen</h3>
-                  <iframe src={getSpotifyEmbedUrl(profile.spotifyUrl!)!} width="100%" height="352" frameBorder="0" allow="encrypted-media" title="Spotify" className="rounded-md" />
-                </div>
-              )}
+              {(() => {
+                const spotifyLink = profile.socialLinks?.find((l: { platform: string }) => l.platform.toLowerCase() === "spotify")?.url || profile.spotifyUrl || "";
+                const embedUrl = role === "performer" ? getSpotifyEmbedUrl(spotifyLink) : null;
+                return embedUrl ? (
+                  <div className="rounded-xl border bg-card p-6 shadow-sm">
+                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><Music className="h-5 w-5 text-primary" /> Listen</h3>
+                    <iframe src={embedUrl} width="100%" height="352" frameBorder="0" allow="encrypted-media" title="Spotify" className="rounded-md" />
+                  </div>
+                ) : null;
+              })()}
 
               <div className="rounded-xl border bg-card p-6 shadow-sm">
                 <h3 className="text-lg font-semibold mb-3">{role === "venue" ? "About" : "Bio"}</h3>
@@ -251,7 +264,13 @@ export default function PublicProfilePage() {
                 <div className="rounded-xl border bg-card p-6 shadow-sm">
                   <h3 className="text-lg font-semibold mb-3 flex items-center gap-2"><MapPin className="h-5 w-5 text-primary" /> Location</h3>
                   <VenueMap lat={profile.coordinates.lat} lng={profile.coordinates.lng} className="w-full h-48 rounded-lg" />
-                  {getPrimaryLocation(profile.locations) && <p className="text-sm text-muted-foreground mt-3">{formatLocation(getPrimaryLocation(profile.locations))}</p>}
+                  {getPrimaryLocation(profile.locations) && (
+                    <p className="text-sm text-muted-foreground mt-3">
+                      {role === "performer"
+                        ? formatPerformerLocation(getPrimaryLocation(profile.locations))
+                        : formatLocation(getPrimaryLocation(profile.locations))}
+                    </p>
+                  )}
                 </div>
               ) : null}
 
@@ -288,13 +307,24 @@ export default function PublicProfilePage() {
             </div>
 
             <div className="space-y-6">
-              {role === "performer" && profile.setupType && (
+              {role === "performer" && ((profile.setups && profile.setups.length > 0) || profile.setupType) && (
                 <div className="rounded-xl border bg-card p-6 shadow-sm">
-                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Users className="h-4 w-4 text-primary" /> Setup</h3>
-                  <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
-                    <span className="text-sm font-medium">{profile.setupType}</span>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground"><Users className="h-3 w-3" /> {profile.setupSize || "—"}</div>
-                  </div>
+                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Users className="h-4 w-4 text-primary" /> Setup Variations</h3>
+                  {(profile.setups && profile.setups.length > 0) ? (
+                    <div className="space-y-1.5">
+                      {profile.setups.map((s, i) => (
+                        <div key={i} className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
+                          <span className="text-sm font-medium">{s.name}</span>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground"><Users className="h-3 w-3" /> {s.headcount}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
+                      <span className="text-sm font-medium">{profile.setupType}</span>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground"><Users className="h-3 w-3" /> {profile.setupSize || "—"}</div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -311,7 +341,14 @@ export default function PublicProfilePage() {
                         {profile.subVenues?.filter((sv: SubVenue) => sv.capacity).map((sv: SubVenue) => (
                           <div key={sv.id} className="flex items-center justify-between text-sm">
                             <span className="text-muted-foreground">{sv.name}</span>
-                            <span>{sv.capacity?.toLocaleString()}</span>
+                            <div className="flex items-center gap-2">
+                              <span>{sv.capacity?.toLocaleString()}</span>
+                              {(sv.sittingCapacity || sv.standingCapacity) && (
+                                <span className="text-xs text-muted-foreground">
+                                  {sv.sittingCapacity ? `${sv.sittingCapacity} sit` : ""}{sv.sittingCapacity && sv.standingCapacity ? " / " : ""}{sv.standingCapacity ? `${sv.standingCapacity} stand` : ""}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -324,8 +361,12 @@ export default function PublicProfilePage() {
 
               <div className="rounded-xl border bg-card p-6 shadow-sm">
                 <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><MapPin className="h-4 w-4 text-primary" /> Location</h3>
-                <p className="text-sm text-muted-foreground">{formatLocation(getPrimaryLocation(profile.locations)) || "No location set"}</p>
-                {profile.address && <p className="text-xs text-muted-foreground mt-1">{profile.address}</p>}
+                <p className="text-sm text-muted-foreground">
+                  {role === "performer"
+                    ? formatPerformerLocation(getPrimaryLocation(profile.locations))
+                    : formatLocation(getPrimaryLocation(profile.locations)) || "No location set"}
+                </p>
+                {role !== "performer" && profile.address && <p className="text-xs text-muted-foreground mt-1">{profile.address}</p>}
               </div>
             </div>
           </div>

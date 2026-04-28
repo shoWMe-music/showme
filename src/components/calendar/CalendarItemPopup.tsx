@@ -15,7 +15,7 @@ import { PopupItemType } from "./calendarConstants";
 
 // ── Item Popup (Google Calendar-style) ──
 
-export function CalendarItemPopup({ item, position, onClose, onDelete, onDuplicate, onEdit, onInvite, onPrint, onPublish, entityColor, holdRank, holdAutoPromote, onHoldRankChange, onHoldAutoPromoteChange }: {
+export function CalendarItemPopup({ item, position, onClose, onDelete, onDuplicate, onEdit, onInvite, onPrint, onPublish, entityColor, holdRank, holdAutoPromote, onHoldRankChange, onHoldAutoPromoteChange, onConfirmHold, onDeclineHold }: {
   item: PopupItemType;
   position: { x: number; y: number };
   onClose: () => void;
@@ -30,6 +30,8 @@ export function CalendarItemPopup({ item, position, onClose, onDelete, onDuplica
   holdAutoPromote?: boolean;
   onHoldRankChange?: (rank: number) => void;
   onHoldAutoPromoteChange?: (auto: boolean) => void;
+  onConfirmHold?: () => void;
+  onDeclineHold?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -144,6 +146,20 @@ export function CalendarItemPopup({ item, position, onClose, onDelete, onDuplica
             <Switch checked={holdAutoPromote !== false} onCheckedChange={(v) => onHoldAutoPromoteChange?.(v)} className="h-4 w-7" />
             <Label className="text-xs">Auto-promote when higher hold removed</Label>
           </div>
+          {(onConfirmHold || onDeclineHold) && (
+            <div className="flex items-center gap-2 pt-1">
+              {onConfirmHold && (
+                <Button variant="default" size="sm" className="h-7 text-xs gap-1" onClick={() => { onConfirmHold(); onClose(); }}>
+                  Confirm
+                </Button>
+              )}
+              {onDeclineHold && (
+                <Button variant="outline" size="sm" className="h-7 text-xs gap-1 text-destructive hover:text-destructive" onClick={() => { onDeclineHold(); onClose(); }}>
+                  Decline
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

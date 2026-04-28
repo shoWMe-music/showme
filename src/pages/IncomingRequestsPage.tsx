@@ -60,7 +60,6 @@ const STATUS_FILTERS = [
   { value: "all", label: "All" },
   { value: "pending", label: "Pending" },
   { value: "accepted", label: "Accepted" },
-  { value: "draft_created", label: "Draft" },
   { value: "declined", label: "Declined" },
   { value: "archived", label: "Archived" },
   { value: "blocked", label: "Blocked" },
@@ -140,18 +139,25 @@ export default function IncomingRequestsPage() {
     return ids;
   }, [profiles]);
 
-  const allInvitations = useMemo(() =>
-    allEvents.filter(e =>
+  const allInvitations = useMemo(() => {
+    const matched = allEvents.filter(e =>
       e.performerProfileId &&
       myArtistProfileIds.includes(e.performerProfileId) &&
       !e.archived
-    ),
-    [allEvents, myArtistProfileIds],
-  );
+    );
+    // Deduplicate by event ID and hide children whose parent is already in the list
+    const parentIds = new Set(matched.filter(e => e.parentEventId).map(e => e.parentEventId!));
+    const deduped = new Map<string, Event>();
+    for (const e of matched) {
+      if (e.parentEventId && parentIds.has(e.parentEventId) && deduped.has(e.parentEventId)) continue;
+      if (!deduped.has(e.id)) deduped.set(e.id, e);
+    }
+    return Array.from(deduped.values());
+  }, [allEvents, myArtistProfileIds]);
 
   const eventInvitations = useMemo(() => {
     return allInvitations.filter(e => {
-      // Map invitation state to a filter-compatible status
+      if (e.eventStatus === "on_hold") return false; // shown in holds section
       const invStatus = e.performerResponse === "declined"
         ? "declined"
         : e.eventStatus === "suggested"
@@ -163,6 +169,10 @@ export default function IncomingRequestsPage() {
     });
   }, [allInvitations, statusFilter]);
 
+  const holdEvents = useMemo(() => {
+    return allInvitations.filter(e => e.eventStatus === "on_hold");
+  }, [allInvitations]);
+
   const handleAcceptInvitation = (event: Event) => {
     updateEventMutation.mutate({ id: event.id, updates: { eventStatus: "pending", performerResponse: "accepted" } });
     toast({ title: "Invitation accepted", description: `"${event.name}" is now pending.` });
@@ -171,6 +181,21 @@ export default function IncomingRequestsPage() {
   const handleDeclineInvitation = (event: Event) => {
     updateEventMutation.mutate({ id: event.id, updates: { performerResponse: "declined" } });
     toast({ title: "Invitation declined", description: `The host will be notified.` });
+  };
+
+  const handleConfirmHold = (event: Event) => {
+    updateEventMutation.mutate({ id: event.id, updates: { eventStatus: "confirmed" } });
+    // Cancel sibling holds on the same date
+    const siblings = holdEvents.filter(e => e.id !== event.id && e.date === event.date);
+    for (const s of siblings) {
+      updateEventMutation.mutate({ id: s.id, updates: { eventStatus: "cancelled" } });
+    }
+    toast({ title: "Date confirmed", description: siblings.length > 0 ? `${siblings.length} competing hold(s) cancelled.` : "Hold confirmed." });
+  };
+
+  const handleDeclineHold = (event: Event) => {
+    updateEventMutation.mutate({ id: event.id, updates: { eventStatus: "cancelled" } });
+    toast({ title: "Hold declined" });
   };
 
   const updateMutation = useMutation({
@@ -226,7 +251,7 @@ export default function IncomingRequestsPage() {
   // When a specific status is selected, Firestore already filters — only apply client-side
   // filtering for "all" (hide archived/blocked) and text search.
   const filtered = allRequests.filter(r => {
-    if (statusFilter === "all" && (r.status === "archived" || r.status === "blocked")) return false;
+    if (statusFilter === "all" && (r.status === "archived" || r.status === "blocked" || r.status === "draft_created")) return false;
     if (search) {
       const q = search.toLowerCase();
       return r.name.toLowerCase().includes(q) || r.artist_name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q);
@@ -247,7 +272,8 @@ export default function IncomingRequestsPage() {
   const groupedByEmail = useMemo(() => {
     const map = new Map<string, BookingRequest[]>();
     for (const req of paginatedFiltered) {
-      const key = req.email.toLowerCase();
+      // Group by target profile slug (the profile receiving requests), fall back to email
+      const key = req.target_profile_slug || req.email.toLowerCase();
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(req);
     }
@@ -454,6 +480,51 @@ export default function IncomingRequestsPage() {
               </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Holds */}
+        {holdEvents.length > 0 && (
+          <div className="mb-6 space-y-3">
+            <div className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-amber-500" />
+              <h2 className="text-sm font-semibold">Holds</h2>
+              <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 text-[10px]">{holdEvents.length}</Badge>
+            </div>
+            {holdEvents.map(event => (
+              <div key={event.id} className="rounded-xl border-2 border-amber-200 dark:border-amber-800 bg-card p-4 shadow-sm">
+                <div className="flex items-start gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className="font-semibold text-sm">{event.name}</span>
+                      <Badge variant="outline" className="text-[10px] bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-300">On Hold</Badge>
+                    </div>
+                    <div className="text-xs text-muted-foreground space-y-0.5">
+                      <p className="flex items-center gap-1">
+                        <CalendarCheck className="h-3 w-3" />
+                        {new Date(event.date + "T00:00").toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
+                      </p>
+                      <p className="flex items-center gap-1">
+                        <MapPin className="h-3 w-3" />
+                        {event.venue}
+                      </p>
+                      <p><span className="font-medium">From:</span> {event.operator}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5 shrink-0">
+                    <Button size="sm" className="text-xs gap-1" onClick={() => handleConfirmHold(event)}>
+                      <Check className="h-3 w-3" /> Confirm Date
+                    </Button>
+                    <Button size="sm" variant="outline" className="text-xs gap-1 text-destructive hover:text-destructive" onClick={() => handleDeclineHold(event)}>
+                      <XCircle className="h-3 w-3" /> Decline
+                    </Button>
+                    <Button size="sm" variant="outline" className="text-xs gap-1" onClick={() => navigate({ to: "/events/$id", params: { id: event.id } })}>
+                      <ExternalLink className="h-3 w-3" /> View
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 

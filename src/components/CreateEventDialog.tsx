@@ -190,15 +190,25 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
     else { setVenueSplit(value); setPromoterSplit(String(Math.max(0, 100 - (parseFloat(artistSplit) || 0) - num))); }
   };
 
-  const onSubmit = () => handleSubmit({
-    selectedRole, eventName, date, venueName, artistName, performerProfileId, capacity,
-    ticketingProvider, roomStage, holdRank, defaultStatus,
-    isMultiPerformer, multiVenueType, festivalName, performers,
-    promoterCostSplit, venueCostSplit, venueRental, venueRentalPaymentMode,
-    dealType, artistGuarantee, artistSplit, promoterSplit, venueSplit, artistCostSplit,
-    parties, prefillData, onEventCreated,
-    setOpen, resetForm,
-  });
+  const [submitting, setSubmitting] = useState(false);
+
+  const onSubmit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await handleSubmit({
+        selectedRole, eventName, date, venueName, artistName, performerProfileId, capacity,
+        ticketingProvider, roomStage, holdRank, defaultStatus,
+        isMultiPerformer, multiVenueType, festivalName, performers,
+        promoterCostSplit, venueCostSplit, venueRental, venueRentalPaymentMode,
+        dealType, artistGuarantee, artistSplit, promoterSplit, venueSplit, artistCostSplit,
+        parties, prefillData, onEventCreated,
+        setOpen, resetForm,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const venueRequired = selectedRole === "venue" && !isMultiPerformer;
   const step1Valid = !!eventName && (!venueRequired || !!venueName.trim()) && (!isMultiPerformer || (multiVenueType === "festival" ? !!festivalName.trim() : multiVenueType === "venue" ? !!venueName.trim() : false));
@@ -261,7 +271,7 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
 
         {step === 2 && !isMultiPerformer && (
           <DealStructureStep
-            onBack={() => setStep(1)} onSubmit={onSubmit}
+            onBack={() => setStep(1)} onSubmit={onSubmit} isSubmitting={submitting}
             dealType={dealType} setDealType={setDealType}
             artistGuarantee={artistGuarantee} setArtistGuarantee={setArtistGuarantee}
             artistSplit={artistSplit} promoterSplit={promoterSplit} venueSplit={venueSplit}
@@ -283,7 +293,7 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
           <PerformersStep
             performers={performers} createdStages={createdStages} setCreatedStages={setCreatedStages}
             addPerformer={addPerformer} removePerformer={removePerformer} updatePerformer={updatePerformer}
-            onBack={() => setStep(1)} onSubmit={onSubmit}
+            onBack={() => setStep(1)} onSubmit={onSubmit} isSubmitting={submitting}
             venueRooms={allVenueOptions.find(v => v.name === venueName)?.rooms}
           />
         )}

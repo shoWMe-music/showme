@@ -7,9 +7,28 @@ export default defineConfig({
     baseURL: "http://localhost:5174",
     headless: true,
   },
-  webServer: {
-    command: "npx vite --port 5174 --config e2e/vite.config.ts",
-    port: 5174,
-    reuseExistingServer: true,
-  },
+  projects: [
+    {
+      name: "fixtures",
+      testMatch: "combobox-scroll.spec.ts",
+      use: { baseURL: "http://localhost:5174" },
+    },
+    {
+      name: "app",
+      testMatch: ["share-link.spec.ts", "contacts.spec.ts", "budget-save.spec.ts"],
+      use: { baseURL: "http://localhost:5173" },
+    },
+  ],
+  webServer: [
+    {
+      command: "npx vite --port 5174 --config e2e/vite.config.ts",
+      port: 5174,
+      reuseExistingServer: true,
+    },
+    {
+      command: "VITE_USE_FIREBASE_EMULATORS=true npx vite --port 5173",
+      port: 5173,
+      reuseExistingServer: true,
+    },
+  ],
 });

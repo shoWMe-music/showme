@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Trash2 } from "lucide-react";
 import { Contact, ContactType, ContactPerson, contactTypeLabels } from "@/lib/models";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
@@ -20,7 +19,7 @@ const emptyContact: ContactPerson = { name: "", email: "", phone: "" };
 
 export default function CreateContactDialog({ open, onOpenChange, onSave, editingContact }: CreateContactDialogProps) {
   const [name, setName] = useState("");
-  const [type, setType] = useState<ContactType>("promoter");
+  const [types, setTypes] = useState<ContactType[]>(["promoter"]);
   const [contacts, setContacts] = useState<ContactPerson[]>([{ ...emptyContact }]);
   const [iban, setIban] = useState("");
   const [bankName, setBankName] = useState("");
@@ -28,10 +27,14 @@ export default function CreateContactDialog({ open, onOpenChange, onSave, editin
   const [address, setAddress] = useState("");
   const [notes, setNotes] = useState("");
 
+  const toggleType = (t: ContactType) => {
+    setTypes(prev => prev.includes(t) ? (prev.length > 1 ? prev.filter(x => x !== t) : prev) : [...prev, t]);
+  };
+
   useEffect(() => {
     if (editingContact) {
       setName(editingContact.name);
-      setType(editingContact.type);
+      setTypes(Array.isArray(editingContact.type) ? editingContact.type : [editingContact.type]);
       setContacts(editingContact.contacts.length > 0 ? [...editingContact.contacts] : [{ ...emptyContact }]);
       setIban(editingContact.iban);
       setBankName(editingContact.bankName);
@@ -39,7 +42,7 @@ export default function CreateContactDialog({ open, onOpenChange, onSave, editin
       setAddress(editingContact.address);
       setNotes(editingContact.notes);
     } else {
-      setName(""); setType("promoter"); setContacts([{ ...emptyContact }]);
+      setName(""); setTypes(["promoter"]); setContacts([{ ...emptyContact }]);
       setIban(""); setBankName(""); setVatId(""); setAddress(""); setNotes("");
     }
   }, [editingContact, open]);
@@ -53,7 +56,7 @@ export default function CreateContactDialog({ open, onOpenChange, onSave, editin
     const contact: Contact = {
       id: editingContact?.id || `P-${Date.now()}`,
       name: name.trim(),
-      type,
+      type: types.length === 1 ? types[0] : types,
       contacts: contacts.filter(c => c.name || c.email || c.phone),
       iban, bankName, vatId, address, notes,
     };
@@ -69,22 +72,27 @@ export default function CreateContactDialog({ open, onOpenChange, onSave, editin
         </DialogHeader>
 
         <div className="grid gap-4 py-2">
-          {/* Type & Name */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Contact Type</Label>
-              <Select value={type} onValueChange={(v) => setType(v as ContactType)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {Object.entries(contactTypeLabels).map(([k, v]) => (
-                    <SelectItem key={k} value={k}>{v}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Name</Label>
-              <Input value={name} onChange={e => setName(e.target.value)} placeholder="Contact name" />
+          {/* Name */}
+          <div className="space-y-2">
+            <Label>Name</Label>
+            <Input value={name} onChange={e => setName(e.target.value)} placeholder="Contact name" />
+          </div>
+
+          {/* Type(s) */}
+          <div className="space-y-2">
+            <Label>Contact Type(s)</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {(Object.entries(contactTypeLabels) as [ContactType, string][]).map(([k, v]) => (
+                <Button
+                  key={k}
+                  type="button"
+                  variant={types.includes(k) ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => toggleType(k)}
+                >
+                  {v}
+                </Button>
+              ))}
             </div>
           </div>
 
@@ -111,7 +119,7 @@ export default function CreateContactDialog({ open, onOpenChange, onSave, editin
           </div>
 
           {/* Bank Details — hidden for ticketing providers */}
-          {type !== "ticketing" && (
+          {!types.includes("ticketing") && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>IBAN</Label>

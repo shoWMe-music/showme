@@ -6,7 +6,6 @@
 export {
   PROFILE_COLLECTION,
   PROFILE_MEMBERS_SUBCOLLECTION,
-  buildProfileDocId,
   eventPersonalBudgetDocId,
   profileDocumentRef,
   profileMembersCollectionRef,

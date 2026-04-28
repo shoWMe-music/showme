@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,6 +12,7 @@ import { formatLocation, getPrimaryLocation, type SharedProfile } from "@/lib/us
 import { Users, UserPlus, Link as LinkIcon, Mail, Clock, Check, X, Shield, Copy, XCircle } from "lucide-react";
 import { useMyInvitationCodes, useRevokeInvitationCode } from "@/lib/queries/useInvitationCodes";
 import { toast, copyToast } from "@/hooks/use-toast";
+import { useChildEvents } from "@/lib/queries";
 
 const statusConfig: Record<string, { label: string; color: string; icon: typeof Check }> = {
   active: { label: "Connected", color: "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400", icon: Check },
@@ -31,20 +33,52 @@ interface CollaboratorsTabProps {
 export function CollaboratorsTab({ event, collaborators, profiles, onInviteOpen }: CollaboratorsTabProps) {
   const { data: invitationCodes } = useMyInvitationCodes();
   const revokeMutation = useRevokeInvitationCode();
+  const childEvents = useChildEvents(event.id);
 
   // Build a map from profileId → profile for quick lookup
-  const profileById = new Map<string, SharedProfile>();
-  for (const p of Object.values(profiles)) {
-    if (p.id) profileById.set(p.id, p);
-  }
+  const profileById = useMemo(() => {
+    const map = new Map<string, SharedProfile>();
+    for (const p of Object.values(profiles)) {
+      if (p.id) map.set(p.id, p);
+    }
+    return map;
+  }, [profiles]);
 
   // Host profile info
   const hostProfile = event.hostProfileId ? profileById.get(event.hostProfileId) : undefined;
 
+  // Synthesize performer collaborator entries from child events
+  const performerCollaborators = useMemo<EventCollaborator[]>(() => {
+    if (!event.isMultiPerformer || childEvents.length === 0) return [];
+    const existingPerformerProfileIds = new Set(
+      collaborators.filter(c => c.eventRole === "performer" && c.profileId).map(c => c.profileId),
+    );
+    return childEvents
+      .filter(child => child.performerProfileId && !existingPerformerProfileIds.has(child.performerProfileId))
+      .map(child => {
+        const profile = child.performerProfileId ? profileById.get(child.performerProfileId) : undefined;
+        const status = child.performerResponse === "accepted" ? "active" : child.performerResponse === "declined" ? "declined" : "pending";
+        return {
+          id: `child-performer-${child.id}`,
+          email: "",
+          eventRole: "performer" as EventCollaboratorRole,
+          name: profile?.name || child.artist || "Performer",
+          status,
+          invitedAt: "",
+          profileId: child.performerProfileId!,
+        };
+      });
+  }, [event.isMultiPerformer, event.id, childEvents, collaborators, profileById]);
+
+  const allCollaborators = useMemo(
+    () => [...collaborators, ...performerCollaborators],
+    [collaborators, performerCollaborators],
+  );
+
   // Group collaborators by role
   const roleOrder: EventCollaboratorRole[] = ["venue", "promoter", "organizer", "festival", "performer", "agent", "admin", "staff"];
   const grouped = new Map<EventCollaboratorRole, EventCollaborator[]>();
-  for (const c of collaborators) {
+  for (const c of allCollaborators) {
     const list = grouped.get(c.eventRole) || [];
     list.push(c);
     grouped.set(c.eventRole, list);
@@ -94,7 +128,7 @@ export function CollaboratorsTab({ event, collaborators, profiles, onInviteOpen 
       )}
 
       {/* Collaborator groups */}
-      {collaborators.length === 0 ? (
+      {allCollaborators.length === 0 ? (
         <div className="rounded-xl border bg-card p-12 text-center">
           <Users className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
           <p className="text-muted-foreground">No collaborators added yet.</p>

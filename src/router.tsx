@@ -232,6 +232,9 @@ const eventManagerRoute = createRoute({
 const calendarRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/calendar",
+  validateSearch: (raw: Record<string, unknown>) => ({
+    date: parseOptionalString(raw, "date"),
+  }),
   component: CalendarPage,
 });
 

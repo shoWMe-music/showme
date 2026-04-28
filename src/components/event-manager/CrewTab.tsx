@@ -230,7 +230,9 @@ th{background:#f5f5f5;font-weight:600}.meta{color:#666;font-size:13px;margin-bot
   const [autofillCollaborators, setAutofillCollaborators] = useState<Record<string, string>>({});
 
   const handleAutofill = (member: { id: string; name: string; email: string; roles: string[] }) => {
-    const exists = crew.some(c => c.email === member.email);
+    const exists = crew.some(c =>
+      (member.email && c.email) ? c.email === member.email : c.name === member.name
+    );
     if (exists) {
       toast({ title: "Already added", description: `${member.name} is already in the crew.`, variant: "destructive" });
       return;
@@ -485,7 +487,7 @@ th{background:#f5f5f5;font-weight:600}.meta{color:#666;font-size:13px;margin-bot
                   <div key={item.id} className="flex items-center justify-between rounded-lg border p-2.5">
                     {editingItemId === item.id ? (
                       <div className="flex items-center gap-2 flex-1">
-                        <Input type="time" value={item.time} onChange={(e) => setScheduleItems(s => s.map(si => si.id === item.id ? {...si, time: e.target.value} : si))} className="w-24 text-xs h-7" />
+                        <Input type="time" value={item.time} onChange={(e) => setScheduleItems(s => s.map(si => si.id === item.id ? {...si, time: e.target.value} : si))} onFocus={(e) => e.target.select()} className="w-24 text-xs h-7" />
                         <Input value={item.label} onChange={(e) => setScheduleItems(s => s.map(si => si.id === item.id ? {...si, label: e.target.value} : si))} className="flex-1 text-xs h-7" />
                         <TeamMemberSelect value={item.assignee || ""} onValueChange={(v) => setScheduleItems(s => s.map(si => si.id === item.id ? {...si, assignee: v} : si))} teamMembers={teamMembers} onCreateMember={handleCreateTeamMember} className="w-32 h-7" />
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setScheduleItems(prev => sortScheduleByTime(prev)); setEditingItemId(null); }}><Check className="h-3 w-3" /></Button>
@@ -512,7 +514,7 @@ th{background:#f5f5f5;font-weight:600}.meta{color:#666;font-size:13px;margin-bot
               </div>
             )}
             <div className="flex gap-2">
-              <Input type="time" placeholder="HH:MM" value={newScheduleItem.time} onChange={(e) => setNewScheduleItem(p => ({...p, time: e.target.value}))} className="w-24 text-xs" />
+              <Input type="time" placeholder="HH:MM" value={newScheduleItem.time} onChange={(e) => setNewScheduleItem(p => ({...p, time: e.target.value}))} onFocus={(e) => e.target.select()} className="w-24 text-xs" />
               <Input placeholder="Task / Activity" value={newScheduleItem.label} onChange={(e) => setNewScheduleItem(p => ({...p, label: e.target.value}))} className="flex-1 text-xs" />
               <TeamMemberSelect value={newScheduleItem.assignee || ""} onValueChange={(v) => setNewScheduleItem(p => ({...p, assignee: v}))} teamMembers={teamMembers} onCreateMember={handleCreateTeamMember} className="w-36" />
               <Button size="icon" onClick={handleAddScheduleItem} disabled={!newScheduleItem.label.trim()}><Plus className="h-4 w-4" /></Button>
@@ -734,7 +736,9 @@ th{background:#f5f5f5;font-weight:600}.meta{color:#666;font-size:13px;margin-bot
           <p className="text-sm text-muted-foreground">Select team members to add to this event{autofillToGroup ? ` under "${autofillToGroup}"` : ""}.</p>
           <div className="space-y-2 py-2 max-h-[300px] overflow-y-auto">
             {teamMembers.map(m => {
-              const alreadyAdded = crew.some(c => c.email === m.email);
+              const alreadyAdded = crew.some(c =>
+                (m.email && c.email) ? c.email === m.email : c.name === m.name
+              );
               return (
                 <div key={m.id} className="rounded-lg border p-3 space-y-2">
                   <div className="flex items-center justify-between">

@@ -22,13 +22,22 @@ interface SharedBudget {
   generatedAt: string;
 }
 
+interface SharedTodoSchedule {
+  type: "todo-schedule";
+  eventName: string;
+  eventVenue: string;
+  eventDate: string;
+  todos: { id: string; title: string; dueDate?: string; completed: boolean; description?: string; budgetType?: string; budgetAmount?: number }[];
+  generatedAt: string;
+}
+
 const EXCLUDED_REVENUE_IDS = ["ticket_price", "expected_tickets", "capacity", "avg_bar_spend"];
 
 export default function SharedBudgetPage() {
   const { token } = useParams({ from: "/shared/budget/$token" });
 
   const {
-    data,
+    data: rawData,
     isPending: loading,
     isError,
   } = useQuery({
@@ -36,15 +45,19 @@ export default function SharedBudgetPage() {
     queryFn: async () => {
       if (!token) return null;
       const parties = await fetchShareTokenPartiesForBudget(token);
-      return parties ? (parties as unknown as SharedBudget) : null;
+      return parties || null;
     },
     enabled: !!token,
   });
 
+  const isTodoSchedule = rawData && typeof rawData === "object" && (rawData as Record<string, unknown>).type === "todo-schedule";
+  const data = isTodoSchedule ? null : (rawData as SharedBudget | null);
+  const todoData = isTodoSchedule ? (rawData as unknown as SharedTodoSchedule) : null;
+
   const error =
     isError
       ? "Budget report not found or link has expired."
-      : !loading && !data
+      : !loading && !data && !todoData
         ? "Budget report not found or link has expired."
         : null;
 
@@ -52,6 +65,36 @@ export default function SharedBudgetPage() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      </div>
+    );
+  }
+
+  if (todoData) {
+    return (
+      <div className="max-w-2xl mx-auto py-8 px-4 space-y-6">
+        <div>
+          <img src="/images/showme-logo.png" alt="shoWMe" className="h-8" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+        </div>
+        <div className="rounded-xl border bg-card p-6 shadow-sm">
+          <h1 className="text-xl font-bold mb-1">Task Schedule</h1>
+          <p className="text-sm text-muted-foreground">{todoData.eventName} • {todoData.eventVenue} • {todoData.eventDate}</p>
+          <p className="text-xs text-muted-foreground mt-1">Generated {new Date(todoData.generatedAt).toLocaleDateString()}</p>
+        </div>
+        <div className="rounded-xl border bg-card p-6 shadow-sm space-y-2">
+          {todoData.todos.map(t => (
+            <div key={t.id} className={cn("flex items-center gap-3 rounded-lg border px-4 py-3", t.completed && "opacity-50")}>
+              <div className={cn("h-4 w-4 rounded border flex items-center justify-center shrink-0", t.completed ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground")}>
+                {t.completed && <span className="text-[10px]">&#10003;</span>}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={cn("text-sm font-medium", t.completed && "line-through")}>{t.title}</p>
+                {t.description && <p className="text-xs text-muted-foreground">{t.description}</p>}
+              </div>
+              {t.dueDate && <span className="text-xs text-muted-foreground shrink-0">{t.dueDate}</span>}
+            </div>
+          ))}
+          {todoData.todos.length === 0 && <p className="text-sm text-muted-foreground">No tasks in this schedule.</p>}
+        </div>
       </div>
     );
   }

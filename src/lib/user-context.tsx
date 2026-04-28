@@ -25,6 +25,8 @@ export interface SubVenue {
   name: string;
   type: "room" | "stage" | "venue";
   capacity?: number;
+  sittingCapacity?: number;
+  standingCapacity?: number;
 }
 
 export interface ProfileDocument {
@@ -82,6 +84,7 @@ export interface SharedProfile {
   capacity?: number;
   setupType?: string;
   setupSize?: number;
+  setups?: { name: string; headcount: number }[];
   bannerUrl?: string;
   avatarUrl?: string;
   photos?: string[];
@@ -96,6 +99,7 @@ export interface SharedProfile {
   created: boolean;
   subVenues?: SubVenue[];
   documents?: ProfileDocument[];
+  performanceBonuses?: { ticketThreshold: number; bonusAmount: number; bonusType: "flat" | "percent" }[];
   cateringNotes?: string;
   accommodationNotes?: string;
 }

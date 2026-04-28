@@ -59,7 +59,7 @@ export function BudgetPlannerTab({ canAccessBudget, event, revenue, eventMeta, c
       const { pid, payload } = pendingBudgetSave.current;
       pendingBudgetSave.current = null;
       lastSavedSig.current = JSON.stringify(payload);
-      void saveEventBudgetCalculator(event.id, pid, payload);
+      void saveEventBudgetCalculator(event.id, pid, payload).catch(() => {});
     }
   };
 
@@ -144,8 +144,10 @@ export function BudgetPlannerTab({ canAccessBudget, event, revenue, eventMeta, c
             lastSavedSig.current = sig;
             void saveEventBudgetCalculator(event.id, pid, payload).then(() => {
               toast({ title: (<span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-500" />Budget planner saved</span>), duration: 1000 });
+            }).catch(() => {
+              toast({ title: "Failed to save budget", description: "Check your permissions or try again.", variant: "destructive" });
             });
-          }, 5000);
+          }, 2000);
         }}
         childArtistFees={childArtistFees}
         todoBudgetItems={todoBudgetItems}

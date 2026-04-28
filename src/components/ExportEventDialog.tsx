@@ -1,12 +1,12 @@
 import { useState, useMemo } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Share2, AlertTriangle } from "lucide-react";
 import { toast, copyToast } from "@/hooks/use-toast";
-import { createPublicEventShare } from "@/lib/db";
+import { createPublicEventShare, fetchSchedule, fetchCrew, fetchRiders, fetchAgreements } from "@/lib/db";
 import { useEvent, useEventEconomics } from "@/lib/queries";
 import { useUser } from "@/lib/user-context";
 import type { TeamMember } from "@/lib/user-context";
@@ -34,6 +34,13 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
   const event = useEvent(eventId);
   const { deal, revenue, settlement, meta: eventMeta, isLoaded: economicsLoaded } = useEventEconomics(eventId, open && !eventDataProp);
 
+  // Fetch subcollection data for export (schedule, crew, riders, agreements)
+  const fetchSubcollections = open && !eventDataProp;
+  const { data: schedule } = useQuery({ queryKey: ["export-schedule", eventId], queryFn: () => fetchSchedule(eventId), enabled: fetchSubcollections });
+  const { data: crew } = useQuery({ queryKey: ["export-crew", eventId], queryFn: () => fetchCrew(eventId), enabled: fetchSubcollections });
+  const { data: riders } = useQuery({ queryKey: ["export-riders", eventId], queryFn: () => fetchRiders(eventId), enabled: fetchSubcollections });
+  const { data: agreements } = useQuery({ queryKey: ["export-agreements", eventId], queryFn: () => fetchAgreements(eventId), enabled: fetchSubcollections });
+
   const eventData = useMemo<EventExportData | undefined>(() => {
     if (eventDataProp) return eventDataProp;
     if (!event || !economicsLoaded) return undefined;
@@ -42,10 +49,10 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
       deal: deal ?? { eventId: event.id, dealType: "guarantee" as const, artistGuarantee: 0, artistSplit: 80, promoterSplit: 10, venueSplit: 10, organizerSplit: 0, artistCostSplit: 0, promoterCostSplit: 50, venueCostSplit: 50, organizerCostSplit: 0, venueRental: 0, commissions: [] } satisfies DealStructure,
       revenue: revenue ?? { eventId: event.id, ticketsSold: 0, grossRevenue: 0, ticketFees: 0, tax: 0, refunds: 0, doorSales: 0, productionExpenses: 0, additionalCosts: 0 } as TicketRevenue,
       settlement: settlement ?? { eventId: event.id, promoterPayout: 0, artistPayout: 0, venuePayout: 0, commissionPayouts: [], status: "open" as const, approvals: [{ party: "Operator", approved: false }, { party: "Performer", approved: false }, { party: "Venue", approved: false }], comments: [], revisions: [] } as Settlement,
-      eventMeta,
+      eventMeta: { ...eventMeta, schedule, crew, riders, agreements } as EventExportData["eventMeta"],
       currency: currentUser?.currency || "EUR",
     };
-  }, [eventDataProp, event, economicsLoaded, deal, revenue, settlement, eventMeta, currentUser?.currency]);
+  }, [eventDataProp, event, economicsLoaded, deal, revenue, settlement, eventMeta, schedule, crew, riders, agreements, currentUser?.currency]);
 
   const [level, setLevel] = useState<SelectionLevel>("sections");
   const [selectedTabs, setSelectedTabs] = useState<Set<string>>(new Set());
@@ -126,9 +133,6 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
 
   const shareMutation = useMutation({
     mutationFn: async () => {
-      if (recipients.length === 0) {
-        throw new Error("Recipients required");
-      }
       const snapshotData = eventData ? {
         event: {
           id: eventData.event.id, name: eventData.event.name, date: eventData.event.date,
@@ -153,17 +157,13 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
       try {
         await navigator.clipboard.writeText(url);
         setCopied(true); setTimeout(() => setCopied(false), 2000);
-        copyToast("Link copied", `Only accessible by: ${recipients.join(", ")}`);
+        copyToast("Link copied", recipients.length > 0 ? `Only accessible by: ${recipients.join(", ")}` : "Anyone with the link can access this.");
       } catch {
         toast({ title: "Could not copy", variant: "destructive" });
       }
     },
     onError: (err: any) => {
-      if (err?.message === "Recipients required") {
-        toast({ title: "Recipients required", description: "Add at least one email recipient to create a share link.", variant: "destructive" });
-      } else {
-        toast({ title: "Failed to create share link", description: err?.message || "Unknown error", variant: "destructive" });
-      }
+      toast({ title: "Failed to create share link", description: err?.message || "Unknown error", variant: "destructive" });
     },
   });
 

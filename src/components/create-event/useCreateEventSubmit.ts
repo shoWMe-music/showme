@@ -1,10 +1,10 @@
 import { format } from "date-fns";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
-import { insertCollaboratorInvite, upsertRider, fetchProfileOwnerUid, searchArtistProfiles } from "@/lib/db";
-import { buildProfileDocId } from "@/lib/profiles";
+import { upsertRider, fetchProfileOwnerUid, searchArtistProfiles } from "@/lib/db";
 import { toast } from "@/hooks/use-toast";
 import { useUser, type OperatorRole } from "@/lib/user-context";
+import { isOwnProfileName, contactExists } from "@/lib/contacts";
 import {
   useAddEvent,
   useAddMultiPerformerEvent,
@@ -61,16 +61,6 @@ export function useCreateEventSubmit() {
   const existingContacts = useContacts();
   const addContactMutation = useAddContact();
 
-  const inviteMutation = useMutation({
-    mutationFn: (data: Parameters<typeof insertCollaboratorInvite>[0]) => insertCollaboratorInvite(data),
-    onSuccess: (_data, variables) => {
-      toast({ title: "Collaborator invite sent", description: `${variables.email} was invited as a viewer.` });
-    },
-    onError: () => {
-      toast({ title: "Invite failed", description: "Could not save collaborator invite.", variant: "destructive" });
-    },
-  });
-
   const upsertRidersMutation = useMutation({
     mutationFn: ({ eventId, riders }: { eventId: string; riders: Parameters<typeof upsertRider>[1][] }) =>
       Promise.all(riders.map(r => upsertRider(eventId, r))),
@@ -78,10 +68,10 @@ export function useCreateEventSubmit() {
 
   const ensureContact = (name: string, type: ContactType) => {
     if (!name.trim()) return;
-    const exists = existingContacts.some(c => c.name.toLowerCase() === name.toLowerCase() && c.type === type);
-    if (!exists) {
-      addContactMutation.mutate({ contact: { id: `P-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name: name.trim(), type, contacts: [], iban: "", bankName: "", vatId: "", address: "", notes: "" } });
-    }
+    const ownProfileNames = Object.values(profiles).map(p => p.name);
+    if (isOwnProfileName(name, ownProfileNames)) return;
+    if (contactExists(existingContacts, name, type)) return;
+    addContactMutation.mutate({ contact: { id: `P-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name: name.trim(), type, contacts: [], iban: "", bankName: "", vatId: "", address: "", notes: "" } });
   };
 
   const handleSubmit = async (params: SubmitParams) => {
@@ -95,7 +85,7 @@ export function useCreateEventSubmit() {
     } = params;
 
     const operatorType = selectedRole === "venue" ? "venue" as const : selectedRole === "organizer" ? "organizer" as const : "promoter" as const;
-    const hostProfileId = selectedRole ? buildProfileDocId(currentUser.id, selectedRole) : undefined;
+    const hostProfileId = selectedRole ? profiles[selectedRole]?.id : undefined;
     const accessUids = currentUser.id ? [currentUser.id] : [];
     const resolvedVenue = isMultiPerformer && multiVenueType === "festival" ? festivalName : venueName;
     const partyTypeMap: Record<string, ContactType> = { bookerAgent: "agent", promoter: "promoter", management: "manager" };
@@ -144,6 +134,7 @@ export function useCreateEventSubmit() {
             artist: perf.artistName, eventStatus: defaultStatus || "draft", status: defaultStatus || "draft",
             parentEventId: parentId, hostProfileId, accessUids: multiAccessUids, accessProfileIds: childProfileIds,
             performerProfileId: perf.performerProfileId || undefined,
+            performerRoleTag: perf.performerRoleTag || undefined,
             roomStage: (perf.stageRoom && perf.stageRoom !== "__new__") ? perf.stageRoom : undefined,
             stageCapacity: parseInt(perf.stageCapacity) || undefined,
           } as Event,
@@ -177,13 +168,24 @@ export function useCreateEventSubmit() {
 
       await addMultiPerformerEventMutation.mutateAsync({ parent: parentEvent, children: childEvents });
 
-      if (prefillData?.contactEmail) {
-        const token = `collab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        inviteMutation.mutate({
-          event_id: parentId, token, email: prefillData.contactEmail,
-          role: "Performer", permission: "view_only",
-          message: `You've been invited to view the event "${eventName}"`,
-        });
+      // Autofill riders from performer/venue profiles for each child event
+      const docTypeToRiderType: Record<string, "technical" | "hospitality" | "custom"> = {
+        tech_rider: "technical", hospitality_rider: "hospitality", other: "custom",
+      };
+      for (const child of childEvents) {
+        const childRiders: Rider[] = [];
+        for (const key of Object.keys(profiles)) {
+          const profile = profiles[key];
+          if (!profile?.documents || profile.documents.length === 0) continue;
+          const isChildPerformer = (key === "performer" || key.startsWith("performer-")) && profile.name === child.event.artist;
+          const isVenue = (key === "venue" || key.startsWith("venue-")) && profile.name === resolvedVenue;
+          if (isChildPerformer || isVenue) {
+            for (const doc of profile.documents) {
+              childRiders.push({ id: `R-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name: doc.name, type: docTypeToRiderType[doc.type] || "custom", description: `From ${profile.name} profile`, fileUrl: doc.url, fileName: doc.name });
+            }
+          }
+        }
+        if (childRiders.length > 0) await upsertRidersMutation.mutateAsync({ eventId: child.event.id, riders: childRiders });
       }
 
       onEventCreated?.(parentId);
@@ -268,15 +270,6 @@ export function useCreateEventSubmit() {
       if (profileRiders.length > 0) await upsertRidersMutation.mutateAsync({ eventId: id, riders: profileRiders });
       if (defaultStatus === "on_hold") {
         resolveHoldRankConflicts(id, date ? format(date, "yyyy-MM-dd") : "", venueName, roomStage || "", holdRank);
-      }
-
-      if (prefillData?.contactEmail) {
-        const token = `collab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        inviteMutation.mutate({
-          event_id: id, token, email: prefillData.contactEmail,
-          role: "Performer", permission: "view_only",
-          message: `You've been invited to view the event "${eventName}"`,
-        });
       }
 
       onEventCreated?.(id);

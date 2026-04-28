@@ -5,19 +5,17 @@ import AppLayout from "@/components/AppLayout";
 import StatusBadge from "@/components/StatusBadge";
 import { useUser } from "@/lib/user-context";
 import { formatCurrency, SettlementStatus, settlementStatusLabels } from "@/lib/models";
-import { Plus, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { SETTLEMENT_STATUS_DOT } from "@/components/settlements/settlementConstants";
 import { usePaginatedEvents, useAllEventEconomics } from "@/lib/queries";
 
 export default function SettlementsPage() {
-  const { canCreate, currentUser } = useUser();
+  const { currentUser } = useUser();
   const navigate = useNavigate();
-  const [starterOpen, setStarterOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>(
     () => localStorage.getItem("settlementsFilter") ?? "all"
   );
@@ -83,10 +81,6 @@ export default function SettlementsPage() {
 
   const legend: [SettlementStatus, string][] = Object.entries(settlementStatusLabels) as [SettlementStatus, string][];
 
-  const settleableEvents = events.filter(
-    e => !e.archived && allEconomics[e.id]?.settlement?.status === "open"
-  );
-
   return (
     <AppLayout>
       <div className="animate-fade-in">
@@ -95,11 +89,6 @@ export default function SettlementsPage() {
             <h1 className="text-3xl font-bold tracking-tight">Settlements</h1>
             <p className="mt-1 text-muted-foreground">Track and manage settlement status across all events</p>
           </div>
-          {canCreate && (
-            <Button className="gap-2" onClick={() => setStarterOpen(true)}>
-              <Plus className="h-4 w-4" /> New Settlement
-            </Button>
-          )}
         </div>
 
         <div className="mb-4 flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
@@ -192,26 +181,6 @@ export default function SettlementsPage() {
         )}
       </div>
 
-      <Dialog open={starterOpen} onOpenChange={setStarterOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Create Settlement</DialogTitle>
-            <DialogDescription>Select a concluded event to start its settlement</DialogDescription>
-          </DialogHeader>
-          {settleableEvents.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4">No concluded events available for settlement. Events must reach "Concluded" status first.</p>
-          ) : (
-            <div className="space-y-2 py-2 max-h-80 overflow-y-auto">
-              {settleableEvents.map(event => (
-                <button key={event.id} className="w-full text-left rounded-lg border p-3 hover:bg-muted/50 transition-colors" onClick={() => { setStarterOpen(false); navigate({ to: "/settlements/$id", params: { id: event.id } }); }}>
-                  <p className="font-medium text-sm">{event.name}</p>
-                  <p className="text-xs text-muted-foreground">{event.artist} · {event.venue} · {event.date}</p>
-                </button>
-              ))}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </AppLayout>
   );
 }

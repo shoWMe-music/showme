@@ -8,11 +8,6 @@ export const PROFILE_COLLECTION = "profiles";
 /** Subcollection under each profile doc for ACL (multi-user admin). */
 export const PROFILE_MEMBERS_SUBCOLLECTION = "members";
 
-export function buildProfileDocId(ownerUid: string, roleSlot: string): string {
-  const safeSlot = roleSlot.replace(/[^a-zA-Z0-9_-]/g, "_");
-  return `${ownerUid}__${safeSlot}`;
-}
-
 /** Budget worksheet doc id when the user has no business profile row — `events/{eventId}/budgets/{uid}`. */
 export function eventPersonalBudgetDocId(uid: string): string {
   return uid;

@@ -63,6 +63,9 @@ export default function SharedEventPage() {
   const sections = search.sections?.split(",").filter(Boolean) || [];
   const showAll = tabs.length === 0 && sections.length === 0;
 
+  // Whether this share requires email verification (null = unknown yet)
+  const [requiresAuth, setRequiresAuth] = useState<boolean | null>(null);
+
   const showTab = (tabId: string) => showAll || tabs.includes(tabId);
   const showSection = (sectionId: string) => showAll || sections.includes(sectionId) || tabs.some(t => {
     const tabSections: Record<string, string[]> = {
@@ -74,6 +77,39 @@ export default function SharedEventPage() {
     return tabSections[t]?.includes(sectionId);
   });
 
+  // Step 1: Check if share has recipients — if not, bypass auth gate
+  useEffect(() => {
+    if (!token || !eventId) return;
+    if (verifiedEmail) return; // already authenticated
+    if (requiresAuth !== null) return; // already checked
+
+    const check = async () => {
+      setLoading(true);
+      try {
+        const pub = await fetchPublicShareByToken(token);
+        if (!pub || pub.kind !== "event_snapshot" || pub.eventId !== eventId) {
+          setError({ code: "NOT_FOUND", message: "This shared link is invalid or has expired." });
+          setRequiresAuth(false);
+          setLoading(false);
+          return;
+        }
+        const recipients = (pub.recipients || []).map((r: string) => String(r).toLowerCase().trim()).filter(Boolean);
+        if (recipients.length === 0) {
+          // No recipients — public link, skip auth
+          setRequiresAuth(false);
+          setVerifiedEmail("__public__");
+        } else {
+          setRequiresAuth(true);
+        }
+      } catch {
+        setRequiresAuth(true);
+      }
+      setLoading(false);
+    };
+    void check();
+  }, [token, eventId, verifiedEmail, requiresAuth]);
+
+  // Step 2: Load snapshot data once we have a verified email (or public bypass)
   useEffect(() => {
     if (!verifiedEmail || !token || !eventId) return;
 
@@ -88,7 +124,7 @@ export default function SharedEventPage() {
           return;
         }
         const recipients = (pub.recipients || []).map((r: string) => String(r).toLowerCase().trim()).filter(Boolean);
-        if (recipients.length > 0 && !recipients.includes(verifiedEmail.toLowerCase().trim())) {
+        if (recipients.length > 0 && verifiedEmail !== "__public__" && !recipients.includes(verifiedEmail.toLowerCase().trim())) {
           setError({ code: "ACCESS_DENIED", message: "", email: verifiedEmail });
           setLoading(false);
           return;
@@ -164,8 +200,8 @@ export default function SharedEventPage() {
     );
   }
 
-  // Auth gate — show login/signup when not "authenticated"
-  if (!verifiedEmail) {
+  // Auth gate — show login/signup when not "authenticated" and share requires it
+  if (!verifiedEmail && requiresAuth !== false) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <div className="w-full max-w-sm space-y-6">
@@ -471,7 +507,7 @@ function SharedAgreementConfirm({
       updatePublicShareAgreementConfirmations(shareToken, updated as unknown[]),
     onSuccess: (_data, updated) => {
       onConfirmationsUpdated(updated);
-      toast({ title: "Agreement confirmed", description: `You have electronically signed the agreement as ${updated[updated.length - 1]?.party}.` });
+      toast({ title: "Agreement confirmed", description: `You have approved the agreement as ${updated[updated.length - 1]?.party}.` });
     },
     onError: () => {
       toast({ title: "Could not save", description: "Confirmation was not persisted. Check Firestore rules.", variant: "destructive" });
@@ -548,7 +584,7 @@ function SharedAgreementConfirm({
                     <div>
                       <div className="flex items-center gap-1.5">
                         <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${confirmation.method === "self" ? "text-[hsl(var(--success))] border-[hsl(var(--success)/0.3)]" : "text-[hsl(var(--warning))] border-[hsl(var(--warning)/0.3)]"}`}>
-                          {confirmation.method === "self" ? "E-Signed" : "Manual"}
+                          {confirmation.method === "self" ? "Approved" : "Manual"}
                         </Badge>
                         <span className="text-xs text-[hsl(var(--success))]">
                           {confirmation.method === "manual" ? `Confirmed manually by ${confirmation.confirmedBy}` : `Confirmed by ${confirmation.confirmedBy}`}

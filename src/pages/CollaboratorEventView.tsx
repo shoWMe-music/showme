@@ -396,7 +396,7 @@ function CollaboratorAgreementConfirm({
 
     try {
       await saveCollaboratorAgreementDraft(inviteToken, ownerUid, eventId, updated);
-      toast({ title: "Agreement confirmed", description: `You have electronically signed the agreement as ${party}.` });
+      toast({ title: "Agreement confirmed", description: `You have approved the agreement as ${party}.` });
     } catch {
       toast({ title: "Could not save", description: "Confirmation was not persisted.", variant: "destructive" });
     } finally {
@@ -430,7 +430,7 @@ function CollaboratorAgreementConfirm({
                       <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0",
                         confirmation.method === "self" ? "text-[hsl(var(--success))] border-[hsl(var(--success)/0.3)]" : "text-[hsl(var(--warning))] border-[hsl(var(--warning)/0.3)]"
                       )}>
-                        {confirmation.method === "self" ? "E-Signed" : "Manual"}
+                        {confirmation.method === "self" ? "Approved" : "Manual"}
                       </Badge>
                       <span className="text-[10px] text-muted-foreground">{confirmation.confirmedBy}</span>
                     </div>

@@ -296,12 +296,13 @@ export default function BudgetExportActions({ event, revenueFields, costFields, 
 
     // ── Footer ──
     const pageCount = doc.getNumberOfPages();
+    const pageHeight = doc.internal.pageSize.getHeight();
     for (let p = 1; p <= pageCount; p++) {
       doc.setPage(p);
       doc.setFontSize(7);
       doc.setTextColor(160, 160, 160);
-      doc.text(`Page ${p} of ${pageCount}`, pageWidth / 2, 290, { align: "center" });
-      doc.text("⚠ Estimate only — review before final decisions", margin, 290);
+      doc.text(`Page ${p} of ${pageCount}`, pageWidth / 2, pageHeight - 8, { align: "center" });
+      doc.text("Estimate only \u2014 review before final decisions", margin, pageHeight - 12);
     }
 
     doc.save(`budget-${event.name.replace(/\s+/g, "_")}-${new Date().toISOString().slice(0, 10)}.pdf`);

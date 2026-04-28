@@ -8,7 +8,7 @@ import CreateEventDialog from "@/components/CreateEventDialog";
 import InviteCollaboratorDialog from "@/components/InviteCollaboratorDialog";
 import ExportEventDialog from "@/components/ExportEventDialog";
 import { Link } from "@tanstack/react-router";
-import { Search, Globe, EyeOff, CreditCard, UserPlus, Printer, Trash2, Users, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, ArrowUpDown, Loader2 } from "lucide-react";
+import { Search, Globe, EyeOff, CreditCard, UserPlus, Printer, Trash2, ArchiveRestore, Users, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, ArrowUpDown, Loader2 } from "lucide-react";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-const EVENT_STATUS_FILTERS: { value: EventStatus | "all"; label: string }[] = [
+const EVENT_STATUS_FILTERS: { value: EventStatus | "all" | "archived"; label: string }[] = [
   { value: "all", label: "All" },
   { value: "draft", label: "Draft" },
   { value: "suggested", label: "Suggested" },
@@ -29,6 +29,7 @@ const EVENT_STATUS_FILTERS: { value: EventStatus | "all"; label: string }[] = [
   { value: "on_hold", label: "On Hold" },
   { value: "concluded", label: "Concluded" },
   { value: "cancelled", label: "Cancelled" },
+  { value: "archived", label: "Archived" },
 ];
 
 const PAGE_SIZE = 25;
@@ -51,7 +52,7 @@ export default function EventsPage() {
     return () => clearTimeout(debounceRef.current);
   }, [search]);
 
-  const [statusFilter, setStatusFilter] = useState<EventStatus | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<EventStatus | "all" | "archived">("all");
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(1);
@@ -65,7 +66,7 @@ export default function EventsPage() {
 
   const firestoreFilters = useMemo(
     () => ({
-      ...(statusFilter !== "all" ? { status: statusFilter } : {}),
+      ...(statusFilter !== "all" && statusFilter !== "archived" ? { status: statusFilter } : {}),
       sortField: serverSortField as "date" | "artist" | "venue",
       sortDir: serverSortDir as "asc" | "desc",
     }),
@@ -104,6 +105,7 @@ export default function EventsPage() {
   useEffect(() => { setPage(1); }, [debouncedSearch, statusFilter, profileFilter, sortKey, sortDir]);
 
   const filtered = allLoadedEvents.filter((e) => {
+    if (statusFilter === "archived") return !!e.archived;
     if (e.archived) return false;
     // Hide child events unless the user is the performer on it (not the host)
     if (e.parentEventId) {
@@ -112,6 +114,8 @@ export default function EventsPage() {
       ) && !allProfileIds.includes(e.hostProfileId || "");
       if (!isMyChildEvent) return false;
     }
+    // Hide parent multi-performer event from non-host performers
+    if (e.isMultiPerformer && !allProfileIds.includes(e.hostProfileId || "")) return false;
     if (profileOptions.length > 1) {
       const idsToMatch = profileFilter === "all" ? allProfileIds : [profileFilter];
       const profileMatch = idsToMatch.some((pid) => e.hostProfileId === pid || e.accessProfileIds?.includes(pid));
@@ -259,10 +263,18 @@ export default function EventsPage() {
                   ))
                 ) : (
                   <>
-                    {paginated.map((event) => (
-                      <tr key={event.id} className="transition-colors hover:bg-muted/30">
+                    {paginated.map((event) => {
+                      const isChildEvent = !!event.parentEventId;
+                      const parentName = isChildEvent
+                        ? allLoadedEvents.find(e => e.id === event.parentEventId)?.name
+                        : undefined;
+                      return (
+                      <tr key={event.id} className={`transition-colors hover:bg-muted/30 ${event.isMultiPerformer ? "border-l-4 border-l-primary/40 bg-primary/[0.02]" : ""} ${isChildEvent ? "border-l-4 border-l-primary/20 bg-muted/10" : ""}`}>
                         <td className="px-6 py-4">
-                          <Link to="/events/$id" params={{ id: event.id }} className="font-medium hover:text-primary transition-colors flex items-center gap-2">
+                          {isChildEvent && parentName && (
+                            <p className="text-[10px] text-muted-foreground/70 font-medium mb-0.5 pl-2">{parentName}</p>
+                          )}
+                          <Link to="/events/$id" params={{ id: event.id }} className={`font-medium hover:text-primary transition-colors flex items-center gap-2 ${isChildEvent ? "pl-2" : ""}`}>
                             {event.name}
                             {event.isMultiPerformer && (
                               <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
@@ -270,11 +282,26 @@ export default function EventsPage() {
                               </span>
                             )}
                           </Link>
-                          <p className="text-xs text-muted-foreground">{event.id}</p>
+                          <p className={`text-xs text-muted-foreground ${isChildEvent ? "pl-2" : ""}`}>{event.id}</p>
                         </td>
-                        <td className="px-6 py-4 text-sm">{event.artist}</td>
+                        <td className="px-6 py-4 text-sm">
+                          {event.artist}
+                          {event.isMultiPerformer && (() => {
+                            const childNames = allLoadedEvents
+                              .filter(e => e.parentEventId === event.id)
+                              .map(e => e.artist)
+                              .filter(Boolean);
+                            return childNames.length > 0 ? (
+                              <p className="text-xs text-muted-foreground mt-0.5">{childNames.join(", ")}</p>
+                            ) : null;
+                          })()}
+                        </td>
                         <td className="px-6 py-4 text-sm text-muted-foreground">{event.venue}</td>
-                        <td className="px-6 py-4 text-sm text-muted-foreground">{event.date}</td>
+                        <td className="px-6 py-4 text-sm text-muted-foreground">
+                          <Link to="/calendar" search={{ date: event.date }} className="hover:underline hover:text-foreground cursor-pointer transition-colors">
+                            {event.date}
+                          </Link>
+                        </td>
                         <td className="px-6 py-4"><EventStatusBadge status={event.eventStatus} /></td>
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-end gap-1">
@@ -321,18 +348,33 @@ export default function EventsPage() {
                               <TooltipContent>Print Event Details</TooltipContent>
                             </Tooltip>
 
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setArchiveEventId(event.id)}>
-                                  <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Delete (Archive)</TooltipContent>
-                            </Tooltip>
+                            {event.archived ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
+                                    updateEvent(event.id, { archived: false });
+                                    toast({ title: "Event restored" });
+                                  }}>
+                                    <ArchiveRestore className="h-4 w-4 text-muted-foreground hover:text-primary" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Restore Event</TooltipContent>
+                              </Tooltip>
+                            ) : (event.eventStatus === "concluded" || event.eventStatus === "cancelled") && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setArchiveEventId(event.id)}>
+                                    <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Archive Event</TooltipContent>
+                              </Tooltip>
+                            )}
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                     {sorted.length === 0 && (
                       <tr>
                         <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">No events found</td>

@@ -50,9 +50,9 @@ export function EventDetailHeader({ event, deal, revenue, settlement }: EventDet
       ["Net Revenue", `${formatCurrency(netRev)}`],
       ["", ""],
       ["Payouts", ""],
-      ["Performer Payout", `${formatCurrency(settlement.artistPayout)}`],
-      ["Promoter Payout", `${formatCurrency(settlement.promoterPayout)}`],
-      ["Venue Payout", `${formatCurrency(settlement.venuePayout)}`],
+      [`Performer Payout (${event.artist})`, `${formatCurrency(settlement.artistPayout)}`],
+      [`Promoter Payout (${event.operator})`, `${formatCurrency(settlement.promoterPayout)}`],
+      [`Venue Payout (${event.venue})`, `${formatCurrency(settlement.venuePayout)}`],
       ...settlement.commissionPayouts.filter(c => c.payout > 0).map(c => [`${c.label} (${c.name})`, `${formatCurrency(c.payout)}`]),
     ];
     const csv = rows.map(r => r.join(",")).join("\n");

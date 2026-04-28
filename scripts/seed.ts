@@ -93,7 +93,7 @@ const TEST_USERS = [
   {
     email: "testartistuser1@showme.music",
     displayName: "Artist Test One",
-    role: "artist",
+    role: "performer",
     profileName: "Test Artist One",
     locations: [{ id: "loc-1", label: "Primary", city: "Paris", country: "FR" }],
     bio: "A test artist account for local development.",
@@ -189,7 +189,7 @@ async function seedMainUser(): Promise<void> {
   // Profile doc IDs — used as hostProfileId / performerProfileId for seeded events.
   const venueProfileId = profileDocId(uid, "venue");
   const promoterProfileId = profileDocId(uid, "promoter");
-  const artistProfileId = profileDocId(uid, "artist");
+  const artistProfileId = profileDocId(uid, "performer");
 
   // ── Batch 1: user settings, profiles, parties ─────────────────────────────
   let batch = db.batch();
@@ -376,15 +376,15 @@ async function seedMainUser(): Promise<void> {
 
   // ── Batch 5: standalone artist profiles (public, searchable) ───────────────
   batch = db.batch();
-  const mainArtistName = SEED_PROFILES.artist.name; // skip if same as main user's profile
+  const mainArtistName = SEED_PROFILES.performer.name; // skip if same as main user's profile
   let artistProfileCount = 0;
   for (const artist of seedArtistProfiles) {
     if (artist.name === mainArtistName) continue; // already seeded as main user's profile
     const slug = artist.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
     const docId = `seed-artist__${slug}`;
     batch.set(db.collection("profiles").doc(docId), {
-      type: "artist",
-      role: "artist",
+      type: "performer",
+      role: "performer",
       name: artist.name,
       locations: artist.locations,
       genres: artist.genres,
@@ -394,7 +394,7 @@ async function seedMainUser(): Promise<void> {
       isPublic: true,
       created: true,
       owner_uid: uid,
-      slot: "artist",
+      slot: "performer",
       schemaVersion: 2,
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -467,7 +467,7 @@ async function seedTestUsers(): Promise<void> {
       socialLinks: [],
       ...("capacity" in u ? { capacity: u.capacity } : {}),
       ...("setupType" in u ? { setupType: u.setupType, setupSize: u.setupSize } : {}),
-      ...(u.role === "artist" ? { avatarUrl: `https://i.pravatar.cc/150?u=${profileSlug}` } : {}),
+      ...(u.role === "performer" ? { avatarUrl: `https://i.pravatar.cc/150?u=${profileSlug}` } : {}),
       isPublic: true,
       created: true,
       owner_uid: uid,

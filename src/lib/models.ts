@@ -67,6 +67,8 @@ export interface Event {
   accessUids?: string[];
   /** On child (performer) events: the performer's profile ID. */
   performerProfileId?: string;
+  /** Role tag for the performer on this event (e.g. Headliner, Support, Special Guest). */
+  performerRoleTag?: "headliner" | "support" | "special_guest" | "dj" | "opener";
   /** Set when this event was created from an inbound booking request. */
   sourceRequestId?: string;
   /** The date the performer originally requested (from the booking request). Used to detect date changes. */
@@ -516,7 +518,7 @@ export const calendarItemTypeLabels: Record<CalendarItemType, string> = {
 
 // ── Contact types ──
 
-export type ContactType = "promoter" | "venue" | "performer" | "ticketing" | "agent" | "manager" | "production";
+export type ContactType = "promoter" | "venue" | "performer" | "ticketing" | "agent" | "manager" | "production" | (string & {});
 
 export interface ContactPerson {
   name: string;
@@ -527,7 +529,7 @@ export interface ContactPerson {
 export interface Contact {
   id: string;
   name: string;
-  type: ContactType;
+  type: ContactType | ContactType[];
   contacts: ContactPerson[];
   iban: string;
   bankName: string;
@@ -536,10 +538,10 @@ export interface Contact {
   notes: string;
 }
 
-export const contactTypeLabels: Record<ContactType, string> = {
+export const contactTypeLabels: Record<string, string> = {
   promoter: "Promoter",
   venue: "Venue",
-  artist: "Performer",
+  performer: "Performer",
   ticketing: "Ticketing Provider",
   agent: "Agent",
   manager: "Manager",
@@ -608,7 +610,7 @@ export const eventCollaboratorRoleLabels: Record<EventCollaboratorRole, string> 
   promoter: "Promoter",
   organizer: "Organizer",
   festival: "Festival",
-  artist: "Performer",
+  performer: "Performer",
   agent: "Agent",
   staff: "Staff",
 };
@@ -667,6 +669,8 @@ export interface ScheduleItem {
   description?: string;
   /** Profile ID of the collaborator who owns this schedule item (controls write access). */
   ownerProfileId?: string;
+  /** Room/stage name for multi-room venues. */
+  roomStage?: string;
 }
 
 export type AmenityKey =

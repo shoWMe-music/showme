@@ -1,4 +1,5 @@
 import type { DealType } from "@/lib/models";
+import type { PerformerRoleTag } from "@/components/PerformerFormFields";
 import type { OperatorRole } from "@/lib/user-context";
 
 export interface PrefillData {
@@ -28,6 +29,7 @@ export interface PerformerEntry {
   id: string;
   artistName: string;
   performerProfileId: string;
+  performerRoleTag?: PerformerRoleTag;
   dealType: DealType;
   artistGuarantee: string;
   artistSplit: string;

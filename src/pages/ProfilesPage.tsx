@@ -27,6 +27,7 @@ import { Link } from "@tanstack/react-router";
 import VenueMap from "@/components/VenueMap";
 import { toast, copyToast } from "@/hooks/use-toast";
 import { CreateProfileDialog } from "@/components/CreateProfileDialog";
+import DocumentPreviewDialog from "@/components/DocumentPreviewDialog";
 
 import { EventStatusBadge } from "@/components/StatusBadge";
 import type { Event as AppEvent, EventStatus } from "@/lib/models";
@@ -153,13 +154,14 @@ export default function ProfilesPage() {
   }, [loaded, createdProfiles.map(([k]) => k).join(",")]);
 
   const handleDeleteProfile = useCallback((key: string) => {
+    const profileId = profiles[key]?.id;
     setProfiles(prev => {
       const updated = { ...prev };
       delete updated[key];
       return updated;
     });
     // Also remove from DB
-    deleteProfile(key).catch(() => {});
+    if (profileId) deleteProfile(profileId).catch(() => {});
     // Switch to another profile if available
     const remaining = createdProfiles.filter(([k]) => k !== key);
     setSelectedRole(remaining[0]?.[0] || "");
@@ -326,6 +328,7 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
 }) {
   const baseRole = getBaseRole(role);
   const [copied, setCopied] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<{ name: string; url: string } | null>(null);
   const events = useEvents();
   const slug = profile.slug || generateSlug(profile.name, role);
   const publicUrl = `${window.location.origin}/p/${slug}`;
@@ -369,7 +372,7 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
       {/* Avatar + Header */}
       <div className="px-8 -mt-20 relative z-10">
         <div className="flex items-start gap-6">
-          <div className="relative h-40 w-40 rounded-full border-4 border-card bg-muted overflow-hidden shadow-lg shrink-0">
+          <a href={publicUrl} target="_blank" rel="noopener noreferrer" className="relative h-40 w-40 rounded-full border-4 border-card bg-muted overflow-hidden shadow-lg shrink-0 group">
             {profile.avatarUrl ? (
               <img src={profile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
             ) : (
@@ -377,11 +380,16 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
                 {profile.name?.charAt(0) || "?"}
               </div>
             )}
-          </div>
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+              <ExternalLink className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+          </a>
 
           <div className="pt-[5.5rem] flex-1 min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
-              <h2 className="text-3xl font-bold tracking-tight">{profile.name}</h2>
+              <a href={publicUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                <h2 className="text-3xl font-bold tracking-tight">{profile.name}</h2>
+              </a>
               <Badge variant="secondary" className="text-xs shrink-0">{operatorRoleLabels[baseRole]}</Badge>
             </div>
 
@@ -409,10 +417,20 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
           <div className="pt-[5.5rem] shrink-0 flex gap-2">
             {baseRole === "performer" && (
               <>
-                <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs"
+                  disabled={!profile.documents?.find(d => d.type === "tech_rider")}
+                  onClick={() => {
+                    const doc = profile.documents?.find(d => d.type === "tech_rider");
+                    if (doc) setPreviewDoc({ name: doc.name, url: doc.url });
+                  }}>
                   <Eye className="h-3.5 w-3.5" /> Tech Rider
                 </Button>
-                <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs"
+                  disabled={!profile.documents?.find(d => d.type === "hospitality_rider")}
+                  onClick={() => {
+                    const doc = profile.documents?.find(d => d.type === "hospitality_rider");
+                    if (doc) setPreviewDoc({ name: doc.name, url: doc.url });
+                  }}>
                   <Eye className="h-3.5 w-3.5" /> Hospitality
                 </Button>
               </>
@@ -421,6 +439,11 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
               {copied ? <Check className="h-3.5 w-3.5" /> : <Share2 className="h-3.5 w-3.5" />}
               {copied ? "Copied!" : "Share Profile"}
             </Button>
+            <Link to="/settings" search={{ tab: "profile-access", profile: profile.id }}>
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+                <Users className="h-3.5 w-3.5" /> Access
+              </Button>
+            </Link>
             <Link to="/profiles/$role/edit" params={{ role }}>
               <Button variant="outline" size="sm" className="gap-1.5 text-xs">
                 <Edit2 className="h-3.5 w-3.5" /> Edit Profile
@@ -462,14 +485,18 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
             {baseRole === "performer" && (
               <div className="rounded-xl border bg-card p-6 shadow-sm">
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><Music className="h-5 w-5 text-primary" /> Listen</h3>
-                {getSpotifyEmbedUrl(profile.spotifyUrl || "") ? (
-                  <iframe src={getSpotifyEmbedUrl(profile.spotifyUrl!)!} width="100%" height="352" frameBorder="0" allow="encrypted-media" title="Spotify" className="rounded-md" />
-                ) : (
-                  <div className="bg-gradient-to-br from-primary/10 to-primary/5 rounded-lg p-8 flex items-center gap-6">
-                    <div className="w-28 h-28 rounded-lg bg-muted flex items-center justify-center shrink-0"><Music className="h-12 w-12 text-muted-foreground" /></div>
-                    <div><p className="font-semibold text-lg">{profile.name}</p><p className="text-sm text-muted-foreground mt-1">No Spotify URL linked yet.</p></div>
-                  </div>
-                )}
+                {(() => {
+                  const spotifyLink = profile.socialLinks?.find(l => l.platform.toLowerCase() === "spotify")?.url || profile.spotifyUrl || "";
+                  const embedUrl = getSpotifyEmbedUrl(spotifyLink);
+                  return embedUrl ? (
+                    <iframe src={embedUrl} width="100%" height="352" frameBorder="0" allow="encrypted-media" title="Spotify" className="rounded-md" />
+                  ) : (
+                    <div className="bg-gradient-to-br from-primary/10 to-primary/5 rounded-lg p-8 flex items-center gap-6">
+                      <div className="w-28 h-28 rounded-lg bg-muted flex items-center justify-center shrink-0"><Music className="h-12 w-12 text-muted-foreground" /></div>
+                      <div><p className="font-semibold text-lg">{profile.name}</p><p className="text-sm text-muted-foreground mt-1">Add a Spotify link in your Social Links to display a player here.</p></div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -519,7 +546,16 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
             {baseRole === "performer" && (
               <div className="rounded-xl border bg-card p-6 shadow-sm">
                 <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Users className="h-4 w-4 text-primary" /> Setup Variations</h3>
-                {profile.setupType ? (
+                {(profile.setups && profile.setups.length > 0) ? (
+                  <div className="space-y-1.5">
+                    {profile.setups.map((s, i) => (
+                      <div key={i} className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
+                        <span className="text-sm font-medium">{s.name}</span>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground"><Users className="h-3 w-3" /> {s.headcount}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : profile.setupType ? (
                   <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
                     <span className="text-sm font-medium">{profile.setupType}</span>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground"><Users className="h-3 w-3" /> {profile.setupSize || "—"}</div>
@@ -546,6 +582,11 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
                             </div>
                             <div className="flex items-center gap-2">
                               <span className="text-sm text-muted-foreground">{sv.capacity?.toLocaleString() || "—"}</span>
+                              {(sv.sittingCapacity || sv.standingCapacity) && (
+                                <span className="text-[10px] text-muted-foreground">
+                                  {sv.sittingCapacity ? `${sv.sittingCapacity} sit` : ""}{sv.sittingCapacity && sv.standingCapacity ? " / " : ""}{sv.standingCapacity ? `${sv.standingCapacity} stand` : ""}
+                                </span>
+                              )}
                               <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
                                 const updated = { ...profile, subVenues: (profile.subVenues || []).filter((s: SubVenue) => s.id !== sv.id) };
                                 setProfiles(prev => ({ ...prev, [profileKey]: updated }));
@@ -594,6 +635,13 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
           </div>
         </div>
       </div>
+
+      <DocumentPreviewDialog
+        open={!!previewDoc}
+        onOpenChange={(o) => { if (!o) setPreviewDoc(null); }}
+        fileName={previewDoc?.name}
+        fileUrl={previewDoc?.url}
+      />
     </div>
   );
 }
@@ -601,7 +649,8 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
 /* ─── Embed Code Block ─── */
 function EmbedCodeBlock({ slug }: { slug: string }) {
   const [copied, setCopied] = useState(false);
-  const widgetUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/request-date-widget?slug=${encodeURIComponent(slug)}&role=venue`;
+  const baseUrl = import.meta.env.VITE_SUPABASE_URL || window.location.origin;
+  const widgetUrl = `${baseUrl}/functions/v1/request-date-widget?slug=${encodeURIComponent(slug)}&role=venue`;
   const embedCode = `<iframe src="${widgetUrl}" width="100%" height="600" frameborder="0" style="border:none;border-radius:8px;max-width:480px;"></iframe>`;
 
   const handleCopy = (text: string) => {
@@ -644,14 +693,16 @@ function SubVenueInlineAdd({ profileKey, profile, setProfiles, saveProfileToDb }
   const [addType, setAddType] = useState<"room" | "stage">("room");
   const [addName, setAddName] = useState("");
   const [addCapacity, setAddCapacity] = useState("");
+  const [addSitting, setAddSitting] = useState("");
+  const [addStanding, setAddStanding] = useState("");
 
   const handleAdd = () => {
     if (!addName.trim()) return;
-    const newSub: SubVenue = { id: `SV-${Date.now()}`, name: addName.trim(), type: addType, capacity: parseInt(addCapacity) || undefined };
+    const newSub: SubVenue = { id: `SV-${Date.now()}`, name: addName.trim(), type: addType, capacity: parseInt(addCapacity) || undefined, sittingCapacity: parseInt(addSitting) || undefined, standingCapacity: parseInt(addStanding) || undefined };
     const updated = { ...profile, subVenues: [...(profile.subVenues || []), newSub] };
     setProfiles(prev => ({ ...prev, [profileKey]: updated }));
     saveProfileToDb(profileKey, updated);
-    setAddName(""); setAddCapacity(""); setAddOpen(false);
+    setAddName(""); setAddCapacity(""); setAddSitting(""); setAddStanding(""); setAddOpen(false);
     toast({ title: `${addType === "room" ? "Room" : "Stage"} added` });
   };
 
@@ -676,6 +727,10 @@ function SubVenueInlineAdd({ profileKey, profile, setProfiles, saveProfileToDb }
             </div>
             <div><Label>Name</Label><Input value={addName} onChange={e => setAddName(e.target.value)} placeholder="Room/Stage name" className="mt-1" /></div>
             <div><Label>Capacity (optional)</Label><Input type="number" value={addCapacity} onChange={e => setAddCapacity(e.target.value)} placeholder="0" className="mt-1" /></div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label>Sitting</Label><Input type="number" value={addSitting} onChange={e => setAddSitting(e.target.value)} placeholder="0" className="mt-1" /></div>
+              <div><Label>Standing</Label><Input type="number" value={addStanding} onChange={e => setAddStanding(e.target.value)} placeholder="0" className="mt-1" /></div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>

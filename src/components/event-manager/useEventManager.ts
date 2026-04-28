@@ -9,6 +9,7 @@ import {
   useEventEconomics, useAllEventEconomics, useUpdateSettlementStatus, useAddComment,
   useEvents, useEventsLoaded, useEvent, useChildEvents,
   useUpdateDeal, useUpdateRevenue, useUpdateAnyEventMeta,
+  useEventActivityLog,
   queryKeys,
 } from "@/lib/queries";
 import { upsertShareToken, fetchEventCollaborators, fetchBookingRequestByEventId, fetchProfileTodos, upsertProfileTodos, migrateMetaTodosToProfile, type EventMeta, type Todo } from "@/lib/db";
@@ -21,7 +22,7 @@ import type { EventCollaborator, DealStructure, TicketRevenue, Settlement } from
 export type TabId = "budget" | "details" | "agreement" | "crew" | "todo" | "settlement" | "messages" | "performers" | "changelog" | "collaborators";
 
 const PARENT_TABS: TabId[] = ["details", "performers", "collaborators", "crew", "todo", "budget", "changelog"];
-const STANDARD_TABS: TabId[] = ["todo", "budget", "details", "agreement", "collaborators", "crew", "settlement", "messages", "changelog"];
+const STANDARD_TABS: TabId[] = ["todo", "budget", "details", "agreement", "crew", "settlement", "messages", "collaborators", "changelog"];
 
 export function useEventManager() {
   const { id } = useParams({ from: "/events/$id" });
@@ -215,7 +216,8 @@ export function useEventManager() {
 
   const generateShareLink = (eventId: string, parties: string[]): string => {
     const token = `review-${eventId}`;
-    void upsertShareToken(token, eventId, parties);
+    const snapshot = event ? { event, deal: effectiveDeal, revenue, settlement } : undefined;
+    void upsertShareToken(token, eventId, parties, snapshot);
     return `${window.location.origin}/review/${token}`;
   };
 
@@ -235,7 +237,20 @@ export function useEventManager() {
     cancelDateChangeMutation.mutate({ eventId: id, actingProfile });
   };
 
-  const allTabs: { id: TabId; label: string }[] = isParent
+  // Change log badge: count entries newer than last viewed timestamp
+  const { entries: changeLogEntries } = useEventActivityLog(id ?? "");
+  const changeLogStorageKey = `changelog_last_viewed_${id}`;
+  const changeLogBadgeCount = useMemo(() => {
+    const lastViewed = localStorage.getItem(changeLogStorageKey);
+    if (!lastViewed) return changeLogEntries.length;
+    return changeLogEntries.filter(e => e.timestamp > lastViewed).length;
+  }, [changeLogEntries, changeLogStorageKey]);
+
+  const markChangeLogViewed = useCallback(() => {
+    localStorage.setItem(changeLogStorageKey, new Date().toISOString());
+  }, [changeLogStorageKey]);
+
+  const allTabs: { id: TabId; label: string; badge?: number }[] = isParent
     ? [
         { id: "details", label: "Event Details" },
         { id: "performers", label: `Performers (${childEvents.length})` },
@@ -243,20 +258,20 @@ export function useEventManager() {
         { id: "crew", label: "Team / Crew" },
         { id: "todo", label: "To Do" },
         { id: "budget", label: "Budget" },
-        { id: "changelog", label: "Change Log" },
+        { id: "changelog", label: "Event History", badge: changeLogBadgeCount },
       ]
     : [
         { id: "todo", label: "To Do" },
         { id: "budget", label: "Budget Planner" },
         { id: "details", label: "Event Details" },
         { id: "agreement", label: "Agreement" },
-        { id: "collaborators", label: "Collaborators" },
         { id: "crew", label: "Team / Crew" },
         { id: "settlement", label: "Settlement" },
         { id: "messages", label: "Messages" },
-        { id: "changelog", label: "Change Log" },
+        { id: "collaborators", label: "Collaborators" },
+        { id: "changelog", label: "Event History", badge: changeLogBadgeCount },
       ];
-  const PERFORMER_TABS: TabId[] = ["details", "agreement", "messages", "changelog"];
+  const PERFORMER_TABS: TabId[] = ["details", "agreement", "crew", "messages", "changelog"];
   const filteredTabs = isPerformer
     ? allTabs.filter((t) => PERFORMER_TABS.includes(t.id))
     : canAccessBudget ? allTabs : allTabs.filter((t) => t.id !== "budget");
@@ -313,5 +328,6 @@ export function useEventManager() {
     currentUser, teamMembers, user, actingProfile, profiles,
     effectiveSourceRequestId, effectiveSourceRequestDate,
     profileTodos, saveProfileTodos, todosLoaded, todoScopeId,
+    markChangeLogViewed,
   };
 }

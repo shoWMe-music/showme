@@ -24,7 +24,7 @@ interface EventManagerHeaderProps {
   setCollaborators: (c: EventCollaborator[]) => void;
   eventCurrency: string;
   setEventCurrency: (c: string) => void;
-  tabs: { id: TabId; label: string }[];
+  tabs: { id: TabId; label: string; badge?: number }[];
   activeTab: TabId;
   updateEvent: (id: string, updates: Partial<Event>) => void;
   promoteHoldsOnDate: (date: string, venue: string, room: string, rank: number) => void;
@@ -34,9 +34,11 @@ interface EventManagerHeaderProps {
   onMarkPendingOpen: () => void;
   onExportOpen: () => void;
   onArchiveOpen: () => void;
+  onDuplicate?: () => void;
   effectiveSourceRequestId: string | undefined;
   effectiveSourceRequestDate: string | undefined;
   isPerformerInvitation?: boolean;
+  onTabChange?: (tabId: TabId) => void;
 }
 
 export function EventManagerHeader({
@@ -44,9 +46,9 @@ export function EventManagerHeader({
   collaborators, setCollaborators, eventCurrency, setEventCurrency,
   tabs, activeTab,
   updateEvent, promoteHoldsOnDate, resolveHoldRankConflicts, togglePublish,
-  onInviteOpen, onMarkPendingOpen, onExportOpen, onArchiveOpen,
+  onInviteOpen, onMarkPendingOpen, onExportOpen, onArchiveOpen, onDuplicate,
   effectiveSourceRequestId, effectiveSourceRequestDate,
-  isPerformerInvitation,
+  isPerformerInvitation, onTabChange,
 }: EventManagerHeaderProps) {
   const navigate = useNavigate();
 
@@ -83,7 +85,13 @@ export function EventManagerHeader({
               )}
             </div>
             <p className="mt-1 text-muted-foreground">
-              {event.artist} · {event.venue}{event.roomStage ? ` — ${event.roomStage}` : ""} · {event.date}
+              {event.artist} · {event.venue}{event.roomStage ? ` — ${event.roomStage}` : ""} ·{" "}
+              <button
+                onClick={() => navigate({ to: "/calendar", search: { date: event.date } })}
+                className="hover:underline hover:text-foreground cursor-pointer transition-colors"
+              >
+                {event.date}
+              </button>
             </p>
           </div>
 
@@ -130,7 +138,7 @@ export function EventManagerHeader({
               <Button variant="outline" className="gap-2" onClick={onExportOpen}>
                 <Share2 className="h-4 w-4" /> Share & Export
               </Button>
-              <EventActionsMenu id={id} event={event} collaborators={collaborators} setCollaborators={setCollaborators} updateEvent={updateEvent} promoteHoldsOnDate={promoteHoldsOnDate} onArchiveOpen={onArchiveOpen} />
+              <EventActionsMenu id={id} event={event} collaborators={collaborators} setCollaborators={setCollaborators} updateEvent={updateEvent} promoteHoldsOnDate={promoteHoldsOnDate} onArchiveOpen={onArchiveOpen} onDuplicate={onDuplicate} />
             </div>
           )}
         </div>
@@ -143,13 +151,21 @@ export function EventManagerHeader({
         {tabs.map(tab => (
           <button
             key={tab.id}
-            onClick={() => navigate({ to: "/events/$id", params: { id }, search: { tab: tab.id }, replace: true })}
+            onClick={() => {
+              navigate({ to: "/events/$id", params: { id }, search: { tab: tab.id }, replace: true });
+              onTabChange?.(tab.id);
+            }}
             className={cn(
-              "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px",
+              "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px flex items-center gap-1.5",
               activeTab === tab.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
             )}
           >
             {tab.label}
+            {tab.badge != null && tab.badge > 0 && (
+              <span className="inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold min-w-[18px] h-[18px] px-1">
+                {tab.badge > 99 ? "99+" : tab.badge}
+              </span>
+            )}
           </button>
         ))}
       </div>

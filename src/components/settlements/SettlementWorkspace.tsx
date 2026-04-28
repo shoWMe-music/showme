@@ -79,9 +79,9 @@ export function SettlementWorkspace({ event, deal, revenue, settlement, initialT
 
   const buildPayoutRows = () => {
     const allRows: { label: string; value: number; color: string; role: string }[] = [
-      { label: "Performer Payout", value: settlement.artistPayout, role: "artist", color: "bg-primary" },
-      { label: "Promoter Payout", value: settlement.promoterPayout, role: "promoter", color: "bg-foreground" },
-      { label: "Venue Payout", value: settlement.venuePayout, role: "venue", color: "bg-muted-foreground" },
+      { label: `Performer Payout (${event.artist})`, value: settlement.artistPayout, role: "artist", color: "bg-primary" },
+      { label: `Promoter Payout (${event.operator})`, value: settlement.promoterPayout, role: "promoter", color: "bg-foreground" },
+      { label: `Venue Payout (${event.venue})`, value: settlement.venuePayout, role: "venue", color: "bg-muted-foreground" },
     ];
     const orgBreakdown = partyBreakdowns.find(pb => pb.party === "Organizer");
     if (orgBreakdown) {

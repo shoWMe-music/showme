@@ -4,10 +4,24 @@ import AppLayout from "@/components/AppLayout";
 import CreateContactDialog from "@/components/CreateContactDialog";
 import StatusBadge from "@/components/StatusBadge";
 import { useContact, useEvents, useUpdateContact, useDeleteContact, useAllEventEconomics, useEventsLoaded, useContactsLoaded } from "@/lib/queries";
-import { Contact, contactTypeLabels, formatCurrency } from "@/lib/models";
+import { Contact, ContactType, contactTypeLabels, formatCurrency } from "@/lib/models";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Pencil, Trash2, Mail, Phone, Building2, CreditCard, FileText, MapPin, StickyNote } from "lucide-react";
+import { ArrowLeft, Pencil, Trash2, Mail, Phone, Building2, CreditCard, FileText, MapPin, StickyNote, Copy } from "lucide-react";
+import { copyToast } from "@/hooks/use-toast";
+
+function CopyBtn({ value }: { value: string }) {
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-6 w-6 shrink-0"
+      onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(value); copyToast("Copied to clipboard"); }}
+    >
+      <Copy className="h-3 w-3" />
+    </Button>
+  );
+}
 
 export default function ContactDetailPage() {
   const { id } = useParams({ from: "/contacts/$id" });
@@ -135,7 +149,11 @@ export default function ContactDetailPage() {
           </Button>
           <div className="flex-1">
             <h1 className="text-2xl font-bold tracking-tight">{contact.name}</h1>
-            <p className="text-sm text-muted-foreground">{contactTypeLabels[contact.type]}</p>
+            <p className="text-sm text-muted-foreground">
+              {Array.isArray(contact.type)
+                ? contact.type.map(t => contactTypeLabels[t]).join(", ")
+                : contactTypeLabels[contact.type as ContactType]}
+            </p>
           </div>
           <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
             <Pencil className="h-4 w-4 mr-1" /> Edit
@@ -158,11 +176,13 @@ export default function ContactDetailPage() {
                     {c.email && (
                       <p className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Mail className="h-3 w-3" /> {c.email}
+                        <CopyBtn value={c.email} />
                       </p>
                     )}
                     {c.phone && (
                       <p className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Phone className="h-3 w-3" /> {c.phone}
+                        <CopyBtn value={c.phone} />
                       </p>
                     )}
                   </div>
@@ -172,17 +192,19 @@ export default function ContactDetailPage() {
             </div>
 
             {/* Bank Details — hidden for ticketing providers */}
-            {contact.type !== "ticketing" && (
+            {!(Array.isArray(contact.type) ? contact.type.includes("ticketing") : contact.type === "ticketing") && (
               <div>
                 <h3 className="text-sm font-semibold text-muted-foreground mb-2">Bank Details</h3>
                 <div className="space-y-1 text-sm">
                   <p className="flex items-center gap-2">
                     <CreditCard className="h-4 w-4 text-muted-foreground" />
                     <span className="font-mono">{contact.iban || "—"}</span>
+                    {contact.iban && <CopyBtn value={contact.iban} />}
                   </p>
                   <p className="flex items-center gap-2">
                     <Building2 className="h-4 w-4 text-muted-foreground" />
                     {contact.bankName || "—"}
+                    {contact.bankName && <CopyBtn value={contact.bankName} />}
                   </p>
                 </div>
               </div>
@@ -195,6 +217,7 @@ export default function ContactDetailPage() {
                   <h3 className="text-sm font-semibold text-muted-foreground mb-1">VAT / Tax ID</h3>
                   <p className="flex items-center gap-2 text-sm">
                     <FileText className="h-4 w-4 text-muted-foreground" /> {contact.vatId}
+                    <CopyBtn value={contact.vatId} />
                   </p>
                 </div>
               )}
@@ -203,6 +226,7 @@ export default function ContactDetailPage() {
                   <h3 className="text-sm font-semibold text-muted-foreground mb-1">Address</h3>
                   <p className="flex items-center gap-2 text-sm">
                     <MapPin className="h-4 w-4 text-muted-foreground" /> {contact.address}
+                    <CopyBtn value={contact.address} />
                   </p>
                 </div>
               )}

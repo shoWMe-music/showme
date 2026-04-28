@@ -4,9 +4,10 @@ import AppLayout from "@/components/AppLayout";
 import CreateContactDialog from "@/components/CreateContactDialog";
 import ImportContactsDialog from "@/components/ImportContactsDialog";
 import { usePaginatedContacts, useAddContact, useUpdateContact, useDeleteContact } from "@/lib/queries";
-import type { ContactPageFilters } from "@/lib/db";
+import { useMyInvitationCodes } from "@/lib/queries/useInvitationCodes";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Contact, ContactType, contactTypeLabels } from "@/lib/models";
+import { contactHasType, contactPrimaryType } from "@/lib/contacts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +18,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, Users, MapPin, Music, Ticket, Briefcase, UserCheck, Factory, Upload, AlertTriangle, Merge, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { Plus, Search, Users, MapPin, Music, Ticket, Briefcase, UserCheck, Factory, Upload, AlertTriangle, Merge, ChevronLeft, ChevronRight, Loader2, Handshake } from "lucide-react";
 
 const PAGE_SIZE = 25;
 const FETCH_SIZE = 50;
@@ -25,7 +26,7 @@ const FETCH_SIZE = 50;
 const typeIcons: Record<ContactType, typeof Users> = {
   promoter: Users,
   venue: MapPin,
-  artist: Music,
+  performer: Music,
   ticketing: Ticket,
   agent: Briefcase,
   manager: UserCheck,
@@ -105,16 +106,15 @@ export default function ContactsPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [search, setSearch] = useState("");
-  const [filterType, setFilterType] = useState<ContactType | "all">("all");
+  const [filterType, setFilterType] = useState<ContactType | "all" | "collaborators">("all");
   const [duplicatesOpen, setDuplicatesOpen] = useState(false);
   const [mergeConfirm, setMergeConfirm] = useState<DuplicateGroup | null>(null);
   const [page, setPage] = useState(1);
 
-  // Server-side type filter
-  const firestoreFilters = useMemo<ContactPageFilters | undefined>(
-    () => (filterType !== "all" ? { type: filterType } : undefined),
-    [filterType],
-  );
+  const { data: invitationCodes } = useMyInvitationCodes();
+
+  // No server-side type filter — we use client-side filtering to support multi-type contacts
+  const firestoreFilters = undefined;
 
   const {
     data: paginatedData,
@@ -130,19 +130,53 @@ export default function ContactsPage() {
     [paginatedData],
   );
 
+  // Build a set of collaborator contact names/emails for the "Active Collaborators" filter
+  const collaboratorNames = useMemo(() => {
+    if (!invitationCodes) return new Set<string>();
+    const names = new Set<string>();
+    for (const code of invitationCodes) {
+      if (code.recipientName) names.add(code.recipientName.trim().toLowerCase());
+      if (code.recipientEmail) names.add(code.recipientEmail.trim().toLowerCase());
+    }
+    return names;
+  }, [invitationCodes]);
+
+  const isCollaborator = (contact: Contact): boolean => {
+    if (collaboratorNames.has(contact.name.trim().toLowerCase())) return true;
+    return contact.contacts.some(c => c.email && collaboratorNames.has(c.email.trim().toLowerCase()));
+  };
+
+  const getInviteStatus = (contact: Contact): "active" | "used" | null => {
+    if (!invitationCodes) return null;
+    for (const code of invitationCodes) {
+      const nameMatch = code.recipientName && contact.name.trim().toLowerCase() === code.recipientName.trim().toLowerCase();
+      const emailMatch = code.recipientEmail && contact.contacts.some(c => c.email.trim().toLowerCase() === code.recipientEmail!.trim().toLowerCase());
+      if (nameMatch || emailMatch) return code.status === "used" ? "used" : code.status === "active" ? "active" : null;
+    }
+    return null;
+  };
+
   // Reset to first page whenever filters change
   useEffect(() => { setPage(1); }, [search, filterType]);
 
   const duplicates = useMemo(() => findDuplicates(allLoadedContacts), [allLoadedContacts]);
 
-  // Client-side search filter only (type filtering is server-side)
+  // Client-side search + type filter
   const filtered = useMemo(() => {
-    if (!search) return allLoadedContacts;
-    const q = search.toLowerCase();
-    return allLoadedContacts.filter(p =>
-      p.name.toLowerCase().includes(q) || p.contacts.some(c => c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q)),
-    );
-  }, [allLoadedContacts, search]);
+    let result = allLoadedContacts;
+    if (filterType === "collaborators") {
+      result = result.filter(isCollaborator);
+    } else if (filterType !== "all") {
+      result = result.filter(p => contactHasType(p, filterType));
+    }
+    if (search) {
+      const q = search.toLowerCase();
+      result = result.filter(p =>
+        p.name.toLowerCase().includes(q) || p.contacts.some(c => c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q)),
+      );
+    }
+    return result;
+  }, [allLoadedContacts, search, filterType, collaboratorNames]);
 
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -158,8 +192,11 @@ export default function ContactsPage() {
   const grouped = useMemo(() => {
     const groups: Record<string, Contact[]> = {};
     for (const p of paginated) {
-      if (!groups[p.type]) groups[p.type] = [];
-      groups[p.type].push(p);
+      const types = Array.isArray(p.type) ? p.type : [p.type];
+      for (const t of types) {
+        if (!groups[t]) groups[t] = [];
+        groups[t].push(p);
+      }
     }
     return groups;
   }, [paginated]);
@@ -267,14 +304,17 @@ export default function ContactsPage() {
               All{filterType === "all" && allLoadedContacts.length > 0 ? ` (${allLoadedContacts.length}${hasNextPage ? "+" : ""})` : ""}
             </Button>
             {allTypes.map(t => {
-              const count = allLoadedContacts.filter(p => p.type === t).length;
-              if (count === 0) return null;
+              const count = allLoadedContacts.filter(p => contactHasType(p, t)).length;
               return (
                 <Button key={t} variant={filterType === t ? "default" : "outline"} size="sm" onClick={() => setFilterType(t)}>
-                  {contactTypeLabels[t]} ({count})
+                  {contactTypeLabels[t]}{count > 0 ? ` (${count})` : ""}
                 </Button>
               );
             })}
+            <Button variant={filterType === "collaborators" ? "default" : "outline"} size="sm" onClick={() => setFilterType("collaborators")}>
+              <Handshake className="h-3.5 w-3.5 mr-1.5" />
+              Active Collaborators
+            </Button>
           </div>
         </div>
 
@@ -292,7 +332,9 @@ export default function ContactsPage() {
                   <span className="ml-auto text-xs text-muted-foreground">{items.length}</span>
                 </div>
                 <div className="divide-y">
-                  {items.map(party => (
+                  {items.map(party => {
+                  const inviteStatus = getInviteStatus(party);
+                  return (
                     <button
                       key={party.id}
                       className="flex w-full items-center justify-between px-6 py-3 text-left hover:bg-muted/50 transition-colors"
@@ -305,9 +347,18 @@ export default function ContactsPage() {
                           {party.contacts.length > 1 && ` +${party.contacts.length - 1}`}
                         </p>
                       </div>
-                      <span className="text-xs text-muted-foreground">{party.type !== "ticketing" && party.iban ? "IBAN ✓" : ""}</span>
+                      <div className="flex items-center gap-2">
+                        {inviteStatus === "active" && (
+                          <Badge variant="outline" className="text-[10px] border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-400">Invited</Badge>
+                        )}
+                        {inviteStatus === "used" && (
+                          <Badge variant="outline" className="text-[10px] border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">Joined</Badge>
+                        )}
+                        <span className="text-xs text-muted-foreground">{contactPrimaryType(party) !== "ticketing" && party.iban ? "IBAN ✓" : ""}</span>
+                      </div>
                     </button>
-                  ))}
+                  );
+                })}
                 </div>
               </div>
             );
@@ -385,7 +436,7 @@ export default function ContactsPage() {
                 <div className="space-y-1.5 mb-3">
                   {group.parties.map(p => (
                     <div key={p.id} className="text-xs text-muted-foreground flex items-center gap-2">
-                      <Badge variant="secondary" className="text-[10px]">{contactTypeLabels[p.type]}</Badge>
+                      <Badge variant="secondary" className="text-[10px]">{Array.isArray(p.type) ? p.type.map(t => contactTypeLabels[t]).join(", ") : contactTypeLabels[p.type]}</Badge>
                       <span>{p.contacts[0]?.email || "No email"}</span>
                       {p.iban && <span className="text-green-600">IBAN ✓</span>}
                     </div>

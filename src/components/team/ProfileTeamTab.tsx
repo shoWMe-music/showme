@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useUser, type TeamMember, type OperatorRole } from "@/lib/user-context";
 import { useAuth } from "@/lib/auth-context";
-import { buildProfileDocId } from "@/lib/profiles";
 import { upsertProfileTeamMember } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,7 +50,7 @@ export function ProfileTeamTab() {
   const { user } = useAuth();
 
   const ownedProfiles = Object.entries(profiles).filter(
-    ([, p]) => p.owner_uid === user?.uid || p.id?.startsWith(`${user?.uid}__`),
+    ([, p]) => p.created && (p.owner_uid === user?.uid || p.id?.startsWith(`${user?.uid}__`)),
   );
 
   const upsertTeamMemberMutation = useMutation({
@@ -69,12 +68,12 @@ export function ProfileTeamTab() {
   const [form, setForm] = useState<FormState>({ ...emptyForm });
   const [extraProfiles, setExtraProfiles] = useState<string[]>([]);
 
-  const primaryProfile = addOpen ? ownedProfiles.find(([s]) => buildProfileDocId(user!.uid, s) === addOpen) : null;
+  const primaryProfile = addOpen ? ownedProfiles.find(([s]) => profiles[s]?.id === addOpen) : null;
   const primaryRole = primaryProfile ? primaryProfile[1].role : null;
 
   const compatibleProfiles = primaryRole
     ? ownedProfiles.filter(([s]) => {
-        const pid = buildProfileDocId(user!.uid, s);
+        const pid = profiles[s]?.id;
         if (pid === addOpen) return false;
         const role = profiles[s]?.role;
         return role && sameTypeGroup(primaryRole, role);
@@ -147,7 +146,7 @@ export function ProfileTeamTab() {
       </p>
 
       {ownedProfiles.map(([slot, profile]) => {
-        const profileId = buildProfileDocId(user!.uid, slot);
+        const profileId = profile.id || "";
         const members = teamMembers.filter((m) => m.profileId === profileId);
 
         return (
@@ -237,7 +236,7 @@ export function ProfileTeamTab() {
                 <p className="text-xs text-muted-foreground mb-2">Other {primaryRole && VENUE_SIDE.has(primaryRole) ? "venue-side" : "performer"} profiles you own</p>
                 <div className="space-y-2">
                   {compatibleProfiles.map(([s, p]) => {
-                    const pid = buildProfileDocId(user!.uid, s);
+                    const pid = profiles[s]?.id;
                     return (
                       <label key={pid} className="flex items-center gap-2 cursor-pointer">
                         <Checkbox

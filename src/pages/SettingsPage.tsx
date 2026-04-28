@@ -5,7 +5,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import {
-  Settings2, Shield, Plug, CreditCard,
+  Settings2, Shield, Plug, CreditCard, Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -16,17 +16,16 @@ import { SecurityTab } from "@/components/settings/SecurityTab";
 
 import { IntegrationsTab } from "@/components/settings/IntegrationsTab";
 import { BillingTab } from "@/components/settings/BillingTab";
+import { ProfileAdminsTab } from "@/components/team/ProfileAdminsTab";
 
-type SettingsTab = "general" | "security" | "integrations" | "billing";
+type SettingsTab = "general" | "security" | "profile-access" | "integrations" | "billing";
 
-const validTabs = new Set<SettingsTab>(["general", "security", "integrations", "billing"]);
+const validTabs = new Set<SettingsTab>(["general", "security", "profile-access", "integrations", "billing"]);
 
 const settingsTabs: { id: SettingsTab; label: string; icon: typeof Settings2 }[] = [
   { id: "general", label: "General", icon: Settings2 },
-
-
   { id: "security", label: "Security & Privacy", icon: Shield },
-
+  { id: "profile-access", label: "Profile Access", icon: Users },
   { id: "integrations", label: "Integrations", icon: Plug },
   { id: "billing", label: "Subscription & Billing", icon: CreditCard },
 ];
@@ -76,10 +75,8 @@ export default function SettingsPage() {
 
         <div className="max-w-2xl">
           {activeTab === "general" && <GeneralTab />}
-
-
           {activeTab === "security" && <SecurityTab onSignOut={handleSignOut} />}
-
+          {activeTab === "profile-access" && <ProfileAdminsTab />}
           {activeTab === "integrations" && <IntegrationsTab />}
           {activeTab === "billing" && <BillingTab />}
         </div>

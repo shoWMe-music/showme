@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import DocumentPreviewDialog from "@/components/DocumentPreviewDialog";
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -45,6 +46,7 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
   const [newAg, setNewAg] = useState({ name: "", type: "custom" as AgreementType });
   const [deleteIndex, setDeleteIndex] = useState<number | null>(null);
   const [selfConfirmParty, setSelfConfirmParty] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<{ fileName: string; fileUrl: string } | null>(null);
 
   const { currentUser, profiles } = useUser();
 
@@ -186,13 +188,13 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
 
   const [savedTerms, setSavedTerms] = useState(terms);
 
-  // Track changes to agreements — reset confirmations if all were confirmed
+  // Track changes to agreements — reset confirmations if any party has confirmed
   const handleAgreementChange = (newAgreements: Agreement[]) => {
     const now = new Date().toISOString();
     metaDirty.current = true;
-    if (allConfirmed) {
+    if (confirmations.length > 0) {
       setConfirmations([]);
-      toast({ title: "Agreement changed", description: "All parties need to re-confirm the agreement." });
+      toast({ title: "Approvals reset", description: "Agreement changed — all parties need to re-confirm." });
     }
     setLastChangedAt(now);
     setAgreements(newAgreements);
@@ -202,9 +204,9 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
     if (terms === savedTerms) return;
     const now = new Date().toISOString();
     metaDirty.current = true;
-    if (allConfirmed) {
+    if (confirmations.length > 0) {
       setConfirmations([]);
-      toast({ title: "Agreement changed", description: "Terms updated — all parties need to re-confirm the agreement." });
+      toast({ title: "Approvals reset", description: "Terms updated — all parties need to re-confirm." });
     }
     setLastChangedAt(now);
     setSavedTerms(terms);
@@ -360,7 +362,7 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
                 </div>
                 <div className="flex items-center gap-2">
                   {ag.fileName ? (
-                    <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => { if (ag.fileUrl) window.open(ag.fileUrl); }}>
+                    <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => { if (ag.fileUrl && ag.fileName) setPreviewDoc({ fileName: ag.fileName, fileUrl: ag.fileUrl }); }}>
                       <Download className="h-3 w-3" /> {ag.fileName}
                     </Button>
                   ) : !readOnly ? (
@@ -447,7 +449,7 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
                               ? "text-[hsl(var(--success))] border-[hsl(var(--success)/0.3)]"
                               : "text-[hsl(var(--warning))] border-[hsl(var(--warning)/0.3)]"
                           )}>
-                            {confirmation.method === "self" ? "E-Signed" : "Manual"}
+                            {confirmation.method === "self" ? "Approved" : "Manual"}
                           </Badge>
                           <span className="text-xs text-[hsl(var(--success))]">
                             {confirmation.method === "manual"
@@ -530,10 +532,10 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <p>
-                  By confirming, you acknowledge that you have reviewed the agreement terms, documents, and deal structure. This will be recorded as an e-signature on behalf of {selfConfirmParty ? (partyProfileName[selfConfirmParty] || selfConfirmParty) : ""}.
+                  By confirming, you acknowledge that you have reviewed the agreement terms, documents, and deal structure. This confirmation will be recorded on behalf of {selfConfirmParty ? (partyProfileName[selfConfirmParty] || selfConfirmParty) : ""}.
                 </p>
                 <p>
-                  You confirm that you have the legal right to sign on behalf of <span className="font-medium text-foreground">{selfConfirmParty ? (partyProfileName[selfConfirmParty] || selfConfirmParty) : ""}</span>.
+                  You confirm that you have the authority to approve on behalf of <span className="font-medium text-foreground">{selfConfirmParty ? (partyProfileName[selfConfirmParty] || selfConfirmParty) : ""}</span>.
                 </p>
               </div>
             </AlertDialogDescription>
@@ -549,6 +551,7 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <DocumentPreviewDialog open={!!previewDoc} onOpenChange={() => setPreviewDoc(null)} fileName={previewDoc?.fileName} fileUrl={previewDoc?.fileUrl} />
     </div>
   );
 }

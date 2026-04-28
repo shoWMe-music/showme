@@ -59,7 +59,8 @@ export default function EventDetailPage() {
 
   const generateShareLink = (eventId: string, parties: string[]): string => {
     const token = `review-${eventId}`;
-    void upsertShareToken(token, eventId, parties);
+    const snapshot = event && deal && revenue && settlement ? { event, deal, revenue, settlement } : undefined;
+    void upsertShareToken(token, eventId, parties, snapshot);
     return `${window.location.origin}/review/${token}`;
   };
 
@@ -108,9 +109,9 @@ export default function EventDetailPage() {
   const buildPayoutRows = () => {
     if (!settlement) return [];
     const rows: { label: string; value: number; color: string }[] = [
-      { label: "Performer Payout", value: settlement.artistPayout, color: "bg-primary" },
-      { label: "Promoter Payout", value: settlement.promoterPayout, color: "bg-foreground" },
-      { label: "Venue Payout", value: settlement.venuePayout, color: "bg-muted-foreground" },
+      { label: `Performer Payout (${event.artist})`, value: settlement.artistPayout, color: "bg-primary" },
+      { label: `Promoter Payout (${event.operator})`, value: settlement.promoterPayout, color: "bg-foreground" },
+      { label: `Venue Payout (${event.venue})`, value: settlement.venuePayout, color: "bg-muted-foreground" },
     ];
     for (const c of settlement.commissionPayouts) {
       if (c.payout > 0) {

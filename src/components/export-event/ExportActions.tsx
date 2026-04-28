@@ -3,7 +3,7 @@ import { Printer, FileSpreadsheet, Copy, Check } from "lucide-react";
 
 interface ExportActionsProps {
   hasSelection: boolean;
-  recipients: string[];
+  recipients?: string[];
   sharing: boolean;
   copied: boolean;
   onPrint: () => void;
@@ -13,7 +13,6 @@ interface ExportActionsProps {
 
 export function ExportActions({
   hasSelection,
-  recipients,
   sharing,
   copied,
   onPrint,
@@ -35,13 +34,11 @@ export function ExportActions({
         <Button
           variant="outline"
           onClick={onShareLink}
-          disabled={!hasSelection || recipients.length === 0 || sharing}
+          disabled={!hasSelection || sharing}
           className="gap-1.5 h-auto py-3 flex-col"
-          title={recipients.length === 0 ? "Add at least one recipient email" : undefined}
         >
           {copied ? <Check className="h-4 w-4 text-[hsl(var(--success))]" /> : <Copy className="h-4 w-4" />}
           <span className="text-xs">{sharing ? "Creating..." : copied ? "Copied!" : "Share Link"}</span>
-          {recipients.length === 0 && <span className="text-[10px] text-muted-foreground">Add recipients</span>}
         </Button>
       </div>
     </div>

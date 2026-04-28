@@ -16,10 +16,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { toast as sonnerToast } from "sonner";
 import {
   Search, ListTodo, Calendar, User, Bell, ArrowRight, DollarSign,
   CheckCircle2, Clock, PauseCircle, FileEdit, MessageSquare,
-  CalendarRange, Send, TicketCheck, Zap, ChevronDown,
+  CalendarRange, Send, TicketCheck, Zap, ChevronDown, Plus,
   Mic2, MapPin, CalendarDays, ChevronLeft, ChevronRight, ArrowUpDown, Loader2,
 } from "lucide-react";
 
@@ -58,11 +59,12 @@ interface ActionItem {
 }
 
 const FILTERS = [
-  { value: "all",      label: "All" },
-  { value: "action",   label: "Action Items" },
-  { value: "todos",    label: "My Tasks" },
-  { value: "overdue",  label: "Overdue" },
-  { value: "upcoming", label: "Next 7 days" },
+  { value: "all",       label: "All" },
+  { value: "action",    label: "Action Items" },
+  { value: "todos",     label: "My Tasks" },
+  { value: "overdue",   label: "Overdue" },
+  { value: "upcoming",  label: "Next 7 days" },
+  { value: "completed", label: "Completed" },
 ] as const;
 type Filter = (typeof FILTERS)[number]["value"];
 
@@ -297,7 +299,10 @@ function AssigneeButton({ assignee, members, onAssign }: {
           )}
         >
           <User className="h-3 w-3 shrink-0" />
-          {assignee ?? "Assign"}
+          {assignee ? (() => {
+            const member = members.find(m => m.name === assignee);
+            return member?.roles?.[0] ? `${assignee} (${member.roles[0]})` : assignee;
+          })() : "Assign"}
           <ChevronRight className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0" />
         </button>
       </PopoverTrigger>
@@ -360,6 +365,11 @@ export default function TasksPage() {
   const [dismissedActions, setDismissedActions] = useState<Set<string>>(new Set());
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskAssignee, setNewTaskAssignee] = useState("");
+  const [newTaskDueDate, setNewTaskDueDate] = useState("");
+  const [newTaskEventId, setNewTaskEventId] = useState("");
 
   const {
     data: paginatedData,
@@ -440,9 +450,10 @@ export default function TasksPage() {
         if (!t.title.toLowerCase().includes(q) && !t.eventName.toLowerCase().includes(q) && !t.artist.toLowerCase().includes(q) && !t.venue.toLowerCase().includes(q)) return false;
       }
       switch (filter) {
-        case "overdue":  return !t.completed && !!t.dueDate && t.dueDate < today;
-        case "upcoming": return !t.completed && !!t.dueDate && t.dueDate >= today && t.dueDate <= sevenDaysOut;
-        default:         return !t.completed;
+        case "overdue":   return !t.completed && !!t.dueDate && t.dueDate < today;
+        case "upcoming":  return !t.completed && !!t.dueDate && t.dueDate >= today && t.dueDate <= sevenDaysOut;
+        case "completed": return t.completed;
+        default:          return !t.completed;
       }
     });
   }, [allUserTodos, filter, search, today, sevenDaysOut]);
@@ -518,10 +529,28 @@ export default function TasksPage() {
   const toggleTodo = useCallback((eventId: string, todoId: string) => {
     const meta = allEconomics[eventId]?.meta;
     if (!meta?.todos) return;
+    const todo = (meta.todos as UserTodo[]).find(t => t.id === todoId);
+    const wasCompleted = todo?.completed;
     const updated = (meta.todos as UserTodo[]).map(t =>
       t.id === todoId ? { ...t, completed: !t.completed, completedAt: !t.completed ? new Date().toISOString() : undefined } : t,
     );
     updateAnyEventMeta(eventId, { todos: updated });
+
+    if (!wasCompleted && todo) {
+      sonnerToast.success("Task completed", {
+        action: {
+          label: "Undo",
+          onClick: () => {
+            const currentMeta = allEconomics[eventId]?.meta;
+            if (!currentMeta?.todos) return;
+            const reverted = (currentMeta.todos as UserTodo[]).map(t =>
+              t.id === todoId ? { ...t, completed: false, completedAt: undefined } : t,
+            );
+            updateAnyEventMeta(eventId, { todos: reverted });
+          },
+        },
+      });
+    }
   }, [allEconomics, updateAnyEventMeta]);
 
   const assignTodo = useCallback((eventId: string, todoId: string, name: string | undefined) => {
@@ -541,6 +570,28 @@ export default function TasksPage() {
     updateAnyEventMeta(eventId, { actionItemAssignees: updated });
   }, [allEconomics, updateAnyEventMeta]);
 
+  const createTask = useCallback(() => {
+    if (!newTaskTitle.trim() || !newTaskEventId) return;
+    const meta = allEconomics[newTaskEventId]?.meta;
+    const existingTodos = (meta?.todos as UserTodo[]) ?? [];
+    const newTodo = {
+      id: `todo-${Date.now()}`,
+      title: newTaskTitle.trim(),
+      completed: false,
+      reminders: [],
+      createdAt: new Date().toISOString(),
+      ...(newTaskAssignee ? { assignee: newTaskAssignee } : {}),
+      ...(newTaskDueDate ? { dueDate: newTaskDueDate } : {}),
+    };
+    updateAnyEventMeta(newTaskEventId, { todos: [...existingTodos, newTodo] });
+    setNewTaskTitle("");
+    setNewTaskAssignee("");
+    setNewTaskDueDate("");
+    setNewTaskEventId("");
+    setShowCreateForm(false);
+    sonnerToast.success("Task created");
+  }, [newTaskTitle, newTaskEventId, newTaskAssignee, newTaskDueDate, allEconomics, updateAnyEventMeta]);
+
   const overdueCt = allUserTodos.filter(t => !t.completed && !!t.dueDate && t.dueDate < today).length;
   const totalVisible = filteredActions.length + filteredTodos.length;
   const showInitialSkeleton = !eventsLoaded;
@@ -551,14 +602,75 @@ export default function TasksPage() {
     <AppLayout>
       <div className="animate-fade-in">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight">Tasks</h1>
-          <p className="mt-1 text-muted-foreground">
-            {eventsLoaded
-              ? `${allActionItems.length} action item${allActionItems.length !== 1 ? "s" : ""} · ${allUserTodos.filter(t => !t.completed).length} open task${allUserTodos.filter(t => !t.completed).length !== 1 ? "s" : ""}${overdueCt > 0 ? ` · ${overdueCt} overdue` : ""}`
-              : "Loading…"}
-          </p>
+        <div className="mb-8 flex items-start justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Tasks</h1>
+            <p className="mt-1 text-muted-foreground">
+              {eventsLoaded
+                ? `${allActionItems.length} action item${allActionItems.length !== 1 ? "s" : ""} · ${allUserTodos.filter(t => !t.completed).length} open task${allUserTodos.filter(t => !t.completed).length !== 1 ? "s" : ""}${overdueCt > 0 ? ` · ${overdueCt} overdue` : ""}`
+                : "Loading…"}
+            </p>
+          </div>
+          <Button className="gap-2" onClick={() => setShowCreateForm(true)}>
+            <Plus className="h-4 w-4" /> Create Task
+          </Button>
         </div>
+
+        {/* Inline create form */}
+        {showCreateForm && (
+          <div className="mb-6 rounded-xl border bg-card p-4 shadow-sm space-y-3">
+            <h3 className="text-sm font-semibold">New Task</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="sm:col-span-2">
+                <input
+                  type="text"
+                  placeholder="Task title"
+                  value={newTaskTitle}
+                  onChange={e => setNewTaskTitle(e.target.value)}
+                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <select
+                  value={newTaskEventId}
+                  onChange={e => setNewTaskEventId(e.target.value)}
+                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">Select event...</option>
+                  {events.filter(e => !e.archived && !e.parentEventId).map(e => (
+                    <option key={e.id} value={e.id}>{e.name} ({e.date})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <input
+                  type="text"
+                  placeholder="Assignee (optional)"
+                  value={newTaskAssignee}
+                  onChange={e => setNewTaskAssignee(e.target.value)}
+                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+              <div>
+                <input
+                  type="date"
+                  value={newTaskDueDate}
+                  onChange={e => setNewTaskDueDate(e.target.value)}
+                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" onClick={createTask} disabled={!newTaskTitle.trim() || !newTaskEventId}>
+                Create
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => { setShowCreateForm(false); setNewTaskTitle(""); setNewTaskAssignee(""); setNewTaskDueDate(""); setNewTaskEventId(""); }}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Toolbar */}
         <div className="mb-4 flex flex-col gap-3">

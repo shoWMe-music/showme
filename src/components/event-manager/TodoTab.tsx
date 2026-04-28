@@ -405,7 +405,7 @@ export function TodoTab({ todos: externalTodos, event, onSaveTodos, teamMemberNa
                         setGenerating(true);
                         try {
                           const token = crypto.randomUUID();
-                          const shareData = { type: "todo-schedule", eventName: event.name, eventVenue: event.venue, eventDate: event.date, todos: todos.map(t => ({ id: t.id, title: t.title, dueDate: t.dueDate, completed: t.completed, reminders: t.reminders, budgetType: t.budgetType, budgetAmount: t.budgetAmount, description: t.description })), generatedAt: new Date().toISOString() };
+                          const shareData = { type: "todo-schedule", eventName: event.name, eventVenue: event.venue, eventDate: event.date, todos: todos.map(t => ({ id: t.id, title: t.title, ...(t.dueDate ? { dueDate: t.dueDate } : {}), completed: t.completed, ...(t.reminders?.length ? { reminders: t.reminders } : {}), ...(t.budgetType ? { budgetType: t.budgetType, budgetAmount: t.budgetAmount ?? 0 } : {}), ...(t.description ? { description: t.description } : {}) })), generatedAt: new Date().toISOString() };
                           await insertShareTokenRow({ token, event_id: event.id, parties: shareData as unknown });
                           const url = `${window.location.origin}/shared/budget/${token}`;
                           setShareUrl(url); await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000);

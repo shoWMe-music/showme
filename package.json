@@ -19,7 +19,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "npx playwright test --project=app",
+    "test:e2e:all": "npx playwright test"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

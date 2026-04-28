@@ -40,6 +40,12 @@ interface MessageGroup {
   messages: Message[];
 }
 
+const MUSIC_EMOJIS = [
+  "\u{1F3B5}", "\u{1F3B6}", "\u{1F3B8}", "\u{1F941}", "\u{1F3B9}", "\u{1F3B7}",
+  "\u{1F3BA}", "\u{1F3BB}", "\u{1F3A4}", "\u{1F3A7}", "\u{1F3BC}", "\u{1FA97}",
+  "\u{1FA98}", "\u{1FA95}",
+];
+
 export default function EventMessages({ eventId }: { eventId: string }) {
   const { user } = useAuth();
   const { currentUser, profiles } = useUser();
@@ -362,6 +368,18 @@ export default function EventMessages({ eventId }: { eventId: string }) {
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" side="top" align="start">
+            <div className="flex flex-wrap gap-1 px-2 py-1.5 border-b">
+              {MUSIC_EMOJIS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  className="h-7 w-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-base"
+                  onClick={() => handleEmojiClick({ emoji } as EmojiClickData)}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
             <EmojiPicker onEmojiClick={handleEmojiClick} width={300} height={400} />
           </PopoverContent>
         </Popover>

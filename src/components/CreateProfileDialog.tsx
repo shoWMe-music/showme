@@ -23,7 +23,7 @@ const ROLE_DESCRIPTIONS: Record<OperatorRole, string> = {
   venue: "Host events at your space",
   promoter: "Promote and book events",
   organizer: "Produce and manage events",
-  artist: "Perform at venues and events",
+  performer: "Manage performances & tours",
   festival: "Run multi-stage festivals",
 };
 

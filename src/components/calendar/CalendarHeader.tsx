@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, CalendarOff, Share2, Upload, Plus, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarOff, Share2, Upload, Download, Plus, Loader2 } from "lucide-react";
 import { startOfWeek } from "date-fns";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,6 +10,8 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ViewMode, CalendarEntity } from "./calendarConstants";
+
+export type CalendarTitleDisplay = "event" | "performer";
 
 interface CalendarHeaderProps {
   headerTitle: string;
@@ -32,7 +34,10 @@ interface CalendarHeaderProps {
   onShareOpen: () => void;
   onImportOpen: () => void;
   onCreateEvent: () => void;
+  onExportICS?: () => void;
   isLoading?: boolean;
+  titleDisplay?: CalendarTitleDisplay;
+  onTitleDisplayChange?: (display: CalendarTitleDisplay) => void;
 }
 
 export function CalendarHeader({
@@ -56,7 +61,10 @@ export function CalendarHeader({
   onShareOpen,
   onImportOpen,
   onCreateEvent,
+  onExportICS,
   isLoading,
+  titleDisplay,
+  onTitleDisplayChange,
 }: CalendarHeaderProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -79,6 +87,12 @@ export function CalendarHeader({
             <Button variant={viewMode === "week" ? "default" : "ghost"} size="sm" className="h-7 px-3 text-xs" onClick={() => { onSetViewMode("week"); onSetWeekStart(startOfWeek(selectedDate || new Date(), { weekStartsOn: 1 })); }}>Week</Button>
             <Button variant={viewMode === "day" ? "default" : "ghost"} size="sm" className="h-7 px-3 text-xs" onClick={() => { onSetViewMode("day"); onSetDayViewDate(selectedDate || new Date()); }}>Day</Button>
           </div>
+          {onTitleDisplayChange && (
+            <div className="flex items-center rounded-lg border bg-muted/50 p-0.5">
+              <Button variant={titleDisplay === "performer" ? "default" : "ghost"} size="sm" className="h-7 px-3 text-xs" onClick={() => onTitleDisplayChange("performer")}>Performer</Button>
+              <Button variant={titleDisplay === "event" ? "default" : "ghost"} size="sm" className="h-7 px-3 text-xs" onClick={() => onTitleDisplayChange("event")}>Event Name</Button>
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant={markingMode ? "default" : "outline"} size="sm" className="gap-2 h-8 text-xs" onClick={onToggleMarkingMode}>
@@ -107,6 +121,9 @@ export function CalendarHeader({
           </Button>
           {canCreate && (
             <>
+              {onExportICS && (
+                <Button variant="outline" className="gap-2 h-8 text-xs" onClick={onExportICS}><Download className="h-3.5 w-3.5" /> Export ICS</Button>
+              )}
               <Button variant="outline" className="gap-2 h-8 text-xs" onClick={onImportOpen}><Upload className="h-3.5 w-3.5" /> Import</Button>
               <Button className="gap-2 h-8 text-xs" onClick={onCreateEvent}><Plus className="h-3.5 w-3.5" /> Create Event</Button>
             </>

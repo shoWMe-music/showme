@@ -4,6 +4,7 @@ import {
   addDays, addMonths, subMonths, subDays, addWeeks, subWeeks,
   isSameDay, parseISO, eachDayOfInterval,
 } from "date-fns";
+import { useSearch } from "@tanstack/react-router";
 import AppLayout from "@/components/AppLayout";
 import { useUpdateEvent, useHoldRankMutations } from "@/lib/queries/useEventMutations";
 import { useCalendarEvents } from "@/lib/queries";
@@ -28,6 +29,7 @@ import {
   CALENDAR_ENTITY_COLORS,
   ViewMode, PopupItemType, CalendarEntity,
 } from "@/components/calendar/calendarConstants";
+import type { CalendarTitleDisplay } from "@/components/calendar/CalendarHeader";
 import { CalendarItemFormDialog, type ProfileOption, type MemberOption } from "@/components/calendar/CalendarItemFormDialog";
 import { CalendarItemPopup } from "@/components/calendar/CalendarItemPopup";
 import { ShareAvailabilityDialog } from "@/components/calendar/ShareAvailabilityDialog";
@@ -46,11 +48,14 @@ import { CalendarLegend } from "@/components/calendar/CalendarLegend";
 // ── Main Page ──
 
 export default function CalendarPage() {
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const { date: searchDate } = useSearch({ from: "/calendar" });
+  const initialDate = searchDate ? parseISO(searchDate) : new Date();
+
+  const [currentMonth, setCurrentMonth] = useState(initialDate);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(searchDate ? initialDate : null);
   const [viewMode, setViewMode] = useState<ViewMode>("month");
-  const [weekStartDate, setWeekStartDate] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
-  const [dayViewDate, setDayViewDate] = useState(new Date());
+  const [weekStartDate, setWeekStartDate] = useState(startOfWeek(initialDate, { weekStartsOn: 1 }));
+  const [dayViewDate, setDayViewDate] = useState(initialDate);
 
   // Load events for current month ± 1 month
   const dateFrom = useMemo(() => format(startOfMonth(subMonths(currentMonth, 1)), "yyyy-MM-dd"), [currentMonth]);
@@ -64,6 +69,16 @@ export default function CalendarPage() {
   const calendarLoaded = useRef(false);
   const [createEventOpen, setCreateEventOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+
+  // Title display preference: "performer" (default) or "event"
+  const [titleDisplay, setTitleDisplay] = useState<CalendarTitleDisplay>(() => {
+    const stored = localStorage.getItem("calendar_title_display");
+    return (stored === "event" || stored === "performer") ? stored : "performer";
+  });
+  const handleTitleDisplayChange = (display: CalendarTitleDisplay) => {
+    setTitleDisplay(display);
+    localStorage.setItem("calendar_title_display", display);
+  };
 
   // Sidebar
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -532,6 +547,7 @@ export default function CalendarPage() {
     const color = getEventEntityColor(event);
     const holdRank = event.eventStatus === "on_hold" && event.holdRank ? event.holdRank : 0;
     const rankLabel = holdRank > 0 ? (holdRank === 1 ? "1st" : holdRank === 2 ? "2nd" : holdRank === 3 ? "3rd" : `${holdRank}th`) : "";
+    const chipLabel = titleDisplay === "event" ? (event.name || event.artist) : (event.artist || event.name);
     return (
       <button
         key={event.id}
@@ -541,10 +557,10 @@ export default function CalendarPage() {
       >
         {color && <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }} />}
         {rankLabel && <span className="text-[9px] font-bold shrink-0 opacity-70">{rankLabel}</span>}
-        <span className="truncate">{event.artist || event.name}</span>
+        <span className="truncate">{chipLabel}</span>
       </button>
     );
-  }, [getEventEntityColor, handleItemClick]);
+  }, [getEventEntityColor, handleItemClick, titleDisplay]);
 
   // ── Calendar toggles ──
   const toggleCalendar = (name: string) => setVisibleCalendars(prev => { const next = new Set(prev); if (next.has(name)) next.delete(name); else next.add(name); return next; });
@@ -611,7 +627,14 @@ export default function CalendarPage() {
           onShareOpen={() => { if (calendarEntities.length > 0 && !shareEntity) setShareEntity(calendarEntities[0].name); setShareOpen(true); }}
           onImportOpen={() => setImportOpen(true)}
           onCreateEvent={() => setCreateEventOpen(true)}
+          onExportICS={() => {
+            const nonArchived = events.filter(e => !e.archived);
+            if (nonArchived.length === 0) return;
+            import("@/lib/calendarExport").then(m => m.downloadICS(nonArchived));
+          }}
           isLoading={eventsFetching}
+          titleDisplay={titleDisplay}
+          onTitleDisplayChange={handleTitleDisplayChange}
         />
 
         <CalendarLegend />
@@ -698,6 +721,14 @@ export default function CalendarPage() {
                   holdAutoPromote={evt?.holdAutoPromote}
                   onHoldRankChange={isEvt && evt!.eventStatus === "on_hold" ? (rank) => resolveHoldRankConflicts(evt!.id, evt!.date, evt!.venue, evt!.roomStage || "", rank) : undefined}
                   onHoldAutoPromoteChange={isEvt && evt!.eventStatus === "on_hold" ? (auto) => updateEvent(evt!.id, { holdAutoPromote: auto }) : undefined}
+                  onConfirmHold={isEvt && evt!.eventStatus === "on_hold" ? () => {
+                    updateEvent(evt!.id, { eventStatus: "confirmed" });
+                    toast({ title: "Event confirmed" });
+                  } : undefined}
+                  onDeclineHold={isEvt && evt!.eventStatus === "on_hold" ? () => {
+                    updateEvent(evt!.id, { eventStatus: "cancelled" });
+                    toast({ title: "Event declined" });
+                  } : undefined}
                 />
               );
             })()}

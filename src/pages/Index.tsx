@@ -69,7 +69,7 @@ function TodoSection({
           id: `finalize-${e.id}`,
           icon: CheckCircle2,
           label: `Finalize settlement for "${e.name}"`,
-          link: `/settlements?event=${e.id}`,
+          link: `/settlements/${e.id}`,
           priority: 1,
         });
       }
@@ -80,7 +80,7 @@ function TodoSection({
           id: `send-review-${e.id}`,
           icon: Send,
           label: `Send settlement for review: "${e.name}"`,
-          link: `/settlements?event=${e.id}`,
+          link: `/settlements/${e.id}`,
           priority: 2,
         });
       }
@@ -364,7 +364,7 @@ function ActivityFeed({
             <div key={a.id} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-muted/50">
               {activityIcon(a.icon)}
               <Link
-                to={a.eventId ? `/settlements?event=${a.eventId}&tab=settlement#comments` : "#"}
+                to={a.eventId ? `/settlements/${a.eventId}` : "#"}
                 className="min-w-0 flex-1"
               >
                 <p className="text-sm font-medium truncate">{a.eventName}</p>
@@ -430,16 +430,16 @@ export default function Dashboard() {
   const getSettlementTotal = (s: typeof settlements[string]) =>
     s.artistPayout + s.promoterPayout + s.venuePayout + s.commissionPayouts.reduce((sum, c) => sum + c.payout, 0);
 
-  const totalRevenue = Object.values(settlements).reduce(
-    (sum, s) => sum + getSettlementTotal(s),
-    0
-  );
+  const totalSettled = Object.values(settlements)
+    .filter(s => s.status === "finalized" || s.status === "paid")
+    .reduce((sum, s) => sum + getSettlementTotal(s), 0);
 
-  // Event stats
-  const confirmedCount = events.filter(e => e.eventStatus === "confirmed").length;
-  const pendingEventCount = events.filter(e => e.eventStatus === "pending").length;
-  const onHoldCount = events.filter(e => e.eventStatus === "on_hold").length;
-  const concludedCount = events.filter(e => e.eventStatus === "concluded").length;
+  // Event stats (exclude archived)
+  const activeEvents = events.filter(e => !e.archived);
+  const confirmedCount = activeEvents.filter(e => e.eventStatus === "confirmed").length;
+  const pendingEventCount = activeEvents.filter(e => e.eventStatus === "pending").length;
+  const onHoldCount = activeEvents.filter(e => e.eventStatus === "on_hold").length;
+  const concludedCount = activeEvents.filter(e => e.eventStatus === "concluded").length;
 
   // Settlement stats
   const pendingReviewCount = Object.values(settlements).filter(s => s.status === "pending_review").length;
@@ -452,14 +452,14 @@ export default function Dashboard() {
   ).length;
 
   const eventStats = [
-    { label: "Total Events", value: events.length, icon: Calendar, color: "text-foreground" },
+    { label: "Total Events", value: activeEvents.length, icon: Calendar, color: "text-foreground" },
     { label: "Confirmed", value: confirmedCount, icon: CheckCircle2, color: "text-[hsl(var(--event-confirmed))]" },
     { label: "Pending", value: pendingEventCount, icon: Clock, color: "text-[hsl(var(--event-pending))]" },
     { label: "On Hold", value: onHoldCount, icon: PauseCircle, color: "text-[hsl(var(--event-on-hold))]" },
   ];
 
   const settlementStats = [
-    { label: "Total Settled", value: formatCurrency(totalRevenue), icon: TrendingUp, color: "text-[hsl(var(--success))]" },
+    { label: "Total Settled", value: formatCurrency(totalSettled), icon: TrendingUp, color: "text-[hsl(var(--success))]" },
     { label: "Pending Review", value: pendingReviewCount, icon: AlertTriangle, color: "text-warning" },
     { label: "Finalized", value: finalizedCount, icon: CheckCircle2, color: "text-[hsl(var(--success))]" },
     { label: "Concluded Events", value: concludedCount, icon: Calendar, color: "text-[hsl(var(--event-concluded))]" },
@@ -737,8 +737,8 @@ export default function Dashboard() {
               return (
                 <Link
                   key={event.id}
-                  to="/settlements"
-                  search={{ event: event.id }}
+                  to="/settlements/$id"
+                  params={{ id: event.id }}
                   className="flex items-center justify-between px-6 py-4 transition-colors hover:bg-muted/50"
                 >
                   <div className="flex items-center gap-4">
@@ -830,9 +830,9 @@ export default function Dashboard() {
               <h3 className="text-sm font-semibold mb-3">Event Status Distribution</h3>
               <div className="space-y-2">
                 {(["confirmed", "pending", "suggested", "on_hold", "concluded", "cancelled"] as EventStatus[]).map((status) => {
-                  const count = events.filter(e => e.eventStatus === status).length;
+                  const count = activeEvents.filter(e => e.eventStatus === status).length;
                   if (count === 0) return null;
-                  const pct = events.length > 0 ? (count / events.length) * 100 : 0;
+                  const pct = activeEvents.length > 0 ? (count / activeEvents.length) * 100 : 0;
                   return (
                     <div key={status}>
                       <div className="flex justify-between text-sm mb-1">
@@ -856,3 +856,4 @@ export default function Dashboard() {
     </AppLayout>
   );
 }
+

@@ -9,9 +9,20 @@ import { StageRoomSelect, type StageOption } from "@/components/StageRoomSelect"
 import { getCurrencySymbol } from "@/lib/models";
 import type { DealType } from "@/lib/models";
 
+export type PerformerRoleTag = "headliner" | "support" | "special_guest" | "dj" | "opener";
+
+export const PERFORMER_ROLE_TAG_LABELS: Record<PerformerRoleTag, string> = {
+  headliner: "Headliner",
+  support: "Support",
+  special_guest: "Special Guest",
+  dj: "DJ",
+  opener: "Opener",
+};
+
 export interface PerformerFormValues {
   artistName: string;
   performerProfileId: string;
+  performerRoleTag?: PerformerRoleTag;
   stageRoom: string;
   stageCapacity: string;
   dealType: DealType;
@@ -43,6 +54,18 @@ export function PerformerFormFields({ values, onChange, stageOptions, onStageCre
           onChange={(name, profile) => onChange({ artistName: name, performerProfileId: profile?.id || "" })}
           placeholder="Search or type artist name"
         />
+      </div>
+
+      <div className="space-y-2">
+        <Label className="text-xs">Role</Label>
+        <Select value={values.performerRoleTag || ""} onValueChange={v => onChange({ performerRoleTag: (v || undefined) as PerformerRoleTag | undefined })}>
+          <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Select role…" /></SelectTrigger>
+          <SelectContent>
+            {Object.entries(PERFORMER_ROLE_TAG_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>{label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="grid grid-cols-2 gap-3">

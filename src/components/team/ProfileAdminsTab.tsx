@@ -11,7 +11,6 @@ import {
   type ProfileMemberInfo,
 } from "@/lib/db";
 import type { ProfileInviteRecord } from "@/lib/profiles";
-import { buildProfileDocId } from "@/lib/profiles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,6 +21,10 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { Crown, Mail, Plus, Trash2, UserCheck, Users, X } from "lucide-react";
@@ -50,7 +53,7 @@ export function ProfileAdminsTab() {
   const { user } = useAuth();
 
   const ownedProfiles = Object.entries(profiles).filter(
-    ([, p]) => p.owner_uid === user?.uid || p.id?.startsWith(`${user?.uid}__`),
+    ([, p]) => p.created && (p.owner_uid === user?.uid || p.id?.startsWith(`${user?.uid}__`)),
   );
 
   const [profileState, setProfileState] = useState<Record<string, ProfileState>>({});
@@ -74,8 +77,8 @@ export function ProfileAdminsTab() {
   useEffect(() => {
     if (!user) return;
     for (const [slot] of ownedProfiles) {
-      const profileId = buildProfileDocId(user.uid, slot);
-      loadProfile(profileId);
+      const profileId = profiles[slot]?.id;
+      if (profileId) loadProfile(profileId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.uid, Object.keys(profiles).join(",")]);
@@ -94,7 +97,7 @@ export function ProfileAdminsTab() {
 
   const handleInvite = async () => {
     if (!inviteOpen || !inviteForm.email.trim()) return;
-    const [slot, p] = ownedProfiles.find(([s]) => buildProfileDocId(user!.uid, s) === inviteOpen) ?? [];
+    const [slot, p] = ownedProfiles.find(([s]) => profiles[s]?.id === inviteOpen) ?? [];
     if (!slot || !p) return;
     setSaving(true);
     try {
@@ -132,7 +135,7 @@ export function ProfileAdminsTab() {
       </p>
 
       {ownedProfiles.map(([slot, profile]) => {
-        const profileId = buildProfileDocId(user!.uid, slot);
+        const profileId = profile.id || "";
         const state = profileState[profileId];
 
         return (
@@ -192,10 +195,30 @@ export function ProfileAdminsTab() {
                               <SelectItem value="editor">Editor</SelectItem>
                             </SelectContent>
                           </Select>
-                          <Button variant="ghost" size="icon" className="h-7 w-7"
-                            onClick={() => handleRemove(profileId, m.uid)}>
-                            <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-7 w-7">
+                                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Remove access?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Remove this person's access to {profile.name ?? slot}? They will no longer be able to manage this profile.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => handleRemove(profileId, m.uid)}
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                >
+                                  Remove
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         </>
                       )}
                     </div>

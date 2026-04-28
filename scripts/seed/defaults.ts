@@ -7,7 +7,7 @@ export const SEED_USER_SETTINGS = {
   name: "Daniel Islandman",
   email: "daniel.islandman@gmail.com",
   initials: "DI",
-  roles: ["venue", "artist", "promoter"],
+  roles: ["venue", "performer", "promoter"],
   currency: "EUR",
   default_role: "venue",
   company_name: "",
@@ -70,9 +70,9 @@ export const SEED_PROFILES: Record<string, Record<string, unknown>> = {
     updatedAt: "2026-03-10T10:00:00Z",
     created: true,
   },
-  artist: {
-    role: "artist",
-    type: "artist",
+  performer: {
+    role: "performer",
+    type: "performer",
     name: "Islandman",
     locations: [{ id: "loc-1", label: "Primary", city: "Stockholm", country: "SE" }],
     bio: "Electronic live act blending melodic house and organic percussion. Islandman tours clubs and festivals across Scandinavia and the Benelux, with a focus on extended live sets and immersive visuals.",

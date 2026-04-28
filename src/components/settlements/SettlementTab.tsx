@@ -117,14 +117,15 @@ export function SettlementTab({ event, deal, revenue, settlement, buildPayoutRow
         <div className="rounded-xl border bg-card p-6 shadow-sm ">
           <h3 className="font-display text-lg font-semibold mb-4">Workflow Actions</h3>
           <div className="flex flex-wrap gap-2">
-            {settlement.status === "open" && <Button onClick={() => updateSettlementStatus(event.id, "pending_review")}><Send className="h-4 w-4 mr-2" /> Send for Review</Button>}
-            {(settlement.status === "comments_received" || settlement.status === "revised") && (
-              <>
-                <Button onClick={() => updateSettlementStatus(event.id, "pending_review")} variant="outline"><PenLine className="h-4 w-4 mr-2" /> Send Revised</Button>
-                <Button onClick={() => updateSettlementStatus(event.id, "finalized")}><Check className="h-4 w-4 mr-2" /> Finalize</Button>
-              </>
+            {settlement.status !== "finalized" && settlement.status !== "paid" && (
+              <Button onClick={() => updateSettlementStatus(event.id, "pending_review")}>
+                <Send className="h-4 w-4 mr-2" />
+                {settlement.status === "pending_review" ? "Resend for Review" : "Send for Review"}
+              </Button>
             )}
-            {settlement.status === "pending_review" && <Button onClick={() => updateSettlementStatus(event.id, "finalized")}><Check className="h-4 w-4 mr-2" /> Finalize</Button>}
+            {(settlement.status === "comments_received" || settlement.status === "revised" || settlement.status === "pending_review") && (
+              <Button onClick={() => updateSettlementStatus(event.id, "finalized")}><Check className="h-4 w-4 mr-2" /> Finalize</Button>
+            )}
             {settlement.status === "finalized" && <Button onClick={() => updateSettlementStatus(event.id, "paid")} className="gap-2"><CreditCard className="h-4 w-4" /> Mark as Paid</Button>}
             {(settlement.status === "finalized" || settlement.status === "paid") && (
               <Button variant="outline" onClick={handleReOpen} className="gap-2"><RotateCcw className="h-4 w-4" /> Re-Open Settlement</Button>

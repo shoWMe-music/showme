@@ -1,4 +1,4 @@
-import { Plus, X, GripVertical } from "lucide-react";
+import { Plus, X, GripVertical, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,10 +53,11 @@ interface DealStructureStepProps {
   updateParty: (index: number, field: "name" | "percentage", value: string) => void;
 
   isPromoter: boolean;
+  isSubmitting: boolean;
 }
 
 export function DealStructureStep({
-  onBack, onSubmit,
+  onBack, onSubmit, isSubmitting,
   dealType, setDealType,
   artistGuarantee, setArtistGuarantee,
   artistSplit, promoterSplit, venueSplit, handleSplitChange,
@@ -292,8 +293,8 @@ export function DealStructureStep({
 
       <div className="flex justify-between pt-2">
         <Button variant="outline" onClick={onBack}>Back</Button>
-        <Button onClick={onSubmit} disabled={submitDisabled}>
-          Create Event & Settlement
+        <Button onClick={onSubmit} disabled={submitDisabled || isSubmitting}>
+          {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating...</> : "Create Event"}
         </Button>
       </div>
     </div>

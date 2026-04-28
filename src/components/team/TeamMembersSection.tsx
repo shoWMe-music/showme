@@ -1,7 +1,6 @@
 import { useState, useMemo } from "react";
 import { useUser, type TeamMember } from "@/lib/user-context";
 import { useAuth } from "@/lib/auth-context";
-import { buildProfileDocId } from "@/lib/profiles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,13 +39,43 @@ function initials(name: string) {
   return (parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "");
 }
 
+function RoleCombobox({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: string[] }) {
+  const [open, setOpen] = useState(false);
+  const [inputValue, setInputValue] = useState(value);
+  const filtered = options.filter(o => o.toLowerCase().includes(inputValue.toLowerCase()));
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Input
+          value={inputValue}
+          onChange={e => { setInputValue(e.target.value); onChange(e.target.value); if (!open) setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          placeholder="Type or select role…"
+          className="mt-1"
+        />
+      </PopoverTrigger>
+      {filtered.length > 0 && (
+        <PopoverContent className="w-[--radix-popover-trigger-width] p-1" align="start" onOpenAutoFocus={e => e.preventDefault()}>
+          {filtered.map(r => (
+            <button key={r} className={cn("w-full text-left px-2 py-1.5 text-sm rounded hover:bg-muted", r === value && "bg-muted font-medium")}
+              onClick={() => { onChange(r); setInputValue(r); setOpen(false); }}>
+              {r}
+            </button>
+          ))}
+        </PopoverContent>
+      )}
+    </Popover>
+  );
+}
+
 export function TeamMembersSection() {
   const { profiles, teamMembers, addTeamMember, updateTeamMember, addMemberToProfile, removeTeamMember, loaded } = useUser();
   const { user } = useAuth();
 
   const ownedProfiles = useMemo(() =>
     Object.entries(profiles).filter(
-      ([, p]) => p.owner_uid === user?.uid || p.id?.startsWith(`${user?.uid}__`),
+      ([, p]) => p.created && (p.owner_uid === user?.uid || p.id?.startsWith(`${user?.uid}__`)),
     ), [profiles, user?.uid]);
 
   const uniqueMembers = useMemo(() => {
@@ -68,18 +97,18 @@ export function TeamMembersSection() {
   const [form, setForm] = useState<FormState>(emptyForm());
 
   const profileName = (pid: string) => {
-    const slot = pid.split("__").slice(1).join("__");
-    return profiles[slot]?.name ?? slot;
+    const entry = Object.entries(profiles).find(([, p]) => p.id === pid);
+    return entry ? (entry[1].name ?? entry[0]) : pid;
   };
 
   const unassignedProfilesFor = (currentPids: string[]) =>
-    ownedProfiles.filter(([s]) => !currentPids.includes(buildProfileDocId(user!.uid, s)));
+    ownedProfiles.filter(([s]) => !currentPids.includes(profiles[s]?.id || ""));
 
   const presetRoles = useMemo(() => {
     const roles = new Set<string>();
     form.profileIds.forEach(pid => {
-      const slot = pid.split("__").slice(1).join("__");
-      const role = profiles[slot]?.role as string;
+      const entry = Object.entries(profiles).find(([, p]) => p.id === pid);
+      const role = entry?.[1]?.role as string;
       (PRESET_ROLES[role] ?? []).forEach(r => roles.add(r));
     });
     return Array.from(roles);
@@ -207,7 +236,7 @@ export function TeamMembersSection() {
                             Add to profile
                           </p>
                           {toAdd.map(([s, p]) => {
-                            const pid = buildProfileDocId(user!.uid, s);
+                            const pid = profiles[s]?.id || "";
                             return (
                               <button
                                 key={pid}
@@ -257,7 +286,7 @@ export function TeamMembersSection() {
               <Label className="mb-2 block">Profiles *</Label>
               <div className="space-y-1.5">
                 {ownedProfiles.map(([s, p]) => {
-                  const pid = buildProfileDocId(user!.uid, s);
+                  const pid = profiles[s]?.id || "";
                   const isSelected = form.profileIds.includes(pid);
                   return (
                     <label
@@ -301,13 +330,11 @@ export function TeamMembersSection() {
             </div>
             <div>
               <Label>Role</Label>
-              <Select value={form.role} onValueChange={v => setForm(p => ({ ...p, role: v }))}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {presetRoles.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                  <SelectItem value="Member">Member</SelectItem>
-                </SelectContent>
-              </Select>
+              <RoleCombobox
+                value={form.role}
+                onChange={v => setForm(p => ({ ...p, role: v }))}
+                options={[...presetRoles, "Member"]}
+              />
             </div>
             <div>
               <Label>Notes</Label>
@@ -396,7 +423,7 @@ export function TeamMembersSection() {
                         Add to profile
                       </p>
                       {unassignedProfilesFor(editEntry.profileIds).map(([s, p]) => {
-                        const pid = buildProfileDocId(user!.uid, s);
+                        const pid = profiles[s]?.id || "";
                         return (
                           <button
                             key={pid}

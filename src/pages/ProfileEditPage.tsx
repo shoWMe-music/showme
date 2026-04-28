@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "@/hooks/use-toast";
 import { AvatarUpload } from "@/components/AvatarUpload";
+import AddressAutocomplete, { type AddressResult } from "@/components/AddressAutocomplete";
 import VenueMap from "@/components/VenueMap";
 
 function generateSlug(name: string, role: string): string {
@@ -144,7 +145,8 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
 }) {
   const baseRole = getBaseRole(role);
   const [data, setData] = useState({ ...profile });
-  const [spotifyUrl, setSpotifyUrl] = useState(profile.spotifyUrl || "");
+  // spotifyUrl is now derived from socialLinks with platform "Spotify"
+  const spotifyUrl = data.socialLinks?.find(l => l.platform.toLowerCase() === "spotify")?.url || "";
   const [newGenre, setNewGenre] = useState("");
   const [newAmenity, setNewAmenity] = useState("");
   const [newDealType, setNewDealType] = useState("");
@@ -212,7 +214,7 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
         avatarUrl = await uploadProfileImage(pendingAvatarFile, "avatars");
       }
       const slug = generateSlug(data.name, role);
-      const updatedProfile = { ...data, avatarUrl, spotifyUrl, slug, updatedAt: new Date().toISOString() };
+      const updatedProfile = { ...data, avatarUrl, spotifyUrl, slug, updatedAt: new Date().toISOString() } as typeof data & { spotifyUrl: string; slug: string; updatedAt: string };
       saveProfileToDb(role, updatedProfile);
       toast({ title: "Profile saved", description: "Your profile has been updated." });
       onDone();
@@ -269,7 +271,7 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
             <span className="text-sm text-muted-foreground">{data.isPublic ? "Public" : "Private"}</span>
           </label>
           <Button variant="outline" onClick={onDone}>Cancel</Button>
-          <Button onClick={handleSave} className="gap-1.5"><Save className="h-4 w-4" /> Save Profile</Button>
+          <Button onClick={handleSave} disabled={uploading} className="gap-1.5"><Save className="h-4 w-4" /> {uploading ? "Saving..." : "Save Profile"}</Button>
         </div>
       </div>
 
@@ -301,13 +303,36 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
               <div><Label>Name</Label><Input value={data.name} onChange={e => setData(p => ({ ...p, name: e.target.value }))} className="mt-1" /></div>
               <div>
                 <Label>Location</Label>
-                <div className="grid grid-cols-2 gap-2 mt-1">
-                  <Input value={data.locations?.[0]?.city || ""} onChange={e => updatePrimaryLocation("city", e.target.value)} placeholder="City" />
-                  <Input value={data.locations?.[0]?.country || ""} onChange={e => updatePrimaryLocation("country", e.target.value)} placeholder="Country" />
+                <AddressAutocomplete
+                  value={[data.locations?.[0]?.street, data.locations?.[0]?.city, data.locations?.[0]?.country].filter(Boolean).join(", ")}
+                  onChange={(_value: string, result?: AddressResult) => {
+                    if (result) {
+                      setData(p => {
+                        const loc = p.locations?.[0] || { id: "loc-primary", label: "Primary", city: "", country: "" };
+                        return {
+                          ...p,
+                          locations: [{
+                            ...loc,
+                            street: result.street || loc.street || "",
+                            city: result.city || loc.city || "",
+                            country: result.country || loc.country || "",
+                            postcode: result.postcode || loc.postcode || "",
+                            coordinates: result.coordinates || loc.coordinates,
+                          }, ...(p.locations?.slice(1) || [])],
+                        };
+                      });
+                    }
+                  }}
+                  placeholder="Search address..."
+                  className="mt-1"
+                />
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <Input value={data.locations?.[0]?.street || ""} onChange={e => updatePrimaryLocation("street", e.target.value)} placeholder="Street" />
+                  <Input value={data.locations?.[0]?.postcode || ""} onChange={e => updatePrimaryLocation("postcode", e.target.value)} placeholder="Postcode" />
                 </div>
                 <div className="grid grid-cols-2 gap-2 mt-2">
-                  <Input value={data.locations?.[0]?.street || ""} onChange={e => updatePrimaryLocation("street", e.target.value)} placeholder="Street (optional)" />
-                  <Input value={data.locations?.[0]?.postcode || ""} onChange={e => updatePrimaryLocation("postcode", e.target.value)} placeholder="Postcode (optional)" />
+                  <Input value={data.locations?.[0]?.city || ""} onChange={e => updatePrimaryLocation("city", e.target.value)} placeholder="City" />
+                  <Input value={data.locations?.[0]?.country || ""} onChange={e => updatePrimaryLocation("country", e.target.value)} placeholder="Country" />
                 </div>
               </div>
               {baseRole === "venue" && data.locations?.[0]?.coordinates && (
@@ -344,22 +369,44 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
           </div>
         </div>
 
-        {/* Spotify (Performer) */}
-        {baseRole === "performer" && (
-          <div className="rounded-xl border bg-card p-6 shadow-sm">
-            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2"><Music className="h-5 w-5 text-primary" /> Spotify URL</h3>
-            <Input value={spotifyUrl} onChange={e => setSpotifyUrl(e.target.value)} placeholder="https://open.spotify.com/album/..." />
-          </div>
-        )}
+        {/* Music Embed (Performer) — derived from Social Links with platform "Spotify" */}
 
-        {/* Setup (Performer) */}
+        {/* Setups (Performer) */}
         {baseRole === "performer" && (
           <div className="rounded-xl border bg-card p-6 shadow-sm">
-            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2"><Users className="h-5 w-5 text-primary" /> Setup Variations</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div><Label>Setup Type</Label><Input value={data.setupType || ""} onChange={e => setData(p => ({ ...p, setupType: e.target.value }))} placeholder="Solo, Duo, Full Band" className="mt-1" /></div>
-              <div><Label>Number of performers</Label><Input type="number" value={data.setupSize || ""} onChange={e => setData(p => ({ ...p, setupSize: parseInt(e.target.value) || 0 }))} className="mt-1" /></div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold flex items-center gap-2"><Users className="h-5 w-5 text-primary" /> Setup Variations</h3>
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => {
+                setData(p => ({ ...p, setups: [...(p.setups || []), { name: "", headcount: 1 }] }));
+              }}>
+                <Plus className="h-3 w-3" /> Add Setup
+              </Button>
             </div>
+            {(!data.setups || data.setups.length === 0) ? (
+              <p className="text-sm text-muted-foreground">No setups added yet. Add variations like "Solo", "Duo", "Full Band".</p>
+            ) : (
+              <div className="space-y-2">
+                {data.setups.map((s, i) => (
+                  <div key={i} className="flex items-center gap-3 rounded-lg border p-3">
+                    <Input value={s.name} onChange={e => {
+                      const updated = [...data.setups!];
+                      updated[i] = { ...updated[i], name: e.target.value };
+                      setData(p => ({ ...p, setups: updated }));
+                    }} placeholder="Setup name (e.g. Full Band)" className="flex-1" />
+                    <Input type="number" value={s.headcount || ""} onChange={e => {
+                      const updated = [...data.setups!];
+                      updated[i] = { ...updated[i], headcount: parseInt(e.target.value) || 1 };
+                      setData(p => ({ ...p, setups: updated }));
+                    }} placeholder="Headcount" className="w-24" />
+                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => {
+                      setData(p => ({ ...p, setups: p.setups?.filter((_, j) => j !== i) }));
+                    }}>
+                      <X className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -404,7 +451,17 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
                       const updated = [...data.subVenues!];
                       updated[i] = { ...updated[i], capacity: parseInt(e.target.value) || 0 };
                       setData(p => ({ ...p, subVenues: updated }));
-                    }} placeholder="Capacity" className="w-28" />
+                    }} placeholder="Capacity" className="w-24" />
+                    <Input type="number" value={sv.sittingCapacity || ""} onChange={e => {
+                      const updated = [...data.subVenues!];
+                      updated[i] = { ...updated[i], sittingCapacity: parseInt(e.target.value) || undefined };
+                      setData(p => ({ ...p, subVenues: updated }));
+                    }} placeholder="Sitting" className="w-20" />
+                    <Input type="number" value={sv.standingCapacity || ""} onChange={e => {
+                      const updated = [...data.subVenues!];
+                      updated[i] = { ...updated[i], standingCapacity: parseInt(e.target.value) || undefined };
+                      setData(p => ({ ...p, subVenues: updated }));
+                    }} placeholder="Standing" className="w-20" />
                     <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => {
                       setData(p => ({ ...p, subVenues: p.subVenues?.filter((_, j) => j !== i) }));
                     }}>
@@ -452,6 +509,63 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
                     {dt}
                     <button onClick={() => setData(p => ({ ...p, dealTypes: p.dealTypes?.filter(d => d !== dt) }))}><X className="h-3 w-3" /></button>
                   </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Performance Bonus (Venue — for split deals) */}
+        {baseRole === "venue" && (data.dealTypes || []).some(dt => dt.toLowerCase().includes("split")) && (
+          <div className="rounded-xl border bg-card p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold">Performance Bonus Thresholds</h3>
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => {
+                setData(p => ({ ...p, performanceBonuses: [...(p.performanceBonuses || []), { ticketThreshold: 0, bonusAmount: 0, bonusType: "flat" as const }] }));
+              }}>
+                <Plus className="h-3 w-3" /> Add Threshold
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mb-3">Define bonus tiers for performers when ticket sales exceed thresholds.</p>
+            {(!data.performanceBonuses || data.performanceBonuses.length === 0) ? (
+              <p className="text-sm text-muted-foreground">No bonus thresholds defined.</p>
+            ) : (
+              <div className="space-y-2">
+                {data.performanceBonuses.map((b, i) => (
+                  <div key={i} className="flex items-center gap-3 rounded-lg border p-3">
+                    <div className="flex items-center gap-1">
+                      <Label className="text-xs whitespace-nowrap">Tickets &ge;</Label>
+                      <Input type="number" value={b.ticketThreshold || ""} onChange={e => {
+                        const updated = [...data.performanceBonuses!];
+                        updated[i] = { ...updated[i], ticketThreshold: parseInt(e.target.value) || 0 };
+                        setData(p => ({ ...p, performanceBonuses: updated }));
+                      }} className="w-20" />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Label className="text-xs whitespace-nowrap">Bonus</Label>
+                      <Input type="number" value={b.bonusAmount || ""} onChange={e => {
+                        const updated = [...data.performanceBonuses!];
+                        updated[i] = { ...updated[i], bonusAmount: parseFloat(e.target.value) || 0 };
+                        setData(p => ({ ...p, performanceBonuses: updated }));
+                      }} className="w-24" />
+                    </div>
+                    <Select value={b.bonusType} onValueChange={v => {
+                      const updated = [...data.performanceBonuses!];
+                      updated[i] = { ...updated[i], bonusType: v as "flat" | "percent" };
+                      setData(p => ({ ...p, performanceBonuses: updated }));
+                    }}>
+                      <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="flat">Flat</SelectItem>
+                        <SelectItem value="percent">%</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => {
+                      setData(p => ({ ...p, performanceBonuses: p.performanceBonuses?.filter((_, j) => j !== i) }));
+                    }}>
+                      <X className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
                 ))}
               </div>
             )}
@@ -549,6 +663,38 @@ const amenityKeys: import("@/lib/models").AmenityKey[] = ["backline", "partial_b
         </div>
 
 
+
+        {/* Social Links */}
+        <div className="rounded-xl border bg-card p-6 shadow-sm">
+          <h3 className="text-lg font-semibold mb-3 flex items-center gap-2"><Globe className="h-5 w-5 text-primary" /> Social Links</h3>
+          <div className="space-y-2 mb-3">
+            {(data.socialLinks || []).map((link, i) => (
+              <div key={i} className="flex items-center gap-2 rounded-lg border px-3 py-2">
+                <Select value={link.platform} onValueChange={v => {
+                  const updated = [...(data.socialLinks || [])];
+                  updated[i] = { ...updated[i], platform: v };
+                  setData(p => ({ ...p, socialLinks: updated }));
+                }}>
+                  <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["Spotify", "Apple Music", "YouTube Music", "SoundCloud", "Bandcamp", "Tidal", "Deezer", "Instagram", "Facebook", "TikTok", "X", "YouTube", "Website"].map(pl => (
+                      <SelectItem key={pl} value={pl}>{pl}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input value={link.url} onChange={e => {
+                  const updated = [...(data.socialLinks || [])];
+                  updated[i] = { ...updated[i], url: e.target.value };
+                  setData(p => ({ ...p, socialLinks: updated }));
+                }} placeholder="https://..." className="flex-1" />
+                <button onClick={() => setData(p => ({ ...p, socialLinks: (p.socialLinks || []).filter((_, j) => j !== i) }))}><Trash2 className="h-3.5 w-3.5 text-destructive" /></button>
+              </div>
+            ))}
+          </div>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setData(p => ({ ...p, socialLinks: [...(p.socialLinks || []), { platform: "Spotify", url: "" }] }))}>
+            <Plus className="h-4 w-4" /> Add Link
+          </Button>
+        </div>
 
         {/* Documents / Riders (Venue & Performer) */}
         {(baseRole === "venue" || baseRole === "performer") && (
@@ -648,7 +794,7 @@ const amenityKeys: import("@/lib/models").AmenityKey[] = ["backline", "partial_b
           </label>
           <div className="flex gap-2">
             <Button variant="outline" onClick={onDone}>Cancel</Button>
-            <Button onClick={handleSave} className="gap-1.5"><Save className="h-4 w-4" /> Save Profile</Button>
+            <Button onClick={handleSave} disabled={uploading} className="gap-1.5"><Save className="h-4 w-4" /> {uploading ? "Saving..." : "Save Profile"}</Button>
           </div>
         </div>
       </div>
