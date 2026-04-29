@@ -150,88 +150,30 @@ service cloud.firestore {
       allow create: if canAccessEvent(eventId);
     }
 
-    // ── Riders ───────────────────────────────────────────────────────────────
+    // ── Riders / Agreements / Crew / Schedule ────────────────────────────────
+    //
+    // These event subcollections are managed collaboratively by everyone with
+    // event access. The write paths (e.g. AgreementTab's upsertAgreement,
+    // FileUploadButton attaching a fileUrl) don't set an ownerProfileId, so
+    // a stricter per-party rule rejected legitimate uploads — including the
+    // host re-saving their own docs with a file attached. Any tighter
+    // ownership model needs the code to set ownerProfileId first; until then,
+    // canAccessEvent is the source of truth.
 
     match /events/{eventId}/riders/{riderId} {
-      allow read: if canAccessEvent(eventId);
-      allow write: if
-        canAccessEvent(eventId)
-        && (
-          isEventHost(eventId)
-          || (resource == null && isProfileMember(request.resource.data.ownerProfileId))
-          || (resource != null && resource.data.keys().hasAll(['ownerProfileId'])
-              && isProfileMember(resource.data.ownerProfileId))
-        );
-      allow delete: if
-        canAccessEvent(eventId)
-        && (
-          isEventHost(eventId)
-          || (resource.data.keys().hasAll(['ownerProfileId'])
-              && isProfileMember(resource.data.ownerProfileId))
-        );
+      allow read, write: if canAccessEvent(eventId);
     }
-
-    // ── Agreements ───────────────────────────────────────────────────────────
 
     match /events/{eventId}/agreements/{agreementId} {
-      allow read: if canAccessEvent(eventId);
-      allow write: if
-        canAccessEvent(eventId)
-        && (
-          isEventHost(eventId)
-          || (resource == null && isProfileMember(request.resource.data.ownerProfileId))
-          || (resource != null && resource.data.keys().hasAll(['ownerProfileId'])
-              && isProfileMember(resource.data.ownerProfileId))
-        );
-      allow delete: if
-        canAccessEvent(eventId)
-        && (
-          isEventHost(eventId)
-          || (resource.data.keys().hasAll(['ownerProfileId'])
-              && isProfileMember(resource.data.ownerProfileId))
-        );
+      allow read, write: if canAccessEvent(eventId);
     }
-
-    // ── Crew ─────────────────────────────────────────────────────────────────
 
     match /events/{eventId}/crew/{memberId} {
-      allow read: if canAccessEvent(eventId);
-      allow write: if
-        canAccessEvent(eventId)
-        && (
-          isEventHost(eventId)
-          || (resource == null && isProfileMember(request.resource.data.ownerProfileId))
-          || (resource != null && resource.data.keys().hasAll(['ownerProfileId'])
-              && isProfileMember(resource.data.ownerProfileId))
-        );
-      allow delete: if
-        canAccessEvent(eventId)
-        && (
-          isEventHost(eventId)
-          || (resource.data.keys().hasAll(['ownerProfileId'])
-              && isProfileMember(resource.data.ownerProfileId))
-        );
+      allow read, write: if canAccessEvent(eventId);
     }
 
-    // ── Schedule ─────────────────────────────────────────────────────────────
-
     match /events/{eventId}/schedule/{itemId} {
-      allow read: if canAccessEvent(eventId);
-      allow write: if
-        canAccessEvent(eventId)
-        && (
-          isEventHost(eventId)
-          || (resource == null && isProfileMember(request.resource.data.ownerProfileId))
-          || (resource != null && resource.data.keys().hasAll(['ownerProfileId'])
-              && isProfileMember(resource.data.ownerProfileId))
-        );
-      allow delete: if
-        canAccessEvent(eventId)
-        && (
-          isEventHost(eventId)
-          || (resource.data.keys().hasAll(['ownerProfileId'])
-              && isProfileMember(resource.data.ownerProfileId))
-        );
+      allow read, write: if canAccessEvent(eventId);
     }
 
     // ── Participants (profiles invited to event) ──────────────────────────────
