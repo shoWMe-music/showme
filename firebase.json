@@ -4,7 +4,11 @@
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "cleanUrls": true,
     "trailingSlash": false,
-    "predeploy": ["npm --prefix \"$PROJECT_DIR\" run build:all"],
+    "predeploy": [
+      "node \"$PROJECT_DIR/scripts/require-paired-deploy.mjs\"",
+      "npm --prefix \"$PROJECT_DIR\" run build:all",
+      "node \"$PROJECT_DIR/scripts/verify-ssr-template.mjs\""
+    ],
     "headers": [
       {
         "source": "/assets/**",

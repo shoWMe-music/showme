@@ -21,7 +21,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npx playwright test --project=app",
-    "test:e2e:all": "npx playwright test"
+    "test:e2e:all": "npx playwright test",
+    "deploy": "bash -c 'source ~/.nvm/nvm.sh && nvm use 22 >/dev/null && firebase deploy --only hosting,functions'"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
