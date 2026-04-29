@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ElementType } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import AppLayout from "@/components/AppLayout";
 import { useUser, operatorRoleLabels, getBaseRole, type SharedProfile } from "@/lib/user-context";
@@ -12,8 +12,10 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Pencil, Trash2, FolderOpen, Inbox } from "lucide-react";
+import { Pencil, Trash2, FolderOpen, Inbox, FileText, Users, Ticket } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { formatCurrency, type DealStructure, type Rider } from "@/lib/models";
+import type { BudgetField } from "@/lib/budget-types";
 
 // Categories backed by SectionTemplateMenu / legacy template helpers.
 // Keep label + hint in sync with the section that surfaces the template.
@@ -39,6 +41,254 @@ interface ProfileTemplates {
   profile: SharedProfile;
   byCategory: Record<string, TemplateEntry[]>;
   total: number;
+}
+
+// ── Section-faithful preview renderers ──────────────────────────────────────
+// Each category mirrors the display used in the section it applies to, so a
+// preview reads like the data already lives on an event.
+
+function asNumber(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+function asString(v: unknown): string | undefined {
+  return typeof v === "string" && v.trim() ? v : undefined;
+}
+
+function ScheduleTemplatePreview({ payload }: { payload: unknown }) {
+  const items = Array.isArray(payload)
+    ? (payload as { time?: string; label?: string; description?: string }[])
+    : [];
+  if (items.length === 0) return <EmptyHint />;
+  return (
+    <div className="relative">
+      <div className="absolute left-[52px] top-2 bottom-2 w-px bg-border" />
+      <div className="space-y-3">
+        {items.map((item, i) => (
+          <div key={i} className="flex items-start gap-4">
+            <span className="text-sm font-mono font-semibold text-muted-foreground w-12 text-right shrink-0">{item.time || "—"}</span>
+            <div className="h-2.5 w-2.5 rounded-full bg-primary mt-1.5 shrink-0 relative z-10" />
+            <div>
+              <p className="text-sm font-medium">{item.label || "(untitled)"}</p>
+              {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OverviewTemplatePreview({ payload }: { payload: unknown }) {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  const capacity = asNumber(p.capacity);
+  const provider = asString(p.ticketingProvider);
+  const rows: { icon: ElementType; label: string; value: string | number }[] = [];
+  if (provider) rows.push({ icon: Ticket, label: "Ticketing", value: provider });
+  if (typeof capacity === "number") rows.push({ icon: Users, label: "Capacity", value: capacity.toLocaleString() });
+  if (rows.length === 0) return <EmptyHint />;
+  return (
+    <dl className="space-y-3">
+      {rows.map(({ icon: Icon, label, value }) => (
+        <div key={label} className="flex items-center justify-between">
+          <dt className="flex items-center gap-2 text-sm text-muted-foreground"><Icon className="h-4 w-4" /> {label}</dt>
+          <dd className="text-sm font-medium">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function DealTemplatePreview({ payload, currency = "EUR" }: { payload: unknown; currency?: string }) {
+  const d = (payload ?? {}) as Partial<DealStructure> & {
+    performanceBonusThreshold?: number;
+    performanceBonusAmount?: number;
+  };
+  const dealType = asString(d.dealType) ?? "—";
+  const guarantee = asNumber(d.artistGuarantee) ?? 0;
+  const artistSplit = asNumber(d.artistSplit) ?? 0;
+  const promoterSplit = asNumber(d.promoterSplit) ?? 0;
+  const venueSplit = asNumber(d.venueSplit) ?? 0;
+  const organizerSplit = asNumber(d.organizerSplit) ?? 0;
+  const artistCostSplit = asNumber(d.artistCostSplit) ?? 0;
+  const promoterCostSplit = asNumber(d.promoterCostSplit) ?? 0;
+  const venueCostSplit = asNumber(d.venueCostSplit) ?? 0;
+  const organizerCostSplit = asNumber(d.organizerCostSplit) ?? 0;
+  const venueRental = asNumber(d.venueRental) ?? 0;
+  const commissions = Array.isArray(d.commissions) ? d.commissions : [];
+  const showCostSplits = artistCostSplit > 0 || promoterCostSplit > 0 || venueCostSplit > 0 || organizerCostSplit > 0;
+  const bonusThreshold = asNumber(d.performanceBonusThreshold);
+  const bonusAmount = asNumber(d.performanceBonusAmount);
+  return (
+    <dl className="space-y-3">
+      <div className="flex justify-between"><dt className="text-sm text-muted-foreground">Deal Type</dt><dd className="text-sm font-medium capitalize">{dealType.replace(/_/g, " ")}</dd></div>
+      {guarantee > 0 && <div className="flex justify-between"><dt className="text-sm text-muted-foreground">Performer Guarantee</dt><dd className="text-sm font-semibold">{formatCurrency(guarantee, currency)}</dd></div>}
+      <div className="border-t pt-3" />
+      <h4 className="text-sm font-semibold">Revenue Split</h4>
+      <div className="flex justify-between"><dt className="text-sm text-muted-foreground">Performer Split</dt><dd className="text-sm font-medium">{artistSplit}%</dd></div>
+      <div className="flex justify-between"><dt className="text-sm text-muted-foreground">Promoter Split</dt><dd className="text-sm font-medium">{promoterSplit}%</dd></div>
+      <div className="flex justify-between"><dt className="text-sm text-muted-foreground">Venue Split</dt><dd className="text-sm font-medium">{venueSplit}%</dd></div>
+      {organizerSplit > 0 && <div className="flex justify-between"><dt className="text-sm text-muted-foreground">Organizer Split</dt><dd className="text-sm font-medium">{organizerSplit}%</dd></div>}
+      {showCostSplits && (
+        <>
+          <div className="border-t pt-3" />
+          <h4 className="text-sm font-semibold">Production Costs Split</h4>
+          {artistCostSplit > 0 && <div className="flex justify-between"><dt className="text-sm text-muted-foreground">Performer Cost Split</dt><dd className="text-sm font-medium">{artistCostSplit}%</dd></div>}
+          <div className="flex justify-between"><dt className="text-sm text-muted-foreground">Promoter Cost Split</dt><dd className="text-sm font-medium">{promoterCostSplit}%</dd></div>
+          <div className="flex justify-between"><dt className="text-sm text-muted-foreground">Venue Cost Split</dt><dd className="text-sm font-medium">{venueCostSplit}%</dd></div>
+          {organizerCostSplit > 0 && <div className="flex justify-between"><dt className="text-sm text-muted-foreground">Organizer Cost Split</dt><dd className="text-sm font-medium">{organizerCostSplit}%</dd></div>}
+        </>
+      )}
+      {venueRental > 0 && <div className="flex justify-between"><dt className="text-sm text-muted-foreground">Venue Rental</dt><dd className="text-sm font-semibold">{formatCurrency(venueRental, currency)}</dd></div>}
+      {commissions.length > 0 && (
+        <>
+          <div className="border-t pt-3" />
+          <h4 className="text-sm font-semibold">Commissions (from Performer share)</h4>
+          {(commissions as { key?: string; label?: string; name?: string; percentage?: number }[]).map((c, i) => (
+            <div key={c.key ?? i} className="flex justify-between">
+              <dt className="text-sm text-muted-foreground">{c.label ?? "Commission"}{c.name ? ` (${c.name})` : ""}</dt>
+              <dd className="text-sm font-medium">{c.percentage ?? 0}%{i > 0 ? " of remainder" : " of artist share"}</dd>
+            </div>
+          ))}
+        </>
+      )}
+      {(bonusThreshold !== undefined || bonusAmount !== undefined) && (
+        <>
+          <div className="border-t pt-3" />
+          <h4 className="text-sm font-semibold">Performance Bonus</h4>
+          {bonusThreshold !== undefined && <div className="flex justify-between"><dt className="text-sm text-muted-foreground">Threshold</dt><dd className="text-sm font-medium">{formatCurrency(bonusThreshold, currency)}</dd></div>}
+          {bonusAmount !== undefined && <div className="flex justify-between"><dt className="text-sm text-muted-foreground">Bonus</dt><dd className="text-sm font-medium">{formatCurrency(bonusAmount, currency)}</dd></div>}
+        </>
+      )}
+    </dl>
+  );
+}
+
+const RIDER_TYPE_LABELS: Record<string, string> = {
+  technical: "Technical",
+  hospitality: "Hospitality",
+  catering: "Catering",
+  custom: "Custom",
+};
+
+function RiderTemplatePreview({ payload }: { payload: unknown }) {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  const items = Array.isArray(p.riders) ? (p.riders as Rider[]) : Array.isArray(payload) ? (payload as Rider[]) : [];
+  if (items.length === 0) return <EmptyHint />;
+  const grouped = items.reduce<Record<string, Rider[]>>((acc, r) => {
+    const t = r.type ?? "custom";
+    (acc[t] ??= []).push(r);
+    return acc;
+  }, {});
+  const order = ["technical", "hospitality", "catering", "custom"];
+  return (
+    <div className="space-y-4">
+      {order.filter((k) => grouped[k]?.length).map((k) => (
+        <div key={k}>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">{RIDER_TYPE_LABELS[k] ?? k}</p>
+          <ul className="space-y-1">
+            {grouped[k].map((r, i) => (
+              <li key={r.id ?? i} className="flex items-start gap-2 rounded border bg-muted/30 px-3 py-2">
+                <FileText className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{r.name || "(untitled)"}</p>
+                  {r.description && <p className="text-xs text-muted-foreground">{r.description}</p>}
+                  {r.fileName && <p className="text-xs text-muted-foreground font-mono truncate">{r.fileName}</p>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TermsTemplatePreview({ payload }: { payload: unknown }) {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  const text = asString(p.termsText) ?? asString(payload);
+  if (!text) return <EmptyHint />;
+  return (
+    <div className="rounded-lg border bg-muted/30 p-4">
+      <p className="whitespace-pre-wrap text-sm leading-relaxed">{text}</p>
+    </div>
+  );
+}
+
+function BudgetTemplatePreview({ payload, currency = "EUR" }: { payload: unknown; currency?: string }) {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  const type = asString(p.type);
+  const revenueFields = (p.revenue_fields ?? p.revenueFields) as BudgetField[] | undefined;
+  const costFields = (p.cost_fields ?? p.costFields) as BudgetField[] | undefined;
+  const resultFields = (p.result_fields ?? p.resultFields) as BudgetField[] | undefined;
+  const sections: { title: string; fields?: BudgetField[] }[] = [
+    { title: "Revenue", fields: revenueFields },
+    { title: "Costs", fields: costFields },
+    { title: "Results", fields: resultFields },
+  ].filter((s) => Array.isArray(s.fields) && s.fields.length > 0);
+  if (sections.length === 0 && !type) return <EmptyHint />;
+  return (
+    <div className="space-y-4">
+      {type && (
+        <div className="flex justify-between">
+          <dt className="text-sm text-muted-foreground">Budget Type</dt>
+          <dd className="text-sm font-medium capitalize">{type.replace(/_/g, " ")}</dd>
+        </div>
+      )}
+      {sections.map((s) => (
+        <div key={s.title}>
+          <h4 className="text-sm font-semibold mb-2">{s.title}</h4>
+          <ul className="space-y-1">
+            {s.fields!.map((f) => (
+              <li key={f.id} className="flex items-center justify-between rounded border bg-muted/30 px-3 py-2">
+                <span className="text-sm">{f.name}{f.type === "calculated" ? <span className="ml-2 text-xs text-muted-foreground">(calculated)</span> : null}</span>
+                <span className="text-sm font-medium">{formatCurrency(f.value ?? 0, currency)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FallbackPreview({ payload }: { payload: unknown }) {
+  if (payload === null || payload === undefined) return <EmptyHint />;
+  if (typeof payload !== "object" || Array.isArray(payload)) {
+    return <pre className="rounded-lg bg-muted/50 border p-4 text-xs overflow-auto max-h-[60vh] font-mono whitespace-pre-wrap">{JSON.stringify(payload, null, 2)}</pre>;
+  }
+  const entries = Object.entries(payload as Record<string, unknown>);
+  if (entries.length === 0) return <EmptyHint />;
+  return (
+    <dl className="space-y-2">
+      {entries.map(([k, v]) => (
+        <div key={k} className="flex items-start justify-between gap-4 border-b last:border-b-0 pb-1">
+          <dt className="text-sm text-muted-foreground">{k}</dt>
+          <dd className="text-sm font-medium text-right break-all">
+            {typeof v === "string" || typeof v === "number" || typeof v === "boolean"
+              ? String(v)
+              : <span className="font-mono text-xs">{JSON.stringify(v)}</span>}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function EmptyHint() {
+  return <p className="text-sm text-muted-foreground italic">This template has no saved data.</p>;
+}
+
+function TemplatePayloadView({ category, payload }: { category: string; payload: unknown }) {
+  switch (category) {
+    case "schedules": return <ScheduleTemplatePreview payload={payload} />;
+    case "settlement-overview": return <OverviewTemplatePreview payload={payload} />;
+    case "settlement-deal":
+    case "deals": return <DealTemplatePreview payload={payload} />;
+    case "riders": return <RiderTemplatePreview payload={payload} />;
+    case "terms": return <TermsTemplatePreview payload={payload} />;
+    case "budgets": return <BudgetTemplatePreview payload={payload} />;
+    default: return <FallbackPreview payload={payload} />;
+  }
 }
 
 function pickName(doc: Record<string, unknown>, id: string): string {
@@ -322,9 +572,9 @@ export default function TemplatesPage() {
                     <span>Updated {formatTimestamp(previewTarget.entry.updatedAt)}</span>
                   )}
                 </div>
-                <pre className="rounded-lg bg-muted/50 border p-4 text-xs overflow-auto max-h-[60vh] font-mono whitespace-pre-wrap">
-                  {JSON.stringify(payload, null, 2)}
-                </pre>
+                <div className="rounded-lg border bg-card p-4 max-h-[60vh] overflow-auto">
+                  <TemplatePayloadView category={previewTarget.category} payload={payload} />
+                </div>
                 <p className="text-xs text-muted-foreground">
                   To apply this template, open the {cat?.hint ?? "matching section"} on an event and use its Templates menu.
                 </p>
