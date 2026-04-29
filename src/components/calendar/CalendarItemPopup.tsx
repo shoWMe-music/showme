@@ -156,7 +156,7 @@ export function CalendarItemPopup({ item, position, onClose, onDelete, onDuplica
             <div className="flex items-center gap-2 pt-1">
               {onConfirmHold && (
                 <Button variant="default" size="sm" className="h-7 text-xs gap-1" onClick={() => { onConfirmHold(); onClose(); }}>
-                  Confirm
+                  Accept date
                 </Button>
               )}
               {onDeclineHold && (

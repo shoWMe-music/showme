@@ -47,6 +47,27 @@ import { CalendarLegend } from "@/components/calendar/CalendarLegend";
 
 // ── Main Page ──
 
+/**
+ * Find sibling on-hold events that should be cancelled when one hold on a
+ * date+venue+room is accepted. Pure helper exported for unit testing.
+ */
+export function findCompetingHolds(events: AppEvent[], accepted: AppEvent): AppEvent[] {
+  return events.filter(s =>
+    s.id !== accepted.id &&
+    s.eventStatus === "on_hold" &&
+    s.date === accepted.date &&
+    s.venue === accepted.venue &&
+    (s.roomStage || "") === (accepted.roomStage || "") &&
+    !s.archived,
+  );
+}
+
+/**
+ * Status that an accepted hold should transition to. Bug 1: was previously
+ * "confirmed", must be "pending" so the host still confirms.
+ */
+export const ACCEPTED_HOLD_STATUS = "pending" as const;
+
 export default function CalendarPage() {
   const { date: searchDate } = useSearch({ from: "/calendar" });
   const initialDate = searchDate ? parseISO(searchDate) : new Date();
@@ -72,12 +93,12 @@ export default function CalendarPage() {
 
   // Title display preference: "performer" (default) or "event"
   const [titleDisplay, setTitleDisplay] = useState<CalendarTitleDisplay>(() => {
-    const stored = localStorage.getItem("calendar_title_display");
-    return (stored === "event" || stored === "performer") ? stored : "performer";
+    const stored = localStorage.getItem("calendar-title-mode") || localStorage.getItem("calendar_title_display");
+    return (stored === "event" || stored === "performer" || stored === "both") ? stored : "both";
   });
   const handleTitleDisplayChange = (display: CalendarTitleDisplay) => {
     setTitleDisplay(display);
-    localStorage.setItem("calendar_title_display", display);
+    localStorage.setItem("calendar-title-mode", display);
   };
 
   // Sidebar
@@ -547,7 +568,11 @@ export default function CalendarPage() {
     const color = getEventEntityColor(event);
     const holdRank = event.eventStatus === "on_hold" && event.holdRank ? event.holdRank : 0;
     const rankLabel = holdRank > 0 ? (holdRank === 1 ? "1st" : holdRank === 2 ? "2nd" : holdRank === 3 ? "3rd" : `${holdRank}th`) : "";
-    const chipLabel = titleDisplay === "event" ? (event.name || event.artist) : (event.artist || event.name);
+    const chipLabel = titleDisplay === "event"
+      ? (event.name || event.artist)
+      : titleDisplay === "both"
+        ? [event.artist, event.name].filter(Boolean).join(" — ")
+        : (event.artist || event.name);
     return (
       <button
         key={event.id}
@@ -722,8 +747,16 @@ export default function CalendarPage() {
                   onHoldRankChange={isEvt && evt!.eventStatus === "on_hold" ? (rank) => resolveHoldRankConflicts(evt!.id, evt!.date, evt!.venue, evt!.roomStage || "", rank) : undefined}
                   onHoldAutoPromoteChange={isEvt && evt!.eventStatus === "on_hold" ? (auto) => updateEvent(evt!.id, { holdAutoPromote: auto }) : undefined}
                   onConfirmHold={isEvt && evt!.eventStatus === "on_hold" ? () => {
-                    updateEvent(evt!.id, { eventStatus: "confirmed" });
-                    toast({ title: "Event confirmed" });
+                    const e = evt!;
+                    updateEvent(e.id, { eventStatus: ACCEPTED_HOLD_STATUS });
+                    const siblings = findCompetingHolds(events, e);
+                    for (const s of siblings) {
+                      updateEvent(s.id, { eventStatus: "cancelled" });
+                    }
+                    toast({
+                      title: "Date accepted, event is now pending.",
+                      description: siblings.length > 0 ? `${siblings.length} competing hold(s) cancelled.` : undefined,
+                    });
                   } : undefined}
                   onDeclineHold={isEvt && evt!.eventStatus === "on_hold" ? () => {
                     updateEvent(evt!.id, { eventStatus: "cancelled" });
