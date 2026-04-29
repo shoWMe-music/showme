@@ -431,6 +431,54 @@ export async function deleteProfile(profileId: string) {
   await deleteDoc(profileDocumentRef(profileId));
 }
 
+/**
+ * Create an "un-acquired" placeholder profile for a performer/venue that does
+ * not yet have an account on the platform. The current user becomes the
+ * `created_by_uid` of record (so they can manage/delete it), but `owner_uid`
+ * is left blank so the profile can later be claimed when the represented party
+ * signs up. Marked `acquired: false` and `isPublic: false` so it doesn't leak
+ * into public profile search results.
+ *
+ * Returns the new profile ID.
+ */
+export async function createUnacquiredProfile({
+  name,
+  role,
+}: {
+  name: string;
+  role: OperatorRole;
+}): Promise<string> {
+  const trimmedName = name.trim();
+  if (!trimmedName) throw new Error("createUnacquiredProfile: name is required");
+  const uid = requireUid();
+  const profileId = doc(collection(getFirestoreDb(), PROFILE_COLLECTION)).id;
+  const ref = profileDocumentRef(profileId);
+  await safeSetDoc(
+    ref,
+    {
+      name: trimmedName,
+      role,
+      type: role,
+      slot: `${role}-unacquired-${profileId.slice(0, 6)}`,
+      // Owner stays empty so a future account can claim/acquire this profile.
+      owner_uid: "",
+      created_by_uid: uid,
+      acquired: false,
+      isPublic: false,
+      created: true,
+      locations: [],
+      bio: "",
+      genres: [],
+      socialLinks: [],
+      schemaVersion: PROFILE_ROOT_SCHEMA_VERSION,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: false },
+  );
+  return profileId;
+}
+
 // ── Profile Members ───────────────────────────────────────────────────────────
 
 const PROFILE_INVITES = "profileInvites";
