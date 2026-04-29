@@ -157,7 +157,7 @@ export function SettlementWorkspace({ event, deal, revenue, settlement, initialT
 
       <div className="pt-6">
         {activeTab === "overview" && (
-          <OverviewTab event={event} deal={deal} revenue={revenue} settlement={settlement} buildPayoutRows={buildPayoutRows} settlementTotal={settlementTotal} currency={currency} partyBreakdowns={partyBreakdowns} totalRevenue={totalRevenue} totalDeductions={totalDeductions} netRevenue={netRevenue} partyNames={partyNames} viewerIsPerformer={viewerIsPerformer} />
+          <OverviewTab event={event} deal={deal} revenue={revenue} settlement={settlement} buildPayoutRows={buildPayoutRows} settlementTotal={settlementTotal} currency={currency} partyBreakdowns={partyBreakdowns} totalRevenue={totalRevenue} totalDeductions={totalDeductions} netRevenue={netRevenue} partyNames={partyNames} viewerIsPerformer={viewerIsPerformer} actingProfile={actingProfile} />
         )}
         {activeTab === "deal" && deal && <DealTab event={event} deal={deal} currency={currency} actingProfile={actingProfile} />}
         {activeTab === "financials" && revenue && <FinancialsTab event={event} revenue={revenue} deal={deal} updateRevenue={updateRevenue} currency={currency} />}

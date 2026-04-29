@@ -2,11 +2,22 @@ import React from "react";
 import { Link } from "@tanstack/react-router";
 import { FileText, Music, MapPin, Users, Ticket } from "lucide-react";
 import SettlementBreakdownCards from "@/components/SettlementBreakdownCards";
+import { SectionTemplateMenu } from "@/components/SectionTemplateMenu";
+import { useUpdateEvent } from "@/lib/queries/useEventMutations";
+import { toast } from "@/hooks/use-toast";
 import {
   type Event as AppEvent, type DealStructure, type TicketRevenue, type Settlement, type PartyBreakdown,
 } from "@/lib/models";
 
-export function OverviewTab({ event, deal, revenue, settlement, buildPayoutRows, settlementTotal, currency = "EUR", partyBreakdowns, totalRevenue, totalDeductions, netRevenue, partyNames, viewerIsPerformer = false }: {
+/**
+ * Subset of event fields templatable from the Settlement Overview tab.
+ * Identity-bearing fields (id/artist/venue/operator/date) are intentionally
+ * excluded — templates here cover venue-operations defaults that recur across
+ * events at the same room.
+ */
+type OverviewTemplateData = Pick<AppEvent, "capacity" | "ticketingProvider">;
+
+export function OverviewTab({ event, deal, revenue, settlement, buildPayoutRows, settlementTotal, currency = "EUR", partyBreakdowns, totalRevenue, totalDeductions, netRevenue, partyNames, viewerIsPerformer = false, actingProfile }: {
   event: AppEvent; deal?: DealStructure; revenue?: TicketRevenue; settlement: Settlement;
   buildPayoutRows: () => { label: string; value: number; color: string; role: string }[];
   settlementTotal: number;
@@ -17,11 +28,43 @@ export function OverviewTab({ event, deal, revenue, settlement, buildPayoutRows,
   netRevenue: number;
   partyNames?: Record<string, string>;
   viewerIsPerformer?: boolean;
+  actingProfile?: string;
 }) {
+  const updateEventMutation = useUpdateEvent();
+  const overviewTemplate: OverviewTemplateData = {
+    capacity: event.capacity,
+    ticketingProvider: event.ticketingProvider,
+  };
   return (
     <div className="space-y-6">
       <div className="rounded-xl border bg-card p-6 shadow-sm">
-        <h3 className="font-display text-lg font-semibold mb-4">Event Details</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-display text-lg font-semibold">Event Details</h3>
+          {event?.hostProfileId && (
+            <SectionTemplateMenu
+              profileId={event.hostProfileId}
+              category="settlement-overview"
+              currentData={overviewTemplate}
+              onLoad={(data) => {
+                const loaded = data as Partial<OverviewTemplateData>;
+                const updates: Partial<AppEvent> = {};
+                if (typeof loaded.capacity === "number") updates.capacity = loaded.capacity;
+                if (typeof loaded.ticketingProvider === "string") updates.ticketingProvider = loaded.ticketingProvider;
+                if (Object.keys(updates).length === 0) {
+                  toast({ title: "Template is empty", variant: "destructive" });
+                  return;
+                }
+                updateEventMutation.mutate(
+                  { id: event.id, updates, actingProfile },
+                  {
+                    onSuccess: () => toast({ title: "Overview template loaded" }),
+                    onError: () => toast({ title: "Failed to load template", variant: "destructive" }),
+                  },
+                );
+              }}
+            />
+          )}
+        </div>
         <dl className="space-y-3">
           {[
             { icon: FileText, label: "Event ID", value: event.id, isLink: true },
