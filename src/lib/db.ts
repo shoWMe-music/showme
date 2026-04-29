@@ -41,6 +41,18 @@ async function safeSetDoc(ref: DocumentReference, data: Record<string, unknown>,
     await setDoc(ref, cleanData(data));
   }
 }
+
+/**
+ * Stamps `createdByUid` on first write only, so Firestore rules can gate
+ * delete on creator-or-host. Re-edits preserve the original creator.
+ */
+async function firstWriteCreatorStamp(ref: DocumentReference): Promise<Record<string, string>> {
+  const uid = getAuthClient().currentUser?.uid;
+  if (!uid) return {};
+  const existing = await getDoc(ref);
+  if (existing.exists()) return {};
+  return { createdByUid: uid };
+}
 import { getAuthClient } from "@/lib/firebaseAuth";
 import {
   PROFILE_COLLECTION,
@@ -1238,9 +1250,10 @@ export async function fetchRiders(eventId: string): Promise<Rider[]> {
 }
 
 export async function upsertRider(eventId: string, rider: Rider) {
+  const ref = eventSubDoc(eventId, SUB_RIDERS, rider.id);
   await safeSetDoc(
-    eventSubDoc(eventId, SUB_RIDERS, rider.id),
-    { ...rider, updatedAt: serverTimestamp() },
+    ref,
+    { ...rider, ...(await firstWriteCreatorStamp(ref)), updatedAt: serverTimestamp() },
     { merge: true },
   );
 }
@@ -1256,9 +1269,10 @@ export async function fetchAgreements(eventId: string): Promise<Agreement[]> {
 }
 
 export async function upsertAgreement(eventId: string, agreement: Agreement) {
+  const ref = eventSubDoc(eventId, SUB_AGREEMENTS, agreement.id);
   await safeSetDoc(
-    eventSubDoc(eventId, SUB_AGREEMENTS, agreement.id),
-    { ...agreement, updatedAt: serverTimestamp() },
+    ref,
+    { ...agreement, ...(await firstWriteCreatorStamp(ref)), updatedAt: serverTimestamp() },
     { merge: true },
   );
 }
@@ -1274,9 +1288,10 @@ export async function fetchCrew(eventId: string): Promise<CrewMember[]> {
 }
 
 export async function upsertCrewMember(eventId: string, member: CrewMember) {
+  const ref = eventSubDoc(eventId, SUB_CREW, member.id);
   await safeSetDoc(
-    eventSubDoc(eventId, SUB_CREW, member.id),
-    { ...member, updatedAt: serverTimestamp() },
+    ref,
+    { ...member, ...(await firstWriteCreatorStamp(ref)), updatedAt: serverTimestamp() },
     { merge: true },
   );
 }
@@ -1295,9 +1310,10 @@ export async function fetchSchedule(eventId: string): Promise<ScheduleItem[]> {
 }
 
 export async function upsertScheduleItem(eventId: string, item: ScheduleItem) {
+  const ref = eventSubDoc(eventId, SUB_SCHEDULE, item.id);
   await safeSetDoc(
-    eventSubDoc(eventId, SUB_SCHEDULE, item.id),
-    { ...item, updatedAt: serverTimestamp() },
+    ref,
+    { ...item, ...(await firstWriteCreatorStamp(ref)), updatedAt: serverTimestamp() },
     { merge: true },
   );
 }

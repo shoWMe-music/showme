@@ -152,28 +152,39 @@ service cloud.firestore {
 
     // ── Riders / Agreements / Crew / Schedule ────────────────────────────────
     //
-    // These event subcollections are managed collaboratively by everyone with
-    // event access. The write paths (e.g. AgreementTab's upsertAgreement,
-    // FileUploadButton attaching a fileUrl) don't set an ownerProfileId, so
-    // a stricter per-party rule rejected legitimate uploads — including the
-    // host re-saving their own docs with a file attached. Any tighter
-    // ownership model needs the code to set ownerProfileId first; until then,
-    // canAccessEvent is the source of truth.
+    // Reads, creates, and updates are open to any event collaborator — the
+    // autosave loops blindly re-upsert every doc on state change, so per-party
+    // update gates would reject legitimate no-op merges.
+    //
+    // Deletes are restricted to the original creator (stamped at first write
+    // by the upsert helpers in db.ts) or the event host.
+
+    function canDeleteOwnedSubdoc(eventId) {
+      return canAccessEvent(eventId)
+        && (
+          isEventHost(eventId)
+          || resource.data.createdByUid == uid()
+        );
+    }
 
     match /events/{eventId}/riders/{riderId} {
-      allow read, write: if canAccessEvent(eventId);
+      allow read, create, update: if canAccessEvent(eventId);
+      allow delete: if canDeleteOwnedSubdoc(eventId);
     }
 
     match /events/{eventId}/agreements/{agreementId} {
-      allow read, write: if canAccessEvent(eventId);
+      allow read, create, update: if canAccessEvent(eventId);
+      allow delete: if canDeleteOwnedSubdoc(eventId);
     }
 
     match /events/{eventId}/crew/{memberId} {
-      allow read, write: if canAccessEvent(eventId);
+      allow read, create, update: if canAccessEvent(eventId);
+      allow delete: if canDeleteOwnedSubdoc(eventId);
     }
 
     match /events/{eventId}/schedule/{itemId} {
-      allow read, write: if canAccessEvent(eventId);
+      allow read, create, update: if canAccessEvent(eventId);
+      allow delete: if canDeleteOwnedSubdoc(eventId);
     }
 
     // ── Participants (profiles invited to event) ──────────────────────────────
