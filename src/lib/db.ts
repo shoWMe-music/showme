@@ -854,7 +854,7 @@ export async function deleteProfileTeamMember(profileId: string, memberId: strin
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
-function eventRowToEvent(r: Record<string, unknown>): Event {
+export function eventRowToEvent(r: Record<string, unknown>): Event {
   const id = r.id as string;
   return {
     id,
@@ -878,6 +878,7 @@ function eventRowToEvent(r: Record<string, unknown>): Event {
     accessProfileIds: Array.isArray(r.accessProfileIds) ? (r.accessProfileIds as string[]) : undefined,
     accessUids: Array.isArray(r.accessUids) ? (r.accessUids as string[]) : undefined,
     performerProfileId: typeof r.performerProfileId === "string" ? r.performerProfileId : undefined,
+    performerRoleTag: typeof r.performerRoleTag === "string" ? r.performerRoleTag as Event["performerRoleTag"] : undefined,
     isMultiPerformer: Boolean(r.isMultiPerformer),
     parentEventId: typeof r.parentEventId === "string" ? r.parentEventId : undefined,
     childEventIds: Array.isArray(r.childEventIds) ? (r.childEventIds as string[]) : [],
@@ -892,7 +893,7 @@ function eventRowToEvent(r: Record<string, unknown>): Event {
   };
 }
 
-function eventToFirestoreRow(event: Event): Record<string, unknown> {
+export function eventToFirestoreRow(event: Event): Record<string, unknown> {
   return {
     id: event.id,
     name: event.name,
@@ -915,6 +916,7 @@ function eventToFirestoreRow(event: Event): Record<string, unknown> {
     accessProfileIds: event.accessProfileIds ?? [],
     accessUids: event.accessUids ?? [],
     performerProfileId: event.performerProfileId ?? null,
+    performerRoleTag: event.performerRoleTag ?? null,
     isMultiPerformer: event.isMultiPerformer || false,
     parentEventId: event.parentEventId ?? null,
     childEventIds: event.childEventIds ?? [],
