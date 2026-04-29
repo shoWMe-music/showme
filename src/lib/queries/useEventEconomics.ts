@@ -57,7 +57,7 @@ export function useEventEconomics(
 
       // Auto-create settlement for concluded events that don't have one yet
       if (!resolvedSettlement && deal) {
-        const events = queryClient.getQueryData<Event[]>(queryKeys.events(uid));
+        const events = queryClient.getQueriesData<Event[]>({ queryKey: queryKeys.events(uid) })[0]?.[1];
         const event = events?.find((e) => e.id === eventId);
         if (event?.eventStatus === "concluded") {
           const rev = revenue ?? emptyRevenue(eventId);
@@ -115,7 +115,7 @@ export function useAllEventEconomics(
         let resolvedSettlement: Settlement | undefined = settlement ?? undefined;
 
         if (!resolvedSettlement && deal) {
-          const events = queryClient.getQueryData<Event[]>(queryKeys.events(uid));
+          const events = queryClient.getQueriesData<Event[]>({ queryKey: queryKeys.events(uid) })[0]?.[1];
           const event = events?.find((e) => e.id === eventId);
           if (event?.eventStatus === "concluded") {
             const rev = revenue ?? emptyRevenue(eventId);

@@ -49,7 +49,7 @@ export function useEventManager() {
   const { promoteHoldsOnDate, resolveHoldRankConflicts } = useHoldRankMutations();
   const respondToDateChangeMutation = useRespondToDateChange();
   const cancelDateChangeMutation = useCancelDateChange();
-  const { currentUser, teamMembers, profiles } = useUser();
+  const { currentUser, teamMembers, addTeamMember, profiles } = useUser();
   const { user } = useAuth();
   const [eventCurrency, setEventCurrency] = useState(currentUser?.currency || "EUR");
 
@@ -214,9 +214,13 @@ export function useEventManager() {
 
   const togglePublish = usePublishEventToggle(updateEvent);
 
-  const generateShareLink = (eventId: string, parties: string[]): string => {
+  const generateShareLink = (eventId: string, parties: string[]): string | null => {
     const token = `review-${eventId}`;
-    const snapshot = event ? { event, deal: effectiveDeal, revenue, settlement } : undefined;
+    if (!event || !effectiveDeal || !revenue || !settlement) {
+      toast({ title: "Cannot generate share link", description: "Financial data not loaded yet. Please try again.", variant: "destructive" });
+      return null;
+    }
+    const snapshot = { event, deal: effectiveDeal, revenue, settlement };
     void upsertShareToken(token, eventId, parties, snapshot);
     return `${window.location.origin}/review/${token}`;
   };
@@ -224,7 +228,7 @@ export function useEventManager() {
   const updateSettlementStatus = (eventId: string, status: Parameters<typeof updateSettlementStatusMutation.mutate>[0]["status"]) =>
     updateSettlementStatusMutation.mutate({ eventId, status, actingProfile });
 
-  const addComment = (eventId: string, party: string, message: string, attachments?: { name: string; size: string; type: string }[]) =>
+  const addComment = (eventId: string, party: string, message: string, attachments?: { name: string; size: number; type: string; fileUrl: string }[]) =>
     addCommentMutation.mutate({ eventId, party, message, attachments, date: new Date().toISOString().slice(0, 10), actingProfile });
 
   const respondToDateChange = (profileId: string, response: "confirmed" | "declined") => {
@@ -274,14 +278,13 @@ export function useEventManager() {
   const PERFORMER_TABS: TabId[] = ["details", "agreement", "crew", "messages", "changelog"];
   const filteredTabs = isPerformer
     ? allTabs.filter((t) => PERFORMER_TABS.includes(t.id))
-    : canAccessBudget ? allTabs : allTabs.filter((t) => t.id !== "budget");
+    : allTabs;
   const tabs = filteredTabs;
 
   const getAllowedTabs = useCallback((): TabId[] => {
     if (isPerformer) return PERFORMER_TABS;
-    const base = isParent ? PARENT_TABS : STANDARD_TABS;
-    return (canAccessBudget ? base : base.filter((t) => t !== "budget")) as TabId[];
-  }, [isParent, canAccessBudget, isPerformer]);
+    return (isParent ? PARENT_TABS : STANDARD_TABS) as TabId[];
+  }, [isParent, isPerformer]);
 
   const activeTab = useMemo((): TabId => {
     const allowed = getAllowedTabs();
@@ -306,14 +309,10 @@ export function useEventManager() {
   useEffect(() => {
     if (!eventsLoaded || !id) return;
     const allowed = getAllowedTabs();
-    if (!canAccessBudget && tabParam === "budget") {
-      navigate({ to: "/events/$id", params: { id }, search: {}, replace: true });
-      return;
-    }
     if (tabParam && !allowed.includes(tabParam as TabId)) {
       navigate({ to: "/events/$id", params: { id }, search: {}, replace: true });
     }
-  }, [eventsLoaded, id, getAllowedTabs, canAccessBudget, tabParam, navigate]);
+  }, [eventsLoaded, id, getAllowedTabs, tabParam, navigate]);
 
   return {
     id, navigate, eventsLoaded, event, isParent, isChild, isPerformer, isPerformerInvitation, parentEvent, childEvents, childEconomics,
@@ -325,7 +324,7 @@ export function useEventManager() {
     togglePublish, promoteHoldsOnDate, resolveHoldRankConflicts,
     generateShareLink, updateSettlementStatus, addComment, handleBudgetProfileChange,
     respondToDateChange, cancelDateChange,
-    currentUser, teamMembers, user, actingProfile, profiles,
+    currentUser, teamMembers, addTeamMember, user, actingProfile, profiles,
     effectiveSourceRequestId, effectiveSourceRequestDate,
     profileTodos, saveProfileTodos, todosLoaded, todoScopeId,
     markChangeLogViewed,

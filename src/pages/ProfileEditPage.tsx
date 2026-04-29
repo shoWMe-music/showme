@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from "react";
+import DocumentPreviewDialog from "@/components/DocumentPreviewDialog";
 import { useParams, useNavigate } from "@tanstack/react-router";
 import AppLayout from "@/components/AppLayout";
 import { useUser, operatorRoleLabels, getBaseRole, type OperatorRole, type SharedProfile, type ProfileDocument, type ProfileLocation } from "@/lib/user-context";
@@ -11,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Camera, MapPin, Music, Globe, Image, Video, Users, Plus, X, Save, ArrowLeft, Trash2, ExternalLink, FileText, FileUp,
+  Camera, MapPin, Music, Globe, Image, Video, Users, Plus, X, Save, ArrowLeft, Trash2, ExternalLink, FileText, FileUp, ChevronsUpDown, Check,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -23,6 +24,10 @@ import { toast } from "@/hooks/use-toast";
 import { AvatarUpload } from "@/components/AvatarUpload";
 import AddressAutocomplete, { type AddressResult } from "@/components/AddressAutocomplete";
 import VenueMap from "@/components/VenueMap";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
+import { GENRE_CATEGORIES, VENUE_GENRE_SHORTLIST, ALL_GENRES } from "@/lib/genres";
+import { cn } from "@/lib/utils";
 
 function generateSlug(name: string, role: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || role;
@@ -147,7 +152,6 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
   const [data, setData] = useState({ ...profile });
   // spotifyUrl is now derived from socialLinks with platform "Spotify"
   const spotifyUrl = data.socialLinks?.find(l => l.platform.toLowerCase() === "spotify")?.url || "";
-  const [newGenre, setNewGenre] = useState("");
   const [newAmenity, setNewAmenity] = useState("");
   const [newDealType, setNewDealType] = useState("");
   const [newVideoUrl, setNewVideoUrl] = useState("");
@@ -155,6 +159,7 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
   const [newDocType, setNewDocType] = useState<ProfileDocument["type"]>("other");
   const [uploading, setUploading] = useState(false);
   const [confirmPublic, setConfirmPublic] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<{ fileName: string; fileUrl: string } | null>(null);
   const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
 
   const bannerRef = useRef<HTMLInputElement>(null);
@@ -304,7 +309,9 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
               <div>
                 <Label>Location</Label>
                 <AddressAutocomplete
-                  value={[data.locations?.[0]?.street, data.locations?.[0]?.city, data.locations?.[0]?.country].filter(Boolean).join(", ")}
+                  value={baseRole === "performer"
+                    ? [data.locations?.[0]?.city, data.locations?.[0]?.country].filter(Boolean).join(", ")
+                    : [data.locations?.[0]?.street, data.locations?.[0]?.city, data.locations?.[0]?.country].filter(Boolean).join(", ")}
                   onChange={(_value: string, result?: AddressResult) => {
                     if (result) {
                       setData(p => {
@@ -313,23 +320,25 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
                           ...p,
                           locations: [{
                             ...loc,
-                            street: result.street || loc.street || "",
+                            ...(baseRole !== "performer" && { street: result.street || loc.street || "" }),
                             city: result.city || loc.city || "",
                             country: result.country || loc.country || "",
-                            postcode: result.postcode || loc.postcode || "",
+                            ...(baseRole !== "performer" && { postcode: result.postcode || loc.postcode || "" }),
                             coordinates: result.coordinates || loc.coordinates,
                           }, ...(p.locations?.slice(1) || [])],
                         };
                       });
                     }
                   }}
-                  placeholder="Search address..."
+                  placeholder={baseRole === "performer" ? "Search city..." : "Search address..."}
                   className="mt-1"
                 />
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <Input value={data.locations?.[0]?.street || ""} onChange={e => updatePrimaryLocation("street", e.target.value)} placeholder="Street" />
-                  <Input value={data.locations?.[0]?.postcode || ""} onChange={e => updatePrimaryLocation("postcode", e.target.value)} placeholder="Postcode" />
-                </div>
+                {baseRole !== "performer" && (
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <Input value={data.locations?.[0]?.street || ""} onChange={e => updatePrimaryLocation("street", e.target.value)} placeholder="Street" />
+                    <Input value={data.locations?.[0]?.postcode || ""} onChange={e => updatePrimaryLocation("postcode", e.target.value)} placeholder="Postcode" />
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <Input value={data.locations?.[0]?.city || ""} onChange={e => updatePrimaryLocation("city", e.target.value)} placeholder="City" />
                   <Input value={data.locations?.[0]?.country || ""} onChange={e => updatePrimaryLocation("country", e.target.value)} placeholder="Country" />
@@ -351,23 +360,11 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
         </div>
 
         {/* Genres */}
-        <div className="rounded-xl border bg-card p-6 shadow-sm">
-          <h3 className="text-lg font-semibold mb-3">Genres</h3>
-          <div className="flex flex-wrap gap-1.5 mb-3">
-            {data.genres?.map((g, i) => (
-              <Badge key={g} variant="outline" className="text-xs gap-1">
-                {g}
-                <button onClick={() => setData(p => ({ ...p, genres: p.genres?.filter((_, j) => j !== i) }))}><X className="h-3 w-3" /></button>
-              </Badge>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <Input value={newGenre} onChange={e => setNewGenre(e.target.value)} placeholder="Add genre..." className="max-w-xs" onKeyDown={e => {
-              if (e.key === "Enter" && newGenre.trim()) { setData(p => ({ ...p, genres: [...(p.genres || []), newGenre.trim()] })); setNewGenre(""); }
-            }} />
-            <Button variant="outline" size="sm" onClick={() => { if (newGenre.trim()) { setData(p => ({ ...p, genres: [...(p.genres || []), newGenre.trim()] })); setNewGenre(""); } }}><Plus className="h-4 w-4" /></Button>
-          </div>
-        </div>
+        <GenrePickerSection
+          baseRole={baseRole}
+          genres={data.genres || []}
+          onChange={(genres) => setData(p => ({ ...p, genres }))}
+        />
 
         {/* Music Embed (Performer) — derived from Social Links with platform "Spotify" */}
 
@@ -393,11 +390,17 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
                       updated[i] = { ...updated[i], name: e.target.value };
                       setData(p => ({ ...p, setups: updated }));
                     }} placeholder="Setup name (e.g. Full Band)" className="flex-1" />
-                    <Input type="number" value={s.headcount || ""} onChange={e => {
+                    <Input type="number" value={s.headcount ?? ""} onChange={e => {
                       const updated = [...data.setups!];
-                      updated[i] = { ...updated[i], headcount: parseInt(e.target.value) || 1 };
+                      updated[i] = { ...updated[i], headcount: e.target.value === "" ? undefined : parseInt(e.target.value) || 1 };
                       setData(p => ({ ...p, setups: updated }));
-                    }} placeholder="Headcount" className="w-24" />
+                    }} onFocus={e => e.target.select()} onBlur={() => {
+                      if (!s.headcount) {
+                        const updated = [...data.setups!];
+                        updated[i] = { ...updated[i], headcount: 1 };
+                        setData(p => ({ ...p, setups: updated }));
+                      }
+                    }} min={1} className="w-24" />
                     <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => {
                       setData(p => ({ ...p, setups: p.setups?.filter((_, j) => j !== i) }));
                     }}>
@@ -430,7 +433,8 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
             ) : (
               <div className="space-y-3">
                 {data.subVenues.map((sv, i) => (
-                  <div key={sv.id} className="flex items-center gap-3 rounded-lg border p-3">
+                  <div key={sv.id} className="rounded-lg border p-3 space-y-2">
+                  <div className="flex items-center gap-3">
                     <Select value={sv.type} onValueChange={(v) => {
                       const updated = [...data.subVenues!];
                       updated[i] = { ...updated[i], type: v as "room" | "stage" };
@@ -467,6 +471,19 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
                     }}>
                       <X className="h-4 w-4 text-destructive" />
                     </Button>
+                  </div>
+                  <div className="flex gap-2 ml-8">
+                    <Input value={sv.sittingNotes || ""} onChange={e => {
+                      const updated = [...data.subVenues!];
+                      updated[i] = { ...updated[i], sittingNotes: e.target.value };
+                      setData(p => ({ ...p, subVenues: updated }));
+                    }} placeholder="Sitting notes (e.g. theater-style)" className="text-xs h-7 flex-1" />
+                    <Input value={sv.standingNotes || ""} onChange={e => {
+                      const updated = [...data.subVenues!];
+                      updated[i] = { ...updated[i], standingNotes: e.target.value };
+                      setData(p => ({ ...p, subVenues: updated }));
+                    }} placeholder="Standing notes (e.g. GA floor)" className="text-xs h-7 flex-1" />
+                  </div>
                   </div>
                 ))}
                 <div className="flex items-center gap-2 pt-2 border-t">
@@ -711,9 +728,9 @@ const amenityKeys: import("@/lib/models").AmenityKey[] = ["backline", "partial_b
                     {doc.type === "tech_rider" ? "Tech Rider" : doc.type === "hospitality_rider" ? "Hospitality Rider" : "Document"}
                   </Badge>
                   <span className="text-sm font-medium flex-1 truncate">{doc.name}</span>
-                  <a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-xs flex items-center gap-1">
+                  <button onClick={() => setPreviewDoc({ fileName: doc.name, fileUrl: doc.url })} className="text-primary hover:underline text-xs flex items-center gap-1">
                     <ExternalLink className="h-3 w-3" /> View
-                  </a>
+                  </button>
                   <button onClick={() => setData(p => ({ ...p, documents: (p.documents || []).filter(d => d.id !== doc.id) }))}><Trash2 className="h-3.5 w-3.5 text-destructive" /></button>
                 </div>
               ))}
@@ -815,6 +832,134 @@ const amenityKeys: import("@/lib/models").AmenityKey[] = ["backline", "partial_b
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <DocumentPreviewDialog
+        open={!!previewDoc}
+        onOpenChange={(open) => { if (!open) setPreviewDoc(null); }}
+        fileName={previewDoc?.fileName || ""}
+        fileUrl={previewDoc?.fileUrl || ""}
+      />
+    </div>
+  );
+}
+
+function GenrePickerSection({ baseRole, genres, onChange }: {
+  baseRole: string;
+  genres: string[];
+  onChange: (genres: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const isVenue = baseRole === "venue";
+
+  const addGenre = (genre: string) => {
+    if (!genres.includes(genre)) {
+      onChange([...genres, genre]);
+    }
+    setSearch("");
+    setOpen(false);
+  };
+
+  const removeGenre = (index: number) => {
+    onChange(genres.filter((_, i) => i !== index));
+  };
+
+  const searchLower = search.toLowerCase();
+  const hasExactMatch = isVenue
+    ? VENUE_GENRE_SHORTLIST.some(g => g.toLowerCase() === searchLower)
+    : ALL_GENRES.some(g => g.toLowerCase() === searchLower);
+
+  return (
+    <div className="rounded-xl border bg-card p-6 shadow-sm">
+      <h3 className="text-lg font-semibold mb-3">Genres</h3>
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {genres.map((g, i) => (
+          <Badge key={g} variant="outline" className="text-xs gap-1">
+            {g}
+            <button onClick={() => removeGenre(i)}><X className="h-3 w-3" /></button>
+          </Badge>
+        ))}
+      </div>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" size="sm" className="gap-1.5">
+            <Plus className="h-4 w-4" /> Add genre
+            <ChevronsUpDown className="ml-1 h-3 w-3 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-72 p-0" align="start">
+          <Command shouldFilter={false}>
+            <CommandInput placeholder="Search genres..." value={search} onValueChange={setSearch} />
+            <CommandList>
+              <CommandEmpty>
+                {search.trim() ? (
+                  <button
+                    className="w-full px-2 py-1.5 text-sm text-left hover:bg-accent rounded-sm"
+                    onClick={() => addGenre(search.trim())}
+                  >
+                    Add &quot;{search.trim()}&quot; as custom genre
+                  </button>
+                ) : (
+                  "No genres found."
+                )}
+              </CommandEmpty>
+              {isVenue ? (
+                <CommandGroup heading="Venue Genres">
+                  {VENUE_GENRE_SHORTLIST
+                    .filter(g => !searchLower || g.toLowerCase().includes(searchLower))
+                    .map(genre => {
+                      const selected = genres.includes(genre);
+                      return (
+                        <CommandItem
+                          key={genre}
+                          value={genre}
+                          onSelect={() => addGenre(genre)}
+                          className={cn(selected && "opacity-50")}
+                        >
+                          <Check className={cn("mr-2 h-3.5 w-3.5", selected ? "opacity-100" : "opacity-0")} />
+                          {genre}
+                        </CommandItem>
+                      );
+                    })}
+                </CommandGroup>
+              ) : (
+                GENRE_CATEGORIES
+                  .map(cat => {
+                    const filtered = cat.genres.filter(g => !searchLower || g.toLowerCase().includes(searchLower));
+                    if (filtered.length === 0) return null;
+                    return (
+                      <CommandGroup key={cat.name} heading={cat.name}>
+                        {filtered.map(genre => {
+                          const selected = genres.includes(genre);
+                          return (
+                            <CommandItem
+                              key={genre}
+                              value={genre}
+                              onSelect={() => addGenre(genre)}
+                              className={cn(selected && "opacity-50")}
+                            >
+                              <Check className={cn("mr-2 h-3.5 w-3.5", selected ? "opacity-100" : "opacity-0")} />
+                              {genre}
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    );
+                  })
+                  .filter(Boolean)
+              )}
+              {search.trim() && !hasExactMatch && !genres.includes(search.trim()) && (
+                <CommandGroup heading="Custom">
+                  <CommandItem value={`custom-${search.trim()}`} onSelect={() => addGenre(search.trim())}>
+                    <Plus className="mr-2 h-3.5 w-3.5" />
+                    Add &quot;{search.trim()}&quot;
+                  </CommandItem>
+                </CommandGroup>
+              )}
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

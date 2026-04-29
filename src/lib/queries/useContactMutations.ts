@@ -40,6 +40,7 @@ export function useAddContact() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.contacts(uid) });
+      queryClient.invalidateQueries({ queryKey: ["contactPages", uid] });
     },
   });
 }
@@ -77,6 +78,7 @@ export function useUpdateContact() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.contacts(uid) });
+      queryClient.invalidateQueries({ queryKey: ["contactPages", uid] });
     },
   });
 }
@@ -111,6 +113,7 @@ export function useDeleteContact() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.contacts(uid) });
+      queryClient.invalidateQueries({ queryKey: ["contactPages", uid] });
     },
   });
 }

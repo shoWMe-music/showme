@@ -33,7 +33,7 @@ import {
 import { deleteStorageFile } from "@/lib/firebaseStorageUpload";
 import { getAuthClient } from "@/lib/firebaseAuth";
 import {
-  FileText, Plus, Download, CheckCircle2, Trash2, Check,
+  FileText, Plus, Download, CheckCircle2, Trash2, Check, Lock, LockOpen,
 } from "lucide-react";
 import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 
@@ -189,28 +189,79 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
 
   const [savedTerms, setSavedTerms] = useState(terms);
 
-  // Track changes to agreements — reset confirmations if any party has confirmed
-  const handleAgreementChange = (newAgreements: Agreement[]) => {
+  // Helper: reset all confirmations and log to change log
+  const resetAllApprovals = (reason: string) => {
     const now = new Date().toISOString();
     metaDirty.current = true;
-    if (confirmations.length > 0) {
-      setConfirmations([]);
-      toast({ title: "Approvals reset", description: "Agreement changed — all parties need to re-confirm." });
-    }
+    setConfirmations([]);
     setLastChangedAt(now);
+    const u = getAuthClient().currentUser;
+    const by = u?.displayName || u?.email || "Unknown";
+    appendEventActivity(event.id, "approvals_reset", by, { reason }, undefined, actingProfile);
+    toast({ title: "Deal terms changed — all approvals have been reset" });
+  };
+
+  // Detect external deal prop changes (e.g. deal structure edited in another tab)
+  const prevDealRef = useRef(deal);
+  useEffect(() => {
+    const prev = prevDealRef.current;
+    prevDealRef.current = deal;
+    // Skip first render and null/undefined transitions
+    if (!prev || !deal) return;
+    // Shallow compare key deal fields
+    const changed =
+      prev.dealType !== deal.dealType ||
+      prev.artistGuarantee !== deal.artistGuarantee ||
+      prev.venueRental !== deal.venueRental ||
+      prev.artistSplit !== deal.artistSplit ||
+      prev.promoterSplit !== deal.promoterSplit ||
+      prev.venueSplit !== deal.venueSplit ||
+      prev.organizerSplit !== deal.organizerSplit ||
+      prev.promoterCostSplit !== deal.promoterCostSplit ||
+      prev.venueCostSplit !== deal.venueCostSplit ||
+      prev.artistCostSplit !== deal.artistCostSplit ||
+      prev.organizerCostSplit !== deal.organizerCostSplit ||
+      JSON.stringify(prev.commissions) !== JSON.stringify(deal.commissions);
+    if (changed && confirmations.length > 0) {
+      resetAllApprovals("Deal structure changed");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to deal prop changes
+  }, [deal]);
+
+  // Track changes to agreements — reset confirmations if any party has confirmed
+  const handleAgreementChange = (newAgreements: Agreement[]) => {
+    if (confirmations.length > 0) {
+      resetAllApprovals("Agreement documents changed");
+    } else {
+      const now = new Date().toISOString();
+      metaDirty.current = true;
+      setLastChangedAt(now);
+    }
     setAgreements(newAgreements);
   };
 
   const handleTermsSave = () => {
     if (terms === savedTerms) return;
+    if (confirmations.length > 0) {
+      resetAllApprovals("Terms and conditions updated");
+    } else {
+      const now = new Date().toISOString();
+      metaDirty.current = true;
+      setLastChangedAt(now);
+    }
+    setSavedTerms(terms);
+  };
+
+  // Re-open a fully approved agreement for editing
+  const handleReopen = () => {
     const now = new Date().toISOString();
     metaDirty.current = true;
-    if (confirmations.length > 0) {
-      setConfirmations([]);
-      toast({ title: "Approvals reset", description: "Terms updated — all parties need to re-confirm." });
-    }
+    setConfirmations([]);
     setLastChangedAt(now);
-    setSavedTerms(terms);
+    const u = getAuthClient().currentUser;
+    const by = u?.displayName || u?.email || "Unknown";
+    appendEventActivity(event.id, "approvals_reset", by, { reason: "Agreement re-opened for editing" }, undefined, actingProfile);
+    toast({ title: "Agreement re-opened for editing" });
   };
 
   // agreements now synced via subcollection; only persist confirmation metadata via eventMeta
@@ -256,7 +307,7 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div><span className="text-muted-foreground">Event:</span> <span className="font-medium ml-2">{event.name}</span></div>
           <div><span className="text-muted-foreground">Date:</span> <span className="font-medium ml-2">{event.date}</span></div>
-          <div><span className="text-muted-foreground">Artist:</span> <span className="font-medium ml-2"><ProfilePreviewPopover name={event.artist} profileId={event.performerProfileId} /></span></div>
+          <div><span className="text-muted-foreground">Performer:</span> <span className="font-medium ml-2"><ProfilePreviewPopover name={event.artist} profileId={event.performerProfileId} /></span></div>
           <div><span className="text-muted-foreground">Venue:</span> <span className="font-medium ml-2"><ProfilePreviewPopover name={event.venue} /></span></div>
           {event.capacity > 0 && <div><span className="text-muted-foreground">Capacity:</span> <span className="font-medium ml-2">{event.capacity.toLocaleString()}</span></div>}
           {event.operator && <div><span className="text-muted-foreground">Operator:</span> <span className="font-medium ml-2">{event.operator}</span></div>}
@@ -273,10 +324,10 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
               {deal.artistGuarantee > 0 && <div><span className="text-muted-foreground">Performer Guarantee:</span> <span className="font-medium ml-2">{formatCurrency(deal.artistGuarantee, currency)}</span></div>}
               {deal.venueRental > 0 && <div><span className="text-muted-foreground">Venue Rental:</span> <span className="font-medium ml-2">{formatCurrency(deal.venueRental, currency)}</span></div>}
               {deal.dealType !== "guarantee" && deal.dealType !== "rental" && (deal.artistSplit > 0 || deal.promoterSplit > 0 || deal.venueSplit > 0) && (
-                <div className="col-span-2"><span className="text-muted-foreground">Revenue Split:</span> <span className="font-medium ml-2">Artist {deal.artistSplit}% / Promoter {deal.promoterSplit}% / Venue {deal.venueSplit}%{(deal.organizerSplit || 0) > 0 ? ` / Organizer ${deal.organizerSplit}%` : ""}</span></div>
+                <div className="col-span-2"><span className="text-muted-foreground">Revenue Split:</span> <span className="font-medium ml-2">Performer {deal.artistSplit}% / Promoter {deal.promoterSplit}% / Venue {deal.venueSplit}%{(deal.organizerSplit || 0) > 0 ? ` / Organizer ${deal.organizerSplit}%` : ""}</span></div>
               )}
               {(deal.promoterCostSplit > 0 || deal.venueCostSplit > 0 || (deal.organizerCostSplit || 0) > 0) && (
-                <div className="col-span-2"><span className="text-muted-foreground">Cost Split:</span> <span className="font-medium ml-2">{(deal.artistCostSplit || 0) > 0 ? `Artist ${deal.artistCostSplit}% / ` : ""}Promoter {deal.promoterCostSplit}% / Venue {deal.venueCostSplit}%{(deal.organizerCostSplit || 0) > 0 ? ` / Organizer ${deal.organizerCostSplit}%` : ""}</span></div>
+                <div className="col-span-2"><span className="text-muted-foreground">Cost Split:</span> <span className="font-medium ml-2">{(deal.artistCostSplit || 0) > 0 ? `Performer ${deal.artistCostSplit}% / ` : ""}Promoter {deal.promoterCostSplit}% / Venue {deal.venueCostSplit}%{(deal.organizerCostSplit || 0) > 0 ? ` / Organizer ${deal.organizerCostSplit}%` : ""}</span></div>
               )}
               {deal.commissions?.length > 0 && deal.commissions.map((c: CommissionParty) => (
                 <div key={c.key}><span className="text-muted-foreground">{c.label}:</span> <span className="font-medium ml-2">{c.name} ({c.percentage}%)</span></div>
@@ -342,7 +393,7 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
       <div className="rounded-xl border bg-card p-6 shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-display text-lg font-semibold">Agreements & Documents</h3>
-          {!readOnly && (
+          {!readOnly && !allConfirmed && (
             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAddOpen(true)}>
               <Plus className="h-3.5 w-3.5" /> Add Document
             </Button>
@@ -366,7 +417,7 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
                     <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => { if (ag.fileUrl && ag.fileName) setPreviewDoc({ fileName: ag.fileName, fileUrl: ag.fileUrl }); }}>
                       <Download className="h-3 w-3" /> {ag.fileName}
                     </Button>
-                  ) : !readOnly ? (
+                  ) : !readOnly && !allConfirmed ? (
                     <FileUploadButton onFile={(name, url) => {
                       const updated = [...agreements];
                       updated[i] = { ...updated[i], fileName: name, fileUrl: url };
@@ -381,7 +432,7 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
                     {ag.status === "signed" && <CheckCircle2 className="h-3 w-3 mr-1" />}
                     {ag.status.charAt(0).toUpperCase() + ag.status.slice(1)}
                   </Badge>
-                  {!readOnly && (
+                  {!readOnly && !allConfirmed && (
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDeleteIndex(i)}>
                       <Trash2 className="h-3.5 w-3.5 text-destructive" />
                     </Button>
@@ -395,7 +446,7 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
 
       <div className="rounded-xl border bg-card p-6 shadow-sm">
         <h3 className="font-display text-lg font-semibold mb-4">Terms & Conditions</h3>
-        {readOnly ? (
+        {readOnly || allConfirmed ? (
           terms ? (
             <p className="text-sm whitespace-pre-wrap">{terms}</p>
           ) : (
@@ -421,9 +472,16 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
         </div>
 
         {allConfirmed && (
-          <div className="rounded-lg bg-[hsl(var(--success)/0.1)] border border-[hsl(var(--success)/0.2)] p-3 mb-4 flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-[hsl(var(--success))]" />
-            <span className="text-sm font-medium text-[hsl(var(--success))]">All parties have confirmed the agreement</span>
+          <div className="rounded-lg bg-[hsl(var(--success)/0.1)] border border-[hsl(var(--success)/0.2)] p-3 mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Lock className="h-4 w-4 text-[hsl(var(--success))]" />
+              <span className="text-sm font-medium text-[hsl(var(--success))]">All parties have confirmed the agreement</span>
+            </div>
+            {!readOnly && (
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={handleReopen}>
+                <LockOpen className="h-3.5 w-3.5" /> Request to Re-open
+              </Button>
+            )}
           </div>
         )}
 

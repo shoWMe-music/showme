@@ -24,7 +24,7 @@ export function SettlementWorkspace({ event, deal, revenue, settlement, initialT
   onTabChange?: (tab: string) => void;
   updateSettlementStatus: (eventId: string, status: SettlementStatus) => void;
   updateRevenue: (eventId: string, revenue: TicketRevenue) => void;
-  addComment: (eventId: string, party: string, message: string, attachments?: { name: string; size: string; type: string }[]) => void;
+  addComment: (eventId: string, party: string, message: string, attachments?: { name: string; size: number; type: string; fileUrl: string }[]) => void;
   generateShareLink: (eventId: string, parties: string[]) => string;
   currentUser: { name: string; roles: string[] };
   onBack?: () => void;
@@ -76,6 +76,12 @@ export function SettlementWorkspace({ event, deal, revenue, settlement, initialT
   const netRevenue = totalRevenue - totalDeductions;
 
   const operatorRole = event.operatorType;
+
+  const partyNames: Record<string, string> = {
+    Performer: event.artist,
+    Venue: event.venue,
+    Promoter: event.operator,
+  };
 
   const buildPayoutRows = () => {
     const allRows: { label: string; value: number; color: string; role: string }[] = [
@@ -148,12 +154,12 @@ export function SettlementWorkspace({ event, deal, revenue, settlement, initialT
 
       <div className="pt-6">
         {activeTab === "overview" && (
-          <OverviewTab event={event} deal={deal} revenue={revenue} settlement={settlement} buildPayoutRows={buildPayoutRows} settlementTotal={settlementTotal} currency={currency} partyBreakdowns={partyBreakdowns} totalRevenue={totalRevenue} totalDeductions={totalDeductions} netRevenue={netRevenue} />
+          <OverviewTab event={event} deal={deal} revenue={revenue} settlement={settlement} buildPayoutRows={buildPayoutRows} settlementTotal={settlementTotal} currency={currency} partyBreakdowns={partyBreakdowns} totalRevenue={totalRevenue} totalDeductions={totalDeductions} netRevenue={netRevenue} partyNames={partyNames} />
         )}
         {activeTab === "deal" && deal && <DealTab deal={deal} currency={currency} />}
         {activeTab === "financials" && revenue && <FinancialsTab event={event} revenue={revenue} deal={deal} updateRevenue={updateRevenue} currency={currency} />}
         {activeTab === "settlement" && (
-          <SettlementTab event={event} deal={deal} revenue={revenue} settlement={settlement} buildPayoutRows={buildPayoutRows} settlementTotal={settlementTotal} updateSettlementStatus={updateSettlementStatus} addComment={addComment} generateShareLink={generateShareLink} currentUser={currentUser} currency={currency} updateRevenue={updateRevenue} partyBreakdowns={partyBreakdowns} totalRevenue={totalRevenue} totalDeductions={totalDeductions} netRevenue={netRevenue} />
+          <SettlementTab event={event} deal={deal} revenue={revenue} settlement={settlement} buildPayoutRows={buildPayoutRows} settlementTotal={settlementTotal} updateSettlementStatus={updateSettlementStatus} addComment={addComment} generateShareLink={generateShareLink} currentUser={currentUser} currency={currency} updateRevenue={updateRevenue} partyBreakdowns={partyBreakdowns} totalRevenue={totalRevenue} totalDeductions={totalDeductions} netRevenue={netRevenue} partyNames={partyNames} />
         )}
         {activeTab === "payout" && <PayoutTab event={event} settlement={settlement} buildPayoutRows={buildPayoutRows} deal={deal} revenue={revenue} currency={currency} />}
         {activeTab === "changelog" && <ChangeLogTab eventId={event.id} />}

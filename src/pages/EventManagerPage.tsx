@@ -99,6 +99,17 @@ export default function EventManagerPage() {
 
   const { event, id } = em;
   const onSaveMeta = (d: Partial<EventMeta>) => { if (id) em.updateEventMeta(id, d); };
+  const handleCreateTeamMember = (name: string) => {
+    em.addTeamMember({
+      id: `TM-${Date.now()}`,
+      name,
+      email: "",
+      phone: "",
+      roles: ["Member"],
+      status: "active" as const,
+      notes: "",
+    }, event.hostProfileId ?? "");
+  };
 
   return (
     <AppLayout>
@@ -127,7 +138,7 @@ export default function EventManagerPage() {
           onDuplicate={() => setDuplicateOpen(true)}
           effectiveSourceRequestId={em.effectiveSourceRequestId}
           effectiveSourceRequestDate={em.effectiveSourceRequestDate}
-          isPerformerInvitation={em.isPerformer}
+          isPerformerInvitation={em.isPerformerInvitation}
           onTabChange={(tabId) => { if (tabId === "changelog") em.markChangeLogViewed(); }}
         />
 
@@ -229,10 +240,10 @@ export default function EventManagerPage() {
           </div>
         )}
         {em.activeTab === "crew" && em.economicsLoaded && (
-          <CrewTab eventMeta={em.eventMeta} event={event} collaborators={em.collaborators} onSave={onSaveMeta} actingProfile={em.actingProfile} profileTodos={em.profileTodos} saveProfileTodos={em.saveProfileTodos} />
+          <CrewTab eventMeta={em.eventMeta} event={event} collaborators={em.collaborators} onSave={onSaveMeta} actingProfile={em.actingProfile} profileTodos={em.profileTodos} saveProfileTodos={em.saveProfileTodos} isPerformer={em.isPerformer} />
         )}
         {em.activeTab === "todo" && (
-          <TodoTab todos={em.profileTodos} event={event} onSaveTodos={em.saveProfileTodos} teamMemberNames={em.teamMembers.map(m => m.name)} />
+          <TodoTab todos={em.profileTodos} event={event} onSaveTodos={em.saveProfileTodos} teamMemberNames={em.teamMembers.map(m => m.name)} teamMembers={em.teamMembers} onCreateMember={handleCreateTeamMember} />
         )}
         {em.activeTab === "performers" && em.isParent && (
           <PerformersTab childEvents={em.childEvents} childEconomics={em.childEconomics} eventCurrency={em.eventCurrency} />
@@ -287,7 +298,13 @@ export default function EventManagerPage() {
           prefillData={{
             artistName: event.artist,
             venueName: event.venue,
+            dealType: em.effectiveDeal?.dealType,
+            artistGuarantee: em.effectiveDeal?.artistGuarantee ? String(em.effectiveDeal.artistGuarantee) : undefined,
+            artistSplit: em.effectiveDeal?.artistSplit != null ? String(em.effectiveDeal.artistSplit) : undefined,
+            promoterSplit: em.effectiveDeal?.promoterSplit != null ? String(em.effectiveDeal.promoterSplit) : undefined,
+            venueSplit: em.effectiveDeal?.venueSplit != null ? String(em.effectiveDeal.venueSplit) : undefined,
           } satisfies PrefillData}
+          defaultStatus="draft"
           onEventCreated={(newId) => em.navigate({ to: "/events/$id", params: { id: newId } })}
         />
       </div>

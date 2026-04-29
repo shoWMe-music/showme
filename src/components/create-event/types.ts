@@ -13,6 +13,12 @@ export interface PrefillData {
   sourceRequestId?: string;
   /** The date the performer originally requested, for detecting counter-proposals. */
   sourceRequestDate?: string;
+  dealType?: DealType;
+  artistGuarantee?: string;
+  artistSplit?: string;
+  promoterSplit?: string;
+  venueSplit?: string;
+  eventStatus?: string;
 }
 
 export interface CreateEventDialogProps {

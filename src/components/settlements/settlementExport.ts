@@ -28,15 +28,15 @@ export function exportSettlementCSV({
   if (deal) {
     rows.push(["--- DEAL STRUCTURE ---", ""]);
     rows.push(["Deal Type", deal.dealType.replace(/_/g, " ")]);
-    if (deal.artistGuarantee > 0) rows.push(["Artist Guarantee", fc(deal.artistGuarantee)]);
-    if (deal.artistSplit > 0) rows.push(["Artist Split", `${deal.artistSplit}%`]);
+    if (deal.artistGuarantee > 0) rows.push(["Performer Guarantee", fc(deal.artistGuarantee)]);
+    if (deal.artistSplit > 0) rows.push(["Performer Split", `${deal.artistSplit}%`]);
     if (deal.promoterSplit > 0) rows.push(["Promoter Split", `${deal.promoterSplit}%`]);
     if (deal.venueSplit > 0) rows.push(["Venue Split", `${deal.venueSplit}%`]);
     if ((deal.organizerSplit || 0) > 0) rows.push(["Organizer Split", `${deal.organizerSplit}%`]);
     if (deal.venueRental > 0) rows.push(["Venue Rental", fc(deal.venueRental)]);
     if (deal.venueRentalPaidBy) rows.push(["Venue Rental Paid By", deal.venueRentalPaidBy]);
     if (deal.promoterCostSplit > 0 || deal.venueCostSplit > 0) {
-      rows.push(["Production Cost Split", `Promoter ${deal.promoterCostSplit}%, Venue ${deal.venueCostSplit}%${(deal.artistCostSplit || 0) > 0 ? `, Artist ${deal.artistCostSplit}%` : ""}${(deal.organizerCostSplit || 0) > 0 ? `, Organizer ${deal.organizerCostSplit}%` : ""}`]);
+      rows.push(["Production Cost Split", `Promoter ${deal.promoterCostSplit}%, Venue ${deal.venueCostSplit}%${(deal.artistCostSplit || 0) > 0 ? `, Performer ${deal.artistCostSplit}%` : ""}${(deal.organizerCostSplit || 0) > 0 ? `, Organizer ${deal.organizerCostSplit}%` : ""}`]);
     }
     for (const c of deal.commissions) rows.push([`Commission: ${c.label}`, `${c.name} — ${c.percentage}%`]);
     rows.push(["", ""]);
@@ -165,8 +165,8 @@ export function exportSettlementPDF({
         const dealRows: string[][] = [
           ["Deal Type", deal.dealType.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())],
         ];
-        if (deal.artistGuarantee > 0) dealRows.push(["Artist Guarantee", fc(deal.artistGuarantee)]);
-        if (deal.artistSplit > 0) dealRows.push(["Artist Split", `${deal.artistSplit}%`]);
+        if (deal.artistGuarantee > 0) dealRows.push(["Performer Guarantee", fc(deal.artistGuarantee)]);
+        if (deal.artistSplit > 0) dealRows.push(["Performer Split", `${deal.artistSplit}%`]);
         if (deal.promoterSplit > 0) dealRows.push(["Promoter Split", `${deal.promoterSplit}%`]);
         if (deal.venueSplit > 0) dealRows.push(["Venue Split", `${deal.venueSplit}%`]);
         if ((deal.organizerSplit || 0) > 0) dealRows.push(["Organizer Split", `${deal.organizerSplit}%`]);

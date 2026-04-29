@@ -28,11 +28,21 @@ export function RecipientsInput({
 }: RecipientsInputProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
 
-  const availableMembers = teamMembers.filter(m =>
-    (m.status === "active" || !m.status) &&
+  // All active team members (including those without emails)
+  const activeMembers = teamMembers.filter(m => m.status === "active" || !m.status);
+
+  // Members with emails that haven't been added yet
+  const availableMembers = activeMembers.filter(m =>
     m.email?.trim() &&
-    !recipients.includes(m.email.toLowerCase().trim())
+    !recipients.some(r => r === m.email.toLowerCase().trim())
   );
+
+  // Members without emails (shown but disabled)
+  const membersWithoutEmail = activeMembers.filter(m => !m.email?.trim());
+
+  // Show "all added" only when every active member with an email has been added
+  const allWithEmailAdded = activeMembers.filter(m => m.email?.trim()).length > 0 &&
+    availableMembers.length === 0;
 
   return (
     <div className="space-y-2">
@@ -53,7 +63,7 @@ export function RecipientsInput({
                 <Plus className="h-3 w-3" /> <Users className="h-3 w-3" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-56 p-2" align="end">
+            <PopoverContent className="w-56 p-2" align="end" onOpenAutoFocus={(e) => e.preventDefault()}>
               <p className="text-xs font-medium text-muted-foreground mb-2">Add from team</p>
               <div className="space-y-1 max-h-[200px] overflow-y-auto">
                 {availableMembers.map(m => (
@@ -65,7 +75,16 @@ export function RecipientsInput({
                       {m.name} <span className="text-xs text-muted-foreground">({m.email})</span>
                     </button>
                   ))}
-                {availableMembers.length === 0 && (
+                {membersWithoutEmail.map(m => (
+                    <button
+                      key={m.id}
+                      className="w-full text-left px-2 py-1.5 text-sm rounded text-muted-foreground cursor-not-allowed opacity-50"
+                      disabled
+                    >
+                      {m.name} <span className="text-xs">(no email)</span>
+                    </button>
+                  ))}
+                {allWithEmailAdded && membersWithoutEmail.length === 0 && (
                   <p className="text-xs text-muted-foreground px-2 py-1">All active members added</p>
                 )}
               </div>

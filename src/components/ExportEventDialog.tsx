@@ -72,7 +72,7 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
   const handleLevelChange = (newLevel: SelectionLevel) => {
     setLevel(newLevel);
     if (newLevel === "all") {
-      const allTabs = new Set(["details", "agreement", "crew"]);
+      const allTabs = new Set(Object.keys(TAB_SECTIONS));
       const allSecs = new Set<string>();
       allTabs.forEach(tabId => TAB_SECTIONS[tabId]?.sections.forEach(s => allSecs.add(s.id)));
       setSelectedTabs(allTabs);
@@ -179,7 +179,7 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
   };
 
   const handlePrint = () => {
-    if (!eventData) { toast({ title: "Loading event data…", description: "Please try again in a moment." }); return; }
+    if (!eventData) { toast({ title: "Please wait for data to load", description: "Event data is still loading. Please try again in a moment.", variant: "destructive" }); return; }
     const html = buildPrintHTML(selectedTabs, selectedSections, level, eventData);
     const w = window.open("", "_blank");
     if (w) { w.document.write(html); w.document.close(); w.print(); }
@@ -187,25 +187,11 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
   };
 
   const handleCSV = () => {
-    let csvContent: string;
-    if (eventData) {
-      csvContent = buildCSVContent(Array.from(selectedTabs), selectedSections, level, eventData);
-    } else {
-      const lines = [`"Event Report - ${eventName}"`, `"Generated: ${new Date().toLocaleDateString()}"`, ""];
-      const tabs = level === "all" ? Object.keys(TAB_SECTIONS) : Array.from(selectedTabs);
-      tabs.forEach(tabId => {
-        const tab = TAB_SECTIONS[tabId];
-        if (!tab) return;
-        lines.push(`"--- ${tab.label} ---"`);
-        if (level === "sections") {
-          tab.sections.filter(s => selectedSections.has(s.id)).forEach(s => lines.push(`"  ${s.label}"`));
-        } else {
-          tab.sections.forEach(s => lines.push(`"  ${s.label}"`));
-        }
-        lines.push("");
-      });
-      csvContent = lines.join("\n");
+    if (!eventData) {
+      toast({ title: "Please wait for data to load", description: "Event data is still loading. Please try again in a moment.", variant: "destructive" });
+      return;
     }
+    const csvContent = buildCSVContent(Array.from(selectedTabs), selectedSections, level, eventData);
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -216,6 +202,10 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
   };
 
   const handleShareLink = () => {
+    if (!eventData) {
+      toast({ title: "Please wait for data to load", description: "Event data is still loading. Please try again in a moment.", variant: "destructive" });
+      return;
+    }
     shareMutation.mutate();
   };
 

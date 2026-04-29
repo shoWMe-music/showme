@@ -297,3 +297,103 @@ describe("roleCanEditPerformersMaterials", () => {
     expect(roleCanEditPerformersMaterials("venue")).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// canAccessEventBudget
+// ---------------------------------------------------------------------------
+
+describe("canAccessEventBudget", () => {
+  it("grants access to primary owner via primary_owner_uid", () => {
+    const event = {
+      primary_owner_uid: "owner-uid",
+      owner_uid: "owner-uid",
+      accessUids: [],
+      participant_roles: {},
+    };
+    expect(canAccessEventBudget(event, "owner-uid")).toBe(true);
+  });
+
+  it("grants access when uid is in accessUids", () => {
+    const event = {
+      primary_owner_uid: "other-uid",
+      owner_uid: "other-uid",
+      accessUids: ["viewer-uid", "collab-uid"],
+      participant_roles: {},
+    };
+    expect(canAccessEventBudget(event, "collab-uid")).toBe(true);
+  });
+
+  it("grants access to participant with admin role", () => {
+    const event = {
+      primary_owner_uid: "other-uid",
+      owner_uid: "other-uid",
+      accessUids: [],
+      participant_roles: { "admin-uid": "admin" as const },
+    };
+    expect(canAccessEventBudget(event, "admin-uid")).toBe(true);
+  });
+
+  it("grants access to participant with venue role", () => {
+    const event = {
+      primary_owner_uid: "other-uid",
+      owner_uid: "other-uid",
+      accessUids: [],
+      participant_roles: { "venue-uid": "venue" as const },
+    };
+    expect(canAccessEventBudget(event, "venue-uid")).toBe(true);
+  });
+
+  it("grants access to participant with promoter role", () => {
+    const event = {
+      primary_owner_uid: "other-uid",
+      owner_uid: "other-uid",
+      accessUids: [],
+      participant_roles: { "promo-uid": "promoter" as const },
+    };
+    expect(canAccessEventBudget(event, "promo-uid")).toBe(true);
+  });
+
+  it("denies access to random user", () => {
+    const event = {
+      primary_owner_uid: "owner-uid",
+      owner_uid: "owner-uid",
+      accessUids: ["collab-uid"],
+      participant_roles: {},
+    };
+    expect(canAccessEventBudget(event, "random-uid")).toBe(false);
+  });
+
+  it("denies access to participant with performer role", () => {
+    const event = {
+      primary_owner_uid: "other-uid",
+      owner_uid: "other-uid",
+      accessUids: [],
+      participant_roles: { "performer-uid": "performer" as const },
+    };
+    expect(canAccessEventBudget(event, "performer-uid")).toBe(false);
+  });
+
+  it("denies access when event is undefined", () => {
+    expect(canAccessEventBudget(undefined, "any-uid")).toBe(false);
+  });
+
+  it("denies access when uid is undefined", () => {
+    const event = {
+      primary_owner_uid: "owner-uid",
+      owner_uid: "owner-uid",
+      accessUids: [],
+      participant_roles: {},
+    };
+    expect(canAccessEventBudget(event, undefined)).toBe(false);
+  });
+
+  it("falls back to owner_uid when primary_owner_uid is missing", () => {
+    const event = {
+      primary_owner_uid: undefined as any,
+      owner_uid: "fallback-uid",
+      accessUids: [],
+      participant_roles: {},
+    };
+    expect(canAccessEventBudget(event, "fallback-uid")).toBe(true);
+  });
+});

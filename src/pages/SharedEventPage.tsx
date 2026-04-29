@@ -367,9 +367,9 @@ export default function SharedEventPage() {
                 <div><span className="text-muted-foreground">Event:</span> <span className="font-medium ml-2">{event.name}</span></div>
                 <div><span className="text-muted-foreground">Date:</span> <span className="font-medium ml-2">{event.date}</span></div>
                 <div><span className="text-muted-foreground">Venue:</span> <span className="font-medium ml-2">{event.venue}</span></div>
-                {event.artist && <div><span className="text-muted-foreground">Artist:</span> <span className="font-medium ml-2">{event.artist}</span></div>}
+                {event.artist && <div><span className="text-muted-foreground">Performer:</span> <span className="font-medium ml-2">{event.artist}</span></div>}
                 {deal?.dealType && <div><span className="text-muted-foreground">Deal Type:</span> <span className="font-medium ml-2 capitalize">{deal.dealType.replace(/_/g, " ")}</span></div>}
-                {deal?.artistGuarantee > 0 && <div><span className="text-muted-foreground">Artist Guarantee:</span> <span className="font-medium ml-2">{formatCurrency(deal.artistGuarantee)}</span></div>}
+                {deal?.artistGuarantee > 0 && <div><span className="text-muted-foreground">Performer Guarantee:</span> <span className="font-medium ml-2">{formatCurrency(deal.artistGuarantee)}</span></div>}
                 {deal?.venueRental > 0 && <div><span className="text-muted-foreground">Venue Rental:</span> <span className="font-medium ml-2">{formatCurrency(deal.venueRental)}</span></div>}
                 <div><span className="text-muted-foreground">Capacity:</span> <span className="font-medium ml-2">{event.capacity?.toLocaleString()}</span></div>
               </div>
@@ -412,7 +412,7 @@ export default function SharedEventPage() {
               <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><DollarSign className="h-5 w-5 text-primary" /> Deal Structure</h3>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div><span className="text-muted-foreground">Deal Type:</span> <span className="font-medium ml-2 capitalize">{deal.dealType?.replace(/_/g, " ")}</span></div>
-                {deal.artistGuarantee > 0 && <div><span className="text-muted-foreground">Artist Guarantee:</span> <span className="font-medium ml-2">{formatCurrency(deal.artistGuarantee)}</span></div>}
+                {deal.artistGuarantee > 0 && <div><span className="text-muted-foreground">Performer Guarantee:</span> <span className="font-medium ml-2">{formatCurrency(deal.artistGuarantee)}</span></div>}
                 {deal.venueRental > 0 && <div><span className="text-muted-foreground">Venue Rental:</span> <span className="font-medium ml-2">{formatCurrency(deal.venueRental)}</span></div>}
               </div>
             </div>

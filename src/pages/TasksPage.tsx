@@ -62,6 +62,8 @@ const FILTERS = [
   { value: "all",       label: "All" },
   { value: "action",    label: "Action Items" },
   { value: "todos",     label: "My Tasks" },
+  { value: "team",      label: "Team" },
+  { value: "system",    label: "System" },
   { value: "overdue",   label: "Overdue" },
   { value: "upcoming",  label: "Next 7 days" },
   { value: "completed", label: "Completed" },
@@ -356,7 +358,7 @@ function AssigneeButton({ assignee, members, onAssign }: {
 
 export default function TasksPage() {
   const updateAnyEventMeta = useUpdateAnyEventMeta();
-  const { teamMembers, profiles } = useUser();
+  const { teamMembers, profiles, currentUser } = useUser();
   const { user } = useAuth();
   const [filter, setFilter] = useState<Filter>("all");
   const [groupBy, setGroupBy] = useState<GroupBy>("event");
@@ -367,7 +369,7 @@ export default function TasksPage() {
   const [page, setPage] = useState(1);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [newTaskAssignee, setNewTaskAssignee] = useState("");
+  const [newTaskAssignee, setNewTaskAssignee] = useState(currentUser.name);
   const [newTaskDueDate, setNewTaskDueDate] = useState("");
   const [newTaskEventId, setNewTaskEventId] = useState("");
 
@@ -431,19 +433,24 @@ export default function TasksPage() {
 
   // Apply filter + search to produce the sets fed into grouping
   const filteredActions = useMemo(() => {
-    if (filter === "todos" || filter === "overdue" || filter === "upcoming") return [];
-    if (!search) return allActionItems;
-    const q = search.toLowerCase();
-    return allActionItems.filter(a =>
-      a.label.toLowerCase().includes(q) ||
-      a.eventName?.toLowerCase().includes(q) ||
-      a.artist?.toLowerCase().includes(q) ||
-      a.venue?.toLowerCase().includes(q),
-    );
+    if (filter === "todos" || filter === "overdue" || filter === "upcoming" || filter === "team" || filter === "completed") return [];
+    let items = allActionItems;
+    if (search) {
+      const q = search.toLowerCase();
+      items = items.filter(a =>
+        a.label.toLowerCase().includes(q) ||
+        a.eventName?.toLowerCase().includes(q) ||
+        a.artist?.toLowerCase().includes(q) ||
+        a.venue?.toLowerCase().includes(q),
+      );
+    }
+    // "system" shows only action items (they are system-generated)
+    // "action" and "all" also include action items — no extra filtering needed
+    return items;
   }, [allActionItems, filter, search]);
 
   const filteredTodos = useMemo(() => {
-    if (filter === "action") return [];
+    if (filter === "action" || filter === "system") return [];
     return allUserTodos.filter(t => {
       if (search) {
         const q = search.toLowerCase();
@@ -453,10 +460,11 @@ export default function TasksPage() {
         case "overdue":   return !t.completed && !!t.dueDate && t.dueDate < today;
         case "upcoming":  return !t.completed && !!t.dueDate && t.dueDate >= today && t.dueDate <= sevenDaysOut;
         case "completed": return t.completed;
+        case "team":      return !t.completed && !!t.assignee && t.assignee !== currentUser.name;
         default:          return !t.completed;
       }
     });
-  }, [allUserTodos, filter, search, today, sevenDaysOut]);
+  }, [allUserTodos, filter, search, today, sevenDaysOut, currentUser.name]);
 
   const grouped = useMemo(
     () => buildGroups(filteredActions, filteredTodos, groupBy, today),
@@ -665,7 +673,7 @@ export default function TasksPage() {
               <Button size="sm" onClick={createTask} disabled={!newTaskTitle.trim() || !newTaskEventId}>
                 Create
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => { setShowCreateForm(false); setNewTaskTitle(""); setNewTaskAssignee(""); setNewTaskDueDate(""); setNewTaskEventId(""); }}>
+              <Button size="sm" variant="ghost" onClick={() => { setShowCreateForm(false); setNewTaskTitle(""); setNewTaskAssignee(currentUser.name); setNewTaskDueDate(""); setNewTaskEventId(""); }}>
                 Cancel
               </Button>
             </div>

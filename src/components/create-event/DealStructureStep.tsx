@@ -53,6 +53,7 @@ interface DealStructureStepProps {
   updateParty: (index: number, field: "name" | "percentage", value: string) => void;
 
   isPromoter: boolean;
+  isPerformer: boolean;
   isSubmitting: boolean;
 }
 
@@ -71,6 +72,7 @@ export function DealStructureStep({
   handleDragStart, handleDragOver, handleDragEnd,
   addParty, removeParty, updateParty,
   isPromoter,
+  isPerformer,
 }: DealStructureStepProps) {
   const showRevenueSplit = dealType === "door_split" || dealType === "guarantee_vs_door";
   const showVenueRental = dealType === "rental";
@@ -238,7 +240,8 @@ export function DealStructureStep({
         </div>
       )}
 
-      {/* Draggable commission parties */}
+      {/* Draggable commission parties — only visible to performer operators */}
+      {isPerformer && (
       <div className="space-y-3 pt-2">
         <Label className="text-sm font-semibold">Commissions from Performer Share</Label>
         <p className="text-xs text-muted-foreground -mt-1">
@@ -290,6 +293,7 @@ export function DealStructureStep({
           </div>
         )}
       </div>
+      )}
 
       <div className="flex justify-between pt-2">
         <Button variant="outline" onClick={onBack}>Back</Button>

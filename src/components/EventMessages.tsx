@@ -12,6 +12,7 @@ import { Send, Paperclip, Smile, Download, FileIcon, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import EmojiPicker, { type EmojiClickData } from "emoji-picker-react";
+import DocumentPreviewDialog from "@/components/DocumentPreviewDialog";
 
 interface Attachment {
   name: string;
@@ -55,6 +56,7 @@ export default function EventMessages({ eventId }: { eventId: string }) {
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<{ name: string; url: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -266,13 +268,12 @@ export default function EventMessages({ eventId }: { eventId: string }) {
                       >
                         {msg.content && <p className="whitespace-pre-wrap">{msg.content}</p>}
                         {attachments.map((att, i) => (
-                          <a
+                          <button
                             key={i}
-                            href={att.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                            type="button"
+                            onClick={() => setPreviewDoc({ name: att.name, url: att.url })}
                             className={cn(
-                              "flex items-center gap-2 mt-1 p-2 rounded text-xs underline",
+                              "flex items-center gap-2 mt-1 p-2 rounded text-xs cursor-pointer hover:opacity-80 transition-opacity text-left",
                               group.isMe ? "bg-primary-foreground/10" : "bg-background"
                             )}
                           >
@@ -286,7 +287,7 @@ export default function EventMessages({ eventId }: { eventId: string }) {
                                 <Download className="h-3 w-3 shrink-0" />
                               </>
                             )}
-                          </a>
+                          </button>
                         ))}
                         {isLast && (
                           <p className={cn("text-[10px] mt-0.5", group.isMe ? "text-primary-foreground/60" : "text-muted-foreground")}>
@@ -396,6 +397,13 @@ export default function EventMessages({ eventId }: { eventId: string }) {
           <Send className="h-4 w-4" />
         </Button>
       </div>
+
+      <DocumentPreviewDialog
+        open={!!previewDoc}
+        onOpenChange={(o) => { if (!o) setPreviewDoc(null); }}
+        fileName={previewDoc?.name}
+        fileUrl={previewDoc?.url}
+      />
     </div>
   );
 }

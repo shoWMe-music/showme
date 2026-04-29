@@ -62,7 +62,7 @@ export function getDefaultRevenueFields(): BudgetField[] {
 
 export function getDefaultCostFields(): BudgetField[] {
   return [
-    { id: "artist_fee", name: "Artist fee", category: "cost", type: "manual", value: 0, isDefault: true, removable: true, order: 0 },
+    { id: "artist_fee", name: "Performer fee", category: "cost", type: "manual", value: 0, isDefault: true, removable: true, order: 0 },
     { id: "production_cost", name: "Production cost", category: "cost", type: "manual", value: 0, isDefault: true, removable: true, order: 1 },
     { id: "staff_cost", name: "Staff cost", category: "cost", type: "manual", value: 0, isDefault: true, removable: true, order: 2 },
     { id: "marketing_cost", name: "Marketing cost", category: "cost", type: "manual", value: 0, isDefault: true, removable: true, order: 3 },

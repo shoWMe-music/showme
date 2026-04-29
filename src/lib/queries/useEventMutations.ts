@@ -35,6 +35,17 @@ import { buildSettlementUpdate, emptyRevenue } from "@/lib/settlementUtils";
 import { toast } from "@/hooks/use-toast";
 import { queryKeys } from "./keys";
 
+/**
+ * Get cached events data using prefix-matching on the events query key.
+ * The events query key now includes a profileKey suffix for draft filtering,
+ * so exact-match getQueryData won't work — we need getQueriesData.
+ */
+function getEventsData(queryClient: ReturnType<typeof useQueryClient>, uid: string): Event[] | undefined {
+  const entries = queryClient.getQueriesData<Event[]>({ queryKey: queryKeys.events(uid) });
+  // Return the first (and usually only) matching entry's data
+  return entries[0]?.[1] ?? undefined;
+}
+
 function savedToast(label: string) {
   toast({
     title: createElement("span", { className: "flex items-center gap-2" },
@@ -175,7 +186,7 @@ export function useUpdateEvent() {
 
   return useMutation({
     mutationFn: async ({ id, updates, collaborators, userProfileIds }: UpdateEventVars) => {
-      const data = queryClient.getQueryData<Event[]>(queryKeys.events(uid));
+      const data = getEventsData(queryClient, uid);
       const current = data?.find((e) => e.id === id);
       if (!current) return;
 
@@ -266,14 +277,14 @@ export function useUpdateEvent() {
         current.isMultiPerformer &&
         current.childEventIds?.length
       ) {
-        const allEvents = queryClient.getQueryData<Event[]>(queryKeys.events(uid)) ?? [];
+        const allEvents = getEventsData(queryClient, uid) ?? [];
         const children = allEvents.filter(
           (e) => current.childEventIds!.includes(e.id) && !e.archived && e.eventStatus !== "cancelled",
         );
         for (const child of children) {
           await upsertEvent({ ...child, eventStatus: "cancelled" });
         }
-        queryClient.setQueryData<Event[]>(queryKeys.events(uid), (old) => {
+        queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
           if (!old) return old;
           const childIds = new Set(current.childEventIds);
           return old.map((e) =>
@@ -286,7 +297,7 @@ export function useUpdateEvent() {
     },
     onMutate: async ({ id, updates, collaborators, userProfileIds }: UpdateEventVars) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.events(uid) });
-      const snapshot = queryClient.getQueryData<Event[]>(queryKeys.events(uid));
+      const snapshot = getEventsData(queryClient, uid);
 
       // For optimistic update: if date change will be proposed, don't apply date fields
       const current = snapshot?.find((e) => e.id === id);
@@ -310,7 +321,7 @@ export function useUpdateEvent() {
         }
       }
 
-      queryClient.setQueryData<Event[]>(queryKeys.events(uid), (old) => {
+      queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
         if (!old) return old;
         return old.map((e) => (e.id !== id ? e : { ...e, ...optimisticUpdates }));
       });
@@ -381,7 +392,7 @@ export function useUpdateEvent() {
 
       // If a child event's status changed, derive the parent status
       if (updates.eventStatus && oldEvent.parentEventId) {
-        const allEvents = queryClient.getQueryData<Event[]>(queryKeys.events(uid)) ?? [];
+        const allEvents = getEventsData(queryClient, uid) ?? [];
         const parent = allEvents.find((e) => e.id === oldEvent.parentEventId);
         if (parent?.isMultiPerformer) {
           const children = allEvents.filter(
@@ -389,7 +400,7 @@ export function useUpdateEvent() {
           );
           const derivedStatus = deriveParentStatus(children);
           if (derivedStatus && derivedStatus !== parent.eventStatus) {
-            queryClient.setQueryData<Event[]>(queryKeys.events(uid), (old) => {
+            queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
               if (!old) return old;
               return old.map((e) =>
                 e.id !== parent.id ? e : { ...e, eventStatus: derivedStatus },
@@ -422,7 +433,7 @@ export function useUpdateEvent() {
     },
     onError: (_err, _vars, ctx) => {
       if (ctx?.snapshot) {
-        queryClient.setQueryData(queryKeys.events(uid), ctx.snapshot);
+        queryClient.setQueriesData({ queryKey: queryKeys.events(uid) }, () => ctx.snapshot);
       }
       toast({ title: "Failed to save event", variant: "destructive" });
     },
@@ -441,7 +452,7 @@ export function useArchiveEvent() {
 
   return useMutation({
     mutationFn: async ({ id, actingProfile }: { id: string; actingProfile?: string }) => {
-      const data = queryClient.getQueryData<Event[]>(queryKeys.events(uid));
+      const data = getEventsData(queryClient, uid);
       const e = data?.find((x) => x.id === id);
       if (!uid || !e || !isPrimaryEventOwner(e, uid)) return;
       await upsertEvent({ ...e, archived: true });
@@ -452,9 +463,9 @@ export function useArchiveEvent() {
     },
     onMutate: async ({ id }: { id: string; actingProfile?: string }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.events(uid) });
-      const snapshot = queryClient.getQueryData<Event[]>(queryKeys.events(uid));
+      const snapshot = getEventsData(queryClient, uid);
 
-      queryClient.setQueryData<Event[]>(queryKeys.events(uid), (old) => {
+      queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
         if (!old) return old;
         return old.map((e) => (e.id !== id ? e : { ...e, archived: true }));
       });
@@ -463,7 +474,7 @@ export function useArchiveEvent() {
     },
     onError: (_err, _vars, ctx) => {
       if (ctx?.snapshot) {
-        queryClient.setQueryData(queryKeys.events(uid), ctx.snapshot);
+        queryClient.setQueriesData({ queryKey: queryKeys.events(uid) }, () => ctx.snapshot);
       }
       toast({ title: "Failed to archive event", variant: "destructive" });
     },
@@ -482,7 +493,7 @@ export function useUnarchiveEvent() {
 
   return useMutation({
     mutationFn: async ({ id, actingProfile }: { id: string; actingProfile?: string }) => {
-      const data = queryClient.getQueryData<Event[]>(queryKeys.events(uid));
+      const data = getEventsData(queryClient, uid);
       const e = data?.find((x) => x.id === id);
       if (!uid || !e || !isPrimaryEventOwner(e, uid)) return;
       await upsertEvent({ ...e, archived: false });
@@ -493,9 +504,9 @@ export function useUnarchiveEvent() {
     },
     onMutate: async ({ id }: { id: string; actingProfile?: string }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.events(uid) });
-      const snapshot = queryClient.getQueryData<Event[]>(queryKeys.events(uid));
+      const snapshot = getEventsData(queryClient, uid);
 
-      queryClient.setQueryData<Event[]>(queryKeys.events(uid), (old) => {
+      queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
         if (!old) return old;
         return old.map((e) => (e.id !== id ? e : { ...e, archived: false }));
       });
@@ -504,7 +515,7 @@ export function useUnarchiveEvent() {
     },
     onError: (_err, _vars, ctx) => {
       if (ctx?.snapshot) {
-        queryClient.setQueryData(queryKeys.events(uid), ctx.snapshot);
+        queryClient.setQueriesData({ queryKey: queryKeys.events(uid) }, () => ctx.snapshot);
       }
       toast({ title: "Failed to unarchive event", variant: "destructive" });
     },
@@ -570,7 +581,7 @@ export function useRespondToDateChange() {
 
       if (allConfirmed) {
         // Apply the date change to the event
-        const data = queryClient.getQueryData<Event[]>(queryKeys.events(uid));
+        const data = getEventsData(queryClient, uid);
         const current = data?.find((e) => e.id === eventId);
         if (current) {
           const dateUpdates: Partial<Event> = {};
@@ -580,7 +591,7 @@ export function useRespondToDateChange() {
           await upsertEvent({ ...current, ...dateUpdates });
 
           // Optimistic cache update
-          queryClient.setQueryData<Event[]>(queryKeys.events(uid), (old) => {
+          queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
             if (!old) return old;
             return old.map((e) =>
               e.id !== eventId ? e : { ...e, ...dateUpdates },
@@ -696,7 +707,7 @@ async function initEventData(
   };
 
   // Optimistic: prepend event to events cache, add token to shareTokens cache
-  queryClient.setQueryData<Event[]>(queryKeys.events(uid), (old) => {
+  queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
     if (!old) return old;
     return [event, ...old];
   });
@@ -765,7 +776,7 @@ export function useAddMultiPerformerEvent() {
       };
 
       // Optimistic: prepend parent to events cache
-      queryClient.setQueryData<Event[]>(queryKeys.events(uid), (old) => {
+      queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
         if (!old) return old;
         return [parentWithChildren, ...old];
       });
@@ -810,7 +821,7 @@ export function useAddChildEvent() {
 
       // Update parent's childEventIds in cache + Firestore
       let parentEvent: Event | undefined;
-      queryClient.setQueryData<Event[]>(queryKeys.events(uid), (old) => {
+      queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
         if (!old) return old;
         return old.map((e) => {
           if (e.id !== parentId) return e;
@@ -821,13 +832,13 @@ export function useAddChildEvent() {
       if (parentEvent) {
         await upsertEvent(parentEvent);
         // Derive parent status from children
-        const allEvents = queryClient.getQueryData<Event[]>(queryKeys.events(uid)) ?? [];
+        const allEvents = getEventsData(queryClient, uid) ?? [];
         const children = allEvents.filter(
           (e) => parentEvent.childEventIds?.includes(e.id) && !e.archived,
         );
         const derivedStatus = deriveParentStatus(children);
         if (derivedStatus && derivedStatus !== parentEvent.eventStatus) {
-          queryClient.setQueryData<Event[]>(queryKeys.events(uid), (old) => {
+          queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
             if (!old) return old;
             return old.map((e) =>
               e.id !== parentId ? e : { ...e, eventStatus: derivedStatus },
@@ -853,12 +864,12 @@ export function useRemoveChildEvent() {
 
   return useMutation({
     mutationFn: async ({ parentId, childId }: { parentId: string; childId: string }): Promise<void> => {
-      const data = queryClient.getQueryData<Event[]>(queryKeys.events(uid));
+      const data = getEventsData(queryClient, uid);
       const childEvent = data?.find((e) => e.id === childId);
       const parentEvent = data?.find((e) => e.id === parentId);
 
       // Optimistic update
-      queryClient.setQueryData<Event[]>(queryKeys.events(uid), (old) => {
+      queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
         if (!old) return old;
         return old.map((e) => {
           if (e.id === childId) return { ...e, archived: true };
@@ -881,7 +892,7 @@ export function useRemoveChildEvent() {
       }
 
       // Derive parent status after removing child
-      const allEventsAfter = queryClient.getQueryData<Event[]>(queryKeys.events(uid)) ?? [];
+      const allEventsAfter = getEventsData(queryClient, uid) ?? [];
       const updatedParent = allEventsAfter.find((e) => e.id === parentId);
       if (updatedParent?.isMultiPerformer) {
         const remainingChildren = allEventsAfter.filter(
@@ -889,7 +900,7 @@ export function useRemoveChildEvent() {
         );
         const derivedStatus = deriveParentStatus(remainingChildren);
         if (derivedStatus && derivedStatus !== updatedParent.eventStatus) {
-          queryClient.setQueryData<Event[]>(queryKeys.events(uid), (old) => {
+          queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
             if (!old) return old;
             return old.map((e) =>
               e.id !== parentId ? e : { ...e, eventStatus: derivedStatus },
@@ -915,7 +926,7 @@ export function useConvertToMultiPerformer() {
 
   return useMutation({
     mutationFn: async ({ eventId }: { eventId: string }): Promise<string> => {
-      const data = queryClient.getQueryData<Event[]>(queryKeys.events(uid));
+      const data = getEventsData(queryClient, uid);
       const parent = data?.find((e) => e.id === eventId);
       if (!parent || parent.isMultiPerformer) return eventId;
 
@@ -968,7 +979,7 @@ export function useConvertToMultiPerformer() {
           };
 
       // Optimistic: mark parent as multi-performer with suggested status
-      queryClient.setQueryData<Event[]>(queryKeys.events(uid), (old) => {
+      queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
         if (!old) return old;
         return old.map((e) =>
           e.id !== eventId ? e : { ...e, isMultiPerformer: true, childEventIds: [childId], eventStatus: "suggested" as const },
@@ -1040,7 +1051,7 @@ export function useHoldRankMutations() {
     roomStage: string,
     removedRank: number,
   ): void => {
-    const events = queryClient.getQueryData<Event[]>(queryKeys.events(uid));
+    const events = getEventsData(queryClient, uid);
     if (!events) return;
 
     const holdsOnDate = events.filter(
@@ -1078,7 +1089,7 @@ export function useHoldRankMutations() {
     }
 
     // Optimistic cache update
-    queryClient.setQueryData<Event[]>(queryKeys.events(uid), (old) => {
+    queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
       if (!old) return old;
       return old.map((e) => {
         if (!Object.prototype.hasOwnProperty.call(localRanks, e.id)) return e;
@@ -1106,7 +1117,7 @@ export function useHoldRankMutations() {
     roomStage: string,
     newRank: number,
   ): void => {
-    const events = queryClient.getQueryData<Event[]>(queryKeys.events(uid));
+    const events = getEventsData(queryClient, uid);
     if (!events) return;
 
     const holdsOnDate = events.filter(
@@ -1170,7 +1181,7 @@ export function useHoldRankMutations() {
     }
 
     // Optimistic cache update
-    queryClient.setQueryData<Event[]>(queryKeys.events(uid), (old) => {
+    queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
       if (!old) return old;
       return old.map((e) => {
         if (!Object.prototype.hasOwnProperty.call(localRanks, e.id)) return e;

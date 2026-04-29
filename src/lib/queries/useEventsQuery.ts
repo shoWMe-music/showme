@@ -22,9 +22,10 @@ export function useEventsQuery() {
   const uid = user?.uid ?? "";
   const { profiles } = useUser();
   const profileIds = Object.values(profiles).map(p => p.id).filter(Boolean) as string[];
+  const profileKey = profileIds.slice().sort().join(",");
 
   return useQuery<Event[]>({
-    queryKey: queryKeys.events(uid),
+    queryKey: [...queryKeys.events(uid), profileKey],
     enabled: !!uid && !authLoading,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchEvents(profileIds),
@@ -73,9 +74,10 @@ export function usePaginatedEvents(pageSize: number, filters?: EventPageFilters)
   const uid = user?.uid ?? "";
   const { profiles } = useUser();
   const profileIds = Object.values(profiles).map(p => p.id).filter(Boolean) as string[];
+  const profileKey = profileIds.slice().sort().join(",");
 
   return useInfiniteQuery<EventPage, Error>({
-    queryKey: queryKeys.eventPages(uid, filters as Record<string, unknown>),
+    queryKey: [...queryKeys.eventPages(uid, filters as Record<string, unknown>), profileKey],
     enabled: !!uid && !authLoading,
     staleTime: 5 * 60 * 1000,
     initialPageParam: null as QueryDocumentSnapshot | null,
@@ -126,8 +128,8 @@ export function useAutoConcludeEvents(): void {
 
     if (toConclude.length === 0) return;
 
-    queryClient.setQueryData<Event[]>(
-      queryKeys.events(uid),
+    queryClient.setQueriesData<Event[]>(
+      { queryKey: queryKeys.events(uid) },
       (old) => {
         if (!old) return old;
         return old.map((e) =>

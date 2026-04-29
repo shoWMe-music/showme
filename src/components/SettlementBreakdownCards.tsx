@@ -10,6 +10,8 @@ interface SettlementBreakdownCardsProps {
   deal?: DealStructure;
   currency?: string;
   operatorRole?: string;
+  /** Map from party label ("Performer", "Promoter", "Venue") to display name */
+  partyNames?: Record<string, string>;
 }
 
 function VatSuffix({ vat }: { vat?: { rate: number; mode: "included" | "on_top" } }) {
@@ -23,7 +25,7 @@ function VatSuffix({ vat }: { vat?: { rate: number; mode: "included" | "on_top" 
 
 
 export default function SettlementBreakdownCards({
-  partyBreakdowns, settlementTotal, totalRevenue, totalDeductions, netRevenue, deal, currency = "EUR", operatorRole,
+  partyBreakdowns, settlementTotal, totalRevenue, totalDeductions, netRevenue, deal, currency = "EUR", operatorRole, partyNames,
 }: SettlementBreakdownCardsProps) {
   const roleToPartyLabel: Record<string, string> = { promoter: "Promoter", venue: "Venue", artist: "Performer", organizer: "Organizer" };
   const operatorPartyName = operatorRole ? roleToPartyLabel[operatorRole] : undefined;
@@ -86,7 +88,12 @@ export default function SettlementBreakdownCards({
           <div key={pb.party} className={`rounded-xl border p-6 shadow-sm ${isOperatorParty ? "bg-primary/5 border-primary/30" : "bg-card"}`}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <h4 className="font-display font-semibold">{pb.party}</h4>
+                <h4 className="font-display font-semibold">
+                  {pb.party}
+                  {partyNames?.[pb.party] && (
+                    <span className="text-muted-foreground font-normal text-sm ml-1">({partyNames[pb.party]})</span>
+                  )}
+                </h4>
                 {isOperatorParty && (
                   <span className="text-[10px] font-medium uppercase tracking-wider text-primary bg-primary/10 px-2 py-0.5 rounded-full">Your share (retained)</span>
                 )}

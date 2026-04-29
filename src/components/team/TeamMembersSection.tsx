@@ -18,11 +18,38 @@ import { cn } from "@/lib/utils";
 import { Pencil, Plus, Trash2, Users, X } from "lucide-react";
 
 const PRESET_ROLES: Record<string, string[]> = {
-  venue:    ["Sound Engineer", "Light Engineer", "Stage Manager", "Security", "Production", "Bar Staff"],
-  promoter: ["Marketing", "Logistics", "Production", "Artist Liaison"],
-  organizer:["Production", "Logistics", "Stage Manager", "Artist Liaison"],
-  festival: ["Stage Manager", "Production", "Security", "Logistics", "Artist Liaison"],
-  artist:   ["Tour Manager", "Agent", "Manager", "Sound Engineer", "Light Engineer", "Road Manager"],
+  performer: [
+    "Lead Artist / Band Leader", "Band Member", "Booking Agent", "Artist Manager",
+    "Tour Manager", "Production Manager", "Sound Engineer (FOH)", "Monitor Engineer",
+    "Lighting Designer", "Stage Manager", "Backline Technician", "Merchandise Manager",
+    "Content Creator / Videographer", "Publicist / PR", "Social Media Manager",
+  ],
+  promoter: [
+    "Promoter", "Talent Buyer", "Event Producer", "Booking Agent",
+    "Marketing Manager", "Digital Marketing Specialist", "PR / Press Relations",
+    "Ticketing Manager", "Partnerships / Sponsorship Manager", "Finance / Budget Controller",
+    "Operations Coordinator", "Runner / Logistics Assistant", "Guest List Manager",
+  ],
+  venue: [
+    "Venue Owner", "General Manager", "Venue Booker", "Talent Buyer", "Event Manager",
+    "Technical Manager", "Sound Engineer (House)", "Lighting Technician", "Bar Manager",
+    "Bartender", "Host", "Door", "Tickets", "Guest List", "Merchandise",
+    "Waiter / Waitress", "Staff Manager", "HR", "Box Office Manager",
+    "Security Manager", "Security Guard", "Hospitality Manager", "Cleaning / Maintenance",
+  ],
+  organizer: [
+    "Event Organizer / Producer", "Project Manager", "Scheduler / Planner",
+    "Budget Manager", "Vendor Coordinator", "Artist Liaison", "Logistics Manager",
+    "Accreditation Manager", "Volunteer Coordinator", "Health & Safety Officer",
+    "Legal / Contracts Manager",
+  ],
+  festival: [
+    "Festival Director", "Program Director / Curator", "Booking Team", "Artist Relations",
+    "Production Director", "Stage Manager", "Technical Crew", "Operations Manager",
+    "Site Manager", "Logistics & Transport", "Vendor / F&B Manager",
+    "Sponsorship & Partnerships", "Marketing & PR", "Ticketing & Accreditation",
+    "Volunteer Coordinator", "Security & Safety", "Finance",
+  ],
 };
 
 type FormState = {
@@ -104,15 +131,38 @@ export function TeamMembersSection() {
   const unassignedProfilesFor = (currentPids: string[]) =>
     ownedProfiles.filter(([s]) => !currentPids.includes(profiles[s]?.id || ""));
 
+  const customRolesFromMembers = useMemo(() => {
+    const allPresets = new Set(Object.values(PRESET_ROLES).flat().map(r => r.toLowerCase()));
+    const custom = new Set<string>();
+    for (const m of teamMembers) {
+      for (const r of m.roles) {
+        if (r && r !== "Member" && !allPresets.has(r.toLowerCase())) custom.add(r);
+      }
+    }
+    return Array.from(custom);
+  }, [teamMembers]);
+
+  const resolvePresetKey = (entry: [string, (typeof profiles)[string]] | undefined): string => {
+    if (!entry) return "";
+    const role = entry[1]?.role as string;
+    if (PRESET_ROLES[role]) return role;
+    // Fallback: derive from slot key (handles "artist" → "performer", "venue_2" → "venue", etc.)
+    const slot = entry[0];
+    for (const key of Object.keys(PRESET_ROLES)) {
+      if (slot.startsWith(key)) return key;
+    }
+    return role || slot;
+  };
+
   const presetRoles = useMemo(() => {
     const roles = new Set<string>();
     form.profileIds.forEach(pid => {
       const entry = Object.entries(profiles).find(([, p]) => p.id === pid);
-      const role = entry?.[1]?.role as string;
-      (PRESET_ROLES[role] ?? []).forEach(r => roles.add(r));
+      (PRESET_ROLES[resolvePresetKey(entry)] ?? []).forEach(r => roles.add(r));
     });
+    customRolesFromMembers.forEach(r => roles.add(r));
     return Array.from(roles);
-  }, [form.profileIds, profiles]);
+  }, [form.profileIds, profiles, customRolesFromMembers]);
 
   const handleAdd = async () => {
     if (!form.name.trim() || form.profileIds.length === 0 || !user) return;
@@ -370,7 +420,19 @@ export function TeamMembersSection() {
               </div>
               <div>
                 <Label>Role</Label>
-                <Input value={editEntry.member.roles[0] ?? ""} onChange={e => setEditEntry(p => p ? { ...p, member: { ...p.member, roles: [e.target.value] } } : p)} className="mt-1" />
+                <RoleCombobox
+                  value={editEntry.member.roles[0] ?? ""}
+                  onChange={v => setEditEntry(p => p ? { ...p, member: { ...p.member, roles: [v] } } : p)}
+                  options={[...(() => {
+                    const roles = new Set<string>();
+                    editEntry.profileIds.forEach(pid => {
+                      const entry = Object.entries(profiles).find(([, p]) => p.id === pid);
+                      (PRESET_ROLES[resolvePresetKey(entry)] ?? []).forEach(r => roles.add(r));
+                    });
+                    customRolesFromMembers.forEach(r => roles.add(r));
+                    return Array.from(roles);
+                  })(), "Member"]}
+                />
               </div>
               <div>
                 <Label>Status</Label>

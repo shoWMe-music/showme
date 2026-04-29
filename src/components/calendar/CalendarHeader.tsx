@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ViewMode, CalendarEntity } from "./calendarConstants";
 
-export type CalendarTitleDisplay = "event" | "performer";
+export type CalendarTitleDisplay = "event" | "performer" | "both";
 
 interface CalendarHeaderProps {
   headerTitle: string;
@@ -91,6 +91,7 @@ export function CalendarHeader({
             <div className="flex items-center rounded-lg border bg-muted/50 p-0.5">
               <Button variant={titleDisplay === "performer" ? "default" : "ghost"} size="sm" className="h-7 px-3 text-xs" onClick={() => onTitleDisplayChange("performer")}>Performer</Button>
               <Button variant={titleDisplay === "event" ? "default" : "ghost"} size="sm" className="h-7 px-3 text-xs" onClick={() => onTitleDisplayChange("event")}>Event Name</Button>
+              <Button variant={titleDisplay === "both" ? "default" : "ghost"} size="sm" className="h-7 px-3 text-xs" onClick={() => onTitleDisplayChange("both")}>Both</Button>
             </div>
           )}
         </div>
@@ -119,11 +120,11 @@ export function CalendarHeader({
           <Button variant="outline" size="sm" className="gap-2 h-8 text-xs" onClick={onShareOpen}>
             <Share2 className="h-3.5 w-3.5" /> Check & Share Availability
           </Button>
+          {onExportICS && (
+            <Button variant="outline" className="gap-2 h-8 text-xs" onClick={onExportICS}><Download className="h-3.5 w-3.5" /> Export ICS</Button>
+          )}
           {canCreate && (
             <>
-              {onExportICS && (
-                <Button variant="outline" className="gap-2 h-8 text-xs" onClick={onExportICS}><Download className="h-3.5 w-3.5" /> Export ICS</Button>
-              )}
               <Button variant="outline" className="gap-2 h-8 text-xs" onClick={onImportOpen}><Upload className="h-3.5 w-3.5" /> Import</Button>
               <Button className="gap-2 h-8 text-xs" onClick={onCreateEvent}><Plus className="h-3.5 w-3.5" /> Create Event</Button>
             </>

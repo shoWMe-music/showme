@@ -14,13 +14,18 @@ import {
   type Event as AppEvent, type DealStructure, type TicketRevenue, type Settlement, type PartyBreakdown,
 } from "@/lib/models";
 import { exportSettlementCSV, exportSettlementPDF } from "./settlementExport";
+import { uploadUserBinary } from "@/lib/firebaseStorageUpload";
 
-export function SettlementTab({ event, deal, revenue, settlement, buildPayoutRows, settlementTotal, updateSettlementStatus, addComment, generateShareLink, currentUser, currency = "EUR", updateRevenue, partyBreakdowns, totalRevenue, totalDeductions, netRevenue }: {
+function formatFileSize(size: number): string {
+  return size > 1024 * 1024 ? `${(size / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(size / 1024)} KB`;
+}
+
+export function SettlementTab({ event, deal, revenue, settlement, buildPayoutRows, settlementTotal, updateSettlementStatus, addComment, generateShareLink, currentUser, currency = "EUR", updateRevenue, partyBreakdowns, totalRevenue, totalDeductions, netRevenue, partyNames }: {
   event: AppEvent; deal?: DealStructure; revenue?: TicketRevenue; settlement: Settlement;
   buildPayoutRows: () => { label: string; value: number; color: string; role: string }[];
   settlementTotal: number;
   updateSettlementStatus: (eventId: string, status: SettlementStatus) => void;
-  addComment: (eventId: string, party: string, message: string, attachments?: { name: string; size: string; type: string }[]) => void;
+  addComment: (eventId: string, party: string, message: string, attachments?: { name: string; size: number; type: string; fileUrl: string }[]) => void;
   generateShareLink: (eventId: string, parties: string[]) => string;
   currentUser: { name: string; roles: string[] };
   currency?: string;
@@ -29,25 +34,40 @@ export function SettlementTab({ event, deal, revenue, settlement, buildPayoutRow
   totalRevenue: number;
   totalDeductions: number;
   netRevenue: number;
+  partyNames?: Record<string, string>;
 }) {
   const [commentText, setCommentText] = useState("");
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [submittingComment, setSubmittingComment] = useState(false);
 
   const isOperator = currentUser.roles.includes("promoter") || currentUser.roles.includes("venue") || currentUser.roles.includes("organizer");
 
-  const handleAddComment = () => {
-    if (!commentText.trim()) return;
-    const partyName = currentUser.roles.includes("performer") ? "Performer Agent" : currentUser.name;
-    const attachments = attachedFiles.map(f => ({ name: f.name, size: f.size > 1024 * 1024 ? `${(f.size / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(f.size / 1024)} KB`, type: f.type || f.name.split(".").pop() || "file" }));
-    addComment(event.id, partyName, commentText.trim(), attachments.length > 0 ? attachments : undefined);
-    setCommentText(""); setAttachedFiles([]);
+  const handleAddComment = async () => {
+    if (!commentText.trim() || submittingComment) return;
+    setSubmittingComment(true);
+    try {
+      const partyName = currentUser.roles.includes("performer") ? "Performer Agent" : currentUser.name;
+      const attachments = await Promise.all(attachedFiles.map(async (f) => {
+        const safeName = f.name.replace(/[^\w.\-]+/g, "_");
+        const path = `settlement-comments/${event.id}/${Date.now()}-${safeName}`;
+        const fileUrl = await uploadUserBinary(path, f, f.type || undefined);
+        return { name: f.name, size: f.size, type: f.type || f.name.split(".").pop() || "file", fileUrl };
+      }));
+      addComment(event.id, partyName, commentText.trim(), attachments.length > 0 ? attachments : undefined);
+      setCommentText("");
+      setAttachedFiles([]);
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message || "Could not upload attachment", variant: "destructive" });
+    } finally {
+      setSubmittingComment(false);
+    }
   };
 
   const handleShare = () => {
-    const token = generateShareLink(event.id, ["Performer", "Agent", "Venue"]);
-    setShareLink(`${window.location.origin}/review/${token}`);
+    const link = generateShareLink(event.id, ["Performer", "Agent", "Venue"]);
+    setShareLink(link);
   };
 
   const handleCopy = () => {
@@ -77,6 +97,7 @@ export function SettlementTab({ event, deal, revenue, settlement, buildPayoutRow
         deal={deal}
         currency={currency}
         operatorRole={operatorRole}
+        partyNames={partyNames}
       />
 
       {/* Total Payouts with progress bars */}
@@ -183,7 +204,7 @@ export function SettlementTab({ event, deal, revenue, settlement, buildPayoutRow
                 <p className="text-sm">{c.message}</p>
                 {c.attachments && c.attachments.length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-2">
-                    {c.attachments.map((a, j) => <span key={j} className="inline-flex items-center gap-1 rounded-md bg-background px-2 py-1 text-xs border"><FileText className="h-3 w-3" /> {a.name} <span className="text-muted-foreground">({a.size})</span></span>)}
+                    {c.attachments.map((a, j) => <a key={j} href={a.fileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md bg-background px-2 py-1 text-xs border hover:bg-muted"><FileText className="h-3 w-3" /> {a.name} <span className="text-muted-foreground">({formatFileSize(a.size)})</span></a>)}
                   </div>
                 )}
               </div>
@@ -201,7 +222,7 @@ export function SettlementTab({ event, deal, revenue, settlement, buildPayoutRow
             <input type="file" accept=".doc,.docx,.pdf,.csv,.xls,.xlsx" multiple className="hidden" id="settlement-file-upload" onChange={e => { if (e.target.files) { setAttachedFiles(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = ""; } }} />
             <Button variant="ghost" size="sm" onClick={() => document.getElementById("settlement-file-upload")?.click()}><Paperclip className="h-4 w-4 mr-1" /> Attach File</Button>
           </div>
-          <Button size="sm" onClick={handleAddComment} disabled={!commentText.trim()}>Add Comment</Button>
+          <Button size="sm" onClick={handleAddComment} disabled={!commentText.trim() || submittingComment}>{submittingComment ? "Uploading…" : "Add Comment"}</Button>
         </div>
       </div>
     </div>

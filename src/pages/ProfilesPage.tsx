@@ -391,6 +391,7 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
                 <h2 className="text-3xl font-bold tracking-tight">{profile.name}</h2>
               </a>
               <Badge variant="secondary" className="text-xs shrink-0">{operatorRoleLabels[baseRole]}</Badge>
+              {profile.id && <span className="text-xs font-mono text-muted-foreground select-all">{profile.id}</span>}
             </div>
 
             <div className="flex flex-wrap gap-1.5 mt-2">
@@ -649,8 +650,8 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
 /* ─── Embed Code Block ─── */
 function EmbedCodeBlock({ slug }: { slug: string }) {
   const [copied, setCopied] = useState(false);
-  const baseUrl = import.meta.env.VITE_SUPABASE_URL || window.location.origin;
-  const widgetUrl = `${baseUrl}/functions/v1/request-date-widget?slug=${encodeURIComponent(slug)}&role=venue`;
+  const baseUrl = window.location.origin;
+  const widgetUrl = `${baseUrl}/request-date/${encodeURIComponent(slug)}`;
   const embedCode = `<iframe src="${widgetUrl}" width="100%" height="600" frameborder="0" style="border:none;border-radius:8px;max-width:480px;"></iframe>`;
 
   const handleCopy = (text: string) => {
@@ -760,7 +761,7 @@ function UpcomingEventsProfileSection({ events, baseRole }: { events: AppEvent[]
             const month = d.toLocaleString("en-US", { month: "short" }).toUpperCase();
             const day = d.getDate();
             return (
-              <Link key={event.id} to="/event/$id" params={{ id: event.id }} className="flex items-center gap-4 rounded-lg border px-4 py-3 hover:bg-muted/50 transition-colors">
+              <Link key={event.id} to="/events/$id" params={{ id: event.id }} className="flex items-center gap-4 rounded-lg border px-4 py-3 hover:bg-muted/50 transition-colors">
                 <div className="flex flex-col items-center justify-center w-12 h-12 rounded-lg bg-primary/10 shrink-0">
                   <span className="text-[10px] font-bold text-primary leading-none">{month}</span>
                   <span className="text-lg font-bold text-primary leading-tight">{day}</span>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useUser, type TeamMember, type OperatorRole } from "@/lib/user-context";
 import { useAuth } from "@/lib/auth-context";
@@ -21,6 +21,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { Mail, Phone, Plus, Trash2, Users } from "lucide-react";
 
 // Profiles that can share team members
@@ -32,11 +34,38 @@ function sameTypeGroup(a: OperatorRole, b: OperatorRole): boolean {
 }
 
 const PRESET_ROLES: Record<string, string[]> = {
-  venue: ["Sound Engineer", "Light Engineer", "Stage Manager", "Security", "Production", "Bar Staff", "Catering"],
-  promoter: ["Marketing", "Logistics", "Production", "Artist Liaison"],
-  organizer: ["Production", "Logistics", "Stage Manager", "Artist Liaison"],
-  festival: ["Stage Manager", "Production", "Security", "Logistics", "Artist Liaison"],
-  artist: ["Tour Manager", "Agent", "Manager", "Sound Engineer", "Light Engineer", "Road Manager"],
+  performer: [
+    "Lead Artist / Band Leader", "Band Member", "Booking Agent", "Artist Manager",
+    "Tour Manager", "Production Manager", "Sound Engineer (FOH)", "Monitor Engineer",
+    "Lighting Designer", "Stage Manager", "Backline Technician", "Merchandise Manager",
+    "Content Creator / Videographer", "Publicist / PR", "Social Media Manager",
+  ],
+  promoter: [
+    "Promoter", "Talent Buyer", "Event Producer", "Booking Agent",
+    "Marketing Manager", "Digital Marketing Specialist", "PR / Press Relations",
+    "Ticketing Manager", "Partnerships / Sponsorship Manager", "Finance / Budget Controller",
+    "Operations Coordinator", "Runner / Logistics Assistant", "Guest List Manager",
+  ],
+  venue: [
+    "Venue Owner", "General Manager", "Venue Booker", "Talent Buyer", "Event Manager",
+    "Technical Manager", "Sound Engineer (House)", "Lighting Technician", "Bar Manager",
+    "Bartender", "Host", "Door", "Tickets", "Guest List", "Merchandise",
+    "Waiter / Waitress", "Staff Manager", "HR", "Box Office Manager",
+    "Security Manager", "Security Guard", "Hospitality Manager", "Cleaning / Maintenance",
+  ],
+  organizer: [
+    "Event Organizer / Producer", "Project Manager", "Scheduler / Planner",
+    "Budget Manager", "Vendor Coordinator", "Artist Liaison", "Logistics Manager",
+    "Accreditation Manager", "Volunteer Coordinator", "Health & Safety Officer",
+    "Legal / Contracts Manager",
+  ],
+  festival: [
+    "Festival Director", "Program Director / Curator", "Booking Team", "Artist Relations",
+    "Production Director", "Stage Manager", "Technical Crew", "Operations Manager",
+    "Site Manager", "Logistics & Transport", "Vendor / F&B Manager",
+    "Sponsorship & Partnerships", "Marketing & PR", "Ticketing & Accreditation",
+    "Volunteer Coordinator", "Security & Safety", "Finance",
+  ],
 };
 
 type FormState = {
@@ -44,6 +73,36 @@ type FormState = {
   role: string; status: "active" | "inactive"; notes: string;
 };
 const emptyForm: FormState = { name: "", email: "", phone: "", role: "Member", status: "active", notes: "" };
+
+function RoleCombobox({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: string[] }) {
+  const [open, setOpen] = useState(false);
+  const [inputValue, setInputValue] = useState(value);
+  const filtered = options.filter(o => o.toLowerCase().includes(inputValue.toLowerCase()));
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Input
+          value={inputValue}
+          onChange={e => { setInputValue(e.target.value); onChange(e.target.value); if (!open) setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          placeholder="Type or select role..."
+          className="mt-1"
+        />
+      </PopoverTrigger>
+      {filtered.length > 0 && (
+        <PopoverContent className="w-[--radix-popover-trigger-width] p-1" align="start" onOpenAutoFocus={e => e.preventDefault()}>
+          {filtered.map(r => (
+            <button key={r} className={cn("w-full text-left px-2 py-1.5 text-sm rounded hover:bg-muted", r === value && "bg-muted font-medium")}
+              onClick={() => { onChange(r); setInputValue(r); setOpen(false); }}>
+              {r}
+            </button>
+          ))}
+        </PopoverContent>
+      )}
+    </Popover>
+  );
+}
 
 export function ProfileTeamTab() {
   const { profiles, teamMembers, addTeamMember, updateTeamMember, removeTeamMember, loaded } = useUser();
@@ -71,6 +130,16 @@ export function ProfileTeamTab() {
   const primaryProfile = addOpen ? ownedProfiles.find(([s]) => profiles[s]?.id === addOpen) : null;
   const primaryRole = primaryProfile ? primaryProfile[1].role : null;
 
+  const resolvePresetKey = (role: string | null | undefined, slot?: string): string => {
+    if (role && PRESET_ROLES[role]) return role;
+    if (slot) {
+      for (const key of Object.keys(PRESET_ROLES)) {
+        if (slot.startsWith(key)) return key;
+      }
+    }
+    return role || slot || "";
+  };
+
   const compatibleProfiles = primaryRole
     ? ownedProfiles.filter(([s]) => {
         const pid = profiles[s]?.id;
@@ -80,7 +149,19 @@ export function ProfileTeamTab() {
       })
     : [];
 
-  const presetRoles = primaryRole ? PRESET_ROLES[primaryRole] ?? [] : [];
+  const customRolesFromMembers = useMemo(() => {
+    const allPresets = new Set(Object.values(PRESET_ROLES).flat().map(r => r.toLowerCase()));
+    const custom = new Set<string>();
+    for (const m of teamMembers) {
+      for (const r of m.roles) {
+        if (r && r !== "Member" && !allPresets.has(r.toLowerCase())) custom.add(r);
+      }
+    }
+    return Array.from(custom);
+  }, [teamMembers]);
+
+  const primarySlot = primaryProfile?.[0];
+  const presetRoles = [...(PRESET_ROLES[resolvePresetKey(primaryRole, primarySlot)] ?? []), ...customRolesFromMembers];
 
   const handleAdd = () => {
     if (!addOpen || !form.name.trim() || !user) return;
@@ -218,13 +299,11 @@ export function ProfileTeamTab() {
             </div>
             <div>
               <Label>Role</Label>
-              <Select value={form.role} onValueChange={(v) => setForm((p) => ({ ...p, role: v }))}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {presetRoles.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                  <SelectItem value="Member">Member</SelectItem>
-                </SelectContent>
-              </Select>
+              <RoleCombobox
+                value={form.role}
+                onChange={v => setForm(p => ({ ...p, role: v }))}
+                options={[...presetRoles, "Member"]}
+              />
             </div>
             <div>
               <Label>Notes</Label>
@@ -277,6 +356,18 @@ export function ProfileTeamTab() {
                 <div><Label>Phone</Label>
                   <Input value={editing.phone ?? ""} onChange={(e) => setEditing((p) => p ? { ...p, phone: e.target.value } : p)} className="mt-1" />
                 </div>
+              </div>
+              <div>
+                <Label>Role</Label>
+                <RoleCombobox
+                  value={editing.roles[0] ?? ""}
+                  onChange={v => setEditing(p => p ? { ...p, roles: [v] } : p)}
+                  options={[...(() => {
+                    const entry = Object.entries(profiles).find(([, p]) => p.id === editing.profileId);
+                    const key = resolvePresetKey(entry?.[1]?.role as string, entry?.[0]);
+                    return PRESET_ROLES[key] ?? [];
+                  })(), ...customRolesFromMembers, "Member"]}
+                />
               </div>
               <div><Label>Status</Label>
                 <Select value={editing.status} onValueChange={(v) => setEditing((p) => p ? { ...p, status: v as "active" | "inactive" } : p)}>

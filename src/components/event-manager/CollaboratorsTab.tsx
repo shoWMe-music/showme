@@ -71,9 +71,26 @@ export function CollaboratorsTab({ event, collaborators, profiles, onInviteOpen 
       });
   }, [event.isMultiPerformer, event.id, childEvents, collaborators, profileById]);
 
+  // Synthesize single-performer entry when not multi-performer
+  const singlePerformerCollaborator = useMemo<EventCollaborator | null>(() => {
+    if (event.isMultiPerformer) return null;
+    if (!event.performerProfileId) return null;
+    if (collaborators.some(c => c.eventRole === "performer" && c.profileId === event.performerProfileId)) return null;
+    const profile = profileById.get(event.performerProfileId);
+    return {
+      id: `single-performer-${event.id}`,
+      email: "",
+      eventRole: "performer" as EventCollaboratorRole,
+      name: profile?.name || event.artist || "Performer",
+      status: event.performerResponse === "accepted" ? "active" : event.performerResponse === "declined" ? "declined" : "pending",
+      invitedAt: "",
+      profileId: event.performerProfileId,
+    };
+  }, [event, collaborators, profileById]);
+
   const allCollaborators = useMemo(
-    () => [...collaborators, ...performerCollaborators],
-    [collaborators, performerCollaborators],
+    () => [...collaborators, ...performerCollaborators, ...(singlePerformerCollaborator ? [singlePerformerCollaborator] : [])],
+    [collaborators, performerCollaborators, singlePerformerCollaborator],
   );
 
   // Group collaborators by role

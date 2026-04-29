@@ -146,13 +146,14 @@ export function resolveActingProfileName(
   profiles: Record<string, SharedProfile>,
 ): string | undefined {
   if (!event) return undefined;
-  const eventProfileIds = new Set<string>();
-  if (event.hostProfileId) eventProfileIds.add(event.hostProfileId);
-  if (event.accessProfileIds) event.accessProfileIds.forEach((id) => eventProfileIds.add(id));
-  if (eventProfileIds.size === 0) return undefined;
 
+  // Check hostProfileId first
   for (const profile of Object.values(profiles)) {
-    if (profile.id && eventProfileIds.has(profile.id) && profile.name?.trim()) {
+    if (profile.id === event.hostProfileId && profile.name?.trim()) return profile.name.trim();
+  }
+  // Then fall back to first match in accessProfileIds
+  for (const profile of Object.values(profiles)) {
+    if (profile.id && event.accessProfileIds?.includes(profile.id) && profile.name?.trim()) {
       return profile.name.trim();
     }
   }
@@ -169,13 +170,14 @@ export function resolveActingProfileId(
   profiles: Record<string, SharedProfile>,
 ): string | undefined {
   if (!event) return undefined;
-  const eventProfileIds = new Set<string>();
-  if (event.hostProfileId) eventProfileIds.add(event.hostProfileId);
-  if (event.accessProfileIds) event.accessProfileIds.forEach((id) => eventProfileIds.add(id));
-  if (eventProfileIds.size === 0) return undefined;
 
+  // Check hostProfileId first
   for (const profile of Object.values(profiles)) {
-    if (profile.id && eventProfileIds.has(profile.id)) {
+    if (profile.id === event.hostProfileId) return profile.id;
+  }
+  // Then fall back to first match in accessProfileIds
+  for (const profile of Object.values(profiles)) {
+    if (profile.id && event.accessProfileIds?.includes(profile.id)) {
       return profile.id;
     }
   }

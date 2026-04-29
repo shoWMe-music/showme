@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { format } from "date-fns";
+import { format, isToday } from "date-fns";
 import { CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
@@ -16,6 +16,7 @@ import ContactCombobox from "@/components/ContactCombobox";
 import { PerformerSearch } from "@/components/PerformerSearch";
 import { useUser, type OperatorRole } from "@/lib/user-context";
 import type { Event } from "@/lib/models";
+import { toast } from "@/hooks/use-toast";
 import { MultiPerformerVenueSection } from "./MultiPerformerVenueSection";
 
 interface VenueOption {
@@ -184,11 +185,27 @@ export function EventDetailsStep({
             <Calendar
               mode="single"
               selected={date}
-              onSelect={(d) => { setDate(d); setDatePickerOpen(false); }}
+              onSelect={(d) => {
+                setDate(d);
+                setDatePickerOpen(false);
+                if (d && unavailableDates.has(format(d, "yyyy-MM-dd"))) {
+                  toast({ title: "Date has existing events", description: "This date already has confirmed events at this venue.", variant: "destructive" });
+                }
+              }}
               initialFocus
               className="p-3 pointer-events-auto"
-              modifiers={{ booked: (d: Date) => unavailableDates.has(format(d, "yyyy-MM-dd")) }}
-              modifiersStyles={{ booked: { backgroundColor: "hsl(var(--destructive) / 0.15)", color: "hsl(var(--destructive))", borderRadius: "6px" } }}
+              modifiers={{
+                booked: (d: Date) => unavailableDates.has(format(d, "yyyy-MM-dd")),
+                today: (d: Date) => isToday(d),
+                hasConfirmed: (d: Date) => unavailableDates.has(format(d, "yyyy-MM-dd")),
+              }}
+              modifiersStyles={{
+                booked: { backgroundColor: "hsl(var(--destructive) / 0.15)", color: "hsl(var(--destructive))", borderRadius: "6px" },
+                today: { backgroundColor: "#FF6B6B", color: "white", borderRadius: "9999px", fontWeight: "bold" },
+              }}
+              modifiersClassNames={{
+                hasConfirmed: "relative after:absolute after:bottom-0.5 after:left-1/2 after:-translate-x-1/2 after:h-1 after:w-1 after:rounded-full after:bg-destructive",
+              }}
             />
           </PopoverContent>
         </Popover>

@@ -29,7 +29,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { toast, copyToast } from "@/hooks/use-toast";
-import { useUser } from "@/lib/user-context";
+import { useUser, type SharedProfile, type ProfileDocument } from "@/lib/user-context";
 import {
   useAddChildEvent,
   useRemoveChildEvent,
@@ -56,8 +56,52 @@ import { uploadUserBinary } from "@/lib/firebaseStorageUpload";
 import {
   Music, MapPin, FileText, Clock, Plus, Trash2, Ticket, DollarSign,
   Calendar, Shield, Paperclip, Share2, Copy, Download, ArrowUp, ArrowDown,
-  Users, UserPlus, X, ChevronDown, CreditCard, CheckCircle2,
+  Users, UserPlus, X, ChevronDown, CreditCard, CheckCircle2, ExternalLink,
 } from "lucide-react";
+
+/** Look up a profile from the user's loaded profiles by its Firestore document ID. */
+function findProfileById(profiles: Record<string, SharedProfile>, profileId: string | undefined): SharedProfile | undefined {
+  if (!profileId) return undefined;
+  return Object.values(profiles).find(p => p.id === profileId);
+}
+
+/** Map profile documents to event Rider entries, also including catering/accommodation notes. */
+function profileDocumentsToRiders(profile: SharedProfile): Rider[] {
+  const riders: Rider[] = [];
+  const typeMap: Record<ProfileDocument["type"], RiderType> = {
+    tech_rider: "technical",
+    hospitality_rider: "hospitality",
+    other: "custom",
+  };
+  if (profile.documents?.length) {
+    for (const doc of profile.documents) {
+      riders.push({
+        id: `R-profile-${doc.id}`,
+        name: doc.name,
+        type: typeMap[doc.type] || "custom",
+        fileUrl: doc.url,
+        fileName: doc.name,
+      });
+    }
+  }
+  if (profile.cateringNotes) {
+    riders.push({
+      id: `R-catering-${Date.now()}`,
+      name: "Catering Requirements",
+      type: "catering",
+      description: profile.cateringNotes,
+    });
+  }
+  if (profile.accommodationNotes) {
+    riders.push({
+      id: `R-accommodation-${Date.now()}`,
+      name: "Accommodation Requirements",
+      type: "hospitality",
+      description: profile.accommodationNotes,
+    });
+  }
+  return riders;
+}
 
 /** Build merged stage options from venue rooms + child events for the Add Performer dialog. */
 function usePerformerStageOptions(
@@ -264,9 +308,13 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
   const [editEvent, setEditEvent] = useState({ name: event.name, date: event.date, venue: event.venue, artist: event.artist, capacity: event.capacity, ticketingProvider: event.ticketingProvider, eventStatus: event.eventStatus, roomStage: event.roomStage || "", ticketUrls: event.ticketUrls || [] as string[], holdRank: event.holdRank || 1 as number, holdAutoPromote: event.holdAutoPromote !== false as boolean });
 
   const venueRoomOptions = useMemo(() => {
-    const venueProfile = Object.values(profiles).find(p => p.role === "venue" && p.name === event.venue);
-    return (venueProfile?.subVenues || []).filter(sv => sv.type === "room" || sv.type === "stage").map(sv => sv.name);
-  }, [profiles, event.venue]);
+    const hostProfile = event.hostProfileId ? Object.values(profiles).find(p => p.id === event.hostProfileId) : undefined;
+    const venueProfile = hostProfile?.role === "venue" ? hostProfile : Object.values(profiles).find(p => p.role === "venue" && p.name === event.venue);
+    const subVenueNames = (venueProfile?.subVenues || []).filter(sv => sv.type === "room" || sv.type === "stage").map(sv => sv.name);
+    // Also include rooms from the event's roomStage field (comma-separated)
+    const eventRooms = event.roomStage ? event.roomStage.split(",").map(r => r.trim()).filter(Boolean) : [];
+    return [...new Set([...subVenueNames, ...eventRooms])];
+  }, [profiles, event.venue, event.hostProfileId, event.roomStage]);
 
   const commitEventSave = (ev: typeof editEvent) => {
     if (event.eventStatus === "on_hold" && ev.eventStatus !== "on_hold") {
@@ -351,7 +399,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                 const performerLocked = event.eventStatus !== "draft";
                 return (
                   <div>
-                    <Label>Artist</Label>
+                    <Label>Performer</Label>
                     {performerLocked ? (
                       <div className="mt-1 flex items-center gap-2 h-10 px-3 rounded-md border bg-muted text-sm">
                         <Music className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -500,24 +548,44 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                     <div className="flex items-center gap-3">
                       <Music className="h-4 w-4 text-primary" />
                       <div>
-                        <p className="text-sm font-medium">
-                          <ProfilePreviewPopover name={event.artist} profileId={event.performerProfileId} onInvite={!event.performerProfileId && onInvitePerformer ? () => onInvitePerformer(event.artist) : undefined} />
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium">
+                            <ProfilePreviewPopover name={event.artist} profileId={event.performerProfileId} onInvite={!event.performerProfileId && onInvitePerformer ? () => onInvitePerformer(event.artist) : undefined} />
+                          </p>
+                          {event.performerRoleTag && (
+                            <Badge variant="secondary" className="text-[10px]">
+                              {PERFORMER_ROLE_TAG_LABELS[event.performerRoleTag]}
+                            </Badge>
+                          )}
+                        </div>
                         <p className="text-xs text-muted-foreground">
                           <ProfilePreviewPopover name={event.venue} size="sm" className="text-muted-foreground" />{event.roomStage ? ` — ${event.roomStage}` : ""}
                           {event.capacity ? ` (${event.capacity} cap.)` : ""}
                         </p>
                       </div>
                     </div>
-                    {!event.performerProfileId && onInvitePerformer ? (
-                      <Button variant="outline" size="sm" className="text-xs h-7 gap-1.5" onClick={() => onInvitePerformer(event.artist)}>
-                        <UserPlus className="h-3 w-3" /> Invite to Platform
-                      </Button>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        {event.performerProfileId ? "Connected" : "Current artist"}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {!readOnly && (
+                        <Select value={event.performerRoleTag || "_none"} onValueChange={v => updateEvent(event.id, { performerRoleTag: v === "_none" ? undefined : v as AppEvent["performerRoleTag"] })}>
+                          <SelectTrigger className="h-7 w-28 text-xs"><SelectValue placeholder="Role" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_none">No role</SelectItem>
+                            {(Object.entries(PERFORMER_ROLE_TAG_LABELS) as [string, string][]).map(([k, v]) => (
+                              <SelectItem key={k} value={k}>{v}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      {!event.performerProfileId && onInvitePerformer ? (
+                        <Button variant="outline" size="sm" className="text-xs h-7 gap-1.5" onClick={() => onInvitePerformer(event.artist)}>
+                          <UserPlus className="h-3 w-3" /> Invite to Platform
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          {event.performerProfileId ? "Connected" : "Current artist"}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )}
                 {!event.isMultiPerformer && !readOnly && (
@@ -599,6 +667,24 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
         }
 
         if (isParentMulti) {
+          // Build list of all child performers including those with profile rider data
+          const allChildPerformers: { performer: string; childId: string; performerProfileId?: string; riders: Rider[]; profileRiders: Rider[]; profileSlug?: string }[] = [];
+          (event.childEventIds as string[]).forEach((cid: string) => {
+            const child = allEvents.find(e => e.id === cid);
+            if (!child) return;
+            const childRiderList = (childRidersMap[cid] || []).filter((r: Rider) => r.name || r.fileName);
+            const performerProfile = findProfileById(profiles, child.performerProfileId);
+            const profileRiderList = performerProfile ? profileDocumentsToRiders(performerProfile) : [];
+            allChildPerformers.push({
+              performer: child.artist || child.name,
+              childId: cid,
+              performerProfileId: child.performerProfileId,
+              riders: childRiderList,
+              profileRiders: profileRiderList,
+              profileSlug: performerProfile?.slug,
+            });
+          });
+
           // Read-only aggregated view for parent events
           return (
             <EditableSection
@@ -609,46 +695,91 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
               editContent={
                 <div className="space-y-4">
                   <p className="text-sm text-muted-foreground mb-2">Navigate to each performer's event page to edit their riders.</p>
-                  {childRiders.map(({ performer, childId }) => (
-                    <Button key={childId} variant="outline" size="sm" className="mr-2" asChild>
-                      <Link to="/events/$id" params={{ id: childId }}>
-                        <Music className="h-3.5 w-3.5 mr-1.5" /> Edit {performer}'s Riders
-                      </Link>
-                    </Button>
+                  {allChildPerformers.map(({ performer, childId, profileSlug }) => (
+                    <div key={childId} className="flex gap-2">
+                      <Button variant="outline" size="sm" asChild>
+                        <Link to="/events/$id" params={{ id: childId }}>
+                          <Music className="h-3.5 w-3.5 mr-1.5" /> Edit {performer}'s Riders
+                        </Link>
+                      </Button>
+                      {profileSlug && (
+                        <Button variant="ghost" size="sm" className="gap-1.5 text-xs" asChild>
+                          <Link to="/p/$slug" params={{ slug: profileSlug }}>
+                            <ExternalLink className="h-3 w-3" /> View Profile
+                          </Link>
+                        </Button>
+                      )}
+                    </div>
                   ))}
-                  {childRiders.length === 0 && <p className="text-sm text-muted-foreground">No performers with riders yet.</p>}
+                  {allChildPerformers.length === 0 && <p className="text-sm text-muted-foreground">No performers with riders yet.</p>}
                 </div>
               }
             >
-              {childRiders.length === 0 ? (
+              {allChildPerformers.every(cp => cp.riders.length === 0 && cp.profileRiders.length === 0) ? (
                 <p className="text-sm text-muted-foreground">No riders added yet. Add them on each performer's page.</p>
               ) : (
                 <div className="space-y-4">
-                  {childRiders.map(({ performer, childId, riders: cRiders }) => (
-                    <div key={childId}>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                        <Music className="h-3 w-3" /> {performer}
-                      </p>
-                      <div className="space-y-2 pl-3 border-l-2 border-muted">
-                        {cRiders.map((rider) => (
-                          <div key={rider.id} className="rounded-lg border p-3">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-sm font-medium">{rider.name}</span>
-                              <div className="flex items-center gap-2">
-                                {rider.fileName && (
-                                  <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => { if (rider.fileUrl && rider.fileName) setPreviewDoc({ fileName: rider.fileName, fileUrl: rider.fileUrl }); }}>
-                                    <Download className="h-3 w-3" /> {rider.fileName}
-                                  </Button>
-                                )}
-                                <Badge variant="outline" className="text-xs">{riderTypeLabels[rider.type]}</Badge>
+                  {allChildPerformers.map(({ performer, childId, riders: cRiders, profileRiders: pRiders, profileSlug, performerProfileId: childPerfId }) => {
+                    if (cRiders.length === 0 && pRiders.length === 0) return null;
+                    return (
+                      <div key={childId}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                            <Music className="h-3 w-3" /> {performer}
+                          </p>
+                          {profileSlug && (
+                            <Link to="/p/$slug" params={{ slug: profileSlug }} className="text-xs text-primary hover:underline flex items-center gap-1">
+                              <ExternalLink className="h-3 w-3" /> Profile
+                            </Link>
+                          )}
+                        </div>
+                        <div className="space-y-2 pl-3 border-l-2 border-muted">
+                          {cRiders.map((rider) => (
+                            <div key={rider.id} className="rounded-lg border p-3">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-sm font-medium">{rider.name}</span>
+                                <div className="flex items-center gap-2">
+                                  {rider.fileName && (
+                                    <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => { if (rider.fileUrl && rider.fileName) setPreviewDoc({ fileName: rider.fileName, fileUrl: rider.fileUrl }); }}>
+                                      <Download className="h-3 w-3" /> {rider.fileName}
+                                    </Button>
+                                  )}
+                                  <Badge variant="outline" className="text-xs">{riderTypeLabels[rider.type]}</Badge>
+                                </div>
                               </div>
+                              {rider.description && <p className="text-xs text-muted-foreground">{rider.description}</p>}
                             </div>
-                            {rider.description && <p className="text-xs text-muted-foreground">{rider.description}</p>}
-                          </div>
-                        ))}
+                          ))}
+                          {cRiders.length === 0 && pRiders.length > 0 && (
+                            <div className="space-y-2">
+                              <p className="text-xs text-muted-foreground italic">No event riders yet. Profile rider data available:</p>
+                              {pRiders.map((rider) => (
+                                <div key={rider.id} className="rounded-lg border border-dashed p-3 bg-muted/20">
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="text-sm font-medium">{rider.name}</span>
+                                    <div className="flex items-center gap-2">
+                                      {rider.fileName && (
+                                        <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => { if (rider.fileUrl && rider.fileName) setPreviewDoc({ fileName: rider.fileName, fileUrl: rider.fileUrl }); }}>
+                                          <Download className="h-3 w-3" /> {rider.fileName}
+                                        </Button>
+                                      )}
+                                      <Badge variant="secondary" className="text-xs">From profile</Badge>
+                                    </div>
+                                  </div>
+                                  {rider.description && <p className="text-xs text-muted-foreground">{rider.description}</p>}
+                                </div>
+                              ))}
+                              <Button variant="outline" size="sm" className="gap-1.5" asChild>
+                                <Link to="/events/$id" params={{ id: childId }}>
+                                  <FileText className="h-3.5 w-3.5" /> Edit {performer}'s event to add riders
+                                </Link>
+                              </Button>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </EditableSection>
@@ -692,14 +823,69 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                     </div>
                   </div>
                 ))}
-                <Button variant="outline" size="sm" onClick={() => setEditRiders([...editRiders, { id: `R-${Date.now()}`, name: "", type: "technical", description: "" }])}>
-                  <Plus className="h-3.5 w-3.5 mr-1" /> Add Rider
-                </Button>
+                <div className="flex gap-2 flex-wrap">
+                  <Button variant="outline" size="sm" onClick={() => setEditRiders([...editRiders, { id: `R-${Date.now()}`, name: "", type: "technical", description: "" }])}>
+                    <Plus className="h-3.5 w-3.5 mr-1" /> Add Rider
+                  </Button>
+                  {(() => {
+                    const performerProfile = findProfileById(profiles, event.performerProfileId);
+                    if (!performerProfile) return null;
+                    const profileRiders = profileDocumentsToRiders(performerProfile);
+                    if (profileRiders.length === 0) {
+                      return performerProfile.slug ? (
+                        <Button variant="outline" size="sm" className="gap-1.5" asChild>
+                          <Link to="/p/$slug" params={{ slug: performerProfile.slug }}>
+                            <ExternalLink className="h-3.5 w-3.5" /> View {performerProfile.name}'s Profile
+                          </Link>
+                        </Button>
+                      ) : null;
+                    }
+                    return (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5"
+                        onClick={() => {
+                          const existingFileUrls = new Set(editRiders.map(r => r.fileUrl).filter(Boolean));
+                          const existingDescs = new Set(editRiders.map(r => r.description).filter(Boolean));
+                          const newRiders = profileRiders.filter(
+                            r => !(r.fileUrl && existingFileUrls.has(r.fileUrl)) && !(r.description && existingDescs.has(r.description))
+                          );
+                          if (newRiders.length === 0) {
+                            toast({ title: "All profile riders already added" });
+                            return;
+                          }
+                          setEditRiders([...editRiders, ...newRiders]);
+                          toast({ title: `${newRiders.length} rider(s) added from profile`, duration: 2000 });
+                        }}
+                      >
+                        <FileText className="h-3.5 w-3.5" /> Autofill from Profile
+                      </Button>
+                    );
+                  })()}
+                </div>
               </div>
             }
           >
             {filteredRiders.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No riders added yet.</p>
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">No riders added yet.</p>
+                {(() => {
+                  if (!event.performerProfileId) return null;
+                  const performerProfile = findProfileById(profiles, event.performerProfileId);
+                  if (performerProfile?.slug) {
+                    const hasProfileRiderData = (performerProfile.documents?.length ?? 0) > 0 || !!performerProfile.cateringNotes || !!performerProfile.accommodationNotes;
+                    if (hasProfileRiderData) {
+                      return (
+                        <p className="text-xs text-muted-foreground">
+                          Rider data available on {performerProfile.name}'s profile. Click Edit to autofill.
+                        </p>
+                      );
+                    }
+                  }
+                  return null;
+                })()}
+              </div>
             ) : (
               <div className="space-y-3">
                 {filteredRiders.map((rider) => (
@@ -745,7 +931,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                 />
                 <Input value={item.label} onChange={(e) => { const s = [...editSchedule]; s[i] = {...s[i], label: e.target.value}; setEditSchedule(s); }} placeholder="Activity" className="flex-1" />
                 <Input value={item.description || ""} onChange={(e) => { const s = [...editSchedule]; s[i] = {...s[i], description: e.target.value}; setEditSchedule(s); }} placeholder="Notes" className="flex-1" />
-                {venueRoomOptions.length > 1 && (
+                {venueRoomOptions.length > 0 && (
                   <Select value={item.roomStage || "_all"} onValueChange={v => { const s = [...editSchedule]; s[i] = {...s[i], roomStage: v === "_all" ? undefined : v}; setEditSchedule(s); }}>
                     <SelectTrigger className="w-28"><SelectValue placeholder="Room" /></SelectTrigger>
                     <SelectContent>
@@ -803,7 +989,10 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                       <span className="text-sm font-mono font-semibold text-muted-foreground w-12 text-right shrink-0">{item.time || "—"}</span>
                       <div className="h-2.5 w-2.5 rounded-full bg-primary mt-1.5 shrink-0 relative z-10" />
                       <div>
-                        <p className="text-sm font-medium">{item.label}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium">{item.label}</p>
+                          {item.roomStage && <Badge variant="outline" className="text-[10px] px-1.5 py-0">{item.roomStage}</Badge>}
+                        </div>
                         {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
                       </div>
                     </div>
@@ -849,7 +1038,8 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
           setEditAmenities([...amenities]);
           // Autofill from venue profile if empty
           if (amenities.length === 0) {
-            const venueProfile = Object.values(profiles).find(p => p.role === "venue" && p.name === event.venue);
+            const hostProfile = event.hostProfileId ? Object.values(profiles).find(p => p.id === event.hostProfileId) : undefined;
+            const venueProfile = hostProfile?.role === "venue" ? hostProfile : Object.values(profiles).find(p => p.role === "venue" && p.name === event.venue);
             if (venueProfile?.amenities && venueProfile.amenities.length > 0) {
               setEditAmenities(venueProfile.amenities as AmenityKey[]);
             }
@@ -1130,7 +1320,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                     <p className="text-xs text-muted-foreground mt-0.5">Revenue split is not applicable for {editDeal.dealType === "guarantee" ? "Guarantee" : "Rental"} deals</p>
                   )}
                   <div className="grid grid-cols-4 gap-2 mt-1">
-                    <div><Label className="text-xs text-muted-foreground">Artist %</Label><NumberInput value={editDeal.artistSplit} onChange={(e) => setEditDeal({...editDeal, artistSplit: parseFloat(e.target.value) || 0})} className="mt-1" disabled={editDeal.dealType === "guarantee" || editDeal.dealType === "rental"} /></div>
+                    <div><Label className="text-xs text-muted-foreground">Performer %</Label><NumberInput value={editDeal.artistSplit} onChange={(e) => setEditDeal({...editDeal, artistSplit: parseFloat(e.target.value) || 0})} className="mt-1" disabled={editDeal.dealType === "guarantee" || editDeal.dealType === "rental"} /></div>
                     <div><Label className="text-xs text-muted-foreground">Promoter %</Label><NumberInput value={editDeal.promoterSplit} onChange={(e) => setEditDeal({...editDeal, promoterSplit: parseFloat(e.target.value) || 0})} className="mt-1" disabled={editDeal.dealType === "guarantee" || editDeal.dealType === "rental"} /></div>
                     <div><Label className="text-xs text-muted-foreground">Venue %</Label><NumberInput value={editDeal.venueSplit} onChange={(e) => setEditDeal({...editDeal, venueSplit: parseFloat(e.target.value) || 0})} className="mt-1" disabled={editDeal.dealType === "guarantee" || editDeal.dealType === "rental"} /></div>
                     <div><Label className="text-xs text-muted-foreground">Organizer %</Label><NumberInput value={editDeal.organizerSplit || 0} onChange={(e) => setEditDeal({...editDeal, organizerSplit: parseFloat(e.target.value) || 0})} className="mt-1" disabled={editDeal.dealType === "guarantee" || editDeal.dealType === "rental"} /></div>
@@ -1154,7 +1344,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5">How agreed upon production costs are shared. Additional costs (if any) are to be agreed upon and settled in the settlement stage.</p>
                       <div className="grid grid-cols-4 gap-2 mt-1">
-                        <div><Label className="text-xs text-muted-foreground">Artist %</Label><NumberInput value={editDeal.artistCostSplit || 0} onChange={(e) => setEditDeal({...editDeal, artistCostSplit: parseFloat(e.target.value) || 0})} className="mt-1" /></div>
+                        <div><Label className="text-xs text-muted-foreground">Performer %</Label><NumberInput value={editDeal.artistCostSplit || 0} onChange={(e) => setEditDeal({...editDeal, artistCostSplit: parseFloat(e.target.value) || 0})} className="mt-1" /></div>
                         <div><Label className="text-xs text-muted-foreground">Promoter %</Label><NumberInput value={editDeal.promoterCostSplit} onChange={(e) => setEditDeal({...editDeal, promoterCostSplit: parseFloat(e.target.value) || 0})} className="mt-1" /></div>
                         <div><Label className="text-xs text-muted-foreground">Venue %</Label><NumberInput value={editDeal.venueCostSplit} onChange={(e) => setEditDeal({...editDeal, venueCostSplit: parseFloat(e.target.value) || 0})} className="mt-1" /></div>
                         <div><Label className="text-xs text-muted-foreground">Organizer %</Label><NumberInput value={editDeal.organizerCostSplit || 0} onChange={(e) => setEditDeal({...editDeal, organizerCostSplit: parseFloat(e.target.value) || 0})} className="mt-1" /></div>
@@ -1220,6 +1410,24 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                     </div>
                   </div>
                 )}
+
+                {/* Performance Bonus — only for split deals */}
+                {(editDeal.dealType === "door_split" || editDeal.dealType === "guarantee_vs_door") && (
+                  <div className="space-y-2 pt-2 border-t">
+                    <Label className="font-semibold">Performance Bonus</Label>
+                    <p className="text-xs text-muted-foreground -mt-1">Additional bonus paid to performer when total revenue exceeds a threshold</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs">Revenue Threshold ({currency})</Label>
+                        <NumberInput value={editDeal.performanceBonusThreshold || 0} onChange={(e) => setEditDeal({...editDeal, performanceBonusThreshold: parseFloat(e.target.value) || 0})} className="mt-1" />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Bonus Amount ({currency})</Label>
+                        <NumberInput value={editDeal.performanceBonusAmount || 0} onChange={(e) => setEditDeal({...editDeal, performanceBonusAmount: parseFloat(e.target.value) || 0})} className="mt-1" />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
               {readOnly && isPerformerOperator && (
               <div className="space-y-3">
@@ -1273,6 +1481,9 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                     </span>
                   </div>
                 )}
+                {deal.performanceBonusThreshold && deal.performanceBonusAmount ? (
+                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Performance Bonus</span><span className="font-medium">{formatCurrency(deal.performanceBonusAmount, currency)} when revenue exceeds {formatCurrency(deal.performanceBonusThreshold, currency)}</span></div>
+                ) : null}
               </div>
             </div>
             {readOnly && isPerformerOperator && (
@@ -1435,9 +1646,10 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
               }}
               onChange={(updates) => {
                 if (updates.performerProfileId !== undefined && updates.performerProfileId.trim()) {
-                  const alreadyAdded = childEvents?.some(c => c.performerProfileId === updates.performerProfileId);
-                  if (alreadyAdded) {
-                    toast({ title: "Performer already added to this event", variant: "destructive" });
+                  const alreadyInChildren = childEvents?.some(c => c.performerProfileId === updates.performerProfileId);
+                  const matchesParent = event.performerProfileId === updates.performerProfileId;
+                  if (alreadyInChildren || matchesParent) {
+                    toast({ title: "Performer already added", variant: "destructive" });
                     return;
                   }
                 }
@@ -1462,6 +1674,22 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
               disabled={!newPerformerName.trim()}
               onClick={async () => {
                 const name = newPerformerName.trim();
+                // Guard against duplicate performer by name
+                const nameMatchesParent = event.artist && event.artist.toLowerCase() === name.toLowerCase();
+                const nameMatchesChild = childEvents?.some(c => c.artist?.toLowerCase() === name.toLowerCase());
+                if (nameMatchesParent || nameMatchesChild) {
+                  toast({ title: "Performer already added", variant: "destructive" });
+                  return;
+                }
+                // Guard against duplicate performer by profile ID
+                if (newPerformerProfileId) {
+                  const profileMatchesParent = event.performerProfileId === newPerformerProfileId;
+                  const profileMatchesChild = childEvents?.some(c => c.performerProfileId === newPerformerProfileId);
+                  if (profileMatchesParent || profileMatchesChild) {
+                    toast({ title: "Performer already added", variant: "destructive" });
+                    return;
+                  }
+                }
                 try {
                   if (!event.isMultiPerformer) {
                     await convertToMultiPerformer(event.id);

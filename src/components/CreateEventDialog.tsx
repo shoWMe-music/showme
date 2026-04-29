@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { format, parse } from "date-fns";
 import { Plus } from "lucide-react";
 import { useUser, type OperatorRole, type SubVenue } from "@/lib/user-context";
@@ -103,6 +103,11 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
           }
         } catch {}
       }
+      if (prefillData.dealType) setDealType(prefillData.dealType);
+      if (prefillData.artistGuarantee) setArtistGuarantee(prefillData.artistGuarantee);
+      if (prefillData.artistSplit) setArtistSplit(prefillData.artistSplit);
+      if (prefillData.promoterSplit) setPromoterSplit(prefillData.promoterSplit);
+      if (prefillData.venueSplit) setVenueSplit(prefillData.venueSplit);
     }
   }, [prefillData, open]);
 
@@ -191,9 +196,11 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
   };
 
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   const onSubmit = async () => {
-    if (submitting) return;
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       await handleSubmit({
@@ -206,6 +213,7 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
         setOpen, resetForm,
       });
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -288,6 +296,7 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
             handleDragStart={handleDragStart} handleDragOver={handleDragOver} handleDragEnd={handleDragEnd}
             addParty={addParty} removeParty={removeParty} updateParty={updateParty}
             isPromoter={isPromoter}
+            isPerformer={selectedRole === "performer"}
           />
         )}
 

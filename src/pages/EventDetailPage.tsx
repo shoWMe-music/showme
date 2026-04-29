@@ -1,11 +1,12 @@
 import { useParams } from "@tanstack/react-router";
 import AppLayout from "@/components/AppLayout";
-import { calculateSettlement } from "@/lib/models";
-import { useState } from "react";
+import { calculateSettlement, type Rider } from "@/lib/models";
+import { useState, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useUser } from "@/lib/user-context";
+import { fetchRiders } from "@/lib/db";
 
 import { EventDetailHeader } from "@/components/event-detail/EventDetailHeader";
 import { EventDetailTabs, type EventDetailTab } from "@/components/event-detail/EventDetailTabs";
@@ -34,6 +35,13 @@ export default function EventDetailPage() {
   const event = useEvent(id ?? "");
   const { deal, revenue, settlement, isLoaded: economicsLoaded } = useEventEconomics(id ?? "");
 
+  const [riders, setRiders] = useState<Rider[]>([]);
+  useEffect(() => {
+    if (id) {
+      fetchRiders(id).then(setRiders).catch(() => {});
+    }
+  }, [id]);
+
   const updateRevenueMutation = useUpdateRevenue();
   const updateSettlementStatusMutation = useUpdateSettlementStatus();
   const addCommentMutation = useAddComment();
@@ -47,7 +55,7 @@ export default function EventDetailPage() {
     updateSettlementStatusMutation.mutate({ eventId, status });
   };
 
-  const addComment = (eventId: string, party: string, message: string, attachments?: { name: string; size: string; type: string }[]) => {
+  const addComment = (eventId: string, party: string, message: string, attachments?: { name: string; size: number; type: string; fileUrl: string }[]) => {
     addCommentMutation.mutate({
       eventId,
       party,
@@ -138,6 +146,7 @@ export default function EventDetailPage() {
             totalDeductions={totalDeductions}
             netRevenue={netRevenue}
             deal={deal}
+            riders={riders}
           />
         )}
 
@@ -199,6 +208,7 @@ export default function EventDetailPage() {
             totalDeductions={totalDeductions}
             netRevenue={netRevenue}
             deal={deal}
+            partyNames={{ Performer: event.artist, Venue: event.venue, Promoter: event.operator }}
           />
         )}
 

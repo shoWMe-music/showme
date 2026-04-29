@@ -66,7 +66,7 @@ export function EventActionsMenu({
                   className="text-destructive"
                   onClick={() => setRemoveCollab(c)}
                 >
-                  <Trash2 className="h-4 w-4 mr-2" /> {c.name}
+                  <Trash2 className="h-4 w-4 mr-2 shrink-0" /> {c.name}
                   <span className="ml-auto text-xs text-muted-foreground">{eventCollaboratorRoleLabels[c.eventRole]}</span>
                 </DropdownMenuItem>
               ))}
@@ -80,7 +80,7 @@ export function EventActionsMenu({
           <AlertDialogHeader>
             <AlertDialogTitle>Remove collaborator?</AlertDialogTitle>
             <AlertDialogDescription>
-              {removeCollab?.name} will lose access to this event. This cannot be undone.
+              You are about to remove {removeCollab?.name || "a collaborator"}. They will lose access to this event. Are you sure?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

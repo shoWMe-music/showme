@@ -60,6 +60,7 @@ export function EventManagerHeader({
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-bold tracking-tight">{event.name}</h1>
+              <span className="text-xs font-mono text-muted-foreground select-all">{id}</span>
               <EventStatusBadge status={event.eventStatus} />
               {event.eventStatus === "on_hold" && (
                 <div className="flex items-center gap-2 ml-1">

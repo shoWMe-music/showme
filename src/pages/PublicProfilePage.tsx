@@ -6,7 +6,7 @@ import type { Event as AppEvent } from "@/lib/models";
 import { fetchPublicProfileBySlug } from "@/lib/db";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MapPin, Music, Globe, Image, Video, Users, ExternalLink, Calendar, ChevronDown, ChevronUp, CalendarPlus } from "lucide-react";
+import { MapPin, Globe, Image, Video, Users, ExternalLink, Calendar, ChevronDown, ChevronUp, CalendarPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import VenueMap from "@/components/VenueMap";
 import RequestDateForm from "@/components/RequestDateForm";
@@ -168,12 +168,6 @@ export default function PublicProfilePage() {
   const profile = foundProfile;
   const role = foundRole;
 
-  const getSpotifyEmbedUrl = (url: string) => {
-    if (!url) return null;
-    const match = url.match(/spotify\.com\/(album|playlist|track)\/([a-zA-Z0-9]+)/);
-    if (match?.[1] && match?.[2]) return `https://open.spotify.com/embed/${match[1]}/${match[2]}`;
-    return null;
-  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -223,6 +217,9 @@ export default function PublicProfilePage() {
               {role === "venue" && (
                 <VenueRequestButtons operatorOwnerUid={profileOwnerUid} slug={slug!} />
               )}
+              {role === "performer" && !isOwner && (
+                <PerformerBookingButtons operatorOwnerUid={profileOwnerUid} slug={slug!} />
+              )}
             </div>
           </div>
         </div>
@@ -243,17 +240,6 @@ export default function PublicProfilePage() {
         <div className="p-8 pt-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
-              {(() => {
-                const spotifyLink = profile.socialLinks?.find((l: { platform: string }) => l.platform.toLowerCase() === "spotify")?.url || profile.spotifyUrl || "";
-                const embedUrl = role === "performer" ? getSpotifyEmbedUrl(spotifyLink) : null;
-                return embedUrl ? (
-                  <div className="rounded-xl border bg-card p-6 shadow-sm">
-                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><Music className="h-5 w-5 text-primary" /> Listen</h3>
-                    <iframe src={embedUrl} width="100%" height="352" frameBorder="0" allow="encrypted-media" title="Spotify" className="rounded-md" />
-                  </div>
-                ) : null;
-              })()}
-
               <div className="rounded-xl border bg-card p-6 shadow-sm">
                 <h3 className="text-lg font-semibold mb-3">{role === "venue" ? "About" : "Bio"}</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">{profile.bio || "No bio added yet."}</p>
@@ -376,6 +362,26 @@ export default function PublicProfilePage() {
   );
 }
 
+function PerformerBookingButtons({ operatorOwnerUid, slug }: { operatorOwnerUid: string; slug: string }) {
+  const [requestOpen, setRequestOpen] = useState(false);
+
+  return (
+    <div className="flex gap-2 mt-4">
+      <Button onClick={() => setRequestOpen(true)} className="gap-1.5" disabled={!operatorOwnerUid}>
+        <CalendarPlus className="h-4 w-4" /> Request Booking
+      </Button>
+      <RequestDateForm
+        open={requestOpen}
+        onOpenChange={setRequestOpen}
+        targetProfileSlug={slug}
+        targetRole="performer"
+        source="profile"
+        operatorOwnerUid={operatorOwnerUid}
+      />
+    </div>
+  );
+}
+
 function VenueRequestButtons({ operatorOwnerUid, slug }: { operatorOwnerUid: string; slug: string }) {
   const [requestOpen, setRequestOpen] = useState(false);
 
@@ -409,7 +415,7 @@ function UpcomingEventsSection({ events, limit }: { events: AppEvent[]; limit: n
         </h3>
         <div className="space-y-3">
           {visible.map((evt) => (
-            <Link key={evt.id} to="/event/$id" params={{ id: evt.id }} className="flex items-center gap-4 rounded-lg border bg-background p-4 hover:bg-muted/50 transition-colors">
+            <Link key={evt.id} to="/events/$id" params={{ id: evt.id }} className="flex items-center gap-4 rounded-lg border bg-background p-4 hover:bg-muted/50 transition-colors">
               <div className="flex flex-col items-center justify-center rounded-lg bg-primary/10 px-3 py-2 min-w-[60px]">
                 <span className="text-xs font-medium text-primary">{new Date(evt.date).toLocaleDateString("en-US", { month: "short" })}</span>
                 <span className="text-lg font-bold text-primary">{new Date(evt.date).getDate()}</span>

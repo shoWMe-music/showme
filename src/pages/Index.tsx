@@ -365,7 +365,11 @@ function ActivityFeed({
             <div key={a.id} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-muted/50">
               {activityIcon(a.icon)}
               <Link
-                to={a.eventId ? `/settlements/${a.eventId}` : "#"}
+                to={a.eventId
+                  ? (a.icon === "comment" || a.icon === "revision"
+                    ? `/settlements/${a.eventId}`
+                    : `/events/${a.eventId}`)
+                  : "#"}
                 className="min-w-0 flex-1"
               >
                 <p className="text-sm font-medium truncate">{a.eventName}</p>
@@ -431,7 +435,12 @@ export default function Dashboard() {
   const getSettlementTotal = (s: typeof settlements[string]) =>
     s.artistPayout + s.promoterPayout + s.venuePayout + s.commissionPayouts.reduce((sum, c) => sum + c.payout, 0);
 
-  const totalSettled = Object.values(settlements)
+  // Settlements for non-archived events only
+  const activeSettlements = Object.entries(settlements)
+    .filter(([id]) => !events.find(e => e.id === id)?.archived)
+    .map(([, s]) => s);
+
+  const totalSettled = activeSettlements
     .filter(s => s.status === "finalized" || s.status === "paid")
     .reduce((sum, s) => sum + getSettlementTotal(s), 0);
 
@@ -443,13 +452,13 @@ export default function Dashboard() {
   const concludedCount = activeEvents.filter(e => e.eventStatus === "concluded").length;
 
   // Settlement stats
-  const pendingReviewCount = Object.values(settlements).filter(s => s.status === "pending_review").length;
-  const commentsCount = Object.values(settlements).filter(s => s.status === "comments_received").length;
-  const finalizedCount = Object.values(settlements).filter(s => s.status === "finalized").length;
+  const pendingReviewCount = activeSettlements.filter(s => s.status === "pending_review").length;
+  const commentsCount = activeSettlements.filter(s => s.status === "comments_received").length;
+  const finalizedCount = activeSettlements.filter(s => s.status === "finalized").length;
 
   // Banner: events needing attention
   const concludedNotFinalized = events.filter(
-    e => e.eventStatus === "concluded" && settlements[e.id] && settlements[e.id].status !== "finalized" && settlements[e.id].status !== "paid"
+    e => !e.archived && e.eventStatus === "concluded" && settlements[e.id] && settlements[e.id].status !== "finalized" && settlements[e.id].status !== "paid"
   ).length;
 
   const eventStats = [
@@ -783,7 +792,7 @@ export default function Dashboard() {
               <h3 className="text-sm font-semibold mb-3">Top Performers by Revenue</h3>
               <div className="space-y-2">
                 {events
-                  .filter(e => e.eventStatus === "concluded" && settlements[e.id])
+                  .filter(e => e.eventStatus === "concluded" && !e.archived && settlements[e.id])
                   .sort((a, b) => {
                     const sa = settlements[a.id], sb = settlements[b.id];
                     const ta = sa.artistPayout + sa.promoterPayout + sa.venuePayout + sa.commissionPayouts.reduce((s, c) => s + c.payout, 0);
@@ -812,7 +821,7 @@ export default function Dashboard() {
               <h3 className="text-sm font-semibold mb-3">Events by Venue</h3>
               <div className="space-y-2">
                 {Object.entries(
-                  events.reduce((acc, e) => {
+                  events.filter(e => !e.archived).reduce((acc, e) => {
                     acc[e.venue] = (acc[e.venue] || 0) + 1;
                     return acc;
                   }, {} as Record<string, number>)

@@ -6,12 +6,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Send, Copy, Users, Loader2, Check } from "lucide-react";
+import { Send, Copy, Users, Loader2, Check, CheckCircle2, UserPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast, copyToast } from "@/hooks/use-toast";
 import { legacyRoleToEventRole, type EventCollaboratorRole, type ContactPerson } from "@/lib/models";
 import { useContacts } from "@/lib/queries";
 import { useMyInvitationCodes } from "@/lib/queries/useInvitationCodes";
+import { useAddContact } from "@/lib/queries/useContactMutations";
 import { useAuth } from "@/lib/auth-context";
 import { createPerformerInvitation, sendPerformerInvitationEmail } from "@/lib/createPerformerInvitation";
 
@@ -56,12 +57,17 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
   const [showContactSuggestions, setShowContactSuggestions] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [sentName, setSentName] = useState("");
+  const [sentEmail, setSentEmail] = useState("");
+  const [sentRole, setSentRole] = useState("");
   const emailContainerRef = useRef<HTMLDivElement>(null);
 
   const { user } = useAuth();
   const contacts = useContacts();
   const queryClient = useQueryClient();
   const { data: myInvitationCodes } = useMyInvitationCodes();
+  const addContactMutation = useAddContact();
 
   const roles = ["Performer", "Venue", "Promoter", "Organizer", "Agent", "Manager", "Custom"];
 
@@ -89,6 +95,10 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
       setShowContactSuggestions(false);
       setGenerating(false);
       setSending(false);
+      setShowSuccess(false);
+      setSentName("");
+      setSentEmail("");
+      setSentRole("");
 
       // Check for an existing active invitation code for this event + name
       const existing = myInvitationCodes?.find(
@@ -195,7 +205,11 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
         title: "Invitation sent",
         description: `Invited ${email} as ${roleLabel} (${permissionLabels[permission]})${eventName ? ` for ${eventName}` : ""}`,
       });
-      onOpenChange(false);
+
+      setSentName(defaultName || email.trim().split("@")[0]);
+      setSentEmail(email.trim());
+      setSentRole(roleLabel.toLowerCase());
+      setShowSuccess(true);
     } finally {
       setSending(false);
     }
@@ -203,9 +217,56 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
 
   const isValid = email.trim() && (role !== "Custom" || customRoleName.trim());
 
+  const handleCreateContact = () => {
+    addContactMutation.mutate({
+      contact: {
+        id: `P-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        name: sentName,
+        type: sentRole,
+        contacts: [{ name: sentName, email: sentEmail, phone: "" }],
+        iban: "",
+        bankName: "",
+        vatId: "",
+        address: "",
+        notes: "",
+      },
+    });
+    toast({ title: "Contact created", description: `${sentName} has been added to your contacts.` });
+    onOpenChange(false);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md max-h-[85vh] flex flex-col overflow-hidden">
+        {showSuccess ? (
+          <>
+            <div className="flex flex-col items-center gap-4 py-8">
+              <CheckCircle2 className="h-12 w-12 text-green-500" />
+              <div className="text-center space-y-1">
+                <h3 className="text-lg font-semibold">Invitation sent to {sentName}</h3>
+                <p className="text-sm text-muted-foreground">{sentEmail}</p>
+              </div>
+              <div className="w-full rounded-lg border bg-muted/50 p-4 space-y-3 mt-2">
+                <div className="flex items-center gap-2">
+                  <UserPlus className="h-5 w-5 text-muted-foreground" />
+                  <span className="text-sm font-medium">Create a contact for {sentName}?</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Save {sentName} to your contacts so you can easily find them later.
+                </p>
+                <div className="flex gap-2">
+                  <Button onClick={handleCreateContact} className="flex-1 gap-2">
+                    <UserPlus className="h-4 w-4" /> Yes, create contact
+                  </Button>
+                  <Button variant="outline" onClick={() => onOpenChange(false)} className="flex-1">
+                    No thanks
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (
+        <>
         <DialogHeader className="shrink-0">
           <DialogTitle>Invite Collaborator{eventName ? ` — ${eventName}` : ""}</DialogTitle>
         </DialogHeader>
@@ -355,6 +416,8 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
             )}
           </Button>
         </DialogFooter>
+        </>
+        )}
       </DialogContent>
     </Dialog>
   );

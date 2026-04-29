@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Check } from "lucide-react";
 import { useUser, operatorRoleLabels, type OperatorRole, type SharedProfile, type ProfileLocation } from "@/lib/user-context";
 import {
@@ -50,12 +50,41 @@ export function CreateProfileDialog({ open, onOpenChange, onCreated }: Props) {
   const [step, setStep] = useState(0);
   const [selectedRole, setSelectedRole] = useState<OperatorRole | null>(null);
   const [form, setForm] = useState<Form>(emptyForm());
+  const geoFetched = useRef(false);
+
+  // Auto-detect location from browser geolocation
+  useEffect(() => {
+    if (step !== 1 || geoFetched.current || form.city || form.country) return;
+    if (!navigator.geolocation) return;
+    geoFetched.current = true;
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const res = await fetch(
+            `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${pos.coords.latitude}&longitude=${pos.coords.longitude}&localityLanguage=en`,
+          );
+          if (!res.ok) return;
+          const data = await res.json();
+          const city = data.city || data.locality || "";
+          const country = data.countryName || "";
+          setForm(f => ({
+            ...f,
+            city: f.city || city,
+            country: f.country || country,
+          }));
+        } catch { /* ignore */ }
+      },
+      () => { /* permission denied or error — ignore */ },
+      { timeout: 5000 },
+    );
+  }, [step]);
 
 
   const reset = () => {
     setStep(0);
     setSelectedRole(null);
     setForm(emptyForm());
+    geoFetched.current = false;
   };
 
   const handleOpenChange = (v: boolean) => {

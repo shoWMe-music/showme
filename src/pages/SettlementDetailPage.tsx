@@ -23,7 +23,7 @@ export default function SettlementDetailPage() {
 
   const generateShareLink = (eventId: string, parties: string[]): string => {
     const token = `review-${eventId}`;
-    const snapshot = event ? { event, deal, revenue, settlement } : undefined;
+    const snapshot = event && deal && revenue && settlement ? { event, deal, revenue, settlement } : undefined;
     void upsertShareToken(token, eventId, parties, snapshot);
     return `${window.location.origin}/review/${token}`;
   };
