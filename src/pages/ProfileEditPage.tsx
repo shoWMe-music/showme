@@ -540,6 +540,115 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
           </div>
         )}
 
+        {/* Capacity Setups (Venue or Festival) — alternate seating/standing configurations */}
+        {(baseRole === "venue" || baseRole === "festival") && (() => {
+          // Lane C will add `venueCapacitySetups?: VenueCapacitySetup[]` to SharedProfile
+          type VenueCapacitySetup = {
+            id: string;
+            name: string;
+            capacityStanding?: number;
+            capacitySitting?: number;
+            isMain?: boolean;
+            notes?: string;
+          };
+          const setups: VenueCapacitySetup[] = (data as { venueCapacitySetups?: VenueCapacitySetup[] }).venueCapacitySetups || [];
+          const updateSetups = (next: VenueCapacitySetup[]) =>
+            setData(p => ({ ...p, venueCapacitySetups: next } as typeof p));
+          const addSetup = () => {
+            const next: VenueCapacitySetup = {
+              id: `VCS-${Date.now()}`,
+              name: setups.length === 0 ? "Main" : `Setup ${setups.length + 1}`,
+              isMain: setups.length === 0,
+            };
+            updateSetups([...setups, next]);
+          };
+          const setMainAt = (index: number) => {
+            updateSetups(setups.map((s, i) => ({ ...s, isMain: i === index })));
+          };
+          const updateAt = (index: number, patch: Partial<VenueCapacitySetup>) => {
+            const next = [...setups];
+            next[index] = { ...next[index], ...patch };
+            updateSetups(next);
+          };
+          const removeAt = (index: number) => {
+            const wasMain = setups[index]?.isMain;
+            const next = setups.filter((_, i) => i !== index);
+            if (wasMain && next.length > 0) next[0].isMain = true;
+            updateSetups(next);
+          };
+          return (
+            <div className="rounded-xl border bg-card p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <Users className="h-5 w-5 text-primary" /> Capacity Setups
+                </h3>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={addSetup}>
+                  <Plus className="h-3 w-3" /> Add Setup
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mb-3">
+                Define alternate configurations like "Theater seating", "Standing only", or "Mixed". One setup is the headline.
+              </p>
+              {setups.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No setups added yet. Add your first capacity setup.</p>
+              ) : (
+                <div className="space-y-2">
+                  {setups.map((s, i) => (
+                    <div key={s.id} className="rounded-lg border p-3 space-y-2">
+                      <div className="flex items-center gap-3">
+                        <Input
+                          value={s.name}
+                          onChange={e => updateAt(i, { name: e.target.value })}
+                          placeholder="Setup name (e.g. Theater seating)"
+                          className="flex-1"
+                        />
+                        <div className="flex items-center gap-1">
+                          <Label className="text-xs whitespace-nowrap">Sitting</Label>
+                          <Input
+                            type="number"
+                            value={s.capacitySitting ?? ""}
+                            onChange={e => updateAt(i, { capacitySitting: e.target.value === "" ? undefined : parseInt(e.target.value) || 0 })}
+                            onFocus={e => e.target.select()}
+                            min={0}
+                            className="w-20"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Label className="text-xs whitespace-nowrap">Standing</Label>
+                          <Input
+                            type="number"
+                            value={s.capacityStanding ?? ""}
+                            onChange={e => updateAt(i, { capacityStanding: e.target.value === "" ? undefined : parseInt(e.target.value) || 0 })}
+                            onFocus={e => e.target.select()}
+                            min={0}
+                            className="w-20"
+                          />
+                        </div>
+                        <label className="flex items-center gap-1.5 cursor-pointer text-xs whitespace-nowrap">
+                          <Checkbox
+                            checked={!!s.isMain}
+                            onCheckedChange={(c) => { if (c) setMainAt(i); }}
+                          />
+                          Main
+                        </label>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => removeAt(i)}>
+                          <X className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                      <Input
+                        value={s.notes || ""}
+                        onChange={e => updateAt(i, { notes: e.target.value })}
+                        placeholder="Notes (e.g. removed back rows for taller stage)"
+                        className="text-xs h-7"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Deal Types (Venue) */}
         {baseRole === "venue" && (
           <div className="rounded-xl border bg-card p-6 shadow-sm">
