@@ -2088,10 +2088,15 @@ export async function insertShareTokenRow(payload: {
   parties: unknown;
 }) {
   const uid = requireUid();
+  // Deeply strip undefined values from `parties` — Firestore rejects writes
+  // containing nested undefined, which would silently break /shared/budget
+  // share-link generation when the source event has any unset optional
+  // field (e.g. event.venue or event.date on a draft).
+  const cleanParties = stripUndefined(payload.parties);
   await safeSetDoc(userDataDoc(uid, "share_tokens", payload.token), {
     token: payload.token,
     eventId: payload.event_id,
-    parties: payload.parties,
+    parties: cleanParties,
     createdAt: new Date().toISOString().slice(0, 10),
   });
   await safeSetDoc(
@@ -2100,7 +2105,7 @@ export async function insertShareTokenRow(payload: {
       kind: "budget",
       ownerUid: uid,
       eventId: payload.event_id,
-      parties: payload.parties,
+      parties: cleanParties,
       createdAt: new Date().toISOString(),
     },
     { merge: true },

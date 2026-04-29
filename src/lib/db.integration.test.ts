@@ -223,4 +223,42 @@ describe("insertShareTokenRow", () => {
       insertShareTokenRow({ token: "t", event_id: "e", parties: {} }),
     ).rejects.toThrow("signed in");
   });
+
+  // Regression: nested undefined values in `parties` were causing Firestore
+  // to reject the write, silently breaking /shared/budget share-link
+  // generation for events with unset optional fields (e.g. venue/date on a
+  // draft).
+  it("strips deeply nested undefined values from parties", async () => {
+    await insertShareTokenRow({
+      token: "share-with-undefined",
+      event_id: "EVT-DRAFT",
+      parties: {
+        eventName: "Draft Event",
+        eventVenue: undefined,
+        eventDate: undefined,
+        revenueFields: [
+          { id: "tickets", name: "Tickets", value: 1000, note: undefined },
+        ],
+        costFields: [],
+        resultFields: [],
+        generatedAt: "2026-04-29T00:00:00.000Z",
+      },
+    });
+
+    // Both the user-doc write and the publicShares write must receive
+    // scrubbed `parties` data.
+    const [, userData] = mockSetDoc.mock.calls[0];
+    const [, publicData] = mockSetDoc.mock.calls[1];
+    const userParties = userData.parties as Record<string, unknown>;
+    const publicParties = publicData.parties as Record<string, unknown>;
+
+    expect(userParties).not.toHaveProperty("eventVenue");
+    expect(userParties).not.toHaveProperty("eventDate");
+    expect(publicParties).not.toHaveProperty("eventVenue");
+    expect(publicParties).not.toHaveProperty("eventDate");
+    expect((userParties.revenueFields as Array<Record<string, unknown>>)[0]).not.toHaveProperty("note");
+    // Defined fields must still be present.
+    expect(userParties.eventName).toBe("Draft Event");
+    expect(publicParties.eventName).toBe("Draft Event");
+  });
 });
