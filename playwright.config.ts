@@ -18,6 +18,15 @@ export default defineConfig({
       testMatch: ["share-link.spec.ts", "contacts.spec.ts", "budget-save.spec.ts"],
       use: { baseURL: "http://localhost:5173" },
     },
+    {
+      name: "post-deploy",
+      testMatch: ["post-deploy-validation.spec.ts"],
+    },
+    {
+      name: "issue-fixes-e2e",
+      testMatch: ["issue-fixes-e2e.spec.ts"],
+      use: { baseURL: "http://localhost:5173" },
+    },
   ],
   webServer: [
     {
