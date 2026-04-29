@@ -238,15 +238,16 @@ export default function PublicProfilePage() {
           </div>
         </div>
 
-        {/* Upcoming Events */}
+        {/* Coming Events — published upcoming events for this profile */}
         {(() => {
           const profileName = profile.name?.toLowerCase() || "";
+          const today = new Date().toISOString().split("T")[0];
           const upcomingEvents = events.filter(e =>
-            e.published && !e.archived && e.eventStatus === "confirmed" &&
+            e.published && !e.archived &&
+            e.date >= today &&
             (e.venue.toLowerCase().includes(profileName) || e.artist.toLowerCase().includes(profileName) || e.operator.toLowerCase().includes(profileName))
           ).sort((a, b) => a.date.localeCompare(b.date));
 
-          if (upcomingEvents.length === 0) return null;
           return <UpcomingEventsSection events={upcomingEvents} limit={6} />;
         })()}
 
@@ -422,30 +423,35 @@ function UpcomingEventsSection({ events, limit }: { events: AppEvent[]; limit: n
   const hasMore = events.length > limit;
 
   return (
-    <div className="px-8 pb-2">
+    <div className="px-8 pb-2 pt-6">
       <div className="rounded-xl border bg-card p-6 shadow-sm">
         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <Calendar className="h-5 w-5 text-primary" /> Upcoming Events
+          <Calendar className="h-5 w-5 text-primary" /> Coming Events
         </h3>
-        <div className="space-y-3">
-          {visible.map((evt) => (
-            <Link key={evt.id} to="/events/$id" params={{ id: evt.id }} className="flex items-center gap-4 rounded-lg border bg-background p-4 hover:bg-muted/50 transition-colors">
-              <div className="flex flex-col items-center justify-center rounded-lg bg-primary/10 px-3 py-2 min-w-[60px]">
-                <span className="text-xs font-medium text-primary">{new Date(evt.date).toLocaleDateString("en-US", { month: "short" })}</span>
-                <span className="text-lg font-bold text-primary">{new Date(evt.date).getDate()}</span>
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold text-sm">{evt.name}</p>
-                <p className="text-xs text-muted-foreground">{evt.artist} · {evt.venue}</p>
-              </div>
-              
-            </Link>
-          ))}
-        </div>
-        {hasMore && (
-          <Button variant="ghost" size="sm" onClick={() => setShowAll(!showAll)} className="w-full mt-3 gap-1.5 text-muted-foreground">
-            {showAll ? <><ChevronUp className="h-4 w-4" /> Show less</> : <><ChevronDown className="h-4 w-4" /> shoWMe More ({events.length - limit} more)</>}
-          </Button>
+        {events.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No upcoming events scheduled.</p>
+        ) : (
+          <>
+            <div className="space-y-3">
+              {visible.map((evt) => (
+                <Link key={evt.id} to="/event/$id" params={{ id: evt.id }} className="flex items-center gap-4 rounded-lg border bg-background p-4 hover:bg-muted/50 transition-colors">
+                  <div className="flex flex-col items-center justify-center rounded-lg bg-primary/10 px-3 py-2 min-w-[60px]">
+                    <span className="text-xs font-medium text-primary">{new Date(evt.date).toLocaleDateString("en-US", { month: "short" })}</span>
+                    <span className="text-lg font-bold text-primary">{new Date(evt.date).getDate()}</span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-sm">{evt.name}</p>
+                    <p className="text-xs text-muted-foreground">{evt.artist} · {evt.venue}</p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+            {hasMore && (
+              <Button variant="ghost" size="sm" onClick={() => setShowAll(!showAll)} className="w-full mt-3 gap-1.5 text-muted-foreground">
+                {showAll ? <><ChevronUp className="h-4 w-4" /> Show less</> : <><ChevronDown className="h-4 w-4" /> shoWMe More ({events.length - limit} more)</>}
+              </Button>
+            )}
+          </>
         )}
       </div>
     </div>
