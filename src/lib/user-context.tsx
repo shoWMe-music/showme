@@ -27,6 +27,8 @@ export interface SubVenue {
   capacity?: number;
   sittingCapacity?: number;
   standingCapacity?: number;
+  sittingNotes?: string;
+  standingNotes?: string;
 }
 
 export interface ProfileDocument {
@@ -93,6 +95,7 @@ export interface SharedProfile {
   dealTypes?: string[];
   spotifyUrl?: string;
   coordinates?: { lat: number; lng: number };
+  address?: string;
   slug?: string;
   isPublic?: boolean;
   updatedAt?: string;
@@ -249,7 +252,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const dbProfiles = profilesQuery.data;
     if (dbProfiles === undefined) return;
-    setProfiles(dbProfiles);
+    setProfiles(normalizeLegacyProfiles(dbProfiles));
   }, [profilesQuery.data]);
 
   useEffect(() => {
@@ -479,6 +482,27 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       {children}
     </UserContext.Provider>
   );
+}
+
+/**
+ * Read-side compat for legacy profiles stored with `role: "artist"`.
+ * Coerces them to `role: "performer"` so the rest of the app treats them
+ * uniformly. The slot key is preserved (e.g. `"artist"` stays `"artist"`)
+ * so the user can still locate and delete the phantom record on the
+ * Profile Access page.
+ */
+export function normalizeLegacyProfiles(
+  profiles: Record<string, SharedProfile>,
+): Record<string, SharedProfile> {
+  const out: Record<string, SharedProfile> = {};
+  for (const [slot, profile] of Object.entries(profiles)) {
+    if ((profile as SharedProfile & { role: string }).role === "artist") {
+      out[slot] = { ...profile, role: "performer" };
+    } else {
+      out[slot] = profile;
+    }
+  }
+  return out;
 }
 
 export function getBaseRole(key: string): OperatorRole {
