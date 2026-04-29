@@ -1,5 +1,6 @@
 import { useParams, Link } from "@tanstack/react-router";
 import { useEvent, useEventsLoaded } from "@/lib/queries";
+import { useCreateRsvp } from "@/lib/queries/useAudienceRsvp";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ export default function PublicEventPage() {
   const [rsvpEmail, setRsvpEmail] = useState("");
   const [rsvpCity, setRsvpCity] = useState("");
   const [rsvpSubmitted, setRsvpSubmitted] = useState(false);
+  const createRsvp = useCreateRsvp();
 
   if (!eventsLoaded) {
     return (
@@ -87,8 +89,20 @@ export default function PublicEventPage() {
       toast({ title: "Please fill in your details", variant: "destructive" });
       return;
     }
-    setRsvpSubmitted(true);
-    toast({ title: "RSVP Confirmed!", description: `You're on the list for ${event.name}.` });
+    createRsvp.mutate(
+      {
+        eventId: event.id,
+        name: rsvpName.trim(),
+        email: rsvpEmail.trim(),
+        ...(rsvpCity.trim() ? { city: rsvpCity.trim() } : {}),
+      },
+      {
+        onSuccess: () => {
+          setRsvpSubmitted(true);
+          toast({ title: "RSVP Confirmed!", description: `You're on the list for ${event.name}.` });
+        },
+      },
+    );
   };
 
   return (
@@ -200,8 +214,8 @@ export default function PublicEventPage() {
                 <Label>City</Label>
                 <AddressAutocomplete value={rsvpCity} onChange={(val) => setRsvpCity(val)} placeholder="Search your city…" className="mt-1" />
               </div>
-              <Button size="lg" onClick={handleRsvp} className="w-full gap-2">
-                <CheckCircle className="h-4 w-4" /> RSVP Now
+              <Button size="lg" onClick={handleRsvp} disabled={createRsvp.isPending} className="w-full gap-2">
+                <CheckCircle className="h-4 w-4" /> {createRsvp.isPending ? "Submitting…" : "RSVP Now"}
               </Button>
             </div>
           )}
