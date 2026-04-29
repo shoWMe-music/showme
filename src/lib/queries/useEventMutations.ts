@@ -3,12 +3,15 @@
  *
  * Fully implemented: useUpdateEvent, useArchiveEvent, useUnarchiveEvent,
  * useAddEvent, useAddMultiPerformerEvent, useAddChildEvent,
- * useRemoveChildEvent, useConvertToMultiPerformer.
+ * useRemoveChildEvent, useConvertToMultiPerformer, useDuplicateEvent,
+ * useDeleteEvent.
  */
 
 import { createElement } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2 } from "lucide-react";
+import { deleteDoc, doc } from "firebase/firestore";
+import { getFirestoreDb } from "@/integrations/firebase/app";
 
 import { useAuth } from "@/lib/auth-context";
 import { getAuthClient } from "@/lib/firebaseAuth";
@@ -518,6 +521,125 @@ export function useUnarchiveEvent() {
         queryClient.setQueriesData({ queryKey: queryKeys.events(uid) }, () => ctx.snapshot);
       }
       toast({ title: "Failed to unarchive event", variant: "destructive" });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.events(uid) });
+    },
+  });
+}
+
+// ── useDeleteEvent ─────────────────────────────────────────────────────────────
+
+/**
+ * Hard-delete an event document from Firestore. Used for drafts where the user
+ * wants to discard rather than archive. Subcollections (deal/revenue/settlement/
+ * riders/etc) are left in place — they're orphaned but inaccessible without the
+ * parent doc, and Firestore reads against them require a parent reference.
+ *
+ * Authorization: only the primary owner (uid in primary_owner_uid or first
+ * accessUid) can delete. Server-side rules also enforce this.
+ */
+export function useDeleteEvent() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const uid = user?.uid ?? "";
+
+  return useMutation({
+    mutationFn: async ({ id }: { id: string }) => {
+      const data = getEventsData(queryClient, uid);
+      const e = data?.find((x) => x.id === id);
+      if (!uid || !e || !isPrimaryEventOwner(e, uid)) return;
+      await deleteDoc(doc(getFirestoreDb(), "events", id));
+      savedToast("Event deleted");
+    },
+    onMutate: async ({ id }: { id: string }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.events(uid) });
+      const snapshot = getEventsData(queryClient, uid);
+
+      // Optimistic: remove the event from cache
+      queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
+        if (!old) return old;
+        return old.filter((e) => e.id !== id);
+      });
+
+      return { snapshot };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.snapshot) {
+        queryClient.setQueriesData({ queryKey: queryKeys.events(uid) }, () => ctx.snapshot);
+      }
+      toast({ title: "Failed to delete event", variant: "destructive" });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.events(uid) });
+    },
+  });
+}
+
+// ── useDuplicateEvent ──────────────────────────────────────────────────────────
+
+/**
+ * Create a duplicate of an existing event as a draft. Copies all top-level
+ * event fields except identifiers, parent/child references, status, and
+ * archive/published flags. Subcollections (riders, agreements, crew, schedule,
+ * messages, settlement) are NOT copied — only the top-level event document.
+ */
+export function useDuplicateEvent() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const uid = user?.uid ?? "";
+
+  return useMutation({
+    mutationFn: async ({ eventId }: { eventId: string }): Promise<string | null> => {
+      const data = getEventsData(queryClient, uid);
+      const source = data?.find((e) => e.id === eventId);
+      if (!source) return null;
+
+      // New ID for the duplicate.
+      const newId = `EVT-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+      // Build the duplicate by spreading source and overriding identity / state
+      // fields. Strip parent/child links so the duplicate stands alone.
+      const {
+        id: _id,
+        parentEventId: _p,
+        childEventIds: _c,
+        sourceRequestId: _src,
+        sourceRequestDate: _srcDate,
+        accessUids: _accessUids,
+        accessProfileIds: _accessProfileIds,
+        ...rest
+      } = source;
+      void _id; void _p; void _c; void _src; void _srcDate; void _accessUids; void _accessProfileIds;
+
+      const duplicate: Event = {
+        ...rest,
+        id: newId,
+        name: `${source.name} (Copy)`,
+        eventStatus: "draft",
+        status: "draft",
+        archived: false,
+        published: false,
+        isMultiPerformer: false,
+        // accessUids/accessProfileIds are seeded by upsertEvent based on the
+        // current uid + hostProfileId, so we omit them and let it rebuild.
+      };
+
+      await upsertEvent(duplicate);
+
+      // Optimistic cache update — prepend the duplicate so it appears at the top.
+      queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
+        if (!old) return old;
+        return [duplicate, ...old];
+      });
+
+      return newId;
+    },
+    onSuccess: (newId) => {
+      if (newId) savedToast("Event duplicated");
+    },
+    onError: () => {
+      toast({ title: "Failed to duplicate event", variant: "destructive" });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.events(uid) });

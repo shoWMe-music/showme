@@ -1,7 +1,7 @@
 import React from "react";
 import AppLayout from "@/components/AppLayout";
 import { EventStatusBadge } from "@/components/StatusBadge";
-import { useUpdateEvent, useArchiveEvent } from "@/lib/queries/useEventMutations";
+import { useUpdateEvent, useArchiveEvent, useDuplicateEvent } from "@/lib/queries/useEventMutations";
 import { usePaginatedEvents } from "@/lib/queries";
 import { useUser } from "@/lib/user-context";
 import { EventStatus } from "@/lib/models";
@@ -9,7 +9,7 @@ import CreateEventDialog from "@/components/CreateEventDialog";
 import InviteCollaboratorDialog from "@/components/InviteCollaboratorDialog";
 import ExportEventDialog from "@/components/ExportEventDialog";
 import { Link } from "@tanstack/react-router";
-import { Search, Globe, EyeOff, CreditCard, UserPlus, Printer, Trash2, Archive, ArchiveRestore, Users, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, ArrowUpDown, Loader2 } from "lucide-react";
+import { Search, Globe, EyeOff, CreditCard, UserPlus, Printer, Trash2, Archive, ArchiveRestore, Users, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, ArrowUpDown, Loader2, Copy } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -117,8 +117,10 @@ export default function EventsPage() {
 
   const updateEventMutation = useUpdateEvent();
   const archiveEventMutation = useArchiveEvent();
+  const duplicateEventMutation = useDuplicateEvent();
   const updateEvent = (id: string, updates: Partial<(typeof allLoadedEvents)[0]>) => updateEventMutation.mutate({ id, updates });
   const archiveEvent = (id: string) => archiveEventMutation.mutate({ id });
+  const [duplicateEventId, setDuplicateEventId] = useState<string | null>(null);
   const togglePublish = usePublishEventToggle(updateEvent);
   const { canCreate, profiles } = useUser();
   const [profileFilter, setProfileFilter] = useState<string>("all");
@@ -296,7 +298,7 @@ export default function EventsPage() {
                       <td className="px-6 py-4"><Skeleton className="h-5 w-20 rounded-full" /></td>
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-end gap-1">
-                          {Array.from({ length: 5 }).map((_, j) => (
+                          {Array.from({ length: 6 }).map((_, j) => (
                             <Skeleton key={j} className="h-8 w-8 rounded-md" />
                           ))}
                         </div>
@@ -412,6 +414,22 @@ export default function EventsPage() {
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>Print Event Details</TooltipContent>
+                            </Tooltip>
+
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => setDuplicateEventId(event.id)}
+                                  data-testid={`event-row-duplicate-${event.id}`}
+                                  aria-label="Duplicate Event"
+                                >
+                                  <Copy className="h-4 w-4 text-muted-foreground" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Duplicate Event</TooltipContent>
                             </Tooltip>
 
                             {event.archived ? (
@@ -690,6 +708,34 @@ export default function EventsPage() {
               }}
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Duplicate event confirm */}
+      <AlertDialog
+        open={!!duplicateEventId}
+        onOpenChange={(v) => { if (!v) setDuplicateEventId(null); }}
+      >
+        <AlertDialogContent data-testid="duplicate-event-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Duplicate this event?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You can edit the date and details after.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!duplicateEventId) return;
+                const id = duplicateEventId;
+                setDuplicateEventId(null);
+                duplicateEventMutation.mutate({ eventId: id });
+              }}
+            >
+              Duplicate
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
