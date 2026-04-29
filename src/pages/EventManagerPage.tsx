@@ -85,6 +85,14 @@ export default function EventManagerPage() {
     return ids;
   }, [em.profiles]);
 
+  // For single-performer events, surface the deal.artistGuarantee in the Budget
+  // Calculator's performer-fee row. Memoized so the BudgetCalculator's effect
+  // doesn't re-run on every parent render.
+  const singlePerformerFees = useMemo(() => {
+    if (em.isParent || !em.event) return undefined;
+    return [{ artist: em.event.artist || "Performer", fee: em.effectiveDeal?.artistGuarantee ?? 0 }];
+  }, [em.isParent, em.event?.artist, em.effectiveDeal?.artistGuarantee]);
+
   if (!em.eventsLoaded) return <EventManagerSkeleton />;
   if (!em.event) {
     return (
@@ -214,7 +222,7 @@ export default function EventManagerPage() {
           </div>
         )}
         {em.activeTab === "budget" && !em.isParent && (
-          <BudgetPlannerTab canAccessBudget={em.canAccessBudget} event={event} revenue={em.revenue} eventMeta={em.eventMeta} currency={em.eventCurrency} budgetProfileChoices={em.budgetProfileChoices} budgetProfileId={em.resolvedBudgetProfileId} onBudgetProfileIdChange={em.handleBudgetProfileChange} onSave={onSaveMeta} todoBudgetItems={em.todoBudgetItems} />
+          <BudgetPlannerTab canAccessBudget={em.canAccessBudget} event={event} revenue={em.revenue} eventMeta={em.eventMeta} currency={em.eventCurrency} budgetProfileChoices={em.budgetProfileChoices} budgetProfileId={em.resolvedBudgetProfileId} onBudgetProfileIdChange={em.handleBudgetProfileChange} onSave={onSaveMeta} todoBudgetItems={em.todoBudgetItems} childArtistFees={singlePerformerFees} />
         )}
         {em.activeTab === "details" && (
           <EventDetailsTab event={event} deal={em.effectiveDeal} revenue={em.revenue} eventMeta={em.eventMeta} updateEvent={em.updateEvent} updateDeal={em.updateDeal} updateRevenue={em.updateRevenue} currency={em.eventCurrency} onSave={onSaveMeta} childEvents={em.isParent ? em.childEvents : undefined} actingProfile={em.actingProfile} collaborators={em.collaborators} readOnly={em.isPerformer} onInvitePerformer={(name, childEventId) => { setInviteDefaults({ role: "Performer", name, eventId: childEventId }); setInviteOpen(true); }} />

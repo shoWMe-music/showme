@@ -42,7 +42,9 @@ export function useBudgetCalculator({
     if (childArtistFees && childArtistFees.length > 0) {
       const withoutGeneric = defaults.filter(f => f.id !== "artist_fee");
       const artistFields: BudgetField[] = childArtistFees.map((af, i) => ({
-        id: `artist_fee_${i}`, name: `Performer fee — ${af.artist}`, category: "cost" as const,
+        id: `artist_fee_${i}`,
+        name: childArtistFees.length === 1 ? "Performer fee" : `Performer fee — ${af.artist}`,
+        category: "cost" as const,
         type: "manual" as const, value: af.fee, isDefault: false, removable: false, readOnly: true, order: i,
       }));
       const reordered = withoutGeneric.map(f => ({ ...f, order: f.order + artistFields.length }));
@@ -87,6 +89,27 @@ export function useBudgetCalculator({
     }));
     setRevenueFields(prev => [...prev.filter(f => !f.id.startsWith("todo_")), ...todoRevenue]);
   }, [todoBudgetItems]);
+
+  // Keep performer-fee cost rows in sync with the deal-driven childArtistFees prop.
+  // Without this, persisted budgets ignore deal updates because hydration overwrites state.
+  useEffect(() => {
+    if (!childArtistFees || childArtistFees.length === 0) return;
+    const artistFields: BudgetField[] = childArtistFees.map((af, i) => ({
+      id: `artist_fee_${i}`,
+      name: childArtistFees.length === 1 ? "Performer fee" : `Performer fee — ${af.artist}`,
+      category: "cost" as const,
+      type: "manual" as const,
+      value: af.fee,
+      isDefault: false,
+      removable: false,
+      readOnly: true,
+      order: i,
+    }));
+    setCostFields(prev => {
+      const withoutArtist = prev.filter(f => f.id !== "artist_fee" && !f.id.startsWith("artist_fee_"));
+      return [...artistFields, ...withoutArtist];
+    });
+  }, [childArtistFees]);
 
   const externalTicketTypes: TicketType[] = revenue?.ticketTypes ?? [];
 
