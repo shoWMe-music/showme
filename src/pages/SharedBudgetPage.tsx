@@ -31,6 +31,16 @@ interface SharedTodoSchedule {
   generatedAt: string;
 }
 
+interface SharedInHouseAssignment {
+  type: "in-house";
+  eventName: string;
+  memberName: string;
+  scheduleItems: { id: string; time: string; label: string; assignee: string }[];
+  tasks: { id: string; text: string; done: boolean; assignee: string }[];
+  privateNotes: { id: string; text: string; assignee: string }[];
+  generatedAt: string;
+}
+
 const EXCLUDED_REVENUE_IDS = ["ticket_price", "expected_tickets", "capacity", "avg_bar_spend"];
 
 export default function SharedBudgetPage() {
@@ -50,15 +60,18 @@ export default function SharedBudgetPage() {
     enabled: !!token,
   });
 
-  const isTodoSchedule = rawData && typeof rawData === "object" && (rawData as Record<string, unknown>).type === "todo-schedule";
-  const data = isTodoSchedule ? null : (rawData as SharedBudget | null);
+  const rawType = rawData && typeof rawData === "object" ? (rawData as Record<string, unknown>).type : undefined;
+  const isTodoSchedule = rawType === "todo-schedule";
+  const isInHouse = rawType === "in-house";
+  const data = isTodoSchedule || isInHouse ? null : (rawData as SharedBudget | null);
   const todoData = isTodoSchedule ? (rawData as unknown as SharedTodoSchedule) : null;
+  const inHouseData = isInHouse ? (rawData as unknown as SharedInHouseAssignment) : null;
 
   const error =
     isError
-      ? "Budget report not found or link has expired."
-      : !loading && !data && !todoData
-        ? "Budget report not found or link has expired."
+      ? "Shared link not found or has expired."
+      : !loading && !data && !todoData && !inHouseData
+        ? "Shared link not found or has expired."
         : null;
 
   if (loading) {
@@ -95,6 +108,67 @@ export default function SharedBudgetPage() {
           ))}
           {todoData.todos.length === 0 && <p className="text-sm text-muted-foreground">No tasks in this schedule.</p>}
         </div>
+      </div>
+    );
+  }
+
+  if (inHouseData) {
+    return (
+      <div className="max-w-2xl mx-auto py-8 px-4 space-y-6">
+        <div>
+          <img src="/images/showme-logo.png" alt="shoWMe" className="h-8" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+        </div>
+        <div className="rounded-xl border bg-card p-6 shadow-sm">
+          <h1 className="text-xl font-bold mb-1">In-House Assignment</h1>
+          <p className="text-sm text-muted-foreground">{inHouseData.eventName} • {inHouseData.memberName}</p>
+          <p className="text-xs text-muted-foreground mt-1">Generated {new Date(inHouseData.generatedAt).toLocaleDateString()}</p>
+        </div>
+
+        {inHouseData.scheduleItems.length > 0 && (
+          <div className="rounded-xl border bg-card p-6 shadow-sm space-y-2">
+            <h2 className="text-sm font-semibold mb-2">Schedule</h2>
+            {inHouseData.scheduleItems.map(s => (
+              <div key={s.id} className="flex items-center gap-3 rounded-lg border px-4 py-2 text-sm">
+                <span className="text-muted-foreground w-14 shrink-0">{s.time}</span>
+                <span className="flex-1 font-medium">{s.label}</span>
+                {s.assignee && <span className="text-xs text-muted-foreground">{s.assignee}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {inHouseData.tasks.length > 0 && (
+          <div className="rounded-xl border bg-card p-6 shadow-sm space-y-2">
+            <h2 className="text-sm font-semibold mb-2">Tasks</h2>
+            {inHouseData.tasks.map(t => (
+              <div key={t.id} className={cn("flex items-center gap-3 rounded-lg border px-4 py-2 text-sm", t.done && "opacity-50")}>
+                <div className={cn("h-4 w-4 rounded border flex items-center justify-center shrink-0", t.done ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground")}>
+                  {t.done && <span className="text-[10px]">&#10003;</span>}
+                </div>
+                <span className={cn("flex-1", t.done && "line-through")}>{t.text}</span>
+                {t.assignee && <span className="text-xs text-muted-foreground">{t.assignee}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {inHouseData.privateNotes.length > 0 && (
+          <div className="rounded-xl border bg-card p-6 shadow-sm space-y-2">
+            <h2 className="text-sm font-semibold mb-2">Notes</h2>
+            {inHouseData.privateNotes.map(n => (
+              <div key={n.id} className="rounded-lg border px-4 py-2 text-sm">
+                <p>{n.text}</p>
+                {n.assignee && <p className="text-xs text-muted-foreground mt-1">{n.assignee}</p>}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {inHouseData.scheduleItems.length === 0 && inHouseData.tasks.length === 0 && inHouseData.privateNotes.length === 0 && (
+          <div className="rounded-xl border bg-card p-6 shadow-sm">
+            <p className="text-sm text-muted-foreground">Nothing has been assigned yet.</p>
+          </div>
+        )}
       </div>
     );
   }

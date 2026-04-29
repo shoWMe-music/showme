@@ -116,3 +116,123 @@ test.describe("Share link flow", () => {
     }
   });
 });
+
+/**
+ * In-house team share links route to /shared/budget/$token but write a
+ * `parties: { type: "in-house", ... }` document. We exercise the public-share
+ * page directly by writing the doc through the Firestore emulator REST API
+ * and then visiting the URL anonymously.
+ */
+test.describe("In-house share link rendering", () => {
+  const FIRESTORE_EMULATOR = "http://127.0.0.1:8090";
+  const PROJECT = "showme-local";
+
+  test("renders schedule, tasks, and notes for an in-house assignment", async ({
+    browser,
+    request,
+  }) => {
+    const token = `e2e-inhouse-${Date.now()}`;
+
+    // Write the publicShares doc directly to the emulator. Field types must
+    // be wrapped per the Firestore REST API value-type contract.
+    const writeRes = await request.patch(
+      `${FIRESTORE_EMULATOR}/v1/projects/${PROJECT}/databases/(default)/documents/publicShares/${token}`,
+      {
+        data: {
+          fields: {
+            kind: { stringValue: "budget" },
+            ownerUid: { stringValue: "e2e-test" },
+            eventId: { stringValue: "EVT-INHOUSE" },
+            createdAt: { stringValue: new Date().toISOString() },
+            parties: {
+              mapValue: {
+                fields: {
+                  type: { stringValue: "in-house" },
+                  eventName: { stringValue: "E2E Festival" },
+                  memberName: { stringValue: "Sound Engineer" },
+                  generatedAt: { stringValue: new Date().toISOString() },
+                  scheduleItems: {
+                    arrayValue: {
+                      values: [
+                        {
+                          mapValue: {
+                            fields: {
+                              id: { stringValue: "sch-1" },
+                              time: { stringValue: "16:00" },
+                              label: { stringValue: "Soundcheck" },
+                              assignee: { stringValue: "Sound Engineer" },
+                            },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                  tasks: {
+                    arrayValue: {
+                      values: [
+                        {
+                          mapValue: {
+                            fields: {
+                              id: { stringValue: "task-1" },
+                              text: { stringValue: "Patch list ready" },
+                              done: { booleanValue: false },
+                              assignee: { stringValue: "Sound Engineer" },
+                            },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                  privateNotes: {
+                    arrayValue: {
+                      values: [
+                        {
+                          mapValue: {
+                            fields: {
+                              id: { stringValue: "note-1" },
+                              text: { stringValue: "Prefer XLR over DI" },
+                              assignee: { stringValue: "Sound Engineer" },
+                            },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+    expect(writeRes.ok()).toBeTruthy();
+
+    // Visit the share URL anonymously (no auth context).
+    const ctx = await browser.newContext();
+    const anon = await ctx.newPage();
+    await anon.goto(`/shared/budget/${token}`);
+
+    // Each section should render — no sign-in gate, no "report not found".
+    await expect(anon.locator("body")).toContainText("In-House Assignment", {
+      timeout: 10_000,
+    });
+    await expect(anon.locator("body")).toContainText("Sound Engineer");
+    await expect(anon.locator("body")).toContainText("Soundcheck");
+    await expect(anon.locator("body")).toContainText("Patch list ready");
+    await expect(anon.locator("body")).toContainText("Prefer XLR over DI");
+    await expect(anon.locator("body")).not.toContainText(/report not found|link has expired/i);
+
+    await ctx.close();
+  });
+
+  test("shows expired/not-found state for an unknown token", async ({ browser }) => {
+    const ctx = await browser.newContext();
+    const anon = await ctx.newPage();
+    await anon.goto(`/shared/budget/does-not-exist-${Date.now()}`);
+    await expect(anon.locator("body")).toContainText(
+      /not found|link has expired/i,
+      { timeout: 10_000 },
+    );
+    await ctx.close();
+  });
+});
