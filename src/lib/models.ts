@@ -1,5 +1,21 @@
 import type { BudgetCalculatorPersisted } from "./budget-types";
 
+/**
+ * Persisted profile-level fields beyond the core SharedProfile shape.
+ * Keep this interface narrow — it documents fields that are stored on the
+ * profile document but live outside the canonical SharedProfile interface
+ * (which is defined in user-context.tsx). Components read/write through
+ * `saveProfile` and structurally typed casts.
+ *
+ * customRoles: user-curated role strings (e.g. "Lighting Wrangler") that
+ * surface in Crew/Team role pickers alongside the hardcoded presets.
+ * Deduped on save. Persisted on the host profile so a user's own custom
+ * vocabulary follows them across all events under that profile.
+ */
+export interface ProfileExtensions {
+  customRoles?: string[];
+}
+
 export type EventStatus = "draft" | "suggested" | "pending" | "confirmed" | "on_hold" | "concluded" | "cancelled";
 
 export type SettlementStatus = "open" | "pending_review" | "comments_received" | "revised" | "finalized" | "partly_paid" | "paid" | "dispute";

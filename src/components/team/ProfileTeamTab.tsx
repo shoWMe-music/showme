@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useUser, type TeamMember, type OperatorRole } from "@/lib/user-context";
 import { useAuth } from "@/lib/auth-context";
@@ -74,13 +74,37 @@ type FormState = {
 };
 const emptyForm: FormState = { name: "", email: "", phone: "", role: "Member", status: "active", notes: "" };
 
-function RoleCombobox({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: string[] }) {
+function RoleCombobox({ value, onChange, options, savedCustoms, onSaveCustom }: {
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  savedCustoms?: string[];
+  onSaveCustom?: (role: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [inputValue, setInputValue] = useState(value);
-  const filtered = options.filter(o => o.toLowerCase().includes(inputValue.toLowerCase()));
+  const [customMode, setCustomMode] = useState(false);
+  const [customDraft, setCustomDraft] = useState("");
+  const optionsLower = new Set(options.map(o => o.toLowerCase()));
+  const cleanedCustoms = (savedCustoms ?? []).filter(c => c && !optionsLower.has(c.toLowerCase()));
+  const filteredPresets = options.filter(o => o.toLowerCase().includes(inputValue.toLowerCase()));
+  const filteredCustoms = cleanedCustoms.filter(o => o.toLowerCase().includes(inputValue.toLowerCase()));
+
+  useEffect(() => { setInputValue(value); }, [value]);
+
+  const commitCustom = () => {
+    const trimmed = customDraft.trim();
+    if (!trimmed) return;
+    onChange(trimmed);
+    setInputValue(trimmed);
+    onSaveCustom?.(trimmed);
+    setCustomDraft("");
+    setCustomMode(false);
+    setOpen(false);
+  };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setCustomMode(false); setCustomDraft(""); } }}>
       <PopoverTrigger asChild>
         <Input
           value={inputValue}
@@ -90,23 +114,71 @@ function RoleCombobox({ value, onChange, options }: { value: string; onChange: (
           className="mt-1"
         />
       </PopoverTrigger>
-      {filtered.length > 0 && (
-        <PopoverContent className="w-[--radix-popover-trigger-width] p-1" align="start" onOpenAutoFocus={e => e.preventDefault()}>
-          {filtered.map(r => (
-            <button key={r} className={cn("w-full text-left px-2 py-1.5 text-sm rounded hover:bg-muted", r === value && "bg-muted font-medium")}
-              onClick={() => { onChange(r); setInputValue(r); setOpen(false); }}>
-              {r}
-            </button>
-          ))}
-        </PopoverContent>
-      )}
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-1 max-h-64 overflow-y-auto" align="start" onOpenAutoFocus={e => e.preventDefault()}>
+        {filteredPresets.map(r => (
+          <button key={r} className={cn("w-full text-left px-2 py-1.5 text-sm rounded hover:bg-muted", r === value && "bg-muted font-medium")}
+            onClick={() => { onChange(r); setInputValue(r); setOpen(false); }}>
+            {r}
+          </button>
+        ))}
+        {filteredCustoms.length > 0 && (
+          <>
+            <div className="px-2 pt-2 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground">Your custom roles</div>
+            {filteredCustoms.map(r => (
+              <button key={`custom-${r}`} className={cn("w-full text-left px-2 py-1.5 text-sm rounded hover:bg-muted", r === value && "bg-muted font-medium")}
+                onClick={() => { onChange(r); setInputValue(r); setOpen(false); }}>
+                {r}
+              </button>
+            ))}
+          </>
+        )}
+        {customMode ? (
+          <div className="flex items-center gap-1 px-1 py-1.5 border-t mt-1">
+            <Input
+              value={customDraft}
+              onChange={e => setCustomDraft(e.target.value)}
+              placeholder="New role name…"
+              className="h-7 text-xs flex-1"
+              autoFocus
+              onKeyDown={e => { if (e.key === "Enter") commitCustom(); if (e.key === "Escape") { setCustomMode(false); setCustomDraft(""); } }}
+            />
+            <Button size="sm" className="h-7 px-2 text-xs" disabled={!customDraft.trim()} onClick={commitCustom}>Save</Button>
+          </div>
+        ) : (
+          <button
+            className="w-full text-left px-2 py-1.5 text-sm rounded hover:bg-muted text-primary border-t mt-1"
+            onClick={() => { setCustomMode(true); setCustomDraft(inputValue); }}
+          >
+            + Custom role…
+          </button>
+        )}
+      </PopoverContent>
     </Popover>
   );
 }
 
 export function ProfileTeamTab() {
-  const { profiles, teamMembers, addTeamMember, updateTeamMember, removeTeamMember, loaded } = useUser();
+  const { profiles, teamMembers, addTeamMember, updateTeamMember, removeTeamMember, loaded, saveProfile } = useUser();
   const { user } = useAuth();
+
+  const customRolesForProfile = (profileId: string): string[] => {
+    const entry = Object.entries(profiles).find(([, p]) => p.id === profileId);
+    if (!entry) return [];
+    const profile = entry[1] as unknown as { customRoles?: string[] };
+    return profile.customRoles ?? [];
+  };
+
+  const persistCustomRoleToProfile = (profileId: string, role: string) => {
+    const trimmed = role.trim();
+    if (!trimmed) return;
+    const entry = Object.entries(profiles).find(([, p]) => p.id === profileId);
+    if (!entry) return;
+    const [slot, profile] = entry;
+    const existing = ((profile as unknown as { customRoles?: string[] }).customRoles ?? []);
+    if (existing.some(r => r.toLowerCase() === trimmed.toLowerCase())) return;
+    const next = [...existing, trimmed];
+    saveProfile(slot, { ...profile, customRoles: next } as typeof profile);
+  };
 
   const ownedProfiles = Object.entries(profiles).filter(
     ([, p]) => p.created && (p.owner_uid === user?.uid || p.id?.startsWith(`${user?.uid}__`)),
@@ -303,6 +375,8 @@ export function ProfileTeamTab() {
                 value={form.role}
                 onChange={v => setForm(p => ({ ...p, role: v }))}
                 options={[...presetRoles, "Member"]}
+                savedCustoms={addOpen ? customRolesForProfile(addOpen) : []}
+                onSaveCustom={(role) => { if (addOpen) persistCustomRoleToProfile(addOpen, role); }}
               />
             </div>
             <div>
@@ -367,6 +441,8 @@ export function ProfileTeamTab() {
                     const key = resolvePresetKey(entry?.[1]?.role as string, entry?.[0]);
                     return PRESET_ROLES[key] ?? [];
                   })(), ...customRolesFromMembers, "Member"]}
+                  savedCustoms={customRolesForProfile(editing.profileId)}
+                  onSaveCustom={(role) => persistCustomRoleToProfile(editing.profileId, role)}
                 />
               </div>
               <div><Label>Status</Label>
