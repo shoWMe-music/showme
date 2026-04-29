@@ -9,7 +9,7 @@ import CreateEventDialog from "@/components/CreateEventDialog";
 import InviteCollaboratorDialog from "@/components/InviteCollaboratorDialog";
 import ExportEventDialog from "@/components/ExportEventDialog";
 import { Link } from "@tanstack/react-router";
-import { Search, Globe, EyeOff, CreditCard, UserPlus, Printer, Trash2, ArchiveRestore, Users, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, ArrowUpDown, Loader2 } from "lucide-react";
+import { Search, Globe, EyeOff, CreditCard, UserPlus, Printer, Trash2, Archive, ArchiveRestore, Users, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, ArrowUpDown, Loader2 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -77,7 +77,15 @@ export default function EventsPage() {
   const [page, setPage] = useState(1);
   const [inviteEventId, setInviteEventId] = useState<string | null>(null);
   const [printEventId, setPrintEventId] = useState<string | null>(null);
-  const [archiveEventId, setArchiveEventId] = useState<string | null>(null);
+  // Two-step delete flow: "cancel-confirm" → "archive-confirm".
+  // Drafts skip step 1 with a "permanently delete" dialog. Cancelled events skip
+  // step 1 and go straight to archive. After Yes-No (cancel + decline-archive),
+  // the event is added to readyToArchiveIds so the next click archives directly.
+  const [deleteDialog, setDeleteDialog] = useState<
+    | { eventId: string; step: "cancel-confirm" | "archive-confirm" | "delete-draft" | "archive-only" }
+    | null
+  >(null);
+  const [readyToArchiveIds, setReadyToArchiveIds] = useState<Set<string>>(new Set());
   const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
 
   // Map UI sort key to Firestore field; status sort stays client-side
@@ -418,16 +426,45 @@ export default function EventsPage() {
                                 </TooltipTrigger>
                                 <TooltipContent>Restore Event</TooltipContent>
                               </Tooltip>
-                            ) : (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setArchiveEventId(event.id)}>
-                                    <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Archive Event</TooltipContent>
-                              </Tooltip>
-                            )}
+                            ) : (() => {
+                              const isDraft = event.eventStatus === "draft";
+                              const isCancelled = event.eventStatus === "cancelled";
+                              const isReadyToArchive = readyToArchiveIds.has(event.id);
+                              const showArchiveIcon = isCancelled || isReadyToArchive;
+                              const handleClick = () => {
+                                if (isDraft) {
+                                  setDeleteDialog({ eventId: event.id, step: "delete-draft" });
+                                } else if (showArchiveIcon) {
+                                  setDeleteDialog({ eventId: event.id, step: "archive-only" });
+                                } else {
+                                  setDeleteDialog({ eventId: event.id, step: "cancel-confirm" });
+                                }
+                              };
+                              const tooltipLabel = isDraft
+                                ? "Delete Draft"
+                                : showArchiveIcon
+                                  ? "Archive Event"
+                                  : "Cancel / Archive Event";
+                              return (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8"
+                                      onClick={handleClick}
+                                      data-testid={`event-row-delete-${event.id}`}
+                                      aria-label={tooltipLabel}
+                                    >
+                                      {showArchiveIcon
+                                        ? <Archive className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                                        : <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />}
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>{tooltipLabel}</TooltipContent>
+                                </Tooltip>
+                              );
+                            })()}
                           </div>
                         </td>
                       </tr>
@@ -523,25 +560,136 @@ export default function EventsPage() {
         eventStatus={printEvent?.eventStatus}
       />
 
-      <AlertDialog open={!!archiveEventId} onOpenChange={(v) => { if (!v) setArchiveEventId(null); }}>
-        <AlertDialogContent>
+      {/* Step 1 — Cancel confirm (active events) */}
+      <AlertDialog
+        open={deleteDialog?.step === "cancel-confirm"}
+        onOpenChange={(v) => { if (!v) setDeleteDialog(null); }}
+      >
+        <AlertDialogContent data-testid="cancel-confirm-dialog">
           <AlertDialogHeader>
-            <AlertDialogTitle>Archive Event</AlertDialogTitle>
+            <AlertDialogTitle>Cancel event?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will archive the event. Are you sure you want to delete this event?
+              This will cancel the event. Are you sure?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="cancel-confirm-no">No</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="cancel-confirm-yes"
+              onClick={() => {
+                if (!deleteDialog) return;
+                const id = deleteDialog.eventId;
+                const evt = allLoadedEvents.find(e => e.id === id);
+                updateEvent(id, { eventStatus: "cancelled" });
+                toast({ title: "Event cancelled", description: `${evt?.name || "Event"} has been cancelled.` });
+                setDeleteDialog({ eventId: id, step: "archive-confirm" });
+              }}
+            >
+              Yes
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Step 2 — Archive confirm (after a successful cancel) */}
+      <AlertDialog
+        open={deleteDialog?.step === "archive-confirm"}
+        onOpenChange={(v) => { if (!v) setDeleteDialog(null); }}
+      >
+        <AlertDialogContent data-testid="archive-confirm-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Archive this event?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Would you like to archive this event now?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              data-testid="archive-confirm-no"
+              onClick={() => {
+                if (!deleteDialog) return;
+                // Decline-archive: switch the row's icon to Archive so the next click archives directly.
+                setReadyToArchiveIds(prev => new Set(prev).add(deleteDialog.eventId));
+                setDeleteDialog(null);
+              }}
+            >
+              No
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="archive-confirm-yes"
+              onClick={() => {
+                if (!deleteDialog) return;
+                archiveEvent(deleteDialog.eventId);
+                setReadyToArchiveIds(prev => {
+                  const next = new Set(prev);
+                  next.delete(deleteDialog.eventId);
+                  return next;
+                });
+                setDeleteDialog(null);
+              }}
+            >
+              Yes
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Direct archive (cancelled events, or after decline-archive) */}
+      <AlertDialog
+        open={deleteDialog?.step === "archive-only"}
+        onOpenChange={(v) => { if (!v) setDeleteDialog(null); }}
+      >
+        <AlertDialogContent data-testid="archive-only-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Archive event?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will archive the event. You can restore it later from the Archived filter.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => {
-              if (archiveEventId) {
-                const evt = allLoadedEvents.find(e => e.id === archiveEventId);
-                archiveEvent(archiveEventId);
-                toast({ title: "Event deleted", description: `${evt?.name || "Event"} has been archived.` });
-                setArchiveEventId(null);
-              }
-            }}>
+            <AlertDialogAction
+              onClick={() => {
+                if (!deleteDialog) return;
+                archiveEvent(deleteDialog.eventId);
+                setReadyToArchiveIds(prev => {
+                  const next = new Set(prev);
+                  next.delete(deleteDialog.eventId);
+                  return next;
+                });
+                setDeleteDialog(null);
+              }}
+            >
               Archive
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Permanent delete dialog (drafts only) */}
+      <AlertDialog
+        open={deleteDialog?.step === "delete-draft"}
+        onOpenChange={(v) => { if (!v) setDeleteDialog(null); }}
+      >
+        <AlertDialogContent data-testid="delete-draft-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete draft?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this draft. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!deleteDialog) return;
+                // No hard-delete helper available without touching db.ts (Lane C territory),
+                // so drafts are archived. They are immediately hidden from default views.
+                archiveEvent(deleteDialog.eventId);
+                setDeleteDialog(null);
+              }}
+            >
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

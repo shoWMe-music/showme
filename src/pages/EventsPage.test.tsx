@@ -178,3 +178,146 @@ describe("resolveOperatorName (A1)", () => {
     expect(resolveOperatorName({}, profiles)).toBe("");
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// A2: Cancel → archive flow state machine — pure-logic reducer derived from
+// the page's behaviour. Mirrors the per-event button and dialog transitions.
+// ────────────────────────────────────────────────────────────────────────────
+
+type DeleteFlowState =
+  | { kind: "idle" }
+  | { kind: "cancel-confirm"; eventId: string }
+  | { kind: "archive-confirm"; eventId: string }
+  | { kind: "archive-only"; eventId: string }
+  | { kind: "delete-draft"; eventId: string };
+
+interface FlowEvent {
+  id: string;
+  eventStatus: "draft" | "cancelled" | "confirmed" | "pending" | "on_hold" | "concluded" | "suggested";
+  archived: boolean;
+}
+
+interface FlowSnapshot {
+  state: DeleteFlowState;
+  readyToArchiveIds: Set<string>;
+  cancelled: Set<string>;
+  archived: Set<string>;
+}
+
+function emptySnapshot(): FlowSnapshot {
+  return {
+    state: { kind: "idle" },
+    readyToArchiveIds: new Set(),
+    cancelled: new Set(),
+    archived: new Set(),
+  };
+}
+
+/** Apply a click on the trash/archive icon for a given event row. */
+function onIconClick(snap: FlowSnapshot, evt: FlowEvent): FlowSnapshot {
+  const isReadyToArchive = snap.readyToArchiveIds.has(evt.id);
+  if (evt.eventStatus === "draft") {
+    return { ...snap, state: { kind: "delete-draft", eventId: evt.id } };
+  }
+  if (evt.eventStatus === "cancelled" || isReadyToArchive) {
+    return { ...snap, state: { kind: "archive-only", eventId: evt.id } };
+  }
+  return { ...snap, state: { kind: "cancel-confirm", eventId: evt.id } };
+}
+
+/** Click "Yes" on the cancel-confirm dialog: cancel the event, then proceed to archive-confirm. */
+function onCancelYes(snap: FlowSnapshot): FlowSnapshot {
+  if (snap.state.kind !== "cancel-confirm") return snap;
+  const id = snap.state.eventId;
+  return {
+    ...snap,
+    cancelled: new Set([...snap.cancelled, id]),
+    state: { kind: "archive-confirm", eventId: id },
+  };
+}
+
+/** Click "No" on the archive-confirm dialog: mark the row ready-to-archive. */
+function onArchiveNo(snap: FlowSnapshot): FlowSnapshot {
+  if (snap.state.kind !== "archive-confirm") return snap;
+  const id = snap.state.eventId;
+  return {
+    ...snap,
+    readyToArchiveIds: new Set([...snap.readyToArchiveIds, id]),
+    state: { kind: "idle" },
+  };
+}
+
+/** Click "Yes" on the archive-confirm or "Archive" on archive-only: archive the event. */
+function onArchiveYes(snap: FlowSnapshot): FlowSnapshot {
+  if (snap.state.kind !== "archive-confirm" && snap.state.kind !== "archive-only") return snap;
+  const id = snap.state.eventId;
+  const next = new Set(snap.readyToArchiveIds);
+  next.delete(id);
+  return {
+    ...snap,
+    archived: new Set([...snap.archived, id]),
+    readyToArchiveIds: next,
+    state: { kind: "idle" },
+  };
+}
+
+/** Determine which icon should appear for a given event row. */
+function iconFor(snap: FlowSnapshot, evt: FlowEvent): "trash" | "archive" {
+  if (evt.eventStatus === "cancelled" || snap.readyToArchiveIds.has(evt.id)) return "archive";
+  return "trash";
+}
+
+describe("EventsPage delete flow (A2)", () => {
+  it("Yes → Yes flow: cancels the event then archives it", () => {
+    const evt: FlowEvent = { id: "E1", eventStatus: "confirmed", archived: false };
+    let snap = emptySnapshot();
+    snap = onIconClick(snap, evt);
+    expect(snap.state).toEqual({ kind: "cancel-confirm", eventId: "E1" });
+    snap = onCancelYes(snap);
+    expect(snap.cancelled.has("E1")).toBe(true);
+    expect(snap.state).toEqual({ kind: "archive-confirm", eventId: "E1" });
+    snap = onArchiveYes(snap);
+    expect(snap.archived.has("E1")).toBe(true);
+    expect(snap.state).toEqual({ kind: "idle" });
+  });
+
+  it("Yes → No flow: cancels the event, swaps icon to Archive, next click archives directly", () => {
+    let evt: FlowEvent = { id: "E2", eventStatus: "confirmed", archived: false };
+    let snap = emptySnapshot();
+    expect(iconFor(snap, evt)).toBe("trash");
+    snap = onIconClick(snap, evt);
+    snap = onCancelYes(snap);
+    snap = onArchiveNo(snap);
+    expect(snap.cancelled.has("E2")).toBe(true);
+    expect(snap.archived.has("E2")).toBe(false);
+    expect(snap.readyToArchiveIds.has("E2")).toBe(true);
+    expect(snap.state).toEqual({ kind: "idle" });
+
+    // After cancel, the row would also be cancelled in the live cache; here we
+    // hold the original status to confirm readyToArchiveIds alone flips the icon.
+    evt = { ...evt, eventStatus: "confirmed" };
+    expect(iconFor(snap, evt)).toBe("archive");
+
+    // Next click on the now-Archive icon goes straight to archive-only.
+    snap = onIconClick(snap, evt);
+    expect(snap.state).toEqual({ kind: "archive-only", eventId: "E2" });
+    snap = onArchiveYes(snap);
+    expect(snap.archived.has("E2")).toBe(true);
+    expect(snap.readyToArchiveIds.has("E2")).toBe(false);
+  });
+
+  it("Drafts skip step 1 and go straight to permanent-delete dialog", () => {
+    const draft: FlowEvent = { id: "E3", eventStatus: "draft", archived: false };
+    let snap = emptySnapshot();
+    snap = onIconClick(snap, draft);
+    expect(snap.state).toEqual({ kind: "delete-draft", eventId: "E3" });
+  });
+
+  it("Cancelled events skip step 1 and go straight to archive-only", () => {
+    const cancelled: FlowEvent = { id: "E4", eventStatus: "cancelled", archived: false };
+    let snap = emptySnapshot();
+    expect(iconFor(snap, cancelled)).toBe("archive");
+    snap = onIconClick(snap, cancelled);
+    expect(snap.state).toEqual({ kind: "archive-only", eventId: "E4" });
+  });
+});
