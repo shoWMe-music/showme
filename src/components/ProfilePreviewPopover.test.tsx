@@ -87,7 +87,9 @@ describe("ProfilePreviewPopover", () => {
     });
   });
 
-  it("renders an internal same-tab link when profile has slug but isPublic is false", async () => {
+  it("renders a new-tab link when profile has slug but isPublic is false", async () => {
+    // Non-public profiles still navigate to /p/<slug> in a new tab —
+    // PublicProfilePage handles the owner-side lookup for non-public docs.
     setProfilePreviewData({
       id: "p-ran",
       name: "Ran Nir",
@@ -101,8 +103,7 @@ describe("ProfilePreviewPopover", () => {
     await waitFor(() => {
       const link = screen.getByRole("link", { name: /View Profile/i });
       expect(link).toHaveAttribute("href", "/p/ran-nir");
-      // Internal link should NOT open in a new tab.
-      expect(link).not.toHaveAttribute("target");
+      expect(link).toHaveAttribute("target", "_blank");
     });
   });
 
