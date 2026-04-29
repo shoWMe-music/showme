@@ -15,7 +15,28 @@ import {
   useAddContact,
 } from "@/lib/queries";
 import type { DealType, ContactType, Rider, Event } from "@/lib/models";
+import type { SharedProfile } from "@/lib/user-context";
 import type { PartyState, PerformerEntry, PrefillData } from "./types";
+
+/**
+ * Resolve the host profile ID strictly by the selected role.
+ * Only accepts a profile when its stored `role` matches `selectedRole` —
+ * this prevents picking up an unrelated profile (e.g. a venue operator who
+ * also owns a performer profile) when the slot key happens to collide.
+ */
+export function resolveHostProfileId(
+  profiles: Record<string, SharedProfile>,
+  selectedRole: OperatorRole | null,
+): string | undefined {
+  if (!selectedRole) return undefined;
+  const candidate = profiles[selectedRole];
+  if (candidate?.created && candidate.role === selectedRole) return candidate.id;
+  // Fallback: find the first created profile whose role matches.
+  const fallback = Object.values(profiles).find(
+    (p) => p.created && p.role === selectedRole,
+  );
+  return fallback?.id;
+}
 
 interface SubmitParams {
   selectedRole: OperatorRole | null;
@@ -68,7 +89,13 @@ export function useCreateEventSubmit() {
 
   const ensureContact = (name: string, type: ContactType) => {
     if (!name.trim()) return;
-    const ownProfileNames = Object.values(profiles).map(p => p.name);
+    // Skip if the name matches the current user's own display name
+    if (currentUser.name && name.trim().toLowerCase() === currentUser.name.trim().toLowerCase()) return;
+    // Skip if the name matches ANY of the user's own profile names — contacts are external only.
+    // Filter out empty/missing names so an unnamed profile slot doesn't break the check.
+    const ownProfileNames = Object.values(profiles)
+      .map(p => p?.name)
+      .filter((n): n is string => typeof n === "string" && n.trim().length > 0);
     if (isOwnProfileName(name, ownProfileNames)) return;
     if (contactExists(existingContacts, name, type)) return;
     addContactMutation.mutate({ contact: { id: `P-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name: name.trim(), type, contacts: [], iban: "", bankName: "", vatId: "", address: "", notes: "" } });
@@ -85,7 +112,7 @@ export function useCreateEventSubmit() {
     } = params;
 
     const operatorType = selectedRole === "venue" ? "venue" as const : selectedRole === "organizer" ? "organizer" as const : "promoter" as const;
-    const hostProfileId = selectedRole ? profiles[selectedRole]?.id : undefined;
+    const hostProfileId = resolveHostProfileId(profiles, selectedRole);
     const accessUids = currentUser.id ? [currentUser.id] : [];
     const resolvedVenue = isMultiPerformer && multiVenueType === "festival" ? festivalName : venueName;
     const partyTypeMap: Record<string, ContactType> = { bookerAgent: "agent", promoter: "promoter", management: "manager" };
@@ -101,13 +128,19 @@ export function useCreateEventSubmit() {
 
       // Resolve all performer profiles — look up by name if not captured from dropdown
       const resolvedPerformers = await Promise.all(performers.map(async (perf) => {
-        if (perf.performerProfileId || !perf.artistName.trim()) return perf;
-        try {
-          const { profiles: matches } = await searchArtistProfiles(perf.artistName.trim(), 1, null);
-          const exact = matches.find(p => p.name.toLowerCase() === perf.artistName.trim().toLowerCase());
-          if (exact) return { ...perf, performerProfileId: exact.id };
-        } catch { /* non-critical */ }
-        return perf;
+        let next = perf;
+        if (!perf.performerProfileId && perf.artistName.trim()) {
+          try {
+            const { profiles: matches } = await searchArtistProfiles(perf.artistName.trim(), 1, null);
+            const exact = matches.find(p => p.name.toLowerCase() === perf.artistName.trim().toLowerCase());
+            if (exact) next = { ...perf, performerProfileId: exact.id };
+          } catch { /* non-critical */ }
+        }
+        // Guard: a performer profile must never equal the host profile ID.
+        if (next.performerProfileId && next.performerProfileId === hostProfileId) {
+          next = { ...next, performerProfileId: "" };
+        }
+        return next;
       }));
 
       const allPerformerProfileIds = resolvedPerformers.map(p => p.performerProfileId).filter(Boolean);
@@ -204,6 +237,12 @@ export function useCreateEventSubmit() {
           if (exact) resolvedPerformerProfileId = exact.id;
         } catch { /* non-critical */ }
       }
+      // Guard: never let the performer profile ID equal the host profile ID.
+      // This protects against profile-keying mix-ups when the operator has
+      // multiple profile types (e.g. venue + performer on the same account).
+      if (resolvedPerformerProfileId && resolvedPerformerProfileId === hostProfileId) {
+        resolvedPerformerProfileId = "";
+      }
 
       const accessProfileIds = [hostProfileId, resolvedPerformerProfileId].filter(Boolean) as string[];
       const finalAccessUids = [...accessUids];
@@ -235,11 +274,11 @@ export function useCreateEventSubmit() {
           artistSplit: parseFloat(artistSplit) || 0,
           promoterSplit: parseFloat(promoterSplit) || 0,
           venueSplit: parseFloat(venueSplit) || 0,
-          organizerSplit: 0,
+          organizerSplit: params.organizerSplit ?? 0,
           artistCostSplit: parseFloat(artistCostSplit) || 0,
           promoterCostSplit: parseFloat(promoterCostSplit) || 0,
           venueCostSplit: parseFloat(venueCostSplit) || 0,
-          organizerCostSplit: 0,
+          organizerCostSplit: params.organizerCostSplit ?? 0,
           venueRental: parseFloat(venueRental) || 0,
           venueRentalPaymentMode: parseFloat(venueRental) > 0 ? venueRentalPaymentMode : "deduct_at_settlement",
           commissions,
