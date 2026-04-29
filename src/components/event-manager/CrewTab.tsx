@@ -32,9 +32,72 @@ import {
   Download, Share2, Copy, Edit2, Check, X, ListTodo,
 } from "lucide-react";
 
+const CREW_PRESET_ROLES: Record<string, string[]> = {
+  performer: ["Lead Artist / Band Leader", "Band Member", "Booking Agent", "Artist Manager", "Tour Manager", "Production Manager", "Sound Engineer (FOH)", "Monitor Engineer", "Lighting Designer", "Stage Manager", "Backline Technician", "Merchandise Manager", "Content Creator / Videographer", "Publicist / PR", "Social Media Manager"],
+  venue: ["Venue Owner", "General Manager", "Venue Booker", "Talent Buyer", "Event Manager", "Technical Manager", "Sound Engineer (House)", "Lighting Technician", "Bar Manager", "Bartender", "Host", "Door", "Tickets", "Guest List", "Merchandise", "Waiter / Waitress", "Staff Manager", "HR", "Box Office Manager", "Security Manager", "Security Guard", "Hospitality Manager", "Cleaning / Maintenance"],
+};
+
+/**
+ * Returns true when a team member is already represented in the crew list.
+ * Identity is keyed on `teamMemberId` (the canonical link set when autofilling
+ * from the team directory). Falls back to a non-empty-email match for crew
+ * entries created manually before the team-directory link existed.
+ */
+export function isMemberAlreadyInCrew(
+  crew: Array<{ name?: string; email?: string; teamMemberId?: string }>,
+  member: { id: string; email?: string },
+): boolean {
+  return crew.some(c => {
+    if (c.teamMemberId && c.teamMemberId === member.id) return true;
+    if (member.email && c.email && c.email === member.email) return true;
+    return false;
+  });
+}
+
+function CrewRoleCombobox({ value, onChange, profileType }: { value: string; onChange: (v: string) => void; profileType?: string }) {
+  const [open, setOpen] = useState(false);
+  const [inputValue, setInputValue] = useState(value);
+  const options = CREW_PRESET_ROLES[profileType ?? ""] ?? [...(CREW_PRESET_ROLES.performer ?? []), ...(CREW_PRESET_ROLES.venue ?? [])];
+  const filtered = options.filter(o => o.toLowerCase().includes(inputValue.toLowerCase()));
+
+  // Sync external value changes
+  useEffect(() => { setInputValue(value); }, [value]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Input
+          value={inputValue}
+          onChange={e => { setInputValue(e.target.value); onChange(e.target.value); if (!open) setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          placeholder="Type or select role..."
+          className="mt-1"
+        />
+      </PopoverTrigger>
+      {filtered.length > 0 && (
+        <PopoverContent className="w-[--radix-popover-trigger-width] p-1 max-h-48 overflow-y-auto" align="start" onOpenAutoFocus={e => e.preventDefault()}>
+          {filtered.map(r => (
+            <button key={r} className={cn("w-full text-left px-2 py-1.5 text-sm rounded hover:bg-muted", r === value && "bg-muted font-medium")}
+              onClick={() => { onChange(r); setInputValue(r); setOpen(false); }}>
+              {r}
+            </button>
+          ))}
+        </PopoverContent>
+      )}
+    </Popover>
+  );
+}
+
 /* ─── Team/Crew Tab ─── */
-export function CrewTab({ eventMeta, event, collaborators: propCollaborators, onSave, actingProfile, profileTodos, saveProfileTodos }: { eventMeta: EventMeta; event: AppEvent; collaborators: EventCollaborator[]; onSave?: (d: Partial<EventMeta>) => void; actingProfile?: string; profileTodos?: Todo[]; saveProfileTodos?: (todos: Todo[]) => void }) {
-  const { teamMembers, addTeamMember } = useUser();
+export function CrewTab({ eventMeta, event, collaborators: propCollaborators, onSave, actingProfile, profileTodos, saveProfileTodos, isPerformer }: { eventMeta: EventMeta; event: AppEvent; collaborators: EventCollaborator[]; onSave?: (d: Partial<EventMeta>) => void; actingProfile?: string; profileTodos?: Todo[]; saveProfileTodos?: (todos: Todo[]) => void; isPerformer?: boolean }) {
+  const { teamMembers, addTeamMember, profiles } = useUser();
+
+  const hostProfileType = useMemo(() => {
+    const hostId = event.hostProfileId;
+    if (!hostId) return undefined;
+    const entry = Object.values(profiles).find(p => p.id === hostId);
+    return entry?.role;
+  }, [event.hostProfileId, profiles]);
 
   const handleCreateTeamMember = (name: string) => {
     const newMember: import("@/lib/user-context").TeamMember = {
@@ -231,11 +294,10 @@ th{background:#f5f5f5;font-weight:600}.meta{color:#666;font-size:13px;margin-bot
   };
 
   const [autofillCollaborators, setAutofillCollaborators] = useState<Record<string, string>>({});
+  const [autofillRoles, setAutofillRoles] = useState<Record<string, string>>({});
 
-  const handleAutofill = (member: { id: string; name: string; email: string; roles: string[] }) => {
-    const exists = crew.some(c =>
-      (member.email && c.email) ? c.email === member.email : c.name === member.name
-    );
+  const handleAutofill = (member: { id: string; name: string; email: string; roles: string[] }, customRole?: string) => {
+    const exists = crew.some(c => c.teamMemberId === member.id);
     if (exists) {
       toast({ title: "Already added", description: `${member.name} is already in the crew.`, variant: "destructive" });
       return;
@@ -244,9 +306,10 @@ th{background:#f5f5f5;font-weight:600}.meta{color:#666;font-size:13px;margin-bot
     setCrew(prev => [...prev, {
       id: `CR-${Date.now()}`,
       name: member.name,
-      role: member.roles.join(", "),
+      role: customRole?.trim() || member.roles.join(", "),
       email: member.email,
       collaborator: collabName || undefined,
+      teamMemberId: member.id,
     }]);
     toast({ title: "Member added", description: `${member.name} added from your team directory.` });
   };
@@ -333,15 +396,17 @@ th{background:#f5f5f5;font-weight:600}.meta{color:#666;font-size:13px;margin-bot
         >
           <Users className="h-4 w-4 inline mr-1.5" /> Shared Team
         </button>
-        <button
-          onClick={() => setActiveSection("inhouse")}
-          className={cn(
-            "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px",
-            activeSection === "inhouse" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-          )}
-        >
-          <Shield className="h-4 w-4 inline mr-1.5" /> In-House Management
-        </button>
+        {!isPerformer && (
+          <button
+            onClick={() => setActiveSection("inhouse")}
+            className={cn(
+              "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px",
+              activeSection === "inhouse" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Shield className="h-4 w-4 inline mr-1.5" /> In-House Management
+          </button>
+        )}
       </div>
 
       {activeSection === "shared" && (
@@ -494,7 +559,7 @@ th{background:#f5f5f5;font-weight:600}.meta{color:#666;font-size:13px;margin-bot
         </>
       )}
 
-      {activeSection === "inhouse" && (
+      {activeSection === "inhouse" && !isPerformer && (
         <div className="space-y-6">
           <div>
             <h3 className="font-display text-lg font-semibold flex items-center gap-2">
@@ -751,7 +816,7 @@ th{background:#f5f5f5;font-weight:600}.meta{color:#666;font-size:13px;margin-bot
           <DialogHeader><DialogTitle>Add Team Member</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div><Label>Name</Label><Input value={newMember.name} onChange={(e) => setNewMember(p => ({...p, name: e.target.value}))} placeholder="Full name" className="mt-1" /></div>
-            <div><Label>Role</Label><Input value={newMember.role} onChange={(e) => setNewMember(p => ({...p, role: e.target.value}))} placeholder="e.g. Sound Engineer, Tour Manager" className="mt-1" /></div>
+            <div><Label>Role</Label><CrewRoleCombobox value={newMember.role} onChange={(v) => setNewMember(p => ({...p, role: v}))} profileType={hostProfileType} /></div>
             <div className="grid grid-cols-2 gap-3">
               <div><Label>Email</Label><Input value={newMember.email} onChange={(e) => setNewMember(p => ({...p, email: e.target.value}))} placeholder="email@example.com" className="mt-1" /></div>
               <div><Label>Phone</Label><Input value={newMember.phone} onChange={(e) => setNewMember(p => ({...p, phone: e.target.value}))} placeholder="+31 ..." className="mt-1" /></div>
@@ -785,9 +850,7 @@ th{background:#f5f5f5;font-weight:600}.meta{color:#666;font-size:13px;margin-bot
           <p className="text-sm text-muted-foreground">Select team members to add to this event{autofillToGroup ? ` under "${autofillToGroup}"` : ""}.</p>
           <div className="space-y-2 py-2 max-h-[300px] overflow-y-auto">
             {teamMembers.map(m => {
-              const alreadyAdded = crew.some(c =>
-                (m.email && c.email) ? c.email === m.email : c.name === m.name
-              );
+              const alreadyAdded = isMemberAlreadyInCrew(crew, m);
               return (
                 <div key={m.id} className="rounded-lg border p-3 space-y-2">
                   <div className="flex items-center justify-between">
@@ -800,17 +863,26 @@ th{background:#f5f5f5;font-weight:600}.meta{color:#666;font-size:13px;margin-bot
                         <p className="text-xs text-muted-foreground">{m.roles.join(", ")} · {m.email}</p>
                       </div>
                     </div>
-                    <Button size="sm" variant={alreadyAdded ? "secondary" : "outline"} disabled={alreadyAdded} onClick={() => handleAutofill(m)}>
+                    <Button size="sm" variant={alreadyAdded ? "secondary" : "outline"} disabled={alreadyAdded} onClick={() => handleAutofill(m, autofillRoles[m.id])}>
                       {alreadyAdded ? "Added" : "Add"}
                     </Button>
                   </div>
-                  {!alreadyAdded && !autofillToGroup && (
-                    <Input
-                      value={autofillCollaborators[m.id] || ""}
-                      onChange={(e) => setAutofillCollaborators(p => ({ ...p, [m.id]: e.target.value }))}
-                      placeholder="Collaborator or Team name (optional)"
-                      className="h-7 text-xs"
-                    />
+                  {!alreadyAdded && (
+                    <div className="space-y-1.5">
+                      <CrewRoleCombobox
+                        value={autofillRoles[m.id] || ""}
+                        onChange={(v) => setAutofillRoles(p => ({ ...p, [m.id]: v }))}
+                        profileType={hostProfileType}
+                      />
+                      {!autofillToGroup && (
+                        <Input
+                          value={autofillCollaborators[m.id] || ""}
+                          onChange={(e) => setAutofillCollaborators(p => ({ ...p, [m.id]: e.target.value }))}
+                          placeholder="Collaborator or Team name (optional)"
+                          className="h-7 text-xs"
+                        />
+                      )}
+                    </div>
                   )}
                 </div>
               );
