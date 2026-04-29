@@ -15,7 +15,7 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "build:ssr": "MODE=ssr vite build --mode ssr",
-    "build:all": "vite build && npm run build:ssr && cp dist/client/index.html functions/lib/index.template.html",
+    "build:all": "vite build && npm run build:ssr && node scripts/build-ssr-template.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",

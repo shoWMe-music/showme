@@ -295,14 +295,20 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   }, [teamMembersQuery.data]);
 
   // ── Set loaded once settings + profiles are done (team loads in background) ─
+  // Unauthenticated visitors (no uid) have nothing to load — flip loaded=true
+  // immediately so public pages don't get stuck on a loading skeleton waiting
+  // for queries that will never run.
   useEffect(() => {
-    if (!queriesEnabled) return;
+    if (!queriesEnabled) {
+      if (!authLoading) setLoaded(true);
+      return;
+    }
     const settingsDone = settingsQuery.isSuccess || settingsQuery.isError;
     const profilesDone = profilesQuery.isSuccess || profilesQuery.isError;
     if (settingsDone && profilesDone) {
       setLoaded(true);
     }
-  }, [queriesEnabled, settingsQuery.isSuccess, settingsQuery.isError, profilesQuery.isSuccess, profilesQuery.isError]);
+  }, [queriesEnabled, authLoading, settingsQuery.isSuccess, settingsQuery.isError, profilesQuery.isSuccess, profilesQuery.isError]);
 
   // ── 4. Claim invites side effect — fires after settings + profiles load ───
   useEffect(() => {

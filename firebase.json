@@ -4,6 +4,7 @@
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "cleanUrls": true,
     "trailingSlash": false,
+    "predeploy": ["npm --prefix \"$PROJECT_DIR\" run build:all"],
     "headers": [
       {
         "source": "/assets/**",
@@ -27,11 +28,7 @@
       { "source": "/login", "function": "ssrRender", "region": "europe-west1" },
       { "source": "/signup", "function": "ssrRender", "region": "europe-west1" },
       { "source": "/p/**", "function": "ssrRender", "region": "europe-west1" },
-      { "source": "/review/**", "function": "ssrRender", "region": "europe-west1" },
-      { "source": "/shared/**", "function": "ssrRender", "region": "europe-west1" },
-      { "source": "/availability/**", "function": "ssrRender", "region": "europe-west1" },
       { "source": "/event/**", "function": "ssrRender", "region": "europe-west1" },
-      { "source": "/collaborate/**", "function": "ssrRender", "region": "europe-west1" },
       { "source": "**", "destination": "/index.html" }
     ]
   },

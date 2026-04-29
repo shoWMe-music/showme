@@ -1,6 +1,10 @@
 import { renderToString } from "react-dom/server";
 import { createMemoryHistory, createRouter, RouterProvider } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider, dehydrate, HydrationBoundary } from "@tanstack/react-query";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { AuthProvider } from "@/lib/auth-context";
+import { UserProvider } from "@/lib/user-context";
+import { BreadcrumbProvider } from "@/components/TopBreadcrumb";
 import { router as _routerSingleton } from "./router";
 
 export interface RenderResult {
@@ -22,9 +26,17 @@ export async function render(url: string): Promise<RenderResult> {
 
   const html = renderToString(
     <QueryClientProvider client={queryClient}>
-      <HydrationBoundary state={dehydrate(queryClient)}>
-        <RouterProvider router={router} />
-      </HydrationBoundary>
+      <TooltipProvider>
+        <AuthProvider>
+          <UserProvider>
+            <BreadcrumbProvider>
+              <HydrationBoundary state={dehydrate(queryClient)}>
+                <RouterProvider router={router} />
+              </HydrationBoundary>
+            </BreadcrumbProvider>
+          </UserProvider>
+        </AuthProvider>
+      </TooltipProvider>
     </QueryClientProvider>
   );
 

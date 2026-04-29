@@ -11,7 +11,12 @@ await build({
   platform: "node",
   target: "node22",
   format: "esm",
+  jsx: "automatic",
   outfile: resolve(__dirname, "lib/ssr-bundle.js"),
+  // ESM output + CJS deps (react-dom/server) need a real require for Node builtins
+  banner: {
+    js: "import { createRequire } from 'module';\nconst require = createRequire(import.meta.url);",
+  },
   external: [
     "firebase-admin",
     "firebase-functions",

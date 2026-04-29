@@ -38,9 +38,7 @@ function injectIntoTemplate(
     .replace(
       '<div id="root"></div>',
       `<div id="root">${html}</div>\n  <script>window.__DEHYDRATED_STATE__ = ${JSON.stringify(dehydratedState)};</script>`,
-    )
-    // Swap main.tsx entry for entry-client.tsx so SSR pages hydrate correctly
-    .replace(/\/assets\/main-[^"]+\.js"/, (match) => match.replace("main-", "entry-client-"));
+    );
 }
 
 export const ssrRender = onRequest(

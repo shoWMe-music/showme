@@ -60,6 +60,59 @@ for (const env of [
       expect(isReviewPage, `Body first 300: ${body.slice(0, 300)}`).toBeTruthy();
     });
 
+    test("Public profile (/p/$slug): renders + entry script loads without console errors", async ({ page }) => {
+      test.skip(env.name === "local", "Public profile validation only meaningful against deployed prod");
+
+      const errors: string[] = [];
+      page.on("pageerror", (err) => errors.push(err.message));
+      page.on("console", (msg) => {
+        if (msg.type() === "error") errors.push(msg.text());
+      });
+
+      const resp = await page.goto(`${env.base}/p/the-test-venue`, { waitUntil: "domcontentloaded" });
+      expect(resp?.status()).toBeLessThan(500);
+
+      // The entry script must load with the correct JS MIME type. A bad rewrite
+      // or stale SSR template would 404 the script and the catch-all would return
+      // text/html, triggering the strict-MIME failure we hit on 2026-04-29.
+      const scriptSrc = await page.locator('script[type="module"][src*="/assets/"]').first().getAttribute("src");
+      expect(scriptSrc, "no entry script tag found").toMatch(/\/assets\/(main|entry-client)-[^"]+\.js/);
+      const assetResp = await page.request.get(`${env.base}${scriptSrc}`);
+      expect(assetResp.status(), `entry script ${scriptSrc} did not return 200`).toBe(200);
+      expect(assetResp.headers()["content-type"]).toContain("javascript");
+
+      // Wait for SPA bootstrap + profile fetch.
+      await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+
+      // No runtime / hydration errors leaked to the console.
+      const meaningfulErrors = errors.filter(
+        (e) =>
+          !e.includes("favicon") &&
+          !e.toLowerCase().includes("google maps") &&
+          !e.includes("Failed to load resource: the server responded with a status of 404"),
+      );
+      expect(
+        meaningfulErrors,
+        `Console errors after load:\n${meaningfulErrors.join("\n")}`,
+      ).toEqual([]);
+
+      // Page must show real content — either profile copy or an explicit not-found,
+      // never a generic SPA 404 or perpetual skeleton.
+      const body = (await page.locator("body").textContent()) ?? "";
+      expect(body.toLowerCase()).not.toContain("page not found");
+      const renderedSomething =
+        body.toLowerCase().includes("not found") ||
+        body.toLowerCase().includes("venue") ||
+        body.toLowerCase().includes("performer") ||
+        body.toLowerCase().includes("promoter") ||
+        body.toLowerCase().includes("about") ||
+        body.toLowerCase().includes("location");
+      expect(
+        renderedSomething,
+        `Public profile body had no recognizable content. First 400 chars: ${body.slice(0, 400)}`,
+      ).toBeTruthy();
+    });
+
     test("Cloud Function: setCollaboratorInvitePassword endpoint reachable", async ({ request }) => {
       // We only check that the function exists. A 401/UNAUTHENTICATED is the
       // expected shape — a 404 would mean the function wasn't deployed.
