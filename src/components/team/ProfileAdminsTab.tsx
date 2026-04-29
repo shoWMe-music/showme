@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { useUser } from "@/lib/user-context";
+import { Link } from "@tanstack/react-router";
+import { useUser, getBaseRole } from "@/lib/user-context";
 import { useAuth } from "@/lib/auth-context";
 import {
   fetchProfileMembers,
@@ -8,6 +9,7 @@ import {
   removeProfileMember,
   inviteProfileAdmin,
   cancelProfileInvite,
+  deleteProfile,
   type ProfileMemberInfo,
 } from "@/lib/db";
 import type { ProfileInviteRecord } from "@/lib/profiles";
@@ -27,7 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
-import { Crown, Mail, Plus, Trash2, UserCheck, Users, X } from "lucide-react";
+import { Crown, Edit2, Mail, Plus, Trash2, UserCheck, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const ROLE_LABELS = { owner: "Owner", admin: "Admin", editor: "Editor" } as const;
@@ -49,17 +51,25 @@ interface InviteForm {
 }
 
 export function ProfileAdminsTab() {
-  const { profiles } = useUser();
+  const { profiles, setProfiles } = useUser();
   const { user } = useAuth();
 
+  // Show all profiles the current user owns — including legacy "artist" slot
+  // entries left over from the artist -> performer rename, so the user can
+  // delete the phantom record from this page.
   const ownedProfiles = Object.entries(profiles).filter(
-    ([, p]) => p.created && (p.owner_uid === user?.uid || p.id?.startsWith(`${user?.uid}__`)),
+    ([, p]) => {
+      if (!p.created) return false;
+      if (!(p.owner_uid === user?.uid || p.id?.startsWith(`${user?.uid}__`))) return false;
+      return true;
+    },
   );
 
   const [profileState, setProfileState] = useState<Record<string, ProfileState>>({});
   const [inviteOpen, setInviteOpen] = useState<string | null>(null); // profileId
   const [inviteForm, setInviteForm] = useState<InviteForm>({ email: "", role: "admin" });
   const [inviting, setSaving] = useState(false);
+  const [deletingProfileId, setDeletingProfileId] = useState<string | null>(null);
 
   const loadProfile = useCallback(async (profileId: string) => {
     setProfileState((p) => ({ ...p, [profileId]: { members: [], invites: [], loading: true } }));
@@ -119,6 +129,31 @@ export function ProfileAdminsTab() {
     loadProfile(profileId);
   };
 
+  const handleDeleteProfile = useCallback(
+    async (slot: string, profileId: string | undefined) => {
+      setDeletingProfileId(profileId ?? slot);
+      // Optimistic local removal
+      setProfiles((prev) => {
+        const updated = { ...prev };
+        delete updated[slot];
+        return updated;
+      });
+      try {
+        if (profileId) await deleteProfile(profileId);
+        toast({ title: "Profile deleted", description: "The profile has been removed." });
+      } catch (err) {
+        toast({
+          title: "Could not delete profile",
+          description: err instanceof Error ? err.message : "Unknown error",
+          variant: "destructive",
+        });
+      } finally {
+        setDeletingProfileId(null);
+      }
+    },
+    [setProfiles],
+  );
+
   if (ownedProfiles.length === 0) {
     return (
       <div className="rounded-xl border bg-card p-12 text-center">
@@ -137,19 +172,62 @@ export function ProfileAdminsTab() {
       {ownedProfiles.map(([slot, profile]) => {
         const profileId = profile.id || "";
         const state = profileState[profileId];
+        // Phantom entries left over from the artist -> performer rename:
+        // these have slot === "artist" or role === "artist" and should not
+        // route to the editor (no /profiles/artist/edit route exists).
+        const isPhantom = slot === "artist" || slot.startsWith("artist") || (profile.role as string) === "artist";
+        const editRole = isPhantom ? null : getBaseRole(slot);
+        const deletingThis = deletingProfileId === (profileId || slot);
 
         return (
-          <div key={profileId} className="rounded-xl border bg-card shadow-sm overflow-hidden">
+          <div key={profileId || slot} className="rounded-xl border bg-card shadow-sm overflow-hidden">
             {/* Profile header */}
             <div className="flex items-center justify-between px-5 py-4 border-b bg-muted/30">
               <div>
                 <p className="font-semibold">{profile.name ?? slot}</p>
-                <p className="text-xs text-muted-foreground capitalize">{slot}</p>
+                <p className="text-xs text-muted-foreground capitalize">
+                  {slot}{isPhantom && <span className="ml-1 text-amber-600">(legacy — please delete)</span>}
+                </p>
               </div>
-              <Button size="sm" variant="outline" className="gap-1.5"
-                onClick={() => { setInviteOpen(profileId); setInviteForm({ email: "", role: "admin" }); }}>
-                <Plus className="h-3.5 w-3.5" /> Invite
-              </Button>
+              <div className="flex items-center gap-2">
+                {!isPhantom && (
+                  <Button size="sm" variant="outline" className="gap-1.5"
+                    onClick={() => { setInviteOpen(profileId); setInviteForm({ email: "", role: "admin" }); }}>
+                    <Plus className="h-3.5 w-3.5" /> Invite
+                  </Button>
+                )}
+                {editRole && (
+                  <Link to="/profiles/$role/edit" params={{ role: editRole }}>
+                    <Button size="sm" variant="outline" className="gap-1.5">
+                      <Edit2 className="h-3.5 w-3.5" /> Edit Profile
+                    </Button>
+                  </Link>
+                )}
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button size="sm" variant="outline" className="gap-1.5 text-destructive hover:text-destructive" disabled={deletingThis}>
+                      <Trash2 className="h-3.5 w-3.5" /> Delete
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete profile "{profile.name ?? slot}"?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        By deleting your profile, all your data associated with it will be lost. This includes the public page, team members, and access for collaborators. This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => handleDeleteProfile(slot, profile.id)}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        Delete Profile
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
             </div>
 
             {/* Members */}
