@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Camera, MapPin, Music, Globe, Image, Video, Users, Plus, X, Save, ArrowLeft, Trash2, ExternalLink, FileText, FileUp, ChevronsUpDown, Check, MoveVertical,
+  Camera, MapPin, Music, Globe, Image, Video, Users, Plus, X, Save, ArrowLeft, Trash2, ExternalLink, FileText, FileUp, ChevronsUpDown, Check, MoveVertical, MoveHorizontal,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -294,8 +294,9 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
                 alt="Banner"
                 className="w-full h-full object-cover"
                 style={{
-                  // bannerOffsetY field added on SharedProfile by Lane C; falls back to centered (50%)
-                  objectPosition: `center ${typeof (data as { bannerOffsetY?: number }).bannerOffsetY === "number" ? (data as { bannerOffsetY?: number }).bannerOffsetY : 50}%`,
+                  // bannerOffsetX/Y default to 50% (centered) when unset.
+                  // TODO: move bannerOffsetX/bannerOffsetY onto SharedProfile in models.ts after Wave 6 swarm
+                  objectPosition: `${typeof (data as { bannerOffsetX?: number }).bannerOffsetX === "number" ? (data as { bannerOffsetX?: number }).bannerOffsetX : 50}% ${typeof (data as { bannerOffsetY?: number }).bannerOffsetY === "number" ? (data as { bannerOffsetY?: number }).bannerOffsetY : 50}%`,
                 }}
               />
             ) : (
@@ -315,24 +316,44 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
               <span className="text-xs text-muted-foreground">Recommended: 1500×500</span>
             </div>
             {data.bannerUrl && (() => {
+              const offsetX = typeof (data as { bannerOffsetX?: number }).bannerOffsetX === "number"
+                ? (data as { bannerOffsetX?: number }).bannerOffsetX!
+                : 50;
               const offsetY = typeof (data as { bannerOffsetY?: number }).bannerOffsetY === "number"
                 ? (data as { bannerOffsetY?: number }).bannerOffsetY!
                 : 50;
               return (
-                <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-                  <MoveVertical className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <Label className="text-xs whitespace-nowrap shrink-0">Vertical position</Label>
-                  <Slider
-                    value={[offsetY]}
-                    onValueChange={([v]) => setData(p => ({ ...p, bannerOffsetY: v } as typeof p))}
-                    min={0}
-                    max={100}
-                    step={1}
-                    className="flex-1"
-                  />
-                  <span className="text-xs text-muted-foreground w-10 text-right tabular-nums">
-                    {offsetY}%
-                  </span>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-[200px]">
+                  <div className="flex items-center gap-2 flex-1">
+                    <MoveHorizontal className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <Label className="text-xs whitespace-nowrap shrink-0">Horizontal</Label>
+                    <Slider
+                      value={[offsetX]}
+                      onValueChange={([v]) => setData(p => ({ ...p, bannerOffsetX: v } as typeof p))}
+                      min={0}
+                      max={100}
+                      step={1}
+                      className="flex-1"
+                    />
+                    <span className="text-xs text-muted-foreground w-10 text-right tabular-nums">
+                      {offsetX}%
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-1">
+                    <MoveVertical className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <Label className="text-xs whitespace-nowrap shrink-0">Vertical</Label>
+                    <Slider
+                      value={[offsetY]}
+                      onValueChange={([v]) => setData(p => ({ ...p, bannerOffsetY: v } as typeof p))}
+                      min={0}
+                      max={100}
+                      step={1}
+                      className="flex-1"
+                    />
+                    <span className="text-xs text-muted-foreground w-10 text-right tabular-nums">
+                      {offsetY}%
+                    </span>
+                  </div>
                 </div>
               );
             })()}

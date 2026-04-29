@@ -180,8 +180,9 @@ export default function PublicProfilePage() {
               alt="Banner"
               className="w-full h-full object-cover"
               style={{
-                // bannerOffsetY field added on SharedProfile by Lane C; falls back to centered (50%)
-                objectPosition: `center ${typeof (profile as { bannerOffsetY?: number }).bannerOffsetY === "number" ? (profile as { bannerOffsetY?: number }).bannerOffsetY : 50}%`,
+                // bannerOffsetX/Y default to 50% (centered) when unset.
+                // TODO: move bannerOffsetX/bannerOffsetY onto SharedProfile in models.ts after Wave 6 swarm
+                objectPosition: `${typeof (profile as { bannerOffsetX?: number }).bannerOffsetX === "number" ? (profile as { bannerOffsetX?: number }).bannerOffsetX : 50}% ${typeof (profile as { bannerOffsetY?: number }).bannerOffsetY === "number" ? (profile as { bannerOffsetY?: number }).bannerOffsetY : 50}%`,
               }}
             />
           ) : (
