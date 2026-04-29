@@ -46,10 +46,17 @@ export function PerformerSearch({
 
   const results = queryResult?.profiles ?? [];
 
-  // Contacts matching search
+  // Contacts matching search — but only surface those that ALSO correspond to
+  // a public artist profile. Contact-only matches are excluded so the picker
+  // only ever yields a real profile (existing or, on submit, an un-acquired
+  // placeholder created from the typed name). Picking a bare contact would
+  // surface a name with no profile attached, which is confusing now that the
+  // create flow auto-provisions un-acquired profiles for unknown names.
+  const profileNamesLower = new Set(results.map(r => r.name.toLowerCase()));
   const contactMatches = contacts
     .filter(p => Array.isArray(p.type) ? p.type.includes("performer") : p.type === "performer")
-    .filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
+    .filter(p => p.name.toLowerCase().includes(search.toLowerCase()))
+    .filter(p => profileNamesLower.has(p.name.toLowerCase()));
 
   // Deduplicate: remove global profiles already in contacts
   const contactNames = new Set(contactMatches.map(p => p.name.toLowerCase()));
