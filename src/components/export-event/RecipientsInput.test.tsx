@@ -127,4 +127,56 @@ describe("RecipientsInput", () => {
     // Should not crash, member should be treated as available
     expect(screen.getByPlaceholderText(/Enter email/)).toBeInTheDocument();
   });
+
+  it("renders each team member's own email in the 'Add from team' dropdown (not the current user's)", () => {
+    const members = [
+      makeTeamMember({ id: "m1", name: "Ori Kastiel", email: "ori.showme@gmail.com" }),
+      makeTeamMember({ id: "m2", name: "Ben Azulay", email: "ben.azulay@example.com" }),
+      makeTeamMember({ id: "m3", name: "Nir Freedman", email: "nir.freedman@example.com" }),
+    ];
+    render(<RecipientsInput {...defaultProps} teamMembers={members} />);
+
+    // Open the team-member popover. The trigger is the 2nd button (after the
+    // disabled "Add" button); identify it by its icon-only content.
+    const buttons = screen.getAllByRole("button");
+    const popoverTrigger = buttons.find(
+      (b) => b.querySelector("svg.lucide-users") || b.querySelector('[class*="users"]'),
+    ) ?? buttons[buttons.length - 1];
+    fireEvent.click(popoverTrigger);
+
+    // Each member should render exactly once with its own email — no row may
+    // accidentally fall back to the current user's email.
+    expect(screen.getByText(/Ori Kastiel/)).toBeInTheDocument();
+    expect(screen.getByText(/Ben Azulay/)).toBeInTheDocument();
+    expect(screen.getByText(/Nir Freedman/)).toBeInTheDocument();
+
+    expect(screen.getAllByText(/ori\.showme@gmail\.com/)).toHaveLength(1);
+    expect(screen.getAllByText(/ben\.azulay@example\.com/)).toHaveLength(1);
+    expect(screen.getAllByText(/nir\.freedman@example\.com/)).toHaveLength(1);
+  });
+
+  it("only collapses to 'All active members added' when every distinct member with email is added", () => {
+    const members = [
+      makeTeamMember({ id: "m1", name: "Ori Kastiel", email: "ori.showme@gmail.com" }),
+      makeTeamMember({ id: "m2", name: "Ben Azulay", email: "ben.azulay@example.com" }),
+    ];
+    // Only Ori added — Ben should still be visible, no "all added" message yet.
+    render(
+      <RecipientsInput
+        {...defaultProps}
+        teamMembers={members}
+        recipients={["ori.showme@gmail.com"]}
+      />,
+    );
+    const buttons = screen.getAllByRole("button");
+    const popoverTrigger = buttons.find(
+      (b) => b.querySelector("svg.lucide-users") || b.querySelector('[class*="users"]'),
+    ) ?? buttons[buttons.length - 1];
+    fireEvent.click(popoverTrigger);
+
+    // Ben must still appear (with his own email), and the "all added" copy must not be shown.
+    expect(screen.getByText(/Ben Azulay/)).toBeInTheDocument();
+    expect(screen.getByText(/ben\.azulay@example\.com/)).toBeInTheDocument();
+    expect(screen.queryByText(/All active members added/i)).not.toBeInTheDocument();
+  });
 });
