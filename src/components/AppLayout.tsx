@@ -1,9 +1,11 @@
 import { ReactNode, useState, createContext, useContext } from "react";
-import { Link } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import AppSidebar from "./AppSidebar";
 import { TopBreadcrumbBar } from "./TopBreadcrumb";
-import { useNotifications } from "@/lib/queries";
+import { useNotifications, useEvents, useContacts } from "@/lib/queries";
 import { useNotificationInvalidator } from "@/lib/queries/useNotificationInvalidator";
+import { resolveNotificationTarget } from "@/components/notifications/notificationLinks";
+import { toast } from "@/hooks/use-toast";
 import {
   Bell,
   Calendar,
@@ -21,7 +23,7 @@ import {
   Clock,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import type { NotificationType } from "@/lib/models";
+import type { NotificationType, AppNotification } from "@/lib/models";
 
 // Sidebar collapse context – persisted via localStorage
 const SIDEBAR_KEY = "sidebar-collapsed";
@@ -69,8 +71,11 @@ function timeAgo(iso: string): string {
 }
 
 export default function AppLayout({ children }: { children: ReactNode }) {
-  const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
+  const { notifications, unreadCount, markRead, markAllRead, remove } = useNotifications();
   useNotificationInvalidator(notifications);
+  const navigate = useNavigate();
+  const events = useEvents();
+  const contacts = useContacts();
   const [collapsed, setCollapsed] = useState(getInitial);
 
   const toggle = () => {
@@ -79,6 +84,54 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       localStorage.setItem(SIDEBAR_KEY, String(next));
       return next;
     });
+  };
+
+  /**
+   * Click handler for a notification row. Marks the notification read, then
+   * routes to the resolved target — but if the linked entity has been deleted
+   * (event/contact missing from cache), dismiss the notification with a toast
+   * instead of navigating into a 404.
+   */
+  const handleNotificationClick = (n: AppNotification) => {
+    void markRead(n);
+    const target = resolveNotificationTarget(n);
+
+    // Lightweight existence check: if the target points at an event or contact
+    // we already know about, ensure it's still in the cache. This catches the
+    // common "deleted item" case without an extra round-trip.
+    if (target.kind === "event") {
+      const exists = events.some((e) => e.id === target.params.id && !e.archived);
+      if (!exists) {
+        toast({ title: "This notification points to a deleted item." });
+        void remove(n);
+        return;
+      }
+    } else if (target.kind === "contact") {
+      const exists = contacts.some((c) => c.id === target.params.id);
+      if (!exists) {
+        toast({ title: "This notification points to a deleted item." });
+        void remove(n);
+        return;
+      }
+    }
+
+    // Discriminated dispatch — TanStack Router needs the literal `to` path
+    // alongside its `params`/`search` to actually match a parameterized route.
+    if (target.kind === "event") {
+      void navigate({
+        to: target.to,
+        params: target.params,
+        ...(target.search ? { search: target.search } : {}),
+      });
+    } else if (target.kind === "contact") {
+      void navigate({ to: target.to, params: target.params });
+    } else if (target.kind === "profile-public") {
+      void navigate({ to: target.to, params: target.params });
+    } else if (target.kind === "profile-list") {
+      void navigate({ to: target.to });
+    } else {
+      void navigate({ href: target.to });
+    }
   };
 
   return (
@@ -119,13 +172,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                   ) : (
                     notifications.map(n => {
                       const Icon = notificationIcons[n.type] || Bell;
-                      const linkTo = n.link || (n.eventId ? `/events/${n.eventId}` : "/");
                       return (
-                        <Link
+                        <button
                           key={`${n.profileId}-${n.id}`}
-                          to={linkTo}
-                          className={`flex items-start gap-3 px-4 py-3 transition-colors hover:bg-muted/50 ${!n.read ? "bg-primary/5" : ""}`}
-                          onClick={() => markRead(n)}
+                          type="button"
+                          onClick={() => handleNotificationClick(n)}
+                          className={`flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50 ${!n.read ? "bg-primary/5" : ""}`}
                         >
                           <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${!n.read ? "text-primary" : "text-muted-foreground"}`} />
                           <div className="min-w-0 flex-1">
@@ -138,7 +190,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                             <p className="text-[10px] text-muted-foreground mt-1">{timeAgo(n.createdAt)}</p>
                           </div>
                           {!n.read && <span className="mt-1.5 h-2 w-2 rounded-full bg-primary shrink-0" />}
-                        </Link>
+                        </button>
                       );
                     })
                   )}
