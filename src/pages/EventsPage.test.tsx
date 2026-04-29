@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { MultiPerformerAvatars } from "./EventsPage";
+import { MultiPerformerAvatars, resolveOperatorName } from "./EventsPage";
 import { isDraftVisibleToUser } from "@/lib/db";
 import type { Event } from "@/lib/models";
 
@@ -143,5 +143,38 @@ describe("EventsPage filter — drafts visibility", () => {
     expect(isDraftVisibleToUser({ eventStatus: "confirmed", hostProfileId: "PRF-other" }, UID, ["PRF-mine"])).toBe(true);
     // race-protection: draft visible when uid in accessUids even if profileIds is empty
     expect(isDraftVisibleToUser({ eventStatus: "draft", hostProfileId: "PRF-mine", accessUids: [UID] }, UID, [])).toBe(true);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// A1: Operator column — name resolved via profiles map, falling back to event.operator
+// ────────────────────────────────────────────────────────────────────────────
+
+describe("resolveOperatorName (A1)", () => {
+  const profiles = {
+    venueA: { id: "PRF-venueA", name: "The Garage" },
+    promoterA: { id: "PRF-promo", name: "Live Nation" },
+  };
+
+  it("returns the host profile's name when hostProfileId matches an entry in the profiles map", () => {
+    expect(
+      resolveOperatorName({ hostProfileId: "PRF-venueA", operator: "fallback" }, profiles),
+    ).toBe("The Garage");
+  });
+
+  it("falls back to event.operator when hostProfileId is unknown to the user", () => {
+    expect(
+      resolveOperatorName({ hostProfileId: "PRF-other", operator: "Acme Promotions" }, profiles),
+    ).toBe("Acme Promotions");
+  });
+
+  it("falls back to event.operator when hostProfileId is not set", () => {
+    expect(
+      resolveOperatorName({ operator: "Just A Name" }, profiles),
+    ).toBe("Just A Name");
+  });
+
+  it("returns empty string when neither profile nor operator is available", () => {
+    expect(resolveOperatorName({}, profiles)).toBe("");
   });
 });

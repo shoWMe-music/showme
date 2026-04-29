@@ -45,6 +45,22 @@ const STATUS_ORDER: Record<string, number> = {
   draft: 0, suggested: 1, pending: 2, confirmed: 3, on_hold: 4, concluded: 5, cancelled: 6,
 };
 
+/**
+ * Resolve the operator/host display name for an event row.
+ * Looks up the user's profiles map by hostProfileId, falling back to event.operator
+ * (always populated for active events). Exported for testing.
+ */
+export function resolveOperatorName(
+  event: { hostProfileId?: string; operator?: string },
+  profiles: Record<string, { id?: string; name: string }>,
+): string {
+  if (event.hostProfileId) {
+    const match = Object.values(profiles).find(p => p.id === event.hostProfileId);
+    if (match?.name) return match.name;
+  }
+  return event.operator || "";
+}
+
 export default function EventsPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -104,6 +120,11 @@ export default function EventsPage() {
     .filter(([, p]) => p.created && p.id)
     .map(([, p]) => ({ id: p.id!, name: p.name, role: p.role }));
   const allProfileIds = profileOptions.map((p) => p.id);
+
+  // Resolve the operator/host name for a given event using the user's profile map
+  // (falls back to event.operator which is always populated for active events).
+  const operatorNameForEvent = (e: { hostProfileId?: string; operator?: string }): string =>
+    resolveOperatorName(e, profiles);
 
   // Reset to first page whenever filters change.
   useEffect(() => { setPage(1); }, [debouncedSearch, statusFilter, profileFilter, sortKey, sortDir]);
@@ -246,6 +267,7 @@ export default function EventsPage() {
                   <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Event</th>
                   <SortableTh label="Performer" sortKey="performer" currentKey={sortKey} dir={sortDir} onSort={toggleSort} />
                   <SortableTh label="Venue" sortKey="venue" currentKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Operator</th>
                   <SortableTh label="Date" sortKey="date" currentKey={sortKey} dir={sortDir} onSort={toggleSort} />
                   <SortableTh label="Status" sortKey="status" currentKey={sortKey} dir={sortDir} onSort={toggleSort} />
                   <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Actions</th>
@@ -261,6 +283,7 @@ export default function EventsPage() {
                       </td>
                       <td className="px-6 py-4"><Skeleton className="h-4 w-28" /></td>
                       <td className="px-6 py-4"><Skeleton className="h-4 w-36" /></td>
+                      <td className="px-6 py-4"><Skeleton className="h-4 w-28" /></td>
                       <td className="px-6 py-4"><Skeleton className="h-4 w-20" /></td>
                       <td className="px-6 py-4"><Skeleton className="h-5 w-20 rounded-full" /></td>
                       <td className="px-6 py-4">
@@ -327,6 +350,11 @@ export default function EventsPage() {
                           )}
                         </td>
                         <td className="px-6 py-4 text-sm text-muted-foreground"><ProfilePreviewPopover name={event.venue} /></td>
+                        <td className="px-6 py-4 text-sm text-muted-foreground" data-testid="operator-cell">
+                          {operatorNameForEvent(event)
+                            ? <ProfilePreviewPopover name={operatorNameForEvent(event)} profileId={event.hostProfileId} />
+                            : <span className="text-muted-foreground/50">—</span>}
+                        </td>
                         <td className="px-6 py-4 text-sm text-muted-foreground">
                           <Link to="/calendar" search={{ date: event.date }} className="hover:underline hover:text-foreground cursor-pointer transition-colors">
                             {event.date}
@@ -416,6 +444,11 @@ export default function EventsPage() {
                           </td>
                           <td className="px-6 py-3 text-sm text-muted-foreground"><ProfilePreviewPopover name={child.venue} /></td>
                           <td className="px-6 py-3 text-sm text-muted-foreground">
+                            {operatorNameForEvent(child)
+                              ? <ProfilePreviewPopover name={operatorNameForEvent(child)} profileId={child.hostProfileId} />
+                              : <span className="text-muted-foreground/50">—</span>}
+                          </td>
+                          <td className="px-6 py-3 text-sm text-muted-foreground">
                             <Link to="/calendar" search={{ date: child.date }} className="hover:underline hover:text-foreground cursor-pointer transition-colors">
                               {child.date}
                             </Link>
@@ -435,7 +468,7 @@ export default function EventsPage() {
                     })}
                     {sorted.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">No events found</td>
+                        <td colSpan={7} className="px-6 py-12 text-center text-muted-foreground">No events found</td>
                       </tr>
                     )}
                   </>
