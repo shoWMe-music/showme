@@ -39,7 +39,7 @@ import {
 import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 
 /* ─── Agreement Tab ─── */
-export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency, actingProfile, collaborators = [], readOnly, onConfirmed }: { event: AppEvent; deal: DealStructure | null | undefined; revenue?: TicketRevenue; eventMeta: EventMeta; onSave?: (d: Partial<EventMeta>) => void; currency?: string; actingProfile?: string; collaborators?: EventCollaborator[]; readOnly?: boolean; onConfirmed?: () => void }) {
+export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency, actingProfile, collaborators = [], readOnly, onConfirmed, onReopened }: { event: AppEvent; deal: DealStructure | null | undefined; revenue?: TicketRevenue; eventMeta: EventMeta; onSave?: (d: Partial<EventMeta>) => void; currency?: string; actingProfile?: string; collaborators?: EventCollaborator[]; readOnly?: boolean; onConfirmed?: () => void; onReopened?: (reason: string) => void }) {
   // agreements are stored in a Firestore subcollection, not on eventMeta
   const legacyAgreements = ((eventMeta as unknown as { agreements?: Agreement[] }).agreements) || [];
   const [agreements, setAgreements] = useState<Agreement[]>([...legacyAgreements]);
@@ -203,10 +203,12 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
     const now = new Date().toISOString();
     metaDirty.current = true;
     setConfirmations([]);
+    setReopenRequest(null);
     setLastChangedAt(now);
     const u = getAuthClient().currentUser;
     const by = u?.displayName || u?.email || "Unknown";
     appendEventActivity(event.id, "approvals_reset", by, { reason }, undefined, actingProfile);
+    onReopened?.(reason);
     toast({ title: "Deal terms changed — all approvals have been reset" });
   };
 
@@ -281,6 +283,7 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
     setLastChangedAt(now);
     setReopenRequest(null);
     appendEventActivity(event.id, "approvals_reset", by, { reason }, undefined, actingProfile);
+    onReopened?.(reason);
   };
 
   // Open a request to re-open a fully approved agreement. If the requester is the

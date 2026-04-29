@@ -235,6 +235,14 @@ export default function EventManagerPage() {
               to: eventStatusLabels["confirmed"],
               reason: "All parties confirmed the agreement",
             });
+          }} onReopened={(reason) => {
+            if (event.eventStatus !== "confirmed") return;
+            upsertEvent({ ...event, eventStatus: "pending" });
+            appendEventActivity(id, "status_changed", "System", {
+              from: eventStatusLabels["confirmed"],
+              to: eventStatusLabels["pending"] ?? "pending",
+              reason,
+            });
           }} />
         )}
         {em.activeTab === "collaborators" && (
