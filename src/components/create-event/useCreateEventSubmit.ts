@@ -19,6 +19,27 @@ import type { SharedProfile } from "@/lib/user-context";
 import type { PartyState, PerformerEntry, PrefillData } from "./types";
 
 /**
+ * Decide whether to actually invite (notify) the attached collaborators for an
+ * event being created.
+ *
+ * Per spec (C1): adding an existing-role collaborator should NOT auto-invite.
+ * The user must explicitly opt in. Until they do, the event lives as a draft
+ * with collaborator profile IDs attached but their owner UIDs not added to
+ * `accessUids` (so the performer/venue doesn't see it on their dashboard yet).
+ */
+function shouldInviteCollaborators(
+  inviteCollaborators: boolean | undefined,
+  defaultStatus: string | undefined,
+): boolean {
+  if (inviteCollaborators === true) return true;
+  if (inviteCollaborators === false) return false;
+  // Undefined → preserve legacy behavior for non-draft creates so the existing
+  // "create from booking request" / "create on hold" flows keep working,
+  // but draft creates default to no-invite per spec.
+  return defaultStatus !== "draft";
+}
+
+/**
  * Resolve the host profile ID strictly by the selected role.
  * Only accepts a profile when its stored `role` matches `selectedRole` —
  * this prevents picking up an unrelated profile (e.g. a venue operator who
@@ -71,6 +92,13 @@ interface SubmitParams {
   onEventCreated?: (eventId: string) => void;
   setOpen: (v: boolean) => void;
   resetForm: () => void;
+  /**
+   * Whether to invite the attached collaborators (add their owner UIDs to
+   * accessUids so they can see the event on their dashboards). When false
+   * or undefined-with-draft-status, the event saves with collaborators
+   * attached but no invite issued — see shouldInviteCollaborators().
+   */
+  inviteCollaborators?: boolean;
 }
 
 export function useCreateEventSubmit() {
@@ -109,7 +137,9 @@ export function useCreateEventSubmit() {
       promoterCostSplit, venueCostSplit, venueRental, venueRentalPaymentMode,
       dealType, artistGuarantee, artistSplit, promoterSplit, venueSplit, artistCostSplit,
       parties, prefillData, onEventCreated, setOpen, resetForm,
+      inviteCollaborators,
     } = params;
+    const willInvite = shouldInviteCollaborators(inviteCollaborators, defaultStatus);
 
     const operatorType = selectedRole === "venue" ? "venue" as const : selectedRole === "organizer" ? "organizer" as const : "promoter" as const;
     const hostProfileId = resolveHostProfileId(profiles, selectedRole);
@@ -146,11 +176,17 @@ export function useCreateEventSubmit() {
       const allPerformerProfileIds = resolvedPerformers.map(p => p.performerProfileId).filter(Boolean);
       const multiAccessProfileIds = [hostProfileId, ...allPerformerProfileIds].filter(Boolean) as string[];
       const multiAccessUids = [...accessUids];
-      for (const pid of allPerformerProfileIds) {
-        try {
-          const ownerUid = await fetchProfileOwnerUid(pid);
-          if (ownerUid && !multiAccessUids.includes(ownerUid)) multiAccessUids.push(ownerUid);
-        } catch { /* non-critical */ }
+      // C1 — only push performer owner UIDs into accessUids when the user
+      // opted in to inviting. Otherwise the event stays a draft with
+      // collaborators attached via accessProfileIds but invisible to the
+      // performer's dashboard until "Suggest to performer" is clicked.
+      if (willInvite) {
+        for (const pid of allPerformerProfileIds) {
+          try {
+            const ownerUid = await fetchProfileOwnerUid(pid);
+            if (ownerUid && !multiAccessUids.includes(ownerUid)) multiAccessUids.push(ownerUid);
+          } catch { /* non-critical */ }
+        }
       }
 
       const childEvents = resolvedPerformers.map((perf, i) => {
@@ -246,7 +282,10 @@ export function useCreateEventSubmit() {
 
       const accessProfileIds = [hostProfileId, resolvedPerformerProfileId].filter(Boolean) as string[];
       const finalAccessUids = [...accessUids];
-      if (resolvedPerformerProfileId) {
+      // C1 — only push performer owner UID into accessUids when the user opted
+      // in to inviting. Otherwise the event stays a draft with the performer
+      // attached via accessProfileIds but not pushed to their dashboard.
+      if (willInvite && resolvedPerformerProfileId) {
         try {
           const ownerUid = await fetchProfileOwnerUid(resolvedPerformerProfileId);
           if (ownerUid && !finalAccessUids.includes(ownerUid)) finalAccessUids.push(ownerUid);

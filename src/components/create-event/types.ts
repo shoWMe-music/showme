@@ -31,6 +31,23 @@ export interface CreateEventDialogProps {
   defaultStatus?: string;
 }
 
+/**
+ * Whether to invite the attached collaborator profiles (performer/venue/etc.)
+ * when the event is created.
+ *
+ * - `true`  → add collaborator owner UIDs to `accessUids` so they see the event
+ *             in their list (and the existing notification machinery picks it up).
+ * - `false` → keep the collaborator profile IDs on `accessProfileIds` but do
+ *             NOT add their owner UIDs. The event lives as a draft until the
+ *             organizer explicitly clicks "Suggest to performer" / "Invite
+ *             collaborators" later.
+ *
+ * Default: when omitted, behaves as `false` for draft events and `true` for
+ * any other status — preserving the per-spec "no auto-invite on draft" rule
+ * while keeping legacy behavior for non-draft creates.
+ */
+export type InviteCollaboratorsChoice = boolean | undefined;
+
 export interface PerformerEntry {
   id: string;
   artistName: string;
