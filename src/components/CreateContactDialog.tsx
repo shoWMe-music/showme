@@ -6,20 +6,26 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Trash2 } from "lucide-react";
 import { Contact, ContactType, ContactPerson, contactTypeLabels } from "@/lib/models";
+import { contactTypeList } from "@/lib/contacts";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
+
+const presetTypes: ContactType[] = ["promoter", "venue", "performer", "ticketing", "agent", "manager", "production"];
 
 interface CreateContactDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (contact: Contact) => void;
   editingContact?: Contact | null;
+  /** All unique custom types from existing contacts (non-preset). */
+  customTypes?: string[];
 }
 
 const emptyContact: ContactPerson = { name: "", email: "", phone: "" };
 
-export default function CreateContactDialog({ open, onOpenChange, onSave, editingContact }: CreateContactDialogProps) {
+export default function CreateContactDialog({ open, onOpenChange, onSave, editingContact, customTypes = [] }: CreateContactDialogProps) {
   const [name, setName] = useState("");
   const [types, setTypes] = useState<ContactType[]>(["promoter"]);
+  const [customTypeInput, setCustomTypeInput] = useState("");
   const [contacts, setContacts] = useState<ContactPerson[]>([{ ...emptyContact }]);
   const [iban, setIban] = useState("");
   const [bankName, setBankName] = useState("");
@@ -31,10 +37,21 @@ export default function CreateContactDialog({ open, onOpenChange, onSave, editin
     setTypes(prev => prev.includes(t) ? (prev.length > 1 ? prev.filter(x => x !== t) : prev) : [...prev, t]);
   };
 
+  const addCustomType = () => {
+    const trimmed = customTypeInput.trim().toLowerCase();
+    if (!trimmed) return;
+    if (!types.includes(trimmed)) {
+      setTypes(prev => [...prev, trimmed]);
+    }
+    setCustomTypeInput("");
+  };
+
   useEffect(() => {
     if (editingContact) {
       setName(editingContact.name);
-      setTypes(Array.isArray(editingContact.type) ? editingContact.type : [editingContact.type]);
+      // Normalize legacy types (e.g. "artist" → "performer") and dedupe.
+      const normalized = Array.from(new Set(contactTypeList(editingContact)));
+      setTypes(normalized.length > 0 ? normalized : ["promoter"]);
       setContacts(editingContact.contacts.length > 0 ? [...editingContact.contacts] : [{ ...emptyContact }]);
       setIban(editingContact.iban);
       setBankName(editingContact.bankName);
@@ -42,7 +59,7 @@ export default function CreateContactDialog({ open, onOpenChange, onSave, editin
       setAddress(editingContact.address);
       setNotes(editingContact.notes);
     } else {
-      setName(""); setTypes(["promoter"]); setContacts([{ ...emptyContact }]);
+      setName(""); setTypes(["promoter"]); setCustomTypeInput(""); setContacts([{ ...emptyContact }]);
       setIban(""); setBankName(""); setVatId(""); setAddress(""); setNotes("");
     }
   }, [editingContact, open]);
@@ -82,7 +99,7 @@ export default function CreateContactDialog({ open, onOpenChange, onSave, editin
           <div className="space-y-2">
             <Label>Contact Type(s)</Label>
             <div className="flex flex-wrap gap-1.5">
-              {(Object.entries(contactTypeLabels) as [ContactType, string][]).map(([k, v]) => (
+              {presetTypes.map(k => (
                 <Button
                   key={k}
                   type="button"
@@ -90,9 +107,44 @@ export default function CreateContactDialog({ open, onOpenChange, onSave, editin
                   size="sm"
                   onClick={() => toggleType(k)}
                 >
-                  {v}
+                  {contactTypeLabels[k] || k}
                 </Button>
               ))}
+              {customTypes.map(ct => (
+                <Button
+                  key={ct}
+                  type="button"
+                  variant={types.includes(ct) ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => toggleType(ct)}
+                >
+                  {ct.charAt(0).toUpperCase() + ct.slice(1)}
+                </Button>
+              ))}
+              {/* Show any currently selected types not in presets or customTypes */}
+              {types.filter(t => !presetTypes.includes(t) && !customTypes.includes(t)).map(t => (
+                <Button
+                  key={t}
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  onClick={() => toggleType(t)}
+                >
+                  {t.charAt(0).toUpperCase() + t.slice(1)}
+                </Button>
+              ))}
+            </div>
+            <div className="flex gap-1.5 items-center">
+              <Input
+                placeholder="Custom type..."
+                value={customTypeInput}
+                onChange={e => setCustomTypeInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustomType(); } }}
+                className="max-w-[180px] h-8 text-sm"
+              />
+              <Button type="button" variant="outline" size="sm" onClick={addCustomType} disabled={!customTypeInput.trim()}>
+                <Plus className="h-3 w-3 mr-1" /> Add
+              </Button>
             </div>
           </div>
 

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Upload, Check, AlertCircle } from "lucide-react";
 import { Contact, ContactType, contactTypeLabels } from "@/lib/models";
+import { normalizeContactType } from "@/lib/contacts";
 
 interface ImportContactsDialogProps {
   open: boolean;
@@ -109,12 +110,13 @@ export default function ImportContactsDialog({ open, onOpenChange, onImport }: I
 
   const mappedContacts = rawRows.map((row, i) => {
     const name = getMappedValue(row, "name");
-    const type = getMappedValue(row, "type").toLowerCase();
+    const rawType = getMappedValue(row, "type").toLowerCase();
+    const type = rawType ? normalizeContactType(rawType) : "promoter";
     const valid = !!name.trim();
     return {
       id: `P-IMP-${Date.now()}-${i}`,
       name,
-      type: type || "promoter",
+      type,
       contact_name: getMappedValue(row, "contact_name"),
       contact_email: getMappedValue(row, "contact_email"),
       contact_phone: getMappedValue(row, "contact_phone"),

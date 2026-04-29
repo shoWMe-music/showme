@@ -1,13 +1,29 @@
 import type { Contact, ContactType } from "@/lib/models";
 
-/** Check if a contact has a given type (supports array or single type). */
-export function contactHasType(contact: Pick<Contact, "type">, type: ContactType): boolean {
-  return Array.isArray(contact.type) ? contact.type.includes(type) : contact.type === type;
+/**
+ * Normalize a contact type, mapping legacy values to current names.
+ * - "artist" (legacy) → "performer"
+ * Returns the input unchanged for any other value.
+ */
+export function normalizeContactType(type: ContactType): ContactType {
+  return type === "artist" ? "performer" : type;
 }
 
-/** Get the primary (first) type of a contact. */
+/** Get the contact's types as an array, with legacy values normalized. */
+export function contactTypeList(contact: Pick<Contact, "type">): ContactType[] {
+  const raw = Array.isArray(contact.type) ? contact.type : [contact.type];
+  return raw.map(normalizeContactType);
+}
+
+/** Check if a contact has a given type (supports array or single type, normalizes legacy). */
+export function contactHasType(contact: Pick<Contact, "type">, type: ContactType): boolean {
+  const target = normalizeContactType(type);
+  return contactTypeList(contact).includes(target);
+}
+
+/** Get the primary (first) type of a contact, with legacy values normalized. */
 export function contactPrimaryType(contact: Pick<Contact, "type">): ContactType {
-  return Array.isArray(contact.type) ? contact.type[0] : contact.type;
+  return contactTypeList(contact)[0];
 }
 
 /** Check if a contact name matches any of the user's own profile names. */
@@ -25,4 +41,21 @@ export function contactExists(
   return contacts.some(
     c => c.name.toLowerCase() === name.toLowerCase() && contactHasType(c, type),
   );
+}
+
+/**
+ * Group a list of contacts by type. A contact with multiple types appears in
+ * each of its groups. Legacy "artist" types are normalized to "performer".
+ */
+export function groupContactsByType<T extends Pick<Contact, "type">>(
+  contacts: T[],
+): Record<string, T[]> {
+  const groups: Record<string, T[]> = {};
+  for (const c of contacts) {
+    for (const t of contactTypeList(c)) {
+      if (!groups[t]) groups[t] = [];
+      groups[t].push(c);
+    }
+  }
+  return groups;
 }

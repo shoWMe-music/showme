@@ -4,7 +4,8 @@ import AppLayout from "@/components/AppLayout";
 import CreateContactDialog from "@/components/CreateContactDialog";
 import StatusBadge from "@/components/StatusBadge";
 import { useContact, useEvents, useUpdateContact, useDeleteContact, useAllEventEconomics, useEventsLoaded, useContactsLoaded } from "@/lib/queries";
-import { Contact, ContactType, contactTypeLabels, formatCurrency } from "@/lib/models";
+import { Contact, contactTypeLabels, formatCurrency } from "@/lib/models";
+import { contactTypeList } from "@/lib/contacts";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Pencil, Trash2, Mail, Phone, Building2, CreditCard, FileText, MapPin, StickyNote, Copy } from "lucide-react";
@@ -150,9 +151,7 @@ export default function ContactDetailPage() {
           <div className="flex-1">
             <h1 className="text-2xl font-bold tracking-tight">{contact.name}</h1>
             <p className="text-sm text-muted-foreground">
-              {Array.isArray(contact.type)
-                ? contact.type.map(t => contactTypeLabels[t]).join(", ")
-                : contactTypeLabels[contact.type as ContactType]}
+              {contactTypeList(contact).map(t => contactTypeLabels[t] || t).join(", ")}
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>

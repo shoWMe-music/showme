@@ -5,9 +5,10 @@ import CreateContactDialog from "@/components/CreateContactDialog";
 import ImportContactsDialog from "@/components/ImportContactsDialog";
 import { usePaginatedContacts, useAddContact, useUpdateContact, useDeleteContact } from "@/lib/queries";
 import { useMyInvitationCodes } from "@/lib/queries/useInvitationCodes";
+import type { InvitationCode } from "@/lib/db";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Contact, ContactType, contactTypeLabels } from "@/lib/models";
-import { contactHasType, contactPrimaryType } from "@/lib/contacts";
+import { contactHasType, contactPrimaryType, contactTypeList, groupContactsByType } from "@/lib/contacts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -18,9 +19,10 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, Users, MapPin, Music, Ticket, Briefcase, UserCheck, Factory, Upload, AlertTriangle, Merge, ChevronLeft, ChevronRight, Loader2, Handshake } from "lucide-react";
+import { Plus, Search, Users, MapPin, Music, Ticket, Briefcase, UserCheck, Factory, Upload, AlertTriangle, Merge, Loader2, Handshake, Trash2, Copy, Check } from "lucide-react";
+import { copyToast } from "@/hooks/use-toast";
+import { Checkbox } from "@/components/ui/checkbox";
 
-const PAGE_SIZE = 25;
 const FETCH_SIZE = 50;
 
 const typeIcons: Record<ContactType, typeof Users> = {
@@ -109,6 +111,17 @@ export default function ContactsPage() {
   const [filterType, setFilterType] = useState<ContactType | "all" | "collaborators">("all");
   const [duplicatesOpen, setDuplicatesOpen] = useState(false);
   const [mergeConfirm, setMergeConfirm] = useState<DuplicateGroup | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<Contact | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
   const [page, setPage] = useState(1);
 
   const { data: invitationCodes } = useMyInvitationCodes();
@@ -130,6 +143,18 @@ export default function ContactsPage() {
     [paginatedData],
   );
 
+  // Collect unique custom types (non-preset) from all loaded contacts
+  const customTypes = useMemo(() => {
+    const preset = new Set(allTypes as string[]);
+    const custom = new Set<string>();
+    for (const c of allLoadedContacts) {
+      for (const t of contactTypeList(c)) {
+        if (!preset.has(t)) custom.add(t);
+      }
+    }
+    return Array.from(custom).sort();
+  }, [allLoadedContacts]);
+
   // Build a set of collaborator contact names/emails for the "Active Collaborators" filter
   const collaboratorNames = useMemo(() => {
     if (!invitationCodes) return new Set<string>();
@@ -146,17 +171,25 @@ export default function ContactsPage() {
     return contact.contacts.some(c => c.email && collaboratorNames.has(c.email.trim().toLowerCase()));
   };
 
-  const getInviteStatus = (contact: Contact): "active" | "used" | null => {
+  const getMatchingInvite = (contact: Contact): InvitationCode | null => {
     if (!invitationCodes) return null;
     for (const code of invitationCodes) {
       const nameMatch = code.recipientName && contact.name.trim().toLowerCase() === code.recipientName.trim().toLowerCase();
       const emailMatch = code.recipientEmail && contact.contacts.some(c => c.email.trim().toLowerCase() === code.recipientEmail!.trim().toLowerCase());
-      if (nameMatch || emailMatch) return code.status === "used" ? "used" : code.status === "active" ? "active" : null;
+      if (nameMatch || emailMatch) return (code.status === "used" || code.status === "active") ? code : null;
     }
     return null;
   };
 
-  // Reset to first page whenever filters change
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const handleCopyCode = (code: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(code);
+    setCopiedCode(code);
+    setTimeout(() => setCopiedCode(null), 2000);
+  };
+
+  // Reset pagination cursor whenever filters change
   useEffect(() => { setPage(1); }, [search, filterType]);
 
   const duplicates = useMemo(() => findDuplicates(allLoadedContacts), [allLoadedContacts]);
@@ -178,28 +211,16 @@ export default function ContactsPage() {
     return result;
   }, [allLoadedContacts, search, filterType, collaboratorNames]);
 
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
-  // Fetch next Firestore batch only when user navigates past loaded data
+  // Fetch the next Firestore batch when the user clicks "Load more" (page bumps).
   useEffect(() => {
-    if (page * PAGE_SIZE > allLoadedContacts.length && hasNextPage && !isFetchingNextPage) {
+    if (page > 1 && hasNextPage && !isFetchingNextPage) {
       fetchNextPage();
     }
-  }, [page, allLoadedContacts.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [page, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  const canGoNext = page * PAGE_SIZE < filtered.length || hasNextPage;
-
-  const grouped = useMemo(() => {
-    const groups: Record<string, Contact[]> = {};
-    for (const p of paginated) {
-      const types = Array.isArray(p.type) ? p.type : [p.type];
-      for (const t of types) {
-        if (!groups[t]) groups[t] = [];
-        groups[t].push(p);
-      }
-    }
-    return groups;
-  }, [paginated]);
+  // Group across all filtered (loaded) contacts so newly created contacts
+  // always appear in their type section regardless of pagination position.
+  const grouped = useMemo(() => groupContactsByType(filtered), [filtered]);
 
   const handleSave = (contact: Contact) => {
     if (editingContact) {
@@ -284,6 +305,11 @@ export default function ContactsPage() {
                 <AlertTriangle className="h-4 w-4 mr-2" /> {duplicates.length} Duplicate{duplicates.length > 1 ? "s" : ""}
               </Button>
             )}
+            {selectedIds.size > 0 && (
+              <Button variant="destructive" onClick={() => setBulkDeleteConfirm(true)}>
+                <Trash2 className="h-4 w-4 mr-2" /> Delete {selectedIds.size}
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <Upload className="h-4 w-4 mr-2" /> Import
             </Button>
@@ -301,13 +327,21 @@ export default function ContactsPage() {
           </div>
           <div className="flex flex-wrap gap-1.5">
             <Button variant={filterType === "all" ? "default" : "outline"} size="sm" onClick={() => setFilterType("all")}>
-              All{filterType === "all" && allLoadedContacts.length > 0 ? ` (${allLoadedContacts.length}${hasNextPage ? "+" : ""})` : ""}
+              All ({allLoadedContacts.length}{hasNextPage ? "+" : ""})
             </Button>
             {allTypes.map(t => {
               const count = allLoadedContacts.filter(p => contactHasType(p, t)).length;
               return (
                 <Button key={t} variant={filterType === t ? "default" : "outline"} size="sm" onClick={() => setFilterType(t)}>
-                  {contactTypeLabels[t]}{count > 0 ? ` (${count})` : ""}
+                  {contactTypeLabels[t]} ({count})
+                </Button>
+              );
+            })}
+            {customTypes.map(t => {
+              const count = allLoadedContacts.filter(p => contactHasType(p, t)).length;
+              return (
+                <Button key={t} variant={filterType === t ? "default" : "outline"} size="sm" onClick={() => setFilterType(t)}>
+                  {t.charAt(0).toUpperCase() + t.slice(1)} ({count})
                 </Button>
               );
             })}
@@ -320,43 +354,82 @@ export default function ContactsPage() {
 
         {/* Grouped list */}
         <div className="grid gap-6 lg:grid-cols-2">
-          {allTypes.map(type => {
+          {[...allTypes, ...customTypes].map(type => {
             const items = grouped[type];
             if (!items || items.length === 0) return null;
-            const Icon = typeIcons[type];
+            const Icon = typeIcons[type as ContactType] ?? Users;
+            const label = contactTypeLabels[type] || (type.charAt(0).toUpperCase() + type.slice(1));
             return (
               <div key={type} className="rounded-xl border bg-card shadow-sm">
                 <div className="flex items-center gap-2 border-b px-6 py-4">
                   <Icon className="h-5 w-5 text-primary" />
-                  <h2 className="font-display text-lg font-semibold">{contactTypeLabels[type]}</h2>
+                  <h2 className="font-display text-lg font-semibold">{label}</h2>
                   <span className="ml-auto text-xs text-muted-foreground">{items.length}</span>
                 </div>
                 <div className="divide-y">
                   {items.map(party => {
-                  const inviteStatus = getInviteStatus(party);
+                  const invite = getMatchingInvite(party);
                   return (
-                    <button
+                    <div
                       key={party.id}
                       className="flex w-full items-center justify-between px-6 py-3 text-left hover:bg-muted/50 transition-colors"
-                      onClick={() => navigate({ to: "/contacts/$id", params: { id: party.id } })}
                     >
-                      <div>
-                        <p className="text-sm font-medium">{party.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {party.contacts[0]?.name || "No contact"}
-                          {party.contacts.length > 1 && ` +${party.contacts.length - 1}`}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {inviteStatus === "active" && (
-                          <Badge variant="outline" className="text-[10px] border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-400">Invited</Badge>
-                        )}
-                        {inviteStatus === "used" && (
-                          <Badge variant="outline" className="text-[10px] border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">Joined</Badge>
-                        )}
-                        <span className="text-xs text-muted-foreground">{contactPrimaryType(party) !== "ticketing" && party.iban ? "IBAN ✓" : ""}</span>
-                      </div>
-                    </button>
+                      <Checkbox
+                        checked={selectedIds.has(party.id)}
+                        onCheckedChange={() => toggleSelect(party.id)}
+                        className="mr-3 shrink-0"
+                      />
+                      <button
+                        className="flex flex-1 items-center justify-between min-w-0"
+                        onClick={() => navigate({ to: "/contacts/$id", params: { id: party.id } })}
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">{party.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {party.contacts[0]?.name || "No contact"}
+                            {party.contacts.length > 1 && ` +${party.contacts.length - 1}`}
+                          </p>
+                          {party.contacts[0]?.email && (
+                            <span className="text-xs text-muted-foreground/70 truncate block">{party.contacts[0].email}</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {invite?.status === "active" && (
+                            <>
+                              <Badge variant="outline" className="text-[10px] border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-400">Pending</Badge>
+                              <span className="text-[10px] font-mono text-muted-foreground">{invite.code}</span>
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-muted"
+                                onClick={(e) => handleCopyCode(invite.code, e)}
+                                title="Copy invitation code"
+                              >
+                                {copiedCode === invite.code
+                                  ? <Check className="h-3 w-3 text-emerald-600" />
+                                  : <Copy className="h-3 w-3 text-muted-foreground" />}
+                              </button>
+                            </>
+                          )}
+                          {invite?.status === "used" && (
+                            <Badge variant="outline" className="text-[10px] border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">Accepted</Badge>
+                          )}
+                          {party.contacts[0]?.email && (
+                            <button className="p-1 hover:bg-accent rounded" onClick={(e) => { e.stopPropagation(); copyToast(party.contacts[0].email, "Email"); }}>
+                              <Copy className="h-3 w-3 text-muted-foreground" />
+                            </button>
+                          )}
+                          <span className="text-xs text-muted-foreground">{contactPrimaryType(party) !== "ticketing" && party.iban ? "IBAN ✓" : ""}</span>
+                        </div>
+                      </button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 ml-2 shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={(e) => { e.stopPropagation(); setDeleteConfirm(party); }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   );
                 })}
                 </div>
@@ -365,33 +438,18 @@ export default function ContactsPage() {
           })}
         </div>
 
-        {contactsLoaded && filtered.length > PAGE_SIZE && (
-          <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
-            <span className="flex items-center gap-2">
-              Showing {Math.min((page - 1) * PAGE_SIZE + 1, filtered.length)}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}{hasNextPage ? "+" : ""} contacts
-              {isFetchingNextPage && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            </span>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-8 w-8"
-                disabled={page === 1}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <span className="px-2">Page {page}</span>
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-8 w-8"
-                disabled={!canGoNext}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
+        {contactsLoaded && (hasNextPage || isFetchingNextPage) && (
+          <div className="mt-4 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <span>Showing {filtered.length} of {allLoadedContacts.length}{hasNextPage ? "+" : ""} loaded contacts</span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!hasNextPage || isFetchingNextPage}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              {isFetchingNextPage ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+              Load more
+            </Button>
           </div>
         )}
 
@@ -407,6 +465,7 @@ export default function ContactsPage() {
         onOpenChange={setDialogOpen}
         onSave={handleSave}
         editingContact={editingContact}
+        customTypes={customTypes}
       />
       <ImportContactsDialog
         open={importOpen}
@@ -436,7 +495,7 @@ export default function ContactsPage() {
                 <div className="space-y-1.5 mb-3">
                   {group.parties.map(p => (
                     <div key={p.id} className="text-xs text-muted-foreground flex items-center gap-2">
-                      <Badge variant="secondary" className="text-[10px]">{Array.isArray(p.type) ? p.type.map(t => contactTypeLabels[t]).join(", ") : contactTypeLabels[p.type]}</Badge>
+                      <Badge variant="secondary" className="text-[10px]">{contactTypeList(p).map(t => contactTypeLabels[t] || t).join(", ")}</Badge>
                       <span>{p.contacts[0]?.email || "No email"}</span>
                       {p.iban && <span className="text-green-600">IBAN ✓</span>}
                     </div>
@@ -467,6 +526,52 @@ export default function ContactsPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={() => mergeConfirm && handleMerge(mergeConfirm)}>Merge</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={!!deleteConfirm} onOpenChange={(v) => { if (!v) setDeleteConfirm(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete "{deleteConfirm?.name}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove this contact and all their details. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (deleteConfirm) { deleteContactMutation.mutate({ id: deleteConfirm.id }); setDeleteConfirm(null); } }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Confirmation */}
+      <AlertDialog open={bulkDeleteConfirm} onOpenChange={setBulkDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedIds.size} contacts?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You are about to delete these contacts. Do you want to proceed? This action is irreversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                for (const id of selectedIds) deleteContactMutation.mutate({ id });
+                setSelectedIds(new Set());
+                setBulkDeleteConfirm(false);
+              }}
+            >
+              Delete All
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
