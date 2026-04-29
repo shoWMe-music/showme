@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Download, FileText, FileSpreadsheet, Share2, Link2, Check, Copy } from "lucide-react";
+import { FileText, FileSpreadsheet, Share2, Link2, Check, Copy, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
@@ -21,9 +21,16 @@ interface BudgetExportActionsProps {
 // Exclude "input-only" fields from revenue totals
 const EXCLUDED_REVENUE_IDS = ["ticket_price", "expected_tickets", "capacity", "avg_bar_spend"];
 
+// PDF footer layout — stack disclaimer above the page counter so the two cannot
+// overlap, even when the disclaimer text is long or the page counter is centered.
+// Exported so tests can assert the y-coordinates remain visually separated.
+export const PDF_FOOTER_DISCLAIMER_Y_MM = 18; // mm from page bottom
+export const PDF_FOOTER_PAGE_COUNTER_Y_MM = 8; // mm from page bottom
+
 export default function BudgetExportActions({ event, revenueFields, costFields, resultFields, getFieldValue, currency = "EUR" }: BudgetExportActionsProps) {
   const [copied, setCopied] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [pdfGenerating, setPdfGenerating] = useState(false);
 
   const totalRevenue = getFieldValue("total_revenue");
   const totalCosts = getFieldValue("total_costs");
@@ -64,6 +71,10 @@ export default function BudgetExportActions({ event, revenueFields, costFields, 
 
   // ── CSV Export ──
   const handleCSV = useCallback(() => {
+    if (!event || !revenueFields.length || !costFields.length) {
+      toast.error("Please wait for data to load");
+      return;
+    }
     const rows: string[][] = [
       ["Category", "Field", `Value (${getCurrencySymbol(currency)})`],
       [],
@@ -90,16 +101,36 @@ export default function BudgetExportActions({ event, revenueFields, costFields, 
     a.click();
     URL.revokeObjectURL(url);
     toast.success("CSV downloaded");
-  }, [revenueFields, costFields, resultFields, event.name]);
+  }, [event, revenueFields, costFields, resultFields]);
 
   // ── PDF Export with infographics ──
   const handlePDF = useCallback(async () => {
+    setPdfGenerating(true);
+    try {
+    if (!event || !revenueFields.length || !costFields.length) {
+      toast.error("Please wait for data to load");
+      setPdfGenerating(false);
+      return;
+    }
+
     const { default: jsPDF } = await import("jspdf");
     const { default: autoTable } = await import("jspdf-autotable");
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
     const margin = 14;
+    const footerZone = 20; // reserve 20mm at bottom for footer
+    const contentBottom = pageHeight - footerZone; // max Y before needing a new page
     let y = 16;
+
+    /** Add a new page if content would exceed the safe area. Returns updated y. */
+    const ensureSpace = (needed: number): number => {
+      if (y + needed > contentBottom) {
+        doc.addPage();
+        return 16;
+      }
+      return y;
+    };
 
     // Header
     doc.setFillColor(30, 30, 40);
@@ -217,7 +248,7 @@ export default function BudgetExportActions({ event, revenueFields, costFields, 
       ];
 
       activeCosts.forEach((f, i) => {
-        if (y > 270) { doc.addPage(); y = 16; }
+        y = ensureSpace(10);
         const bw = Math.max((f.value / costMax) * (barMaxW * 0.7), 2);
         const c = costColors[i % costColors.length];
         doc.setFillColor(c[0], c[1], c[2]);
@@ -233,7 +264,7 @@ export default function BudgetExportActions({ event, revenueFields, costFields, 
     }
 
     // ── Revenue Table ──
-    if (y > 230) { doc.addPage(); y = 16; }
+    y = ensureSpace(30);
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(60, 60, 60);
@@ -244,7 +275,7 @@ export default function BudgetExportActions({ event, revenueFields, costFields, 
       startY: y,
       head: [["Field", "Value"]],
       body: revenueFields.map(f => [f.name, formatCurrency(f.value)]),
-      margin: { left: margin, right: margin },
+      margin: { left: margin, right: margin, bottom: footerZone },
       styles: { fontSize: 8, cellPadding: 2 },
       headStyles: { fillColor: [34, 197, 94], textColor: 255, fontStyle: "bold" },
       alternateRowStyles: { fillColor: [245, 250, 245] },
@@ -253,7 +284,7 @@ export default function BudgetExportActions({ event, revenueFields, costFields, 
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
 
     // ── Costs Table ──
-    if (y > 230) { doc.addPage(); y = 16; }
+    y = ensureSpace(30);
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(60, 60, 60);
@@ -264,7 +295,7 @@ export default function BudgetExportActions({ event, revenueFields, costFields, 
       startY: y,
       head: [["Field", "Value"]],
       body: costFields.map(f => [f.name, formatCurrency(f.value)]),
-      margin: { left: margin, right: margin },
+      margin: { left: margin, right: margin, bottom: footerZone },
       styles: { fontSize: 8, cellPadding: 2 },
       headStyles: { fillColor: [239, 68, 68], textColor: 255, fontStyle: "bold" },
       alternateRowStyles: { fillColor: [255, 245, 245] },
@@ -273,7 +304,7 @@ export default function BudgetExportActions({ event, revenueFields, costFields, 
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
 
     // ── Results Table ──
-    if (y > 230) { doc.addPage(); y = 16; }
+    y = ensureSpace(30);
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(60, 60, 60);
@@ -287,26 +318,30 @@ export default function BudgetExportActions({ event, revenueFields, costFields, 
         f.name,
         f.id === "profit_margin" ? `${f.value.toFixed(1)}%` : f.id === "breakeven_tickets" ? Math.round(f.value).toLocaleString() : formatCurrency(f.value),
       ]),
-      margin: { left: margin, right: margin },
+      margin: { left: margin, right: margin, bottom: footerZone },
       styles: { fontSize: 8, cellPadding: 2 },
       headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: "bold" },
       alternateRowStyles: { fillColor: [240, 245, 255] },
       theme: "grid",
     });
 
-    // ── Footer ──
+    // ── Footer on every page ──
+    // Disclaimer stacks above the page counter so the two cannot overlap; see
+    // PDF_FOOTER_*_Y_MM module constants for the exact y-coordinates.
     const pageCount = doc.getNumberOfPages();
-    const pageHeight = doc.internal.pageSize.getHeight();
     for (let p = 1; p <= pageCount; p++) {
       doc.setPage(p);
       doc.setFontSize(7);
       doc.setTextColor(160, 160, 160);
-      doc.text(`Page ${p} of ${pageCount}`, pageWidth / 2, pageHeight - 8, { align: "center" });
-      doc.text("Estimate only \u2014 review before final decisions", margin, pageHeight - 12);
+      doc.text("Estimate only \u2014 review before final decisions", margin, pageHeight - PDF_FOOTER_DISCLAIMER_Y_MM);
+      doc.text(`Page ${p} of ${pageCount}`, pageWidth / 2, pageHeight - PDF_FOOTER_PAGE_COUNTER_Y_MM, { align: "center" });
     }
 
     doc.save(`budget-${event.name.replace(/\s+/g, "_")}-${new Date().toISOString().slice(0, 10)}.pdf`);
     toast.success("PDF downloaded");
+    } finally {
+      setPdfGenerating(false);
+    }
   }, [event, revenueFields, costFields, resultFields, totalRevenue, totalCosts, profitLoss, getFieldValue]);
 
   // ── Share Link ──
@@ -327,8 +362,8 @@ export default function BudgetExportActions({ event, revenueFields, costFields, 
       <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={handleCSV}>
         <FileSpreadsheet className="h-3.5 w-3.5" /> CSV
       </Button>
-      <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={handlePDF}>
-        <FileText className="h-3.5 w-3.5" /> PDF
+      <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={handlePDF} disabled={pdfGenerating}>
+        {pdfGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />} {pdfGenerating ? "Generating..." : "PDF"}
       </Button>
       <Popover>
         <PopoverTrigger asChild>
