@@ -7,6 +7,7 @@ import {
   normalizeContactType,
   contactTypeList,
   groupContactsByType,
+  partitionImportedByOwnProfile,
 } from "./contacts";
 
 // ---------------------------------------------------------------------------
@@ -227,5 +228,42 @@ describe("groupContactsByType", () => {
 
   it("returns empty object for empty input", () => {
     expect(groupContactsByType([])).toEqual({});
+  });
+});
+
+// ---------------------------------------------------------------------------
+// partitionImportedByOwnProfile
+// ---------------------------------------------------------------------------
+
+describe("partitionImportedByOwnProfile", () => {
+  it("keeps all rows when no name matches a profile", () => {
+    const imported = [
+      { name: "Alice", type: "performer" as const },
+      { name: "Bob's Bar", type: "venue" as const },
+    ];
+    const { kept, skipped } = partitionImportedByOwnProfile(imported, ["My Venue", "My Band"]);
+    expect(kept).toHaveLength(2);
+    expect(skipped).toHaveLength(0);
+  });
+
+  it("skips rows whose name matches one of the user's profile names (case-insensitive)", () => {
+    const imported = [
+      { name: "  my venue  ", type: "venue" as const },
+      { name: "External Promoter", type: "promoter" as const },
+      { name: "MY BAND", type: "performer" as const },
+    ];
+    const { kept, skipped } = partitionImportedByOwnProfile(imported, ["My Venue", "My Band"]);
+    expect(kept).toHaveLength(1);
+    expect(kept[0].name).toBe("External Promoter");
+    expect(skipped.map(r => r.name)).toEqual(["  my venue  ", "MY BAND"]);
+  });
+
+  it("treats empty / whitespace profile names as non-matching (defensive)", () => {
+    const imported = [{ name: "Alice", type: "performer" as const }];
+    expect(partitionImportedByOwnProfile(imported, ["", "   "]).kept).toHaveLength(1);
+  });
+
+  it("returns empty groups for empty input", () => {
+    expect(partitionImportedByOwnProfile([], ["My Venue"])).toEqual({ kept: [], skipped: [] });
   });
 });

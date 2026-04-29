@@ -8,7 +8,8 @@ import { useMyInvitationCodes } from "@/lib/queries/useInvitationCodes";
 import type { InvitationCode } from "@/lib/db";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Contact, ContactType, contactTypeLabels } from "@/lib/models";
-import { contactHasType, contactPrimaryType, contactTypeList, groupContactsByType } from "@/lib/contacts";
+import { contactHasType, contactPrimaryType, contactTypeList, groupContactsByType, partitionImportedByOwnProfile } from "@/lib/contacts";
+import { useUser } from "@/lib/user-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +21,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Plus, Search, Users, MapPin, Music, Ticket, Briefcase, UserCheck, Factory, Upload, AlertTriangle, Merge, Loader2, Handshake, Trash2, Copy, Check } from "lucide-react";
-import { copyToast } from "@/hooks/use-toast";
+import { toast, copyToast } from "@/hooks/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
 
 const FETCH_SIZE = 50;
@@ -100,6 +101,7 @@ function mergeContacts(parties: Contact[]): Contact {
 }
 
 export default function ContactsPage() {
+  const { profiles } = useUser();
   const addContactMutation = useAddContact();
   const updateContactMutation = useUpdateContact();
   const deleteContactMutation = useDeleteContact();
@@ -470,7 +472,19 @@ export default function ContactsPage() {
       <ImportContactsDialog
         open={importOpen}
         onOpenChange={setImportOpen}
-        onImport={(imported) => imported.forEach(p => addContactMutation.mutate({ contact: p }))}
+        onImport={(imported) => {
+          const ownProfileNames = Object.values(profiles)
+            .map(p => p?.name)
+            .filter((n): n is string => typeof n === "string" && n.trim().length > 0);
+          const { kept, skipped } = partitionImportedByOwnProfile(imported, ownProfileNames);
+          kept.forEach(p => addContactMutation.mutate({ contact: p }));
+          if (skipped.length) {
+            toast({
+              title: skipped.length === 1 ? "1 row skipped" : `${skipped.length} rows skipped`,
+              description: "Rows whose name matched one of your own profiles were not imported — contacts are external only.",
+            });
+          }
+        }}
       />
 
       {/* Duplicates Dialog */}

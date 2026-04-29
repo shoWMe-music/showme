@@ -32,6 +32,25 @@ export function isOwnProfileName(name: string, profileNames: string[]): boolean 
   return profileNames.some(pn => pn.toLowerCase() === name.trim().toLowerCase());
 }
 
+/**
+ * Split imported contact rows into those that should be persisted (`kept`)
+ * and those that match one of the user's own profile names (`skipped`).
+ * Contacts are external only — never auto-create a contact for the user's
+ * own venue/performer/promoter profile during a CSV bulk import.
+ */
+export function partitionImportedByOwnProfile<T extends { name: string }>(
+  imported: T[],
+  profileNames: string[],
+): { kept: T[]; skipped: T[] } {
+  const kept: T[] = [];
+  const skipped: T[] = [];
+  for (const row of imported) {
+    if (isOwnProfileName(row.name, profileNames)) skipped.push(row);
+    else kept.push(row);
+  }
+  return { kept, skipped };
+}
+
 /** Check if a contact already exists by name and type (supports array types). */
 export function contactExists(
   contacts: Pick<Contact, "name" | "type">[],
