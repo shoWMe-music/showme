@@ -69,6 +69,39 @@ const STATUS_FILTERS = [
 const PAGE_SIZE = 25;
 const FETCH_SIZE = 50;
 
+/**
+ * Collapse a list of performer-relevant events so each booking appears once:
+ * - One entry per (parentEventId || id)
+ * - When a parent and any of its children are both present, hide the parent
+ *   and keep only one child entry per parent (the first one encountered).
+ *
+ * Pure helper exported for unit testing the deduplication used by the
+ * Incoming Requests page.
+ */
+export function dedupeInvitationEvents(events: Event[]): Event[] {
+  // Sort: events without parentEventId (parents) come first so we can detect
+  // them before deciding whether to keep their children.
+  const sorted = [...events].sort((a, b) => {
+    if (a.parentEventId && !b.parentEventId) return 1;
+    if (!a.parentEventId && b.parentEventId) return -1;
+    return 0;
+  });
+  const childParentIds = new Set(
+    sorted.filter((e) => e.parentEventId).map((e) => e.parentEventId!),
+  );
+  const seenBookingKey = new Set<string>();
+  const out: Event[] = [];
+  for (const e of sorted) {
+    // If this event is a parent that has children in the list, drop the parent.
+    if (!e.parentEventId && childParentIds.has(e.id)) continue;
+    const key = e.parentEventId || e.id;
+    if (seenBookingKey.has(key)) continue;
+    seenBookingKey.add(key);
+    out.push(e);
+  }
+  return out;
+}
+
 export default function IncomingRequestsPage() {
   const navigate = useNavigate();
   const { currentUser, profiles } = useUser();
@@ -144,16 +177,10 @@ export default function IncomingRequestsPage() {
     const matched = allEvents.filter(e =>
       e.performerProfileId &&
       myArtistProfileIds.includes(e.performerProfileId) &&
-      !e.archived
+      !e.archived &&
+      e.eventStatus !== "draft"
     );
-    // Deduplicate by event ID and hide children whose parent is already in the list
-    const parentIds = new Set(matched.filter(e => e.parentEventId).map(e => e.parentEventId!));
-    const deduped = new Map<string, Event>();
-    for (const e of matched) {
-      if (e.parentEventId && parentIds.has(e.parentEventId) && deduped.has(e.parentEventId)) continue;
-      if (!deduped.has(e.id)) deduped.set(e.id, e);
-    }
-    return Array.from(deduped.values());
+    return dedupeInvitationEvents(matched);
   }, [allEvents, myArtistProfileIds]);
 
   const eventInvitations = useMemo(() => {
@@ -171,7 +198,9 @@ export default function IncomingRequestsPage() {
   }, [allInvitations, statusFilter]);
 
   const holdEvents = useMemo(() => {
-    return allInvitations.filter(e => e.eventStatus === "on_hold");
+    // allInvitations already collapses parent + children to a single booking entry,
+    // but we re-apply dedupe defensively in case raw data flows in differently.
+    return dedupeInvitationEvents(allInvitations.filter(e => e.eventStatus === "on_hold"));
   }, [allInvitations]);
 
   const handleAcceptInvitation = (event: Event) => {
@@ -185,13 +214,16 @@ export default function IncomingRequestsPage() {
   };
 
   const handleConfirmHold = (event: Event) => {
-    updateEventMutation.mutate({ id: event.id, updates: { eventStatus: "confirmed" } });
+    updateEventMutation.mutate({ id: event.id, updates: { eventStatus: "pending" } });
     // Cancel sibling holds on the same date
     const siblings = holdEvents.filter(e => e.id !== event.id && e.date === event.date);
     for (const s of siblings) {
       updateEventMutation.mutate({ id: s.id, updates: { eventStatus: "cancelled" } });
     }
-    toast({ title: "Date confirmed", description: siblings.length > 0 ? `${siblings.length} competing hold(s) cancelled.` : "Hold confirmed." });
+    toast({
+      title: "Date accepted, event is now pending.",
+      description: siblings.length > 0 ? `${siblings.length} competing hold(s) cancelled.` : undefined,
+    });
   };
 
   const handleDeclineHold = (event: Event) => {
@@ -273,8 +305,8 @@ export default function IncomingRequestsPage() {
   const groupedByEmail = useMemo(() => {
     const map = new Map<string, BookingRequest[]>();
     for (const req of paginatedFiltered) {
-      // Group by target profile slug (the profile receiving requests), fall back to email
-      const key = req.target_profile_slug || req.email.toLowerCase();
+      // Group by requester email so one person's multiple requests appear bundled
+      const key = req.email.toLowerCase();
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(req);
     }
@@ -518,7 +550,7 @@ export default function IncomingRequestsPage() {
                   </div>
                   <div className="flex flex-col gap-1.5 shrink-0">
                     <Button size="sm" className="text-xs gap-1" onClick={() => handleConfirmHold(event)}>
-                      <Check className="h-3 w-3" /> Confirm Date
+                      <Check className="h-3 w-3" /> Accept date
                     </Button>
                     <Button size="sm" variant="outline" className="text-xs gap-1 text-destructive hover:text-destructive" onClick={() => handleDeclineHold(event)}>
                       <XCircle className="h-3 w-3" /> Decline
@@ -546,7 +578,7 @@ export default function IncomingRequestsPage() {
               </div>
             ))}
           </div>
-        ) : paginatedFiltered.length === 0 && eventInvitations.length === 0 ? (
+        ) : paginatedFiltered.length === 0 && eventInvitations.length === 0 && holdEvents.length === 0 ? (
           <div className="rounded-xl border bg-card shadow-sm py-16 text-center">
             <p className="text-muted-foreground">No requests found</p>
           </div>
