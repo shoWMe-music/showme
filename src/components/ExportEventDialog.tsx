@@ -34,16 +34,27 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
   const event = useEvent(eventId);
   const { deal, revenue, settlement, meta: eventMeta, isLoaded: economicsLoaded } = useEventEconomics(eventId, open && !eventDataProp);
 
-  // Fetch subcollection data for export (schedule, crew, riders, agreements)
+  // Fetch subcollection data for export (schedule, crew, riders, agreements).
+  // Wave 2/3 moved this data from the legacy managerData bridge into proper
+  // subcollections; the export pipeline must wait for ALL of them before the
+  // print HTML is allowed to render, otherwise the resulting PDF has a logo
+  // and header but no section content.
   const fetchSubcollections = open && !eventDataProp;
-  const { data: schedule } = useQuery({ queryKey: ["export-schedule", eventId], queryFn: () => fetchSchedule(eventId), enabled: fetchSubcollections });
-  const { data: crew } = useQuery({ queryKey: ["export-crew", eventId], queryFn: () => fetchCrew(eventId), enabled: fetchSubcollections });
-  const { data: riders } = useQuery({ queryKey: ["export-riders", eventId], queryFn: () => fetchRiders(eventId), enabled: fetchSubcollections });
-  const { data: agreements } = useQuery({ queryKey: ["export-agreements", eventId], queryFn: () => fetchAgreements(eventId), enabled: fetchSubcollections });
+  const scheduleQ = useQuery({ queryKey: ["export-schedule", eventId], queryFn: () => fetchSchedule(eventId), enabled: fetchSubcollections });
+  const crewQ = useQuery({ queryKey: ["export-crew", eventId], queryFn: () => fetchCrew(eventId), enabled: fetchSubcollections });
+  const ridersQ = useQuery({ queryKey: ["export-riders", eventId], queryFn: () => fetchRiders(eventId), enabled: fetchSubcollections });
+  const agreementsQ = useQuery({ queryKey: ["export-agreements", eventId], queryFn: () => fetchAgreements(eventId), enabled: fetchSubcollections });
+  const schedule = scheduleQ.data;
+  const crew = crewQ.data;
+  const riders = ridersQ.data;
+  const agreements = agreementsQ.data;
+  const subcollectionsLoaded = !fetchSubcollections || (
+    scheduleQ.isSuccess && crewQ.isSuccess && ridersQ.isSuccess && agreementsQ.isSuccess
+  );
 
   const eventData = useMemo<EventExportData | undefined>(() => {
     if (eventDataProp) return eventDataProp;
-    if (!event || !economicsLoaded) return undefined;
+    if (!event || !economicsLoaded || !subcollectionsLoaded) return undefined;
     return {
       event,
       deal: deal ?? { eventId: event.id, dealType: "guarantee" as const, artistGuarantee: 0, artistSplit: 80, promoterSplit: 10, venueSplit: 10, organizerSplit: 0, artistCostSplit: 0, promoterCostSplit: 50, venueCostSplit: 50, organizerCostSplit: 0, venueRental: 0, commissions: [] } satisfies DealStructure,
@@ -52,7 +63,7 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
       eventMeta: { ...eventMeta, schedule, crew, riders, agreements } as EventExportData["eventMeta"],
       currency: currentUser?.currency || "EUR",
     };
-  }, [eventDataProp, event, economicsLoaded, deal, revenue, settlement, eventMeta, schedule, crew, riders, agreements, currentUser?.currency]);
+  }, [eventDataProp, event, economicsLoaded, subcollectionsLoaded, deal, revenue, settlement, eventMeta, schedule, crew, riders, agreements, currentUser?.currency]);
 
   const [level, setLevel] = useState<SelectionLevel>("sections");
   const [selectedTabs, setSelectedTabs] = useState<Set<string>>(new Set());
