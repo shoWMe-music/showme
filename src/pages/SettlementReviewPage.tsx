@@ -1,6 +1,8 @@
 import { useParams, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { httpsCallable } from "firebase/functions";
+import { getFirebaseFunctions } from "@/integrations/firebase/app";
 import { Button } from "@/components/ui/button";
 import {
   formatCurrency,
@@ -24,15 +26,12 @@ import showmeLogo from "@/assets/showme-logo.png";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { fetchPublicShareByToken, approvePublicShare, type SettlementShareSnapshot } from "@/lib/db";
-import { queryKeys, useAddComment, useShareTokens, useEvent, useEventEconomics } from "@/lib/queries";
-import { uploadUserBinary } from "@/lib/firebaseStorageUpload";
+import { queryKeys, useShareTokens, useEvent, useEventEconomics } from "@/lib/queries";
 
 export default function SettlementReviewPage() {
   const { token } = useParams({ from: "/review/$token" });
   const { user } = useAuth();
   const navigate = useNavigate();
-
-  const addCommentMutation = useAddComment();
 
   // Resolve eventId from share token cache
   const shareTokens = useShareTokens();
@@ -215,7 +214,6 @@ export default function SettlementReviewPage() {
 
   const { event, deal, revenue, settlement } = data;
   const reviewerName = user?.displayName?.trim() || user?.email?.split("@")[0] || "Reviewer";
-  const canPersistComments = Boolean(user?.uid && tokenEventId);
 
   const settlementTotal = settlement.artistPayout + settlement.promoterPayout + settlement.venuePayout +
     settlement.commissionPayouts.reduce((sum, c) => sum + c.payout, 0);
@@ -236,20 +234,6 @@ export default function SettlementReviewPage() {
   const recalc = deal && revenue ? calculateSettlement(deal, revenue) : null;
   const partyBreakdowns = recalc?.partyBreakdowns || [];
 
-  const persistComment = canPersistComments && tokenEventId
-    ? (eventId: string, party: string, message: string, attachments?: { name: string; size: number; type: string; fileUrl: string }[]) => {
-        addCommentMutation.mutate({
-          eventId,
-          party,
-          message,
-          attachments,
-          date: new Date().toISOString().slice(0, 10),
-        });
-      }
-    : () => {
-        toast({ title: "Comments unavailable", description: "Sign in as the workspace owner on this device to post comments on this settlement.", variant: "destructive" });
-      };
-
   const isViewingSnapshot = !liveData && !!remote;
 
   const tokenParties = tokenRecord?.parties ?? [];
@@ -259,7 +243,6 @@ export default function SettlementReviewPage() {
   return <SettlementReviewContent
     event={event} deal={deal} revenue={revenue} settlement={settlement}
     reviewerName={reviewerName}
-    addComment={persistComment}
     settlementTotal={settlementTotal}
     totalRevenue={totalRevenue} totalDeductions={totalDeductions} netRevenue={netRevenue}
     partyBreakdowns={partyBreakdowns}
@@ -269,8 +252,6 @@ export default function SettlementReviewPage() {
     viewerIsPerformer={viewerIsPerformer}
   />;
 }
-
-type CommentAttachment = { name: string; size: number; type: string; fileUrl: string };
 
 function formatRelativeTime(ms: number): string {
   const diffSec = Math.floor((Date.now() - ms) / 1000);
@@ -287,9 +268,19 @@ function formatRelativeTime(ms: number): string {
   return `${Math.floor(month / 12)}y ago`;
 }
 
-function SettlementReviewContent({ event, deal, revenue, settlement, reviewerName, addComment, settlementTotal, totalRevenue, totalDeductions, netRevenue, partyBreakdowns, initialApproved, token, snapshotUpdatedAtMs, viewerIsPerformer }: {
+async function fileToBase64(file: File): Promise<string> {
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
+  }
+  return btoa(binary);
+}
+
+function SettlementReviewContent({ event, deal, revenue, settlement, reviewerName, settlementTotal, totalRevenue, totalDeductions, netRevenue, partyBreakdowns, initialApproved, token, snapshotUpdatedAtMs, viewerIsPerformer }: {
   event: AppEvent; deal: DealStructure; revenue: TicketRevenue; settlement: Settlement; reviewerName: string;
-  addComment: (eventId: string, party: string, message: string, attachments?: CommentAttachment[]) => void;
   settlementTotal: number;
   totalRevenue: number; totalDeductions: number; netRevenue: number;
   partyBreakdowns: import("@/lib/models").PartyBreakdown[];
@@ -298,6 +289,7 @@ function SettlementReviewContent({ event, deal, revenue, settlement, reviewerNam
   snapshotUpdatedAtMs: number | null;
   viewerIsPerformer: boolean;
 }) {
+  const queryClient = useQueryClient();
   const [commentText, setCommentText] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [approved, setApproved] = useState(initialApproved);
@@ -307,17 +299,30 @@ function SettlementReviewContent({ event, deal, revenue, settlement, reviewerNam
     if (!commentText.trim() || submittingComment) return;
     setSubmittingComment(true);
     try {
-      const attachments = await Promise.all(attachedFiles.map(async (f) => {
-        const safeName = f.name.replace(/[^\w.\-]+/g, "_");
-        const path = `settlement-comments/${event.id}/${Date.now()}-${safeName}`;
-        const fileUrl = await uploadUserBinary(path, f, f.type || undefined);
-        return { name: f.name, size: f.size, type: f.type || f.name.split(".").pop() || "file", fileUrl };
-      }));
-      addComment(event.id, reviewerName, commentText.trim(), attachments.length > 0 ? attachments : undefined);
+      const attachments = await Promise.all(attachedFiles.map(async (f) => ({
+        name: f.name,
+        size: f.size,
+        type: f.type || f.name.split(".").pop() || "file",
+        data: await fileToBase64(f),
+      })));
+      const submit = httpsCallable<
+        { token: string; message: string; reviewerName: string; date: string; attachments: typeof attachments },
+        { ok: true }
+      >(getFirebaseFunctions(), "submitPublicShareComment");
+      await submit({
+        token,
+        message: commentText.trim(),
+        reviewerName,
+        date: new Date().toISOString().slice(0, 10),
+        attachments,
+      });
       setCommentText("");
       setAttachedFiles([]);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.publicShareByToken(token) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.eventEconomics(event.id) });
+      toast({ title: "Comment submitted" });
     } catch (err: any) {
-      toast({ title: "Upload failed", description: err.message || "Could not upload attachment", variant: "destructive" });
+      toast({ title: "Could not submit comment", description: err?.message || "Please try again.", variant: "destructive" });
     } finally {
       setSubmittingComment(false);
     }

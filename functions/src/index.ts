@@ -16,6 +16,7 @@ export {
   sendInvitationEmail,
 } from "./invitations";
 export { setCollaboratorInvitePassword } from "./collaboratorInvitePassword";
+export { submitPublicShareComment } from "./publicShares";
 export {
   onEventUpdated,
   onDealUpdated,
