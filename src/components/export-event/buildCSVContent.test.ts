@@ -92,4 +92,55 @@ describe("buildCSVContent", () => {
     expect(csv).toContain("Settlement");
     expect(csv).toContain("open");
   });
+
+  it("renders the Event Summary section under the agreement tab", () => {
+    const csv = buildCSVContent(["agreement"], new Set(), "tabs", makeEventData());
+    expect(csv).toContain("--- Event Summary ---");
+    expect(csv).toContain("Test Event");
+    expect(csv).toContain("guarantee"); // deal type
+  });
+
+  it("renders the Budget Calculator section when budget data is on eventMeta", () => {
+    const data = makeEventData({
+      eventMeta: {
+        budget: {
+          revenueFields: [{ id: "bar_revenue", name: "Bar revenue", value: 5000 }],
+          costFields: [{ id: "artist_fee", name: "Performer fee", value: 3000 }],
+          resultFields: [
+            { id: "profit_loss", name: "Profit / Loss", value: 2000 },
+            { id: "breakeven_tickets", name: "Break-even ticket count", value: 87 },
+          ],
+        },
+      } as unknown as EventExportData["eventMeta"],
+    });
+    const csv = buildCSVContent(["budget"], new Set(), "tabs", data);
+    expect(csv).toContain("--- Budget Calculator ---");
+    expect(csv).toContain("Bar revenue");
+    expect(csv).toContain("Performer fee");
+    expect(csv).toContain("--- Break-even Analysis ---");
+    expect(csv).toContain("Break-even Ticket Count");
+  });
+
+  it("renders the PRO estimate when proEstimate is on eventMeta", () => {
+    const data = makeEventData({
+      eventMeta: {
+        proEstimate: {
+          pro: "gema",
+          country: "DE",
+          eventType: "live_concert",
+          ticketPrice: 50,
+          vatMode: "inclusive",
+          expectedTickets: 200,
+          compTickets: 5,
+          venueCapacity: 250,
+          estimatedFee: 800,
+          manualOverride: false,
+        },
+      } as unknown as EventExportData["eventMeta"],
+    });
+    const csv = buildCSVContent(["budget"], new Set(), "tabs", data);
+    expect(csv).toContain("--- PRO Fee Estimate ---");
+    expect(csv).toContain("gema");
+    expect(csv).toContain("live_concert");
+  });
 });

@@ -164,4 +164,153 @@ describe("buildPrintHTML", () => {
     const html = buildPrintHTML(new Set(), new Set(), "all", makeEventData());
     expect(html).toContain("SEK");
   });
+
+  it("includes Event Summary block when agreement tab is selected", () => {
+    const html = buildPrintHTML(
+      new Set(["agreement"]),
+      new Set(),
+      "tabs",
+      makeEventData(),
+    );
+    expect(html).toContain("Event Summary");
+    // Performer guarantee should not appear because makeEventData has 0 guarantee
+    expect(html).toContain("Test Gig");
+    expect(html).toContain("Jazz Trio");
+  });
+
+  it("includes Event Summary with performer guarantee when present", () => {
+    const data = makeEventData({
+      deal: {
+        ...makeEventData().deal,
+        artistGuarantee: 7500,
+      },
+    });
+    const html = buildPrintHTML(
+      new Set(["agreement"]),
+      new Set(),
+      "tabs",
+      data,
+    );
+    expect(html).toContain("Event Summary");
+    expect(html).toContain("Performer Guarantee");
+    // formatCurrency for SEK uses Swedish locale; check digits are present
+    expect(html).toMatch(/7[\s.,]?500/);
+  });
+
+  it("renders the Budget Calculator section when budget data is provided", () => {
+    const data = makeEventData({
+      eventMeta: {
+        budget: {
+          revenueFields: [
+            { id: "capacity", name: "Capacity", value: 200 },
+            { id: "bar_revenue", name: "Bar revenue", value: 5000 },
+          ],
+          costFields: [
+            { id: "artist_fee", name: "Performer fee", value: 3000 },
+            { id: "venue_cost", name: "Venue cost", value: 1500 },
+          ],
+          resultFields: [
+            { id: "total_revenue", name: "Total revenue", value: 12000 },
+            { id: "profit_loss", name: "Profit / Loss", value: 4500 },
+            { id: "breakeven_tickets", name: "Break-even ticket count", value: 87 },
+            { id: "profit_margin", name: "Profit margin %", value: 37.5 },
+          ],
+        },
+      } as unknown as EventExportData["eventMeta"],
+    });
+    const html = buildPrintHTML(new Set(["budget"]), new Set(), "tabs", data);
+    expect(html).toContain("Budget Calculator");
+    expect(html).toContain("Bar revenue");
+    expect(html).toContain("Performer fee");
+    expect(html).toContain("Venue cost");
+    expect(html).toContain("Profit / Loss");
+    // profit margin formatted with 1 decimal and percent sign
+    expect(html).toContain("37.5%");
+    // break-even rounded to integer
+    expect(html).toContain(">87<");
+    // Break-even Analysis section also uses the result fields
+    expect(html).toContain("Break-even Analysis");
+  });
+
+  it("renders a placeholder when budget tab is selected without data", () => {
+    const html = buildPrintHTML(
+      new Set(["budget"]),
+      new Set(),
+      "tabs",
+      makeEventData(),
+    );
+    expect(html).toContain("Budget Calculator");
+    expect(html).toContain("No budget calculator data captured");
+  });
+
+  it("renders the PRO Fee Estimate when proEstimate is on eventMeta", () => {
+    const data = makeEventData({
+      eventMeta: {
+        proEstimate: {
+          pro: "stim",
+          country: "SE",
+          eventType: "live_concert",
+          ticketPrice: 200,
+          vatMode: "inclusive",
+          expectedTickets: 150,
+          compTickets: 0,
+          venueCapacity: 200,
+          estimatedFee: 600,
+          manualOverride: false,
+        },
+      } as unknown as EventExportData["eventMeta"],
+    });
+    const html = buildPrintHTML(new Set(["budget"]), new Set(), "tabs", data);
+    expect(html).toContain("PRO Fee Estimate");
+    expect(html).toContain("Estimate only");
+    expect(html).toContain("stim");
+    expect(html).toContain("live_concert");
+  });
+
+  it("does not render budget sections when section-level selection excludes them", () => {
+    const data = makeEventData({
+      eventMeta: {
+        budget: { revenueFields: [{ id: "capacity", name: "Capacity", value: 200 }] },
+      } as unknown as EventExportData["eventMeta"],
+    });
+    const html = buildPrintHTML(
+      new Set(["details"]),
+      new Set(["event-info"]),
+      "sections",
+      data,
+    );
+    expect(html).not.toContain("Budget Calculator");
+    expect(html).not.toContain("PRO Fee Estimate");
+  });
+
+  // Regression tests for Wave 4 Lane B: blank-PDF symptoms.
+  // Subcollection data must reach buildPrintHTML via the merged eventMeta.
+  it("renders ALL major sections in a typical full export", () => {
+    const data = makeEventData({
+      eventMeta: {
+        schedule: [{ id: "s1", time: "18:00", label: "Doors" }],
+        riders: [{ id: "r1", type: "technical", name: "Stage plot" }],
+        agreements: [{ id: "a1", name: "Performance Agreement", type: "contract", status: "signed" }],
+        crew: [{ id: "c1", name: "Sound Tech", role: "FOH", email: "tech@test.com", phone: "", collaborator: "Production" }],
+        dealDescription: "All standard terms apply.",
+      } as unknown as EventExportData["eventMeta"],
+    });
+    const html = buildPrintHTML(new Set(), new Set(), "all", data);
+    // Every section that has data should be present.
+    expect(html).toContain("Event Information");
+    expect(html).toContain("Ticket Information");
+    expect(html).toContain("Financial Deal");
+    expect(html).toContain("Production Schedule");
+    expect(html).toContain("Doors");
+    expect(html).toContain("Riders");
+    expect(html).toContain("Stage plot");
+    expect(html).toContain("Event Summary");
+    expect(html).toContain("Agreements & Documents");
+    expect(html).toContain("Performance Agreement");
+    expect(html).toContain("Terms & Conditions");
+    expect(html).toContain("All standard terms apply.");
+    expect(html).toContain("Shared Team");
+    expect(html).toContain("Sound Tech");
+    expect(html).toContain("Settlement");
+  });
 });

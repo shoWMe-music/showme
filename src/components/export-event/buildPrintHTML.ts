@@ -100,6 +100,21 @@ th{background:#f5f5f5;font-weight:600}
     html += `</table>`;
   }
 
+  if (includeSection("event-summary", "agreement")) {
+    html += `<h2>Event Summary</h2><table>
+      <tr><th>Field</th><th>Value</th></tr>
+      <tr><td>Event</td><td>${s(event.name)}</td></tr>
+      <tr><td>Date</td><td>${s(event.date)}</td></tr>
+      <tr><td>Venue</td><td>${s(event.venue)}</td></tr>
+      <tr><td>Performer</td><td>${s(event.artist)}</td></tr>
+      <tr><td>Operator</td><td>${s(event.operator)} (${s(event.operatorType)})</td></tr>`;
+    if (deal) {
+      html += `<tr><td>Deal Type</td><td>${s(deal.dealType)}</td></tr>`;
+      if (deal.artistGuarantee) html += `<tr><td>Performer Guarantee</td><td>${formatCurrency(deal.artistGuarantee, currency)}</td></tr>`;
+    }
+    html += `</table>`;
+  }
+
   const agreementItems = md ? (md as unknown as { agreements?: Agreement[] }).agreements : undefined;
   if (includeSection("agreements-docs", "agreement") && agreementItems?.length) {
     html += `<h2>Agreements & Documents</h2><table>
@@ -112,6 +127,69 @@ th{background:#f5f5f5;font-weight:600}
 
   if (includeSection("terms", "agreement") && md?.dealDescription) {
     html += `<h2>Terms & Conditions</h2><div style="border:1px solid #e0e0e0;padding:12px;border-radius:6px;font-size:13px;white-space:pre-wrap">${md.dealDescription}</div>`;
+  }
+
+  // Budget tab — calculator/break-even/PRO estimator. Full per-profile budget
+  // calculator data lives in a separate subcollection (events/{id}/budgets);
+  // when that snapshot is supplied via eventMeta.budget we render its fields.
+  // The PRO estimator pulls from eventMeta.proEstimate which is already loaded.
+  const budget = md ? (md as unknown as { budget?: { revenueFields?: { name: string; value: number }[]; costFields?: { name: string; value: number }[]; resultFields?: { id?: string; name: string; value: number }[] } }).budget : undefined;
+  if (includeSection("budget-calculator", "budget")) {
+    if (budget && (budget.revenueFields?.length || budget.costFields?.length)) {
+      html += `<h2>Budget Calculator</h2>`;
+      if (budget.revenueFields?.length) {
+        html += `<table><tr><th>Revenue</th><th>Value (${sym})</th></tr>`;
+        budget.revenueFields.forEach(f => {
+          html += `<tr><td>${s(f.name)}</td><td>${formatCurrency(f.value, currency)}</td></tr>`;
+        });
+        html += `</table>`;
+      }
+      if (budget.costFields?.length) {
+        html += `<table><tr><th>Costs</th><th>Value (${sym})</th></tr>`;
+        budget.costFields.forEach(f => {
+          html += `<tr><td>${s(f.name)}</td><td>${formatCurrency(f.value, currency)}</td></tr>`;
+        });
+        html += `</table>`;
+      }
+      if (budget.resultFields?.length) {
+        html += `<table><tr><th>Result</th><th>Value</th></tr>`;
+        budget.resultFields.forEach(f => {
+          const formatted = f.id === "profit_margin"
+            ? `${f.value.toFixed(1)}%`
+            : f.id === "breakeven_tickets"
+            ? Math.round(f.value).toString()
+            : formatCurrency(f.value, currency);
+          html += `<tr><td>${s(f.name)}</td><td>${formatted}</td></tr>`;
+        });
+        html += `</table>`;
+      }
+    } else {
+      html += `<h2>Budget Calculator</h2><p style="font-size:13px;color:#666">No budget calculator data captured for this event.</p>`;
+    }
+  }
+
+  if (includeSection("budget-charts", "budget") && budget?.resultFields?.length) {
+    const profitLoss = budget.resultFields.find(f => f.id === "profit_loss")?.value ?? 0;
+    const breakeven = budget.resultFields.find(f => f.id === "breakeven_tickets")?.value ?? 0;
+    html += `<h2>Break-even Analysis</h2><table>
+      <tr><th>Metric</th><th>Value</th></tr>
+      <tr><td>Profit / Loss</td><td>${formatCurrency(profitLoss, currency)}</td></tr>
+      <tr><td>Break-even Ticket Count</td><td>${Math.round(breakeven)}</td></tr></table>`;
+  }
+
+  if (includeSection("pro-estimator", "budget") && md?.proEstimate) {
+    const p = md.proEstimate;
+    html += `<h2>PRO Fee Estimate</h2>
+      <p style="font-size:11px;color:#888;margin-top:0">Estimate only — review before final decisions.</p>
+      <table>
+      <tr><th>Field</th><th>Value</th></tr>
+      <tr><td>PRO</td><td>${s(p.pro)}</td></tr>
+      <tr><td>Country</td><td>${s(p.country)}</td></tr>
+      <tr><td>Event Type</td><td>${s(p.eventType)}</td></tr>
+      <tr><td>Ticket Price</td><td>${formatCurrency(p.ticketPrice, currency)}</td></tr>
+      <tr><td>Expected Tickets</td><td>${s(p.expectedTickets)}</td></tr>
+      <tr><td>Estimated Fee</td><td>${formatCurrency(p.estimatedFee, currency)}</td></tr>
+      </table>`;
   }
 
   const crewItems = md ? (md as unknown as { crew?: CrewMember[] }).crew : undefined;

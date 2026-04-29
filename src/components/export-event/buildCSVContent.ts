@@ -1,5 +1,5 @@
 import { formatCurrency, getCurrencySymbol, type ScheduleItem, type Rider, type Agreement, type CrewMember } from "@/lib/models";
-import { type SelectionLevel, type EventExportData, TAB_SECTIONS } from "./types";
+import { type SelectionLevel, type EventExportData } from "./types";
 import { type Todo } from "@/lib/db";
 
 export function buildCSVContent(
@@ -85,9 +85,24 @@ export function buildCSVContent(
     lines.push("");
   }
 
-  if (includeSection("event-summary", "agreement") || includeSection("agreements-docs", "agreement") || includeSection("terms", "agreement")) {
+  if (includeSection("event-summary", "agreement")) {
+    lines.push(`"--- Event Summary ---"`);
+    lines.push(`"Field","Value"`);
+    lines.push(`"Event","${event.name}"`);
+    lines.push(`"Date","${event.date}"`);
+    lines.push(`"Venue","${event.venue}"`);
+    lines.push(`"Performer","${event.artist}"`);
+    lines.push(`"Operator","${event.operator} (${event.operatorType})"`);
+    if (deal) {
+      lines.push(`"Deal Type","${deal.dealType}"`);
+      if (deal.artistGuarantee) lines.push(`"Performer Guarantee","${formatCurrency(deal.artistGuarantee, currency)}"`);
+    }
+    lines.push("");
+  }
+
+  if (includeSection("agreements-docs", "agreement") || includeSection("terms", "agreement")) {
     const agreementItems = (eventMeta as unknown as { agreements?: Agreement[] }).agreements;
-    if (agreementItems?.length) {
+    if (includeSection("agreements-docs", "agreement") && agreementItems?.length) {
       lines.push(`"--- Agreements ---"`);
       lines.push(`"Type","Name","Status"`);
       agreementItems.forEach((a: Agreement) => {
@@ -95,11 +110,66 @@ export function buildCSVContent(
       });
       lines.push("");
     }
-    if (eventMeta?.dealDescription) {
+    if (includeSection("terms", "agreement") && eventMeta?.dealDescription) {
       lines.push(`"--- Terms & Conditions ---"`);
       lines.push(`"${String(eventMeta.dealDescription).replace(/"/g, '""')}"`);
       lines.push("");
     }
+  }
+
+  // Budget tab — same structure as buildPrintHTML.
+  const budget = (eventMeta as unknown as { budget?: { revenueFields?: { name: string; value: number }[]; costFields?: { name: string; value: number }[]; resultFields?: { id?: string; name: string; value: number }[] } }).budget;
+  if (includeSection("budget-calculator", "budget")) {
+    if (budget && (budget.revenueFields?.length || budget.costFields?.length)) {
+      lines.push(`"--- Budget Calculator ---"`);
+      if (budget.revenueFields?.length) {
+        lines.push(`"Revenue","Value (${sym})"`);
+        budget.revenueFields.forEach(f => lines.push(`"${f.name}","${formatCurrency(f.value, currency)}"`));
+      }
+      if (budget.costFields?.length) {
+        lines.push(`"Costs","Value (${sym})"`);
+        budget.costFields.forEach(f => lines.push(`"${f.name}","${formatCurrency(f.value, currency)}"`));
+      }
+      if (budget.resultFields?.length) {
+        lines.push(`"Result","Value"`);
+        budget.resultFields.forEach(f => {
+          const formatted = f.id === "profit_margin"
+            ? `${f.value.toFixed(1)}%`
+            : f.id === "breakeven_tickets"
+            ? Math.round(f.value).toString()
+            : formatCurrency(f.value, currency);
+          lines.push(`"${f.name}","${formatted}"`);
+        });
+      }
+      lines.push("");
+    } else {
+      lines.push(`"--- Budget Calculator ---"`);
+      lines.push(`"No budget calculator data captured for this event."`);
+      lines.push("");
+    }
+  }
+
+  if (includeSection("budget-charts", "budget") && budget?.resultFields?.length) {
+    const profitLoss = budget.resultFields.find(f => f.id === "profit_loss")?.value ?? 0;
+    const breakeven = budget.resultFields.find(f => f.id === "breakeven_tickets")?.value ?? 0;
+    lines.push(`"--- Break-even Analysis ---"`);
+    lines.push(`"Metric","Value"`);
+    lines.push(`"Profit / Loss","${formatCurrency(profitLoss, currency)}"`);
+    lines.push(`"Break-even Ticket Count","${Math.round(breakeven)}"`);
+    lines.push("");
+  }
+
+  if (includeSection("pro-estimator", "budget") && eventMeta?.proEstimate) {
+    const p = eventMeta.proEstimate;
+    lines.push(`"--- PRO Fee Estimate ---"`);
+    lines.push(`"Field","Value"`);
+    lines.push(`"PRO","${p.pro}"`);
+    lines.push(`"Country","${p.country}"`);
+    lines.push(`"Event Type","${p.eventType}"`);
+    lines.push(`"Ticket Price","${formatCurrency(p.ticketPrice, currency)}"`);
+    lines.push(`"Expected Tickets","${p.expectedTickets}"`);
+    lines.push(`"Estimated Fee","${formatCurrency(p.estimatedFee, currency)}"`);
+    lines.push("");
   }
 
   const crewItems = (eventMeta as unknown as { crew?: CrewMember[] }).crew;
