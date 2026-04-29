@@ -130,14 +130,27 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
     fetchSchedule(event.id).then(fetched => { if (fetched.length > 0) setPreviewSchedule(fetched); });
   }, [event.id]);
 
-  // Derive parties from the deal
+  // Parties to the agreement = parties actually connected to the event.
+  // Performer is always involved; the operator's role is the host party; other
+  // parties only appear when an explicit connection exists (a host of that
+  // role, an event field naming them, or a collaborator with that eventRole).
   const dealParties = useMemo(() => {
-    const parties: string[] = [];
-    if (event.artist) parties.push("Performer");
-    if (event.operator) parties.push(event.operatorType === "venue" ? "Venue" : event.operatorType === "organizer" ? "Organizer" : "Promoter");
-    if (event.venue && event.operatorType !== "venue") parties.push("Venue");
-    return parties;
-  }, [event]);
+    const set = new Set<string>();
+    if (event.artist) set.add("Performer");
+    if (event.operator) {
+      if (event.operatorType === "venue") set.add("Venue");
+      else if (event.operatorType === "organizer") set.add("Organizer");
+      else if (event.operatorType === "promoter") set.add("Promoter");
+    }
+    if (event.venue && event.operatorType !== "venue") set.add("Venue");
+    for (const c of collaborators) {
+      if (c.eventRole === "venue") set.add("Venue");
+      else if (c.eventRole === "promoter") set.add("Promoter");
+      else if (c.eventRole === "organizer") set.add("Organizer");
+    }
+    const order = ["Performer", "Promoter", "Organizer", "Venue"];
+    return order.filter((p) => set.has(p));
+  }, [event, collaborators]);
 
   const allConfirmed = dealParties.length > 0 && dealParties.every(p => confirmations.some(c => c.party === p));
 
