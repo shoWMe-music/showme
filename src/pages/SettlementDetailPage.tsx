@@ -2,20 +2,27 @@ import { useParams, useSearch, useNavigate, Link } from "@tanstack/react-router"
 import AppLayout from "@/components/AppLayout";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft } from "lucide-react";
-import { useEvent, useEventEconomics, useUpdateSettlementStatus, useAddComment, useUpdateRevenue, useEventsLoaded } from "@/lib/queries";
+import { useMemo } from "react";
+import { useEvent, useEventEconomics, useUpdateSettlementStatus, useAddComment, useUpdateRevenue, useEventsLoaded, useChildEvents } from "@/lib/queries";
 import { upsertShareToken } from "@/lib/db";
 import { useUser } from "@/lib/user-context";
 import { SettlementWorkspace } from "@/components/settlements/SettlementWorkspace";
+import { userIsEventPerformer } from "@/lib/eventPermissions";
 
 export default function SettlementDetailPage() {
   const { id } = useParams({ from: "/settlements/$id" });
   const { tab } = useSearch({ from: "/settlements/$id" });
   const navigate = useNavigate();
   const eventsLoaded = useEventsLoaded();
-  const { currentUser } = useUser();
+  const { currentUser, profiles } = useUser();
 
   const event = useEvent(id);
   const { isLoaded, deal, revenue, settlement } = useEventEconomics(id);
+  const childEvents = useChildEvents(id);
+  const viewerIsPerformer = useMemo(
+    () => userIsEventPerformer(event, profiles, childEvents.map((c) => c.performerProfileId).filter(Boolean) as string[]),
+    [event, profiles, childEvents],
+  );
 
   const updateSettlementStatus = useUpdateSettlementStatus();
   const addComment = useAddComment();
@@ -76,6 +83,7 @@ export default function SettlementDetailPage() {
           }
           generateShareLink={generateShareLink}
           currentUser={currentUser}
+          viewerIsPerformer={viewerIsPerformer}
           onBack={() => navigate({ to: "/settlements" })}
         />
       </div>

@@ -16,7 +16,7 @@ import { upsertShareToken, fetchEventCollaborators, fetchBookingRequestByEventId
 import { useUser } from "@/lib/user-context";
 import { useAuth } from "@/lib/auth-context";
 import { usePublishEventToggle } from "@/hooks/usePublishEventToggle";
-import { budgetProfileDocIdsForEvent, canAccessEventBudget, resolveActingProfileName, resolveActingProfileId } from "@/lib/eventPermissions";
+import { budgetProfileDocIdsForEvent, canAccessEventBudget, resolveActingProfileName, resolveActingProfileId, userIsEventPerformer } from "@/lib/eventPermissions";
 import type { EventCollaborator, DealStructure, TicketRevenue, Settlement } from "@/lib/models";
 
 export type TabId = "budget" | "details" | "agreement" | "crew" | "todo" | "settlement" | "messages" | "performers" | "changelog" | "collaborators";
@@ -172,28 +172,10 @@ export function useEventManager() {
   // True when the current user is the performer on this event (not the host).
   // For multi-performer parent events, true if the user is a performer on any child event.
   const isPerformer = useMemo(() => {
-    if (!event) return false;
-    const myArtistProfileIds = Object.values(profiles)
-      .filter(p => p.role === "performer" && p.id)
-      .map(p => p.id!);
-    if (myArtistProfileIds.length === 0) return false;
-    const myProfileIds = Object.values(profiles).map(p => p.id).filter(Boolean) as string[];
-    const isHost = myProfileIds.includes(event.hostProfileId || "");
-    if (isHost) return false;
-
-    // Single-performer event
-    if (event.performerProfileId) {
-      return myArtistProfileIds.includes(event.performerProfileId);
-    }
-
-    // Multi-performer parent: check if user is a performer on any child event
-    if (event.isMultiPerformer && childEventsList.length > 0) {
-      return childEventsList.some(child =>
-        child.performerProfileId && myArtistProfileIds.includes(child.performerProfileId)
-      );
-    }
-
-    return false;
+    const childPerformerIds = childEventsList
+      .map((c) => c.performerProfileId)
+      .filter(Boolean) as string[];
+    return userIsEventPerformer(event, profiles, childPerformerIds);
   }, [event, profiles, childEventsList]);
 
   // True when performer is viewing a suggested (invitation) event specifically

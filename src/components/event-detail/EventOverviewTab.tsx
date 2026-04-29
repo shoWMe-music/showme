@@ -17,6 +17,7 @@ interface EventOverviewTabProps {
   netRevenue: number;
   deal?: DealStructure;
   riders?: Rider[];
+  viewerIsPerformer?: boolean;
 }
 
 export function EventOverviewTab({
@@ -29,6 +30,7 @@ export function EventOverviewTab({
   netRevenue,
   deal,
   riders,
+  viewerIsPerformer = false,
 }: EventOverviewTabProps) {
   const [previewDoc, setPreviewDoc] = useState<{ name: string; url: string } | null>(null);
   const filteredRiders = riders?.filter(r => r.name || r.fileName) ?? [];
@@ -102,6 +104,7 @@ export function EventOverviewTab({
           totalDeductions={totalDeductions}
           netRevenue={netRevenue}
           deal={deal}
+          viewerIsPerformer={viewerIsPerformer}
         />
       )}
 

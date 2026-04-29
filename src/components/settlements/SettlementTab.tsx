@@ -20,7 +20,7 @@ function formatFileSize(size: number): string {
   return size > 1024 * 1024 ? `${(size / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(size / 1024)} KB`;
 }
 
-export function SettlementTab({ event, deal, revenue, settlement, buildPayoutRows, settlementTotal, updateSettlementStatus, addComment, generateShareLink, currentUser, currency = "EUR", updateRevenue, partyBreakdowns, totalRevenue, totalDeductions, netRevenue, partyNames }: {
+export function SettlementTab({ event, deal, revenue, settlement, buildPayoutRows, settlementTotal, updateSettlementStatus, addComment, generateShareLink, currentUser, currency = "EUR", updateRevenue, partyBreakdowns, totalRevenue, totalDeductions, netRevenue, partyNames, viewerIsPerformer = false }: {
   event: AppEvent; deal?: DealStructure; revenue?: TicketRevenue; settlement: Settlement;
   buildPayoutRows: () => { label: string; value: number; color: string; role: string }[];
   settlementTotal: number;
@@ -35,6 +35,7 @@ export function SettlementTab({ event, deal, revenue, settlement, buildPayoutRow
   totalDeductions: number;
   netRevenue: number;
   partyNames?: Record<string, string>;
+  viewerIsPerformer?: boolean;
 }) {
   const [commentText, setCommentText] = useState("");
   const [shareLink, setShareLink] = useState<string | null>(null);
@@ -98,6 +99,7 @@ export function SettlementTab({ event, deal, revenue, settlement, buildPayoutRow
         currency={currency}
         operatorRole={operatorRole}
         partyNames={partyNames}
+        viewerIsPerformer={viewerIsPerformer}
       />
 
       {/* Total Payouts with progress bars */}

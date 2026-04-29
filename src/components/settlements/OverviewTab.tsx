@@ -6,7 +6,7 @@ import {
   type Event as AppEvent, type DealStructure, type TicketRevenue, type Settlement, type PartyBreakdown,
 } from "@/lib/models";
 
-export function OverviewTab({ event, deal, revenue, settlement, buildPayoutRows, settlementTotal, currency = "EUR", partyBreakdowns, totalRevenue, totalDeductions, netRevenue, partyNames }: {
+export function OverviewTab({ event, deal, revenue, settlement, buildPayoutRows, settlementTotal, currency = "EUR", partyBreakdowns, totalRevenue, totalDeductions, netRevenue, partyNames, viewerIsPerformer = false }: {
   event: AppEvent; deal?: DealStructure; revenue?: TicketRevenue; settlement: Settlement;
   buildPayoutRows: () => { label: string; value: number; color: string; role: string }[];
   settlementTotal: number;
@@ -16,6 +16,7 @@ export function OverviewTab({ event, deal, revenue, settlement, buildPayoutRows,
   totalDeductions: number;
   netRevenue: number;
   partyNames?: Record<string, string>;
+  viewerIsPerformer?: boolean;
 }) {
   return (
     <div className="space-y-6">
@@ -49,6 +50,7 @@ export function OverviewTab({ event, deal, revenue, settlement, buildPayoutRows,
         currency={currency}
         operatorRole={event.operatorType}
         partyNames={partyNames}
+        viewerIsPerformer={viewerIsPerformer}
       />
     </div>
   );

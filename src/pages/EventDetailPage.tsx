@@ -1,12 +1,13 @@
 import { useParams } from "@tanstack/react-router";
 import AppLayout from "@/components/AppLayout";
 import { calculateSettlement, type Rider } from "@/lib/models";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Loader2 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useUser } from "@/lib/user-context";
 import { fetchRiders } from "@/lib/db";
+import { userIsEventPerformer } from "@/lib/eventPermissions";
 
 import { EventDetailHeader } from "@/components/event-detail/EventDetailHeader";
 import { EventDetailTabs, type EventDetailTab } from "@/components/event-detail/EventDetailTabs";
@@ -23,17 +24,23 @@ import {
   useUpdateRevenue,
   useUpdateSettlementStatus,
   useAddComment,
+  useChildEvents,
 } from "@/lib/queries";
 import { upsertShareToken } from "@/lib/db";
 
 export default function EventDetailPage() {
   const { id } = useParams({ from: "/events/$id" });
   const [activeTab, setActiveTab] = useState<EventDetailTab>("overview");
-  const { currentUser } = useUser();
+  const { currentUser, profiles } = useUser();
 
   const primaryLoaded = usePrimaryLoaded();
   const event = useEvent(id ?? "");
   const { deal, revenue, settlement, isLoaded: economicsLoaded } = useEventEconomics(id ?? "");
+  const childEvents = useChildEvents(id ?? "");
+  const viewerIsPerformer = useMemo(
+    () => userIsEventPerformer(event, profiles, childEvents.map((c) => c.performerProfileId).filter(Boolean) as string[]),
+    [event, profiles, childEvents],
+  );
 
   const [riders, setRiders] = useState<Rider[]>([]);
   useEffect(() => {
@@ -147,6 +154,7 @@ export default function EventDetailPage() {
             netRevenue={netRevenue}
             deal={deal}
             riders={riders}
+            viewerIsPerformer={viewerIsPerformer}
           />
         )}
 
@@ -209,6 +217,7 @@ export default function EventDetailPage() {
             netRevenue={netRevenue}
             deal={deal}
             partyNames={{ Performer: event.artist, Venue: event.venue, Promoter: event.operator }}
+            viewerIsPerformer={viewerIsPerformer}
           />
         )}
 

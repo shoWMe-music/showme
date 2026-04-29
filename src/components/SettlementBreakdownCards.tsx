@@ -12,6 +12,13 @@ interface SettlementBreakdownCardsProps {
   operatorRole?: string;
   /** Map from party label ("Performer", "Promoter", "Venue") to display name */
   partyNames?: Record<string, string>;
+  /**
+   * Commissions deduct from the performer's share and are private to the
+   * performer. Only when `viewerIsPerformer` is true are commission party
+   * cards and commission adjustment lines shown; otherwise the Performer card
+   * shows the gross (pre-commission) payout.
+   */
+  viewerIsPerformer?: boolean;
 }
 
 function VatSuffix({ vat }: { vat?: { rate: number; mode: "included" | "on_top" } }) {
@@ -26,9 +33,14 @@ function VatSuffix({ vat }: { vat?: { rate: number; mode: "included" | "on_top" 
 
 export default function SettlementBreakdownCards({
   partyBreakdowns, settlementTotal, totalRevenue, totalDeductions, netRevenue, deal, currency = "EUR", operatorRole, partyNames,
+  viewerIsPerformer = false,
 }: SettlementBreakdownCardsProps) {
   const roleToPartyLabel: Record<string, string> = { promoter: "Promoter", venue: "Venue", artist: "Performer", organizer: "Organizer" };
   const operatorPartyName = operatorRole ? roleToPartyLabel[operatorRole] : undefined;
+  const commissionLabels = new Set((deal?.commissions ?? []).map(c => `${c.label} (${c.name})`));
+  const visibleBreakdowns = viewerIsPerformer
+    ? partyBreakdowns
+    : partyBreakdowns.filter(pb => !commissionLabels.has(pb.party));
 
   return (
     <div className="space-y-4">
@@ -82,8 +94,17 @@ export default function SettlementBreakdownCards({
 
       {/* Per-party cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      {partyBreakdowns.map((pb) => {
+      {visibleBreakdowns.map((pb) => {
         const isOperatorParty = operatorPartyName && pb.party === operatorPartyName;
+        const visibleAdjustments = viewerIsPerformer
+          ? pb.adjustments
+          : pb.adjustments.filter(adj => !commissionLabels.has(adj.label));
+        const removedCommissionSum = viewerIsPerformer
+          ? 0
+          : pb.adjustments
+              .filter(adj => commissionLabels.has(adj.label))
+              .reduce((s, a) => s + a.amount, 0);
+        const adjustedFinalPayout = pb.finalPayout - removedCommissionSum;
         return (
           <div key={pb.party} className={`rounded-xl border p-6 shadow-sm ${isOperatorParty ? "bg-primary/5 border-primary/30" : "bg-card"}`}>
             <div className="flex items-center justify-between mb-3">
@@ -98,14 +119,14 @@ export default function SettlementBreakdownCards({
                   <span className="text-[10px] font-medium uppercase tracking-wider text-primary bg-primary/10 px-2 py-0.5 rounded-full">Your share (retained)</span>
                 )}
               </div>
-              <span className="font-bold font-display text-lg">{formatCurrency(pb.finalPayout, currency)}</span>
+              <span className="font-bold font-display text-lg">{formatCurrency(adjustedFinalPayout, currency)}</span>
             </div>
             <dl className="space-y-1.5 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Base</span>
                 <span className="font-medium">{formatCurrency(pb.baseAmount, currency)}</span>
               </div>
-              {pb.adjustments.map((adj, i) => (
+              {visibleAdjustments.map((adj, i) => (
                 <div key={i} className="flex justify-between">
                   <span className="text-muted-foreground">
                     {adj.label}
@@ -116,10 +137,10 @@ export default function SettlementBreakdownCards({
                   </span>
                 </div>
               ))}
-              {pb.adjustments.length > 0 && (
+              {visibleAdjustments.length > 0 && (
                 <div className="flex justify-between border-t pt-1.5">
                   <span className="font-semibold">Final {isOperatorParty ? "Retained" : "Payout"}</span>
-                  <span className="font-bold font-display">{formatCurrency(pb.finalPayout, currency)}</span>
+                  <span className="font-bold font-display">{formatCurrency(adjustedFinalPayout, currency)}</span>
                 </div>
               )}
             </dl>

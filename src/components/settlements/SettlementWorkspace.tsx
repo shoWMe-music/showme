@@ -18,7 +18,7 @@ import { ChangeLogTab } from "./ChangeLogTab";
 
 type WorkspaceTab = "overview" | "deal" | "financials" | "settlement" | "payout" | "changelog";
 
-export function SettlementWorkspace({ event, deal, revenue, settlement, initialTab, onTabChange, updateSettlementStatus, updateRevenue, addComment, generateShareLink, currentUser, onBack }: {
+export function SettlementWorkspace({ event, deal, revenue, settlement, initialTab, onTabChange, updateSettlementStatus, updateRevenue, addComment, generateShareLink, currentUser, viewerIsPerformer = false, onBack }: {
   event: AppEvent; deal?: DealStructure; revenue?: TicketRevenue; settlement: Settlement;
   initialTab?: string;
   onTabChange?: (tab: string) => void;
@@ -27,6 +27,7 @@ export function SettlementWorkspace({ event, deal, revenue, settlement, initialT
   addComment: (eventId: string, party: string, message: string, attachments?: { name: string; size: number; type: string; fileUrl: string }[]) => void;
   generateShareLink: (eventId: string, parties: string[]) => string;
   currentUser: { name: string; roles: string[] };
+  viewerIsPerformer?: boolean;
   onBack?: () => void;
 }) {
   const { currentUser: settingsUser } = useUser();
@@ -154,12 +155,12 @@ export function SettlementWorkspace({ event, deal, revenue, settlement, initialT
 
       <div className="pt-6">
         {activeTab === "overview" && (
-          <OverviewTab event={event} deal={deal} revenue={revenue} settlement={settlement} buildPayoutRows={buildPayoutRows} settlementTotal={settlementTotal} currency={currency} partyBreakdowns={partyBreakdowns} totalRevenue={totalRevenue} totalDeductions={totalDeductions} netRevenue={netRevenue} partyNames={partyNames} />
+          <OverviewTab event={event} deal={deal} revenue={revenue} settlement={settlement} buildPayoutRows={buildPayoutRows} settlementTotal={settlementTotal} currency={currency} partyBreakdowns={partyBreakdowns} totalRevenue={totalRevenue} totalDeductions={totalDeductions} netRevenue={netRevenue} partyNames={partyNames} viewerIsPerformer={viewerIsPerformer} />
         )}
         {activeTab === "deal" && deal && <DealTab deal={deal} currency={currency} />}
         {activeTab === "financials" && revenue && <FinancialsTab event={event} revenue={revenue} deal={deal} updateRevenue={updateRevenue} currency={currency} />}
         {activeTab === "settlement" && (
-          <SettlementTab event={event} deal={deal} revenue={revenue} settlement={settlement} buildPayoutRows={buildPayoutRows} settlementTotal={settlementTotal} updateSettlementStatus={updateSettlementStatus} addComment={addComment} generateShareLink={generateShareLink} currentUser={currentUser} currency={currency} updateRevenue={updateRevenue} partyBreakdowns={partyBreakdowns} totalRevenue={totalRevenue} totalDeductions={totalDeductions} netRevenue={netRevenue} partyNames={partyNames} />
+          <SettlementTab event={event} deal={deal} revenue={revenue} settlement={settlement} buildPayoutRows={buildPayoutRows} settlementTotal={settlementTotal} updateSettlementStatus={updateSettlementStatus} addComment={addComment} generateShareLink={generateShareLink} currentUser={currentUser} currency={currency} updateRevenue={updateRevenue} partyBreakdowns={partyBreakdowns} totalRevenue={totalRevenue} totalDeductions={totalDeductions} netRevenue={netRevenue} partyNames={partyNames} viewerIsPerformer={viewerIsPerformer} />
         )}
         {activeTab === "payout" && <PayoutTab event={event} settlement={settlement} buildPayoutRows={buildPayoutRows} deal={deal} revenue={revenue} currency={currency} />}
         {activeTab === "changelog" && <ChangeLogTab eventId={event.id} />}

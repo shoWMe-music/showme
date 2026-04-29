@@ -252,6 +252,10 @@ export default function SettlementReviewPage() {
 
   const isViewingSnapshot = !liveData && !!remote;
 
+  const tokenParties = tokenRecord?.parties ?? [];
+  const viewerIsPerformer = tokenParties.length === 0
+    || tokenParties.some((p) => p === "Performer" || p === "Agent");
+
   return <SettlementReviewContent
     event={event} deal={deal} revenue={revenue} settlement={settlement}
     reviewerName={reviewerName}
@@ -262,6 +266,7 @@ export default function SettlementReviewPage() {
     initialApproved={remoteApproved}
     token={token}
     snapshotUpdatedAtMs={isViewingSnapshot ? remoteUpdatedAtMs : null}
+    viewerIsPerformer={viewerIsPerformer}
   />;
 }
 
@@ -282,7 +287,7 @@ function formatRelativeTime(ms: number): string {
   return `${Math.floor(month / 12)}y ago`;
 }
 
-function SettlementReviewContent({ event, deal, revenue, settlement, reviewerName, addComment, settlementTotal, totalRevenue, totalDeductions, netRevenue, partyBreakdowns, initialApproved, token, snapshotUpdatedAtMs }: {
+function SettlementReviewContent({ event, deal, revenue, settlement, reviewerName, addComment, settlementTotal, totalRevenue, totalDeductions, netRevenue, partyBreakdowns, initialApproved, token, snapshotUpdatedAtMs, viewerIsPerformer }: {
   event: AppEvent; deal: DealStructure; revenue: TicketRevenue; settlement: Settlement; reviewerName: string;
   addComment: (eventId: string, party: string, message: string, attachments?: CommentAttachment[]) => void;
   settlementTotal: number;
@@ -291,6 +296,7 @@ function SettlementReviewContent({ event, deal, revenue, settlement, reviewerNam
   initialApproved: boolean;
   token: string;
   snapshotUpdatedAtMs: number | null;
+  viewerIsPerformer: boolean;
 }) {
   const [commentText, setCommentText] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
@@ -461,6 +467,7 @@ function SettlementReviewContent({ event, deal, revenue, settlement, reviewerNam
           netRevenue={netRevenue}
           deal={deal}
           partyNames={{ Performer: event.artist, Venue: event.venue, Promoter: event.operator }}
+          viewerIsPerformer={viewerIsPerformer}
         />
 
         <div className="rounded-xl border bg-card p-6 shadow-sm">

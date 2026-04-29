@@ -27,9 +27,10 @@ interface SettlementTabProps {
   netRevenue: number;
   deal?: DealStructure;
   partyNames?: Record<string, string>;
+  viewerIsPerformer?: boolean;
 }
 
-export function SettlementTab({ event, settlement, buildPayoutRows, settlementTotal, updateSettlementStatus, addComment, generateShareLink, currentUser, partyBreakdowns, totalRevenue, totalDeductions, netRevenue, deal, partyNames }: SettlementTabProps) {
+export function SettlementTab({ event, settlement, buildPayoutRows, settlementTotal, updateSettlementStatus, addComment, generateShareLink, currentUser, partyBreakdowns, totalRevenue, totalDeductions, netRevenue, deal, partyNames, viewerIsPerformer = false }: SettlementTabProps) {
   const [commentText, setCommentText] = useState("");
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -94,6 +95,7 @@ export function SettlementTab({ event, settlement, buildPayoutRows, settlementTo
         netRevenue={netRevenue}
         deal={deal}
         partyNames={partyNames}
+        viewerIsPerformer={viewerIsPerformer}
       />
 
       {/* Workflow Actions */}

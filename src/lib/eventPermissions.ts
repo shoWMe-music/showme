@@ -137,6 +137,35 @@ export function roleCanManageCollaborators(role: EventCollaboratorRole): boolean
 }
 
 /**
+ * True when one of the user's performer profiles matches the event's
+ * performerProfileId (single-performer event). For multi-performer parents,
+ * pass `childPerformerProfileIds` from the loaded child events.
+ *
+ * The user is NOT the performer if they are the event host, even if they also
+ * have a performer profile that happens to match.
+ */
+export function userIsEventPerformer(
+  event: Pick<Event, "performerProfileId" | "hostProfileId" | "isMultiPerformer"> | undefined | null,
+  profiles: Record<string, SharedProfile>,
+  childPerformerProfileIds: string[] = [],
+): boolean {
+  if (!event) return false;
+  const myArtistProfileIds = Object.values(profiles)
+    .filter((p) => p.role === "performer" && p.id)
+    .map((p) => p.id!);
+  if (myArtistProfileIds.length === 0) return false;
+  const myProfileIds = Object.values(profiles).map((p) => p.id).filter(Boolean) as string[];
+  if (event.hostProfileId && myProfileIds.includes(event.hostProfileId)) return false;
+  if (event.performerProfileId) {
+    return myArtistProfileIds.includes(event.performerProfileId);
+  }
+  if (event.isMultiPerformer) {
+    return childPerformerProfileIds.some((pid) => myArtistProfileIds.includes(pid));
+  }
+  return false;
+}
+
+/**
  * Resolve the profile name the user is acting as for a given event.
  * Matches user profiles against the event's accessProfileIds / hostProfileId.
  * Returns the profile name or undefined if no match.
