@@ -65,6 +65,33 @@ function findProfileById(profiles: Record<string, SharedProfile>, profileId: str
   return Object.values(profiles).find(p => p.id === profileId);
 }
 
+/**
+ * C5 — Derive a default event capacity from the selected Room/Stage names.
+ *
+ * Sums the capacities of matching sub-venues across all loaded venue
+ * profiles. Returns 0 when no rooms are selected or none have a capacity.
+ * Pure so it can be unit-tested without mounting the component.
+ *
+ * @param roomNames Array of selected room/stage display names (e.g.
+ *                  `editEvent.roomStage.split(", ")`).
+ * @param subVenues Flat list of `{name, capacity}` derived from the user's
+ *                  venue profile sub-venues.
+ */
+export function deriveDefaultCapacityForRooms(
+  roomNames: string[],
+  subVenues: { name: string; capacity?: number }[],
+): number {
+  if (!roomNames.length) return 0;
+  const byName = new Map<string, number | undefined>();
+  for (const sv of subVenues) byName.set(sv.name, sv.capacity);
+  let total = 0;
+  for (const name of roomNames) {
+    const cap = byName.get(name);
+    if (typeof cap === "number" && cap > 0) total += cap;
+  }
+  return total;
+}
+
 /** Map profile documents to event Rider entries, also including catering/accommodation notes. */
 function profileDocumentsToRiders(profile: SharedProfile): Rider[] {
   const riders: Rider[] = [];
@@ -306,6 +333,9 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
   const [editExpenses, setEditExpenses] = useState<ExpenseItem[]>([]);
   const [editAmenities, setEditAmenities] = useState<AmenityKey[]>([]);
   const [editEvent, setEditEvent] = useState({ name: event.name, date: event.date, venue: event.venue, artist: event.artist, capacity: event.capacity, ticketingProvider: event.ticketingProvider, eventStatus: event.eventStatus, roomStage: event.roomStage || "", ticketUrls: event.ticketUrls || [] as string[], holdRank: event.holdRank || 1 as number, holdAutoPromote: event.holdAutoPromote !== false as boolean });
+  // C5 — Track whether the user has manually edited the capacity field.
+  // Once set, room/stage changes no longer auto-overwrite capacity.
+  const capacityManuallyEdited = useRef(false);
 
   const venueRoomOptions = useMemo(() => {
     const hostProfile = event.hostProfileId ? Object.values(profiles).find(p => p.id === event.hostProfileId) : undefined;
@@ -387,7 +417,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
         title="Event Information"
         icon={<Calendar className="h-5 w-5 text-primary" />}
         readOnly={readOnly}
-        onEditStart={() => { setEditEvent({ name: event.name, date: event.date, venue: event.venue, artist: event.artist, capacity: event.capacity, ticketingProvider: event.ticketingProvider, eventStatus: event.eventStatus, roomStage: event.roomStage || "", ticketUrls: event.ticketUrls || [], holdRank: event.holdRank || 1, holdAutoPromote: event.holdAutoPromote !== false }); setNewTicketUrl(""); }}
+        onEditStart={() => { setEditEvent({ name: event.name, date: event.date, venue: event.venue, artist: event.artist, capacity: event.capacity, ticketingProvider: event.ticketingProvider, eventStatus: event.eventStatus, roomStage: event.roomStage || "", ticketUrls: event.ticketUrls || [], holdRank: event.holdRank || 1, holdAutoPromote: event.holdAutoPromote !== false }); setNewTicketUrl(""); capacityManuallyEdited.current = false; }}
         onSave={handleSaveEventInfo}
         editContent={
           <div className="space-y-4">
@@ -436,7 +466,17 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                                   const updated = checked
                                     ? [...selectedRooms, sv.name]
                                     : selectedRooms.filter((r: string) => r !== sv.name);
-                                  setEditEvent(p => ({ ...p, roomStage: updated.join(", ") }));
+                                  setEditEvent(p => {
+                                    // C5 — When user has not manually edited
+                                    // capacity, default it from the selected
+                                    // rooms' summed capacities. Manual edits
+                                    // take precedence (capacityManuallyEdited).
+                                    const derived = deriveDefaultCapacityForRooms(updated, allSubVenues);
+                                    const nextCapacity = capacityManuallyEdited.current
+                                      ? p.capacity
+                                      : (derived > 0 ? derived : p.capacity);
+                                    return { ...p, roomStage: updated.join(", "), capacity: nextCapacity };
+                                  });
                                 }}
                               />
                               <span className="text-sm">{sv.name}</span>
@@ -450,7 +490,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                   return <Input value={editEvent.roomStage} onChange={(e) => setEditEvent(p => ({...p, roomStage: e.target.value}))} placeholder="e.g. Main Stage" className="mt-1" />;
                 })()}
               </div>
-              <div><Label>Capacity</Label><NumberInput value={editEvent.capacity} onChange={(e) => setEditEvent(p => ({...p, capacity: parseInt(e.target.value) || 0}))} className="mt-1" /></div>
+              <div><Label>Capacity</Label><NumberInput value={editEvent.capacity} onChange={(e) => { capacityManuallyEdited.current = true; setEditEvent(p => ({...p, capacity: parseInt(e.target.value) || 0})); }} className="mt-1" /></div>
               <div><Label>Ticketing Provider</Label><Input value={editEvent.ticketingProvider} onChange={(e) => setEditEvent(p => ({...p, ticketingProvider: e.target.value}))} className="mt-1" /></div>
               <div>
                 <Label>Status</Label>
