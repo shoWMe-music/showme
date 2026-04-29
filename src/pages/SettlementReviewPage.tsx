@@ -473,7 +473,7 @@ function SettlementReviewContent({ event, deal, revenue, settlement, reviewerNam
           ) : (
             <Button onClick={async () => {
               try {
-                await approvePublicShare(token);
+                await approvePublicShare(token, reviewerName);
                 setApproved(true);
                 toast({ title: "Settlement approved" });
               } catch {

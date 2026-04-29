@@ -12,6 +12,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   startAfter,
@@ -934,13 +935,24 @@ export async function fetchEvents(profileIds?: string[]): Promise<Event[]> {
     }
   }
 
-  // Hide draft events the user doesn't host
+  return Array.from(byId.values()).filter(e => isDraftVisibleToUser(e, profileIds));
+}
+
+/**
+ * Determines whether a draft event should be visible to the current user.
+ * Non-draft events always pass. Drafts without a hostProfileId pass (the
+ * Firestore where-clause already restricts to docs the user has direct access
+ * to via accessUids). Drafts with a hostProfileId only pass if the user owns
+ * that profile.
+ */
+export function isDraftVisibleToUser(
+  e: Pick<Event, "eventStatus" | "hostProfileId">,
+  profileIds?: string[],
+): boolean {
+  if (e.eventStatus !== "draft") return true;
+  if (!e.hostProfileId) return true;
   const myPids = new Set(profileIds || []);
-  return Array.from(byId.values()).filter(e => {
-    if (e.eventStatus !== "draft") return true;
-    if (e.hostProfileId && myPids.has(e.hostProfileId)) return true;
-    return false;
-  });
+  return myPids.has(e.hostProfileId);
 }
 
 /**
@@ -1026,14 +1038,9 @@ export async function fetchEventPage(
     const hasMore = snap.size > pageSize;
     const docs = hasMore ? snap.docs.slice(0, pageSize) : snap.docs;
 
-    const myPids = new Set(profileIds || []);
     const events = docs
       .map((d) => eventRowToEvent({ id: d.id, ...d.data() }))
-      .filter(e => {
-        if (e.eventStatus !== "draft") return true;
-        if (e.hostProfileId && myPids.has(e.hostProfileId)) return true;
-        return false;
-      });
+      .filter(e => isDraftVisibleToUser(e, profileIds));
 
     return {
       events,
@@ -1979,11 +1986,50 @@ export async function updatePublicShareAgreementConfirmations(
   });
 }
 
-export async function approvePublicShare(token: string) {
-  await updateDoc(doc(getFirestoreDb(), PUBLIC_SHARES, token), {
-    approved: true,
-    approvedAt: new Date().toISOString(),
-  });
+export async function approvePublicShare(token: string, party: string) {
+  const db = getFirestoreDb();
+  const shareRef = doc(db, PUBLIC_SHARES, token);
+  const approvedAt = new Date().toISOString();
+  const approvalDate = approvedAt.slice(0, 10);
+
+  // Read share to find the linked event before opening transaction.
+  const shareSnap = await getDoc(shareRef);
+  if (!shareSnap.exists()) {
+    // Still write the share-level approval so callers see consistent behaviour.
+    await updateDoc(shareRef, { approved: true, approvedAt });
+    return;
+  }
+  const shareData = shareSnap.data() as { eventId?: string };
+  const eventId = shareData.eventId;
+
+  // Update share doc + settlement doc atomically when we have an eventId.
+  if (eventId) {
+    const settlementRef = eventSubDoc(eventId, SUB_SETTLEMENT, "main");
+    await runTransaction(db, async (tx) => {
+      const settlementSnap = await tx.get(settlementRef);
+      const existing = (settlementSnap.exists() ? (settlementSnap.data() as Settlement) : null);
+      const existingApprovals = existing?.approvals ?? [];
+      const idx = existingApprovals.findIndex((a) => a.party === party);
+      const nextApprovals = [...existingApprovals];
+      if (idx >= 0) {
+        nextApprovals[idx] = { party, approved: true, date: approvalDate };
+      } else {
+        nextApprovals.push({ party, approved: true, date: approvalDate });
+      }
+      tx.set(
+        settlementRef,
+        { approvals: nextApprovals, updatedAt: serverTimestamp() },
+        { merge: true },
+      );
+      tx.update(shareRef, { approved: true, approvedAt });
+    });
+    // Re-snapshot the share doc so subsequent fetches include the new approval state.
+    await refreshShareTokenIfExists(eventId);
+    return;
+  }
+
+  // Fallback: no linked event, just record share-level approval.
+  await updateDoc(shareRef, { approved: true, approvedAt });
 }
 
 export type PublicEventSharePayload = {
