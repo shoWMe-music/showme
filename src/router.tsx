@@ -29,6 +29,7 @@ import TeamPage from "@/pages/TeamPage";
 import BillsInvoicesPage from "@/pages/BillsInvoicesPage";
 import IncomingRequestsPage from "@/pages/IncomingRequestsPage";
 import TasksPage from "@/pages/TasksPage";
+import TemplatesPage from "@/pages/TemplatesPage";
 import AdminInvitationsPage from "@/pages/AdminInvitationsPage";
 import LandingPage from "@/pages/LandingPage";
 import ProductPage from "@/pages/ProductPage";
@@ -70,6 +71,7 @@ const AUTH_REQUIRED_PREFIXES = [
   "/bills",
   "/contacts",
   "/profiles",
+  "/templates",
   "/settings",
   "/admin",
 ];
@@ -344,6 +346,12 @@ const settingsRoute = createRoute({
   component: SettingsPage,
 });
 
+const templatesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/templates",
+  component: TemplatesPage,
+});
+
 const settlementReviewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/review/$token",
@@ -451,6 +459,7 @@ export const routeTree = rootRoute.addChildren([
   contactDetailRoute,
   profilesRoute,
   profileEditRoute,
+  templatesRoute,
   publicProfileRoute,
   publicEventRoute,
   bookingWidgetRoute,

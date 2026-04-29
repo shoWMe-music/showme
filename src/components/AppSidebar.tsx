@@ -22,6 +22,7 @@ import {
   Inbox,
   LogOut,
   ListTodo,
+  FolderOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
@@ -38,6 +39,7 @@ const navItems = [
   { to: "/team", label: "Team", icon: UsersRound },
   { to: "/contacts", label: "Contacts", icon: Contact },
   { to: "/profiles", label: "My Profiles", icon: UserCircle },
+  { to: "/templates", label: "Templates", icon: FolderOpen },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
