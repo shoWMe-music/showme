@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Send, PenLine, Check, Share2, Copy, Clock, MessageSquare, FileText, Paperclip, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import SettlementBreakdownCards from "@/components/SettlementBreakdownCards";
+import DocumentPreviewDialog from "@/components/DocumentPreviewDialog";
 import type { Event, Settlement, PartyBreakdown, DealStructure, SettlementStatus } from "@/lib/models";
 import { uploadUserBinary } from "@/lib/firebaseStorageUpload";
 
@@ -36,6 +37,7 @@ export function SettlementTab({ event, settlement, buildPayoutRows, settlementTo
   const [copied, setCopied] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [submittingComment, setSubmittingComment] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<{ fileName: string; fileUrl: string } | null>(null);
 
   const isOperator = currentUser.roles.includes("promoter") || currentUser.roles.includes("venue") || currentUser.roles.includes("organizer");
 
@@ -200,9 +202,14 @@ export function SettlementTab({ event, settlement, buildPayoutRows, settlementTo
                 {c.attachments && c.attachments.length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-2">
                     {c.attachments.map((a, j) => (
-                      <a key={j} href={a.fileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md bg-background px-2 py-1 text-xs border hover:bg-muted">
+                      <button
+                        key={j}
+                        type="button"
+                        onClick={() => setPreviewDoc({ fileName: a.name, fileUrl: a.fileUrl })}
+                        className="inline-flex items-center gap-1 rounded-md bg-background px-2 py-1 text-xs border hover:bg-muted"
+                      >
                         <FileText className="h-3 w-3" /> {a.name} <span className="text-muted-foreground">({formatFileSize(a.size)})</span>
-                      </a>
+                      </button>
                     ))}
                   </div>
                 )}
@@ -254,6 +261,13 @@ export function SettlementTab({ event, settlement, buildPayoutRows, settlementTo
           </Button>
         </div>
       </div>
+
+      <DocumentPreviewDialog
+        open={!!previewDoc}
+        onOpenChange={(o) => { if (!o) setPreviewDoc(null); }}
+        fileName={previewDoc?.fileName}
+        fileUrl={previewDoc?.fileUrl}
+      />
     </div>
   );
 }

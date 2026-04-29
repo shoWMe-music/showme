@@ -19,6 +19,7 @@ import {
 } from "@/lib/models";
 import StatusBadge from "@/components/StatusBadge";
 import SettlementBreakdownCards from "@/components/SettlementBreakdownCards";
+import DocumentPreviewDialog from "@/components/DocumentPreviewDialog";
 import { Textarea } from "@/components/ui/textarea";
 import { MessageSquare, FileText, Music, MapPin, Ticket, Users, Paperclip, X, CheckCircle2 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
@@ -294,6 +295,7 @@ function SettlementReviewContent({ event, deal, revenue, settlement, reviewerNam
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [approved, setApproved] = useState(initialApproved);
   const [submittingComment, setSubmittingComment] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<{ fileName: string; fileUrl: string } | null>(null);
 
   const handleAddComment = async () => {
     if (!commentText.trim() || submittingComment) return;
@@ -513,9 +515,14 @@ function SettlementReviewContent({ event, deal, revenue, settlement, reviewerNam
                   {c.attachments && c.attachments.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-2">
                       {c.attachments.map((a, j: number) => (
-                        <a key={j} href={a.fileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md bg-background px-2 py-1 text-xs border hover:bg-muted">
+                        <button
+                          key={j}
+                          type="button"
+                          onClick={() => setPreviewDoc({ fileName: a.name, fileUrl: a.fileUrl })}
+                          className="inline-flex items-center gap-1 rounded-md bg-background px-2 py-1 text-xs border hover:bg-muted"
+                        >
                           <FileText className="h-3 w-3" /> {a.name} <span className="text-muted-foreground">({a.size > 1024 * 1024 ? `${(a.size / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(a.size / 1024)} KB`})</span>
-                        </a>
+                        </button>
                       ))}
                     </div>
                   )}
@@ -568,6 +575,13 @@ function SettlementReviewContent({ event, deal, revenue, settlement, reviewerNam
           </div>
         </div>
       </div>
+
+      <DocumentPreviewDialog
+        open={!!previewDoc}
+        onOpenChange={(o) => { if (!o) setPreviewDoc(null); }}
+        fileName={previewDoc?.fileName}
+        fileUrl={previewDoc?.fileUrl}
+      />
     </div>
   );
 }

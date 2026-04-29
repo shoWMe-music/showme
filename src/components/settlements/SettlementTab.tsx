@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast, copyToast } from "@/hooks/use-toast";
 import SettlementBreakdownCards from "@/components/SettlementBreakdownCards";
+import DocumentPreviewDialog from "@/components/DocumentPreviewDialog";
 import {
   formatCurrency, SettlementStatus,
   type Event as AppEvent, type DealStructure, type TicketRevenue, type Settlement, type PartyBreakdown,
@@ -42,6 +43,7 @@ export function SettlementTab({ event, deal, revenue, settlement, buildPayoutRow
   const [copied, setCopied] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [submittingComment, setSubmittingComment] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<{ fileName: string; fileUrl: string } | null>(null);
 
   const isOperator = currentUser.roles.includes("promoter") || currentUser.roles.includes("venue") || currentUser.roles.includes("organizer");
 
@@ -206,7 +208,7 @@ export function SettlementTab({ event, deal, revenue, settlement, buildPayoutRow
                 <p className="text-sm">{c.message}</p>
                 {c.attachments && c.attachments.length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-2">
-                    {c.attachments.map((a, j) => <a key={j} href={a.fileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md bg-background px-2 py-1 text-xs border hover:bg-muted"><FileText className="h-3 w-3" /> {a.name} <span className="text-muted-foreground">({formatFileSize(a.size)})</span></a>)}
+                    {c.attachments.map((a, j) => <button key={j} type="button" onClick={() => setPreviewDoc({ fileName: a.name, fileUrl: a.fileUrl })} className="inline-flex items-center gap-1 rounded-md bg-background px-2 py-1 text-xs border hover:bg-muted"><FileText className="h-3 w-3" /> {a.name} <span className="text-muted-foreground">({formatFileSize(a.size)})</span></button>)}
                   </div>
                 )}
               </div>
@@ -227,6 +229,13 @@ export function SettlementTab({ event, deal, revenue, settlement, buildPayoutRow
           <Button size="sm" onClick={handleAddComment} disabled={!commentText.trim() || submittingComment}>{submittingComment ? "Uploading…" : "Add Comment"}</Button>
         </div>
       </div>
+
+      <DocumentPreviewDialog
+        open={!!previewDoc}
+        onOpenChange={(o) => { if (!o) setPreviewDoc(null); }}
+        fileName={previewDoc?.fileName}
+        fileUrl={previewDoc?.fileUrl}
+      />
     </div>
   );
 }
