@@ -29,6 +29,7 @@ import {
 import {
   fetchAgreements, upsertAgreement, deleteAgreement,
   fetchRiders, fetchSchedule, appendEventActivity, type EventMeta,
+  type AgreementReopenRequest,
 } from "@/lib/db";
 import { deleteStorageFile } from "@/lib/firebaseStorageUpload";
 import { getAuthClient } from "@/lib/firebaseAuth";
@@ -58,9 +59,13 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
   const [lastChangedAt, setLastChangedAt] = useState<string>(
     eventMeta.agreementLastChangedAt || new Date().toISOString()
   );
+  const [reopenRequest, setReopenRequest] = useState<AgreementReopenRequest | null>(
+    eventMeta.agreementReopenRequest ?? null
+  );
 
   // Sync confirmations when eventMeta loads/changes (e.g. after query resolves)
   const prevConfirmationsRef = useRef(eventMeta.agreementConfirmations);
+  const prevReopenRequestRef = useRef(eventMeta.agreementReopenRequest);
   useEffect(() => {
     if (eventMeta.agreementConfirmations !== prevConfirmationsRef.current) {
       prevConfirmationsRef.current = eventMeta.agreementConfirmations;
@@ -69,7 +74,11 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
     if (eventMeta.agreementLastChangedAt) {
       setLastChangedAt(eventMeta.agreementLastChangedAt);
     }
-  }, [eventMeta.agreementConfirmations, eventMeta.agreementLastChangedAt]);
+    if (eventMeta.agreementReopenRequest !== prevReopenRequestRef.current) {
+      prevReopenRequestRef.current = eventMeta.agreementReopenRequest;
+      setReopenRequest(eventMeta.agreementReopenRequest ?? null);
+    }
+  }, [eventMeta.agreementConfirmations, eventMeta.agreementLastChangedAt, eventMeta.agreementReopenRequest]);
 
   // ── Agreements subcollection sync ──────────────────────────────────────────
   const agreementsLoaded = useRef<string | null>(null);
@@ -252,26 +261,93 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
     setSavedTerms(terms);
   };
 
-  // Re-open a fully approved agreement for editing
-  const handleReopen = () => {
-    const now = new Date().toISOString();
-    metaDirty.current = true;
-    setConfirmations([]);
-    setLastChangedAt(now);
-    const u = getAuthClient().currentUser;
-    const by = u?.displayName || u?.email || "Unknown";
-    appendEventActivity(event.id, "approvals_reset", by, { reason: "Agreement re-opened for editing" }, undefined, actingProfile);
-    toast({ title: "Agreement re-opened for editing" });
-  };
-
-  // agreements now synced via subcollection; only persist confirmation metadata via eventMeta
-  // Only save when a user-driven change occurs (not on mount or query sync).
+  // Persist confirmation metadata via eventMeta. Only save when a user-driven change
+  // occurs (not on mount or query sync).
   const metaDirty = useRef(false);
   useEffect(() => {
     if (!metaDirty.current) return;
     metaDirty.current = false;
-    onSave?.({ dealDescription: terms, agreementConfirmations: confirmations, agreementLastChangedAt: lastChangedAt });
-  }, [terms, confirmations, lastChangedAt]);
+    onSave?.({
+      dealDescription: terms,
+      agreementConfirmations: confirmations,
+      agreementLastChangedAt: lastChangedAt,
+      agreementReopenRequest: reopenRequest,
+    });
+  }, [terms, confirmations, lastChangedAt, reopenRequest]);
+
+  const finalizeReopen = (reason: string, by: string) => {
+    const now = new Date().toISOString();
+    setConfirmations([]);
+    setLastChangedAt(now);
+    setReopenRequest(null);
+    appendEventActivity(event.id, "approvals_reset", by, { reason }, undefined, actingProfile);
+  };
+
+  // Open a request to re-open a fully approved agreement. If the requester is the
+  // only confirmed party, the reopen completes immediately. Otherwise the request
+  // is held until every other previously-confirmed party approves it.
+  const handleRequestReopen = () => {
+    const u = getAuthClient().currentUser;
+    const by = currentUser?.name || u?.displayName || u?.email || "Unknown";
+    const requesterParty = [...myConfirmableParties][0] ?? "";
+    const requiredParties = confirmations
+      .map(c => c.party)
+      .filter(p => p !== requesterParty);
+    if (requiredParties.length === 0) {
+      metaDirty.current = true;
+      finalizeReopen("Agreement re-opened for editing", by);
+      toast({ title: "Agreement re-opened for editing" });
+      return;
+    }
+    const now = new Date().toISOString();
+    metaDirty.current = true;
+    setReopenRequest({
+      requestedAt: now,
+      requestedBy: by,
+      requestedByParty: requesterParty,
+      requiredParties,
+      approvals: [],
+    });
+    appendEventActivity(event.id, "agreement_reopen_requested", by, {
+      requestedByParty: requesterParty,
+      requiredParties: requiredParties.join(", "),
+    }, undefined, actingProfile);
+    toast({ title: "Reopen request sent — awaiting approvals" });
+  };
+
+  const handleApproveReopen = (party: string) => {
+    if (!reopenRequest) return;
+    const u = getAuthClient().currentUser;
+    const by = currentUser?.name || u?.displayName || u?.email || "Unknown";
+    const now = new Date().toISOString();
+    const next: AgreementReopenRequest = {
+      ...reopenRequest,
+      approvals: [
+        ...reopenRequest.approvals.filter(a => a.party !== party),
+        { party, approvedAt: now, approvedBy: by },
+      ],
+    };
+    metaDirty.current = true;
+    appendEventActivity(event.id, "agreement_reopen_approved", by, { party }, undefined, actingProfile);
+    const allApproved = next.requiredParties.every(p => next.approvals.some(a => a.party === p));
+    if (allApproved) {
+      finalizeReopen(`Reopen approved by all parties (requested by ${next.requestedBy})`, by);
+      toast({ title: "Reopen approved — agreement is now editable" });
+      return;
+    }
+    setReopenRequest(next);
+    toast({ title: `Reopen approval recorded for ${party}` });
+  };
+
+  const handleCancelReopen = () => {
+    if (!reopenRequest) return;
+    const u = getAuthClient().currentUser;
+    const by = currentUser?.name || u?.displayName || u?.email || "Unknown";
+    metaDirty.current = true;
+    setReopenRequest(null);
+    appendEventActivity(event.id, "agreement_reopen_cancelled", by, {}, undefined, actingProfile);
+    toast({ title: "Reopen request cancelled" });
+  };
 
   const handleConfirm = async (party: string, method: "manual" | "self" = "manual") => {
     const now = new Date().toISOString();
@@ -471,17 +547,40 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
           </span>
         </div>
 
-        {allConfirmed && (
+        {allConfirmed && !reopenRequest && (
           <div className="rounded-lg bg-[hsl(var(--success)/0.1)] border border-[hsl(var(--success)/0.2)] p-3 mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Lock className="h-4 w-4 text-[hsl(var(--success))]" />
               <span className="text-sm font-medium text-[hsl(var(--success))]">All parties have confirmed the agreement</span>
             </div>
             {!readOnly && (
-              <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={handleReopen}>
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={handleRequestReopen}>
                 <LockOpen className="h-3.5 w-3.5" /> Request to Re-open
               </Button>
             )}
+          </div>
+        )}
+
+        {reopenRequest && (
+          <div className="rounded-lg bg-[hsl(var(--warning)/0.1)] border border-[hsl(var(--warning)/0.3)] p-3 mb-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2">
+                <LockOpen className="h-4 w-4 text-[hsl(var(--warning))] mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-[hsl(var(--warning))]">Reopen requested by {reopenRequest.requestedBy}{reopenRequest.requestedByParty ? ` (${reopenRequest.requestedByParty})` : ""}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {new Date(reopenRequest.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                    {" — awaiting approval from "}
+                    {reopenRequest.requiredParties.filter(p => !reopenRequest.approvals.some(a => a.party === p)).join(", ") || "all parties (complete)"}
+                  </p>
+                </div>
+              </div>
+              {!readOnly && (
+                <Button variant="ghost" size="sm" className="text-xs" onClick={handleCancelReopen}>
+                  Cancel request
+                </Button>
+              )}
+            </div>
           </div>
         )}
 
@@ -490,6 +589,8 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
         <div className="space-y-3">
           {dealParties.map(party => {
             const confirmation = confirmations.find(c => c.party === party);
+            const reopenPending = reopenRequest && reopenRequest.requiredParties.includes(party);
+            const reopenApproval = reopenRequest?.approvals.find(a => a.party === party);
             return (
               <div key={party} className="flex items-center justify-between rounded-lg border p-3">
                 <div className="flex items-center gap-3">
@@ -520,13 +621,26 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
                           {new Date(confirmation.confirmedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                           {confirmation.signature && <span className="ml-2 font-mono" title={`Signature: ${confirmation.signature}`}>ID: {confirmation.signature.slice(0, 8)}…</span>}
                         </p>
+                        {reopenApproval && (
+                          <p className="text-[10px] text-[hsl(var(--warning))] mt-0.5">
+                            Reopen approved by {reopenApproval.approvedBy} · {new Date(reopenApproval.approvedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <p className="text-xs text-muted-foreground">Not yet confirmed</p>
                     )}
                   </div>
                 </div>
-                {!confirmation && (
+                {reopenPending && !reopenApproval ? (
+                  myConfirmableParties.has(party) || (confirmation?.method === "manual" && !readOnly) ? (
+                    <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleApproveReopen(party)}>
+                      <LockOpen className="h-3.5 w-3.5" /> Approve reopen
+                    </Button>
+                  ) : (
+                    <Badge variant="outline" className="text-xs text-muted-foreground">Awaiting reopen approval</Badge>
+                  )
+                ) : !confirmation && (
                   myConfirmableParties.has(party) ? (
                     <Button size="sm" className="gap-1.5" onClick={() => setSelfConfirmParty(party)}>
                       <CheckCircle2 className="h-3.5 w-3.5" /> Confirm

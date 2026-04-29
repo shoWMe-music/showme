@@ -1317,6 +1317,22 @@ export interface AgreementConfirmation {
   signature: string;
 }
 
+export interface AgreementReopenApproval {
+  party: string;
+  approvedAt: string;
+  approvedBy: string;
+}
+
+export interface AgreementReopenRequest {
+  requestedAt: string;
+  requestedBy: string;
+  /** The confirmation party the requester represents (empty if requester has no party stake). */
+  requestedByParty: string;
+  /** Parties whose approval is required to complete the reopen. */
+  requiredParties: string[];
+  approvals: AgreementReopenApproval[];
+}
+
 export interface TodoReminder {
   id: string;
   date: string;
@@ -1367,6 +1383,7 @@ export interface EventMeta {
   dealDescription?: string;
   agreementConfirmations?: AgreementConfirmation[];
   agreementLastChangedAt?: string;
+  agreementReopenRequest?: AgreementReopenRequest | null;
   // Budget tab
   proEstimate?: ProEstimate;
   budgetProfileId?: string;
