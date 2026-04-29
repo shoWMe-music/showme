@@ -155,6 +155,38 @@ describe("RecipientsInput", () => {
     expect(screen.getAllByText(/nir\.freedman@example\.com/)).toHaveLength(1);
   });
 
+  it("closes the team popover after a member is added so the user gets visual confirmation", () => {
+    const onAddTeamMember = vi.fn();
+    const members = [
+      makeTeamMember({ id: "m1", name: "Ori Kastiel", email: "ori.showme@gmail.com" }),
+      makeTeamMember({ id: "m2", name: "Ben Azulay", email: "ben.azulay@example.com" }),
+    ];
+    render(
+      <RecipientsInput
+        {...defaultProps}
+        teamMembers={members}
+        onAddTeamMember={onAddTeamMember}
+      />,
+    );
+    const buttons = screen.getAllByRole("button");
+    const popoverTrigger = buttons.find(
+      (b) => b.querySelector("svg.lucide-users") || b.querySelector('[class*="users"]'),
+    ) ?? buttons[buttons.length - 1];
+    fireEvent.click(popoverTrigger);
+
+    // Popover open — both members visible.
+    expect(screen.getByText(/Ori Kastiel/)).toBeInTheDocument();
+    expect(screen.getByText(/Ben Azulay/)).toBeInTheDocument();
+
+    // Click a member.
+    fireEvent.click(screen.getByText(/Ori Kastiel/));
+    expect(onAddTeamMember).toHaveBeenCalledOnce();
+
+    // Popover should now be closed — neither member name is in the DOM anymore.
+    expect(screen.queryByText(/Ori Kastiel/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Ben Azulay/)).not.toBeInTheDocument();
+  });
+
   it("only collapses to 'All active members added' when every distinct member with email is added", () => {
     const members = [
       makeTeamMember({ id: "m1", name: "Ori Kastiel", email: "ori.showme@gmail.com" }),

@@ -16,6 +16,7 @@ import { buildPrintHTML } from "./export-event/buildPrintHTML";
 import { SectionSelector } from "./export-event/SectionSelector";
 import { RecipientsInput } from "./export-event/RecipientsInput";
 import { ExportActions } from "./export-event/ExportActions";
+import { parseRecipientInput } from "./export-event/parseRecipientInput";
 import type { DealStructure, TicketRevenue, Settlement } from "@/lib/models";
 
 interface ShareExportDialogProps {
@@ -126,19 +127,32 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
   };
 
   const addRecipient = () => {
-    const v = recipientInput.trim().toLowerCase();
-    if (!v) return;
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(v)) {
-      toast({ title: "Invalid email", description: "Please enter a valid email address.", variant: "destructive" });
-      return;
+    const { valid, invalid } = parseRecipientInput(recipientInput);
+    if (valid.length === 0 && invalid.length === 0) return;
+    if (invalid.length > 0) {
+      toast({
+        title: invalid.length === 1 ? "Invalid email" : "Invalid email(s)",
+        description: invalid.length === 1
+          ? `"${invalid[0]}" is not a valid email address.`
+          : `${invalid.length} entries are not valid: ${invalid.slice(0, 3).join(", ")}${invalid.length > 3 ? "..." : ""}`,
+        variant: "destructive",
+      });
+      // If everything was invalid, leave the user's input alone so they can fix it.
+      if (valid.length === 0) return;
     }
-    if (!recipients.includes(v)) setRecipients(prev => [...prev, v]);
+    if (valid.length > 0) {
+      setRecipients((prev) => {
+        const next = [...prev];
+        for (const v of valid) if (!next.includes(v)) next.push(v);
+        return next;
+      });
+    }
     setRecipientInput("");
   };
 
   const addTeamMemberRecipient = (member: TeamMember) => {
     const email = member.email.toLowerCase().trim();
+    if (!email) return;
     if (!recipients.includes(email)) setRecipients(prev => [...prev, email]);
   };
 

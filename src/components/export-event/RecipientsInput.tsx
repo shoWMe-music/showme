@@ -70,7 +70,13 @@ export function RecipientsInput({
                     <button
                       key={m.id}
                       className="w-full text-left px-2 py-1.5 text-sm rounded hover:bg-accent transition-colors"
-                      onClick={() => onAddTeamMember(m)}
+                      onClick={() => {
+                        onAddTeamMember(m);
+                        // Close the popover so the user gets immediate visual
+                        // confirmation that the badge has been added — leaving
+                        // it open made repeated clicks feel like a no-op.
+                        setPopoverOpen(false);
+                      }}
                     >
                       {m.name} <span className="text-xs text-muted-foreground">({m.email})</span>
                     </button>
