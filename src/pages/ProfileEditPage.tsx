@@ -432,8 +432,6 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
           onChange={(genres) => setData(p => ({ ...p, genres }))}
         />
 
-        {/* Music Embed (Performer) — derived from Social Links with platform "Spotify" */}
-
         {/* Setups (Performer) */}
         {baseRole === "performer" && (
           <div className="rounded-xl border bg-card p-6 shadow-sm">

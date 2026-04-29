@@ -14,7 +14,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  MapPin, Music, Globe, Image, Video, Users, Eye, Volume2, Share2, Edit2, ExternalLink, Copy, Check, ChevronLeft, ChevronRight, X, Calendar, Plus, Trash2, Code, ChevronDown, ChevronUp,
+  MapPin, Globe, Image, Video, Users, Eye, Volume2, Share2, Edit2, ExternalLink, Copy, Check, ChevronLeft, ChevronRight, X, Calendar, Plus, Trash2, Code, ChevronDown, ChevronUp,
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -347,13 +347,6 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
         e.operator.toLowerCase().includes(profile.name.toLowerCase()))
   ).sort((a, b) => a.date.localeCompare(b.date));
 
-  const getSpotifyEmbedUrl = (url: string) => {
-    if (!url) return null;
-    const match = url.match(/spotify\.com\/(album|playlist|track)\/([a-zA-Z0-9]+)/);
-    if (match?.[1] && match?.[2]) return `https://open.spotify.com/embed/${match[1]}/${match[2]}`;
-    return null;
-  };
-
   const handleShareProfile = () => {
     navigator.clipboard.writeText(publicUrl);
     setCopied(true);
@@ -472,25 +465,6 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
       <div className="p-8 pt-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-            {/* Listen (Performer) */}
-            {baseRole === "performer" && (
-              <div className="rounded-xl border bg-card p-6 shadow-sm">
-                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><Music className="h-5 w-5 text-primary" /> Listen</h3>
-                {(() => {
-                  const spotifyLink = profile.socialLinks?.find(l => l.platform.toLowerCase() === "spotify")?.url || profile.spotifyUrl || "";
-                  const embedUrl = getSpotifyEmbedUrl(spotifyLink);
-                  return embedUrl ? (
-                    <iframe src={embedUrl} width="100%" height="352" frameBorder="0" allow="encrypted-media" title="Spotify" className="rounded-md" />
-                  ) : (
-                    <div className="bg-gradient-to-br from-primary/10 to-primary/5 rounded-lg p-8 flex items-center gap-6">
-                      <div className="w-28 h-28 rounded-lg bg-muted flex items-center justify-center shrink-0"><Music className="h-12 w-12 text-muted-foreground" /></div>
-                      <div><p className="font-semibold text-lg">{profile.name}</p><p className="text-sm text-muted-foreground mt-1">Add a Spotify link in your Social Links to display a player here.</p></div>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-
             {/* Bio */}
             <div className="rounded-xl border bg-card p-6 shadow-sm">
               <h3 className="text-lg font-semibold mb-3">{baseRole === "venue" ? "About" : "Bio"}</h3>
