@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, createElement } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,13 +16,26 @@ import {
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { toast, copyToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { insertShareTokenRow } from "@/lib/db";
 import { type Event as AppEvent } from "@/lib/models";
+import { useUser } from "@/lib/user-context";
+import TeamMemberSelect from "@/components/TeamMemberSelect";
+import type { TeamMember } from "@/lib/user-context";
 import {
   ListTodo, Plus, ChevronDown, Calendar, PenLine, Clock,
   Download, FileText, Share2, Check, Copy, Send, CheckCircle2,
   Trash2, Bell, AlarmClock, DollarSign, X, User,
 } from "lucide-react";
+
+/**
+ * Builds the public URL to view a shared todo schedule.
+ * The route `/shared/budget/$token` is registered in the router and
+ * `SharedBudgetPage` handles `todo-schedule` payloads.
+ */
+export function buildTodoShareUrl(origin: string, token: string): string {
+  return `${origin}/shared/budget/${token}`;
+}
 
 /* ─── To Do Tab ─── */
 export interface TodoReminder {
@@ -46,14 +59,17 @@ export interface TodoItem {
   assignee?: string;
 }
 
-export function TodoTab({ todos: externalTodos, event, onSaveTodos, teamMemberNames = [] }: {
+export function TodoTab({ todos: externalTodos, event, onSaveTodos, teamMemberNames = [], teamMembers = [], onCreateMember }: {
   todos: TodoItem[];
   event: AppEvent;
   onSaveTodos: (todos: TodoItem[]) => void;
   teamMemberNames?: string[];
+  teamMembers?: TeamMember[];
+  onCreateMember?: (name: string) => void;
 }) {
   const [todos, setTodos] = useState<TodoItem[]>(externalTodos);
   const prevExternalRef = useRef(externalTodos);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Re-sync local state when external todos change (e.g. after initial fetch)
   useEffect(() => {
@@ -113,7 +129,36 @@ export function TodoTab({ todos: externalTodos, event, onSaveTodos, teamMemberNa
   };
 
   const toggleComplete = (id: string) => {
-    save(todos.map(t => t.id === id ? { ...t, completed: !t.completed, completedAt: !t.completed ? new Date().toISOString() : undefined } : t));
+    const todo = todos.find(t => t.id === id);
+    const wasCompleted = todo?.completed;
+    const updated = todos.map(t => t.id === id ? { ...t, completed: !t.completed, completedAt: !t.completed ? new Date().toISOString() : undefined } : t);
+
+    if (!wasCompleted) {
+      // Marking as done: update UI immediately, defer persist, show undo toast
+      setTodos(updated);
+      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = setTimeout(() => {
+        onSaveTodos(updated);
+        undoTimerRef.current = null;
+      }, 5000);
+
+      toast({
+        title: "Task completed",
+        action: createElement(ToastAction, {
+          altText: "Undo",
+          onClick: () => {
+            if (undoTimerRef.current) {
+              clearTimeout(undoTimerRef.current);
+              undoTimerRef.current = null;
+            }
+            setTodos(todos);
+          },
+        }, "Undo"),
+      });
+    } else {
+      // Uncompleting: persist immediately
+      save(updated);
+    }
   };
 
   const deleteTask = (id: string) => {
@@ -217,21 +262,14 @@ export function TodoTab({ todos: externalTodos, event, onSaveTodos, teamMemberNa
               <Input type="number" placeholder="Amount" value={newBudgetAmount} onChange={e => setNewBudgetAmount(e.target.value)} className="h-8 w-[120px] text-xs" />
             )}
           </div>
-          <div className="relative">
-            <User className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <input
-              list="assignee-suggestions"
-              placeholder="Assign to… (optional)"
-              value={newAssignee}
-              onChange={e => setNewAssignee(e.target.value)}
-              className="w-full pl-8 pr-3 h-8 rounded-md border bg-background text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-            {teamMemberNames.length > 0 && (
-              <datalist id="assignee-suggestions">
-                {teamMemberNames.map(n => <option key={n} value={n} />)}
-              </datalist>
-            )}
-          </div>
+          <TeamMemberSelect
+            value={newAssignee}
+            onValueChange={setNewAssignee}
+            teamMembers={teamMembers}
+            onCreateMember={onCreateMember}
+            placeholder="Assign to... (optional)"
+            className="h-8"
+          />
           <div className="flex gap-2 justify-end">
             <Button variant="ghost" size="sm" onClick={() => { setShowAddForm(false); setNewTitle(""); setNewDueDate(undefined); setNewDescription(""); setNewBudgetType("none"); setNewBudgetAmount(""); setNewAssignee(""); }}>Cancel</Button>
             <Button size="sm" onClick={addTask} disabled={!newTitle.trim()}>Add Task</Button>
@@ -263,6 +301,8 @@ export function TodoTab({ todos: externalTodos, event, onSaveTodos, teamMemberNa
             reminderLabel={reminderLabel} setReminderLabel={setReminderLabel}
             onAddReminder={() => addReminder(todo.id)} onRemoveReminder={(rid) => removeReminder(todo.id, rid)}
             teamMemberNames={teamMemberNames}
+            teamMembers={teamMembers}
+            onCreateMember={onCreateMember}
           />
         ))}
       </div>
@@ -407,7 +447,7 @@ export function TodoTab({ todos: externalTodos, event, onSaveTodos, teamMemberNa
                           const token = crypto.randomUUID();
                           const shareData = { type: "todo-schedule", eventName: event.name, eventVenue: event.venue, eventDate: event.date, todos: todos.map(t => ({ id: t.id, title: t.title, ...(t.dueDate ? { dueDate: t.dueDate } : {}), completed: t.completed, ...(t.reminders?.length ? { reminders: t.reminders } : {}), ...(t.budgetType ? { budgetType: t.budgetType, budgetAmount: t.budgetAmount ?? 0 } : {}), ...(t.description ? { description: t.description } : {}) })), generatedAt: new Date().toISOString() };
                           await insertShareTokenRow({ token, event_id: event.id, parties: shareData as unknown });
-                          const url = `${window.location.origin}/shared/budget/${token}`;
+                          const url = buildTodoShareUrl(window.location.origin, token);
                           setShareUrl(url); await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000);
                           copyToast("Share link copied!");
                         } catch (err) { console.error(err); toast({ title: "Failed to generate share link", variant: "destructive" }); }
@@ -484,18 +524,20 @@ export function TodoTab({ todos: externalTodos, event, onSaveTodos, teamMemberNa
   );
 }
 
-export function TodoCard({ todo, editingId, editTitle, setEditTitle, onToggle, onStartEdit, onSaveEdit, onCancelEdit, onDelete, onDueDateChange, onDescriptionChange, onBudgetChange, onAssigneeChange, reminderOpenId, setReminderOpenId, reminderDate, setReminderDate, reminderTime, setReminderTime, reminderLabel, setReminderLabel, onAddReminder, onRemoveReminder, teamMemberNames = [] }: {
+export function TodoCard({ todo, editingId, editTitle, setEditTitle, onToggle, onStartEdit, onSaveEdit, onCancelEdit, onDelete, onDueDateChange, onDescriptionChange, onBudgetChange, onAssigneeChange, reminderOpenId, setReminderOpenId, reminderDate, setReminderDate, reminderTime, setReminderTime, reminderLabel, setReminderLabel, onAddReminder, onRemoveReminder, teamMemberNames = [], teamMembers = [], onCreateMember }: {
   todo: TodoItem; editingId: string | null; editTitle: string; setEditTitle: (v: string) => void;
   onToggle: () => void; onStartEdit: () => void; onSaveEdit: () => void; onCancelEdit: () => void; onDelete: () => void;
   onDueDateChange: (d: Date | undefined) => void; onDescriptionChange: (d: string) => void;
   onBudgetChange: (type?: "cost" | "revenue", amount?: number) => void;
-  onAssigneeChange: (assignee?: string) => void;
+  onAssigneeChange?: (assignee?: string) => void;
   reminderOpenId: string | null; setReminderOpenId: (v: string | null) => void;
   reminderDate: Date | undefined; setReminderDate: (v: Date | undefined) => void;
   reminderTime: string; setReminderTime: (v: string) => void;
   reminderLabel: string; setReminderLabel: (v: string) => void;
   onAddReminder: () => void; onRemoveReminder: (id: string) => void;
   teamMemberNames?: string[];
+  teamMembers?: TeamMember[];
+  onCreateMember?: (name: string) => void;
 }) {
   const [showDesc, setShowDesc] = useState(false);
   const [showBudgetEdit, setShowBudgetEdit] = useState(false);
@@ -611,36 +653,27 @@ export function TodoCard({ todo, editingId, editTitle, setEditTitle, onToggle, o
             {/* Assignee */}
             {todo.assignee && !showAssigneeEdit && (
               <button onClick={() => { setShowAssigneeEdit(true); setEditAssignee(todo.assignee || ""); }} className="inline-flex items-center gap-1 text-xs rounded px-1.5 py-0.5 bg-accent text-accent-foreground hover:opacity-80">
-                <User className="h-3 w-3" /> {todo.assignee}
+                <User className="h-3 w-3" /> {(() => {
+                  const member = teamMembers?.find(m => m.name === todo.assignee);
+                  return member?.roles?.[0] ? `${todo.assignee} (${member.roles[0]})` : todo.assignee;
+                })()}
               </button>
             )}
-            {!todo.assignee && !todo.completed && !showAssigneeEdit && (
+            {!todo.assignee && !todo.completed && !showAssigneeEdit && onAssigneeChange && (
               <button onClick={() => setShowAssigneeEdit(true)} className="inline-flex items-center gap-1 text-xs text-muted-foreground/60 hover:text-foreground rounded px-1.5 py-0.5 hover:bg-accent">
                 <User className="h-3 w-3" /> Assign
               </button>
             )}
-            {showAssigneeEdit && (
+            {showAssigneeEdit && onAssigneeChange && (
               <div className="flex items-center gap-1">
-                <div className="relative">
-                  <input
-                    list={`assignee-list-${todo.id}`}
-                    placeholder="Name…"
-                    value={editAssignee}
-                    onChange={e => setEditAssignee(e.target.value)}
-                    className="h-6 w-28 rounded border px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring bg-background"
-                    autoFocus
-                    onKeyDown={e => {
-                      if (e.key === "Enter") { onAssigneeChange(editAssignee.trim() || undefined); setShowAssigneeEdit(false); }
-                      if (e.key === "Escape") setShowAssigneeEdit(false);
-                    }}
-                  />
-                  {teamMemberNames.length > 0 && (
-                    <datalist id={`assignee-list-${todo.id}`}>
-                      {teamMemberNames.map(n => <option key={n} value={n} />)}
-                    </datalist>
-                  )}
-                </div>
-                <button onClick={() => { onAssigneeChange(editAssignee.trim() || undefined); setShowAssigneeEdit(false); }} className="text-xs text-primary hover:opacity-80"><Check className="h-3 w-3" /></button>
+                <TeamMemberSelect
+                  value={editAssignee}
+                  onValueChange={(v) => { onAssigneeChange(v || undefined); setEditAssignee(v); setShowAssigneeEdit(false); }}
+                  teamMembers={teamMembers}
+                  onCreateMember={onCreateMember}
+                  placeholder="Name..."
+                  className="h-6 w-32"
+                />
                 <button onClick={() => setShowAssigneeEdit(false)} className="text-xs text-muted-foreground hover:opacity-80"><X className="h-3 w-3" /></button>
               </div>
             )}
