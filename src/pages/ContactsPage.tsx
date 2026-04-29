@@ -8,7 +8,7 @@ import { useMyInvitationCodes } from "@/lib/queries/useInvitationCodes";
 import type { InvitationCode } from "@/lib/db";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Contact, ContactType, contactTypeLabels } from "@/lib/models";
-import { contactHasType, contactPrimaryType, contactTypeList, groupContactsByType, partitionImportedByOwnProfile } from "@/lib/contacts";
+import { contactHasType, contactPrimaryType, contactTypeList, groupContactsByType, partitionImportedByOwnProfile, isOwnProfileName } from "@/lib/contacts";
 import { useUser } from "@/lib/user-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -116,6 +116,7 @@ export default function ContactsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<Contact | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [phantomConfirm, setPhantomConfirm] = useState(false);
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -195,6 +196,21 @@ export default function ContactsPage() {
   useEffect(() => { setPage(1); }, [search, filterType]);
 
   const duplicates = useMemo(() => findDuplicates(allLoadedContacts), [allLoadedContacts]);
+
+  // Historical phantom contacts: rows whose name matches one of the user's own
+  // profile names. Pre-Wave-2 the auto-create guard didn't exist, so these
+  // pollute the contacts list. New rows are now blocked at the source.
+  const ownProfileNames = useMemo(
+    () =>
+      Object.values(profiles)
+        .map(p => p?.name)
+        .filter((n): n is string => typeof n === "string" && n.trim().length > 0),
+    [profiles],
+  );
+  const phantomContacts = useMemo(
+    () => allLoadedContacts.filter(c => isOwnProfileName(c.name, ownProfileNames)),
+    [allLoadedContacts, ownProfileNames],
+  );
 
   // Client-side search + type filter
   const filtered = useMemo(() => {
@@ -305,6 +321,11 @@ export default function ContactsPage() {
             {duplicates.length > 0 && (
               <Button variant="outline" onClick={() => setDuplicatesOpen(true)} className="text-amber-600 border-amber-300 hover:bg-amber-50">
                 <AlertTriangle className="h-4 w-4 mr-2" /> {duplicates.length} Duplicate{duplicates.length > 1 ? "s" : ""}
+              </Button>
+            )}
+            {phantomContacts.length > 0 && (
+              <Button variant="outline" onClick={() => setPhantomConfirm(true)} className="text-amber-600 border-amber-300 hover:bg-amber-50">
+                <AlertTriangle className="h-4 w-4 mr-2" /> {phantomContacts.length} from your profile{phantomContacts.length > 1 ? "s" : ""}
               </Button>
             )}
             {selectedIds.size > 0 && (
@@ -560,6 +581,44 @@ export default function ContactsPage() {
               onClick={() => { if (deleteConfirm) { deleteContactMutation.mutate({ id: deleteConfirm.id }); setDeleteConfirm(null); } }}
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Phantom (own-profile) contacts cleanup */}
+      <AlertDialog open={phantomConfirm} onOpenChange={setPhantomConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {phantomContacts.length} contact{phantomContacts.length > 1 ? "s" : ""} that match your profile{phantomContacts.length > 1 ? "s" : ""}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Contacts are external only. The following entries match the name of one of your own profiles and were created by an earlier version of the app. This action is irreversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <ul className="my-2 max-h-48 overflow-y-auto rounded-md border bg-muted/30 p-2 text-sm">
+            {phantomContacts.map(c => (
+              <li key={c.id} className="px-1 py-0.5">
+                <span className="font-medium">{c.name}</span>
+                <span className="ml-2 text-xs text-muted-foreground">{contactTypeList(c).join(", ")}</span>
+              </li>
+            ))}
+          </ul>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                for (const c of phantomContacts) deleteContactMutation.mutate({ id: c.id });
+                setPhantomConfirm(false);
+                toast({
+                  title: phantomContacts.length === 1 ? "1 contact removed" : `${phantomContacts.length} contacts removed`,
+                  description: "Your contact list now only contains external counterparties.",
+                });
+              }}
+            >
+              Delete All
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
