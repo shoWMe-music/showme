@@ -2063,10 +2063,15 @@ export type PublicEventSharePayload = {
 
 export async function createPublicEventShare(token: string, payload: PublicEventSharePayload) {
   const uid = requireUid();
+  // Deeply strip undefined values from snapshotData and the rest of the payload —
+  // Firestore rejects writes containing nested undefined values, which would
+  // silently fail the share-link generation for any event with optional fields
+  // unset (e.g. ticketingProvider on a draft).
+  const cleanPayload = stripUndefined(payload);
   await safeSetDoc(doc(getFirestoreDb(), PUBLIC_SHARES, token), {
     kind: "event_snapshot",
     ownerUid: uid,
-    ...payload,
+    ...cleanPayload,
     createdAt: new Date().toISOString(),
   });
 }

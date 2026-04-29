@@ -93,6 +93,44 @@ describe("createPublicEventShare", () => {
     const [, data] = mockSetDoc.mock.calls[0];
     expect(data.recipients).toEqual([]);
   });
+
+  // Regression: nested `undefined` values in snapshotData were causing Firestore
+  // to reject the write, which silently broke /shared/event/$eventId share-link
+  // generation for any event with optional fields unset (e.g. ticketingProvider
+  // on a draft). The payload must be deeply scrubbed before writing.
+  it("strips deeply nested undefined values from snapshotData", async () => {
+    await createPublicEventShare("token-with-undefined", {
+      eventId: "EVT-003",
+      recipients: [],
+      snapshotData: {
+        event: {
+          id: "EVT-003",
+          name: "Draft Event",
+          date: "2026-05-10",
+          venue: "Hall",
+          ticketingProvider: undefined, // common on drafts
+          eventStatus: "draft",
+        },
+        deal: { dealType: "guarantee", artistGuarantee: 1000, customField: undefined },
+        revenue: undefined,
+      },
+      sections: [],
+      tabs: ["details"],
+      level: "all",
+      creatorName: "Operator",
+    });
+
+    const [, data] = mockSetDoc.mock.calls[0];
+    const snap = data.snapshotData as Record<string, unknown>;
+    // Deep scrub must drop undefined keys (top-level and nested) so Firestore
+    // accepts the write.
+    expect(snap).not.toHaveProperty("revenue");
+    expect((snap.event as Record<string, unknown>)).not.toHaveProperty("ticketingProvider");
+    expect((snap.deal as Record<string, unknown>)).not.toHaveProperty("customField");
+    // Defined fields must still be present.
+    expect((snap.event as Record<string, unknown>).name).toBe("Draft Event");
+    expect((snap.deal as Record<string, unknown>).artistGuarantee).toBe(1000);
+  });
 });
 
 // ---------------------------------------------------------------------------
