@@ -28,14 +28,18 @@ service cloud.firestore {
     /**
      * A user has access to an event if:
      *  - their uid is in the denormalized accessUids array, OR
+     *  - they are the original owner_uid (legacy events created before
+     *    accessUids existed, plus the in-memory fallback query in fetchEvents), OR
      *  - they are a member of the host profile (covers the host profile before
-     *    accessUids is populated, e.g. immediately after event creation).
+     *    accessUids is populated, e.g. immediately after event creation), OR
+     *  - they are a member of the performer profile.
      *
      * Uses get(field, default) throughout to avoid null-value errors in list queries.
      */
     function hasEventAccess(ev) {
       return isAuthed() && (
         uid() in ev.get('accessUids', [])
+        || uid() == ev.get('owner_uid', '')
         || (ev.get('hostProfileId', '') is string && ev.get('hostProfileId', '') != ''
             && isProfileMember(ev.get('hostProfileId', '')))
         || (ev.get('performerProfileId', '') is string && ev.get('performerProfileId', '') != ''
