@@ -650,6 +650,81 @@ export async function deleteBudgetTemplate(profileId: string, id: string) {
   await deleteProfileTemplate(profileId, "budgets", id);
 }
 
+// ── Deal templates (profile-scoped) ──────────────────────────────────────────
+
+export async function fetchDealTemplates(profileId: string): Promise<Record<string, unknown>[]> {
+  return fetchProfileTemplates(profileId, "deals");
+}
+
+export async function insertDealTemplate(
+  profileId: string,
+  row: {
+    name: string;
+    dealType: string;
+    artistGuarantee: number;
+    artistSplit: number;
+    promoterSplit: number;
+    venueSplit: number;
+    organizerSplit?: number;
+    venueRental: number;
+    commissions: unknown[];
+    performanceBonusThreshold?: number;
+    performanceBonusAmount?: number;
+  },
+) {
+  const id = crypto.randomUUID();
+  await upsertProfileTemplate(profileId, "deals", id, {
+    ...row,
+    created_at: new Date().toISOString(),
+  });
+}
+
+export async function deleteDealTemplate(profileId: string, id: string) {
+  await deleteProfileTemplate(profileId, "deals", id);
+}
+
+// ── Rider templates (profile-scoped) ─────────────────────────────────────────
+
+export async function fetchRiderTemplates(profileId: string): Promise<Record<string, unknown>[]> {
+  return fetchProfileTemplates(profileId, "riders");
+}
+
+export async function insertRiderTemplate(
+  profileId: string,
+  row: { name: string; riders: unknown[] },
+) {
+  const id = crypto.randomUUID();
+  await upsertProfileTemplate(profileId, "riders", id, {
+    ...row,
+    created_at: new Date().toISOString(),
+  });
+}
+
+export async function deleteRiderTemplate(profileId: string, id: string) {
+  await deleteProfileTemplate(profileId, "riders", id);
+}
+
+// ── Terms templates (profile-scoped) ─────────────────────────────────────────
+
+export async function fetchTermsTemplates(profileId: string): Promise<Record<string, unknown>[]> {
+  return fetchProfileTemplates(profileId, "terms");
+}
+
+export async function insertTermsTemplate(
+  profileId: string,
+  row: { name: string; termsText: string },
+) {
+  const id = crypto.randomUUID();
+  await upsertProfileTemplate(profileId, "terms", id, {
+    ...row,
+    created_at: new Date().toISOString(),
+  });
+}
+
+export async function deleteTermsTemplate(profileId: string, id: string) {
+  await deleteProfileTemplate(profileId, "terms", id);
+}
+
 // ── Profile Team Members ──────────────────────────────────────────────────────
 
 const PROFILE_TEAM = "team";
@@ -1800,6 +1875,42 @@ export async function upsertShareToken(
       parties,
       createdAt,
       snapshot: snapshot ? stripUndefined(snapshot) : null,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
+}
+
+/**
+ * If a settlement-review share token already exists for this event, refresh
+ * its public snapshot from the latest event/deal/revenue/settlement docs.
+ * No-op if no share has been created yet.
+ */
+export async function refreshShareTokenIfExists(eventId: string): Promise<void> {
+  const token = `review-${eventId}`;
+  const ref = doc(getFirestoreDb(), PUBLIC_SHARES, token);
+  const existing = await getDoc(ref);
+  if (!existing.exists()) return;
+  const existingData = existing.data() as { parties?: unknown; ownerUid?: string };
+
+  const eventSnap = await getDoc(eventDoc(eventId));
+  if (!eventSnap.exists()) return;
+  const event = eventRowToEvent({ id: eventSnap.id, ...eventSnap.data() });
+
+  const [deal, revenue, settlement] = await Promise.all([
+    fetchDeal(eventId),
+    fetchRevenue(eventId),
+    fetchSettlement(eventId),
+  ]);
+  if (!deal || !revenue || !settlement) return;
+
+  const snapshot: SettlementShareSnapshot = { event, deal, revenue, settlement };
+  await safeSetDoc(
+    ref,
+    {
+      snapshot: stripUndefined(snapshot),
+      updatedAt: serverTimestamp(),
+      ...(existingData.parties !== undefined ? {} : { parties: [] }),
     },
     { merge: true },
   );
@@ -1831,16 +1942,30 @@ export async function fetchShareTokens(): Promise<
 export async function fetchPublicShareByToken(token: string) {
   const snap = await getDoc(doc(getFirestoreDb(), PUBLIC_SHARES, token));
   if (!snap.exists()) return null;
-  return snap.data() as {
-    kind?: string;
-    ownerUid?: string;
-    eventId?: string;
-    parties?: unknown;
-    snapshot?: SettlementShareSnapshot | null;
-    recipients?: string[];
-    snapshotData?: unknown;
-    agreementConfirmations?: unknown[];
-    createdAt?: string;
+  const raw = snap.data() as Record<string, unknown>;
+  const updatedAtRaw = raw.updatedAt as { toMillis?: () => number } | string | undefined;
+  let updatedAtMs: number | null = null;
+  if (updatedAtRaw && typeof updatedAtRaw === "object" && typeof updatedAtRaw.toMillis === "function") {
+    updatedAtMs = updatedAtRaw.toMillis();
+  } else if (typeof updatedAtRaw === "string") {
+    const parsed = Date.parse(updatedAtRaw);
+    if (!Number.isNaN(parsed)) updatedAtMs = parsed;
+  }
+  return {
+    ...(raw as {
+      kind?: string;
+      ownerUid?: string;
+      eventId?: string;
+      parties?: unknown;
+      snapshot?: SettlementShareSnapshot | null;
+      recipients?: string[];
+      snapshotData?: unknown;
+      agreementConfirmations?: unknown[];
+      createdAt?: string;
+      approved?: boolean;
+      approvedAt?: string;
+    }),
+    updatedAtMs,
   };
 }
 
@@ -1851,6 +1976,13 @@ export async function updatePublicShareAgreementConfirmations(
   await updateDoc(doc(getFirestoreDb(), PUBLIC_SHARES, token), {
     agreementConfirmations: confirmations,
     agreementUpdatedAt: serverTimestamp(),
+  });
+}
+
+export async function approvePublicShare(token: string) {
+  await updateDoc(doc(getFirestoreDb(), PUBLIC_SHARES, token), {
+    approved: true,
+    approvedAt: new Date().toISOString(),
   });
 }
 
@@ -1913,7 +2045,7 @@ export type CollaboratorInviteRecord = {
   role: string;
   eventRole?: string;
   permission: string;
-  password: string;
+  passwordHash: string | null;
   status: string;
   email: string;
   ownerUid: string;
@@ -1941,14 +2073,14 @@ export async function insertCollaboratorInvite(payload: {
     ...payload,
     eventRole: payload.eventRole ?? "staff",
     ownerUid: uid,
-    password: "",
+    passwordHash: null,
     status: "pending",
   });
 }
 
 export async function updateCollaboratorInviteCredentials(
   token: string,
-  patch: { email?: string; password?: string; status?: string },
+  patch: { email?: string; status?: string },
 ) {
   await updateDoc(doc(getFirestoreDb(), COLLAB_INVITES, token), patch);
 }

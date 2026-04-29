@@ -7,7 +7,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type { DealStructure, TicketRevenue, SettlementStatus, SettlementRevision } from "@/lib/models";
-import { upsertDeal, upsertRevenue, upsertSettlement, fetchSettlement, fetchRevenue, fetchDeal, appendSettlementActivity } from "@/lib/db";
+import { upsertDeal, upsertRevenue, upsertSettlement, fetchSettlement, fetchRevenue, fetchDeal, appendSettlementActivity, refreshShareTokenIfExists } from "@/lib/db";
 import { buildSettlementUpdate, emptyRevenue } from "@/lib/settlementUtils";
 import { getAuthClient } from "@/lib/firebaseAuth";
 import { queryKeys } from "./keys";
@@ -115,6 +115,7 @@ export function useUpdateDeal() {
       appendSettlementActivity(eventId, "deal_updated", currentActor(), Object.keys(dealChanges).length > 0 ? dealChanges : undefined, () => {
         void queryClient.invalidateQueries({ queryKey: queryKeys.settlementActivity(eventId) });
       }, actingProfile);
+      void refreshShareTokenIfExists(eventId).catch(() => {});
     },
     onMutate: async (vars) => {
       const { eventId, deal } = vars;
@@ -186,6 +187,7 @@ export function useUpdateRevenue() {
       appendSettlementActivity(eventId, "revenue_updated", currentActor(), revenueChanges, () => {
         void queryClient.invalidateQueries({ queryKey: queryKeys.settlementActivity(eventId) });
       }, actingProfile);
+      void refreshShareTokenIfExists(eventId).catch(() => {});
     },
     onMutate: async (vars) => {
       const { eventId, newRevenue } = vars;
@@ -241,6 +243,7 @@ export function useUpdateSettlementStatus() {
       appendSettlementActivity(eventId, "status_changed", currentActor(), { from: prevStatus, to: status }, () => {
         void queryClient.invalidateQueries({ queryKey: queryKeys.settlementActivity(eventId) });
       }, actingProfile);
+      void refreshShareTokenIfExists(eventId).catch(() => {});
     },
     onMutate: async (vars) => {
       const { eventId, status } = vars;
@@ -280,7 +283,7 @@ export function useAddComment() {
       eventId: string;
       party: string;
       message: string;
-      attachments?: { name: string; size: string; type: string }[];
+      attachments?: { name: string; size: number; type: string; fileUrl: string }[];
       date: string;
       actingProfile?: string;
     }): Promise<void> => {
@@ -295,6 +298,7 @@ export function useAddComment() {
       appendSettlementActivity(eventId, "comment_added", currentActor(), { party }, () => {
         void queryClient.invalidateQueries({ queryKey: queryKeys.settlementActivity(eventId) });
       }, actingProfile);
+      void refreshShareTokenIfExists(eventId).catch(() => {});
     },
     onMutate: async (vars) => {
       const { eventId, party, message, attachments, date } = vars;
@@ -353,6 +357,7 @@ export function useAddRevision() {
       appendSettlementActivity(eventId, "revision_added", currentActor(), { changes: revision.changes }, () => {
         void queryClient.invalidateQueries({ queryKey: queryKeys.settlementActivity(eventId) });
       }, actingProfile);
+      void refreshShareTokenIfExists(eventId).catch(() => {});
     },
     onMutate: async (vars) => {
       const { eventId, revision } = vars;

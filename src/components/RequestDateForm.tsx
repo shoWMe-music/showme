@@ -20,9 +20,10 @@ interface RequestDateFormProps {
   defaultDate?: string;
   /** Operator receiving the request (Firestore owner_uid). Required for unauthenticated submits. */
   operatorOwnerUid: string;
+  onSuccess?: () => void;
 }
 
-export default function RequestDateForm({ open, onOpenChange, targetProfileSlug, targetRole, source, defaultDate, operatorOwnerUid }: RequestDateFormProps) {
+export default function RequestDateForm({ open, onOpenChange, targetProfileSlug, targetRole, source, defaultDate, operatorOwnerUid, onSuccess }: RequestDateFormProps) {
   const { currentUser } = useUser();
   const currency = currentUser.currency || "EUR";
   const currencySymbol = CURRENCY_SYMBOLS[currency] || currency;
@@ -42,6 +43,7 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
       toast({ title: "Request submitted!", description: "Your booking request has been sent successfully." });
       onOpenChange(false);
       setName(""); setEmail(""); setPhone(""); setArtistName(""); setWantedDate(""); setArtistFee(""); setNote(""); setMusicUrl(""); setVideoUrl("");
+      onSuccess?.();
     },
     onError: (err: any) => {
       toast({ title: "Failed to submit request", description: err.message, variant: "destructive" });

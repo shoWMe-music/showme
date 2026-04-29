@@ -39,6 +39,7 @@ import LoginPage from "@/pages/LoginPage";
 import SignupPage from "@/pages/SignupPage";
 import PublicProfilePage from "@/pages/PublicProfilePage";
 import PublicEventPage from "@/pages/PublicEventPage";
+import BookingWidgetPage from "@/pages/BookingWidgetPage";
 import SharedAvailabilityPage from "@/pages/SharedAvailabilityPage";
 import SharedBudgetPage from "@/pages/SharedBudgetPage";
 import SharedEventPage from "@/pages/SharedEventPage";
@@ -325,6 +326,18 @@ const publicEventRoute = createRoute({
   component: PublicEventPage,
 });
 
+const bookingWidgetRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/request-date/$slug",
+  component: BookingWidgetPage,
+  staticData: {
+    meta: {
+      title: "Request a Date — shoWMe",
+      description: "Send a booking request.",
+    },
+  },
+});
+
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
@@ -440,6 +453,7 @@ export const routeTree = rootRoute.addChildren([
   profileEditRoute,
   publicProfileRoute,
   publicEventRoute,
+  bookingWidgetRoute,
   settingsRoute,
   settlementReviewRoute,
   sharedAvailabilityRoute,

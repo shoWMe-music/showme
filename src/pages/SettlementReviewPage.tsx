@@ -23,8 +23,9 @@ import { useAuth } from "@/lib/auth-context";
 import showmeLogo from "@/assets/showme-logo.png";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
-import { fetchPublicShareByToken, type SettlementShareSnapshot } from "@/lib/db";
+import { fetchPublicShareByToken, approvePublicShare, type SettlementShareSnapshot } from "@/lib/db";
 import { queryKeys, useAddComment, useShareTokens, useEvent, useEventEconomics } from "@/lib/queries";
+import { uploadUserBinary } from "@/lib/firebaseStorageUpload";
 
 export default function SettlementReviewPage() {
   const { token } = useParams({ from: "/review/$token" });
@@ -45,14 +46,18 @@ export default function SettlementReviewPage() {
     !!tokenEventId,
   );
 
-  const { data: remote, isPending: remoteLoading } = useQuery({
+  const { data: remoteResult, isPending: remoteLoading } = useQuery({
     queryKey: queryKeys.publicShareByToken(token ?? ""),
-    queryFn: async (): Promise<SettlementShareSnapshot | null> => {
+    queryFn: async (): Promise<{ snapshot: SettlementShareSnapshot; approved: boolean; updatedAtMs: number | null } | null> => {
       if (!token) return null;
       try {
         const pub = await fetchPublicShareByToken(token);
         if (pub?.snapshot?.event && pub.snapshot.deal && pub.snapshot.revenue && pub.snapshot.settlement) {
-          return pub.snapshot as SettlementShareSnapshot;
+          return {
+            snapshot: pub.snapshot as SettlementShareSnapshot,
+            approved: pub.approved === true,
+            updatedAtMs: pub.updatedAtMs ?? null,
+          };
         }
         return null;
       } catch {
@@ -61,6 +66,9 @@ export default function SettlementReviewPage() {
     },
     enabled: !!token,
   });
+  const remote = remoteResult?.snapshot ?? null;
+  const remoteApproved = remoteResult?.approved ?? false;
+  const remoteUpdatedAtMs = remoteResult?.updatedAtMs ?? null;
 
   const isAuthenticated = Boolean(user);
 
@@ -222,14 +230,14 @@ export default function SettlementReviewPage() {
     return s + d.amount;
   }, 0);
   const totalCustomCosts = (revenue.customCosts || []).reduce((s, c) => s + c.amount, 0);
-  const totalDeductions = totalCustomDeductions + totalCustomCosts;
+  const totalDeductions = (revenue.ticketFees || 0) + (revenue.tax || 0) + (revenue.refunds || 0) + (revenue.productionExpenses || 0) + (revenue.additionalCosts || 0) + totalCustomDeductions + totalCustomCosts;
   const netRevenue = totalRevenue - totalDeductions;
 
   const recalc = deal && revenue ? calculateSettlement(deal, revenue) : null;
   const partyBreakdowns = recalc?.partyBreakdowns || [];
 
   const persistComment = canPersistComments && tokenEventId
-    ? (eventId: string, party: string, message: string, attachments?: { name: string; size: string; type: string }[]) => {
+    ? (eventId: string, party: string, message: string, attachments?: { name: string; size: number; type: string; fileUrl: string }[]) => {
         addCommentMutation.mutate({
           eventId,
           party,
@@ -242,6 +250,8 @@ export default function SettlementReviewPage() {
         toast({ title: "Comments unavailable", description: "Sign in as the workspace owner on this device to post comments on this settlement.", variant: "destructive" });
       };
 
+  const isViewingSnapshot = !liveData && !!remote;
+
   return <SettlementReviewContent
     event={event} deal={deal} revenue={revenue} settlement={settlement}
     reviewerName={reviewerName}
@@ -249,32 +259,62 @@ export default function SettlementReviewPage() {
     settlementTotal={settlementTotal}
     totalRevenue={totalRevenue} totalDeductions={totalDeductions} netRevenue={netRevenue}
     partyBreakdowns={partyBreakdowns}
+    initialApproved={remoteApproved}
+    token={token}
+    snapshotUpdatedAtMs={isViewingSnapshot ? remoteUpdatedAtMs : null}
   />;
 }
 
-type CommentAttachment = { name: string; size: string; type: string };
+type CommentAttachment = { name: string; size: number; type: string; fileUrl: string };
 
-function SettlementReviewContent({ event, deal, revenue, settlement, reviewerName, addComment, settlementTotal, totalRevenue, totalDeductions, netRevenue, partyBreakdowns }: {
+function formatRelativeTime(ms: number): string {
+  const diffSec = Math.floor((Date.now() - ms) / 1000);
+  if (diffSec < 5) return "just now";
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const min = Math.floor(diffSec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  const month = Math.floor(day / 30);
+  if (month < 12) return `${month}mo ago`;
+  return `${Math.floor(month / 12)}y ago`;
+}
+
+function SettlementReviewContent({ event, deal, revenue, settlement, reviewerName, addComment, settlementTotal, totalRevenue, totalDeductions, netRevenue, partyBreakdowns, initialApproved, token, snapshotUpdatedAtMs }: {
   event: AppEvent; deal: DealStructure; revenue: TicketRevenue; settlement: Settlement; reviewerName: string;
   addComment: (eventId: string, party: string, message: string, attachments?: CommentAttachment[]) => void;
   settlementTotal: number;
   totalRevenue: number; totalDeductions: number; netRevenue: number;
   partyBreakdowns: import("@/lib/models").PartyBreakdown[];
+  initialApproved: boolean;
+  token: string;
+  snapshotUpdatedAtMs: number | null;
 }) {
   const [commentText, setCommentText] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
-  const [approved, setApproved] = useState(false);
+  const [approved, setApproved] = useState(initialApproved);
+  const [submittingComment, setSubmittingComment] = useState(false);
 
-  const handleAddComment = () => {
-    if (!commentText.trim()) return;
-    const attachments = attachedFiles.map(f => ({
-      name: f.name,
-      size: f.size > 1024 * 1024 ? `${(f.size / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(f.size / 1024)} KB`,
-      type: f.type || f.name.split(".").pop() || "file",
-    }));
-    addComment(event.id, reviewerName, commentText.trim(), attachments.length > 0 ? attachments : undefined);
-    setCommentText("");
-    setAttachedFiles([]);
+  const handleAddComment = async () => {
+    if (!commentText.trim() || submittingComment) return;
+    setSubmittingComment(true);
+    try {
+      const attachments = await Promise.all(attachedFiles.map(async (f) => {
+        const safeName = f.name.replace(/[^\w.\-]+/g, "_");
+        const path = `settlement-comments/${event.id}/${Date.now()}-${safeName}`;
+        const fileUrl = await uploadUserBinary(path, f, f.type || undefined);
+        return { name: f.name, size: f.size, type: f.type || f.name.split(".").pop() || "file", fileUrl };
+      }));
+      addComment(event.id, reviewerName, commentText.trim(), attachments.length > 0 ? attachments : undefined);
+      setCommentText("");
+      setAttachedFiles([]);
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message || "Could not upload attachment", variant: "destructive" });
+    } finally {
+      setSubmittingComment(false);
+    }
   };
 
   return (
@@ -282,6 +322,11 @@ function SettlementReviewContent({ event, deal, revenue, settlement, reviewerNam
       <header className="border-b bg-background px-6 py-4 flex items-center justify-between">
         <img src={showmeLogo} alt="showMe" className="h-6" />
         <div className="flex items-center gap-3">
+          {snapshotUpdatedAtMs !== null && (
+            <span className="inline-flex items-center rounded-full border bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+              Last updated {formatRelativeTime(snapshotUpdatedAtMs)}
+            </span>
+          )}
           <span className="text-xs text-muted-foreground">Reviewing as <strong>{reviewerName}</strong></span>
           <span className="text-xs text-muted-foreground">Settlement Review</span>
         </div>
@@ -399,8 +444,8 @@ function SettlementReviewContent({ event, deal, revenue, settlement, reviewerNam
           <h2 className="font-display text-lg font-semibold mb-4">Deal Structure</h2>
           <dl className="space-y-2 text-sm">
             <div className="flex justify-between"><span className="text-muted-foreground">Deal Type</span><span className="font-medium capitalize">{deal.dealType.replace(/_/g, " ")}</span></div>
-            {deal.artistGuarantee > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Artist Guarantee</span><span className="font-semibold">{formatCurrency(deal.artistGuarantee)}</span></div>}
-            <div className="flex justify-between"><span className="text-muted-foreground">Artist / Promoter / Venue Split</span><span className="font-medium">{deal.artistSplit}% / {deal.promoterSplit}% / {deal.venueSplit}%</span></div>
+            {deal.artistGuarantee > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Performer Guarantee</span><span className="font-semibold">{formatCurrency(deal.artistGuarantee)}</span></div>}
+            <div className="flex justify-between"><span className="text-muted-foreground">Performer / Promoter / Venue Split</span><span className="font-medium">{deal.artistSplit}% / {deal.promoterSplit}% / {deal.venueSplit}%</span></div>
             {((deal.artistCostSplit || 0) > 0 || deal.promoterCostSplit > 0 || deal.venueCostSplit > 0) && (
               <div className="flex justify-between"><span className="text-muted-foreground">Production Costs Split (A/P/V)</span><span className="font-medium">{deal.artistCostSplit || 0}% / {deal.promoterCostSplit}% / {deal.venueCostSplit}%</span></div>
             )}
@@ -415,6 +460,7 @@ function SettlementReviewContent({ event, deal, revenue, settlement, reviewerNam
           totalDeductions={totalDeductions}
           netRevenue={netRevenue}
           deal={deal}
+          partyNames={{ Performer: event.artist, Venue: event.venue, Promoter: event.operator }}
         />
 
         <div className="rounded-xl border bg-card p-6 shadow-sm">
@@ -425,7 +471,15 @@ function SettlementReviewContent({ event, deal, revenue, settlement, reviewerNam
               <span className="font-medium">You have approved this settlement as {reviewerName}</span>
             </div>
           ) : (
-            <Button onClick={() => { setApproved(true); toast({ title: "Settlement approved" }); }} className="gap-2">
+            <Button onClick={async () => {
+              try {
+                await approvePublicShare(token);
+                setApproved(true);
+                toast({ title: "Settlement approved" });
+              } catch {
+                toast({ title: "Failed to approve settlement", description: "Please try again.", variant: "destructive" });
+              }
+            }} className="gap-2">
               <CheckCircle2 className="h-4 w-4" /> Approve Settlement
             </Button>
           )}
@@ -447,9 +501,9 @@ function SettlementReviewContent({ event, deal, revenue, settlement, reviewerNam
                   {c.attachments && c.attachments.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-2">
                       {c.attachments.map((a, j: number) => (
-                        <span key={j} className="inline-flex items-center gap-1 rounded-md bg-background px-2 py-1 text-xs border">
-                          <FileText className="h-3 w-3" /> {a.name} <span className="text-muted-foreground">({a.size})</span>
-                        </span>
+                        <a key={j} href={a.fileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md bg-background px-2 py-1 text-xs border hover:bg-muted">
+                          <FileText className="h-3 w-3" /> {a.name} <span className="text-muted-foreground">({a.size > 1024 * 1024 ? `${(a.size / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(a.size / 1024)} KB`})</span>
+                        </a>
                       ))}
                     </div>
                   )}
@@ -495,8 +549,8 @@ function SettlementReviewContent({ event, deal, revenue, settlement, reviewerNam
                   <Paperclip className="h-4 w-4 mr-1" /> Attach File
                 </Button>
               </div>
-              <Button size="sm" type="button" onClick={handleAddComment} disabled={!commentText.trim()}>
-                Submit Comment
+              <Button size="sm" type="button" onClick={handleAddComment} disabled={!commentText.trim() || submittingComment}>
+                {submittingComment ? "Uploading…" : "Submit Comment"}
               </Button>
             </div>
           </div>

@@ -1,6 +1,8 @@
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
+// bcryptjs (pure JS) is used over native bcrypt to avoid build issues in the Cloud Functions runtime.
+import * as bcrypt from "bcryptjs";
 import { getMailTransport, FROM_ADDRESS } from "./mail";
 import { passwordResetEmail } from "./emailTemplates";
 
@@ -13,6 +15,7 @@ export {
   verifyOtp,
   sendInvitationEmail,
 } from "./invitations";
+export { setCollaboratorInvitePassword } from "./collaboratorInvitePassword";
 export {
   onEventUpdated,
   onDealUpdated,
@@ -32,7 +35,10 @@ if (!admin.apps.length) {
   admin.initializeApp();
 }
 
-export const joinEventAsCollaborator = onCall<{ token: string }, Promise<{ ok: true; eventId: string }>>(
+export const joinEventAsCollaborator = onCall<
+  { token: string; password: string },
+  Promise<{ ok: true; eventId: string }>
+>(
   { region: "europe-west1" },
   async (request) => {
     const uid = request.auth?.uid;
@@ -40,8 +46,12 @@ export const joinEventAsCollaborator = onCall<{ token: string }, Promise<{ ok: t
       throw new HttpsError("unauthenticated", "Sign in first (anonymous is fine).");
     }
     const token = request.data?.token;
+    const password = request.data?.password;
     if (typeof token !== "string" || token.length < 8) {
       throw new HttpsError("invalid-argument", "Invalid invite token.");
+    }
+    if (typeof password !== "string" || password.length === 0) {
+      throw new HttpsError("invalid-argument", "Password is required.");
     }
     const db = admin.firestore();
     const invSnap = await db.collection("collaboratorInvites").doc(token).get();
@@ -51,6 +61,13 @@ export const joinEventAsCollaborator = onCall<{ token: string }, Promise<{ ok: t
     const inv = invSnap.data() as Record<string, unknown>;
     if (String(inv.status || "") !== "accepted") {
       throw new HttpsError("failed-precondition", "Invite must be accepted before joining the event.");
+    }
+    const passwordHash = inv.passwordHash;
+    if (typeof passwordHash !== "string" || passwordHash.length === 0) {
+      throw new HttpsError("failed-precondition", "Invite has no password set.");
+    }
+    if (!bcrypt.compareSync(password, passwordHash)) {
+      throw new HttpsError("permission-denied", "Incorrect password.");
     }
     const eventId = String(inv.event_id || "");
     if (!eventId) {

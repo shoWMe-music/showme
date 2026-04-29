@@ -1,7 +1,6 @@
-import { setDoc, doc, serverTimestamp } from "firebase/firestore";
+import { doc, serverTimestamp, writeBatch } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { getFirestoreDb, getFirebaseFunctions } from "@/integrations/firebase/app";
-import { insertCollaboratorInvite, addEventCollaborator } from "@/lib/db";
 import { PROFILE_ROOT_SCHEMA_VERSION } from "@/lib/profiles";
 import { queryKeys } from "@/lib/queries/keys";
 import type { QueryClient } from "@tanstack/react-query";
@@ -41,42 +40,66 @@ export async function createPerformerInvitation(
   } = params;
 
   const token = `collab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const stubProfileId = `stub-${eventId}-${token}`;
+  const trimmedEmail = email.trim();
+  const trimmedMessage = message.trim();
+  const invitedAt = new Date().toISOString();
 
-  // 1. Create collaborator invite document
+  const db = getFirestoreDb();
+  const batch = writeBatch(db);
+
+  // inlined into batch for atomicity — keep payload shape in sync with insertCollaboratorInvite
+  batch.set(doc(db, "collaboratorInvites", token), {
+    token,
+    event_id: eventId,
+    email: trimmedEmail,
+    role,
+    permission,
+    eventRole,
+    message: trimmedMessage,
+    ownerUid: userUid,
+    passwordHash: null,
+    status: "pending",
+  });
+
+  batch.set(doc(db, "profiles", stubProfileId), {
+    name: displayName,
+    owner_uid: userUid,
+    slot: role.toLowerCase(),
+    role: role.toLowerCase(),
+    type: role.toLowerCase(),
+    unclaimed: true,
+    schemaVersion: PROFILE_ROOT_SCHEMA_VERSION,
+    linkedEventId: eventId,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  // inlined into batch for atomicity — keep payload shape in sync with addEventCollaborator
+  batch.set(doc(db, "events", eventId, "collaborators", token), {
+    clientId: token,
+    email: trimmedEmail,
+    name: displayName,
+    eventRole,
+    role,
+    status: "pending",
+    invitedAt,
+    userUid: null,
+    profileId: stubProfileId,
+    inviteProfileSlug: null,
+    schemaVersion: 1,
+    updatedAt: serverTimestamp(),
+  });
+
   try {
-    await insertCollaboratorInvite({
-      token,
-      event_id: eventId,
-      email: email.trim(),
-      role,
-      eventRole,
-      permission,
-      message: message.trim(),
-    });
-  } catch {
+    await batch.commit();
+  } catch (err) {
+    console.error("Failed to commit performer invitation batch:", err);
     return null;
   }
 
-  // 2. Create stub profile for the invitee
-  const stubProfileId = `stub-${eventId}-${token}`;
-  try {
-    await setDoc(doc(getFirestoreDb(), "profiles", stubProfileId), {
-      name: displayName,
-      owner_uid: userUid,
-      slot: role.toLowerCase(),
-      role: role.toLowerCase(),
-      type: role.toLowerCase(),
-      unclaimed: true,
-      schemaVersion: PROFILE_ROOT_SCHEMA_VERSION,
-      linkedEventId: eventId,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-  } catch (err) {
-    console.error("Failed to create stub profile:", err);
-  }
-
-  // 3. Generate invitation code via Cloud Function
+  // Cloud Function runs AFTER batch commits: a code without supporting docs is
+  // worse than docs without a code (a missing code is recoverable via retry).
   const createInvitationCodeFn = httpsCallable<
     {
       recipientEmail?: string;
@@ -94,7 +117,7 @@ export async function createPerformerInvitation(
   try {
     const result = await createInvitationCodeFn({
       source: "collaborator_invite",
-      recipientEmail: email.trim(),
+      recipientEmail: trimmedEmail,
       recipientName: displayName,
       recipientRole: role.toLowerCase(),
       linkedProfileId: stubProfileId,
@@ -104,26 +127,13 @@ export async function createPerformerInvitation(
     code = result.data.code;
     queryClient.invalidateQueries({ queryKey: queryKeys.myInvitationCodes(userUid) });
   } catch (err) {
+    // Batch writes already committed — caller can retry just this step.
+    // Do not delete the batch's docs; they remain valid for a retry.
     console.error("Failed to create invitation code:", err);
     return null;
   }
 
-  // 4. Add collaborator to event
-  try {
-    await addEventCollaborator(eventId, {
-      id: token,
-      email: email.trim(),
-      name: displayName,
-      eventRole,
-      role,
-      status: "pending",
-      invitedAt: new Date().toISOString(),
-      profileId: stubProfileId,
-    });
-    onCollaboratorAdded?.();
-  } catch (err) {
-    console.error("Failed to add event collaborator:", err);
-  }
+  onCollaboratorAdded?.();
 
   const url = `${window.location.origin}/signup?code=${code}`;
   return { url, code, token };

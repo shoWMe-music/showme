@@ -1,10 +1,14 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "@tanstack/react-router";
+import { httpsCallable } from "firebase/functions";
+import { signInAnonymously } from "firebase/auth";
 import {
   fetchCollaboratorInviteByToken,
   fetchEventRowForCollaborator,
   updateCollaboratorInviteCredentials,
 } from "@/lib/db";
+import { getFirebaseFunctions } from "@/integrations/firebase/app";
+import { getAuthClient } from "@/lib/firebaseAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,7 +20,7 @@ interface InviteRecord {
   event_id: string;
   role: string;
   permission: string;
-  password: string;
+  passwordHash: string | null;
   status: string;
   email: string;
   ownerUid: string;
@@ -50,7 +54,7 @@ export default function CollaboratorAuthPage() {
 
       setInvite(record as InviteRecord);
 
-      if (record.password) {
+      if (record.passwordHash) {
         setIsSignup(false);
       }
 
@@ -72,13 +76,20 @@ export default function CollaboratorAuthPage() {
     }
 
     try {
+      const auth = getAuthClient();
+      if (!auth.currentUser) {
+        await signInAnonymously(auth);
+      }
+      const setPasswordFn = httpsCallable<
+        { inviteId: string; password: string },
+        { ok: true }
+      >(getFirebaseFunctions(), "setCollaboratorInvitePassword");
+      await setPasswordFn({ inviteId: token!, password });
       await updateCollaboratorInviteCredentials(token!, {
         email: email.trim(),
-        password,
-        status: "accepted",
       });
     } catch {
-      setError("Could not save credentials. Check Firestore rules for collaborator invites.");
+      setError("Could not save credentials. Please try again.");
       return;
     }
 
@@ -88,6 +99,7 @@ export default function CollaboratorAuthPage() {
       eventId: invite.event_id,
       email: email.trim(),
       ownerUid: invite.ownerUid,
+      password,
     }));
     navigate({ to: "/collaborate/$eventId/$token/view", params: { eventId: eventId!, token: token! }, replace: true });
   };
@@ -96,18 +108,35 @@ export default function CollaboratorAuthPage() {
     e.preventDefault();
     if (!invite) return;
 
-    if (email.trim().toLowerCase() === (invite.email || "").toLowerCase() && password === invite.password) {
-      sessionStorage.setItem(`collab-auth-${token}`, JSON.stringify({
-        role: invite.role,
-        permission: invite.permission,
-        eventId: invite.event_id,
-        email: email.trim(),
-        ownerUid: invite.ownerUid,
-      }));
-      navigate({ to: "/collaborate/$eventId/$token/view", params: { eventId: eventId!, token: token! }, replace: true });
-    } else {
+    if (email.trim().toLowerCase() !== (invite.email || "").toLowerCase()) {
       setError("Incorrect email or password. Please try again.");
+      return;
     }
+
+    try {
+      const auth = getAuthClient();
+      if (!auth.currentUser) {
+        await signInAnonymously(auth);
+      }
+      const join = httpsCallable<
+        { token: string; password: string },
+        { ok: true; eventId: string }
+      >(getFirebaseFunctions(), "joinEventAsCollaborator");
+      await join({ token: token!, password });
+    } catch {
+      setError("Incorrect email or password. Please try again.");
+      return;
+    }
+
+    sessionStorage.setItem(`collab-auth-${token}`, JSON.stringify({
+      role: invite.role,
+      permission: invite.permission,
+      eventId: invite.event_id,
+      email: email.trim(),
+      ownerUid: invite.ownerUid,
+      password,
+    }));
+    navigate({ to: "/collaborate/$eventId/$token/view", params: { eventId: eventId!, token: token! }, replace: true });
   };
 
   if (loading) {

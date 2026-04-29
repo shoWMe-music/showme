@@ -50,8 +50,8 @@ export function FileUploadButton({ onFile }: { onFile: (name: string, url: strin
         if (!file) return;
         setUploading(true);
         try {
-          const ext = file.name.split(".").pop() || "bin";
-          const path = `event-manager/riders/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+          const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+          const path = `event-files/${Date.now()}-${safeName}`;
           const url = await uploadUserBinary(path, file, file.type || undefined);
           onFile(file.name, url);
         } catch (err: any) {

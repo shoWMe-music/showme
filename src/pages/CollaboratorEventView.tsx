@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "@tanstack/react-router";
+import { useParams, useNavigate, Link } from "@tanstack/react-router";
 import {
   fetchCollaboratorAgreementDraft,
   fetchCollaboratorInviteByToken,
@@ -28,6 +28,7 @@ interface AuthData {
   eventId: string;
   email?: string;
   ownerUid: string;
+  password: string;
 }
 
 interface EventData {
@@ -158,7 +159,7 @@ export default function CollaboratorEventView() {
         return;
       }
       try {
-        await ensureCollaboratorParticipantOnEvent(token!);
+        await ensureCollaboratorParticipantOnEvent(token!, parsed.password);
       } catch (e) {
         console.error(e);
         toast({
@@ -238,7 +239,7 @@ export default function CollaboratorEventView() {
               <h2 className="font-semibold text-lg">Event Details</h2>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div><span className="text-muted-foreground">Event:</span> {event.name}</div>
-                <div><span className="text-muted-foreground">Date:</span> {event.date}</div>
+                <div><span className="text-muted-foreground">Date:</span> <Link to="/calendar" search={{ date: event.date }} className="hover:underline">{event.date}</Link></div>
                 <div><span className="text-muted-foreground">Venue:</span> {event.venue}</div>
                 <div><span className="text-muted-foreground">Performer:</span> {event.artist || "—"}</div>
                 <div><span className="text-muted-foreground">Capacity:</span> {event.capacity}</div>

@@ -451,11 +451,13 @@ service cloud.firestore {
 
     match /collaboratorInvites/{token} {
       allow read: if true;
-      allow create: if isAuthed() && request.resource.data.ownerUid == uid();
+      allow create: if isAuthed()
+        && request.resource.data.ownerUid == uid()
+        && request.resource.data.get('passwordHash', null) == null;
       allow update: if
-        (resource.data.password == '' || resource.data.password == null)
-        && request.resource.data.ownerUid == resource.data.ownerUid
-        && request.resource.data.event_id == resource.data.event_id;
+        request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.event_id == resource.data.event_id
+        && request.resource.data.get('passwordHash', null) == resource.data.get('passwordHash', null);
     }
 
     match /collaboratorWrites/{token} {

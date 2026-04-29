@@ -9,14 +9,17 @@ import { getAuthClient } from "@/lib/firebaseAuth";
  * Anonymous sign-in plus a callable adds their UID to the event's `participant_uids`
  * so they can use the same `events/{eventId}/messages` path and rules as workspace users.
  */
-export async function ensureCollaboratorParticipantOnEvent(inviteToken: string): Promise<void> {
+export async function ensureCollaboratorParticipantOnEvent(
+  inviteToken: string,
+  password: string,
+): Promise<void> {
   const auth = getAuthClient();
   if (!auth.currentUser) {
     await signInAnonymously(auth);
   }
-  const join = httpsCallable<{ token: string }, { ok: boolean }>(
+  const join = httpsCallable<{ token: string; password: string }, { ok: boolean }>(
     getFirebaseFunctions(),
     "joinEventAsCollaborator",
   );
-  await join({ token: inviteToken });
+  await join({ token: inviteToken, password });
 }

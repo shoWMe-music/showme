@@ -117,6 +117,10 @@ export interface DealStructure {
   venueRental: number;
   venueRentalPaidBy?: string; // "promoter" | "artist" | "organizer" | "split"
   venueRentalPaymentMode?: "request_now" | "deduct_at_settlement";
+  /** Revenue threshold that triggers a performance bonus for the performer. */
+  performanceBonusThreshold?: number;
+  /** Fixed bonus amount added to performer payout when revenue exceeds the threshold. */
+  performanceBonusAmount?: number;
   commissions: CommissionParty[];
 }
 
@@ -221,6 +225,7 @@ export type EventActivityType =
   | "performer_accepted"
   | "performer_declined"
   | "agreement_confirmed"
+  | "approvals_reset"
   | "performer_added"
   | "performer_removed";
 
@@ -263,7 +268,7 @@ export interface Settlement {
   commissionPayouts: { key: string; label: string; name: string; payout: number }[];
   status: SettlementStatus;
   approvals: { party: string; approved: boolean; date?: string }[];
-  comments: { party: string; message: string; date: string; attachments?: { name: string; size: string; type: string }[] }[];
+  comments: { party: string; message: string; date: string; attachments?: { name: string; size: number; type: string; fileUrl: string }[] }[];
   revisions: SettlementRevision[];
 }
 
@@ -342,6 +347,7 @@ export function calculateSettlement(deal: DealStructure, revenue: TicketRevenue)
   }
 
   // Apply production cost split if defined (using only unassigned custom costs)
+  let _artistProdCostDeduction = 0;
   if ((deal.artistCostSplit || 0) > 0 || deal.promoterCostSplit > 0 || deal.venueCostSplit > 0 || (deal.organizerCostSplit || 0) > 0) {
     const totalProdCosts = revenue.productionExpenses + unassignedCustomCosts;
     const artistCostShare = totalProdCosts * ((deal.artistCostSplit || 0) / 100);
@@ -356,9 +362,9 @@ export function calculateSettlement(deal: DealStructure, revenue: TicketRevenue)
     if (venueCostShare > 0) venueAdj.push({ label: `Production cost share (${deal.venueCostSplit}%)`, amount: -venueCostShare });
     if (organizerCostShare > 0) organizerAdj.push({ label: `Production cost share (${deal.organizerCostSplit}%)`, amount: -organizerCostShare });
     // Track artist cost for later deduction
-    var _artistProdCostDeduction = artistCostShare;
+    _artistProdCostDeduction = artistCostShare;
   } else {
-    var _artistProdCostDeduction = 0;
+    _artistProdCostDeduction = 0;
   }
 
   let artistBase = 0;
@@ -430,6 +436,12 @@ export function calculateSettlement(deal: DealStructure, revenue: TicketRevenue)
     if (cp.payout > 0) {
       artistAdj.push({ label: `${cp.label} (${cp.name})`, amount: -cp.payout });
     }
+  }
+
+  // Performance bonus: add to performer payout if revenue exceeds threshold
+  if (deal.performanceBonusThreshold && deal.performanceBonusAmount && totalRevenue >= deal.performanceBonusThreshold) {
+    remainder += deal.performanceBonusAmount;
+    artistAdj.push({ label: "Performance Bonus", amount: deal.performanceBonusAmount });
   }
 
   // Build party breakdowns
@@ -599,6 +611,8 @@ export interface CrewMember {
   collaborator?: string;
   /** Profile ID of the collaborator who owns this crew entry (controls write access). */
   ownerProfileId?: string;
+  /** Original team member ID when added from team directory (used for dedup). */
+  teamMemberId?: string;
 }
 
 /** Legacy UI used invited/accepted; prefer pending/active. */
