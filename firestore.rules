@@ -385,7 +385,7 @@ service cloud.firestore {
 
     // ── Profile templates ────────────────────────────────────────────────────
 
-    match /profiles/{profileId}/templates/{category}/{templateId} {
+    match /profiles/{profileId}/templates/{category}/items/{templateId} {
       allow read: if isProfileMember(profileId);
       allow write, delete: if isProfileAdmin(profileId);
     }
