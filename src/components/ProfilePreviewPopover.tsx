@@ -114,6 +114,15 @@ export function ProfilePreviewPopover({
         <div className="mt-3 flex gap-2">
           {hasProfile && profileData?.slug && profileData.isPublic && (
             <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5 flex-1" asChild>
+              <a href={`/p/${profileData.slug}`} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="h-3 w-3" /> View Profile
+              </a>
+            </Button>
+          )}
+          {hasProfile && profileData?.slug && !profileData.isPublic && (
+            // Internal (non-public) profile — same-tab link to the slug page,
+            // which falls back to a local lookup for owners/collaborators.
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5 flex-1" asChild>
               <Link to="/p/$slug" params={{ slug: profileData.slug }}>
                 <ExternalLink className="h-3 w-3" /> View Profile
               </Link>
