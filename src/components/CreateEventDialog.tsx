@@ -7,6 +7,10 @@ import type { DealType } from "@/lib/models";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { RoleSelectionStep } from "@/components/create-event/RoleSelectionStep";
 import { EventDetailsStep } from "@/components/create-event/EventDetailsStep";
@@ -197,8 +201,20 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
 
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
+  const [inviteConfirmOpen, setInviteConfirmOpen] = useState(false);
 
-  const onSubmit = async () => {
+  /**
+   * True when the form has at least one collaborator attached via a real
+   * profileId (existing on-platform profile picked from the search). Un-acquired
+   * placeholder profiles aren't counted because they're created later inside
+   * handleSubmit — at dialog time the corresponding profile id is still empty.
+   * Contact-only matches also aren't counted because they don't carry a profileId.
+   */
+  const hasAttachedCollaboratorProfiles = isMultiPerformer
+    ? performers.some(p => !!p.performerProfileId.trim())
+    : !!performerProfileId.trim();
+
+  const runSubmit = async (inviteCollaborators?: boolean) => {
     if (submittingRef.current) return;
     submittingRef.current = true;
     setSubmitting(true);
@@ -211,11 +227,28 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
         dealType, artistGuarantee, artistSplit, promoterSplit, venueSplit, artistCostSplit,
         parties, prefillData, onEventCreated,
         setOpen, resetForm,
+        inviteCollaborators,
       });
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
     }
+  };
+
+  const onSubmit = async () => {
+    // If at least one collaborator profile is attached, ask the user whether to
+    // invite them now (push to their dashboard) or save quietly and invite
+    // later. Otherwise skip the prompt entirely.
+    if (hasAttachedCollaboratorProfiles) {
+      setInviteConfirmOpen(true);
+      return;
+    }
+    await runSubmit();
+  };
+
+  const handleInviteChoice = async (invite: boolean) => {
+    setInviteConfirmOpen(false);
+    await runSubmit(invite);
   };
 
   const venueRequired = selectedRole === "venue" && !isMultiPerformer;
@@ -309,6 +342,26 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
           />
         )}
       </DialogContent>
+
+      {/* Invite-now confirmation: shown when collaborator profiles are attached. */}
+      <AlertDialog open={inviteConfirmOpen} onOpenChange={setInviteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Invite collaborators now?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This event has collaborators attached. Invite them now so they can see it on their dashboard, or save quietly as a draft and invite them later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => handleInviteChoice(false)} disabled={submitting}>
+              No, save quietly
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={() => handleInviteChoice(true)} disabled={submitting}>
+              Yes, invite now
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
