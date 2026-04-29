@@ -263,9 +263,12 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Edit Profile</h1>
-          <p className="mt-1 text-muted-foreground">
+          <div className="mt-1 flex items-center gap-2">
             <Badge variant="secondary" className="text-xs">{operatorRoleLabels[baseRole]}</Badge>
-          </p>
+            {profile.id && (
+              <span className="text-xs font-mono text-muted-foreground select-all">{profile.id}</span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-2 cursor-pointer">

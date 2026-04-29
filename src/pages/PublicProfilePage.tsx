@@ -195,6 +195,9 @@ export default function PublicProfilePage() {
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-3xl font-bold tracking-tight">{profile.name}</h1>
                 <Badge variant="secondary" className="text-xs">{operatorRoleLabels[role]}</Badge>
+                {profile.id && (
+                  <span className="text-xs font-mono text-muted-foreground select-all">{profile.id}</span>
+                )}
               </div>
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {profile.genres?.map(g => <Badge key={g} variant="outline" className="text-xs">{g}</Badge>)}
