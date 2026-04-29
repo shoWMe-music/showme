@@ -225,6 +225,9 @@ export default function PublicProfilePage() {
                   </a>
                 ))}
               </div>
+            </div>
+            {/* Header action row — booking CTAs sit next to the name/avatar, not below social links */}
+            <div className="pt-[5.5rem] shrink-0">
               {role === "venue" && (
                 <VenueRequestButtons operatorOwnerUid={profileOwnerUid} slug={slug!} />
               )}
@@ -377,7 +380,7 @@ function PerformerBookingButtons({ operatorOwnerUid, slug }: { operatorOwnerUid:
   const [requestOpen, setRequestOpen] = useState(false);
 
   return (
-    <div className="flex gap-2 mt-4">
+    <div className="flex gap-2">
       <Button onClick={() => setRequestOpen(true)} className="gap-1.5" disabled={!operatorOwnerUid}>
         <CalendarPlus className="h-4 w-4" /> Request Booking
       </Button>
@@ -397,7 +400,7 @@ function VenueRequestButtons({ operatorOwnerUid, slug }: { operatorOwnerUid: str
   const [requestOpen, setRequestOpen] = useState(false);
 
   return (
-    <div className="flex gap-2 mt-4">
+    <div className="flex gap-2">
       <Button onClick={() => setRequestOpen(true)} className="gap-1.5" disabled={!operatorOwnerUid}>
         <CalendarPlus className="h-4 w-4" /> Request a Date
       </Button>
