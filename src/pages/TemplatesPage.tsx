@@ -32,6 +32,7 @@ interface TemplateEntry {
   name: string;
   category: string;
   updatedAt?: string;
+  raw: Record<string, unknown>;
 }
 
 interface ProfileTemplates {
@@ -93,6 +94,7 @@ export default function TemplatesPage() {
                     name: pickName(r, id),
                     category: cat.key,
                     updatedAt: pickTimestamp(r),
+                    raw: r,
                   };
                 });
               } catch {
@@ -133,6 +135,7 @@ export default function TemplatesPage() {
   const [renameTarget, setRenameTarget] = useState<{ profileId: string; category: string; entry: TemplateEntry } | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<{ profileId: string; category: string; entry: TemplateEntry } | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<{ profile: SharedProfile; category: string; entry: TemplateEntry } | null>(null);
 
   const data = query.data ?? [];
   const totalAcross = data.reduce((acc, p) => acc + p.total, 0);
@@ -212,12 +215,16 @@ export default function TemplatesPage() {
                                 key={entry.id}
                                 className="flex items-center gap-2 rounded px-2 py-2 hover:bg-muted/40 group"
                               >
-                                <div className="flex-1 min-w-0">
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewTarget({ profile, category: cat.key, entry })}
+                                  className="flex-1 min-w-0 text-left rounded -mx-1 px-1 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                >
                                   <p className="text-sm font-medium truncate">{entry.name}</p>
                                   {entry.updatedAt && (
                                     <p className="text-xs text-muted-foreground">Updated {formatTimestamp(entry.updatedAt)}</p>
                                   )}
-                                </div>
+                                </button>
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -289,6 +296,41 @@ export default function TemplatesPage() {
               Save
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Preview dialog */}
+      <Dialog open={!!previewTarget} onOpenChange={(open) => !open && setPreviewTarget(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{previewTarget?.entry.name}</DialogTitle>
+          </DialogHeader>
+          {previewTarget && (() => {
+            const cat = CATEGORIES.find((c) => c.key === previewTarget.category);
+            const { id: _id, name: _name, created_at: _ca, createdAt: _cb, updated_at: _ua, updatedAt: _ub, ...rest } = previewTarget.entry.raw;
+            // Canonical SectionTemplateMenu shape stores the section payload under `data`;
+            // legacy helpers (deals/riders/terms/budgets) write fields at the top level.
+            const payload = "data" in rest && rest.data !== undefined ? rest.data : rest;
+            return (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">{cat?.label ?? previewTarget.category}</Badge>
+                    <span>{previewTarget.profile.name}</span>
+                  </div>
+                  {previewTarget.entry.updatedAt && (
+                    <span>Updated {formatTimestamp(previewTarget.entry.updatedAt)}</span>
+                  )}
+                </div>
+                <pre className="rounded-lg bg-muted/50 border p-4 text-xs overflow-auto max-h-[60vh] font-mono whitespace-pre-wrap">
+                  {JSON.stringify(payload, null, 2)}
+                </pre>
+                <p className="text-xs text-muted-foreground">
+                  To apply this template, open the {cat?.hint ?? "matching section"} on an event and use its Templates menu.
+                </p>
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
