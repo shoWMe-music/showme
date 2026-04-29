@@ -40,6 +40,7 @@ import {
 import { useEvents } from "@/lib/queries";
 import ContactCombobox from "@/components/ContactCombobox";
 import { EditableSection, FileUploadButton } from "./EditableSection";
+import { ScheduleTimeInput } from "./ScheduleTimeInput";
 import {
   formatCurrency, getCurrencySymbol,
   type Event as AppEvent, type EventStatus, type SettlementStatus, type DealType, type DealStructure, type TicketRevenue, type TicketType, type Rider,
@@ -738,35 +739,10 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                   <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => moveScheduleItem(i, "up")} disabled={i === 0}><ArrowUp className="h-3 w-3" /></Button>
                   <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => moveScheduleItem(i, "down")} disabled={i === editSchedule.length - 1}><ArrowDown className="h-3 w-3" /></Button>
                 </div>
-                <div className="flex items-center gap-1">
-                  <Input
-                    value={item.time ? item.time.split(":")[0] || "" : ""}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/\D/g, "").slice(0, 2);
-                      const mm = item.time ? item.time.split(":")[1] || "00" : "00";
-                      const s = [...editSchedule]; s[i] = {...s[i], time: `${val}:${mm}`}; setEditSchedule(s);
-                    }}
-                    onFocus={(e) => e.target.select()}
-                    placeholder="HH"
-                    className="w-14 text-center"
-                    maxLength={2}
-                    inputMode="numeric"
-                  />
-                  <span className="text-muted-foreground font-bold">:</span>
-                  <Input
-                    value={item.time ? item.time.split(":")[1] || "" : ""}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/\D/g, "").slice(0, 2);
-                      const hh = item.time ? item.time.split(":")[0] || "00" : "00";
-                      const s = [...editSchedule]; s[i] = {...s[i], time: `${hh}:${val}`}; setEditSchedule(s);
-                    }}
-                    onFocus={(e) => e.target.select()}
-                    placeholder="MM"
-                    className="w-14 text-center"
-                    maxLength={2}
-                    inputMode="numeric"
-                  />
-                </div>
+                <ScheduleTimeInput
+                  value={item.time || ""}
+                  onChange={(next) => { const s = [...editSchedule]; s[i] = {...s[i], time: next}; setEditSchedule(s); }}
+                />
                 <Input value={item.label} onChange={(e) => { const s = [...editSchedule]; s[i] = {...s[i], label: e.target.value}; setEditSchedule(s); }} placeholder="Activity" className="flex-1" />
                 <Input value={item.description || ""} onChange={(e) => { const s = [...editSchedule]; s[i] = {...s[i], description: e.target.value}; setEditSchedule(s); }} placeholder="Notes" className="flex-1" />
                 {venueRoomOptions.length > 1 && (
