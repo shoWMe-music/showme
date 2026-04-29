@@ -12,8 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Camera, MapPin, Music, Globe, Image, Video, Users, Plus, X, Save, ArrowLeft, Trash2, ExternalLink, FileText, FileUp, ChevronsUpDown, Check,
+  Camera, MapPin, Music, Globe, Image, Video, Users, Plus, X, Save, ArrowLeft, Trash2, ExternalLink, FileText, FileUp, ChevronsUpDown, Check, MoveVertical,
 } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -287,13 +288,54 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
         {/* Banner */}
         <div className="rounded-xl border bg-card shadow-sm">
           <div className="relative h-48 bg-gradient-to-r from-primary/20 to-primary/5 cursor-pointer group overflow-hidden rounded-t-xl" onClick={() => handleFile(bannerRef)}>
-            {data.bannerUrl ? <img src={data.bannerUrl} alt="Banner" className="w-full h-full object-cover" /> : (
+            {data.bannerUrl ? (
+              <img
+                src={data.bannerUrl}
+                alt="Banner"
+                className="w-full h-full object-cover"
+                style={{
+                  // bannerOffsetY field added on SharedProfile by Lane C; falls back to centered (50%)
+                  objectPosition: `center ${typeof (data as { bannerOffsetY?: number }).bannerOffsetY === "number" ? (data as { bannerOffsetY?: number }).bannerOffsetY : 50}%`,
+                }}
+              />
+            ) : (
               <div className="flex items-center justify-center h-full"><Camera className="h-10 w-10 text-muted-foreground group-hover:text-foreground transition-colors" /></div>
             )}
             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
               <span className="text-sm text-white opacity-0 group-hover:opacity-100 transition-opacity font-medium">Click to change banner</span>
             </div>
             <input ref={bannerRef} type="file" accept="image/*" className="hidden" onChange={handleBanner} />
+          </div>
+          {/* Banner controls: dimensions hint + Y-offset slider */}
+          <div className="px-6 pt-3 flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex items-center gap-2 shrink-0">
+              <Button variant="outline" size="sm" type="button" className="gap-1.5 text-xs" onClick={() => handleFile(bannerRef)} disabled={uploading}>
+                <Camera className="h-3.5 w-3.5" /> {data.bannerUrl ? "Change Banner" : "Upload Banner"}
+              </Button>
+              <span className="text-xs text-muted-foreground">Recommended: 1500×500</span>
+            </div>
+            {data.bannerUrl && (() => {
+              const offsetY = typeof (data as { bannerOffsetY?: number }).bannerOffsetY === "number"
+                ? (data as { bannerOffsetY?: number }).bannerOffsetY!
+                : 50;
+              return (
+                <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                  <MoveVertical className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <Label className="text-xs whitespace-nowrap shrink-0">Vertical position</Label>
+                  <Slider
+                    value={[offsetY]}
+                    onValueChange={([v]) => setData(p => ({ ...p, bannerOffsetY: v } as typeof p))}
+                    min={0}
+                    max={100}
+                    step={1}
+                    className="flex-1"
+                  />
+                  <span className="text-xs text-muted-foreground w-10 text-right tabular-nums">
+                    {offsetY}%
+                  </span>
+                </div>
+              );
+            })()}
           </div>
           <div className="p-6 flex items-center gap-6">
             <div className="shrink-0 -mt-16">

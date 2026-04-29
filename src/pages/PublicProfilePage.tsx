@@ -175,7 +175,15 @@ export default function PublicProfilePage() {
         {/* Banner */}
         <div className="relative h-64 bg-gradient-to-r from-primary/20 to-primary/5">
           {profile.bannerUrl ? (
-            <img src={profile.bannerUrl} alt="Banner" className="w-full h-full object-cover" />
+            <img
+              src={profile.bannerUrl}
+              alt="Banner"
+              className="w-full h-full object-cover"
+              style={{
+                // bannerOffsetY field added on SharedProfile by Lane C; falls back to centered (50%)
+                objectPosition: `center ${typeof (profile as { bannerOffsetY?: number }).bannerOffsetY === "number" ? (profile as { bannerOffsetY?: number }).bannerOffsetY : 50}%`,
+              }}
+            />
           ) : (
             <div className="h-full bg-gradient-to-br from-primary/10 via-primary/5 to-muted" />
           )}
