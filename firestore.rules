@@ -460,5 +460,19 @@ service cloud.firestore {
       allow create: if true;
       allow read, update: if isAuthed();
     }
+
+    // ── Audience RSVPs ────────────────────────────────────────────────────────
+    // Anonymous public-event viewers can submit. Reads stay closed until the
+    // Audience CRM page lands and gates them on event host/access.
+
+    match /audience_rsvps/{rsvpId} {
+      allow create: if
+        request.resource.data.keys().hasAll(['eventId', 'name', 'email', 'createdAt'])
+        && request.resource.data.eventId is string
+        && request.resource.data.eventId.size() > 0
+        && request.resource.data.name is string
+        && request.resource.data.email is string;
+      allow read, update, delete: if false;
+    }
   }
 }
