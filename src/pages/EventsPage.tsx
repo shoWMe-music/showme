@@ -1,7 +1,7 @@
 import React from "react";
 import AppLayout from "@/components/AppLayout";
 import { EventStatusBadge } from "@/components/StatusBadge";
-import { useUpdateEvent, useArchiveEvent, useDuplicateEvent } from "@/lib/queries/useEventMutations";
+import { useUpdateEvent, useArchiveEvent, useDuplicateEvent, useDeleteEvent } from "@/lib/queries/useEventMutations";
 import { usePaginatedEvents } from "@/lib/queries";
 import { useUser } from "@/lib/user-context";
 import { EventStatus } from "@/lib/models";
@@ -118,8 +118,10 @@ export default function EventsPage() {
   const updateEventMutation = useUpdateEvent();
   const archiveEventMutation = useArchiveEvent();
   const duplicateEventMutation = useDuplicateEvent();
+  const deleteEventMutation = useDeleteEvent();
   const updateEvent = (id: string, updates: Partial<(typeof allLoadedEvents)[0]>) => updateEventMutation.mutate({ id, updates });
   const archiveEvent = (id: string) => archiveEventMutation.mutate({ id });
+  const deleteEvent = (id: string) => deleteEventMutation.mutate({ id });
   const [duplicateEventId, setDuplicateEventId] = useState<string | null>(null);
   const togglePublish = usePublishEventToggle(updateEvent);
   const { canCreate, profiles } = useUser();
@@ -701,9 +703,7 @@ export default function EventsPage() {
             <AlertDialogAction
               onClick={() => {
                 if (!deleteDialog) return;
-                // No hard-delete helper available without touching db.ts (Lane C territory),
-                // so drafts are archived. They are immediately hidden from default views.
-                archiveEvent(deleteDialog.eventId);
+                deleteEvent(deleteDialog.eventId);
                 setDeleteDialog(null);
               }}
             >
