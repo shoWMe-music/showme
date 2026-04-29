@@ -23,13 +23,14 @@ import {
   fetchCrew, upsertCrewMember, deleteCrewMember,
   insertShareTokenRow, appendEventActivity, type EventMeta, type Todo,
 } from "@/lib/db";
+import { useChildEvents } from "@/lib/queries";
 import { getAuthClient } from "@/lib/firebaseAuth";
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
 import {
   Plus, Trash2, Users, Shield, Clock, CheckCircle2, PenLine,
-  Download, Share2, Copy, Edit2, Check, X, ListTodo,
+  Download, Share2, Copy, Edit2, Check, X, ListTodo, Music,
 } from "lucide-react";
 
 const CREW_PRESET_ROLES: Record<string, string[]> = {
@@ -340,6 +341,27 @@ th{background:#f5f5f5;font-weight:600}.meta{color:#666;font-size:13px;margin-bot
     [propCollaborators]
   );
 
+  // ── Multi-performer parent: surface child performers as read-only entries ──
+  // For events with isMultiPerformer === true, list each child performer at
+  // the top of the crew tab with role "Performer". These are read-only — the
+  // performer's profile/team is managed on the child event itself. Skip when
+  // viewing a child event (parentEventId set) since children only show their
+  // own crew.
+  const childEvents = useChildEvents(event.id);
+  const showPerformerHeader = !!event.isMultiPerformer && !event.parentEventId && childEvents.length > 0;
+  const childPerformers = useMemo(() => {
+    if (!showPerformerHeader) return [];
+    return childEvents
+      .filter(ce => (ce.artist || "").trim() || ce.performerProfileId)
+      .map(ce => ({
+        id: `child-${ce.id}`,
+        name: (ce.artist || "").trim() || "Performer",
+        role: "Performer",
+        profileId: ce.performerProfileId,
+        eventId: ce.id,
+      }));
+  }, [childEvents, showPerformerHeader]);
+
   const grouped = useMemo(() => {
     const map = new Map<string, CrewMember[]>();
     crew.forEach((m) => {
@@ -498,6 +520,43 @@ th{background:#f5f5f5;font-weight:600}.meta{color:#666;font-size:13px;margin-bot
               </Button>
             </div>
           </div>
+
+          {/* Performers (multi-performer parent only): read-only roster from child events */}
+          {childPerformers.length > 0 && (
+            <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+              <div className="px-5 py-3 bg-muted/30 border-b flex items-center justify-between">
+                <h4 className="text-sm font-semibold flex items-center gap-1.5">
+                  <Music className="h-3.5 w-3.5" />
+                  Performers
+                </h4>
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Managed on each performer's event
+                </span>
+              </div>
+              <div className="divide-y">
+                {childPerformers.map((p) => (
+                  <div key={p.id} className="flex items-center justify-between px-5 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold">
+                        {p.name.charAt(0)}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">{p.name}</p>
+                        <p className="text-xs text-muted-foreground">{p.role}</p>
+                      </div>
+                    </div>
+                    <Link
+                      to="/events/$id"
+                      params={{ id: p.eventId }}
+                      className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                    >
+                      Open performer event
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {crew.length === 0 ? (
             <div className="rounded-xl border bg-card p-12 text-center">
