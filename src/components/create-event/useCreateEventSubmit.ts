@@ -1,7 +1,7 @@
 import { format } from "date-fns";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
-import { upsertRider, fetchProfileOwnerUid, searchArtistProfiles } from "@/lib/db";
+import { upsertRider, fetchProfileOwnerUid, searchArtistProfiles, createUnacquiredProfile } from "@/lib/db";
 import { toast } from "@/hooks/use-toast";
 import { useUser, type OperatorRole } from "@/lib/user-context";
 import { isOwnProfileName, contactExists } from "@/lib/contacts";
@@ -156,14 +156,25 @@ export function useCreateEventSubmit() {
     if (isMultiPerformer && performers.length > 0) {
       const parentId = `EVT-${String(Date.now()).slice(-6)}`;
 
-      // Resolve all performer profiles — look up by name if not captured from dropdown
+      // Resolve all performer profiles — look up by name if not captured from
+      // dropdown. If still no match, create an un-acquired placeholder profile
+      // (C2) so the event has a profile-shaped target the performer can later
+      // claim when they sign up.
       const resolvedPerformers = await Promise.all(performers.map(async (perf) => {
         let next = perf;
-        if (!perf.performerProfileId && perf.artistName.trim()) {
+        const trimmedName = perf.artistName.trim();
+        if (!perf.performerProfileId && trimmedName) {
           try {
-            const { profiles: matches } = await searchArtistProfiles(perf.artistName.trim(), 1, null);
-            const exact = matches.find(p => p.name.toLowerCase() === perf.artistName.trim().toLowerCase());
-            if (exact) next = { ...perf, performerProfileId: exact.id };
+            const { profiles: matches } = await searchArtistProfiles(trimmedName, 1, null);
+            const exact = matches.find(p => p.name.toLowerCase() === trimmedName.toLowerCase());
+            if (exact) {
+              next = { ...perf, performerProfileId: exact.id };
+            } else {
+              try {
+                const placeholderId = await createUnacquiredProfile({ name: trimmedName, role: "performer" });
+                next = { ...perf, performerProfileId: placeholderId };
+              } catch { /* non-critical — event still saves with name only */ }
+            }
           } catch { /* non-critical */ }
         }
         // Guard: a performer profile must never equal the host profile ID.
@@ -264,13 +275,23 @@ export function useCreateEventSubmit() {
       const id = `EVT-${String(Date.now()).slice(-6)}`;
       ensureContact(artistName, "performer");
 
-      // Resolve performer profile — look up by name if not captured from the dropdown
+      // Resolve performer profile — look up by name if not captured from the
+      // dropdown. If still no match, create an un-acquired placeholder profile
+      // (C2) so the event has a profile-shaped target the performer can later
+      // claim when they sign up.
       let resolvedPerformerProfileId = performerProfileId;
-      if (!resolvedPerformerProfileId && artistName.trim()) {
+      const trimmedArtist = artistName.trim();
+      if (!resolvedPerformerProfileId && trimmedArtist) {
         try {
-          const { profiles: matches } = await searchArtistProfiles(artistName.trim(), 1, null);
-          const exact = matches.find(p => p.name.toLowerCase() === artistName.trim().toLowerCase());
-          if (exact) resolvedPerformerProfileId = exact.id;
+          const { profiles: matches } = await searchArtistProfiles(trimmedArtist, 1, null);
+          const exact = matches.find(p => p.name.toLowerCase() === trimmedArtist.toLowerCase());
+          if (exact) {
+            resolvedPerformerProfileId = exact.id;
+          } else {
+            try {
+              resolvedPerformerProfileId = await createUnacquiredProfile({ name: trimmedArtist, role: "performer" });
+            } catch { /* non-critical — event still saves with name only */ }
+          }
         } catch { /* non-critical */ }
       }
       // Guard: never let the performer profile ID equal the host profile ID.
