@@ -100,7 +100,7 @@ describe("ProfileAdminsTab", () => {
     expect(screen.getByRole("button", { name: /Delete/i })).toBeInTheDocument();
   });
 
-  it("calls deleteProfile + setProfiles when the user confirms deletion", async () => {
+  it("calls deleteProfile + setProfiles when the user confirms deletion (two-step)", async () => {
     const setProfiles = vi.fn();
     mockUseUser.mockReturnValue({
       profiles: {
@@ -113,16 +113,56 @@ describe("ProfileAdminsTab", () => {
 
     await waitFor(() => expect(screen.getByText("My Venue")).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: /Delete/i }));
+    // Stage 1: click Delete on the row
+    fireEvent.click(screen.getByRole("button", { name: /^Delete$/i }));
 
-    // Confirm in the alert dialog
-    const confirmBtn = await screen.findByRole("button", { name: /Delete Profile/i });
-    fireEvent.click(confirmBtn);
+    // Stage 1 dialog: data-loss warning
+    const warning = await screen.findByText(/all your data associated with it will be lost/i);
+    expect(warning).toBeInTheDocument();
+
+    // Click Continue to advance to stage 2
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+
+    // Stage 2 dialog: type-name confirmation, button disabled until match
+    const input = await screen.findByPlaceholderText("My Venue");
+    const finalBtn = screen.getByRole("button", { name: /Delete Profile/i });
+    expect(finalBtn).toBeDisabled();
+
+    // Wrong name: still disabled
+    fireEvent.change(input, { target: { value: "wrong" } });
+    expect(finalBtn).toBeDisabled();
+
+    // Correct name: enabled, then click confirms
+    fireEvent.change(input, { target: { value: "My Venue" } });
+    expect(finalBtn).not.toBeDisabled();
+    fireEvent.click(finalBtn);
 
     await waitFor(() => {
       expect(mockDeleteProfile).toHaveBeenCalledWith("venue-1");
     });
     expect(setProfiles).toHaveBeenCalled();
+  });
+
+  it("does NOT call deleteProfile if the user cancels at stage 1 of the two-step delete (Wave 5 B3)", async () => {
+    const setProfiles = vi.fn();
+    mockUseUser.mockReturnValue({
+      profiles: {
+        venue: makeProfile({ id: "venue-1", name: "My Venue", role: "venue" }),
+      },
+      setProfiles,
+    });
+
+    render(<ProfileAdminsTab />);
+
+    await waitFor(() => expect(screen.getByText("My Venue")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /^Delete$/i }));
+
+    // Stage 1: hit Cancel
+    const cancelBtn = await screen.findByRole("button", { name: /Cancel/i });
+    fireEvent.click(cancelBtn);
+
+    expect(mockDeleteProfile).not.toHaveBeenCalled();
+    expect(setProfiles).not.toHaveBeenCalled();
   });
 
   it("renders the phantom 'artist' slot with a Delete button (Bug 2)", async () => {

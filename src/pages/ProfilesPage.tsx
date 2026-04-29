@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -329,6 +329,9 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
   const baseRole = getBaseRole(role);
   const [copied, setCopied] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<{ name: string; url: string } | null>(null);
+  // Double-confirm flow: stage 1 = data-loss warning, stage 2 = type-name confirmation
+  const [deleteStage, setDeleteStage] = useState<1 | 2 | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const events = useEvents();
   const slug = profile.slug || generateSlug(profile.name, role);
   const publicUrl = `${window.location.origin}/p/${slug}`;
@@ -450,27 +453,14 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
                 <Edit2 className="h-3.5 w-3.5" /> Edit Profile
               </Button>
             </Link>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-1.5 text-xs text-destructive hover:text-destructive">
-                  <Trash2 className="h-3.5 w-3.5" /> Delete
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete profile "{profile.name}"?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will permanently remove this profile and its public page. This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => onDelete(profileKey)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                    Delete Profile
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs text-destructive hover:text-destructive"
+              onClick={() => { setDeleteStage(1); setDeleteConfirmName(""); }}
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Delete
+            </Button>
           </div>
         </div>
       </div>
@@ -643,6 +633,61 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
         fileName={previewDoc?.name}
         fileUrl={previewDoc?.url}
       />
+
+      {/* Stage 1: data-loss warning */}
+      <AlertDialog open={deleteStage === 1} onOpenChange={(o) => { if (!o) { setDeleteStage(null); setDeleteConfirmName(""); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete profile "{profile.name}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              By deleting your profile, all your data associated with it will be lost. This includes the public page, team members, and access for collaborators. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => { setDeleteStage(null); setDeleteConfirmName(""); }}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); setDeleteStage(2); }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Continue
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Stage 2: type-name confirmation */}
+      <Dialog open={deleteStage === 2} onOpenChange={(o) => { if (!o) { setDeleteStage(null); setDeleteConfirmName(""); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm deletion</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <p className="text-sm text-muted-foreground">
+              To confirm, type the profile name <span className="font-semibold text-foreground">{profile.name}</span> below.
+            </p>
+            <Input
+              value={deleteConfirmName}
+              onChange={(e) => setDeleteConfirmName(e.target.value)}
+              placeholder={profile.name}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setDeleteStage(null); setDeleteConfirmName(""); }}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={deleteConfirmName.trim() !== profile.name.trim()}
+              onClick={() => {
+                setDeleteStage(null);
+                setDeleteConfirmName("");
+                onDelete(profileKey);
+              }}
+            >
+              Delete Profile
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

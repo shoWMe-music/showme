@@ -70,6 +70,9 @@ export function ProfileAdminsTab() {
   const [inviteForm, setInviteForm] = useState<InviteForm>({ email: "", role: "admin" });
   const [inviting, setSaving] = useState(false);
   const [deletingProfileId, setDeletingProfileId] = useState<string | null>(null);
+  // Double-confirm flow: which profile slot is in stage-1 (warning) vs stage-2 (type-name) of deletion
+  const [deleteStage, setDeleteStage] = useState<{ slot: string; stage: 1 | 2 } | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
 
   const loadProfile = useCallback(async (profileId: string) => {
     setProfileState((p) => ({ ...p, [profileId]: { members: [], invites: [], loading: true } }));
@@ -203,30 +206,15 @@ export function ProfileAdminsTab() {
                     </Button>
                   </Link>
                 )}
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button size="sm" variant="outline" className="gap-1.5 text-destructive hover:text-destructive" disabled={deletingThis}>
-                      <Trash2 className="h-3.5 w-3.5" /> Delete
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete profile "{profile.name ?? slot}"?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        By deleting your profile, all your data associated with it will be lost. This includes the public page, team members, and access for collaborators. This action cannot be undone.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={() => handleDeleteProfile(slot, profile.id)}
-                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                      >
-                        Delete Profile
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 text-destructive hover:text-destructive"
+                  disabled={deletingThis}
+                  onClick={() => { setDeleteStage({ slot, stage: 1 }); setDeleteConfirmName(""); }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Delete
+                </Button>
               </div>
             </div>
 
@@ -331,6 +319,81 @@ export function ProfileAdminsTab() {
           </div>
         );
       })}
+
+      {/* Two-step Delete Confirmation */}
+      {deleteStage && (() => {
+        const targetSlot = deleteStage.slot;
+        const targetProfile = profiles[targetSlot];
+        const targetName = targetProfile?.name ?? targetSlot;
+        const targetId = targetProfile?.id;
+        const closeDialog = () => { setDeleteStage(null); setDeleteConfirmName(""); };
+        const confirmsMatch = deleteConfirmName.trim() === targetName.trim();
+        return (
+          <>
+            {/* Stage 1: warning */}
+            <AlertDialog
+              open={deleteStage.stage === 1}
+              onOpenChange={(o) => { if (!o) closeDialog(); }}
+            >
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete profile "{targetName}"?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    By deleting your profile, all your data associated with it will be lost. This includes the public page, team members, and access for collaborators. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel onClick={closeDialog}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setDeleteStage({ slot: targetSlot, stage: 2 });
+                    }}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Continue
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+            {/* Stage 2: type-name confirmation */}
+            <Dialog
+              open={deleteStage.stage === 2}
+              onOpenChange={(o) => { if (!o) closeDialog(); }}
+            >
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Confirm deletion</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3 py-1">
+                  <p className="text-sm text-muted-foreground">
+                    To confirm, type the profile name <span className="font-semibold text-foreground">{targetName}</span> below.
+                  </p>
+                  <Input
+                    value={deleteConfirmName}
+                    onChange={(e) => setDeleteConfirmName(e.target.value)}
+                    placeholder={targetName}
+                    autoFocus
+                  />
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={closeDialog}>Cancel</Button>
+                  <Button
+                    variant="destructive"
+                    disabled={!confirmsMatch}
+                    onClick={async () => {
+                      closeDialog();
+                      await handleDeleteProfile(targetSlot, targetId);
+                    }}
+                  >
+                    Delete Profile
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </>
+        );
+      })()}
 
       {/* Invite Dialog */}
       <Dialog open={!!inviteOpen} onOpenChange={(o) => { if (!o) setInviteOpen(null); }}>
