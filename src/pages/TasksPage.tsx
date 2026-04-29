@@ -80,6 +80,39 @@ const GROUP_BY_OPTIONS = [
 ] as const;
 type GroupBy = (typeof GROUP_BY_OPTIONS)[number]["value"];
 
+// ─── Pure helpers (exported for unit testing) ─────────────────────────────────
+
+/**
+ * Build the array of new todo objects from a Create-Task form submission.
+ * Multi-assignee creates one todo per assignee (single-assignee data shape
+ * is preserved). Empty assignees list creates one unassigned todo.
+ *
+ * Exported for unit tests covering the multi-people branch (A3).
+ */
+export function buildNewTodos(input: {
+  title: string;
+  assignees: string[];
+  dueDate?: string;
+  now?: number;
+}): Array<{ id: string; title: string; completed: boolean; reminders: never[]; createdAt: string; assignee?: string; dueDate?: string }> {
+  const trimmed = input.title.trim();
+  if (!trimmed) return [];
+  const t = input.now ?? Date.now();
+  const base = {
+    title: trimmed,
+    completed: false,
+    reminders: [] as never[],
+    createdAt: new Date(t).toISOString(),
+    ...(input.dueDate ? { dueDate: input.dueDate } : {}),
+  };
+  const targets = input.assignees.length > 0 ? input.assignees : [undefined];
+  return targets.map((name, i) => ({
+    ...base,
+    id: `todo-${t}-${i}`,
+    ...(name ? { assignee: name } : {}),
+  }));
+}
+
 // ─── Action item generation ───────────────────────────────────────────────────
 
 function buildActionItems(
@@ -369,9 +402,14 @@ export default function TasksPage() {
   const [page, setPage] = useState(1);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [newTaskAssignee, setNewTaskAssignee] = useState(currentUser.name);
+  // Default assignee = current account user. Allow assigning to multiple people.
+  const [newTaskAssignees, setNewTaskAssignees] = useState<string[]>(
+    currentUser.name ? [currentUser.name] : [],
+  );
   const [newTaskDueDate, setNewTaskDueDate] = useState("");
   const [newTaskEventId, setNewTaskEventId] = useState("");
+  const [assigneePickerOpen, setAssigneePickerOpen] = useState(false);
+  const [assigneeSearch, setAssigneeSearch] = useState("");
 
   const {
     data: paginatedData,
@@ -582,23 +620,24 @@ export default function TasksPage() {
     if (!newTaskTitle.trim() || !newTaskEventId) return;
     const meta = allEconomics[newTaskEventId]?.meta;
     const existingTodos = (meta?.todos as UserTodo[]) ?? [];
-    const newTodo = {
-      id: `todo-${Date.now()}`,
-      title: newTaskTitle.trim(),
-      completed: false,
-      reminders: [],
-      createdAt: new Date().toISOString(),
-      ...(newTaskAssignee ? { assignee: newTaskAssignee } : {}),
-      ...(newTaskDueDate ? { dueDate: newTaskDueDate } : {}),
-    };
-    updateAnyEventMeta(newTaskEventId, { todos: [...existingTodos, newTodo] });
+    const newTodos = buildNewTodos({
+      title: newTaskTitle,
+      assignees: newTaskAssignees,
+      dueDate: newTaskDueDate || undefined,
+    });
+    if (newTodos.length === 0) return;
+    updateAnyEventMeta(newTaskEventId, { todos: [...existingTodos, ...newTodos] });
     setNewTaskTitle("");
-    setNewTaskAssignee("");
+    setNewTaskAssignees(currentUser.name ? [currentUser.name] : []);
     setNewTaskDueDate("");
     setNewTaskEventId("");
+    setAssigneePickerOpen(false);
+    setAssigneeSearch("");
     setShowCreateForm(false);
-    sonnerToast.success("Task created");
-  }, [newTaskTitle, newTaskEventId, newTaskAssignee, newTaskDueDate, allEconomics, updateAnyEventMeta]);
+    sonnerToast.success(
+      newTodos.length > 1 ? `${newTodos.length} tasks created` : "Task created",
+    );
+  }, [newTaskTitle, newTaskEventId, newTaskAssignees, newTaskDueDate, allEconomics, updateAnyEventMeta, currentUser.name]);
 
   const overdueCt = allUserTodos.filter(t => !t.completed && !!t.dueDate && t.dueDate < today).length;
   const totalVisible = filteredActions.length + filteredTodos.length;
@@ -652,13 +691,97 @@ export default function TasksPage() {
                 </select>
               </div>
               <div>
-                <input
-                  type="text"
-                  placeholder="Assignee (optional)"
-                  value={newTaskAssignee}
-                  onChange={e => setNewTaskAssignee(e.target.value)}
-                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                />
+                <Popover open={assigneePickerOpen} onOpenChange={(o) => { setAssigneePickerOpen(o); if (!o) setAssigneeSearch(""); }}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={cn(
+                        "w-full rounded-lg border bg-background px-3 py-2 text-sm text-left flex items-center gap-2 hover:bg-muted/30 transition-colors",
+                        newTaskAssignees.length === 0 && "text-muted-foreground",
+                      )}
+                      data-testid="assignee-picker-trigger"
+                    >
+                      <User className="h-3.5 w-3.5 shrink-0" />
+                      <span className="flex-1 truncate">
+                        {newTaskAssignees.length === 0
+                          ? "Assignees (optional)"
+                          : newTaskAssignees.length === 1
+                            ? newTaskAssignees[0]
+                            : `${newTaskAssignees.length} assignees`}
+                      </span>
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-64 p-0" align="start">
+                    <div className="p-2 border-b">
+                      <input
+                        autoFocus
+                        value={assigneeSearch}
+                        onChange={e => setAssigneeSearch(e.target.value)}
+                        placeholder="Search members…"
+                        className="w-full rounded border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                    </div>
+                    <div className="max-h-56 overflow-y-auto py-1" data-testid="assignee-picker-options">
+                      {(() => {
+                        // Source pool: members for the chosen event, or all dedup'd team
+                        // members when no event is selected yet (so the picker is
+                        // never empty before the user picks an event).
+                        const pool = newTaskEventId
+                          ? membersForEvent(newTaskEventId)
+                          : (() => {
+                              const seen = new Set<string>();
+                              return teamMembers.filter(m => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
+                            })();
+                        const q = assigneeSearch.toLowerCase();
+                        const filteredMembers = q
+                          ? pool.filter(m => m.name.toLowerCase().includes(q))
+                          : pool;
+                        if (filteredMembers.length === 0) {
+                          return <p className="px-3 py-2 text-xs text-muted-foreground">No members found</p>;
+                        }
+                        return filteredMembers.map(m => {
+                          const checked = newTaskAssignees.includes(m.name);
+                          return (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() =>
+                                setNewTaskAssignees(prev =>
+                                  prev.includes(m.name)
+                                    ? prev.filter(n => n !== m.name)
+                                    : [...prev, m.name],
+                                )
+                              }
+                              className={cn(
+                                "w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted transition-colors text-left",
+                                checked && "bg-muted/60 font-medium",
+                              )}
+                              data-testid={`assignee-option-${m.id}`}
+                            >
+                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted-foreground/15 text-[10px] font-semibold">
+                                {m.name.trim().split(" ").map(p => p[0]).join("").slice(0, 2).toUpperCase()}
+                              </span>
+                              <span className="flex-1 truncate">{m.name}</span>
+                              {checked && <span className="text-primary text-xs">✓</span>}
+                            </button>
+                          );
+                        });
+                      })()}
+                    </div>
+                    {newTaskAssignees.length > 0 && (
+                      <div className="border-t p-1">
+                        <button
+                          type="button"
+                          onClick={() => setNewTaskAssignees([])}
+                          className="w-full px-3 py-1.5 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors text-left"
+                        >
+                          Clear assignees
+                        </button>
+                      </div>
+                    )}
+                  </PopoverContent>
+                </Popover>
               </div>
               <div>
                 <input
@@ -673,7 +796,15 @@ export default function TasksPage() {
               <Button size="sm" onClick={createTask} disabled={!newTaskTitle.trim() || !newTaskEventId}>
                 Create
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => { setShowCreateForm(false); setNewTaskTitle(""); setNewTaskAssignee(currentUser.name); setNewTaskDueDate(""); setNewTaskEventId(""); }}>
+              <Button size="sm" variant="ghost" onClick={() => {
+                setShowCreateForm(false);
+                setNewTaskTitle("");
+                setNewTaskAssignees(currentUser.name ? [currentUser.name] : []);
+                setNewTaskDueDate("");
+                setNewTaskEventId("");
+                setAssigneePickerOpen(false);
+                setAssigneeSearch("");
+              }}>
                 Cancel
               </Button>
             </div>
