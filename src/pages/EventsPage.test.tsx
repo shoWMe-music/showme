@@ -147,7 +147,7 @@ describe("EventsPage filter — drafts visibility", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────
-// A1: Operator column — name resolved via profiles map, falling back to event.operator
+// A1: Host column — name resolved via profiles map, falling back to event.operator
 // ────────────────────────────────────────────────────────────────────────────
 
 describe("resolveOperatorName (A1)", () => {

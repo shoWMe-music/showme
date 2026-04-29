@@ -129,9 +129,9 @@ export default function EventsPage() {
     .map(([, p]) => ({ id: p.id!, name: p.name, role: p.role }));
   const allProfileIds = profileOptions.map((p) => p.id);
 
-  // Resolve the operator/host name for a given event using the user's profile map
+  // Resolve the host name for a given event using the user's profile map
   // (falls back to event.operator which is always populated for active events).
-  const operatorNameForEvent = (e: { hostProfileId?: string; operator?: string }): string =>
+  const hostNameForEvent = (e: { hostProfileId?: string; operator?: string }): string =>
     resolveOperatorName(e, profiles);
 
   // Reset to first page whenever filters change.
@@ -275,7 +275,7 @@ export default function EventsPage() {
                   <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Event</th>
                   <SortableTh label="Performer" sortKey="performer" currentKey={sortKey} dir={sortDir} onSort={toggleSort} />
                   <SortableTh label="Venue" sortKey="venue" currentKey={sortKey} dir={sortDir} onSort={toggleSort} />
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Operator</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Host</th>
                   <SortableTh label="Date" sortKey="date" currentKey={sortKey} dir={sortDir} onSort={toggleSort} />
                   <SortableTh label="Status" sortKey="status" currentKey={sortKey} dir={sortDir} onSort={toggleSort} />
                   <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Actions</th>
@@ -359,8 +359,8 @@ export default function EventsPage() {
                         </td>
                         <td className="px-6 py-4 text-sm text-muted-foreground"><ProfilePreviewPopover name={event.venue} /></td>
                         <td className="px-6 py-4 text-sm text-muted-foreground" data-testid="operator-cell">
-                          {operatorNameForEvent(event)
-                            ? <ProfilePreviewPopover name={operatorNameForEvent(event)} profileId={event.hostProfileId} />
+                          {hostNameForEvent(event)
+                            ? <ProfilePreviewPopover name={hostNameForEvent(event)} profileId={event.hostProfileId} />
                             : <span className="text-muted-foreground/50">—</span>}
                         </td>
                         <td className="px-6 py-4 text-sm text-muted-foreground">
@@ -481,8 +481,8 @@ export default function EventsPage() {
                           </td>
                           <td className="px-6 py-3 text-sm text-muted-foreground"><ProfilePreviewPopover name={child.venue} /></td>
                           <td className="px-6 py-3 text-sm text-muted-foreground">
-                            {operatorNameForEvent(child)
-                              ? <ProfilePreviewPopover name={operatorNameForEvent(child)} profileId={child.hostProfileId} />
+                            {hostNameForEvent(child)
+                              ? <ProfilePreviewPopover name={hostNameForEvent(child)} profileId={child.hostProfileId} />
                               : <span className="text-muted-foreground/50">—</span>}
                           </td>
                           <td className="px-6 py-3 text-sm text-muted-foreground">
