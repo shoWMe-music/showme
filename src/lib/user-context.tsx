@@ -31,6 +31,23 @@ export interface SubVenue {
   standingNotes?: string;
 }
 
+/**
+ * A named capacity setup for a venue profile (e.g. "All Standing", "Seated Banquet").
+ * One setup may be marked `isMain` — that one surfaces as the headline capacity
+ * shown elsewhere in the app (event creation defaults, public profile, etc.).
+ *
+ * Coordinated shape between the venue profile editor (Lane B) and event-manager
+ * capacity-defaulting (Lane C). Do not rename fields without updating both.
+ */
+export interface VenueCapacitySetup {
+  id: string;
+  name: string;
+  capacityStanding?: number;
+  capacitySitting?: number;
+  isMain?: boolean;
+  notes?: string;
+}
+
 export interface ProfileDocument {
   id: string;
   name: string;
@@ -101,10 +118,23 @@ export interface SharedProfile {
   updatedAt?: string;
   created: boolean;
   subVenues?: SubVenue[];
+  /**
+   * Venue-only: customizable capacity setups (e.g. "All Standing", "Seated Banquet").
+   * The setup flagged `isMain` is the headline capacity defaulted into new events.
+   */
+  venueCapacitySetups?: VenueCapacitySetup[];
   documents?: ProfileDocument[];
   performanceBonuses?: { ticketThreshold: number; bonusAmount: number; bonusType: "flat" | "percent" }[];
   cateringNotes?: string;
   accommodationNotes?: string;
+  /**
+   * Whether this profile has been claimed by an account.
+   * `true` (or undefined) → claimed; `false` → un-acquired placeholder created
+   * by an organizer to attach a not-yet-on-platform performer/venue to an event.
+   * Un-acquired profiles get claimed when the represented party signs up and
+   * accepts the invite to take ownership.
+   */
+  acquired?: boolean;
 }
 
 export interface WorkspaceUser {
