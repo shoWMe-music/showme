@@ -134,11 +134,14 @@ describe("EventsPage filter — drafts visibility", () => {
   });
 
   it("db.ts isDraftVisibleToUser allows drafts the creator should see", () => {
+    const UID = "uid-mine";
     // user creates draft, host profile is theirs
-    expect(isDraftVisibleToUser({ eventStatus: "draft", hostProfileId: "PRF-mine" }, ["PRF-mine"])).toBe(true);
+    expect(isDraftVisibleToUser({ eventStatus: "draft", hostProfileId: "PRF-mine" }, UID, ["PRF-mine"])).toBe(true);
     // draft without hostProfileId still visible (Firestore where-clause already gates by accessUids)
-    expect(isDraftVisibleToUser({ eventStatus: "draft", hostProfileId: undefined }, ["PRF-mine"])).toBe(true);
+    expect(isDraftVisibleToUser({ eventStatus: "draft", hostProfileId: undefined }, UID, ["PRF-mine"])).toBe(true);
     // non-draft events always visible
-    expect(isDraftVisibleToUser({ eventStatus: "confirmed", hostProfileId: "PRF-other" }, ["PRF-mine"])).toBe(true);
+    expect(isDraftVisibleToUser({ eventStatus: "confirmed", hostProfileId: "PRF-other" }, UID, ["PRF-mine"])).toBe(true);
+    // race-protection: draft visible when uid in accessUids even if profileIds is empty
+    expect(isDraftVisibleToUser({ eventStatus: "draft", hostProfileId: "PRF-mine", accessUids: [UID] }, UID, [])).toBe(true);
   });
 });

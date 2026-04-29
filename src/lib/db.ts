@@ -935,21 +935,23 @@ export async function fetchEvents(profileIds?: string[]): Promise<Event[]> {
     }
   }
 
-  return Array.from(byId.values()).filter(e => isDraftVisibleToUser(e, profileIds));
+  return Array.from(byId.values()).filter(e => isDraftVisibleToUser(e, uid, profileIds));
 }
 
 /**
  * Determines whether a draft event should be visible to the current user.
- * Non-draft events always pass. Drafts without a hostProfileId pass (the
- * Firestore where-clause already restricts to docs the user has direct access
- * to via accessUids). Drafts with a hostProfileId only pass if the user owns
- * that profile.
+ * Non-draft events always pass. Drafts pass if the user has direct uid access
+ * (accessUids contains uid or owner_uid matches), or if they own the host
+ * profile via profileIds. The direct-uid check guards against a load-order race
+ * where the events query fires before profiles are hydrated into context.
  */
 export function isDraftVisibleToUser(
-  e: Pick<Event, "eventStatus" | "hostProfileId">,
+  e: Pick<Event, "eventStatus" | "hostProfileId" | "accessUids" | "owner_uid">,
+  uid: string | undefined,
   profileIds?: string[],
 ): boolean {
   if (e.eventStatus !== "draft") return true;
+  if (uid && (e.accessUids?.includes(uid) || e.owner_uid === uid)) return true;
   if (!e.hostProfileId) return true;
   const myPids = new Set(profileIds || []);
   return myPids.has(e.hostProfileId);
@@ -1040,7 +1042,7 @@ export async function fetchEventPage(
 
     const events = docs
       .map((d) => eventRowToEvent({ id: d.id, ...d.data() }))
-      .filter(e => isDraftVisibleToUser(e, profileIds));
+      .filter(e => isDraftVisibleToUser(e, uid, profileIds));
 
     return {
       events,
