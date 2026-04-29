@@ -5,6 +5,7 @@ import { ArrowLeft, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import StatusBadge from "@/components/StatusBadge";
 import { useUser } from "@/lib/user-context";
+import { resolveActingProfileName } from "@/lib/eventPermissions";
 import {
   calculateSettlement, SettlementStatus,
   type Event as AppEvent, type DealStructure, type TicketRevenue, type Settlement, type PartyBreakdown,
@@ -30,7 +31,8 @@ export function SettlementWorkspace({ event, deal, revenue, settlement, initialT
   viewerIsPerformer?: boolean;
   onBack?: () => void;
 }) {
-  const { currentUser: settingsUser } = useUser();
+  const { currentUser: settingsUser, profiles } = useUser();
+  const actingProfile = resolveActingProfileName(event, profiles);
   const [currency, setCurrency] = useState(settingsUser.currency || "EUR");
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(
     () => (initialTab as WorkspaceTab) || "overview"
@@ -157,7 +159,7 @@ export function SettlementWorkspace({ event, deal, revenue, settlement, initialT
         {activeTab === "overview" && (
           <OverviewTab event={event} deal={deal} revenue={revenue} settlement={settlement} buildPayoutRows={buildPayoutRows} settlementTotal={settlementTotal} currency={currency} partyBreakdowns={partyBreakdowns} totalRevenue={totalRevenue} totalDeductions={totalDeductions} netRevenue={netRevenue} partyNames={partyNames} viewerIsPerformer={viewerIsPerformer} />
         )}
-        {activeTab === "deal" && deal && <DealTab deal={deal} currency={currency} />}
+        {activeTab === "deal" && deal && <DealTab event={event} deal={deal} currency={currency} actingProfile={actingProfile} />}
         {activeTab === "financials" && revenue && <FinancialsTab event={event} revenue={revenue} deal={deal} updateRevenue={updateRevenue} currency={currency} />}
         {activeTab === "settlement" && (
           <SettlementTab event={event} deal={deal} revenue={revenue} settlement={settlement} buildPayoutRows={buildPayoutRows} settlementTotal={settlementTotal} updateSettlementStatus={updateSettlementStatus} addComment={addComment} generateShareLink={generateShareLink} currentUser={currentUser} currency={currency} updateRevenue={updateRevenue} partyBreakdowns={partyBreakdowns} totalRevenue={totalRevenue} totalDeductions={totalDeductions} netRevenue={netRevenue} partyNames={partyNames} viewerIsPerformer={viewerIsPerformer} />
