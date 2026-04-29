@@ -1,3 +1,4 @@
+import React from "react";
 import AppLayout from "@/components/AppLayout";
 import { EventStatusBadge } from "@/components/StatusBadge";
 import { useUpdateEvent, useArchiveEvent } from "@/lib/queries/useEventMutations";
@@ -9,6 +10,7 @@ import InviteCollaboratorDialog from "@/components/InviteCollaboratorDialog";
 import ExportEventDialog from "@/components/ExportEventDialog";
 import { Link } from "@tanstack/react-router";
 import { Search, Globe, EyeOff, CreditCard, UserPlus, Printer, Trash2, ArchiveRestore, Users, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, ArrowUpDown, Loader2 } from "lucide-react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -60,6 +62,7 @@ export default function EventsPage() {
   const [inviteEventId, setInviteEventId] = useState<string | null>(null);
   const [printEventId, setPrintEventId] = useState<string | null>(null);
   const [archiveEventId, setArchiveEventId] = useState<string | null>(null);
+  const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
 
   // Map UI sort key to Firestore field; status sort stays client-side
   const serverSortField = sortKey === "performer" ? "artist" : sortKey === "status" ? "date" : sortKey;
@@ -104,6 +107,13 @@ export default function EventsPage() {
 
   // Reset to first page whenever filters change.
   useEffect(() => { setPage(1); }, [debouncedSearch, statusFilter, profileFilter, sortKey, sortDir]);
+
+  // Auto-fetch all remaining pages when search is active so client-side filtering is comprehensive
+  useEffect(() => {
+    if (debouncedSearch && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [debouncedSearch, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const filtered = allLoadedEvents.filter((e) => {
     if (statusFilter === "archived") return !!e.archived;
@@ -264,18 +274,42 @@ export default function EventsPage() {
                   ))
                 ) : (
                   <>
-                    {paginated.map((event) => {
+                    {paginated
+                      .filter((event) => {
+                        // Skip child events whose parent is also visible in this page
+                        if (!event.parentEventId) return true;
+                        return !paginated.some(e => e.id === event.parentEventId);
+                      })
+                      .map((event) => {
                       const isChildEvent = !!event.parentEventId;
                       const parentName = isChildEvent
                         ? allLoadedEvents.find(e => e.id === event.parentEventId)?.name
                         : undefined;
+                      const isExpanded = expandedParents.has(event.id);
+                      const childEvents = event.isMultiPerformer
+                        ? allLoadedEvents.filter(e => e.parentEventId === event.id)
+                        : [];
+                      const toggleExpand = () => {
+                        setExpandedParents(prev => {
+                          const next = new Set(prev);
+                          if (next.has(event.id)) next.delete(event.id);
+                          else next.add(event.id);
+                          return next;
+                        });
+                      };
                       return (
-                      <tr key={event.id} className={`transition-colors hover:bg-muted/30 ${event.isMultiPerformer ? "border-l-4 border-l-primary/40 bg-primary/[0.02]" : ""} ${isChildEvent ? "border-l-4 border-l-primary/20 bg-muted/10" : ""}`}>
+                      <React.Fragment key={event.id}>
+                      <tr className={`transition-colors hover:bg-muted/30 ${event.isMultiPerformer ? "border-l-4 border-l-primary/40 bg-primary/[0.02]" : ""} ${isChildEvent ? "border-l-4 border-l-primary/20 bg-muted/10" : ""}`}>
                         <td className="px-6 py-4">
                           {isChildEvent && parentName && (
                             <p className="text-[10px] text-muted-foreground/70 font-medium mb-0.5 pl-2">{parentName}</p>
                           )}
                           <Link to="/events/$id" params={{ id: event.id }} className={`font-medium hover:text-primary transition-colors flex items-center gap-2 ${isChildEvent ? "pl-2" : ""}`}>
+                            {event.isMultiPerformer && childEvents.length > 0 && (
+                              <button type="button" onClick={(e) => { e.preventDefault(); toggleExpand(); }} className="shrink-0 p-0.5 rounded hover:bg-muted transition-colors">
+                                <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                              </button>
+                            )}
                             {event.name}
                             {event.isMultiPerformer && (
                               <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
@@ -286,16 +320,11 @@ export default function EventsPage() {
                           <p className={`text-xs text-muted-foreground ${isChildEvent ? "pl-2" : ""}`}>{event.id}</p>
                         </td>
                         <td className="px-6 py-4 text-sm">
-                          <ProfilePreviewPopover name={event.artist} />
-                          {event.isMultiPerformer && (() => {
-                            const childNames = allLoadedEvents
-                              .filter(e => e.parentEventId === event.id)
-                              .map(e => e.artist)
-                              .filter(Boolean);
-                            return childNames.length > 0 ? (
-                              <p className="text-xs text-muted-foreground mt-0.5">{childNames.join(", ")}</p>
-                            ) : null;
-                          })()}
+                          {event.isMultiPerformer && childEvents.length > 0 ? (
+                            <MultiPerformerAvatars childEvents={childEvents} />
+                          ) : (
+                            <ProfilePreviewPopover name={event.artist} profileId={event.performerProfileId} />
+                          )}
                         </td>
                         <td className="px-6 py-4 text-sm text-muted-foreground"><ProfilePreviewPopover name={event.venue} /></td>
                         <td className="px-6 py-4 text-sm text-muted-foreground">
@@ -361,7 +390,7 @@ export default function EventsPage() {
                                 </TooltipTrigger>
                                 <TooltipContent>Restore Event</TooltipContent>
                               </Tooltip>
-                            ) : (event.eventStatus === "concluded" || event.eventStatus === "cancelled") && (
+                            ) : (
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setArchiveEventId(event.id)}>
@@ -374,6 +403,34 @@ export default function EventsPage() {
                           </div>
                         </td>
                       </tr>
+                      {event.isMultiPerformer && isExpanded && childEvents.map((child) => (
+                        <tr key={child.id} className="transition-colors hover:bg-muted/30 border-l-4 border-l-primary/20 bg-muted/10">
+                          <td className="px-6 py-3 pl-12">
+                            <Link to="/events/$id" params={{ id: child.id }} className="font-medium text-sm hover:text-primary transition-colors">
+                              {child.artist || child.name}
+                            </Link>
+                            <p className="text-xs text-muted-foreground">{child.id}</p>
+                          </td>
+                          <td className="px-6 py-3 text-sm">
+                            <ProfilePreviewPopover name={child.artist} />
+                          </td>
+                          <td className="px-6 py-3 text-sm text-muted-foreground"><ProfilePreviewPopover name={child.venue} /></td>
+                          <td className="px-6 py-3 text-sm text-muted-foreground">
+                            <Link to="/calendar" search={{ date: child.date }} className="hover:underline hover:text-foreground cursor-pointer transition-colors">
+                              {child.date}
+                            </Link>
+                          </td>
+                          <td className="px-6 py-3"><EventStatusBadge status={child.eventStatus} /></td>
+                          <td className="px-6 py-3">
+                            <div className="flex items-center justify-end">
+                              <Button variant="ghost" size="sm" className="h-7 text-xs" asChild>
+                                <Link to="/events/$id" params={{ id: child.id }}>View</Link>
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      </React.Fragment>
                       );
                     })}
                     {sorted.length === 0 && (
@@ -457,6 +514,36 @@ export default function EventsPage() {
         </AlertDialogContent>
       </AlertDialog>
     </AppLayout>
+  );
+}
+
+export function MultiPerformerAvatars({ childEvents }: { childEvents: { id: string; artist: string; performerProfileId?: string }[] }) {
+  const visible = childEvents.slice(0, 3);
+  const overflow = childEvents.length - visible.length;
+  const initials = (name: string) =>
+    name.split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase() ?? "").join("");
+  return (
+    <div data-testid="multi-performer-avatars" className="flex items-center gap-2">
+      <div className="flex -space-x-2">
+        {visible.map((c) => (
+          <Avatar key={c.id} className="h-6 w-6 ring-2 ring-background" data-testid="performer-avatar">
+            <AvatarFallback className="text-[10px] bg-muted text-muted-foreground font-medium">
+              {initials(c.artist || "?")}
+            </AvatarFallback>
+          </Avatar>
+        ))}
+        {overflow > 0 && (
+          <Avatar className="h-6 w-6 ring-2 ring-background">
+            <AvatarFallback className="text-[10px] bg-muted text-muted-foreground font-medium">
+              +{overflow}
+            </AvatarFallback>
+          </Avatar>
+        )}
+      </div>
+      <span className="text-xs text-muted-foreground truncate max-w-[180px]">
+        {childEvents.map(c => c.artist).filter(Boolean).join(", ")}
+      </span>
+    </div>
   );
 }
 
