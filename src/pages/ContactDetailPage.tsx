@@ -4,6 +4,8 @@ import AppLayout from "@/components/AppLayout";
 import CreateContactDialog from "@/components/CreateContactDialog";
 import StatusBadge from "@/components/StatusBadge";
 import { useContact, useEvents, useUpdateContact, useDeleteContact, useAllEventEconomics, useEventsLoaded, useContactsLoaded } from "@/lib/queries";
+import { useMyInvitationCodes } from "@/lib/queries/useInvitationCodes";
+import type { InvitationCode } from "@/lib/db";
 import { Contact, contactTypeLabels, formatCurrency } from "@/lib/models";
 import { contactTypeList } from "@/lib/contacts";
 import { Button } from "@/components/ui/button";
@@ -34,6 +36,20 @@ export default function ContactDetailPage() {
   const dataLoaded = useEventsLoaded() && useContactsLoaded();
   const contact = useContact(id || "");
   const events = useEvents();
+  const { data: invitationCodes } = useMyInvitationCodes();
+
+  // Find the invitation code (if any) tied to this contact, by recipient name
+  // or email match. Used to surface the invite section in the edit dialog.
+  const matchingInvite = useMemo((): { code: string; status: InvitationCode["status"] } | null => {
+    if (!contact || !invitationCodes) return null;
+    const contactName = contact.name.trim().toLowerCase();
+    for (const code of invitationCodes) {
+      const nameMatch = code.recipientName && contactName === code.recipientName.trim().toLowerCase();
+      const emailMatch = code.recipientEmail && contact.contacts.some(c => c.email.trim().toLowerCase() === code.recipientEmail!.trim().toLowerCase());
+      if (nameMatch || emailMatch) return { code: code.code, status: code.status };
+    }
+    return null;
+  }, [contact, invitationCodes]);
 
   const linkedEvents = useMemo(() => {
     if (!contact) return [];
@@ -288,6 +304,7 @@ export default function ContactDetailPage() {
         onOpenChange={setEditOpen}
         onSave={handleSave}
         editingContact={contact}
+        invitation={matchingInvite}
       />
     </AppLayout>
   );

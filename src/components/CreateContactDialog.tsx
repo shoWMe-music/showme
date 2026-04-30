@@ -1,12 +1,18 @@
 import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Trash2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Plus, Trash2, Copy, Check, Ban, Handshake } from "lucide-react";
 import { Contact, ContactType, ContactPerson, contactTypeLabels } from "@/lib/models";
 import { contactTypeList } from "@/lib/contacts";
+import { useRevokeInvitationCode } from "@/lib/queries/useInvitationCodes";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
 
 const presetTypes: ContactType[] = ["promoter", "venue", "performer", "ticketing", "agent", "manager", "production"];
@@ -18,11 +24,19 @@ interface CreateContactDialogProps {
   editingContact?: Contact | null;
   /** All unique custom types from existing contacts (non-preset). */
   customTypes?: string[];
+  /**
+   * The invitation code+status linked to this contact (if any). Surfaced as
+   * a small section in the dialog so the user can copy or revoke the invite
+   * without leaving the contact card. Populated by the parent page from
+   * `useMyInvitationCodes` until db.ts read paths surface
+   * `Contact.invitationStatus` directly.
+   */
+  invitation?: { code: string; status: "active" | "used" | "accepted" | "revoked" } | null;
 }
 
 const emptyContact: ContactPerson = { name: "", email: "", phone: "" };
 
-export default function CreateContactDialog({ open, onOpenChange, onSave, editingContact, customTypes = [] }: CreateContactDialogProps) {
+export default function CreateContactDialog({ open, onOpenChange, onSave, editingContact, customTypes = [], invitation }: CreateContactDialogProps) {
   const [name, setName] = useState("");
   const [types, setTypes] = useState<ContactType[]>(["promoter"]);
   const [customTypeInput, setCustomTypeInput] = useState("");
@@ -32,6 +46,47 @@ export default function CreateContactDialog({ open, onOpenChange, onSave, editin
   const [vatId, setVatId] = useState("");
   const [address, setAddress] = useState("");
   const [notes, setNotes] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [revokeConfirmOpen, setRevokeConfirmOpen] = useState(false);
+  const revokeInvitationMutation = useRevokeInvitationCode();
+
+  const handleCopyInvite = () => {
+    if (!invitation?.code) return;
+    navigator.clipboard.writeText(invitation.code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleRevokeInvite = () => {
+    if (!invitation?.code) return;
+    revokeInvitationMutation.mutate(invitation.code);
+    setRevokeConfirmOpen(false);
+  };
+
+  const inviteStatusBadge = (() => {
+    if (!invitation) return null;
+    switch (invitation.status) {
+      case "active":
+        return (
+          <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
+            Pending
+          </Badge>
+        );
+      case "used":
+      case "accepted":
+        return (
+          <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
+            Accepted
+          </Badge>
+        );
+      case "revoked":
+        return (
+          <Badge variant="outline" className="border-muted-foreground/30 bg-muted text-muted-foreground">
+            Revoked
+          </Badge>
+        );
+    }
+  })();
 
   const toggleType = (t: ContactType) => {
     setTypes(prev => prev.includes(t) ? (prev.length > 1 ? prev.filter(x => x !== t) : prev) : [...prev, t]);
@@ -89,6 +144,46 @@ export default function CreateContactDialog({ open, onOpenChange, onSave, editin
         </DialogHeader>
 
         <div className="grid gap-4 py-2">
+          {/* Invitation surface — only shown when this contact has an attached invite */}
+          {invitation && (
+            <div className="rounded-md border bg-muted/30 px-4 py-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Handshake className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Invitation</span>
+                {inviteStatusBadge}
+              </div>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 font-mono text-xs bg-background px-2 py-1.5 rounded border">
+                  {invitation.code}
+                </code>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyInvite}
+                  title="Copy invitation code"
+                >
+                  {copied
+                    ? <><Check className="h-3.5 w-3.5 mr-1 text-emerald-600" /> Copied</>
+                    : <><Copy className="h-3.5 w-3.5 mr-1" /> Copy</>}
+                </Button>
+                {invitation.status === "active" && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive border-destructive/40 hover:bg-destructive/10"
+                    onClick={() => setRevokeConfirmOpen(true)}
+                    disabled={revokeInvitationMutation.isPending}
+                    title="Revoke invitation"
+                  >
+                    <Ban className="h-3.5 w-3.5 mr-1" /> Revoke
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Name */}
           <div className="space-y-2">
             <Label>Name</Label>
@@ -209,6 +304,27 @@ export default function CreateContactDialog({ open, onOpenChange, onSave, editin
             {editingContact ? "Save Changes" : "Add Contact"}
           </Button>
         </DialogFooter>
+
+        {/* Revoke invitation confirmation */}
+        <AlertDialog open={revokeConfirmOpen} onOpenChange={setRevokeConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Revoke this invitation?</AlertDialogTitle>
+              <AlertDialogDescription>
+                The recipient will no longer be able to use this code to join. This action cannot be undone, but you can always send a new invitation.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={handleRevokeInvite}
+              >
+                Revoke
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );

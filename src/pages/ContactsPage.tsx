@@ -9,6 +9,7 @@ import type { InvitationCode } from "@/lib/db";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Contact, ContactType, contactTypeLabels } from "@/lib/models";
 import { contactHasType, contactPrimaryType, contactTypeList, groupContactsByType, partitionImportedByOwnProfile, isOwnProfileName } from "@/lib/contacts";
+import { planInviteContactBackfill, isActiveCollaboratorStatus } from "@/lib/contacts/inviteContactSync";
 import { useUser } from "@/lib/user-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -158,11 +159,13 @@ export default function ContactsPage() {
     return Array.from(custom).sort();
   }, [allLoadedContacts]);
 
-  // Build a set of collaborator contact names/emails for the "Active Collaborators" filter
+  // Build a set of collaborator contact names/emails for the "Active Collaborators" filter.
+  // Active = active | used | accepted (excludes revoked).
   const collaboratorNames = useMemo(() => {
     if (!invitationCodes) return new Set<string>();
     const names = new Set<string>();
     for (const code of invitationCodes) {
+      if (!isActiveCollaboratorStatus(code.status)) continue;
       if (code.recipientName) names.add(code.recipientName.trim().toLowerCase());
       if (code.recipientEmail) names.add(code.recipientEmail.trim().toLowerCase());
     }
@@ -179,9 +182,17 @@ export default function ContactsPage() {
     for (const code of invitationCodes) {
       const nameMatch = code.recipientName && contact.name.trim().toLowerCase() === code.recipientName.trim().toLowerCase();
       const emailMatch = code.recipientEmail && contact.contacts.some(c => c.email.trim().toLowerCase() === code.recipientEmail!.trim().toLowerCase());
-      if (nameMatch || emailMatch) return (code.status === "used" || code.status === "active") ? code : null;
+      if (nameMatch || emailMatch) return code;
     }
     return null;
+  };
+
+  // Reduce a matched invite to the slim shape consumed by CreateContactDialog.
+  const getInviteForDialog = (contact: Contact | null): { code: string; status: InvitationCode["status"] } | null => {
+    if (!contact) return null;
+    const match = getMatchingInvite(contact);
+    if (!match) return null;
+    return { code: match.code, status: match.status };
   };
 
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
@@ -194,6 +205,27 @@ export default function ContactsPage() {
 
   // Reset pagination cursor whenever filters change
   useEffect(() => { setPage(1); }, [search, filterType]);
+
+  // One-time backfill: for any pre-Wave-7 invitation code that doesn't have a
+  // linkedContactId yet, create a Contact card so the invite shows up in the
+  // contacts list. Idempotent — skips codes whose recipient email already
+  // matches an existing contact. Gated to a single run per page mount.
+  const [backfillRan, setBackfillRan] = useState(false);
+  useEffect(() => {
+    if (backfillRan) return;
+    if (!contactsLoaded) return;
+    if (!invitationCodes) return;
+    if (hasNextPage) return; // wait until all contacts are loaded to avoid duplicate creation
+    const plans = planInviteContactBackfill(invitationCodes, allLoadedContacts);
+    if (plans.length === 0) {
+      setBackfillRan(true);
+      return;
+    }
+    for (const plan of plans) {
+      addContactMutation.mutate({ contact: plan.contact });
+    }
+    setBackfillRan(true);
+  }, [backfillRan, contactsLoaded, invitationCodes, hasNextPage, allLoadedContacts, addContactMutation]);
 
   const duplicates = useMemo(() => findDuplicates(allLoadedContacts), [allLoadedContacts]);
 
@@ -433,7 +465,7 @@ export default function ContactsPage() {
                               </button>
                             </>
                           )}
-                          {invite?.status === "used" && (
+                          {(invite?.status === "used" || invite?.status === "accepted") && (
                             <Badge variant="outline" className="text-[10px] border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">Accepted</Badge>
                           )}
                           {party.contacts[0]?.email && (
@@ -489,6 +521,7 @@ export default function ContactsPage() {
         onSave={handleSave}
         editingContact={editingContact}
         customTypes={customTypes}
+        invitation={getInviteForDialog(editingContact)}
       />
       <ImportContactsDialog
         open={importOpen}

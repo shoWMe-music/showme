@@ -80,23 +80,90 @@ export const createInvitationCode = onCall<CreateInvitationCodeData, Promise<{ c
       throw new HttpsError("internal", "Failed to generate a unique invitation code.");
     }
 
-    await db().collection("invitationCodes").doc(code).set({
-      code,
-      status: "active",
-      createdAt: FieldValue.serverTimestamp(),
-      createdByUid: uid,
-      recipientEmail: recipientEmail ?? null,
-      recipientName: recipientName ?? null,
-      recipientRole: recipientRole ?? null,
-      linkedProfileId: linkedProfileId ?? null,
-      linkedEventId: linkedEventId ?? null,
-      source,
-      sourceCollaboratorInviteToken: sourceCollaboratorInviteToken ?? null,
-      usedByUid: null,
-      usedAt: null,
+    // Wave 7 (B1): auto-create a Contact card for the invited recipient and
+    // link it to the new InvitationCode in a single transaction so the two
+    // documents stay in sync. Skip the contact write if a contact with the
+    // same email already exists for this user (idempotent guard for repeat
+    // invites or reruns of the backfill helper).
+    const contactsCol = db().collection("users").doc(uid).collection("contacts");
+    const normalizedEmail = recipientEmail ? recipientEmail.toLowerCase().trim() : "";
+    let linkedContactId: string | null = null;
+
+    if (recipientName || normalizedEmail) {
+      // Look for an existing contact whose primary contact email matches the
+      // invitee. fetchContactPage stores `contacts: [{name, email, phone}, ...]`
+      // alongside top-level `name`. Match on either to avoid duplicates.
+      const existingByEmail = normalizedEmail
+        ? await contactsCol.get().then((snap) =>
+          snap.docs.find((d) => {
+            const data = d.data() as Record<string, unknown>;
+            const persons = Array.isArray(data.contacts) ? (data.contacts as Array<{ email?: string }>) : [];
+            return persons.some((c) => (c.email ?? "").toLowerCase().trim() === normalizedEmail);
+          }) ?? null,
+        )
+        : null;
+
+      if (existingByEmail) {
+        linkedContactId = existingByEmail.id;
+      } else {
+        linkedContactId = `P-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      }
+    }
+
+    await db().runTransaction(async (tx) => {
+      const codeRef = db().collection("invitationCodes").doc(code);
+      tx.set(codeRef, {
+        code,
+        status: "active",
+        createdAt: FieldValue.serverTimestamp(),
+        createdByUid: uid,
+        recipientEmail: recipientEmail ?? null,
+        recipientName: recipientName ?? null,
+        recipientRole: recipientRole ?? null,
+        linkedProfileId: linkedProfileId ?? null,
+        linkedEventId: linkedEventId ?? null,
+        linkedContactId,
+        source,
+        sourceCollaboratorInviteToken: sourceCollaboratorInviteToken ?? null,
+        usedByUid: null,
+        usedAt: null,
+      });
+
+      // Only create a NEW contact doc — never overwrite an existing one.
+      if (linkedContactId && (recipientName || normalizedEmail)) {
+        const contactRef = contactsCol.doc(linkedContactId);
+        const existing = await tx.get(contactRef);
+        if (!existing.exists) {
+          tx.set(contactRef, {
+            id: linkedContactId,
+            name: recipientName || normalizedEmail || "Invited collaborator",
+            type: "performer",
+            contacts: [{
+              name: recipientName ?? "",
+              email: recipientEmail ?? "",
+              phone: "",
+            }],
+            iban: "",
+            bankName: "",
+            vatId: "",
+            address: "",
+            notes: "",
+            invitationCode: code,
+            invitationStatus: "active",
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        } else {
+          // Existing contact — only stamp the invitation pointer fields.
+          tx.update(contactRef, {
+            invitationCode: code,
+            invitationStatus: "active",
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
+      }
     });
 
-    logger.info("Invitation code created", { code, source, createdByUid: uid });
+    logger.info("Invitation code created", { code, source, createdByUid: uid, linkedContactId });
 
     return { code };
   },
@@ -163,6 +230,23 @@ export const claimInvitationCode = onCall<ClaimInvitationCodeData, Promise<Claim
         usedByUid: uid,
         usedAt: FieldValue.serverTimestamp(),
       });
+
+      // Wave 7 (B1): mirror status onto the linked contact doc so the
+      // creator's contact list reflects redemption without a join.
+      const linkedContactId = data.linkedContactId as string | undefined;
+      const createdByUid = data.createdByUid as string | undefined;
+      if (linkedContactId && createdByUid) {
+        const contactRef = db()
+          .collection("users")
+          .doc(createdByUid)
+          .collection("contacts")
+          .doc(linkedContactId);
+        tx.set(
+          contactRef,
+          { invitationStatus: "used", updatedAt: FieldValue.serverTimestamp() },
+          { merge: true },
+        );
+      }
 
       return data;
     });
