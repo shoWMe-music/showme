@@ -92,6 +92,56 @@ export function deriveDefaultCapacityForRooms(
   return total;
 }
 
+/**
+ * C2 — Visibility gate for the "Commissions from Performer Share" section.
+ *
+ * Wave 7 tightened the previous `isPerformerOperator` gate. The block is now
+ * visible only when the user's role on this specific event is performer.
+ * That means one of:
+ *   1. A user-controlled profile is the event's performer profile
+ *      (event.performerProfileId === one of the user's profile ids).
+ *   2. A user-controlled profile appears as an `eventRole === "performer"`
+ *      collaborator on the event (covers multi-performer / invited cases).
+ *   3. The user is the event host AND the host is also the performer on a
+ *      single-performer event (host-as-performer self-booking).
+ *
+ * Venue, promoter, organizer, agent and staff roles do NOT see this section,
+ * even if they happen to also own a performer profile that's unrelated to
+ * the event.
+ */
+export function canSeePerformerCommissions(args: {
+  userProfileIds: string[];
+  performerProfileId?: string;
+  hostProfileId?: string;
+  isMultiPerformer?: boolean;
+  collaborators?: EventCollaborator[];
+}): boolean {
+  const { userProfileIds, performerProfileId, hostProfileId, isMultiPerformer, collaborators } = args;
+  if (userProfileIds.length === 0) return false;
+  const userIdSet = new Set(userProfileIds);
+
+  // Case 1: user controls the performer profile on this event.
+  if (performerProfileId && userIdSet.has(performerProfileId)) return true;
+
+  // Case 2: user controls a profile listed as a performer collaborator.
+  if (collaborators?.some(c => c.eventRole === "performer" && c.profileId && userIdSet.has(c.profileId))) {
+    return true;
+  }
+
+  // Case 3: host-as-performer on a single-performer event.
+  if (
+    !isMultiPerformer &&
+    hostProfileId &&
+    performerProfileId &&
+    hostProfileId === performerProfileId &&
+    userIdSet.has(hostProfileId)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 /** Map profile documents to event Rider entries, also including catering/accommodation notes. */
 function profileDocumentsToRiders(profile: SharedProfile): Rider[] {
   const riders: Rider[] = [];
@@ -188,11 +238,23 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
     removeChildEventMutation.mutate({ parentId, childId });
   const convertToMultiPerformer = (eventId: string) =>
     convertToMultiPerformerMutation.mutateAsync({ eventId });
-  // Check if the current user is acting as a performer on this event
-  const isPerformerOperator = Boolean(
-    profiles.performer?.id &&
-    (event.performerProfileId === profiles.performer.id || event.accessProfileIds?.includes(profiles.performer.id))
+  // C2 — Visibility gate for "Commissions from Performer Share". The previous
+  // `isPerformerOperator` check returned true whenever the user owned a
+  // performer profile that was attached to the event. That accidentally
+  // showed commissions to venue/promoter operators who happened to also own
+  // a performer profile. The new gate (canSeePerformerCommissions) requires
+  // that the user's role on THIS event is performer.
+  const userControlledProfileIds = useMemo(
+    () => Object.values(profiles).filter(p => p.id).map(p => p.id as string),
+    [profiles],
   );
+  const isPerformerOperator = canSeePerformerCommissions({
+    userProfileIds: userControlledProfileIds,
+    performerProfileId: event.performerProfileId,
+    hostProfileId: event.hostProfileId,
+    isMultiPerformer: event.isMultiPerformer,
+    collaborators,
+  });
   const [childRidersMap, setChildRidersMap] = useState<Record<string, Rider[]>>({});
 
   useEffect(() => {
