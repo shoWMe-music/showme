@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef, KeyboardEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import { createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
+import { FirebaseError } from "firebase/app";
 import { httpsCallable } from "firebase/functions";
 import { doc, getDoc } from "firebase/firestore";
 import { getAuthClient } from "@/lib/firebaseAuth";
@@ -291,12 +292,12 @@ export default function SignupPage() {
     }
   }, [steps, currentStep]);
 
-  // Auto-fill from URL code param
+  // Auto-fill from URL code param (overrides any stored state from prior aborted signups)
   useEffect(() => {
-    if (urlCode && !invitationCode) {
+    if (urlCode) {
       setInvitationCode(urlCode);
     }
-  }, [urlCode, invitationCode]);
+  }, [urlCode]);
 
   // Validate invitation code when it reaches full length
   useEffect(() => {
@@ -368,6 +369,23 @@ export default function SignupPage() {
           }
         } catch (claimErr) {
           console.error("Failed to claim invitation code:", claimErr);
+          await signOut(getAuthClient()).catch(() => {});
+          const isEmailMismatch =
+            claimErr instanceof FirebaseError && claimErr.code === "functions/permission-denied";
+          if (isEmailMismatch && codeData.recipientEmail) {
+            toast({
+              title: "Wrong Google account",
+              description: `This invitation is for ${codeData.recipientEmail}. Please sign in with that Google account.`,
+              variant: "destructive",
+            });
+          } else {
+            toast({
+              title: "Could not claim invitation",
+              description: claimErr instanceof Error ? claimErr.message : "Please try again.",
+              variant: "destructive",
+            });
+          }
+          return;
         }
       }
 
