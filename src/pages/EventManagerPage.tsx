@@ -169,6 +169,7 @@ export default function EventManagerPage() {
           onDuplicate={() => setDuplicateOpen(true)}
           effectiveSourceRequestId={em.effectiveSourceRequestId}
           effectiveSourceRequestDate={em.effectiveSourceRequestDate}
+          isPerformer={em.isPerformer}
           isPerformerInvitation={em.isPerformerInvitation}
           onTabChange={(tabId) => { if (tabId === "changelog") em.markChangeLogViewed(); }}
         />

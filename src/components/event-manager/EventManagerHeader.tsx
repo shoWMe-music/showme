@@ -38,6 +38,7 @@ interface EventManagerHeaderProps {
   onDuplicate?: () => void;
   effectiveSourceRequestId: string | undefined;
   effectiveSourceRequestDate: string | undefined;
+  isPerformer?: boolean;
   isPerformerInvitation?: boolean;
   onTabChange?: (tabId: TabId) => void;
 }
@@ -49,7 +50,7 @@ export function EventManagerHeader({
   updateEvent, promoteHoldsOnDate, resolveHoldRankConflicts, togglePublish,
   onInviteOpen, onMarkPendingOpen, onExportOpen, onArchiveOpen, onDuplicate,
   effectiveSourceRequestId, effectiveSourceRequestDate,
-  isPerformerInvitation, onTabChange,
+  isPerformer, isPerformerInvitation, onTabChange,
 }: EventManagerHeaderProps) {
   const navigate = useNavigate();
 
@@ -111,7 +112,7 @@ export function EventManagerHeader({
 
           {!isPerformerInvitation && (
             <div className="flex items-center gap-2">
-              {(event.eventStatus === "draft" || event.eventStatus === "suggested") && (
+              {!isPerformer && (event.eventStatus === "draft" || event.eventStatus === "suggested") && (
                 <Button
                   variant={event.eventStatus === "suggested" && (event.performerProfileId || collaborators.some(c => c.eventRole === "performer" && c.status === "pending")) ? "outline" : "default"}
                   className={cn("gap-2", event.eventStatus === "suggested" && (event.performerProfileId || collaborators.some(c => c.eventRole === "performer" && c.status === "pending")) && "border-orange-500 text-orange-600 disabled:opacity-60")}
