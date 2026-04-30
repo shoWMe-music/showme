@@ -153,7 +153,9 @@ export function EventManagerHeader({
               <Button variant="outline" className="gap-2" onClick={onExportOpen}>
                 <Share2 className="h-4 w-4" /> Share & Export
               </Button>
-              <EventActionsMenu id={id} event={event} collaborators={collaborators} setCollaborators={setCollaborators} updateEvent={updateEvent} promoteHoldsOnDate={promoteHoldsOnDate} onArchiveOpen={onArchiveOpen} onDuplicate={onDuplicate} />
+              {!isPerformer && (
+                <EventActionsMenu id={id} event={event} collaborators={collaborators} setCollaborators={setCollaborators} updateEvent={updateEvent} promoteHoldsOnDate={promoteHoldsOnDate} onArchiveOpen={onArchiveOpen} onDuplicate={onDuplicate} />
+              )}
             </div>
           )}
         </div>
