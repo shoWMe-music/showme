@@ -3,21 +3,20 @@
  *
  * The recipient field is read-only (the team member's email from their card).
  * The dialog handles the empty-email guard at the call site so this component
- * can stay focused on collecting subject + body.
- *
- * Send infra: this wave does not yet have a "send arbitrary email to a team
- * member" callable. We surface a TODO in the toast text on submit so users
- * know the message wasn't sent — the UI is wired and can be hooked into a
- * future callable function with a one-line change inside `handleSend`.
+ * can stay focused on collecting subject + body. On send, the message is
+ * delivered via the `sendTeamMemberEmail` callable; the signed-in user's
+ * email is set as Reply-To so replies route back to them.
  */
 
 import { useEffect, useState } from "react";
+import { httpsCallable } from "firebase/functions";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { getFirebaseFunctions } from "@/integrations/firebase/app";
 
 export interface EmailTeamMemberDialogProps {
   open: boolean;
@@ -29,26 +28,47 @@ export interface EmailTeamMemberDialogProps {
 export default function EmailTeamMemberDialog({ open, onOpenChange, recipientName, recipientEmail }: EmailTeamMemberDialogProps) {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
 
   // Reset form whenever the dialog opens for a new recipient.
   useEffect(() => {
     if (open) {
       setSubject("");
       setBody("");
+      setSending(false);
     }
   }, [open, recipientEmail]);
 
-  const handleSend = () => {
-    // Send infra placeholder. When the email-team-member callable lands,
-    // wire it here and remove the toast description disclaimer below.
-    toast({
-      title: "Email queued",
-      description: `Send not yet wired. Would send "${subject}" to ${recipientEmail}.`,
-    });
-    onOpenChange(false);
+  const handleSend = async () => {
+    setSending(true);
+    try {
+      const fn = httpsCallable<
+        { recipientEmail: string; recipientName: string; subject: string; body: string },
+        { ok: true }
+      >(getFirebaseFunctions(), "sendTeamMemberEmail");
+      await fn({
+        recipientEmail,
+        recipientName,
+        subject: subject.trim(),
+        body: body.trim(),
+      });
+      toast({
+        title: "Email sent",
+        description: `Sent "${subject}" to ${recipientEmail}.`,
+      });
+      onOpenChange(false);
+    } catch (err) {
+      console.error("Failed to send team-member email:", err);
+      toast({
+        title: "Failed to send email",
+        description: err instanceof Error ? err.message : "Please try again.",
+        variant: "destructive",
+      });
+      setSending(false);
+    }
   };
 
-  const canSend = subject.trim().length > 0 && body.trim().length > 0;
+  const canSend = subject.trim().length > 0 && body.trim().length > 0 && !sending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -69,6 +89,7 @@ export default function EmailTeamMemberDialog({ open, onOpenChange, recipientNam
               placeholder="Subject…"
               className="mt-1"
               data-testid="email-subject-input"
+              disabled={sending}
             />
           </div>
           <div>
@@ -79,12 +100,15 @@ export default function EmailTeamMemberDialog({ open, onOpenChange, recipientNam
               placeholder="Write your message…"
               className="mt-1 min-h-[160px]"
               data-testid="email-body-input"
+              disabled={sending}
             />
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSend} disabled={!canSend}>Send</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={sending}>Cancel</Button>
+          <Button onClick={handleSend} disabled={!canSend}>
+            {sending ? "Sending…" : "Send"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

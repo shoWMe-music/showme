@@ -41,17 +41,21 @@ async function notifyEventProfiles(
 
   if (profileIds.length === 0) return;
 
-  // Find which profiles the actor is a member of (to exclude)
+  // Find which profiles the actor is a member of (to exclude). Skip when we
+  // don't know the actor — Firestore .doc("") throws and would crash the
+  // entire trigger, blocking notifications for everyone else.
   const actorProfiles = new Set<string>();
-  await Promise.all(
-    profileIds.map(async (pid) => {
-      const memberSnap = await db()
-        .collection("profiles").doc(pid)
-        .collection("members").doc(actorUid)
-        .get();
-      if (memberSnap.exists) actorProfiles.add(pid);
-    }),
-  );
+  if (actorUid) {
+    await Promise.all(
+      profileIds.map(async (pid) => {
+        const memberSnap = await db()
+          .collection("profiles").doc(pid)
+          .collection("members").doc(actorUid)
+          .get();
+        if (memberSnap.exists) actorProfiles.add(pid);
+      }),
+    );
+  }
 
   // Get actor display name
   let actorName = "Someone";

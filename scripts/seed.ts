@@ -5,7 +5,7 @@
  * Manual: start emulators, then `npm run seed`.
  *
  * Accounts seeded (password: 123456):
- *   daniel.islandman@gmail.com   — venue + artist profiles, full event fixtures
+ *   daniel.islandman@showme.music   — venue + artist profiles, full event fixtures
  *   testvenueuser1@showme.music  — venue profile + 3 events
  *   testpromoteruser1@showme.music — promoter profile + 3 events
  *   testorganizeruser1@showme.music — organizer profile + 3 events
@@ -41,7 +41,7 @@ import { SEED_PROFILES, SEED_USER_SETTINGS } from "./seed/defaults";
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const PROJECT_ID = process.env.FIREBASE_PROJECT_ID ?? "showme-local";
-const SEED_EMAIL = process.env.SEED_EMAIL ?? "daniel.islandman@gmail.com";
+const SEED_EMAIL = process.env.SEED_EMAIL ?? "daniel.islandman@showme.music";
 const SEED_PASSWORD = process.env.SEED_PASSWORD ?? "123456";
 const SEED_DISPLAY_NAME = process.env.SEED_DISPLAY_NAME ?? "Daniel Islandman";
 const SEED_USER_PASSWORD = "123456";
@@ -180,7 +180,7 @@ async function flush(batch: WriteBatch): Promise<WriteBatch> {
   return db.batch();
 }
 
-// ── Main seeding for daniel.islandman@gmail.com ───────────────────────────────
+// ── Main seeding for daniel.islandman@showme.music ───────────────────────────────
 
 async function seedMainUser(): Promise<void> {
   const uid = await ensureUser(SEED_EMAIL, SEED_PASSWORD, SEED_DISPLAY_NAME);
@@ -605,7 +605,7 @@ async function main() {
   await seedMainUser();
   await seedTestUsers();
   console.log("\nAll accounts use password: 123456");
-  console.log("Main account:  daniel.islandman@gmail.com");
+  console.log("Main account:  daniel.islandman@showme.music");
   for (const u of TEST_USERS) {
     console.log(`Test account:  ${u.email}  (${u.role})`);
   }

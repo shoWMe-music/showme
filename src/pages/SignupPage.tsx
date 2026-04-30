@@ -589,25 +589,44 @@ export default function SignupPage() {
         ...(avatarUrl ? { avatarUrl } : {}),
       });
 
-      // Save manually created profiles (skipped for linked profile flow)
-      for (const [role, prof] of Object.entries(allProfiles)) {
-        if (!prof.name) continue;
-        const locations = buildLocations(prof.street, prof.postcode, prof.city, prof.country);
-        await upsertProfile(role, {
-          role: role as OperatorRole,
-          name: prof.name,
-          locations,
-          bio: prof.bio,
-          genres: prof.genres,
-          socialLinks: prof.socialLinks,
-          created: true,
-          ...(avatarUrl ? { avatarUrl } : {}),
-          ...(prof.capacity ? { capacity: prof.capacity } : {}),
-          ...(prof.setupType ? { setupType: prof.setupType, setupSize: prof.setupSize } : {}),
-        } as import("@/lib/user-context").SharedProfile);
+      // Ensure every selected role has a profile. The linked-profile claim
+      // flow saves its profile separately, so it's skipped here. Otherwise we
+      // create one profile per role — falling back to the user's display name
+      // if they skipped the form or left the name blank. Without this,
+      // signups can complete with zero profiles, which breaks event ownership,
+      // date-change confirmations, and anything else keyed on profile.id.
+      if (!hasLinkedProfile) {
+        const uid = getAuthClient().currentUser?.uid;
+        for (const role of effectiveRoles) {
+          const prof = allProfiles[role];
+          const name = prof?.name?.trim() || displayName;
+          const locations = prof
+            ? buildLocations(prof.street, prof.postcode, prof.city, prof.country)
+            : [];
+          await upsertProfile(role, {
+            ...(uid ? { id: `${uid}__${role}` } : {}),
+            role,
+            name,
+            locations,
+            bio: prof?.bio ?? "",
+            genres: prof?.genres ?? [],
+            socialLinks: prof?.socialLinks ?? [],
+            created: true,
+            ...(avatarUrl ? { avatarUrl } : {}),
+            ...(prof?.capacity ? { capacity: prof.capacity } : {}),
+            ...(prof?.setupType ? { setupType: prof.setupType, setupSize: prof.setupSize } : {}),
+          } as import("@/lib/user-context").SharedProfile);
+        }
       }
-    } catch {
-      // non-critical
+    } catch (err) {
+      console.error("Signup finish failed:", err);
+      toast({
+        title: "Couldn't finish account setup",
+        description: err instanceof Error ? err.message : "Please try again.",
+        variant: "destructive",
+      });
+      setLoading(false);
+      return;
     }
     setLoading(false);
     clearPersistedState();

@@ -207,6 +207,37 @@ export function bookingRequestNotificationEmail(opts: {
   };
 }
 
+export function teamMemberMessageEmail(opts: {
+  recipientName: string;
+  senderName: string;
+  senderEmail: string;
+  subject: string;
+  body: string;
+}): { subject: string; html: string } {
+  const escapedBody = opts.body
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br>");
+
+  const content = `
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b">${opts.subject}</h2>
+    <p style="margin:0 0 16px;font-size:13px;color:#a1a1aa;line-height:1.5">
+      Hi ${opts.recipientName}, this message is from <strong>${opts.senderName}</strong> &lt;${opts.senderEmail}&gt;. Reply directly to this email to respond.
+    </p>
+    <div style="margin:16px 0;padding:16px;background:#f4f4f5;border-radius:8px;font-size:14px;color:#3f3f46;line-height:1.6">
+      ${escapedBody}
+    </div>
+    <p style="margin:16px 0 0;font-size:12px;color:#a1a1aa;line-height:1.5">
+      Sent via shoWMe team management.
+    </p>`;
+
+  return {
+    subject: opts.subject,
+    html: baseLayout(content),
+  };
+}
+
 export function bookingRequestConfirmationEmail(opts: {
   requesterName: string;
   targetName?: string;

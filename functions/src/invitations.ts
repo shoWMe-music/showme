@@ -1,8 +1,12 @@
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { sendMail, BREVO_API_KEY } from "./mail";
+import { otpEmail, invitationEmail } from "./emailTemplates";
 
 const db = () => getFirestore();
+
+const APP_BASE_URL = process.env.APP_BASE_URL || "https://showme-production.web.app";
 
 // Alphabet without ambiguous characters: 0/O, 1/I/L
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -112,6 +116,15 @@ export const createInvitationCode = onCall<CreateInvitationCodeData, Promise<{ c
 
     await db().runTransaction(async (tx) => {
       const codeRef = db().collection("invitationCodes").doc(code);
+      const contactRef =
+        linkedContactId && (recipientName || normalizedEmail)
+          ? contactsCol.doc(linkedContactId)
+          : null;
+
+      // ── All reads must happen before any writes (Firestore tx rule). ──
+      const existingContactSnap = contactRef ? await tx.get(contactRef) : null;
+
+      // ── Writes ──
       tx.set(codeRef, {
         code,
         status: "active",
@@ -129,11 +142,8 @@ export const createInvitationCode = onCall<CreateInvitationCodeData, Promise<{ c
         usedAt: null,
       });
 
-      // Only create a NEW contact doc — never overwrite an existing one.
-      if (linkedContactId && (recipientName || normalizedEmail)) {
-        const contactRef = contactsCol.doc(linkedContactId);
-        const existing = await tx.get(contactRef);
-        if (!existing.exists) {
+      if (contactRef && existingContactSnap) {
+        if (!existingContactSnap.exists) {
           tx.set(contactRef, {
             id: linkedContactId,
             name: recipientName || normalizedEmail || "Invited collaborator",
@@ -367,7 +377,7 @@ interface SendOtpEmailData {
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const sendOtpEmail = onCall<SendOtpEmailData, Promise<{ ok: true; devCode?: string }>>(
-  { region: "europe-west1" },
+  { region: "europe-west1", secrets: [BREVO_API_KEY] },
   async (request) => {
     // No auth required — user hasn't signed in yet
     const { email } = request.data;
@@ -408,15 +418,23 @@ export const sendOtpEmail = onCall<SendOtpEmailData, Promise<{ ok: true; devCode
       attempts: 0,
     });
 
-    // TODO: Send actual email — for now just log the OTP
-    logger.info("OTP code generated (email sending not yet implemented)", {
-      email: normalizedEmail,
-      code: otpCode,
+    const tpl = otpEmail(otpCode);
+    const result = await sendMail({
+      to: normalizedEmail,
+      subject: tpl.subject,
+      html: tpl.html,
     });
 
-    // Return the code directly until email sending is implemented
-    // TODO: Remove devCode from production response once SMTP emails are live
-    return { ok: true, devCode: otpCode };
+    // If Brevo isn't configured (e.g. emulator without secret), surface the
+    // code so dev flows still work. In production sends always go through.
+    if (result.skipped) {
+      logger.info("OTP code returned to client (BREVO_API_KEY not configured)", {
+        email: normalizedEmail,
+      });
+      return { ok: true, devCode: otpCode };
+    }
+
+    return { ok: true };
   },
 );
 
@@ -499,7 +517,7 @@ interface SendInvitationEmailData {
 }
 
 export const sendInvitationEmail = onCall<SendInvitationEmailData, Promise<{ ok: true }>>(
-  { region: "europe-west1" },
+  { region: "europe-west1", secrets: [BREVO_API_KEY] },
   async (request) => {
     const uid = request.auth?.uid;
     if (!uid) {
@@ -512,15 +530,22 @@ export const sendInvitationEmail = onCall<SendInvitationEmailData, Promise<{ ok:
       throw new HttpsError("invalid-argument", "code, recipientEmail, recipientName, and senderName are required.");
     }
 
-    // TODO: Send actual email — for now just log the content
-    logger.info("Invitation email (sending not yet implemented)", {
-      to: recipientEmail,
+    const signupLink = `${APP_BASE_URL.replace(/\/$/, "")}/signup?code=${encodeURIComponent(code)}`;
+
+    const tpl = invitationEmail({
       recipientName,
       senderName,
-      code,
-      eventName: eventName ?? null,
-      message: message ?? null,
-      sentByUid: uid,
+      eventName,
+      signupLink,
+      invitationCode: code,
+      message,
+    });
+
+    await sendMail({
+      to: recipientEmail,
+      toName: recipientName,
+      subject: tpl.subject,
+      html: tpl.html,
     });
 
     return { ok: true };

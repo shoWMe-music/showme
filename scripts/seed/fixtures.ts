@@ -584,33 +584,33 @@ function buildSeedSettlements(
 export const seedSettlements = buildSeedSettlements(seedEvents, seedDeals, seedRevenue);
 
 export const seedContacts: Contact[] = [
-  { id: "P-001", name: "LiveNation NL", type: "promoter", contacts: [{ name: "Jan de Vries", email: "jan@livenation.nl", phone: "+31 20 555 0101" }], iban: "NL91ABNA0417164300", bankName: "ABN AMRO", vatId: "NL123456789B01", address: "Keizersgracht 100, 1015 Amsterdam", notes: "" },
-  { id: "P-002", name: "MOJO Concerts", type: "promoter", contacts: [{ name: "Lisa Bakker", email: "lisa@mojo.nl", phone: "+31 20 555 0102" }], iban: "NL20INGB0001234567", bankName: "ING", vatId: "NL987654321B01", address: "Wibautstraat 150, 1091 Amsterdam", notes: "" },
-  { id: "P-003", name: "ID&T", type: "promoter", contacts: [{ name: "Michiel de Boer", email: "michiel@idt.com", phone: "+31 20 555 0103" }], iban: "NL39RABO0300065264", bankName: "Rabobank", vatId: "NL111222333B01", address: "Arena Boulevard 65, 1101 Amsterdam", notes: "Festival specialists" },
-  { id: "P-004", name: "Paradiso, Amsterdam", type: "venue", contacts: [{ name: "Sophie van Dijk", email: "sophie@paradiso.nl", phone: "+31 20 555 0201" }], iban: "NL18RABO0123459876", bankName: "Rabobank", vatId: "NL444555666B01", address: "Weteringschans 6-8, 1017 Amsterdam", notes: "Historic concert venue" },
-  { id: "P-005", name: "Vondelpark Theater", type: "venue", contacts: [{ name: "Kees Jansen", email: "kees@vondelparktheater.nl", phone: "+31 20 555 0202" }], iban: "NL91ABNA0417164301", bankName: "ABN AMRO", vatId: "NL777888999B01", address: "Vondelpark 3, 1071 Amsterdam", notes: "" },
-  { id: "P-006", name: "Melkweg, Amsterdam", type: "venue", contacts: [{ name: "Anna Smit", email: "anna@melkweg.nl", phone: "+31 20 555 0203" }], iban: "NL20INGB0009876543", bankName: "ING", vatId: "NL112233445B01", address: "Lijnbaansgracht 234a, 1017 Amsterdam", notes: "" },
-  { id: "P-007", name: "TivoliVredenburg, Utrecht", type: "venue", contacts: [{ name: "Pieter Groot", email: "pieter@tivolivredenburg.nl", phone: "+31 30 555 0301" }], iban: "NL39RABO0300065265", bankName: "Rabobank", vatId: "NL998877665B01", address: "Vredenburgkade 11, 3511 Utrecht", notes: "" },
-  { id: "P-008", name: "Zuiderpark, Den Haag", type: "venue", contacts: [{ name: "Maria Visser", email: "maria@zuiderpark.nl", phone: "+31 70 555 0401" }], iban: "NL91ABNA0417164302", bankName: "ABN AMRO", vatId: "NL554433221B01", address: "Zuiderpark 1, 2531 Den Haag", notes: "Open air venue" },
-  { id: "P-009", name: "Aurora", type: "performer", contacts: [{ name: "Aurora Aksnes", email: "mgmt@aurora-music.com", phone: "+47 555 0101" }], iban: "NO9386011117947", bankName: "DNB", vatId: "", address: "Bergen, Norway", notes: "" },
-  { id: "P-010", name: "GoGo Penguin", type: "performer", contacts: [{ name: "Chris Illingworth", email: "info@gogopenguin.co.uk", phone: "+44 161 555 0101" }], iban: "GB29NWBK60161331926819", bankName: "NatWest", vatId: "", address: "Manchester, UK", notes: "" },
-  { id: "P-011", name: "Moderat", type: "performer", contacts: [{ name: "Sascha Ring", email: "booking@moderat.fm", phone: "+49 30 555 0101" }], iban: "DE89370400440532013000", bankName: "Commerzbank", vatId: "", address: "Berlin, Germany", notes: "" },
-  { id: "P-012", name: "Fontaines D.C.", type: "performer", contacts: [{ name: "Grian Chatten", email: "info@fontainesdc.com", phone: "+353 1 555 0101" }], iban: "IE29AIBK93115212345678", bankName: "AIB", vatId: "", address: "Dublin, Ireland", notes: "" },
-  { id: "P-013", name: "Bonobo", type: "performer", contacts: [{ name: "Simon Green", email: "mgmt@bonobomusic.com", phone: "+44 20 555 0102" }], iban: "GB29NWBK60161331926820", bankName: "NatWest", vatId: "", address: "London, UK", notes: "" },
-  { id: "P-023", name: "José González", type: "performer", contacts: [{ name: "José González", email: "info@josegonzalez.com", phone: "+46 31 555 0101" }], iban: "SE3550000000054910000003", bankName: "SEB", vatId: "", address: "Gothenburg, Sweden", notes: "" },
-  { id: "P-024", name: "Noisia", type: "performer", contacts: [{ name: "Thijs de Vlieger", email: "booking@noisia.nl", phone: "+31 50 555 0101" }], iban: "NL39RABO0300065280", bankName: "Rabobank", vatId: "NL567890123B01", address: "Groningen, Netherlands", notes: "" },
-  { id: "P-025", name: "Caribou", type: "performer", contacts: [{ name: "Dan Snaith", email: "mgmt@caribouband.com", phone: "+44 20 555 0601" }], iban: "GB82WEST12345698765450", bankName: "HSBC", vatId: "", address: "London, UK", notes: "" },
-  { id: "P-026", name: "Islandman", type: "performer", contacts: [{ name: "Tolga Boyuk", email: "info@islandmanmusic.com", phone: "+90 212 555 0101" }], iban: "TR330006100519786457841326", bankName: "Garanti BBVA", vatId: "", address: "Istanbul, Turkey", notes: "" },
-  { id: "P-027", name: "Khruangbin", type: "performer", contacts: [{ name: "Mark Speer", email: "booking@khruangbin.com", phone: "+1 713 555 0101" }], iban: "US98765432101234567890", bankName: "Bank of America", vatId: "", address: "Houston, TX, USA", notes: "" },
-  { id: "P-014", name: "Eventbrite", type: "ticketing", contacts: [{ name: "Support NL", email: "nl-support@eventbrite.com", phone: "+31 20 555 0501" }], iban: "NL20INGB0005551234", bankName: "ING", vatId: "NL100200300B01", address: "Amsterdam, NL", notes: "" },
-  { id: "P-015", name: "Ticketmaster", type: "ticketing", contacts: [{ name: "Account Team", email: "accounts@ticketmaster.nl", phone: "+31 20 555 0502" }], iban: "NL91ABNA0417164305", bankName: "ABN AMRO", vatId: "NL200300400B01", address: "Amsterdam, NL", notes: "" },
-  { id: "P-016", name: "DICE", type: "ticketing", contacts: [{ name: "Partner Team", email: "partners@dice.fm", phone: "+44 20 555 0301" }], iban: "GB82WEST12345698765432", bankName: "HSBC", vatId: "", address: "London, UK", notes: "" },
-  { id: "P-017", name: "See Tickets", type: "ticketing", contacts: [{ name: "NL Office", email: "nl@seetickets.com", phone: "+31 20 555 0503" }], iban: "NL39RABO0300065270", bankName: "Rabobank", vatId: "NL300400500B01", address: "Utrecht, NL", notes: "" },
-  { id: "P-018", name: "Paylogic", type: "ticketing", contacts: [{ name: "Sales", email: "sales@paylogic.com", phone: "+31 20 555 0504" }], iban: "NL20INGB0005559876", bankName: "ING", vatId: "NL400500600B01", address: "Amsterdam, NL", notes: "" },
-  { id: "P-019", name: "WME Agency", type: "agent", contacts: [{ name: "David Chen", email: "dchen@wmeagency.com", phone: "+1 310 555 0101" }], iban: "US12345678901234567890", bankName: "JPMorgan Chase", vatId: "", address: "Beverly Hills, CA, USA", notes: "Handles Aurora & Bonobo bookings" },
-  { id: "P-020", name: "Paradigm Agency", type: "agent", contacts: [{ name: "Emma Wilson", email: "emma@paradigmagency.com", phone: "+44 20 555 0401" }], iban: "GB29NWBK60161331926825", bankName: "NatWest", vatId: "", address: "London, UK", notes: "" },
-  { id: "P-021", name: "Starlight Mgmt", type: "manager", contacts: [{ name: "Peter Hall", email: "peter@starlightmgmt.com", phone: "+44 20 555 0501" }], iban: "GB82WEST12345698765440", bankName: "HSBC", vatId: "", address: "London, UK", notes: "Aurora management" },
-  { id: "P-022", name: "ATC Mgmt", type: "manager", contacts: [{ name: "Sarah Jones", email: "sarah@atc-mgmt.com", phone: "+44 20 555 0502" }], iban: "GB29NWBK60161331926830", bankName: "NatWest", vatId: "", address: "London, UK", notes: "Bonobo management" },
+  { id: "P-001", name: "LiveNation NL", type: "promoter", contacts: [{ name: "Jan de Vries", email: "jan.livenation@showme.music", phone: "+31 20 555 0101" }], iban: "NL91ABNA0417164300", bankName: "ABN AMRO", vatId: "NL123456789B01", address: "Keizersgracht 100, 1015 Amsterdam", notes: "" },
+  { id: "P-002", name: "MOJO Concerts", type: "promoter", contacts: [{ name: "Lisa Bakker", email: "lisa.mojo@showme.music", phone: "+31 20 555 0102" }], iban: "NL20INGB0001234567", bankName: "ING", vatId: "NL987654321B01", address: "Wibautstraat 150, 1091 Amsterdam", notes: "" },
+  { id: "P-003", name: "ID&T", type: "promoter", contacts: [{ name: "Michiel de Boer", email: "michiel.idt@showme.music", phone: "+31 20 555 0103" }], iban: "NL39RABO0300065264", bankName: "Rabobank", vatId: "NL111222333B01", address: "Arena Boulevard 65, 1101 Amsterdam", notes: "Festival specialists" },
+  { id: "P-004", name: "Paradiso, Amsterdam", type: "venue", contacts: [{ name: "Sophie van Dijk", email: "sophie.paradiso@showme.music", phone: "+31 20 555 0201" }], iban: "NL18RABO0123459876", bankName: "Rabobank", vatId: "NL444555666B01", address: "Weteringschans 6-8, 1017 Amsterdam", notes: "Historic concert venue" },
+  { id: "P-005", name: "Vondelpark Theater", type: "venue", contacts: [{ name: "Kees Jansen", email: "kees.vondelpark@showme.music", phone: "+31 20 555 0202" }], iban: "NL91ABNA0417164301", bankName: "ABN AMRO", vatId: "NL777888999B01", address: "Vondelpark 3, 1071 Amsterdam", notes: "" },
+  { id: "P-006", name: "Melkweg, Amsterdam", type: "venue", contacts: [{ name: "Anna Smit", email: "anna.melkweg@showme.music", phone: "+31 20 555 0203" }], iban: "NL20INGB0009876543", bankName: "ING", vatId: "NL112233445B01", address: "Lijnbaansgracht 234a, 1017 Amsterdam", notes: "" },
+  { id: "P-007", name: "TivoliVredenburg, Utrecht", type: "venue", contacts: [{ name: "Pieter Groot", email: "pieter.tivoli@showme.music", phone: "+31 30 555 0301" }], iban: "NL39RABO0300065265", bankName: "Rabobank", vatId: "NL998877665B01", address: "Vredenburgkade 11, 3511 Utrecht", notes: "" },
+  { id: "P-008", name: "Zuiderpark, Den Haag", type: "venue", contacts: [{ name: "Maria Visser", email: "maria.zuiderpark@showme.music", phone: "+31 70 555 0401" }], iban: "NL91ABNA0417164302", bankName: "ABN AMRO", vatId: "NL554433221B01", address: "Zuiderpark 1, 2531 Den Haag", notes: "Open air venue" },
+  { id: "P-009", name: "Aurora", type: "performer", contacts: [{ name: "Aurora Aksnes", email: "mgmt.aurora@showme.music", phone: "+47 555 0101" }], iban: "NO9386011117947", bankName: "DNB", vatId: "", address: "Bergen, Norway", notes: "" },
+  { id: "P-010", name: "GoGo Penguin", type: "performer", contacts: [{ name: "Chris Illingworth", email: "info.gogopenguin@showme.music", phone: "+44 161 555 0101" }], iban: "GB29NWBK60161331926819", bankName: "NatWest", vatId: "", address: "Manchester, UK", notes: "" },
+  { id: "P-011", name: "Moderat", type: "performer", contacts: [{ name: "Sascha Ring", email: "booking.moderat@showme.music", phone: "+49 30 555 0101" }], iban: "DE89370400440532013000", bankName: "Commerzbank", vatId: "", address: "Berlin, Germany", notes: "" },
+  { id: "P-012", name: "Fontaines D.C.", type: "performer", contacts: [{ name: "Grian Chatten", email: "info.fontainesdc@showme.music", phone: "+353 1 555 0101" }], iban: "IE29AIBK93115212345678", bankName: "AIB", vatId: "", address: "Dublin, Ireland", notes: "" },
+  { id: "P-013", name: "Bonobo", type: "performer", contacts: [{ name: "Simon Green", email: "mgmt.bonobo@showme.music", phone: "+44 20 555 0102" }], iban: "GB29NWBK60161331926820", bankName: "NatWest", vatId: "", address: "London, UK", notes: "" },
+  { id: "P-023", name: "José González", type: "performer", contacts: [{ name: "José González", email: "info.josegonzalez@showme.music", phone: "+46 31 555 0101" }], iban: "SE3550000000054910000003", bankName: "SEB", vatId: "", address: "Gothenburg, Sweden", notes: "" },
+  { id: "P-024", name: "Noisia", type: "performer", contacts: [{ name: "Thijs de Vlieger", email: "booking.noisia@showme.music", phone: "+31 50 555 0101" }], iban: "NL39RABO0300065280", bankName: "Rabobank", vatId: "NL567890123B01", address: "Groningen, Netherlands", notes: "" },
+  { id: "P-025", name: "Caribou", type: "performer", contacts: [{ name: "Dan Snaith", email: "mgmt.caribou@showme.music", phone: "+44 20 555 0601" }], iban: "GB82WEST12345698765450", bankName: "HSBC", vatId: "", address: "London, UK", notes: "" },
+  { id: "P-026", name: "Islandman", type: "performer", contacts: [{ name: "Tolga Boyuk", email: "info.islandman@showme.music", phone: "+90 212 555 0101" }], iban: "TR330006100519786457841326", bankName: "Garanti BBVA", vatId: "", address: "Istanbul, Turkey", notes: "" },
+  { id: "P-027", name: "Khruangbin", type: "performer", contacts: [{ name: "Mark Speer", email: "booking.khruangbin@showme.music", phone: "+1 713 555 0101" }], iban: "US98765432101234567890", bankName: "Bank of America", vatId: "", address: "Houston, TX, USA", notes: "" },
+  { id: "P-014", name: "Eventbrite", type: "ticketing", contacts: [{ name: "Support NL", email: "support.eventbrite@showme.music", phone: "+31 20 555 0501" }], iban: "NL20INGB0005551234", bankName: "ING", vatId: "NL100200300B01", address: "Amsterdam, NL", notes: "" },
+  { id: "P-015", name: "Ticketmaster", type: "ticketing", contacts: [{ name: "Account Team", email: "accounts.ticketmaster@showme.music", phone: "+31 20 555 0502" }], iban: "NL91ABNA0417164305", bankName: "ABN AMRO", vatId: "NL200300400B01", address: "Amsterdam, NL", notes: "" },
+  { id: "P-016", name: "DICE", type: "ticketing", contacts: [{ name: "Partner Team", email: "partners.dice@showme.music", phone: "+44 20 555 0301" }], iban: "GB82WEST12345698765432", bankName: "HSBC", vatId: "", address: "London, UK", notes: "" },
+  { id: "P-017", name: "See Tickets", type: "ticketing", contacts: [{ name: "NL Office", email: "nl.seetickets@showme.music", phone: "+31 20 555 0503" }], iban: "NL39RABO0300065270", bankName: "Rabobank", vatId: "NL300400500B01", address: "Utrecht, NL", notes: "" },
+  { id: "P-018", name: "Paylogic", type: "ticketing", contacts: [{ name: "Sales", email: "sales.paylogic@showme.music", phone: "+31 20 555 0504" }], iban: "NL20INGB0005559876", bankName: "ING", vatId: "NL400500600B01", address: "Amsterdam, NL", notes: "" },
+  { id: "P-019", name: "WME Agency", type: "agent", contacts: [{ name: "David Chen", email: "dchen.wme@showme.music", phone: "+1 310 555 0101" }], iban: "US12345678901234567890", bankName: "JPMorgan Chase", vatId: "", address: "Beverly Hills, CA, USA", notes: "Handles Aurora & Bonobo bookings" },
+  { id: "P-020", name: "Paradigm Agency", type: "agent", contacts: [{ name: "Emma Wilson", email: "emma.paradigm@showme.music", phone: "+44 20 555 0401" }], iban: "GB29NWBK60161331926825", bankName: "NatWest", vatId: "", address: "London, UK", notes: "" },
+  { id: "P-021", name: "Starlight Mgmt", type: "manager", contacts: [{ name: "Peter Hall", email: "peter.starlight@showme.music", phone: "+44 20 555 0501" }], iban: "GB82WEST12345698765440", bankName: "HSBC", vatId: "", address: "London, UK", notes: "Aurora management" },
+  { id: "P-022", name: "ATC Mgmt", type: "manager", contacts: [{ name: "Sarah Jones", email: "sarah.atc@showme.music", phone: "+44 20 555 0502" }], iban: "GB29NWBK60161331926830", bankName: "NatWest", vatId: "", address: "London, UK", notes: "Bonobo management" },
 ];
 
 // ── Standalone artist profiles (seeded into `profiles` collection) ───────────
@@ -765,18 +765,18 @@ export const seedAgreements: Record<string, Agreement[]> = {
 
 export const seedCrew: Record<string, CrewMember[]> = {
   "EVT-001": [
-    { id: "CR-1", name: "Tom Bakker", role: "Sound Engineer", email: "tom@soundpro.nl", phone: "+31 20 555 1001", collaborator: "Paradiso" },
-    { id: "CR-2", name: "Eva Janssen", role: "Light Engineer", email: "eva@lights.nl", phone: "+31 20 555 1002", collaborator: "Paradiso" },
-    { id: "CR-3", name: "Mike Strand", role: "Tour Manager", email: "mike@aurora-tour.com", phone: "+47 555 2001", collaborator: "Aurora" },
-    { id: "CR-4", name: "Sarah Drums", role: "Drummer", email: "sarah@aurora-band.com", collaborator: "Aurora" },
-    { id: "CR-5", name: "Alex Keys", role: "Keys", email: "alex@aurora-band.com", collaborator: "Aurora" },
+    { id: "CR-1", name: "Tom Bakker", role: "Sound Engineer", email: "tom.soundpro@showme.music", phone: "+31 20 555 1001", collaborator: "Paradiso" },
+    { id: "CR-2", name: "Eva Janssen", role: "Light Engineer", email: "eva.lights@showme.music", phone: "+31 20 555 1002", collaborator: "Paradiso" },
+    { id: "CR-3", name: "Mike Strand", role: "Tour Manager", email: "mike.aurora@showme.music", phone: "+47 555 2001", collaborator: "Aurora" },
+    { id: "CR-4", name: "Sarah Drums", role: "Drummer", email: "sarah.aurora@showme.music", collaborator: "Aurora" },
+    { id: "CR-5", name: "Alex Keys", role: "Keys", email: "alex.aurora@showme.music", collaborator: "Aurora" },
   ],
   "EVT-003": [
-    { id: "CR-6", name: "Hans Müller", role: "VJ / Visuals", email: "hans@moderat-live.com", collaborator: "Moderat" },
+    { id: "CR-6", name: "Hans Müller", role: "VJ / Visuals", email: "hans.moderat@showme.music", collaborator: "Moderat" },
   ],
   "EVT-017": [
-    { id: "CR-17-1", name: "Lars Nilsson", role: "Sound Engineer", email: "lars@soundnl.com", phone: "+31 20 555 2001", collaborator: "The New Test Venue" },
-    { id: "CR-17-2", name: "Daniel Öhman", role: "Tour Manager", email: "daniel.islandman@gmail.com", phone: "+46 70 555 0001", collaborator: "Islandman" },
+    { id: "CR-17-1", name: "Lars Nilsson", role: "Sound Engineer", email: "lars.soundnl@showme.music", phone: "+31 20 555 2001", collaborator: "The New Test Venue" },
+    { id: "CR-17-2", name: "Daniel Öhman", role: "Tour Manager", email: "daniel.islandman@showme.music", phone: "+46 70 555 0001", collaborator: "Islandman" },
   ],
 };
 
@@ -811,13 +811,13 @@ export const seedSchedule: Record<string, ScheduleItem[]> = {
 
 export const seedCollaborators: Record<string, EventCollaborator[]> = {
   "EVT-001": [
-    { id: "COL-1", email: "aurora@aurora-music.com", eventRole: "artist", name: "Aurora", status: "active", invitedAt: "2026-01-15" },
-    { id: "COL-2", email: "sophie@paradiso.nl", eventRole: "venue", name: "Paradiso, Amsterdam", status: "active", invitedAt: "2026-01-15" },
-    { id: "COL-3", email: "dchen@wmeagency.com", eventRole: "agent", name: "WME Agency", status: "active", invitedAt: "2026-01-16" },
+    { id: "COL-1", email: "aurora.collab@showme.music", eventRole: "artist", name: "Aurora", status: "active", invitedAt: "2026-01-15" },
+    { id: "COL-2", email: "sophie.paradiso@showme.music", eventRole: "venue", name: "Paradiso, Amsterdam", status: "active", invitedAt: "2026-01-15" },
+    { id: "COL-3", email: "dchen.wme@showme.music", eventRole: "agent", name: "WME Agency", status: "active", invitedAt: "2026-01-16" },
   ],
   "EVT-003": [
-    { id: "COL-4", email: "booking@moderat.fm", eventRole: "artist", name: "Moderat", status: "active", invitedAt: "2026-02-01" },
-    { id: "COL-5", email: "anna@melkweg.nl", eventRole: "venue", name: "Melkweg, Amsterdam", status: "active", invitedAt: "2026-02-01" },
-    { id: "COL-6", email: "caa@caa.com", eventRole: "agent", name: "CAA", status: "pending", invitedAt: "2026-02-10" },
+    { id: "COL-4", email: "booking.moderat@showme.music", eventRole: "artist", name: "Moderat", status: "active", invitedAt: "2026-02-01" },
+    { id: "COL-5", email: "anna.melkweg@showme.music", eventRole: "venue", name: "Melkweg, Amsterdam", status: "active", invitedAt: "2026-02-01" },
+    { id: "COL-6", email: "caa.agency@showme.music", eventRole: "agent", name: "CAA", status: "pending", invitedAt: "2026-02-10" },
   ],
 };

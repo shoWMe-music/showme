@@ -483,7 +483,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
     const hasDateChange = dateFields.some(f => f in editEvent && (editEvent as Record<string, unknown>)[f] !== (event as Record<string, unknown>)[f]);
     if (hasDateChange && collaborators) {
       const myProfileIds = Object.values(profiles).map((p) => p.id).filter(Boolean) as string[];
-      const parties = getDateChangeParties(event, collaborators, myProfileIds);
+      const parties = getDateChangeParties(event, collaborators, myProfileIds, childEvents);
       if (parties.length > 0) {
         setPendingDateEditEvent({ ...editEvent });
         setDateChangePartyNames(parties.map(p => `${p.profileName} (${p.role})`));

@@ -22,7 +22,7 @@
     "test:watch": "vitest",
     "test:e2e": "npx playwright test --project=app",
     "test:e2e:all": "npx playwright test",
-    "deploy": "bash -c 'source ~/.nvm/nvm.sh && nvm use 22 >/dev/null && firebase deploy --only hosting,functions'"
+    "deploy": "bash -c 'source ~/.nvm/nvm.sh && nvm use 22 >/dev/null && firebase deploy --only hosting,functions,firestore:indexes,firestore:rules'"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

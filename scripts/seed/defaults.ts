@@ -5,7 +5,7 @@
 
 export const SEED_USER_SETTINGS = {
   name: "Daniel Islandman",
-  email: "daniel.islandman@gmail.com",
+  email: "daniel.islandman@showme.music",
   initials: "DI",
   roles: ["venue", "performer", "promoter"],
   currency: "EUR",
