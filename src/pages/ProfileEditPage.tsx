@@ -154,7 +154,6 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
   // spotifyUrl is now derived from socialLinks with platform "Spotify"
   const spotifyUrl = data.socialLinks?.find(l => l.platform.toLowerCase() === "spotify")?.url || "";
   const [newAmenity, setNewAmenity] = useState("");
-  const [newDealType, setNewDealType] = useState("");
   const [newVideoUrl, setNewVideoUrl] = useState("");
   const [newDocName, setNewDocName] = useState("");
   const [newDocType, setNewDocType] = useState<ProfileDocument["type"]>("other");
@@ -686,13 +685,11 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
                 );
               })}
             </div>
-            <div className="flex gap-2">
-              <Input value={newDealType} onChange={e => setNewDealType(e.target.value)} placeholder="Add custom deal type" className="max-w-xs" onKeyDown={e => {
-                if (e.key === "Enter" && newDealType.trim()) { setData(p => ({ ...p, dealTypes: [...(p.dealTypes || []), newDealType.trim()] })); setNewDealType(""); }
-              }} />
-              <Button variant="outline" size="sm" onClick={() => { if (newDealType.trim()) { setData(p => ({ ...p, dealTypes: [...(p.dealTypes || []), newDealType.trim()] })); setNewDealType(""); } }}><Plus className="h-4 w-4" /></Button>
-            </div>
-{(data.dealTypes || []).filter(dt => !["Door Split", "Guarantee + Door Split", "Rental", "Guarantee"].includes(dt)).length > 0 && (
+            {/* Custom deal types are read-only — the "Add custom deal type"
+                input was removed pending the Performance Bonus tiered-deal
+                rebuild (deferred to Wave 8). Existing custom deals on the
+                profile still load and render here as removable badges. */}
+            {(data.dealTypes || []).filter(dt => !["Door Split", "Guarantee + Door Split", "Rental", "Guarantee"].includes(dt)).length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-3">
                 {(data.dealTypes || []).filter(dt => !["Door Split", "Guarantee + Door Split", "Rental", "Guarantee"].includes(dt)).map((dt, i) => (
                   <Badge key={i} variant="outline" className="text-xs gap-1">

@@ -112,6 +112,27 @@ describe("ProfileEditPage — venue capacity setups (Wave 5 B4)", () => {
     expect(nameInput.value).toBe("Main");
   });
 
+  it("does NOT render the 'Add custom deal type' input on a venue profile (Wave 7 C1)", () => {
+    // C1: the "Add custom deal type" input + button were removed because the
+    // Performance Bonus tiered-deal rebuild was deferred to Wave 8. Existing
+    // custom deals on the profile must still render as removable badges.
+    mockUseUser.mockReturnValue({
+      profiles: { venue: makeVenueProfile({ dealTypes: ["Door Split", "Sponsored Showcase"] }) },
+      setProfiles: mockSetProfiles,
+      saveProfile: mockSaveProfile,
+      loaded: true,
+    });
+
+    render(<ProfileEditPage />);
+
+    // The placeholder is gone — no "Add custom deal type" input survives.
+    expect(screen.queryByPlaceholderText(/Add custom deal type/i)).toBeNull();
+
+    // But the existing custom deal "Sponsored Showcase" still shows as a badge
+    // so legacy data isn't hidden from the user.
+    expect(screen.getByText(/Sponsored Showcase/i)).toBeInTheDocument();
+  });
+
   it("preserves existing venueCapacitySetups on the profile", () => {
     mockUseUser.mockReturnValue({
       profiles: {
