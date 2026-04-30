@@ -564,6 +564,10 @@ export interface Contact {
   vatId: string;
   address: string;
   notes: string;
+  /** Code of the invitation this contact was auto-created from (Wave 7). */
+  invitationCode?: string;
+  /** Mirrors the linked InvitationCode.status so list-page filters can avoid a join. */
+  invitationStatus?: "active" | "used" | "accepted" | "revoked";
 }
 
 export const contactTypeLabels: Record<string, string> = {
@@ -575,6 +579,38 @@ export const contactTypeLabels: Record<string, string> = {
   manager: "Manager",
   production: "Production Company",
 };
+
+// ── Public request form types ──
+
+export interface SocialLink {
+  platform: string;
+  url: string;
+}
+
+export interface BookingRequest {
+  id: string;
+  created_at: string;
+  name: string;
+  email: string;
+  phone: string;
+  artist_name: string;
+  wanted_date: string;
+  artist_fee: number | null;
+  note: string;
+  target_profile_slug: string;
+  target_role: string;
+  status: string;
+  source: string;
+  event_id: string;
+  music_url?: string;
+  video_url?: string;
+  // Wave 7 additions — public request form
+  sender_type?: string;
+  genres?: string[];
+  performer_type?: string;
+  website_url?: string;
+  social_links?: SocialLink[];
+}
 
 // ── Event Manager extended types ──
 

@@ -1443,6 +1443,8 @@ export interface PendingDateChange {
 export interface EventMeta {
   // Details tab
   amenities?: string[];
+  cateringNotes?: string;
+  accommodationNotes?: string;
   expenses?: { id: string; label: string; amount: number; currency: string }[];
   guestList?: { enabled: boolean; total: number; names: string[] } | null;
   // Agreement tab
@@ -2252,7 +2254,7 @@ export async function fetchCollaboratorAgreementDraft(
 
 export interface InvitationCode {
   code: string;
-  status: "active" | "used" | "revoked";
+  status: "active" | "used" | "accepted" | "revoked";
   createdAt: string;
   createdByUid: string;
   usedByUid?: string;
@@ -2260,6 +2262,8 @@ export interface InvitationCode {
   expiresAt?: string;
   linkedProfileId?: string;
   linkedEventId?: string;
+  /** Contact card auto-created when this code was issued (Wave 7). */
+  linkedContactId?: string;
   source: "collaborator_invite" | "admin" | "team";
   sourceCollaboratorInviteToken?: string;
   recipientEmail?: string;

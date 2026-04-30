@@ -18,27 +18,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { cn } from "@/lib/utils";
 import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 import { useUser } from "@/lib/user-context";
-import { formatCurrency, type Event } from "@/lib/models";
+import { formatCurrency, type BookingRequest, type Event } from "@/lib/models";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-
-interface BookingRequest {
-  id: string;
-  created_at: string;
-  name: string;
-  email: string;
-  phone: string;
-  artist_name: string;
-  wanted_date: string;
-  artist_fee: number | null;
-  note: string;
-  target_profile_slug: string;
-  target_role: string;
-  status: string;
-  source: string;
-  event_id: string;
-  music_url?: string;
-  video_url?: string;
-}
 
 type BookingRequestUpdate = Partial<Pick<BookingRequest, "status" | "event_id">>;
 
