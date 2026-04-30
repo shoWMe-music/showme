@@ -29,26 +29,19 @@ interface MarkPendingDialogProps {
   sourceRequestId: string | undefined;
   sourceRequestDate: string | undefined;
   updateEvent: (id: string, updates: Partial<AppEvent>) => void;
-  user: User | null;
-  eventName: string;
-  queryClient: QueryClient;
-  onCollaboratorAdded?: () => void;
-  senderName: string;
 }
 
 function resolveActivation(
   event: AppEvent,
   sourceRequestId: string | undefined,
   sourceRequestDate: string | undefined,
-): { targetStatus: EventStatus; description: string; needsInvitationForm: boolean } {
+): { targetStatus: EventStatus; description: string } {
   const fromRequest = !!sourceRequestId;
-  const onPlatform = !!event.performerProfileId;
 
   if (event.eventStatus === "suggested") {
     return {
       targetStatus: "pending",
       description: "This will advance the event to Pending, indicating you're moving forward. The performer will be notified of the status change.",
-      needsInvitationForm: false,
     };
   }
 
@@ -59,47 +52,33 @@ function resolveActivation(
     return {
       targetStatus,
       description: `The date was changed from the original request (${sourceRequestDate}), so this will be sent as a counter-proposal. The performer can accept or decline the new date.`,
-      needsInvitationForm: false,
     };
   }
   if (fromRequest) {
     return {
       targetStatus,
       description: "This accepts the booking request as-is. The event will move to Pending.",
-      needsInvitationForm: false,
     };
   }
 
-  if (onPlatform) {
-    return {
-      targetStatus,
-      description: "This performer is already on shoWMe. They will be notified about this event.",
-      needsInvitationForm: false,
-    };
-  }
-
+  // No performer linked + no booking request: routed to InviteCollaboratorDialog
+  // upstream, so this dialog is only used when a performer is on the platform.
   return {
     targetStatus,
-    description: "Enter the performer's email to send them an invitation to this event on shoWMe.",
-    needsInvitationForm: true,
+    description: "This performer is already on shoWMe. They will be notified about this event.",
   };
 }
 
 export function MarkPendingDialog({
   open, onOpenChange, event, sourceRequestId, sourceRequestDate, updateEvent,
-  user, eventName, queryClient, onCollaboratorAdded, senderName,
 }: MarkPendingDialogProps) {
   const [notify, setNotify] = useState(true);
-  const [email, setEmail] = useState("");
-  const [message, setMessage] = useState("");
-  const [sending, setSending] = useState(false);
 
-  const { targetStatus, description, needsInvitationForm } = resolveActivation(event, sourceRequestId, sourceRequestDate);
+  const { targetStatus, description } = resolveActivation(event, sourceRequestId, sourceRequestDate);
 
   const fromRequest = !!sourceRequestId;
   const dateChanged = fromRequest && sourceRequestDate && event.date !== sourceRequestDate;
   const isAcceptingRequest = fromRequest && !dateChanged && event.eventStatus === "draft";
-
   const onPlatform = !!event.performerProfileId;
 
   const title = event.eventStatus === "suggested"
@@ -108,9 +87,7 @@ export function MarkPendingDialog({
       ? "Accept Request"
       : dateChanged
         ? "Counter-Propose"
-        : onPlatform
-          ? "Notify Performer"
-          : "Invite Performer";
+        : "Notify Performer";
 
   const buttonLabel = event.eventStatus === "suggested"
     ? "Mark as Pending"
@@ -118,71 +95,23 @@ export function MarkPendingDialog({
       ? "Accept Request"
       : dateChanged
         ? "Send Counter-Proposal"
-        : onPlatform
-          ? "Suggest to Performer"
-          : "Send Invitation";
+        : "Suggest to Performer";
 
-  const canConfirm = needsInvitationForm ? email.trim().length > 0 : true;
-
-  const handleConfirm = async () => {
-    if (needsInvitationForm && user) {
-      setSending(true);
-      try {
-        const result = await createPerformerInvitation({
-          eventId: event.id,
-          email: email.trim(),
-          displayName: event.artist || email.trim().split("@")[0],
-          userUid: user.uid,
-          queryClient,
-          message: message.trim(),
-          onCollaboratorAdded,
-        });
-
-        if (!result) {
-          toast({ title: "Error", description: "Failed to create invitation. Please try again.", variant: "destructive" });
-          setSending(false);
-          return;
-        }
-
-        if (notify) {
-          await sendPerformerInvitationEmail({
-            code: result.code,
-            recipientEmail: email.trim(),
-            recipientName: event.artist || email.trim().split("@")[0],
-            eventName,
-            senderName,
-            message: message.trim() || undefined,
-          });
-        }
-      } catch {
-        toast({ title: "Error", description: "Failed to create invitation.", variant: "destructive" });
-        setSending(false);
-        return;
-      }
-      setSending(false);
-    }
-
+  const handleConfirm = () => {
     updateEvent(event.id, {
       eventStatus: targetStatus,
-      ...(notify && !needsInvitationForm ? { notifyPerformerOnActivation: true } : {}),
+      ...(notify ? { notifyPerformerOnActivation: true } : {}),
     } as Partial<AppEvent>);
 
-    const msg = needsInvitationForm
-      ? "Invitation sent to the performer."
-      : notify
-        ? (event.performerProfileId ? "The performer has been notified." : "An invitation will be sent.")
-        : "No notification will be sent.";
+    const msg = notify
+      ? (onPlatform ? "The performer has been notified." : "An invitation will be sent.")
+      : "No notification will be sent.";
     toast({ title: isAcceptingRequest ? "Request accepted" : `Event marked as ${targetStatus}`, description: msg });
     onOpenChange(false);
   };
 
   const handleOpenChange = (v: boolean) => {
-    if (!v) {
-      setNotify(true);
-      setEmail("");
-      setMessage("");
-      setSending(false);
-    }
+    if (!v) setNotify(true);
     onOpenChange(v);
   };
 
@@ -194,49 +123,23 @@ export function MarkPendingDialog({
           <DialogDescription asChild>
             <div className="space-y-2 text-sm text-muted-foreground">
               <p>{description}</p>
-              {!needsInvitationForm && <p>You can still make changes after this.</p>}
+              <p>You can still make changes after this.</p>
             </div>
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          {needsInvitationForm && (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="performer-email">Email (required)</Label>
-                <Input
-                  id="performer-email"
-                  type="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  autoFocus
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="performer-message">Message (optional)</Label>
-                <Textarea
-                  id="performer-message"
-                  placeholder="Add a personal message..."
-                  value={message}
-                  onChange={e => setMessage(e.target.value)}
-                  rows={3}
-                />
-              </div>
-            </>
-          )}
           <div className="flex items-center gap-3">
             <Switch id="notify-toggle" checked={notify} onCheckedChange={setNotify} />
             <Label htmlFor="notify-toggle" className="cursor-pointer font-normal text-foreground text-sm">
-              {needsInvitationForm ? "Send email invitation" : (event.performerProfileId ? "Notify performer" : "Send email invitation")}
+              {onPlatform ? "Notify performer" : "Send email invitation"}
             </Label>
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => handleOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleConfirm} disabled={!canConfirm || sending}>
-            {sending ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Sending...</> : buttonLabel}
-          </Button>
+          <Button onClick={handleConfirm}>{buttonLabel}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

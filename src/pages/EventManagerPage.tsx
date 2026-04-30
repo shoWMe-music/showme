@@ -37,6 +37,11 @@ export default function EventManagerPage() {
   const updateEventMutation = useUpdateEvent();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteDefaults, setInviteDefaults] = useState<{ role?: string; name?: string; eventId?: string }>({});
+  // Set when the rich invite dialog is opened from the "Suggest to Performer"
+  // button (no performer linked yet). On successful invitation, the parent
+  // event must flip from draft → suggested. The MarkPendingDialog confirm path
+  // doesn't cover this case anymore; the rich dialog does.
+  const [flipToSuggestedOnInvite, setFlipToSuggestedOnInvite] = useState(false);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [markPendingOpen, setMarkPendingOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -104,6 +109,27 @@ export default function EventManagerPage() {
 
   const { event, id } = em;
   const onSaveMeta = (d: Partial<EventMeta>) => { if (id) em.updateEventMeta(id, d); };
+
+  // "Suggest to Performer" — when no performer is linked and there's no source
+  // request, the user is really trying to invite someone. Route to the rich
+  // InviteCollaboratorDialog so the experience matches inviting a collaborator
+  // from the performer card. Status flip happens in onCollaboratorAdded.
+  const handleMarkPendingClick = () => {
+    if (em.isParent) {
+      setMarkPendingOpen(true);
+      return;
+    }
+    const fromRequest = !!em.effectiveSourceRequestId;
+    const onPlatform = !!event.performerProfileId;
+    const needsInvitation = event.eventStatus === "draft" && !fromRequest && !onPlatform;
+    if (needsInvitation) {
+      setFlipToSuggestedOnInvite(true);
+      setInviteDefaults({ role: "Performer", name: event.artist, eventId: id });
+      setInviteOpen(true);
+      return;
+    }
+    setMarkPendingOpen(true);
+  };
   const handleCreateTeamMember = (name: string) => {
     em.addTeamMember({
       id: `TM-${Date.now()}`,
@@ -137,7 +163,7 @@ export default function EventManagerPage() {
           resolveHoldRankConflicts={em.resolveHoldRankConflicts}
           togglePublish={em.togglePublish}
           onInviteOpen={() => setInviteOpen(true)}
-          onMarkPendingOpen={() => setMarkPendingOpen(true)}
+          onMarkPendingOpen={handleMarkPendingClick}
           onExportOpen={() => setExportOpen(true)}
           onArchiveOpen={() => setArchiveConfirmOpen(true)}
           onDuplicate={() => setDuplicateOpen(true)}
@@ -286,11 +312,17 @@ export default function EventManagerPage() {
         {em.activeTab === "messages" && <EventMessages eventId={id} />}
         {em.activeTab === "changelog" && <EventChangeLogTab eventId={id} isPerformer={em.isPerformer} childEvents={em.isParent ? em.childEvents : undefined} />}
 
-        <InviteCollaboratorDialog open={inviteOpen} onOpenChange={(v) => { setInviteOpen(v); if (!v) setInviteDefaults({}); }} eventName={event.name} eventId={inviteDefaults.eventId || id} defaultRole={inviteDefaults.role} defaultName={inviteDefaults.name} onCollaboratorAdded={() => {
+        <InviteCollaboratorDialog open={inviteOpen} onOpenChange={(v) => { setInviteOpen(v); if (!v) { setInviteDefaults({}); setFlipToSuggestedOnInvite(false); } }} eventName={event.name} eventId={inviteDefaults.eventId || id} defaultRole={inviteDefaults.role} defaultName={inviteDefaults.name} onCollaboratorAdded={() => {
           em.refreshCollaborators();
-          // When inviting a performer on a child event that's still in draft, promote it to suggested
           const targetId = inviteDefaults.eventId;
-          if (targetId && targetId !== id) {
+          // "Suggest to Performer" routed here because no performer was linked.
+          // Promote the (single) event from draft → suggested now that the
+          // invitation exists.
+          if (flipToSuggestedOnInvite && targetId === id && event.eventStatus === "draft") {
+            em.updateEvent(id, { eventStatus: "suggested" });
+            setFlipToSuggestedOnInvite(false);
+          } else if (targetId && targetId !== id) {
+            // Inviting a performer on a child event that's still in draft — promote it to suggested
             const child = em.childEvents.find(c => c.id === targetId);
             if (child && child.eventStatus === "draft") {
               em.updateEvent(targetId, { eventStatus: "suggested" });
@@ -301,7 +333,7 @@ export default function EventManagerPage() {
         {em.isParent ? (
           <SuggestToPerformersDialog open={markPendingOpen} onOpenChange={setMarkPendingOpen} parentEventId={id} childEvents={em.childEvents} updateEvent={em.updateEvent} user={em.user} eventName={event.name} queryClient={queryClient} onCollaboratorAdded={em.refreshCollaborators} senderName={em.currentUser?.name || em.user?.displayName || em.user?.email || "A shoWMe user"} />
         ) : (
-          <MarkPendingDialog open={markPendingOpen} onOpenChange={setMarkPendingOpen} event={event} sourceRequestId={em.effectiveSourceRequestId} sourceRequestDate={em.effectiveSourceRequestDate} updateEvent={em.updateEvent} user={em.user} eventName={event.name} queryClient={queryClient} onCollaboratorAdded={em.refreshCollaborators} senderName={em.currentUser?.name || em.user?.displayName || em.user?.email || "A shoWMe user"} />
+          <MarkPendingDialog open={markPendingOpen} onOpenChange={setMarkPendingOpen} event={event} sourceRequestId={em.effectiveSourceRequestId} sourceRequestDate={em.effectiveSourceRequestDate} updateEvent={em.updateEvent} />
         )}
         <ArchiveDialog open={archiveConfirmOpen} onOpenChange={setArchiveConfirmOpen} eventId={id} event={event} user={em.user} archiveMutate={em.archiveEventMutation.mutate} />
 
