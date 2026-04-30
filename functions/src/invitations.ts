@@ -277,18 +277,23 @@ export const claimInvitationCode = onCall<ClaimInvitationCodeData, Promise<Claim
         const newProfileId = `${uid}__${role}`;
         const newProfileRef = db().collection("profiles").doc(newProfileId);
 
-        // Create new profile with transferred data
+        // Create new profile with transferred data. `created: true` makes the
+        // profile visible in the UI (every list/page filters by `p.created`).
         await newProfileRef.set({
           ...oldData,
           owner_uid: uid,
           unclaimed: false,
+          created: true,
+          updatedAt: FieldValue.serverTimestamp(),
         });
 
-        // Create owner member doc
+        // Create owner member doc — shape must match `ensureProfileOwnerMember`
+        // in `src/lib/profiles/members.ts` (schemaVersion + updatedAt).
         await newProfileRef.collection("members").doc(uid).set({
           user_uid: uid,
           role: "owner",
-          joinedAt: FieldValue.serverTimestamp(),
+          schemaVersion: 1,
+          updatedAt: FieldValue.serverTimestamp(),
         });
 
         // Update event access if linked to an event
