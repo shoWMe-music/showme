@@ -1,5 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, fireEvent, act } from "@testing-library/react";
+
+// jsdom doesn't ship ResizeObserver, but cmdk (the Command/Popover engine
+// behind the genre picker) requires it. Stub it before any component uses it.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+if (typeof globalThis.ResizeObserver === "undefined") {
+  // @ts-expect-error — augmenting the global for jsdom only.
+  globalThis.ResizeObserver = ResizeObserverStub;
+}
+
+// Radix Popover also reads scrollIntoView on the active item; jsdom omits it.
+if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = function scrollIntoView() {};
+}
+
+// Radix Popover uses pointer-event APIs that jsdom doesn't fully implement.
+if (typeof Element !== "undefined" && !Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = function hasPointerCapture() { return false; };
+}
+if (typeof Element !== "undefined" && !Element.prototype.releasePointerCapture) {
+  Element.prototype.releasePointerCapture = function releasePointerCapture() {};
+}
 
 // ── Mocks ─────────────────────────────────────────────────────────────────
 // Avoid pulling firebase/firestore in through @/lib/db.
@@ -23,7 +48,7 @@ vi.mock("@/hooks/use-toast", () => ({
   toast: vi.fn(),
 }));
 
-import RequestDateForm from "./RequestDateForm";
+import RequestDateForm, { RequestFormGenrePicker, REQUEST_FORM_GENRE_CAP } from "./RequestDateForm";
 import {
   SENDER_TYPE_FOR_VENUE,
   SENDER_TYPE_FOR_PERFORMER,
@@ -178,3 +203,55 @@ describe("RequestDateForm — auth-prompt banner (A2)", () => {
     expect(screen.queryByTestId("request-form-auth-prompt")).not.toBeInTheDocument();
   });
 });
+
+// A3 — genres cap. We exercise the picker directly with a controlled value:
+// once it holds REQUEST_FORM_GENRE_CAP items the "Add genre" trigger must be
+// disabled. We also assert the cap constant matches the spec (5).
+describe("RequestDateForm — genres cap (A3)", () => {
+  beforeEach(() => {
+    mockUseUser.mockReset();
+    setUser();
+  });
+
+  it("exposes a cap of 5 genres via REQUEST_FORM_GENRE_CAP", () => {
+    expect(REQUEST_FORM_GENRE_CAP).toBe(5);
+  });
+
+  it("disables the Add Genre trigger and surfaces the cap label once 5 are picked", () => {
+    const onChange = vi.fn();
+    const fiveGenres = ["Rock", "Indie Rock", "Jazz", "Pop", "Hip Hop"];
+
+    render(<RequestFormGenrePicker genres={fiveGenres} onChange={onChange} />);
+
+    // Cap label.
+    expect(screen.getByText(/Genres \(5\/5\)/i)).toBeInTheDocument();
+
+    // Trigger is disabled.
+    const trigger = screen.getByRole("button", { name: /Add genre/i });
+    expect(trigger).toBeDisabled();
+
+    // Each chip is rendered with a Remove button.
+    for (const g of fiveGenres) {
+      expect(screen.getByLabelText(`Remove ${g}`)).toBeInTheDocument();
+    }
+  });
+
+  it("renders all chips and exposes one Remove control per chip below the cap", () => {
+    const onChange = vi.fn();
+    render(<RequestFormGenrePicker genres={["Rock", "Jazz"]} onChange={onChange} />);
+
+    expect(screen.getByText(/Genres \(2\/5\)/i)).toBeInTheDocument();
+    const trigger = screen.getByRole("button", { name: /Add genre/i });
+    expect(trigger).not.toBeDisabled();
+
+    // Remove the second chip via the visible button. onChange should fire
+    // with the remaining single genre so the parent can persist the change.
+    fireEvent.click(screen.getByLabelText("Remove Jazz"));
+    expect(onChange).toHaveBeenCalledWith(["Rock"]);
+  });
+});
+
+// Silence linter for unused `act`/`within` imports in the test variants
+// above when they're only used by sibling tests.
+void act;
+void within;

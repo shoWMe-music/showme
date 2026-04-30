@@ -1,22 +1,49 @@
 import { useState, useEffect, useMemo } from "react";
 import { useMutation } from "@tanstack/react-query";
+import { Plus, X, Trash2, ChevronsUpDown, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { toast } from "@/hooks/use-toast";
 import { insertPublicBookingRequest } from "@/lib/db";
 import { useUser } from "@/lib/user-context";
 import {
   SENDER_TYPE_FOR_VENUE,
   SENDER_TYPE_FOR_PERFORMER,
+  PERFORMER_TYPE,
   senderTypeForVenueLabels,
   senderTypeForPerformerLabels,
+  performerTypeLabels,
 } from "@/lib/enums";
+import { GENRE_CATEGORIES, ALL_GENRES } from "@/lib/genres";
+import type { SocialLink } from "@/lib/models";
+import { cn } from "@/lib/utils";
 
 const CURRENCY_SYMBOLS: Record<string, string> = { EUR: "€", USD: "$", GBP: "£", SEK: "kr" };
+
+const SOCIAL_PLATFORM_OPTIONS = [
+  "Spotify",
+  "Apple Music",
+  "YouTube Music",
+  "SoundCloud",
+  "Bandcamp",
+  "Tidal",
+  "Deezer",
+  "Instagram",
+  "Facebook",
+  "TikTok",
+  "X",
+  "YouTube",
+  "Website",
+];
+
+export const REQUEST_FORM_GENRE_CAP = 5;
 
 interface RequestDateFormProps {
   open: boolean;
@@ -44,6 +71,10 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
   const [note, setNote] = useState("");
   const [musicUrl, setMusicUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
+  const [genres, setGenres] = useState<string[]>([]);
+  const [performerType, setPerformerType] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState("");
+  const [socialLinks, setSocialLinks] = useState<SocialLink[]>([]);
 
   // Sender-type vocabulary depends on whether we're requesting a venue or a performer.
   const senderTypeOptions = useMemo(() => {
@@ -56,6 +87,10 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
     return [];
   }, [targetRole]);
 
+  // Performer-type field is only meaningful when a performer-side actor is
+  // requesting a venue date — it tells the venue what kind of act to expect.
+  const showPerformerType = targetRole === "venue";
+
   const submitMutation = useMutation({
     mutationFn: (data: Parameters<typeof insertPublicBookingRequest>[0]) => insertPublicBookingRequest(data),
     onSuccess: () => {
@@ -63,6 +98,7 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
       onOpenChange(false);
       setSenderType("");
       setName(""); setEmail(""); setPhone(""); setArtistName(""); setWantedDate(""); setArtistFee(""); setNote(""); setMusicUrl(""); setVideoUrl("");
+      setGenres([]); setPerformerType(""); setWebsiteUrl(""); setSocialLinks([]);
       onSuccess?.();
     },
     onError: (err: Error) => {
@@ -87,6 +123,10 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
       toast({ title: "Cannot send request", description: "Missing operator context. Open this form from a profile or availability link.", variant: "destructive" });
       return;
     }
+    // Drop empty social-link rows so they never reach Firestore.
+    const cleanSocialLinks = socialLinks
+      .map((l) => ({ platform: l.platform.trim(), url: l.url.trim() }))
+      .filter((l) => l.url);
     submitMutation.mutate({
       sender_type: senderType.trim(),
       name: name.trim(),
@@ -98,6 +138,10 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
       note: note.trim(),
       music_url: musicUrl.trim(),
       video_url: videoUrl.trim(),
+      genres,
+      performer_type: showPerformerType ? performerType.trim() : "",
+      website_url: websiteUrl.trim(),
+      social_links: cleanSocialLinks,
       target_profile_slug: targetProfileSlug,
       target_role: targetRole,
       source,
@@ -105,11 +149,9 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
     });
   };
 
-  const senderTypePromptLabel = targetRole === "venue"
+  const senderTypePromptLabel = targetRole === "venue" || targetRole === "performer"
     ? "I am a... *"
-    : targetRole === "performer"
-      ? "I am a... *"
-      : "Sender type *";
+    : "Sender type *";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -169,6 +211,22 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
             <Label className="text-xs">Performer Name *</Label>
             <Input value={artistName} onChange={e => setArtistName(e.target.value)} placeholder="Artist or performer name" className="mt-0.5 h-8 text-sm" />
           </div>
+          {showPerformerType && (
+            <div>
+              <Label className="text-xs">Performer Type</Label>
+              <Select value={performerType} onValueChange={setPerformerType}>
+                <SelectTrigger className="mt-0.5 h-8 text-sm" aria-label="Performer type">
+                  <SelectValue placeholder="What kind of act?" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PERFORMER_TYPE.map((value) => (
+                    <SelectItem key={value} value={value}>{performerTypeLabels[value]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <RequestFormGenrePicker genres={genres} onChange={setGenres} />
           <div>
             <Label className="text-xs">Performer Fee ({currency}, optional)</Label>
             <div className="relative mt-0.5">
@@ -187,6 +245,11 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
             </div>
           </div>
           <div>
+            <Label className="text-xs">Website</Label>
+            <Input value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)} placeholder="https://..." className="mt-0.5 h-8 text-sm" />
+          </div>
+          <RequestFormSocialLinks links={socialLinks} onChange={setSocialLinks} />
+          <div>
             <Label className="text-xs">Note</Label>
             <Textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Additional details..." className="mt-0.5 text-sm" rows={2} />
           </div>
@@ -197,5 +260,183 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── Genre picker (capped at REQUEST_FORM_GENRE_CAP) ──
+//
+// Mirrors the ProfileEditPage chip/popover UX but caps selection at 5. The
+// "Add genre" trigger disables once the cap is reached so the user gets a
+// silent, predictable ceiling rather than a noisy validation error.
+
+export function RequestFormGenrePicker({ genres, onChange }: {
+  genres: string[];
+  onChange: (genres: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const atCap = genres.length >= REQUEST_FORM_GENRE_CAP;
+
+  const addGenre = (genre: string) => {
+    if (atCap) {
+      toast({ title: `Up to ${REQUEST_FORM_GENRE_CAP} genres`, variant: "destructive" });
+      return;
+    }
+    if (!genres.includes(genre)) {
+      onChange([...genres, genre]);
+    }
+    setSearch("");
+    setOpen(false);
+  };
+
+  const removeGenre = (index: number) => {
+    onChange(genres.filter((_, i) => i !== index));
+  };
+
+  const searchLower = search.toLowerCase();
+  const hasExactMatch = ALL_GENRES.some((g) => g.toLowerCase() === searchLower);
+
+  return (
+    <div>
+      <Label className="text-xs">Genres ({genres.length}/{REQUEST_FORM_GENRE_CAP})</Label>
+      <div className="mt-0.5 flex flex-wrap gap-1.5" data-testid="request-form-genres">
+        {genres.map((g, i) => (
+          <Badge key={g} variant="outline" className="text-xs gap-1">
+            {g}
+            <button type="button" aria-label={`Remove ${g}`} onClick={() => removeGenre(i)}>
+              <X className="h-3 w-3" />
+            </button>
+          </Badge>
+        ))}
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5"
+              disabled={atCap}
+              aria-label="Add genre"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add genre
+              <ChevronsUpDown className="ml-1 h-3 w-3 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-72 p-0" align="start">
+            <Command shouldFilter={false}>
+              <CommandInput placeholder="Search genres..." value={search} onValueChange={setSearch} />
+              <CommandList>
+                <CommandEmpty>
+                  {search.trim() ? (
+                    <button
+                      type="button"
+                      className="w-full px-2 py-1.5 text-sm text-left hover:bg-accent rounded-sm"
+                      onClick={() => addGenre(search.trim())}
+                    >
+                      Add &quot;{search.trim()}&quot; as custom genre
+                    </button>
+                  ) : (
+                    "No genres found."
+                  )}
+                </CommandEmpty>
+                {GENRE_CATEGORIES.map((cat) => {
+                  const filtered = cat.genres.filter((g) => !searchLower || g.toLowerCase().includes(searchLower));
+                  if (filtered.length === 0) return null;
+                  return (
+                    <CommandGroup key={cat.name} heading={cat.name}>
+                      {filtered.map((genre) => {
+                        const selected = genres.includes(genre);
+                        return (
+                          <CommandItem
+                            key={genre}
+                            value={genre}
+                            onSelect={() => addGenre(genre)}
+                            className={cn(selected && "opacity-50")}
+                          >
+                            <Check className={cn("mr-2 h-3.5 w-3.5", selected ? "opacity-100" : "opacity-0")} />
+                            {genre}
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  );
+                })}
+                {search.trim() && !hasExactMatch && !genres.includes(search.trim()) && (
+                  <CommandGroup heading="Custom">
+                    <CommandItem value={`custom-${search.trim()}`} onSelect={() => addGenre(search.trim())}>
+                      <Plus className="mr-2 h-3.5 w-3.5" />
+                      Add &quot;{search.trim()}&quot;
+                    </CommandItem>
+                  </CommandGroup>
+                )}
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+      </div>
+    </div>
+  );
+}
+
+// ── Social links (mirror of ProfileEditPage's editor) ──
+
+function RequestFormSocialLinks({ links, onChange }: {
+  links: SocialLink[];
+  onChange: (links: SocialLink[]) => void;
+}) {
+  return (
+    <div>
+      <Label className="text-xs">Social Links</Label>
+      <div className="mt-0.5 space-y-1.5" data-testid="request-form-social-links">
+        {links.map((link, i) => (
+          <div key={i} className="flex items-center gap-1.5 rounded-lg border px-2 py-1">
+            <Select
+              value={link.platform}
+              onValueChange={(v) => {
+                const updated = [...links];
+                updated[i] = { ...updated[i], platform: v };
+                onChange(updated);
+              }}
+            >
+              <SelectTrigger className="h-7 w-32 text-xs" aria-label={`Social link ${i + 1} platform`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SOCIAL_PLATFORM_OPTIONS.map((pl) => (
+                  <SelectItem key={pl} value={pl}>{pl}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              value={link.url}
+              onChange={(e) => {
+                const updated = [...links];
+                updated[i] = { ...updated[i], url: e.target.value };
+                onChange(updated);
+              }}
+              placeholder="https://..."
+              className="h-7 flex-1 text-xs"
+            />
+            <button
+              type="button"
+              aria-label={`Remove social link ${i + 1}`}
+              onClick={() => onChange(links.filter((_, j) => j !== i))}
+            >
+              <Trash2 className="h-3.5 w-3.5 text-destructive" />
+            </button>
+          </div>
+        ))}
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="mt-1.5 h-7 gap-1.5"
+        onClick={() => onChange([...links, { platform: "Instagram", url: "" }])}
+      >
+        <Plus className="h-3.5 w-3.5" /> Add link
+      </Button>
+    </div>
   );
 }
