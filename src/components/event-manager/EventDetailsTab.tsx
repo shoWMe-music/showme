@@ -142,6 +142,41 @@ export function canSeePerformerCommissions(args: {
   return false;
 }
 
+/**
+ * C5 — Add a custom (free-text) amenity string to the existing list.
+ * Trims whitespace, ignores empty input, and de-duplicates against both
+ * standard AmenityKey entries and existing custom strings (case-sensitive,
+ * exact match).
+ *
+ * Pure helper exported for unit testing.
+ */
+export function addCustomAmenity(amenities: string[], raw: string): string[] {
+  const v = raw.trim();
+  if (!v) return amenities;
+  if (amenities.includes(v)) return amenities;
+  return [...amenities, v];
+}
+
+/** C5 — True iff `key` is one of the standard AmenityKey enum values. */
+export function isStandardAmenityKey(key: string): key is AmenityKey {
+  return Object.prototype.hasOwnProperty.call(amenityLabels, key);
+}
+
+/**
+ * C5 — Split a heterogeneous amenity list (typed keys + custom strings) into
+ * the two buckets so the UI can render the standard ones with translated
+ * labels and the custom ones verbatim.
+ */
+export function partitionAmenities(all: string[]): { standard: AmenityKey[]; custom: string[] } {
+  const standard: AmenityKey[] = [];
+  const custom: string[] = [];
+  for (const a of all) {
+    if (isStandardAmenityKey(a)) standard.push(a);
+    else custom.push(a);
+  }
+  return { standard, custom };
+}
+
 /** Map profile documents to event Rider entries, also including catering/accommodation notes. */
 function profileDocumentsToRiders(profile: SharedProfile): Rider[] {
   const riders: Rider[] = [];
@@ -291,7 +326,9 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
   const legacySchedule = ((eventMeta as unknown as { schedule?: ScheduleItem[] }).schedule) || [];
   const [riders, setRiders] = useState<Rider[]>([...legacyRiders]);
   const [schedule, setSchedule] = useState<ScheduleItem[]>([...legacySchedule]);
-  const [amenities, setAmenities] = useState<AmenityKey[]>([...(eventMeta.amenities || [])]);
+  const [amenities, setAmenities] = useState<string[]>([...(eventMeta.amenities || [])]);
+  const [cateringNotes, setCateringNotes] = useState<string>(eventMeta.cateringNotes || "");
+  const [accommodationNotes, setAccommodationNotes] = useState<string>(eventMeta.accommodationNotes || "");
   const [expenses, setExpenses] = useState<ExpenseItem[]>([...(eventMeta.expenses || [])]);
   const [guestList, setGuestList] = useState<GuestListConfig | null>(eventMeta.guestList || null);
 
@@ -387,13 +424,16 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
       return;
     }
     // riders and schedule are now saved via subcollection effects above
-    onSaveRef.current?.({ amenities, expenses, guestList });
-  }, [event.id, amenities, expenses, guestList]);
+    onSaveRef.current?.({ amenities, cateringNotes, accommodationNotes, expenses, guestList });
+  }, [event.id, amenities, cateringNotes, accommodationNotes, expenses, guestList]);
 
   const [editRiders, setEditRiders] = useState<Rider[]>([]);
   const [editSchedule, setEditSchedule] = useState<ScheduleItem[]>([]);
   const [editExpenses, setEditExpenses] = useState<ExpenseItem[]>([]);
-  const [editAmenities, setEditAmenities] = useState<AmenityKey[]>([]);
+  const [editAmenities, setEditAmenities] = useState<string[]>([]);
+  const [editCateringNotes, setEditCateringNotes] = useState<string>("");
+  const [editAccommodationNotes, setEditAccommodationNotes] = useState<string>("");
+  const [newCustomAmenity, setNewCustomAmenity] = useState<string>("");
   const [editEvent, setEditEvent] = useState({ name: event.name, date: event.date, venue: event.venue, artist: event.artist, capacity: event.capacity, ticketingProvider: event.ticketingProvider, eventStatus: event.eventStatus, roomStage: event.roomStage || "", ticketUrls: event.ticketUrls || [] as string[], holdRank: event.holdRank || 1 as number, holdAutoPromote: event.holdAutoPromote !== false as boolean });
   // C5 — Track whether the user has manually edited the capacity field.
   // Once set, room/stage changes no longer auto-overwrite capacity.
@@ -1138,37 +1178,145 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
         readOnly={readOnly}
         onEditStart={() => {
           setEditAmenities([...amenities]);
+          setEditCateringNotes(cateringNotes);
+          setEditAccommodationNotes(accommodationNotes);
+          setNewCustomAmenity("");
           // Autofill from venue profile if empty
           if (amenities.length === 0) {
             const hostProfile = event.hostProfileId ? Object.values(profiles).find(p => p.id === event.hostProfileId) : undefined;
             const venueProfile = hostProfile?.role === "venue" ? hostProfile : Object.values(profiles).find(p => p.role === "venue" && p.name === event.venue);
             if (venueProfile?.amenities && venueProfile.amenities.length > 0) {
-              setEditAmenities(venueProfile.amenities as AmenityKey[]);
+              setEditAmenities(venueProfile.amenities);
+            }
+            if (!cateringNotes && venueProfile?.cateringNotes) {
+              setEditCateringNotes(venueProfile.cateringNotes);
+            }
+            if (!accommodationNotes && venueProfile?.accommodationNotes) {
+              setEditAccommodationNotes(venueProfile.accommodationNotes);
             }
           }
         }}
-        onSave={() => setAmenities([...editAmenities])}
+        onSave={() => {
+          setAmenities([...editAmenities]);
+          setCateringNotes(editCateringNotes);
+          setAccommodationNotes(editAccommodationNotes);
+        }}
         editContent={
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {(Object.entries(amenityLabels) as [AmenityKey, string][]).map(([key, label]) => (
-              <label key={key} className="flex items-center gap-2 cursor-pointer">
-                <Checkbox checked={editAmenities.includes(key)} onCheckedChange={(c) => {
-                  if (c) setEditAmenities([...editAmenities, key]);
-                  else setEditAmenities(editAmenities.filter(a => a !== key));
-                }} />
-                <span className="text-sm">{label}</span>
-              </label>
-            ))}
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {(Object.entries(amenityLabels) as [AmenityKey, string][]).map(([key, label]) => {
+                const checked = editAmenities.includes(key);
+                return (
+                  <div key={key} className="space-y-1">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox checked={checked} onCheckedChange={(c) => {
+                        if (c) setEditAmenities([...editAmenities, key]);
+                        else setEditAmenities(editAmenities.filter(a => a !== key));
+                      }} />
+                      <span className="text-sm">{label}</span>
+                    </label>
+                    {key === "catering" && checked && (
+                      <Textarea
+                        value={editCateringNotes}
+                        onChange={(e) => setEditCateringNotes(e.target.value)}
+                        placeholder="Catering details (e.g. dietary restrictions, meal times)..."
+                        rows={2}
+                        className="ml-6 text-xs"
+                      />
+                    )}
+                    {key === "accommodation" && checked && (
+                      <Textarea
+                        value={editAccommodationNotes}
+                        onChange={(e) => setEditAccommodationNotes(e.target.value)}
+                        placeholder="Accommodation details (e.g. hotel, room counts)..."
+                        rows={2}
+                        className="ml-6 text-xs"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {/* Custom amenities */}
+            <div>
+              <div className="flex gap-2">
+                <Input
+                  value={newCustomAmenity}
+                  onChange={(e) => setNewCustomAmenity(e.target.value)}
+                  placeholder="Add custom amenity"
+                  className="max-w-xs"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newCustomAmenity.trim()) {
+                      e.preventDefault();
+                      setEditAmenities(addCustomAmenity(editAmenities, newCustomAmenity));
+                      setNewCustomAmenity("");
+                    }
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (!newCustomAmenity.trim()) return;
+                    setEditAmenities(addCustomAmenity(editAmenities, newCustomAmenity));
+                    setNewCustomAmenity("");
+                  }}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+              {(() => {
+                const { custom } = partitionAmenities(editAmenities);
+                if (custom.length === 0) return null;
+                return (
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {custom.map((am) => (
+                      <Badge key={am} variant="outline" className="text-xs gap-1">
+                        {am}
+                        <button
+                          type="button"
+                          onClick={() => setEditAmenities(editAmenities.filter(a => a !== am))}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         }
       >
-        {amenities.length === 0 ? (
+        {amenities.length === 0 && !cateringNotes && !accommodationNotes ? (
           <p className="text-sm text-muted-foreground">No amenities specified.</p>
         ) : (
-          <div className="flex flex-wrap gap-2">
-            {amenities.map((a) => (
-              <Badge key={a} variant="secondary" className="text-sm py-1 px-3">{amenityLabels[a]}</Badge>
-            ))}
+          <div className="space-y-3">
+            {amenities.length > 0 && (() => {
+              const { standard, custom } = partitionAmenities(amenities);
+              return (
+                <div className="flex flex-wrap gap-2">
+                  {standard.map((a) => (
+                    <Badge key={a} variant="secondary" className="text-sm py-1 px-3">{amenityLabels[a]}</Badge>
+                  ))}
+                  {custom.map((a) => (
+                    <Badge key={a} variant="outline" className="text-sm py-1 px-3">{a}</Badge>
+                  ))}
+                </div>
+              );
+            })()}
+            {cateringNotes && (
+              <div className="text-sm">
+                <span className="font-medium">Catering: </span>
+                <span className="text-muted-foreground whitespace-pre-wrap">{cateringNotes}</span>
+              </div>
+            )}
+            {accommodationNotes && (
+              <div className="text-sm">
+                <span className="font-medium">Accommodation: </span>
+                <span className="text-muted-foreground whitespace-pre-wrap">{accommodationNotes}</span>
+              </div>
+            )}
           </div>
         )}
       </EditableSection>
