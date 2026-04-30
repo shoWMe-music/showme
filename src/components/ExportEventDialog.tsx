@@ -236,7 +236,7 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Share2 className="h-5 w-5 text-primary" /> Share & Export
@@ -255,7 +255,7 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
 
         <div className="space-y-3 py-2">
           <p className="text-sm font-medium">What to share:</p>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {([["all", "All Event Details (Details, Agreement, Crew)"], ["tabs", "Specific Tab"], ["sections", "Specific Section"]] as const).map(([val, label]) => (
               <Button key={val} variant={level === val ? "default" : "outline"} size="sm" className="text-xs h-8"
                 onClick={() => handleLevelChange(val)}>{label}</Button>
