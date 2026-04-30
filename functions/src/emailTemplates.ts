@@ -147,3 +147,92 @@ export function invitationEmail(opts: {
     html: baseLayout(content),
   };
 }
+
+// ── Booking-request emails (Wave 7 A2) ──
+//
+// The "Want to manage this directly?" CTA links to plain /signup — Daniel
+// deferred the ?redirect=<currentPath> plumbing to a later wave.
+
+function signupCallToAction(signupLink: string): string {
+  return `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:24px;border-top:1px solid #e4e4e7">
+      <tr>
+        <td style="padding:20px 0 0">
+          <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#18181b">
+            Want to manage this directly?
+          </p>
+          <p style="margin:0 0 12px;font-size:13px;color:#71717a;line-height:1.5">
+            Create a free shoWMe account to track requests, settle events, and message collaborators in one place.
+          </p>
+          <a href="${signupLink}" target="_blank" style="display:inline-block;padding:10px 20px;background:#f97316;color:#ffffff;font-size:13px;font-weight:600;text-decoration:none;border-radius:8px">
+            Sign up free
+          </a>
+        </td>
+      </tr>
+    </table>`;
+}
+
+export function bookingRequestNotificationEmail(opts: {
+  recipientName?: string;
+  requesterName: string;
+  artistName?: string;
+  wantedDate?: string;
+  note?: string;
+  appBaseUrl: string;
+}): { subject: string; html: string } {
+  const greeting = opts.recipientName ? `Hi ${opts.recipientName},` : "Hi,";
+  const artistLine = opts.artistName
+    ? ` for <strong>${opts.artistName}</strong>`
+    : "";
+  const dateLine = opts.wantedDate
+    ? ` on <strong>${opts.wantedDate}</strong>`
+    : "";
+  const noteBlock = opts.note
+    ? `<p style="margin:16px 0;padding:12px 16px;background:#f4f4f5;border-radius:8px;font-size:14px;color:#3f3f46;line-height:1.6;font-style:italic">"${opts.note}"</p>`
+    : "";
+
+  const signupLink = `${opts.appBaseUrl.replace(/\/$/, "")}/signup`;
+
+  const content = `
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b">New booking request</h2>
+    <p style="margin:0 0 16px;font-size:14px;color:#71717a;line-height:1.6">
+      ${greeting} <strong>${opts.requesterName}</strong> just sent you a booking request${artistLine}${dateLine}.
+    </p>
+    ${noteBlock}
+    ${signupCallToAction(signupLink)}`;
+
+  return {
+    subject: `New booking request from ${opts.requesterName}`,
+    html: baseLayout(content),
+  };
+}
+
+export function bookingRequestConfirmationEmail(opts: {
+  requesterName: string;
+  targetName?: string;
+  wantedDate?: string;
+  appBaseUrl: string;
+}): { subject: string; html: string } {
+  const targetLine = opts.targetName
+    ? ` to <strong>${opts.targetName}</strong>`
+    : "";
+  const dateLine = opts.wantedDate
+    ? ` for <strong>${opts.wantedDate}</strong>`
+    : "";
+
+  const signupLink = `${opts.appBaseUrl.replace(/\/$/, "")}/signup`;
+
+  const content = `
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b">We've sent your request</h2>
+    <p style="margin:0 0 16px;font-size:14px;color:#71717a;line-height:1.6">
+      Hi ${opts.requesterName}, your booking request${targetLine}${dateLine} has been delivered. You'll hear back as soon as they review it.
+    </p>
+    ${signupCallToAction(signupLink)}`;
+
+  return {
+    subject: opts.targetName
+      ? `Your booking request to ${opts.targetName} is on its way`
+      : "Your booking request is on its way",
+    html: baseLayout(content),
+  };
+}

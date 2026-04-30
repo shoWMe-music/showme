@@ -133,3 +133,48 @@ describe("RequestDateForm — sender-type selector (A1)", () => {
     expect(SENDER_TYPE_FOR_PERFORMER).not.toContain("promoter");
   });
 });
+
+describe("RequestDateForm — auth-prompt banner (A2)", () => {
+  beforeEach(() => {
+    mockUseUser.mockReset();
+  });
+
+  it("shows the login/signup prompt for unauthenticated visitors", () => {
+    setUser({ id: "" });
+    render(
+      <RequestDateForm
+        open={true}
+        onOpenChange={() => {}}
+        targetProfileSlug="some-venue"
+        targetRole="venue"
+        source="profile"
+        operatorOwnerUid="owner-1"
+      />,
+    );
+
+    const banner = screen.getByTestId("request-form-auth-prompt");
+    expect(banner).toBeInTheDocument();
+
+    const loginLink = within(banner).getByRole("link", { name: /Log in/i });
+    expect(loginLink).toHaveAttribute("href", "/login");
+
+    const signupLink = within(banner).getByRole("link", { name: /Sign up free/i });
+    expect(signupLink).toHaveAttribute("href", "/signup");
+  });
+
+  it("hides the auth prompt when the visitor is signed in", () => {
+    setUser({ id: "uid-123" });
+    render(
+      <RequestDateForm
+        open={true}
+        onOpenChange={() => {}}
+        targetProfileSlug="some-venue"
+        targetRole="venue"
+        source="profile"
+        operatorOwnerUid="owner-1"
+      />,
+    );
+
+    expect(screen.queryByTestId("request-form-auth-prompt")).not.toBeInTheDocument();
+  });
+});

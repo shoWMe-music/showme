@@ -117,6 +117,18 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
         <DialogHeader>
           <DialogTitle>Request a Date</DialogTitle>
         </DialogHeader>
+        {!currentUser.id && (
+          <div
+            data-testid="request-form-auth-prompt"
+            className="rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+          >
+            Already have an account?{" "}
+            <a href="/login" className="font-medium text-primary underline-offset-2 hover:underline">Log in</a>
+            {" · "}
+            Want one?{" "}
+            <a href="/signup" className="font-medium text-primary underline-offset-2 hover:underline">Sign up free</a>
+          </div>
+        )}
         <div className="space-y-2 py-1">
           {senderTypeOptions.length > 0 && (
             <div>
