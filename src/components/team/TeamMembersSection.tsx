@@ -15,8 +15,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { Pencil, Plus, Trash2, Users, X } from "lucide-react";
+import { Mail, Pencil, Plus, Trash2, Users, X } from "lucide-react";
 import CreateTeamMemberDialog, { PRESET_ROLES } from "@/components/CreateTeamMemberDialog";
+import EmailTeamMemberDialog from "@/components/team/EmailTeamMemberDialog";
 
 function initials(name: string) {
   const parts = name.trim().split(" ");
@@ -131,6 +132,19 @@ export function TeamMembersSection() {
   const [addOpen, setAddOpen] = useState(false);
   const [editEntry, setEditEntry] = useState<{ member: TeamMember; profileIds: string[] } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [emailTarget, setEmailTarget] = useState<TeamMember | null>(null);
+
+  const handleEmailClick = (m: TeamMember) => {
+    if (!m.email || !m.email.trim()) {
+      toast({
+        title: "No email on file",
+        description: "This team member has no email in their card, please add email to card.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setEmailTarget(m);
+  };
 
   const profileName = (pid: string) => {
     const entry = Object.entries(profiles).find(([, p]) => p.id === pid);
@@ -322,6 +336,13 @@ export function TeamMembersSection() {
                   {/* Actions — hover only */}
                   <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5">
                     <button
+                      onClick={() => handleEmailClick(member)}
+                      className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                      title="Email member"
+                    >
+                      <Mail className="h-3.5 w-3.5" />
+                    </button>
+                    <button
                       onClick={() => setEditEntry({ member: { ...member }, profileIds })}
                       className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                       title="Edit"
@@ -479,6 +500,14 @@ export function TeamMembersSection() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Email-team-member dialog */}
+      <EmailTeamMemberDialog
+        open={!!emailTarget}
+        onOpenChange={(o) => { if (!o) setEmailTarget(null); }}
+        recipientName={emailTarget?.name ?? ""}
+        recipientEmail={emailTarget?.email ?? ""}
+      />
     </div>
   );
 }

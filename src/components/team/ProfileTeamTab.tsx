@@ -24,6 +24,7 @@ import { toast } from "@/hooks/use-toast";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { Mail, Phone, Plus, Trash2, Users } from "lucide-react";
+import EmailTeamMemberDialog from "./EmailTeamMemberDialog";
 
 // Profiles that can share team members
 const VENUE_SIDE = new Set<OperatorRole>(["venue", "promoter", "organizer", "festival"]);
@@ -196,6 +197,19 @@ export function ProfileTeamTab() {
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<TeamMember | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; profileId: string; name: string } | null>(null);
+  const [emailTarget, setEmailTarget] = useState<TeamMember | null>(null);
+
+  const handleEmailClick = (m: TeamMember) => {
+    if (!m.email || !m.email.trim()) {
+      toast({
+        title: "No email on file",
+        description: "This team member has no email in their card, please add email to card.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setEmailTarget(m);
+  };
   const [form, setForm] = useState<FormState>({ ...emptyForm });
   const [extraProfiles, setExtraProfiles] = useState<string[]>([]);
 
@@ -339,6 +353,11 @@ export function ProfileTeamTab() {
                       {m.roles.map((r) => <Badge key={r} variant="outline" className="text-xs">{r}</Badge>)}
                       <Badge variant={m.status === "active" ? "default" : "secondary"} className="text-xs">{m.status}</Badge>
                       <Button variant="ghost" size="icon" className="h-7 w-7"
+                        title="Email member"
+                        onClick={() => handleEmailClick(m)}>
+                        <Mail className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7"
                         onClick={() => setDeleteTarget({ id: m.id, profileId: profileId, name: m.name })}>
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>
@@ -481,6 +500,14 @@ export function ProfileTeamTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Email-team-member dialog */}
+      <EmailTeamMemberDialog
+        open={!!emailTarget}
+        onOpenChange={(o) => { if (!o) setEmailTarget(null); }}
+        recipientName={emailTarget?.name ?? ""}
+        recipientEmail={emailTarget?.email ?? ""}
+      />
     </div>
   );
 }
