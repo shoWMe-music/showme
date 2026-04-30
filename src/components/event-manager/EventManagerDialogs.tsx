@@ -97,13 +97,15 @@ export function MarkPendingDialog({
         ? "Send Counter-Proposal"
         : "Suggest to Performer";
 
+  const willNotify = onPlatform || notify;
+
   const handleConfirm = () => {
     updateEvent(event.id, {
       eventStatus: targetStatus,
-      ...(notify ? { notifyPerformerOnActivation: true } : {}),
+      ...(willNotify ? { notifyPerformerOnActivation: true } : {}),
     } as Partial<AppEvent>);
 
-    const msg = notify
+    const msg = willNotify
       ? (onPlatform ? "The performer has been notified." : "An invitation will be sent.")
       : "No notification will be sent.";
     toast({ title: isAcceptingRequest ? "Request accepted" : `Event marked as ${targetStatus}`, description: msg });
@@ -128,14 +130,16 @@ export function MarkPendingDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
-          <div className="flex items-center gap-3">
-            <Switch id="notify-toggle" checked={notify} onCheckedChange={setNotify} />
-            <Label htmlFor="notify-toggle" className="cursor-pointer font-normal text-foreground text-sm">
-              {onPlatform ? "Notify performer" : "Send email invitation"}
-            </Label>
+        {!onPlatform && (
+          <div className="space-y-4 py-2">
+            <div className="flex items-center gap-3">
+              <Switch id="notify-toggle" checked={notify} onCheckedChange={setNotify} />
+              <Label htmlFor="notify-toggle" className="cursor-pointer font-normal text-foreground text-sm">
+                Send email invitation
+              </Label>
+            </div>
           </div>
-        </div>
+        )}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => handleOpenChange(false)}>Cancel</Button>
@@ -257,13 +261,13 @@ export function SuggestToPerformersDialog({
     for (const child of selectedChildren) {
       updateEvent(child.id, {
         eventStatus: "suggested",
-        ...(child.performerProfileId && notifyIds.has(child.id) ? { notifyPerformerOnActivation: true } : {}),
+        ...(child.performerProfileId ? { notifyPerformerOnActivation: true } : {}),
       } as Partial<AppEvent>);
     }
     updateEvent(parentEventId, { eventStatus: "suggested" });
 
     const invitedCount = needsInvite.filter(c => emailMap[c.id]?.trim()).length;
-    const notifiedCount = onPlatform.filter(c => notifyIds.has(c.id)).length;
+    const notifiedCount = onPlatform.length;
     const parts: string[] = [];
     if (invitedCount > 0) parts.push(`${invitedCount} invited`);
     if (notifiedCount > 0) parts.push(`${notifiedCount} notified`);
@@ -312,7 +316,7 @@ export function SuggestToPerformersDialog({
                       <p className="text-xs text-green-600">On shoWMe — will be notified</p>
                     )}
                   </div>
-                  {isSelected && (
+                  {isSelected && !onPlatform && (
                     <div className="flex items-center gap-1.5 shrink-0">
                       <Switch
                         checked={isNotified}
@@ -320,7 +324,7 @@ export function SuggestToPerformersDialog({
                         className="scale-75"
                       />
                       <span className="text-[11px] text-muted-foreground whitespace-nowrap">
-                        {onPlatform ? "Notify" : "Send email"}
+                        Send email
                       </span>
                     </div>
                   )}
