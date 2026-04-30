@@ -248,35 +248,12 @@ export function useCreateEventSubmit() {
 
       await addMultiPerformerEventMutation.mutateAsync({ parent: parentEvent, children: childEvents });
 
-      // C3 — Riders/documents from performer/venue profiles must NOT migrate
-      // on initial create. They're inherited later, when the collaborator
-      // confirms and the event status moves draft/suggested → pending. The
-      // status-transition copy hook lives in useEventMutations / useUpdateEvent
-      // (out of this lane's file scope — flagged for follow-up in
-      // notes_for_main).
-      // Preserve the legacy eager-copy behavior for the explicit
-      // create-and-invite-now path (non-draft default status with willInvite),
-      // which is how the existing booking-request flow runs.
-      if (willInvite && defaultStatus && defaultStatus !== "draft") {
-        const docTypeToRiderType: Record<string, "technical" | "hospitality" | "custom"> = {
-          tech_rider: "technical", hospitality_rider: "hospitality", other: "custom",
-        };
-        for (const child of childEvents) {
-          const childRiders: Rider[] = [];
-          for (const key of Object.keys(profiles)) {
-            const profile = profiles[key];
-            if (!profile?.documents || profile.documents.length === 0) continue;
-            const isChildPerformer = (key === "performer" || key.startsWith("performer-")) && profile.name === child.event.artist;
-            const isVenue = (key === "venue" || key.startsWith("venue-")) && profile.name === resolvedVenue;
-            if (isChildPerformer || isVenue) {
-              for (const doc of profile.documents) {
-                childRiders.push({ id: `R-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name: doc.name, type: docTypeToRiderType[doc.type] || "custom", description: `From ${profile.name} profile`, fileUrl: doc.url, fileName: doc.name });
-              }
-            }
-          }
-          if (childRiders.length > 0) await upsertRidersMutation.mutateAsync({ eventId: child.event.id, riders: childRiders });
-        }
-      }
+      // C3 — Wave 7: collaborator riders/documents (performer + venue) NEVER
+      // migrate on multi-performer event creation. They flow in via
+      // migrateCollaboratorRidersOnAccept (in useEventMutations.ts) when each
+      // collaborator confirms their invitation. The host hasn't been invited
+      // to anything (they own the event), so this branch has no host-eager
+      // copy to preserve.
 
       onEventCreated?.(parentId);
       setOpen(false); resetForm();
@@ -355,37 +332,27 @@ export function useCreateEventSubmit() {
         },
       });
 
-      // C3 — Riders/documents from collaborator (performer/venue) profiles
-      // must NOT migrate on initial create. They're inherited later, when the
-      // collaborator confirms and the event status moves
-      // draft/suggested → pending. The host's OWN profile riders always copy
-      // (the host already opted in by selecting that profile as the operator).
-      // The status-transition copy hook for collaborator riders lives in
-      // useEventMutations / useUpdateEvent (out of this lane's scope —
-      // flagged for follow-up in notes_for_main).
-      const eagerInheritFromCollabs = willInvite && defaultStatus !== "draft";
+      // C3 — Wave 7: collaborator riders/documents (performer/venue) NEVER
+      // migrate on initial create — they flow in via
+      // migrateCollaboratorRidersOnAccept (useEventMutations.ts) when the
+      // collaborator confirms their invitation. The host's OWN profile
+      // riders DO copy here because the host owns the event from the start.
       const profileRiders: Rider[] = [];
       const docTypeToRiderType: Record<string, "technical" | "hospitality" | "custom"> = {
         tech_rider: "technical", hospitality_rider: "hospitality", other: "custom",
       };
       for (const key of Object.keys(profiles)) {
         const profile = profiles[key];
-        if (profile?.documents && profile.documents.length > 0) {
-          const isRelevantVenue = (key === "venue" || key.startsWith("venue-")) && profile.name === venueName;
-          const isRelevantArtist = (key === "performer" || key.startsWith("performer-")) && profile.name === artistName;
-          const isSelectedRole = key === selectedRole || key.startsWith(`${selectedRole}-`);
-          // Host's own profile: always copy. Collaborator profiles: only copy
-          // when the user opted to invite-now AND the status is past draft.
-          const shouldCopy = isSelectedRole || ((isRelevantVenue || isRelevantArtist) && eagerInheritFromCollabs);
-          if (shouldCopy) {
-            for (const doc of profile.documents) {
-              profileRiders.push({
-                id: `R-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                name: doc.name, type: docTypeToRiderType[doc.type] || "custom",
-                description: `From ${profile.name} profile`, fileUrl: doc.url, fileName: doc.name,
-              });
-            }
-          }
+        if (!profile?.documents || profile.documents.length === 0) continue;
+        const isSelectedRole = key === selectedRole || key.startsWith(`${selectedRole}-`);
+        // Host-only: collaborator profiles wait for accept.
+        if (!isSelectedRole) continue;
+        for (const doc of profile.documents) {
+          profileRiders.push({
+            id: `R-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            name: doc.name, type: docTypeToRiderType[doc.type] || "custom",
+            description: `From ${profile.name} profile`, fileUrl: doc.url, fileName: doc.name,
+          });
         }
       }
       if (profileRiders.length > 0) await upsertRidersMutation.mutateAsync({ eventId: id, riders: profileRiders });

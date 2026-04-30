@@ -28,10 +28,14 @@ import {
   moveMessages,
   addEventCollaborator,
   fetchEventMeta,
+  fetchProfiles,
+  fetchRiders,
+  upsertRider,
 } from "@/lib/db";
 import type { PendingDateChange, DateChangeConfirmation } from "@/lib/db";
-import type { Event, EventCollaborator, DealStructure, Settlement, SettlementStatus } from "@/lib/models";
+import type { Event, EventCollaborator, DealStructure, Settlement, SettlementStatus, Rider, RiderType } from "@/lib/models";
 import { eventStatusLabels, collaboratorIsActive } from "@/lib/models";
+import type { ProfileDocument } from "@/lib/user-context";
 import { isPrimaryEventOwner } from "@/lib/eventPermissions";
 import type { SharedProfile } from "@/lib/user-context";
 import { buildSettlementUpdate, emptyRevenue } from "@/lib/settlementUtils";
@@ -379,6 +383,16 @@ export function useUpdateEvent() {
           performer: performerName,
         }, invalidate);
         savedToast("Invitation accepted");
+
+        // Wave 7 C3 — Now that the performer has accepted, migrate their
+        // profile riders + catering/accommodation notes onto the event. The
+        // copy was deferred from event creation until this moment so the
+        // performer doesn't see their docs uploaded behind their back.
+        const performerProfileIdToMigrate = oldEvent.performerProfileId;
+        if (performerProfileIdToMigrate) {
+          void migrateCollaboratorRidersOnAccept({ eventId: id, profileId: performerProfileIdToMigrate })
+            .catch(() => { /* non-critical */ });
+        }
       } else if (updates.performerResponse === "declined") {
         const performerName = oldEvent.artist || "Performer";
         appendEventActivity(id, "performer_declined", "System", {
@@ -442,6 +456,164 @@ export function useUpdateEvent() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.events(uid) });
+    },
+  });
+}
+
+// ── Collaborator rider migration (Wave 7 C3) ─────────────────────────────────
+
+const PROFILE_DOC_TYPE_TO_RIDER_TYPE: Record<ProfileDocument["type"], RiderType> = {
+  tech_rider: "technical",
+  hospitality_rider: "hospitality",
+  other: "custom",
+};
+
+/**
+ * Build Rider entries from an accepting collaborator's profile.
+ *
+ * Pure so it can be unit-tested. Maps profile-level documents 1:1 to event
+ * Riders, plus inlines `cateringNotes` and `accommodationNotes` as
+ * description-only Riders. The profile id is stored on each Rider via
+ * `ownerProfileId` so the collaborator retains write access through Firestore
+ * rules.
+ *
+ * `eventRole` only affects the description prefix (so the existing-rider
+ * dedupe heuristic below can spot duplicate "From <name> profile" entries).
+ */
+export function buildRidersFromProfileForEvent(
+  profile: { id?: string; name?: string; documents?: ProfileDocument[]; cateringNotes?: string; accommodationNotes?: string; },
+): Rider[] {
+  const out: Rider[] = [];
+  const profileName = profile.name || "Profile";
+  const ownerProfileId = profile.id;
+  for (const doc of profile.documents ?? []) {
+    out.push({
+      id: `R-collab-${ownerProfileId || "x"}-${doc.id}`,
+      name: doc.name,
+      type: PROFILE_DOC_TYPE_TO_RIDER_TYPE[doc.type] || "custom",
+      description: `From ${profileName} profile`,
+      fileUrl: doc.url,
+      fileName: doc.name,
+      ...(ownerProfileId ? { ownerProfileId } : {}),
+    });
+  }
+  if (profile.cateringNotes && profile.cateringNotes.trim()) {
+    out.push({
+      id: `R-collab-${ownerProfileId || "x"}-catering`,
+      name: "Catering Requirements",
+      type: "catering",
+      description: profile.cateringNotes,
+      ...(ownerProfileId ? { ownerProfileId } : {}),
+    });
+  }
+  if (profile.accommodationNotes && profile.accommodationNotes.trim()) {
+    out.push({
+      id: `R-collab-${ownerProfileId || "x"}-accommodation`,
+      name: "Accommodation Requirements",
+      type: "hospitality",
+      description: profile.accommodationNotes,
+      ...(ownerProfileId ? { ownerProfileId } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * Migrate an accepting collaborator's riders + documents onto an event.
+ *
+ * Wave 7 C3 split the rider-copy from event creation: collaborator riders no
+ * longer migrate eagerly when an event is created (see `useCreateEventSubmit`).
+ * Instead they're copied here, the moment a performer or venue collaborator
+ * confirms their invitation. The accepting user is the one performing this
+ * call, so `fetchProfiles()` will return their owned/membered profiles —
+ * exactly the data we need to read from.
+ *
+ * Idempotent — if a rider with the same id already exists on the event, the
+ * upsert merges (no duplicates). If the profile is unreadable in this
+ * session (e.g. acted on someone else's behalf), the migration silently
+ * no-ops; the caller still gets a resolved promise.
+ *
+ * Pure function (not a hook) so it can be invoked from inside other
+ * mutations' `onSuccess` callbacks (e.g. `useUpdateEvent` on
+ * `performerResponse === "accepted"`).
+ */
+export async function migrateCollaboratorRidersOnAccept(
+  args: { eventId: string; profileId: string },
+): Promise<{ copied: number }> {
+  const { eventId, profileId } = args;
+  if (!eventId || !profileId) return { copied: 0 };
+  let profile: { id?: string; name?: string; documents?: ProfileDocument[]; cateringNotes?: string; accommodationNotes?: string; } | undefined;
+  try {
+    const profilesByKey = await fetchProfiles();
+    profile = Object.values(profilesByKey).find((p) => p.id === profileId);
+  } catch {
+    // Permission denied or no auth — skip migration silently.
+    return { copied: 0 };
+  }
+  if (!profile) return { copied: 0 };
+
+  const riders = buildRidersFromProfileForEvent(profile);
+  if (riders.length === 0) return { copied: 0 };
+
+  // Skip riders whose id already exists on the event (idempotent).
+  let existingIds = new Set<string>();
+  try {
+    const existing = await fetchRiders(eventId);
+    existingIds = new Set(existing.map((r) => r.id));
+  } catch {
+    /* read may fail under restrictive rules; fall through and let upsert merge */
+  }
+
+  let copied = 0;
+  for (const rider of riders) {
+    if (existingIds.has(rider.id)) continue;
+    try {
+      await upsertRider(eventId, rider);
+      copied += 1;
+    } catch {
+      // non-critical — one bad rider doesn't fail the rest
+    }
+  }
+  return { copied };
+}
+
+/** Thin React Query wrapper around `migrateCollaboratorRidersOnAccept`. */
+export function useMigrateCollaboratorRidersOnAccept() {
+  return useMutation({
+    mutationFn: migrateCollaboratorRidersOnAccept,
+  });
+}
+
+/**
+ * Wave 7 C3 — venue-accept counterpart to `performerResponse === "accepted"`.
+ *
+ * The performer-accept flow flips `event.performerResponse` (handled inside
+ * `useUpdateEvent`). The venue-accept flow flips an `EventCollaborator`
+ * subdoc from pending → active. This mutation is the single wiring point
+ * for that flip: it persists the status update via `addEventCollaborator`
+ * and then migrates the accepting profile's riders/documents onto the
+ * event using the same helper as the performer path.
+ *
+ * The previous status MUST be a non-active state (pending, invited,
+ * declined, revoked, accepted-but-not-yet-active). When the supplied
+ * collaborator already has an active status, this is a no-op for the
+ * status write but still runs the rider migration (idempotent — see
+ * `migrateCollaboratorRidersOnAccept`).
+ */
+export function useAcceptEventCollaborator() {
+  return useMutation({
+    mutationFn: async (
+      args: { eventId: string; collaborator: EventCollaborator },
+    ): Promise<{ migrated: number }> => {
+      const { eventId, collaborator } = args;
+      // Flip status to active (merge — preserves all other fields).
+      await addEventCollaborator(eventId, { ...collaborator, status: "active" });
+      // Migrate the accepting profile's riders/documents onto the event.
+      if (collaborator.profileId) {
+        const result = await migrateCollaboratorRidersOnAccept({ eventId, profileId: collaborator.profileId });
+        return { migrated: result.copied };
+      }
+      return { migrated: 0 };
     },
   });
 }
