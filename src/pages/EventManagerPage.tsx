@@ -73,17 +73,14 @@ export default function EventManagerPage() {
   }, [em.event, em.isChild, em.parentEvent]);
   useBreadcrumbs(breadcrumbs);
 
-  // Collect profile IDs the current user controls (for date change banner matching)
-  // Must be before early returns to maintain consistent hook order.
-  const userProfileIds = useMemo(() => {
-    const ids: string[] = [];
-    if (em.profiles) {
-      for (const p of Object.values(em.profiles)) {
-        if (p.id) ids.push(p.id);
-      }
-    }
-    return ids;
-  }, [em.profiles]);
+  // Collect profile IDs the current user controls (for date change banner matching).
+  // Sourced from allProfiles (flat, no slot dedupe) so users with multiple
+  // profiles per role — e.g. a performer profile + a collaborator stub also
+  // tagged performer — see all of them, not just whichever the slot Record kept.
+  const userProfileIds = useMemo(
+    () => em.allProfiles.map((p) => p.id).filter(Boolean) as string[],
+    [em.allProfiles],
+  );
 
   // For single-performer events, surface the deal.artistGuarantee in the Budget
   // Calculator's performer-fee row. Memoized so the BudgetCalculator's effect

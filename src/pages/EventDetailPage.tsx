@@ -25,21 +25,23 @@ import {
   useUpdateSettlementStatus,
   useAddComment,
   useChildEvents,
+  useAllProfiles,
 } from "@/lib/queries";
 import { upsertShareToken } from "@/lib/db";
 
 export default function EventDetailPage() {
   const { id } = useParams({ from: "/events/$id" });
   const [activeTab, setActiveTab] = useState<EventDetailTab>("overview");
-  const { currentUser, profiles } = useUser();
+  const { currentUser } = useUser();
+  const allProfiles = useAllProfiles();
 
   const primaryLoaded = usePrimaryLoaded();
   const event = useEvent(id ?? "");
   const { deal, revenue, settlement, isLoaded: economicsLoaded } = useEventEconomics(id ?? "");
   const childEvents = useChildEvents(id ?? "");
   const viewerIsPerformer = useMemo(
-    () => userIsEventPerformer(event, profiles, childEvents.map((c) => c.performerProfileId).filter(Boolean) as string[]),
-    [event, profiles, childEvents],
+    () => userIsEventPerformer(event, allProfiles, childEvents.map((c) => c.performerProfileId).filter(Boolean) as string[]),
+    [event, allProfiles, childEvents],
   );
 
   const [riders, setRiders] = useState<Rider[]>([]);

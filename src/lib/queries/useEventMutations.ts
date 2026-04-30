@@ -108,8 +108,11 @@ export interface DateChangeParty {
 
 /**
  * Determines which profiles need to confirm a date change.
- * - Performer: event.performerProfileId or collaborators with eventRole "artist"
- * - Venue: collaborators with eventRole "venue" (only if organizer is NOT the venue)
+ * - Single-performer event: event.performerProfileId or the active performer collaborator.
+ * - Multi-performer parent: every child event's performer (each child's
+ *   performerProfileId or off-platform artist).
+ * - Venue: collaborators with eventRole "venue" (only if organizer is NOT the venue).
+ *
  * Parties whose profile is controlled by the current user (proposer) are excluded —
  * you don't need to confirm your own change.
  */
@@ -117,33 +120,61 @@ export function getDateChangeParties(
   event: Event,
   collaborators: EventCollaborator[],
   currentUserProfileIds?: string[],
+  childEvents?: Event[],
 ): DateChangeParty[] {
   const parties: DateChangeParty[] = [];
   const myIds = new Set(currentUserProfileIds ?? []);
+  const seenProfileIds = new Set<string>();
 
-  // Performer party
-  const performerCollab = collaborators.find(
-    (c) => c.eventRole === "performer" && collaboratorIsActive(c.status),
-  );
-  const performerProfileId = event.performerProfileId || performerCollab?.profileId;
-  if (performerProfileId) {
-    // Skip if the current user controls this profile
-    if (!myIds.has(performerProfileId)) {
+  // Performer parties — multi-performer parent: one per active child
+  if (event.isMultiPerformer && childEvents && childEvents.length > 0) {
+    for (const child of childEvents) {
+      if (child.archived || child.eventStatus === "cancelled") continue;
+      const childPid = child.performerProfileId;
+      if (childPid) {
+        if (myIds.has(childPid) || seenProfileIds.has(childPid)) continue;
+        seenProfileIds.add(childPid);
+        parties.push({
+          profileId: childPid,
+          role: "performer",
+          profileName: child.artist || "Performer",
+          onPlatform: true,
+        });
+      } else if (child.artist) {
+        const syntheticId = `ext-performer-${child.id}`;
+        if (seenProfileIds.has(syntheticId)) continue;
+        seenProfileIds.add(syntheticId);
+        parties.push({
+          profileId: syntheticId,
+          role: "performer",
+          profileName: child.artist,
+          onPlatform: false,
+        });
+      }
+    }
+  } else {
+    // Single performer
+    const performerCollab = collaborators.find(
+      (c) => c.eventRole === "performer" && collaboratorIsActive(c.status),
+    );
+    const performerProfileId = event.performerProfileId || performerCollab?.profileId;
+    if (performerProfileId) {
+      if (!myIds.has(performerProfileId)) {
+        parties.push({
+          profileId: performerProfileId,
+          role: "performer",
+          profileName: performerCollab?.name || event.artist || "Performer",
+          onPlatform: true,
+        });
+      }
+    } else if (event.artist) {
       parties.push({
-        profileId: performerProfileId,
+        profileId: `ext-performer-${event.id}`,
         role: "performer",
-        profileName: performerCollab?.name || event.artist || "Performer",
-        onPlatform: true,
+        profileName: event.artist,
+        onPlatform: false,
       });
     }
-  } else if (event.artist) {
-    // Off-platform performer (no profileId, just a name)
-    parties.push({
-      profileId: `ext-performer-${event.id}`,
-      role: "performer",
-      profileName: event.artist,
-      onPlatform: false,
-    });
   }
 
   // Venue party (only if organizer is NOT the venue)
@@ -184,6 +215,8 @@ interface UpdateEventVars {
   collaborators?: EventCollaborator[];
   /** Profile IDs the current user controls — used to skip self-confirmation. */
   userProfileIds?: string[];
+  /** Child events for a multi-performer parent — drives per-performer confirmation. */
+  childEvents?: Event[];
 }
 
 export function useUpdateEvent() {
@@ -192,7 +225,7 @@ export function useUpdateEvent() {
   const uid = user?.uid ?? "";
 
   return useMutation({
-    mutationFn: async ({ id, updates, collaborators, userProfileIds }: UpdateEventVars) => {
+    mutationFn: async ({ id, updates, collaborators, userProfileIds, childEvents }: UpdateEventVars) => {
       const data = getEventsData(queryClient, uid);
       const current = data?.find((e) => e.id === id);
       if (!current) return;
@@ -209,7 +242,7 @@ export function useUpdateEvent() {
 
       // If date fields changed and there are parties to confirm, propose instead of apply
       if (hasDateChange && collaborators) {
-        const parties = getDateChangeParties(current, collaborators, userProfileIds);
+        const parties = getDateChangeParties(current, collaborators, userProfileIds, childEvents);
         if (parties.length > 0) {
           // Build pending date change
           const previousValues: PendingDateChange["previousValues"] = {};
@@ -302,7 +335,7 @@ export function useUpdateEvent() {
 
       return { dateChangeProposed: false };
     },
-    onMutate: async ({ id, updates, collaborators, userProfileIds }: UpdateEventVars) => {
+    onMutate: async ({ id, updates, collaborators, userProfileIds, childEvents }: UpdateEventVars) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.events(uid) });
       const snapshot = getEventsData(queryClient, uid);
 
@@ -318,7 +351,7 @@ export function useUpdateEvent() {
           }
         }
         if (hasDateChange) {
-          const parties = getDateChangeParties(current, collaborators, userProfileIds);
+          const parties = getDateChangeParties(current, collaborators, userProfileIds, childEvents);
           if (parties.length > 0) {
             optimisticUpdates = { ...updates };
             for (const field of DATE_CHANGE_FIELDS) {
@@ -544,8 +577,8 @@ export async function migrateCollaboratorRidersOnAccept(
   if (!eventId || !profileId) return { copied: 0 };
   let profile: { id?: string; name?: string; documents?: ProfileDocument[]; cateringNotes?: string; accommodationNotes?: string; } | undefined;
   try {
-    const profilesByKey = await fetchProfiles();
-    profile = Object.values(profilesByKey).find((p) => p.id === profileId);
+    const { all } = await fetchProfiles();
+    profile = all.find((p) => p.id === profileId);
   } catch {
     // Permission denied or no auth — skip migration silently.
     return { copied: 0 };
@@ -884,13 +917,32 @@ export function useRespondToDateChange() {
           if (pending.proposedValues.endTime) dateUpdates.endTime = pending.proposedValues.endTime;
           await upsertEvent({ ...current, ...dateUpdates });
 
-          // Optimistic cache update
+          // Cascade to children of a multi-performer parent so their dates stay in sync.
+          const cascadeIds: string[] = [];
+          if (current.isMultiPerformer && current.childEventIds?.length && data) {
+            const childIdSet = new Set(current.childEventIds);
+            const children = data.filter(
+              (e) => childIdSet.has(e.id) && !e.archived && e.eventStatus !== "cancelled",
+            );
+            for (const child of children) {
+              await upsertEvent({ ...child, ...dateUpdates });
+              cascadeIds.push(child.id);
+            }
+          }
+
+          // Optimistic cache update for the event + any cascaded children
+          const updatedIds = new Set<string>([eventId, ...cascadeIds]);
           queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
             if (!old) return old;
             return old.map((e) =>
-              e.id !== eventId ? e : { ...e, ...dateUpdates },
+              updatedIds.has(e.id) ? { ...e, ...dateUpdates } : e,
             );
           });
+
+          // Invalidate child economics so any open child views refresh.
+          for (const cid of cascadeIds) {
+            void queryClient.invalidateQueries({ queryKey: queryKeys.eventEconomics(cid) });
+          }
         }
 
         // Clear pending date change

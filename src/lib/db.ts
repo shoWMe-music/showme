@@ -248,25 +248,42 @@ function profileSlotFromDocId(ownerUid: string, docId: string): string {
   return docId.startsWith(prefix) ? docId.slice(prefix.length) : docId;
 }
 
-export async function fetchProfiles(): Promise<Record<string, SharedProfile>> {
+/**
+ * Returns both shapes of the user's profiles:
+ * - `slotted`: legacy slot-keyed Record. Two profiles with the same slot collide
+ *   (first write wins; owned profiles are queried before member profiles) — fine
+ *   for "show my primary venue/performer profile" UI lookups.
+ * - `all`: flat array of every profile the user owns or is a member of, no dedupe.
+ *   This is the source of truth for access matching (event accessProfileIds,
+ *   pendingDateChange.confirmations keys, performer detection).
+ */
+export async function fetchProfiles(): Promise<{
+  slotted: Record<string, SharedProfile>;
+  all: SharedProfile[];
+}> {
   const uid = getAuthClient().currentUser?.uid;
-  if (!uid) return {};
-  const result: Record<string, SharedProfile> = {};
+  if (!uid) return { slotted: {}, all: [] };
+  const slotted: Record<string, SharedProfile> = {};
+  const all: SharedProfile[] = [];
+  const seenIds = new Set<string>();
 
-  // Profiles owned by this user
-  const ownedQ = query(
-    collection(getFirestoreDb(), PROFILE_COLLECTION),
-    where("owner_uid", "==", uid),
-  );
-  const ownedSnap = await getDocs(ownedQ);
-  ownedSnap.forEach((d) => {
-    const raw = d.data() as Record<string, unknown>;
-    const owner_uid = typeof raw.owner_uid === "string" ? raw.owner_uid : uid;
+  const pushProfile = (docId: string, raw: Record<string, unknown>, fallbackOwnerUid: string) => {
+    if (seenIds.has(docId)) return;
+    seenIds.add(docId);
+    const owner_uid = typeof raw.owner_uid === "string" ? raw.owner_uid : fallbackOwnerUid;
     const slot =
       (typeof raw.slot === "string" && raw.slot) ||
-      profileSlotFromDocId(owner_uid, d.id);
-    result[slot] = { ...raw, id: d.id } as unknown as SharedProfile;
-  });
+      (owner_uid ? profileSlotFromDocId(owner_uid, docId) : docId);
+    const profile = { ...raw, id: docId } as unknown as SharedProfile;
+    all.push(profile);
+    if (!slotted[slot]) slotted[slot] = profile;
+  };
+
+  // Profiles owned by this user
+  const ownedSnap = await getDocs(
+    query(collection(getFirestoreDb(), PROFILE_COLLECTION), where("owner_uid", "==", uid)),
+  );
+  ownedSnap.forEach((d) => pushProfile(d.id, d.data() as Record<string, unknown>, uid));
 
   // Profiles where this user is a member (shared/team profiles)
   try {
@@ -282,20 +299,14 @@ export async function fetchProfiles(): Promise<Record<string, SharedProfile>> {
         if (!profileRef || !profileRef.path.startsWith(`${PROFILE_COLLECTION}/`)) return;
         const profileSnap = await getDoc(profileRef);
         if (!profileSnap.exists()) return;
-        const raw = profileSnap.data() as Record<string, unknown>;
-        const owner_uid = typeof raw.owner_uid === "string" ? raw.owner_uid : "";
-        const slot =
-          (typeof raw.slot === "string" && raw.slot) ||
-          (owner_uid ? profileSlotFromDocId(owner_uid, profileSnap.id) : profileSnap.id);
-        if (result[slot]) return;
-        result[slot] = { ...raw, id: profileSnap.id } as unknown as SharedProfile;
+        pushProfile(profileSnap.id, profileSnap.data() as Record<string, unknown>, "");
       }),
     );
   } catch {
     // Collection-group query may fail in some emulator configs; owned profiles still load.
   }
 
-  return result;
+  return { slotted, all };
 }
 
 /** Public profile lookup by URL slug (unauthenticated). */
@@ -1270,10 +1281,12 @@ export function appendEventActivity(
   profile?: string,
   visibility?: "all" | "operator_only",
 ): void {
+  const actorUid = getAuthClient().currentUser?.uid;
   void addDoc(eventSubCol(eventId, SUB_EVENT_ACTIVITY), {
     type, by, details: details ?? {},
     ...(profile ? { profile } : {}),
     ...(visibility && visibility !== "all" ? { visibility } : {}),
+    ...(actorUid ? { actorUid } : {}),
     timestamp: new Date().toISOString(),
     createdAt: serverTimestamp(),
   }).then(() => onWritten?.());

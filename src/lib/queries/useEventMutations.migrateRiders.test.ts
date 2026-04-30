@@ -119,23 +119,26 @@ describe("migrateCollaboratorRidersOnAccept (Wave 7 C3)", () => {
 
   it("returns { copied: 0 } when the profile is not found in the user's loaded profiles", async () => {
     mockFetchProfiles.mockResolvedValueOnce({
-      performer: { id: "other-id", name: "Other", role: "performer" },
+      slotted: { performer: { id: "other-id", name: "Other", role: "performer" } },
+      all: [{ id: "other-id", name: "Other", role: "performer" }],
     });
     expect(await migrateCollaboratorRidersOnAccept({ eventId: "EVT-1", profileId: "needed-id" })).toEqual({ copied: 0 });
     expect(mockUpsertRider).not.toHaveBeenCalled();
   });
 
   it("copies all profile riders onto the event when none exist there yet", async () => {
+    const profile = {
+      id: "perf-1",
+      name: "DJ Test",
+      role: "performer",
+      documents: [
+        { id: "d1", name: "Tech.pdf", url: "https://x/1", type: "tech_rider" },
+      ],
+      cateringNotes: "Vegetarian.",
+    };
     mockFetchProfiles.mockResolvedValueOnce({
-      performer: {
-        id: "perf-1",
-        name: "DJ Test",
-        role: "performer",
-        documents: [
-          { id: "d1", name: "Tech.pdf", url: "https://x/1", type: "tech_rider" },
-        ],
-        cateringNotes: "Vegetarian.",
-      },
+      slotted: { performer: profile },
+      all: [profile],
     });
     mockFetchRiders.mockResolvedValueOnce([]);
     mockUpsertRider.mockResolvedValue(undefined);
@@ -149,14 +152,16 @@ describe("migrateCollaboratorRidersOnAccept (Wave 7 C3)", () => {
   });
 
   it("is idempotent — skips riders whose id already exists on the event", async () => {
+    const profile = {
+      id: "venue-1",
+      name: "Test Venue",
+      role: "venue",
+      cateringNotes: "Vegetarian.",
+      accommodationNotes: "Hotel nearby.",
+    };
     mockFetchProfiles.mockResolvedValueOnce({
-      venue: {
-        id: "venue-1",
-        name: "Test Venue",
-        role: "venue",
-        cateringNotes: "Vegetarian.",
-        accommodationNotes: "Hotel nearby.",
-      },
+      slotted: { venue: profile },
+      all: [profile],
     });
     // Catering rider already migrated on a previous accept cycle.
     mockFetchRiders.mockResolvedValueOnce([
@@ -179,13 +184,15 @@ describe("migrateCollaboratorRidersOnAccept (Wave 7 C3)", () => {
   });
 
   it("falls through and lets upsert merge if the existing-riders read fails", async () => {
+    const profile = {
+      id: "perf-2",
+      name: "DJ",
+      role: "performer",
+      documents: [{ id: "d1", name: "T.pdf", url: "https://x", type: "tech_rider" }],
+    };
     mockFetchProfiles.mockResolvedValueOnce({
-      performer: {
-        id: "perf-2",
-        name: "DJ",
-        role: "performer",
-        documents: [{ id: "d1", name: "T.pdf", url: "https://x", type: "tech_rider" }],
-      },
+      slotted: { performer: profile },
+      all: [profile],
     });
     mockFetchRiders.mockRejectedValueOnce(new Error("read denied"));
     mockUpsertRider.mockResolvedValue(undefined);

@@ -237,7 +237,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   });
 
   // ── 3. Team members query — depends on profiles result ───────────────────
-  const fetchedProfiles = profilesQuery.data ?? {};
+  const fetchedProfiles = profilesQuery.data?.slotted ?? {};
   const profilesReady = profilesQuery.isSuccess;
 
   const teamMembersQuery = useQuery({
@@ -282,7 +282,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const dbProfiles = profilesQuery.data;
     if (dbProfiles === undefined) return;
-    setProfiles(normalizeLegacyProfiles(dbProfiles));
+    setProfiles(normalizeLegacyProfiles(dbProfiles.slotted));
   }, [profilesQuery.data]);
 
   useEffect(() => {

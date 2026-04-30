@@ -146,15 +146,15 @@ export function roleCanManageCollaborators(role: EventCollaboratorRole): boolean
  */
 export function userIsEventPerformer(
   event: Pick<Event, "performerProfileId" | "hostProfileId" | "isMultiPerformer"> | undefined | null,
-  profiles: Record<string, SharedProfile>,
+  profiles: SharedProfile[],
   childPerformerProfileIds: string[] = [],
 ): boolean {
   if (!event) return false;
-  const myArtistProfileIds = Object.values(profiles)
+  const myArtistProfileIds = profiles
     .filter((p) => p.role === "performer" && p.id)
     .map((p) => p.id!);
   if (myArtistProfileIds.length === 0) return false;
-  const myProfileIds = Object.values(profiles).map((p) => p.id).filter(Boolean) as string[];
+  const myProfileIds = profiles.map((p) => p.id).filter(Boolean) as string[];
   if (event.hostProfileId && myProfileIds.includes(event.hostProfileId)) return false;
   if (event.performerProfileId) {
     return myArtistProfileIds.includes(event.performerProfileId);

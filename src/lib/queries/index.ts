@@ -81,6 +81,9 @@ export { useEventActivityLog } from "./useEventActivity";
 // Notifications
 export { useNotifications } from "./useNotifications";
 
+// Profiles (flat array — for access matching, not slot lookup)
+export { useAllProfiles } from "./useProfilesQuery";
+
 // Invitation codes
 export type { InvitationCode } from "@/lib/db";
 export {

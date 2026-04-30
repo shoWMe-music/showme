@@ -10,6 +10,7 @@ import {
   useEvents, useEventsLoaded, useEvent, useChildEvents,
   useUpdateDeal, useUpdateRevenue, useUpdateAnyEventMeta,
   useEventActivityLog,
+  useAllProfiles,
   queryKeys,
 } from "@/lib/queries";
 import { upsertShareToken, fetchEventCollaborators, fetchBookingRequestByEventId, fetchProfileTodos, upsertProfileTodos, migrateMetaTodosToProfile, type EventMeta, type Todo } from "@/lib/db";
@@ -50,6 +51,7 @@ export function useEventManager() {
   const respondToDateChangeMutation = useRespondToDateChange();
   const cancelDateChangeMutation = useCancelDateChange();
   const { currentUser, teamMembers, addTeamMember, profiles } = useUser();
+  const allProfiles = useAllProfiles();
   const { user } = useAuth();
   const [eventCurrency, setEventCurrency] = useState(currentUser?.currency || "EUR");
 
@@ -175,15 +177,22 @@ export function useEventManager() {
     const childPerformerIds = childEventsList
       .map((c) => c.performerProfileId)
       .filter(Boolean) as string[];
-    return userIsEventPerformer(event, profiles, childPerformerIds);
-  }, [event, profiles, childEventsList]);
+    return userIsEventPerformer(event, allProfiles, childPerformerIds);
+  }, [event, allProfiles, childEventsList]);
 
   // True when performer is viewing a suggested (invitation) event specifically
   const isPerformerInvitation = isPerformer && event?.eventStatus === "suggested" && event?.performerResponse !== "declined";
 
-  const userProfileIds = Object.values(profiles).map((p) => p.id).filter(Boolean) as string[];
+  const userProfileIds = allProfiles.map((p) => p.id).filter(Boolean) as string[];
   const updateEvent = (eid: string, updates: Partial<typeof allEventsMain[0]>) =>
-    updateEventMutation.mutate({ id: eid, updates, actingProfile, collaborators, userProfileIds });
+    updateEventMutation.mutate({
+      id: eid,
+      updates,
+      actingProfile,
+      collaborators,
+      userProfileIds,
+      childEvents: childEventsList,
+    });
   const updateDeal = (eid: string, deal: DealStructure) =>
     updateDealMutation.mutate({ eventId: eid, deal, actingProfile });
   const updateRevenue = (eid: string, rev: TicketRevenue) =>
@@ -277,7 +286,7 @@ export function useEventManager() {
   // Redirect performers viewing a parent event to their specific child event
   useEffect(() => {
     if (!eventsLoaded || !event || !isParent || !isPerformer) return;
-    const myArtistProfileIds = Object.values(profiles)
+    const myArtistProfileIds = allProfiles
       .filter(p => p.role === "performer" && p.id)
       .map(p => p.id!);
     const myChild = childEventsList.find(
@@ -286,7 +295,7 @@ export function useEventManager() {
     if (myChild) {
       navigate({ to: "/events/$id", params: { id: myChild.id }, replace: true });
     }
-  }, [eventsLoaded, event, isParent, isPerformer, childEventsList, profiles, navigate]);
+  }, [eventsLoaded, event, isParent, isPerformer, childEventsList, allProfiles, navigate]);
 
   useEffect(() => {
     if (!eventsLoaded || !id) return;
@@ -306,7 +315,7 @@ export function useEventManager() {
     togglePublish, promoteHoldsOnDate, resolveHoldRankConflicts,
     generateShareLink, updateSettlementStatus, addComment, handleBudgetProfileChange,
     respondToDateChange, cancelDateChange,
-    currentUser, teamMembers, addTeamMember, user, actingProfile, profiles,
+    currentUser, teamMembers, addTeamMember, user, actingProfile, profiles, allProfiles,
     effectiveSourceRequestId, effectiveSourceRequestDate,
     profileTodos, saveProfileTodos, todosLoaded, todoScopeId,
     markChangeLogViewed,

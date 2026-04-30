@@ -3,7 +3,7 @@ import AppLayout from "@/components/AppLayout";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft } from "lucide-react";
 import { useMemo } from "react";
-import { useEvent, useEventEconomics, useUpdateSettlementStatus, useAddComment, useUpdateRevenue, useEventsLoaded, useChildEvents } from "@/lib/queries";
+import { useEvent, useEventEconomics, useUpdateSettlementStatus, useAddComment, useUpdateRevenue, useEventsLoaded, useChildEvents, useAllProfiles } from "@/lib/queries";
 import { upsertShareToken } from "@/lib/db";
 import { useUser } from "@/lib/user-context";
 import { SettlementWorkspace } from "@/components/settlements/SettlementWorkspace";
@@ -14,14 +14,15 @@ export default function SettlementDetailPage() {
   const { tab } = useSearch({ from: "/settlements/$id" });
   const navigate = useNavigate();
   const eventsLoaded = useEventsLoaded();
-  const { currentUser, profiles } = useUser();
+  const { currentUser } = useUser();
+  const allProfiles = useAllProfiles();
 
   const event = useEvent(id);
   const { isLoaded, deal, revenue, settlement } = useEventEconomics(id);
   const childEvents = useChildEvents(id);
   const viewerIsPerformer = useMemo(
-    () => userIsEventPerformer(event, profiles, childEvents.map((c) => c.performerProfileId).filter(Boolean) as string[]),
-    [event, profiles, childEvents],
+    () => userIsEventPerformer(event, allProfiles, childEvents.map((c) => c.performerProfileId).filter(Boolean) as string[]),
+    [event, allProfiles, childEvents],
   );
 
   const updateSettlementStatus = useUpdateSettlementStatus();
