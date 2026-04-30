@@ -21,9 +21,41 @@ interface NotificationPayload {
   metadata?: Record<string, string>;
 }
 
+/** Collect every uid that is a member of any of the given profiles. */
+async function collectMemberUids(profileIds: string[]): Promise<Set<string>> {
+  const uids = new Set<string>();
+  await Promise.all(
+    profileIds.map(async (pid) => {
+      try {
+        const members = await db()
+          .collection("profiles").doc(pid)
+          .collection("members").get();
+        for (const m of members.docs) {
+          // member doc id == uid
+          if (m.id) uids.add(m.id);
+        }
+      } catch (err) {
+        logger.warn(`Failed to read members for profile ${pid}`, { err });
+      }
+    }),
+  );
+  return uids;
+}
+
+async function resolveActorName(actorUid: string): Promise<string> {
+  if (!actorUid) return "Someone";
+  try {
+    const userRecord = await admin.auth().getUser(actorUid);
+    return userRecord.displayName || userRecord.email || "Someone";
+  } catch {
+    return "Someone";
+  }
+}
+
 /**
- * Write a notification doc to every profile that has access to this event,
- * EXCEPT the profile(s) the actor belongs to (don't notify yourself).
+ * Write one notification per user who is a member of any profile tied to the
+ * event (via accessProfileIds), excluding the actor themselves. Notifications
+ * land in users/{uid}/notifications/{auto} so each user gets their own copy.
  */
 async function notifyEventProfiles(
   eventId: string,
@@ -35,53 +67,27 @@ async function notifyEventProfiles(
   if (!eventSnap.exists) return;
 
   const event = eventSnap.data()!;
-  const profileIds: string[] = Array.isArray(event.accessProfileIds)
+  const allProfileIds: string[] = Array.isArray(event.accessProfileIds)
     ? event.accessProfileIds
     : [];
 
+  if (allProfileIds.length === 0) return;
+
+  const excludeSet = new Set(excludeProfileIds || []);
+  const profileIds = allProfileIds.filter((pid) => !excludeSet.has(pid));
   if (profileIds.length === 0) return;
 
-  // Find which profiles the actor is a member of (to exclude). Skip when we
-  // don't know the actor — Firestore .doc("") throws and would crash the
-  // entire trigger, blocking notifications for everyone else.
-  const actorProfiles = new Set<string>();
-  if (actorUid) {
-    await Promise.all(
-      profileIds.map(async (pid) => {
-        const memberSnap = await db()
-          .collection("profiles").doc(pid)
-          .collection("members").doc(actorUid)
-          .get();
-        if (memberSnap.exists) actorProfiles.add(pid);
-      }),
-    );
-  }
+  const recipientUids = await collectMemberUids(profileIds);
+  if (actorUid) recipientUids.delete(actorUid);
+  if (recipientUids.size === 0) return;
 
-  // Get actor display name
-  let actorName = "Someone";
-  try {
-    const userRecord = await admin.auth().getUser(actorUid);
-    actorName = userRecord.displayName || userRecord.email || "Someone";
-  } catch {
-    // user not found
-  }
-
+  const actorName = await resolveActorName(actorUid);
   const eventName = (typeof event.name === "string" && event.name) || "";
   const now = new Date().toISOString();
 
   const batch = db().batch();
-  let count = 0;
-
-  const excludeSet = new Set(excludeProfileIds || []);
-
-  for (const pid of profileIds) {
-    if (actorProfiles.has(pid)) continue; // don't notify the actor's own profiles
-    if (excludeSet.has(pid)) continue; // explicitly excluded
-
-    const ref = db()
-      .collection("profiles").doc(pid)
-      .collection("notifications").doc();
-
+  for (const uid of recipientUids) {
+    const ref = db().collection("users").doc(uid).collection("notifications").doc();
     batch.set(ref, {
       type: payload.type,
       title: payload.title,
@@ -90,38 +96,47 @@ async function notifyEventProfiles(
       eventName: payload.eventName || eventName,
       actorName,
       actorUid,
-      profileId: pid,
       read: false,
       createdAt: now,
       link: payload.link || `/events/${eventId}`,
       metadata: payload.metadata || {},
     });
-    count++;
   }
-
-  if (count > 0) {
-    await batch.commit();
-    logger.info(`Created ${count} notifications for event ${eventId}`, { type: payload.type });
-  }
+  await batch.commit();
+  logger.info(`Created ${recipientUids.size} notifications for event ${eventId}`, { type: payload.type });
 }
 
 /**
- * Write a notification to a specific profile.
+ * Write one notification per member of `profileId`, excluding the actor.
+ * Each notification lands at users/{uid}/notifications/{auto}.
  */
 async function notifyProfile(
   profileId: string,
   payload: NotificationPayload,
 ): Promise<void> {
-  await db()
-    .collection("profiles").doc(profileId)
-    .collection("notifications").doc()
-    .set({
-      ...payload,
-      profileId,
+  const recipientUids = await collectMemberUids([profileId]);
+  if (payload.actorUid) recipientUids.delete(payload.actorUid);
+  if (recipientUids.size === 0) return;
+
+  const now = new Date().toISOString();
+  const batch = db().batch();
+  for (const uid of recipientUids) {
+    const ref = db().collection("users").doc(uid).collection("notifications").doc();
+    batch.set(ref, {
+      type: payload.type,
+      title: payload.title,
+      body: payload.body,
+      eventId: payload.eventId,
+      eventName: payload.eventName,
+      actorName: payload.actorName,
+      actorUid: payload.actorUid,
       read: false,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
+      link: payload.link,
       metadata: payload.metadata || {},
     });
+  }
+  await batch.commit();
 }
 
 // ── Event status & details ───────────────────────────────────────────────────
@@ -489,21 +504,15 @@ export const onCollaboratorAdded = onDocumentCreated(
     // If the collaborator has a profileId, notify that profile
     const profileId = data.profileId as string | undefined;
     if (profileId) {
-      let actorName = "Someone";
-      try {
-        const ownerUid = eventData?.owner_uid || eventData?.hostProfileId || "";
-        if (ownerUid) {
-          const userRecord = await admin.auth().getUser(ownerUid);
-          actorName = userRecord.displayName || userRecord.email || "Someone";
-        }
-      } catch { /* */ }
+      const inviterUid = (data.invitedByUid as string) || (eventData?._lastUpdatedBy as string) || (eventData?.owner_uid as string) || "";
+      const actorName = await resolveActorName(inviterUid);
 
       await notifyProfile(profileId, {
         type: "collaborator_invited",
         title: "Collaborator invite",
         body: `${actorName} invited you to collaborate on "${eventName}"`,
         actorName,
-        actorUid: eventData?.owner_uid || "",
+        actorUid: inviterUid,
         eventId,
         eventName,
         link: `/events/${eventId}`,

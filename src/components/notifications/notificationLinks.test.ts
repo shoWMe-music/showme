@@ -18,7 +18,6 @@ function makeNotif(overrides: Partial<AppNotification>): AppNotification {
     body: "Test body",
     actorName: "Alice",
     actorUid: "uid-actor",
-    profileId: "profile-receiver",
     read: false,
     createdAt: "2026-04-29T10:00:00Z",
     ...overrides,

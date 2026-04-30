@@ -1,16 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
-const { mockToast } = vi.hoisted(() => ({ mockToast: vi.fn() }));
+const { mockToast, mockCallable, mockHttpsCallable } = vi.hoisted(() => {
+  const callable = vi.fn().mockResolvedValue({ data: { ok: true } });
+  return {
+    mockToast: vi.fn(),
+    mockCallable: callable,
+    mockHttpsCallable: vi.fn().mockReturnValue(callable),
+  };
+});
 
 vi.mock("@/hooks/use-toast", () => ({
   toast: mockToast,
+}));
+
+vi.mock("firebase/functions", () => ({
+  httpsCallable: mockHttpsCallable,
+}));
+
+vi.mock("@/integrations/firebase/app", () => ({
+  getFirebaseFunctions: vi.fn().mockReturnValue({}),
 }));
 
 import EmailTeamMemberDialog from "./EmailTeamMemberDialog";
 
 beforeEach(() => {
   mockToast.mockReset();
+  mockCallable.mockReset();
+  mockCallable.mockResolvedValue({ data: { ok: true } });
 });
 
 describe("EmailTeamMemberDialog", () => {
@@ -46,7 +63,7 @@ describe("EmailTeamMemberDialog", () => {
     expect(sendBtn).not.toBeDisabled();
   });
 
-  it("calls onOpenChange(false) and toasts when Send is clicked", () => {
+  it("calls onOpenChange(false) and toasts when Send is clicked", async () => {
     const onOpenChange = vi.fn();
     render(
       <EmailTeamMemberDialog
@@ -61,7 +78,15 @@ describe("EmailTeamMemberDialog", () => {
     fireEvent.change(screen.getByTestId("email-body-input"), { target: { value: "Hello there" } });
     fireEvent.click(screen.getByRole("button", { name: /send/i }));
 
-    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({ title: "Email queued" }));
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({ title: "Email sent" }));
+    });
+    expect(mockCallable).toHaveBeenCalledWith({
+      recipientEmail: "jane@example.com",
+      recipientName: "Jane Crew",
+      subject: "Hi",
+      body: "Hello there",
+    });
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 

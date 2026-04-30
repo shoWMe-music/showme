@@ -908,8 +908,6 @@ export interface AppNotification {
   /** Who triggered this notification. */
   actorName: string;
   actorUid: string;
-  /** Profile that receives this notification. */
-  profileId: string;
   read: boolean;
   createdAt: string;
   /** Link path for click-through navigation. */

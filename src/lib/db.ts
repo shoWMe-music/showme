@@ -160,9 +160,19 @@ async function upsertEventSubdoc<T extends object>(
 ): Promise<void> {
   await safeSetDoc(
     eventSubDoc(eventId, subcollection, "main"),
-    { ...data, updatedAt: serverTimestamp() },
+    { ...data, ...actorWriteStamp(), updatedAt: serverTimestamp() },
     { merge: true },
   );
+}
+
+/**
+ * Stamps the current auth uid on a write so the notifications cloud functions
+ * can filter the actor out of recipient lists. Without this, every
+ * event/deal/revenue/settlement/meta write triggers a self-notification
+ * because `_lastUpdatedBy` defaults to empty.
+ */
+function actorWriteStamp(): { _lastUpdatedBy: string } {
+  return { _lastUpdatedBy: getAuthClient().currentUser?.uid || "" };
 }
 
 async function fetchEventSubcollectionArray<T>(
@@ -1184,6 +1194,7 @@ export async function upsertEvent(event: Event) {
       // Preserve legacy field for rules compatibility
       owner_uid: (existing.owner_uid as string) || uid,
       primary_owner_uid: (existing.primary_owner_uid as string) || uid,
+      ...actorWriteStamp(),
     },
     { merge: true },
   );
@@ -1233,10 +1244,12 @@ export function appendSettlementActivity(
   onWritten?: () => void,
   profile?: string,
 ): void {
+  const actorUid = getAuthClient().currentUser?.uid;
   const doWrite = () =>
     void addDoc(eventSubCol(eventId, SUB_ACTIVITY), {
       type, by, details: details ?? {},
       ...(profile ? { profile } : {}),
+      ...(actorUid ? { actorUid } : {}),
       timestamp: new Date().toISOString(),
       createdAt: serverTimestamp(),
     }).then(() => onWritten?.());
@@ -1489,7 +1502,11 @@ export async function fetchEventMeta(eventId: string): Promise<EventMeta> {
 export async function upsertEventMeta(eventId: string, data: Partial<EventMeta>) {
   await safeSetDoc(
     eventSubDoc(eventId, SUB_META, "main"),
-    { ...stripUndefined(data), updatedAt: serverTimestamp() },
+    {
+      ...stripUndefined(data),
+      ...actorWriteStamp(),
+      updatedAt: serverTimestamp(),
+    },
     { merge: true },
   );
 }
@@ -1497,7 +1514,11 @@ export async function upsertEventMeta(eventId: string, data: Partial<EventMeta>)
 export async function clearPendingDateChange(eventId: string) {
   await safeSetDoc(
     eventSubDoc(eventId, SUB_META, "main"),
-    { pendingDateChange: deleteField(), updatedAt: serverTimestamp() },
+    {
+      pendingDateChange: deleteField(),
+      ...actorWriteStamp(),
+      updatedAt: serverTimestamp(),
+    },
     { merge: true },
   );
 }
@@ -1679,7 +1700,20 @@ function collaboratorDocToUi(d: QueryDocumentSnapshot): EventCollaborator {
 /** Add a single collaborator to an event's collaborators subcollection. */
 export async function addEventCollaborator(eventId: string, collaborator: EventCollaborator) {
   const ref = doc(eventCollaboratorsCol(eventId), collaborator.id);
-  await safeSetDoc(ref, collaboratorUiToFirestore(collaborator));
+  // Stamp `invitedByUid` on first write so onCollaboratorAdded can attribute
+  // the invite to the actual inviter (not always the event owner).
+  const inviterStamp = await firstWriteInviterStamp(ref);
+  await safeSetDoc(ref, { ...collaboratorUiToFirestore(collaborator), ...inviterStamp });
+}
+
+async function firstWriteInviterStamp(ref: DocumentReference): Promise<Record<string, string>> {
+  const uid = getAuthClient().currentUser?.uid;
+  if (!uid) return {};
+  const existing = await getDoc(ref);
+  if (existing.exists() && typeof (existing.data() as Record<string, unknown>).invitedByUid === "string") {
+    return {};
+  }
+  return { invitedByUid: uid };
 }
 
 export async function fetchEventCollaborators(eventId: string): Promise<EventCollaborator[]> {
@@ -1703,9 +1737,25 @@ export async function syncEventCollaboratorsFromUi(
   const existing = await getDocs(colRef);
   const batch = writeBatch(db);
 
+  // Preserve `invitedByUid` across the delete/recreate cycle so the actual
+  // inviter is recorded (not overwritten by whoever last edits the list).
+  const existingInviters = new Map<string, string>();
+  existing.forEach((d) => {
+    const data = d.data() as Record<string, unknown>;
+    const clientId = typeof data.clientId === "string" ? data.clientId : d.id;
+    if (typeof data.invitedByUid === "string") {
+      existingInviters.set(clientId, data.invitedByUid);
+    }
+  });
+  const currentUid = getAuthClient().currentUser?.uid;
+
   existing.forEach((d) => batch.delete(d.ref));
   for (const c of collabs) {
-    batch.set(doc(colRef, c.id), collaboratorUiToFirestore(c));
+    const inviterUid = existingInviters.get(c.id) || currentUid;
+    batch.set(doc(colRef, c.id), {
+      ...collaboratorUiToFirestore(c),
+      ...(inviterUid ? { invitedByUid: inviterUid } : {}),
+    });
   }
 
   // Rebuild accessUids: host profile members (caller's uid) + active collaborator uids
@@ -2437,77 +2487,61 @@ export async function fetchEventRowForCollaborator(
 
 // ── Notifications ─────────────────────────────────────────────────────────────
 
+const USER_COLLECTION = "users";
 const SUB_NOTIFICATIONS = "notifications";
 
-function notificationsCol(profileId: string) {
-  return collection(getFirestoreDb(), PROFILE_COLLECTION, profileId, SUB_NOTIFICATIONS);
+function userNotificationsCol(uid: string) {
+  return collection(getFirestoreDb(), USER_COLLECTION, uid, SUB_NOTIFICATIONS);
 }
 
 export function subscribeNotifications(
-  profileIds: string[],
+  uid: string,
   onNotifications: (notifications: AppNotification[]) => void,
 ): () => void {
-  if (profileIds.length === 0) {
+  if (!uid) {
     onNotifications([]);
     return () => {};
   }
 
-  const allNotifs = new Map<string, AppNotification[]>();
-  const unsubs: (() => void)[] = [];
-
-  for (const profileId of profileIds) {
-    const q = query(
-      notificationsCol(profileId),
-      orderBy("createdAt", "desc"),
-      limit(50),
+  const q = query(
+    userNotificationsCol(uid),
+    orderBy("createdAt", "desc"),
+    limit(50),
+  );
+  return onSnapshot(q, (snap) => {
+    onNotifications(
+      snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          type: data.type as NotificationType,
+          title: (data.title as string) || "",
+          body: (data.body as string) || "",
+          eventId: data.eventId as string | undefined,
+          eventName: data.eventName as string | undefined,
+          actorName: (data.actorName as string) || "",
+          actorUid: (data.actorUid as string) || "",
+          read: !!data.read,
+          createdAt: (data.createdAt as string) || new Date().toISOString(),
+          link: data.link as string | undefined,
+          metadata: data.metadata as Record<string, string> | undefined,
+        };
+      }),
     );
-    const unsub = onSnapshot(q, (snap) => {
-      allNotifs.set(
-        profileId,
-        snap.docs.map((d) => {
-          const data = d.data();
-          return {
-            id: d.id,
-            type: data.type as NotificationType,
-            title: (data.title as string) || "",
-            body: (data.body as string) || "",
-            eventId: data.eventId as string | undefined,
-            eventName: data.eventName as string | undefined,
-            actorName: (data.actorName as string) || "",
-            actorUid: (data.actorUid as string) || "",
-            profileId,
-            read: !!data.read,
-            createdAt: (data.createdAt as string) || new Date().toISOString(),
-            link: data.link as string | undefined,
-            metadata: data.metadata as Record<string, string> | undefined,
-          };
-        }),
-      );
-      // Merge & sort all profile notifications and push to callback
-      const merged = Array.from(allNotifs.values())
-        .flat()
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-      onNotifications(merged);
-    }, (err) => {
-      // Permission-denied is expected for profiles without a member doc (e.g. stub profiles).
-      // Silently skip — the profile simply won't contribute notifications.
-      console.warn(`Notifications listener failed for profile ${profileId}:`, err.code);
-    });
-    unsubs.push(unsub);
-  }
-
-  return () => unsubs.forEach((fn) => fn());
+  }, (err) => {
+    console.warn(`Notifications listener failed for user ${uid}:`, err.code);
+  });
 }
 
-export async function markNotificationRead(profileId: string, notificationId: string): Promise<void> {
+export async function markNotificationRead(uid: string, notificationId: string): Promise<void> {
   await updateDoc(
-    doc(getFirestoreDb(), PROFILE_COLLECTION, profileId, SUB_NOTIFICATIONS, notificationId),
+    doc(getFirestoreDb(), USER_COLLECTION, uid, SUB_NOTIFICATIONS, notificationId),
     { read: true },
   );
 }
 
-export async function markAllNotificationsRead(profileId: string): Promise<void> {
-  const q = query(notificationsCol(profileId), where("read", "==", false));
+export async function markAllNotificationsRead(uid: string): Promise<void> {
+  const q = query(userNotificationsCol(uid), where("read", "==", false));
   const snap = await getDocs(q);
   if (snap.empty) return;
   const batch = writeBatch(getFirestoreDb());
@@ -2515,8 +2549,8 @@ export async function markAllNotificationsRead(profileId: string): Promise<void>
   await batch.commit();
 }
 
-export async function deleteNotification(profileId: string, notificationId: string): Promise<void> {
+export async function deleteNotification(uid: string, notificationId: string): Promise<void> {
   await deleteDoc(
-    doc(getFirestoreDb(), PROFILE_COLLECTION, profileId, SUB_NOTIFICATIONS, notificationId),
+    doc(getFirestoreDb(), USER_COLLECTION, uid, SUB_NOTIFICATIONS, notificationId),
   );
 }

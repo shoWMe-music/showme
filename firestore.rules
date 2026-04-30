@@ -367,15 +367,6 @@ service cloud.firestore {
       allow read, write: if isProfileMember(profileId);
     }
 
-    // ── Profile notifications ──────────────────────────────────────────────────
-
-    match /profiles/{profileId}/notifications/{notifId} {
-      allow read: if isProfileMember(profileId);
-      allow update: if isProfileMember(profileId);
-      allow create: if false; // only Cloud Functions write notifications
-      allow delete: if isProfileMember(profileId);
-    }
-
     // ── Profile team (contacts/crew — may not have Firebase accounts) ─────────
 
     match /profiles/{profileId}/team/{memberId} {
@@ -388,6 +379,15 @@ service cloud.firestore {
     match /profiles/{profileId}/templates/{category}/items/{templateId} {
       allow read: if isProfileMember(profileId);
       allow write, delete: if isProfileAdmin(profileId);
+    }
+
+    // ── User notifications ────────────────────────────────────────────────────
+    // Per-user fan-out: cloud functions write here, the user reads/marks/deletes.
+    // create blocked so a client can't fabricate notifications for itself or others.
+
+    match /users/{userId}/notifications/{notifId} {
+      allow read, update, delete: if isAuthed() && uid() == userId;
+      allow create: if false;
     }
 
     // ── User private data ────────────────────────────────────────────────────
