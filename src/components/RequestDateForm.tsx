@@ -1,13 +1,20 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { insertPublicBookingRequest } from "@/lib/db";
 import { useUser } from "@/lib/user-context";
+import {
+  SENDER_TYPE_FOR_VENUE,
+  SENDER_TYPE_FOR_PERFORMER,
+  senderTypeForVenueLabels,
+  senderTypeForPerformerLabels,
+} from "@/lib/enums";
 
 const CURRENCY_SYMBOLS: Record<string, string> = { EUR: "€", USD: "$", GBP: "£", SEK: "kr" };
 
@@ -27,6 +34,7 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
   const { currentUser } = useUser();
   const currency = currentUser.currency || "EUR";
   const currencySymbol = CURRENCY_SYMBOLS[currency] || currency;
+  const [senderType, setSenderType] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -37,15 +45,27 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
   const [musicUrl, setMusicUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
 
+  // Sender-type vocabulary depends on whether we're requesting a venue or a performer.
+  const senderTypeOptions = useMemo(() => {
+    if (targetRole === "venue") {
+      return SENDER_TYPE_FOR_VENUE.map((value) => ({ value, label: senderTypeForVenueLabels[value] }));
+    }
+    if (targetRole === "performer") {
+      return SENDER_TYPE_FOR_PERFORMER.map((value) => ({ value, label: senderTypeForPerformerLabels[value] }));
+    }
+    return [];
+  }, [targetRole]);
+
   const submitMutation = useMutation({
     mutationFn: (data: Parameters<typeof insertPublicBookingRequest>[0]) => insertPublicBookingRequest(data),
     onSuccess: () => {
       toast({ title: "Request submitted!", description: "Your booking request has been sent successfully." });
       onOpenChange(false);
+      setSenderType("");
       setName(""); setEmail(""); setPhone(""); setArtistName(""); setWantedDate(""); setArtistFee(""); setNote(""); setMusicUrl(""); setVideoUrl("");
       onSuccess?.();
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       toast({ title: "Failed to submit request", description: err.message, variant: "destructive" });
     },
   });
@@ -55,6 +75,10 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
   }, [defaultDate]);
 
   const handleSubmit = () => {
+    if (!senderType.trim()) {
+      toast({ title: "Please select who you are", variant: "destructive" });
+      return;
+    }
     if (!name.trim() || !email.trim() || !artistName.trim() || !wantedDate.trim()) {
       toast({ title: "Please fill in all required fields", variant: "destructive" });
       return;
@@ -64,6 +88,7 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
       return;
     }
     submitMutation.mutate({
+      sender_type: senderType.trim(),
       name: name.trim(),
       email: email.trim(),
       phone: phone.trim(),
@@ -80,6 +105,12 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
     });
   };
 
+  const senderTypePromptLabel = targetRole === "venue"
+    ? "I am a... *"
+    : targetRole === "performer"
+      ? "I am a... *"
+      : "Sender type *";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
@@ -87,6 +118,21 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
           <DialogTitle>Request a Date</DialogTitle>
         </DialogHeader>
         <div className="space-y-2 py-1">
+          {senderTypeOptions.length > 0 && (
+            <div>
+              <Label className="text-xs">{senderTypePromptLabel}</Label>
+              <Select value={senderType} onValueChange={setSenderType}>
+                <SelectTrigger className="mt-0.5 h-8 text-sm" aria-label="Sender type">
+                  <SelectValue placeholder="Select who you are" />
+                </SelectTrigger>
+                <SelectContent>
+                  {senderTypeOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label className="text-xs">Name *</Label>
