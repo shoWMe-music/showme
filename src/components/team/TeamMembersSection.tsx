@@ -16,50 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Pencil, Plus, Trash2, Users, X } from "lucide-react";
-
-const PRESET_ROLES: Record<string, string[]> = {
-  performer: [
-    "Lead Artist / Band Leader", "Band Member", "Booking Agent", "Artist Manager",
-    "Tour Manager", "Production Manager", "Sound Engineer (FOH)", "Monitor Engineer",
-    "Lighting Designer", "Stage Manager", "Backline Technician", "Merchandise Manager",
-    "Content Creator / Videographer", "Publicist / PR", "Social Media Manager",
-  ],
-  promoter: [
-    "Promoter", "Talent Buyer", "Event Producer", "Booking Agent",
-    "Marketing Manager", "Digital Marketing Specialist", "PR / Press Relations",
-    "Ticketing Manager", "Partnerships / Sponsorship Manager", "Finance / Budget Controller",
-    "Operations Coordinator", "Runner / Logistics Assistant", "Guest List Manager",
-  ],
-  venue: [
-    "Venue Owner", "General Manager", "Venue Booker", "Talent Buyer", "Event Manager",
-    "Technical Manager", "Sound Engineer (House)", "Lighting Technician", "Bar Manager",
-    "Bartender", "Host", "Door", "Tickets", "Guest List", "Merchandise",
-    "Waiter / Waitress", "Staff Manager", "HR", "Box Office Manager",
-    "Security Manager", "Security Guard", "Hospitality Manager", "Cleaning / Maintenance",
-  ],
-  organizer: [
-    "Event Organizer / Producer", "Project Manager", "Scheduler / Planner",
-    "Budget Manager", "Vendor Coordinator", "Artist Liaison", "Logistics Manager",
-    "Accreditation Manager", "Volunteer Coordinator", "Health & Safety Officer",
-    "Legal / Contracts Manager",
-  ],
-  festival: [
-    "Festival Director", "Program Director / Curator", "Booking Team", "Artist Relations",
-    "Production Director", "Stage Manager", "Technical Crew", "Operations Manager",
-    "Site Manager", "Logistics & Transport", "Vendor / F&B Manager",
-    "Sponsorship & Partnerships", "Marketing & PR", "Ticketing & Accreditation",
-    "Volunteer Coordinator", "Security & Safety", "Finance",
-  ],
-};
-
-type FormState = {
-  name: string; email: string; phone: string;
-  role: string; status: "active" | "inactive"; notes: string;
-  profileIds: string[];
-};
-const emptyForm = (): FormState => ({
-  name: "", email: "", phone: "", role: "Member", status: "active", notes: "", profileIds: [],
-});
+import CreateTeamMemberDialog, { PRESET_ROLES } from "@/components/CreateTeamMemberDialog";
 
 function initials(name: string) {
   const parts = name.trim().split(" ");
@@ -150,7 +107,7 @@ function RoleCombobox({ value, onChange, options, savedCustoms, onSaveCustom }: 
 }
 
 export function TeamMembersSection() {
-  const { profiles, teamMembers, addTeamMember, updateTeamMember, addMemberToProfile, removeTeamMember, loaded, saveProfile } = useUser();
+  const { profiles, teamMembers, updateTeamMember, addMemberToProfile, removeTeamMember, loaded, saveProfile } = useUser();
   const { user } = useAuth();
 
   const ownedProfiles = useMemo(() =>
@@ -174,7 +131,6 @@ export function TeamMembersSection() {
   const [addOpen, setAddOpen] = useState(false);
   const [editEntry, setEditEntry] = useState<{ member: TeamMember; profileIds: string[] } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
-  const [form, setForm] = useState<FormState>(emptyForm());
 
   const profileName = (pid: string) => {
     const entry = Object.entries(profiles).find(([, p]) => p.id === pid);
@@ -239,31 +195,6 @@ export function TeamMembersSection() {
     return role || slot;
   };
 
-  const presetRoles = useMemo(() => {
-    const roles = new Set<string>();
-    form.profileIds.forEach(pid => {
-      const entry = Object.entries(profiles).find(([, p]) => p.id === pid);
-      (PRESET_ROLES[resolvePresetKey(entry)] ?? []).forEach(r => roles.add(r));
-    });
-    customRolesFromMembers.forEach(r => roles.add(r));
-    return Array.from(roles);
-  }, [form.profileIds, profiles, customRolesFromMembers]);
-
-  const handleAdd = async () => {
-    if (!form.name.trim() || form.profileIds.length === 0 || !user) return;
-    const id = `TM-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const [firstPid, ...rest] = form.profileIds;
-    const member: TeamMember = {
-      id, name: form.name.trim(), email: form.email.trim(), phone: form.phone.trim(),
-      roles: [form.role], status: form.status, notes: form.notes.trim(), profileId: firstPid,
-    };
-    addTeamMember(member, firstPid);
-    rest.forEach(pid => addMemberToProfile(id, pid));
-    toast({ title: "Team member added" });
-    setAddOpen(false);
-    setForm(emptyForm());
-  };
-
   const handleSaveEdit = () => {
     if (!editEntry) return;
     updateTeamMember(editEntry.member);
@@ -294,7 +225,7 @@ export function TeamMembersSection() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">Crew and contacts across your profiles.</p>
-        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { setForm(emptyForm()); setAddOpen(true); }}>
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setAddOpen(true)}>
           <Plus className="h-3.5 w-3.5" /> Add Member
         </Button>
       </div>
@@ -412,78 +343,8 @@ export function TeamMembersSection() {
         </div>
       )}
 
-      {/* ── Add Dialog ── */}
-      <Dialog open={addOpen} onOpenChange={o => { if (!o) setAddOpen(false); }}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader><DialogTitle>Add Team Member</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-1 max-h-[65vh] overflow-y-auto pr-1">
-            <div>
-              <Label className="mb-2 block">Profiles *</Label>
-              <div className="space-y-1.5">
-                {ownedProfiles.map(([s, p]) => {
-                  const pid = profiles[s]?.id || "";
-                  const isSelected = form.profileIds.includes(pid);
-                  return (
-                    <label
-                      key={pid}
-                      className={cn(
-                        "flex items-center gap-2.5 cursor-pointer rounded-lg border px-3 py-2.5 transition-colors",
-                        isSelected ? "border-primary bg-primary/5" : "hover:bg-muted/50",
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        className="accent-primary"
-                        checked={isSelected}
-                        onChange={e => setForm(prev => ({
-                          ...prev,
-                          profileIds: e.target.checked
-                            ? [...prev.profileIds, pid]
-                            : prev.profileIds.filter(id => id !== pid),
-                        }))}
-                      />
-                      <span className="text-sm font-medium">{p.name ?? s}</span>
-                      <span className="text-xs text-muted-foreground capitalize ml-auto">{s}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-            <div>
-              <Label>Name *</Label>
-              <Input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="Full name" className="mt-1" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Email</Label>
-                <Input value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} placeholder="email@example.com" type="email" className="mt-1" />
-              </div>
-              <div>
-                <Label>Phone</Label>
-                <Input value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} placeholder="+1 555…" className="mt-1" />
-              </div>
-            </div>
-            <div>
-              <Label>Role</Label>
-              <RoleCombobox
-                value={form.role}
-                onChange={v => setForm(p => ({ ...p, role: v }))}
-                options={[...presetRoles, "Member"]}
-                savedCustoms={customRolesForProfiles(form.profileIds)}
-                onSaveCustom={(role) => persistCustomRoleToProfiles(form.profileIds, role)}
-              />
-            </div>
-            <div>
-              <Label>Notes</Label>
-              <Textarea value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Any notes…" className="mt-1 min-h-[70px]" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button onClick={handleAdd} disabled={!form.name.trim() || form.profileIds.length === 0}>Add Member</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* ── Add Dialog (extracted into reusable component) ── */}
+      <CreateTeamMemberDialog open={addOpen} onOpenChange={setAddOpen} />
 
       {/* ── Edit Dialog ── */}
       <Dialog open={!!editEntry} onOpenChange={o => { if (!o) setEditEntry(null); }}>

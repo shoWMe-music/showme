@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import CreateTeamMemberDialog from "@/components/CreateTeamMemberDialog";
 import { cn } from "@/lib/utils";
 import { toast as sonnerToast } from "sonner";
 import {
@@ -410,6 +411,7 @@ export default function TasksPage() {
   const [newTaskEventId, setNewTaskEventId] = useState("");
   const [assigneePickerOpen, setAssigneePickerOpen] = useState(false);
   const [assigneeSearch, setAssigneeSearch] = useState("");
+  const [createMemberOpen, setCreateMemberOpen] = useState(false);
 
   const {
     data: paginatedData,
@@ -780,6 +782,16 @@ export default function TasksPage() {
                         </button>
                       </div>
                     )}
+                    <div className="border-t p-1">
+                      <button
+                        type="button"
+                        onClick={() => { setAssigneePickerOpen(false); setCreateMemberOpen(true); }}
+                        className="w-full px-3 py-1.5 text-xs text-primary hover:bg-primary/10 rounded transition-colors text-left flex items-center gap-1.5"
+                        data-testid="assignee-picker-create-new"
+                      >
+                        <Plus className="h-3 w-3" /> Create new member
+                      </button>
+                    </div>
                   </PopoverContent>
                 </Popover>
               </div>
@@ -1067,6 +1079,28 @@ export default function TasksPage() {
           </div>
         )}
       </div>
+
+      {/* Create-team-member dialog (reachable from the assignee picker). */}
+      <CreateTeamMemberDialog
+        open={createMemberOpen}
+        onOpenChange={setCreateMemberOpen}
+        defaultProfileIds={(() => {
+          // If the user has selected an event in the create-task form, seed
+          // the dialog with that event's host profile so they don't have to
+          // pick again. Otherwise fall back to no defaults.
+          const event = events.find(e => e.id === newTaskEventId);
+          const uid = user?.uid;
+          if (!event || !uid) return [];
+          const hostPid = Object.entries(profiles)
+            .filter(([, p]) => p.role === event.operatorType)
+            .map(([slot]) => `${uid}__${slot}`);
+          return hostPid;
+        })()}
+        onCreated={(member) => {
+          // Auto-select the just-created member in the assignee list.
+          setNewTaskAssignees(prev => prev.includes(member.name) ? prev : [...prev, member.name]);
+        }}
+      />
     </AppLayout>
   );
 }
