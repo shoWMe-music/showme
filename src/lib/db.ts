@@ -1810,6 +1810,8 @@ export async function fetchContactPage(
           vatId: r.vatId as string | undefined,
           address: r.address as string | undefined,
           notes: r.notes as string | undefined,
+          invitationCode: r.invitationCode as string | undefined,
+          invitationStatus: r.invitationStatus as Contact["invitationStatus"],
         };
       }) as Contact[],
       lastDoc: docs[docs.length - 1] ?? null,
@@ -1836,6 +1838,8 @@ export async function fetchContacts(): Promise<Contact[]> {
       vatId: r.vatId as string | undefined,
       address: r.address as string | undefined,
       notes: r.notes as string | undefined,
+      invitationCode: r.invitationCode as string | undefined,
+      invitationStatus: r.invitationStatus as Contact["invitationStatus"],
     };
   });
 }
