@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import AppLayout from "@/components/AppLayout";
 import CreateContactDialog from "@/components/CreateContactDialog";
 import ImportContactsDialog from "@/components/ImportContactsDialog";
+import ContactExportDialog from "@/components/ContactExportDialog";
 import { usePaginatedContacts, useAddContact, useUpdateContact, useDeleteContact } from "@/lib/queries";
 import { useMyInvitationCodes } from "@/lib/queries/useInvitationCodes";
 import type { InvitationCode } from "@/lib/db";
@@ -21,7 +22,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, Users, MapPin, Music, Ticket, Briefcase, UserCheck, Factory, Upload, AlertTriangle, Merge, Loader2, Handshake, Trash2, Copy, Check } from "lucide-react";
+import { Plus, Search, Users, MapPin, Music, Ticket, Briefcase, UserCheck, Factory, Upload, Download, AlertTriangle, Merge, Loader2, Handshake, Trash2, Copy, Check } from "lucide-react";
 import { toast, copyToast } from "@/hooks/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -109,6 +110,7 @@ export default function ContactsPage() {
   const navigate = useNavigate();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<ContactType | "all" | "collaborators">("all");
@@ -368,6 +370,9 @@ export default function ContactsPage() {
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <Upload className="h-4 w-4 mr-2" /> Import
             </Button>
+            <Button variant="outline" onClick={() => setExportOpen(true)} disabled={allLoadedContacts.length === 0}>
+              <Download className="h-4 w-4 mr-2" /> Export
+            </Button>
             <Button onClick={() => { setEditingContact(null); setDialogOpen(true); }}>
               <Plus className="h-4 w-4 mr-2" /> Add Contact
             </Button>
@@ -522,6 +527,12 @@ export default function ContactsPage() {
         editingContact={editingContact}
         customTypes={customTypes}
         invitation={getInviteForDialog(editingContact)}
+      />
+      <ContactExportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        allContacts={allLoadedContacts}
+        selectedIds={selectedIds}
       />
       <ImportContactsDialog
         open={importOpen}
