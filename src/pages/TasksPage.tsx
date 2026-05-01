@@ -964,54 +964,56 @@ export default function TasksPage() {
               )}
             </div>
           </div>
-          <div className="flex gap-1 flex-wrap">
-            {FILTERS.map(f => (
-              <button
-                key={f.value}
-                onClick={() => setFilter(f.value)}
-                className={cn(
-                  "px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
-                  filter === f.value ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {f.label}
-                {f.value === "overdue" && overdueCt > 0 && (
-                  <span className="ml-1.5 inline-flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold w-4 h-4">
-                    {overdueCt > 9 ? "9+" : overdueCt}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-          {profileOptions.length > 1 && (
+          <div className="flex items-start justify-between gap-4">
             <div className="flex gap-1 flex-wrap">
-              <button
-                onClick={() => setProfileFilter("all")}
-                className={cn(
-                  "px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
-                  profileFilter === "all"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:text-foreground",
-                )}
-              >
-                All profiles
-              </button>
-              {profileOptions.map(p => (
+              {FILTERS.map(f => (
                 <button
-                  key={p.id}
-                  onClick={() => setProfileFilter(p.id)}
+                  key={f.value}
+                  onClick={() => setFilter(f.value)}
                   className={cn(
                     "px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
-                    profileFilter === p.id
+                    filter === f.value ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {f.label}
+                  {f.value === "overdue" && overdueCt > 0 && (
+                    <span className="ml-1.5 inline-flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold w-4 h-4">
+                      {overdueCt > 9 ? "9+" : overdueCt}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+            {profileOptions.length > 1 && (
+              <div className="flex gap-1 flex-wrap justify-end shrink-0">
+                <button
+                  onClick={() => setProfileFilter("all")}
+                  className={cn(
+                    "px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
+                    profileFilter === "all"
                       ? "bg-primary text-primary-foreground"
                       : "bg-muted text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  {p.name}
+                  All profiles
                 </button>
-              ))}
-            </div>
-          )}
+                {profileOptions.map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => setProfileFilter(p.id)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
+                      profileFilter === p.id
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Loading skeleton — only on first load, not on return visits */}
