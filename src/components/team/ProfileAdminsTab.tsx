@@ -238,6 +238,11 @@ export function ProfileAdminsTab() {
 
   return (
     <div className="space-y-6">
+      {pendingInvitesQuery.error && (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-5 py-3 text-sm text-destructive">
+          Could not load pending invites: {pendingInvitesQuery.error instanceof Error ? pendingInvitesQuery.error.message : "Unknown error"}
+        </div>
+      )}
       {pendingInvites.length > 0 && (
         <div className="space-y-3">
           {pendingInvites.map((inv) => {

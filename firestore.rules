@@ -332,25 +332,28 @@ service cloud.firestore {
             && uid() == memberUid
             && request.resource.data.user_uid == uid()
             && request.resource.data.role in ['admin', 'editor']
-            && exists(/databases/$(database)/documents/profileInvites/$(profileId + '_' + request.auth.token.email)));
+            && exists(/databases/$(database)/documents/profileInvites/$(profileId + '_' + request.auth.token.email.lower())));
     }
 
     // ── Profile admin invites ─────────────────────────────────────────────────
 
     match /profileInvites/{inviteId} {
-      allow read: if isAuthed() && (
-        isProfileAdmin(resource.data.profileId)
-        || request.auth.token.email == resource.data.email
-      );
+      // Multiple `allow read` statements are OR'd. Splitting the inviter and
+      // invitee cases into separate statements keeps each one independently
+      // decidable for list queries — Firestore's static analyzer can match
+      // the inviter's `where("profileId", "==", X)` against the first rule
+      // and the invitee's `where("email", "==", Y)` against the second
+      // without having to short-circuit a combined OR.
+      allow read: if isAuthed() && isProfileAdmin(resource.data.profileId);
+      allow read: if isAuthed() && request.auth.token.email.lower() == resource.data.email;
+
       allow create: if
         isAuthed()
         && isProfileAdmin(request.resource.data.profileId)
         && request.resource.data.email is string
         && request.resource.data.email.size() > 0;
-      allow delete: if isAuthed() && (
-        isProfileAdmin(resource.data.profileId)
-        || request.auth.token.email == resource.data.email
-      );
+      allow delete: if isAuthed() && isProfileAdmin(resource.data.profileId);
+      allow delete: if isAuthed() && request.auth.token.email.lower() == resource.data.email;
       allow update: if false;
     }
 
