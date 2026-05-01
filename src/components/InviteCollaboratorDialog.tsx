@@ -44,12 +44,13 @@ interface InviteCollaboratorDialogProps {
   defaultRole?: string;
   defaultName?: string;
   onCollaboratorAdded?: () => void;
+  restrictToViewOnly?: boolean;
 }
 
-export default function InviteCollaboratorDialog({ open, onOpenChange, eventName, eventId, defaultEmail, defaultRole, defaultName, onCollaboratorAdded }: InviteCollaboratorDialogProps) {
+export default function InviteCollaboratorDialog({ open, onOpenChange, eventName, eventId, defaultEmail, defaultRole, defaultName, onCollaboratorAdded, restrictToViewOnly }: InviteCollaboratorDialogProps) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState(defaultRole || "Performer");
-  const [permission, setPermission] = useState<Permission>("editor");
+  const [permission, setPermission] = useState<Permission>(restrictToViewOnly ? "view_only" : "editor");
   const [customRoleName, setCustomRoleName] = useState("");
   const [message, setMessage] = useState("");
   const [generatedLink, setGeneratedLink] = useState("");
@@ -89,7 +90,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
     if (open) {
       setEmail(defaultEmail || "");
       setRole(defaultRole || "Performer");
-      setPermission("editor");
+      setPermission(restrictToViewOnly ? "view_only" : "editor");
       setCustomRoleName("");
       setMessage("");
       setShowContactSuggestions(false);
@@ -117,7 +118,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
         setInvitationCode("");
       }
     }
-  }, [open, eventId, defaultName, defaultEmail, defaultRole, myInvitationCodes]);
+  }, [open, eventId, defaultName, defaultEmail, defaultRole, myInvitationCodes, restrictToViewOnly]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -129,10 +130,12 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  const effectivePermission: Permission = restrictToViewOnly ? "view_only" : permission;
+
   const generateInvite = async () => {
     if (!eventId || !user) return null;
     const roleLabel = role === "Custom" ? customRoleName || "Custom" : role;
-    const eventRole = inviteToEventRole(roleLabel, permission);
+    const eventRole = inviteToEventRole(roleLabel, effectivePermission);
     const displayName = defaultName || email.trim().split("@")[0];
 
     const result = await createPerformerInvitation({
@@ -143,7 +146,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
       queryClient,
       role: roleLabel,
       eventRole,
-      permission,
+      permission: effectivePermission,
       message: message.trim(),
       onCollaboratorAdded,
     });
@@ -203,7 +206,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
       const roleLabel = role === "Custom" ? customRoleName || "Custom" : role;
       toast({
         title: "Invitation sent",
-        description: `Invited ${email} as ${roleLabel} (${permissionLabels[permission]})${eventName ? ` for ${eventName}` : ""}`,
+        description: `Invited ${email} as ${roleLabel} (${permissionLabels[effectivePermission]})${eventName ? ` for ${eventName}` : ""}`,
       });
 
       setSentName(defaultName || email.trim().split("@")[0]);
@@ -338,7 +341,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
           )}
           <div>
             <Label>Permissions</Label>
-            <Select value={permission} onValueChange={(v) => setPermission(v as Permission)}>
+            <Select value={permission} onValueChange={(v) => setPermission(v as Permission)} disabled={restrictToViewOnly}>
               <SelectTrigger className="mt-1">
                 <SelectValue />
               </SelectTrigger>
@@ -352,7 +355,11 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground mt-1">{permissionDescriptions[permission]}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {restrictToViewOnly
+                ? "Performers can only invite collaborators with view-only access."
+                : permissionDescriptions[permission]}
+            </p>
           </div>
           <div>
             <Label>Message (optional)</Label>

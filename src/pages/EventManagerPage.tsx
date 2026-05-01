@@ -313,7 +313,7 @@ export default function EventManagerPage() {
         {em.activeTab === "messages" && <EventMessages eventId={id} />}
         {em.activeTab === "changelog" && <EventChangeLogTab eventId={id} isPerformer={em.isPerformer} childEvents={em.isParent ? em.childEvents : undefined} />}
 
-        <InviteCollaboratorDialog open={inviteOpen} onOpenChange={(v) => { setInviteOpen(v); if (!v) { setInviteDefaults({}); setFlipToSuggestedOnInvite(false); } }} eventName={event.name} eventId={inviteDefaults.eventId || id} defaultRole={inviteDefaults.role} defaultName={inviteDefaults.name} onCollaboratorAdded={() => {
+        <InviteCollaboratorDialog open={inviteOpen} onOpenChange={(v) => { setInviteOpen(v); if (!v) { setInviteDefaults({}); setFlipToSuggestedOnInvite(false); } }} eventName={event.name} eventId={inviteDefaults.eventId || id} defaultRole={inviteDefaults.role} defaultName={inviteDefaults.name} restrictToViewOnly={em.isPerformer} onCollaboratorAdded={() => {
           em.refreshCollaborators();
           const targetId = inviteDefaults.eventId;
           // "Suggest to Performer" routed here because no performer was linked.
