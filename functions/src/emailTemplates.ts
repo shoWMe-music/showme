@@ -215,7 +215,7 @@ export function profileAdminInviteEmail(opts: {
   appBaseUrl: string;
 }): { subject: string; html: string } {
   const roleLabel = opts.role === "admin" ? "an admin" : "an editor";
-  const signinLink = `${opts.appBaseUrl.replace(/\/$/, "")}/signin`;
+  const acceptLink = `${opts.appBaseUrl.replace(/\/$/, "")}/accept-invite?email=${encodeURIComponent(opts.recipientEmail)}`;
 
   const content = `
     <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b">You've been invited</h2>
@@ -223,19 +223,19 @@ export function profileAdminInviteEmail(opts: {
       <strong>${opts.senderName}</strong> invited you to be ${roleLabel} on <strong>${opts.profileName}</strong> on shoWMe.
     </p>
     <p style="margin:0 0 20px;font-size:14px;color:#71717a;line-height:1.6">
-      To accept, sign in with this email address (<strong>${opts.recipientEmail}</strong>) — your access is granted automatically.
+      Click below to verify your email and finish creating your account. Your access to <strong>${opts.profileName}</strong> is granted automatically.
     </p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
       <tr>
         <td align="center" style="padding:8px 0 24px">
-          <a href="${signinLink}" target="_blank" style="display:inline-block;padding:12px 32px;background:#f97316;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;border-radius:8px">
-            Sign in to accept
+          <a href="${acceptLink}" target="_blank" style="display:inline-block;padding:12px 32px;background:#f97316;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;border-radius:8px">
+            Accept invitation
           </a>
         </td>
       </tr>
     </table>
     <p style="margin:0;font-size:12px;color:#a1a1aa;line-height:1.5">
-      If the button doesn't work, go to <span style="color:#f97316">${signinLink}</span>
+      If the button doesn't work, go to <span style="color:#f97316;word-break:break-all">${acceptLink}</span>
     </p>`;
 
   return {
