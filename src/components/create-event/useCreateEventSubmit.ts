@@ -173,6 +173,14 @@ export function useCreateEventSubmit() {
       inviteCollaborators,
     } = params;
     const willInvite = shouldInviteCollaborators(inviteCollaborators, defaultStatus);
+    // When a performer is invited at creation time, the event leaves draft
+    // and lands in "suggested" so the performer sees it as a real proposal
+    // (not just an internal draft they happen to have access to). Explicit
+    // non-draft defaults (e.g. "on_hold", "pending" from booking-request
+    // flows) win — we only override the draft default.
+    const computedStatus = defaultStatus && defaultStatus !== "draft"
+      ? defaultStatus
+      : (willInvite ? "suggested" : "draft");
 
     const operatorType = selectedRole === "venue" ? "venue" as const : selectedRole === "organizer" ? "organizer" as const : "promoter" as const;
     const hostProfileId = resolveHostProfileId(profiles, selectedRole);
@@ -244,7 +252,7 @@ export function useCreateEventSubmit() {
             date: date ? format(date, "yyyy-MM-dd") : "",
             venue: perf.performerVenue || resolvedVenue, operator: currentUser.name, operatorType,
             ticketingProvider, capacity: parseInt(perf.stageCapacity) || 0,
-            artist: perf.artistName, eventStatus: defaultStatus || "draft", status: defaultStatus || "draft",
+            artist: perf.artistName, eventStatus: computedStatus, status: computedStatus,
             parentEventId: parentId, hostProfileId, accessUids: multiAccessUids, accessProfileIds: childProfileIds,
             performerProfileId: perf.performerProfileId || undefined,
             performerRoleTag: perf.performerRoleTag || undefined,
@@ -287,7 +295,7 @@ export function useCreateEventSubmit() {
         venue: resolvedVenue, operator: currentUser.name, operatorType,
         ticketingProvider, capacity: totalCapacity,
         artist: performers.map(p => p.artistName).filter(Boolean).join(", "),
-        eventStatus: defaultStatus || "draft", status: defaultStatus || "draft",
+        eventStatus: computedStatus, status: computedStatus,
         isMultiPerformer: true, childEventIds: childEvents.map(c => c.event.id),
         hostProfileId, accessUids: multiAccessUids, accessProfileIds: multiAccessProfileIds,
         ...(roomStage ? { roomStage } : {}),
@@ -358,7 +366,7 @@ export function useCreateEventSubmit() {
           id, name: eventName, date: date ? format(date, "yyyy-MM-dd") : "",
           venue: venueName, operator: currentUser.name, operatorType,
           ticketingProvider, capacity: parseInt(capacity) || 0,
-          artist: artistName, eventStatus: defaultStatus || "draft", status: defaultStatus || "draft",
+          artist: artistName, eventStatus: computedStatus, status: computedStatus,
           hostProfileId, accessUids: finalAccessUids, accessProfileIds,
           performerProfileId: resolvedPerformerProfileId || undefined,
           ...(defaultStatus === "on_hold" ? { holdRank } : {}),
