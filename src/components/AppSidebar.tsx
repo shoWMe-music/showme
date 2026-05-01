@@ -114,7 +114,7 @@ export default function AppSidebar() {
         </button>
       </div>
 
-      <nav className="flex-1 px-2 py-4 space-y-1">
+      <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-4 space-y-1">
         {navItems.map(({ to, label, icon: Icon, disabled }) => {
           const active = location.pathname === to || (to !== "/" && location.pathname.startsWith(to));
           if (disabled) {
@@ -174,7 +174,7 @@ export default function AppSidebar() {
         })}
       </nav>
 
-      <div className="border-t border-sidebar-border px-3 py-4 space-y-2">
+      <div className="shrink-0 border-t border-sidebar-border px-3 py-4 space-y-2">
         <Link to="/settings" className={cn("flex w-full items-center gap-3 rounded-lg px-1 py-1 hover:bg-sidebar-accent transition-colors", collapsed && "justify-center")}>
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground text-xs font-bold">
             {currentUser.initials}
