@@ -709,6 +709,18 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
               </div>
             ))}
           </div>
+          {(event.ticketUrls?.length ?? 0) > 0 && (
+            <div className="mt-3 pt-3 border-t">
+              <span className="text-sm text-muted-foreground font-medium">Ticket URLs</span>
+              <div className="space-y-1 mt-1">
+                {event.ticketUrls!.map((url: string, i: number) => (
+                  <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm text-primary hover:underline">
+                    <Ticket className="h-3.5 w-3.5" /> {url}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
           {/* Performers section — shown on all events */}
           {!event.parentEventId && (
             <div className="mt-3 pt-3 border-t">
@@ -811,18 +823,6 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                 {event.isMultiPerformer && (!childEvents || childEvents.length === 0) && (
                   <p className="text-xs text-muted-foreground py-2">No performers added yet.</p>
                 )}
-              </div>
-            </div>
-          )}
-          {(event.ticketUrls?.length ?? 0) > 0 && (
-            <div className="mt-3 pt-3 border-t">
-              <span className="text-sm text-muted-foreground font-medium">Ticket URLs</span>
-              <div className="space-y-1 mt-1">
-                {event.ticketUrls!.map((url: string, i: number) => (
-                  <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm text-primary hover:underline">
-                    <Ticket className="h-3.5 w-3.5" /> {url}
-                  </a>
-                ))}
               </div>
             </div>
           )}

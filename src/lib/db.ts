@@ -915,6 +915,7 @@ export function eventRowToEvent(r: Record<string, unknown>): Event {
     amenities: Array.isArray(r.amenities) ? (r.amenities as string[]) : undefined,
     cateringNotes: typeof r.cateringNotes === "string" ? r.cateringNotes : undefined,
     accommodationNotes: typeof r.accommodationNotes === "string" ? r.accommodationNotes : undefined,
+    ticketUrls: Array.isArray(r.ticketUrls) ? (r.ticketUrls as string[]) : undefined,
     // Legacy fields — kept during transition
     owner_uid: typeof r.owner_uid === "string" ? r.owner_uid : undefined,
     primary_owner_uid: typeof r.primary_owner_uid === "string" ? r.primary_owner_uid : undefined,
@@ -957,6 +958,7 @@ export function eventToFirestoreRow(event: Event): Record<string, unknown> {
     amenities: event.amenities ?? null,
     cateringNotes: event.cateringNotes ?? null,
     accommodationNotes: event.accommodationNotes ?? null,
+    ticketUrls: event.ticketUrls ?? null,
     sourceRequestId: event.sourceRequestId ?? null,
     sourceRequestDate: event.sourceRequestDate ?? null,
     updatedAt: serverTimestamp(),

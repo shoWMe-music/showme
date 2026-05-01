@@ -175,11 +175,16 @@ export default function PublicEventPage() {
         </div>
 
         {/* Tickets section */}
-        {ticketUrls.length > 0 && (
+        {(ticketUrls.length > 0 || event.ticketingProvider) && (
           <div className="rounded-xl border bg-card p-6 shadow-sm">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <Ticket className="h-5 w-5 text-primary" /> Tickets
             </h2>
+            {event.ticketingProvider && (
+              <p className="text-sm text-muted-foreground mb-3">
+                Sold by <span className="font-medium text-foreground">{event.ticketingProvider}</span>
+              </p>
+            )}
             <div className="space-y-2">
               {ticketUrls.map((url, i) => (
                 <div key={i} className="flex items-center justify-between rounded-lg bg-muted/50 p-4">

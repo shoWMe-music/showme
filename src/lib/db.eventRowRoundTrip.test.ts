@@ -105,4 +105,12 @@ describe("Event row serialization", () => {
     const back = eventRowToEvent(row);
     expect(back.performerRoleTag).toBeUndefined();
   });
+
+  it("preserves ticketUrls through write and read", () => {
+    const evt: Event = { ...baseEvent, ticketUrls: ["https://tix.example.com/a", "https://tix.example.com/b"] };
+    const row = eventToFirestoreRow(evt);
+    expect(row.ticketUrls).toEqual(["https://tix.example.com/a", "https://tix.example.com/b"]);
+    const back = eventRowToEvent(row);
+    expect(back.ticketUrls).toEqual(["https://tix.example.com/a", "https://tix.example.com/b"]);
+  });
 });
