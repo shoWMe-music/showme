@@ -52,6 +52,11 @@ export type NotificationNavTarget =
 export function resolveNotificationTarget(n: AppNotification): NotificationNavTarget {
   const md = n.metadata || {};
 
+  // 0. Profile-invite — always lands on Settings → Profile Access
+  if (n.type === "profile_invite") {
+    return { kind: "static", to: "/settings#profile-access" };
+  }
+
   // 1. Event-scoped: most common case
   if (n.eventId) {
     const search: Record<string, string> = {};

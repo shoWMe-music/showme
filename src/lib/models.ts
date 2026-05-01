@@ -903,7 +903,8 @@ export type NotificationType =
   | "rider_updated"
   | "agreement_updated"
   | "crew_updated"
-  | "schedule_updated";
+  | "schedule_updated"
+  | "profile_invite";
 
 export interface AppNotification {
   id: string;
@@ -948,4 +949,5 @@ export const notificationTypeLabels: Record<NotificationType, string> = {
   agreement_updated: "Agreement updated",
   crew_updated: "Crew updated",
   schedule_updated: "Schedule updated",
+  profile_invite: "Profile invitation",
 };

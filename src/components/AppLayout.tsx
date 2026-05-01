@@ -56,6 +56,7 @@ const notificationIcons: Record<NotificationType, typeof Bell> = {
   agreement_updated: HandshakeIcon,
   crew_updated: Truck,
   schedule_updated: Clock,
+  profile_invite: UserPlus,
 };
 
 function timeAgo(iso: string): string {

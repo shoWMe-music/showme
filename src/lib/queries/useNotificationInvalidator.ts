@@ -118,6 +118,12 @@ export function useNotificationInvalidator(notifications: AppNotification[]) {
         // ── Messages: already real-time via onSnapshot, no-op ────────
         case "message_sent":
           break;
+
+        // ── Profile invite — refresh the profiles list so the new
+        //    shared profile shows up under Settings → Profile Access.
+        case "profile_invite":
+          scheduleInvalidation(queryKeys.profiles(uid));
+          break;
       }
     }
 
