@@ -19,6 +19,7 @@ export const queryKeys = {
 
   // ── Existing / shared query keys (preserved from queryKeys.ts) ──────────
   publicShareByToken: (token: string) => ["publicShare", token] as const,
+  publishedEvents: () => ["publishedEvents"] as const,
   shareBudgetParties: (token: string) => ["shareBudgetParties", token] as const,
 
   // ── User domain ──────────────────────────────────────────────────────────

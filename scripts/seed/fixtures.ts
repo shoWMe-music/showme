@@ -33,6 +33,7 @@ export const seedEvents: Event[] = [
     artist: "Aurora",
     eventStatus: "concluded",
     status: "finalized",
+    amenities: ["backline", "sound_engineer", "lighting", "light_engineer", "parking", "catering"],
   },
   {
     id: "EVT-002",
@@ -59,6 +60,7 @@ export const seedEvents: Event[] = [
     artist: "Moderat",
     eventStatus: "concluded",
     status: "pending_review",
+    amenities: ["sound_engineer", "lighting", "parking"],
   },
   {
     id: "EVT-004",
@@ -251,6 +253,7 @@ export const seedEvents: Event[] = [
     eventStatus: "confirmed",
     status: "open",
     published: true,
+    amenities: ["backline", "sound_engineer", "lighting", "parking", "catering"],
   },
   {
     id: "EVT-018",
@@ -265,6 +268,7 @@ export const seedEvents: Event[] = [
     eventStatus: "pending",
     status: "open",
     published: false,
+    amenities: ["sound_engineer", "lighting", "parking"],
   },
   // ─── 100 generated events across all days/months ───
   ...generateSeedEvents(),
@@ -650,7 +654,6 @@ export const seedArtistProfiles: SeedArtistProfile[] = [
 
 export const seedEventMeta: Record<string, EventMeta> = {
   "EVT-001": {
-    amenities: ["backline", "sound_engineer", "lighting", "light_engineer", "parking", "catering"],
     dealDescription: "Guarantee vs door split. Performer receives the higher of €8,000 guarantee or 70% of net revenue.",
     expenses: [
       { id: "EX-1", label: "Performer Fee", amount: 8000, currency: "EUR" },
@@ -678,7 +681,6 @@ export const seedEventMeta: Record<string, EventMeta> = {
     },
   },
   "EVT-003": {
-    amenities: ["sound_engineer", "lighting", "parking"],
     dealDescription: "Door split. 60% artist / 25% promoter / 15% venue after venue rental deduction.",
     expenses: [
       { id: "EX-8", label: "Performer Fee", amount: 0, currency: "EUR" },
@@ -702,7 +704,6 @@ export const seedEventMeta: Record<string, EventMeta> = {
     },
   },
   "EVT-017": {
-    amenities: ["backline", "sound_engineer", "lighting", "parking", "catering"],
     dealDescription: "Door split. Islandman receives 60% of net door revenue; venue retains 40% to cover operational costs.",
     expenses: [
       { id: "EX-17-1", label: "Production", amount: 800, currency: "EUR" },
@@ -726,7 +727,6 @@ export const seedEventMeta: Record<string, EventMeta> = {
     },
   },
   "EVT-018": {
-    amenities: ["sound_engineer", "lighting", "parking"],
     dealDescription: "Door split. Islandman receives 60% of net door revenue.",
     expenses: [
       { id: "EX-18-1", label: "Production", amount: 500, currency: "EUR" },

@@ -10,6 +10,7 @@ import {
   type Event as AppEvent, type DealStructure, type TicketRevenue, type Settlement,
   type SettlementStatus, type EventStatus, eventStatusLabels,
 } from "@/lib/models";
+import { settlementUnlocked, isShowDay } from "@/lib/eventLifecycle";
 
 /* ─── Settlement Tab ─── */
 export function SettlementTab({ event, deal, revenue, settlement, updateSettlementStatus, addComment, generateShareLink, currentUser }: {
@@ -27,7 +28,8 @@ export function SettlementTab({ event, deal, revenue, settlement, updateSettleme
   const navigate = useNavigate();
 
   const isOperator = currentUser.roles.includes("promoter") || currentUser.roles.includes("venue") || currentUser.roles.includes("organizer");
-  const eventConcluded = event.eventStatus === "concluded";
+  const settlementOpen = settlementUnlocked(event);
+  const showDay = isShowDay(event);
   const hasSettlement = settlement && settlement.status !== "open";
 
   const handleSendForReview = () => {
@@ -45,8 +47,8 @@ export function SettlementTab({ event, deal, revenue, settlement, updateSettleme
     }
   };
 
-  const showPreConcluded = !eventConcluded && !hasSettlement;
-  const showReadyToSettle = settlement?.status === "open" && eventConcluded;
+  const showPreConcluded = !settlementOpen && !hasSettlement;
+  const showReadyToSettle = settlement?.status === "open" && settlementOpen;
   const shouldRedirect = !showPreConcluded && !showReadyToSettle && !hasSettlement;
 
   useEffect(() => {
@@ -58,23 +60,27 @@ export function SettlementTab({ event, deal, revenue, settlement, updateSettleme
   if (shouldRedirect) return null;
 
   // Simple settlement tab: just a button
-  if (!eventConcluded && !hasSettlement) {
+  if (!settlementOpen && !hasSettlement) {
     return (
       <div className="rounded-xl border bg-card p-12 text-center">
         <DollarSign className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
         <h3 className="font-display text-lg font-semibold mb-2">Settlement</h3>
-        <p className="text-sm text-muted-foreground mb-6">Settlement will be available after the event concludes.</p>
+        <p className="text-sm text-muted-foreground mb-6">Settlement opens on show day.</p>
         <Badge variant="outline" className="text-xs">Event status: {eventStatusLabels[event.eventStatus as EventStatus]}</Badge>
       </div>
     );
   }
 
-  if (settlement?.status === "open" && eventConcluded) {
+  if (settlement?.status === "open" && settlementOpen) {
     return (
       <div className="rounded-xl border bg-card p-12 text-center">
         <DollarSign className="h-12 w-12 text-primary mx-auto mb-4" />
         <h3 className="font-display text-lg font-semibold mb-2">Ready to Settle</h3>
-        <p className="text-sm text-muted-foreground mb-6">The event has concluded. You can now prepare the financial settlement.</p>
+        <p className="text-sm text-muted-foreground mb-6">
+          {showDay
+            ? "It's show day — you can prepare the financial settlement."
+            : "The event has concluded. You can now prepare the financial settlement."}
+        </p>
         <div className="flex flex-col items-center gap-3">
           <Button className="gap-2" onClick={() => navigate({ to: "/settlements/$id", params: { id: event.id } })}>
             <CreditCard className="h-4 w-4" /> Settle Finances

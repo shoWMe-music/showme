@@ -13,6 +13,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useUser } from "@/lib/user-context";
 import { fetchEvents, fetchEventPage, fetchEventsInRange, upsertEvent, type EventPageFilters } from "@/lib/db";
 import type { Event } from "@/lib/models";
+import { todayLocalIso, UNCONFIRMED_STATUSES } from "@/lib/eventLifecycle";
 import { queryKeys } from "./keys";
 
 // ── Main query ─────────────────────────────────────────────────────────────────
@@ -105,11 +106,13 @@ export function useCalendarEvents(dateFrom: string, dateTo: string) {
   });
 }
 
-// ── Auto-conclude hook ─────────────────────────────────────────────────────────
+// ── Auto-status hook ───────────────────────────────────────────────────────────
 
 /**
- * Runs once after events have loaded and advances confirmed events whose
- * date has already passed to "concluded" status.
+ * Runs once after events have loaded and advances expired events:
+ *   • confirmed + past date → concluded
+ *   • draft/suggested/pending/on_hold + past date → cancelled
+ *     (with autoCancelledReason so the UI can warn and a notification fires)
  */
 export function useAutoConcludeEvents(): void {
   const eventsLoaded = useEventsLoaded();
@@ -121,27 +124,49 @@ export function useAutoConcludeEvents(): void {
   useEffect(() => {
     if (!eventsLoaded || !uid) return;
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayLocalIso();
     const toConclude = events.filter(
       (e) => e.eventStatus === "confirmed" && e.date < today && !e.archived,
     );
+    const toAutoCancel = events.filter(
+      (e) =>
+        UNCONFIRMED_STATUSES.includes(e.eventStatus) &&
+        e.date < today &&
+        !e.archived &&
+        e.autoCancelledReason !== "expired_unconfirmed",
+    );
 
-    if (toConclude.length === 0) return;
+    if (toConclude.length === 0 && toAutoCancel.length === 0) return;
 
     queryClient.setQueriesData<Event[]>(
       { queryKey: queryKeys.events(uid) },
       (old) => {
         if (!old) return old;
-        return old.map((e) =>
-          toConclude.some((c) => c.id === e.id)
-            ? { ...e, eventStatus: "concluded" as const }
-            : e,
-        );
+        return old.map((e) => {
+          if (toConclude.some((c) => c.id === e.id)) {
+            return { ...e, eventStatus: "concluded" as const };
+          }
+          if (toAutoCancel.some((c) => c.id === e.id)) {
+            return {
+              ...e,
+              eventStatus: "cancelled" as const,
+              autoCancelledReason: "expired_unconfirmed" as const,
+            };
+          }
+          return e;
+        });
       },
     );
 
     for (const ev of toConclude) {
       void upsertEvent({ ...ev, eventStatus: "concluded" });
+    }
+    for (const ev of toAutoCancel) {
+      void upsertEvent({
+        ...ev,
+        eventStatus: "cancelled",
+        autoCancelledReason: "expired_unconfirmed",
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventsLoaded]);

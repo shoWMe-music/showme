@@ -88,14 +88,18 @@ export function TicketRevenueSection({
               <span className="text-xs font-semibold min-w-[4.5rem] text-right text-[hsl(var(--success))]">
                 {fc(item.revenue)}
               </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 shrink-0"
-                onClick={() => onRemoveTicket(item)}
-              >
-                <Trash2 className="h-4 w-4 text-destructive" />
-              </Button>
+              {item.isLocal ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0"
+                  onClick={() => onRemoveTicket(item)}
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              ) : (
+                <div className="w-9 shrink-0" />
+              )}
             </div>
           </div>
         </div>

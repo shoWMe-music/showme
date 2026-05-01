@@ -1,4 +1,5 @@
-import { SettlementStatus, EventStatus, getStatusLabel, getEventStatusLabel } from "@/lib/models";
+import { SettlementStatus, EventStatus, getStatusLabel, getEventStatusLabel, type Event } from "@/lib/models";
+import { isShowDay } from "@/lib/eventLifecycle";
 
 const settlementClasses: Record<SettlementStatus, string> = {
   open: "status-open",
@@ -29,7 +30,25 @@ export default function StatusBadge({ status }: { status: SettlementStatus }) {
   );
 }
 
-export function EventStatusBadge({ status }: { status: EventStatus }) {
+interface EventStatusBadgeProps {
+  status: EventStatus;
+  /** Pass the event to enable the "Show day" glow when status === confirmed and date === today. */
+  event?: Pick<Event, "eventStatus" | "date">;
+}
+
+export function EventStatusBadge({ status, event }: EventStatusBadgeProps) {
+  const showDay = !!event && isShowDay(event);
+  if (showDay) {
+    return (
+      <span
+        className="relative inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-100 text-amber-900 ring-2 ring-amber-400 dark:bg-amber-900/40 dark:text-amber-200 dark:ring-amber-500"
+        style={{ boxShadow: "0 0 12px rgba(251,191,36,0.55)" }}
+      >
+        <span className="absolute inset-0 rounded-full ring-2 ring-amber-400/60 animate-ping" />
+        <span className="relative">Show day</span>
+      </span>
+    );
+  }
   return (
     <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${eventStatusClasses[status]}`}>
       {getEventStatusLabel(status)}

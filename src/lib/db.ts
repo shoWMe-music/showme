@@ -907,6 +907,10 @@ export function eventRowToEvent(r: Record<string, unknown>): Event {
     stageCapacity: typeof r.stageCapacity === "number" ? r.stageCapacity : undefined,
     performerResponse: typeof r.performerResponse === "string" ? r.performerResponse as Event["performerResponse"] : undefined,
     holdRank: typeof r.holdRank === "number" ? r.holdRank : undefined,
+    autoCancelledReason: r.autoCancelledReason === "expired_unconfirmed" ? "expired_unconfirmed" : undefined,
+    amenities: Array.isArray(r.amenities) ? (r.amenities as string[]) : undefined,
+    cateringNotes: typeof r.cateringNotes === "string" ? r.cateringNotes : undefined,
+    accommodationNotes: typeof r.accommodationNotes === "string" ? r.accommodationNotes : undefined,
     // Legacy fields — kept during transition
     owner_uid: typeof r.owner_uid === "string" ? r.owner_uid : undefined,
     primary_owner_uid: typeof r.primary_owner_uid === "string" ? r.primary_owner_uid : undefined,
@@ -945,6 +949,10 @@ export function eventToFirestoreRow(event: Event): Record<string, unknown> {
     stageCapacity: event.stageCapacity ?? null,
     performerResponse: event.performerResponse ?? null,
     holdRank: event.holdRank ?? null,
+    autoCancelledReason: event.autoCancelledReason ?? null,
+    amenities: event.amenities ?? null,
+    cateringNotes: event.cateringNotes ?? null,
+    accommodationNotes: event.accommodationNotes ?? null,
     sourceRequestId: event.sourceRequestId ?? null,
     sourceRequestDate: event.sourceRequestDate ?? null,
     updatedAt: serverTimestamp(),
@@ -1468,9 +1476,6 @@ export interface PendingDateChange {
 
 export interface EventMeta {
   // Details tab
-  amenities?: string[];
-  cateringNotes?: string;
-  accommodationNotes?: string;
   expenses?: { id: string; label: string; amount: number; currency: string }[];
   guestList?: { enabled: boolean; total: number; names: string[] } | null;
   // Agreement tab

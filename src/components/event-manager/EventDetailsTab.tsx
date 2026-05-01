@@ -326,9 +326,9 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
   const legacySchedule = ((eventMeta as unknown as { schedule?: ScheduleItem[] }).schedule) || [];
   const [riders, setRiders] = useState<Rider[]>([...legacyRiders]);
   const [schedule, setSchedule] = useState<ScheduleItem[]>([...legacySchedule]);
-  const [amenities, setAmenities] = useState<string[]>([...(eventMeta.amenities || [])]);
-  const [cateringNotes, setCateringNotes] = useState<string>(eventMeta.cateringNotes || "");
-  const [accommodationNotes, setAccommodationNotes] = useState<string>(eventMeta.accommodationNotes || "");
+  const [amenities, setAmenities] = useState<string[]>([...(event.amenities || [])]);
+  const [cateringNotes, setCateringNotes] = useState<string>(event.cateringNotes || "");
+  const [accommodationNotes, setAccommodationNotes] = useState<string>(event.accommodationNotes || "");
   const [expenses, setExpenses] = useState<ExpenseItem[]>([...(eventMeta.expenses || [])]);
   const [guestList, setGuestList] = useState<GuestListConfig | null>(eventMeta.guestList || null);
 
@@ -413,19 +413,54 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
     prevScheduleIds.current = currentIds;
   }, [event.id, schedule, actingProfile]);
 
+  // Re-sync amenities / catering / accommodation when navigating between events
+  // in the same EventDetailsTab instance — useState only reads its initial value
+  // once, so without this effect local state would stay on the previous event.
+  // These fields live on the Event document, so they're available synchronously.
+  const eventFieldsSyncedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (eventFieldsSyncedFor.current === event.id) return;
+    eventFieldsSyncedFor.current = event.id;
+    setAmenities([...(event.amenities || [])]);
+    setCateringNotes(event.cateringNotes || "");
+    setAccommodationNotes(event.accommodationNotes || "");
+  }, [event.id, event.amenities, event.cateringNotes, event.accommodationNotes]);
+
+  // Expenses / guestList still live in eventMeta (subcollection, lazy-loaded),
+  // so re-hydrate once the meta query resolves for this event.id.
+  const metaHydratedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (metaHydratedFor.current === event.id) return;
+    const hasMeta =
+      (eventMeta.expenses && eventMeta.expenses.length > 0) ||
+      !!eventMeta.guestList;
+    if (!hasMeta) return;
+    metaHydratedFor.current = event.id;
+    setExpenses([...(eventMeta.expenses || [])]);
+    setGuestList(eventMeta.guestList || null);
+  }, [event.id, eventMeta]);
+
   const onSaveRef = useRef(onSave);
   onSaveRef.current = onSave;
   /** Skip one effect run per `event.id` so opening Details does not write the same payload and race Firestore streams. */
-  const autosavePrimedForEvent = useRef<string | null>(null);
+  const eventAutosavePrimed = useRef<string | null>(null);
+  const metaAutosavePrimed = useRef<string | null>(null);
 
   useEffect(() => {
-    if (autosavePrimedForEvent.current !== event.id) {
-      autosavePrimedForEvent.current = event.id;
+    if (eventAutosavePrimed.current !== event.id) {
+      eventAutosavePrimed.current = event.id;
       return;
     }
-    // riders and schedule are now saved via subcollection effects above
-    onSaveRef.current?.({ amenities, cateringNotes, accommodationNotes, expenses, guestList });
-  }, [event.id, amenities, cateringNotes, accommodationNotes, expenses, guestList]);
+    updateEvent(event.id, { amenities, cateringNotes, accommodationNotes });
+  }, [event.id, amenities, cateringNotes, accommodationNotes, updateEvent]);
+
+  useEffect(() => {
+    if (metaAutosavePrimed.current !== event.id) {
+      metaAutosavePrimed.current = event.id;
+      return;
+    }
+    onSaveRef.current?.({ expenses, guestList });
+  }, [event.id, expenses, guestList]);
 
   const [editRiders, setEditRiders] = useState<Rider[]>([]);
   const [editSchedule, setEditSchedule] = useState<ScheduleItem[]>([]);

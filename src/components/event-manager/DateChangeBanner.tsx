@@ -40,6 +40,7 @@ export function DateChangeBanner({
   onCancel,
 }: DateChangeBannerProps) {
   const isProposer = pendingDateChange.proposedBy === currentUid;
+  const isChild = !!event.parentEventId;
 
   // Find which confirmation entry (if any) belongs to the current user
   const myConfirmationEntry = Object.entries(pendingDateChange.confirmations).find(
@@ -52,6 +53,19 @@ export function DateChangeBanner({
   const allConfirmationEntries = Object.entries(pendingDateChange.confirmations);
   const allEntries = allConfirmationEntries.map(([, c]) => c);
   const allConfirmed = allEntries.every((c) => c.status === "confirmed");
+
+  // On a child event, only show the current user's own confirmation; other
+  // performers' approval state is private to the parent organizer's view.
+  const visibleEntries = isChild
+    ? allConfirmationEntries
+        .filter(([pid]) => userProfileIds.includes(pid))
+        .map(([, c]) => c)
+    : allEntries;
+  const otherPendingCount = isChild
+    ? allConfirmationEntries.filter(
+        ([pid, c]) => c.status === "pending" && !userProfileIds.includes(pid),
+      ).length
+    : 0;
 
   // Off-platform parties the organizer can act on behalf of
   const offPlatformPending = isProposer
@@ -104,7 +118,7 @@ export function DateChangeBanner({
 
           {/* Confirmation statuses */}
           <div className="flex flex-wrap gap-2">
-            {allEntries.map((conf) => (
+            {visibleEntries.map((conf) => (
               <Badge
                 key={conf.profileName}
                 variant="outline"
@@ -124,6 +138,15 @@ export function DateChangeBanner({
                 {conf.status === "declined" && " — declined"}
               </Badge>
             ))}
+            {isChild && otherPendingCount > 0 && (
+              <Badge
+                variant="outline"
+                className="border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-400"
+              >
+                Awaiting approval from {otherPendingCount} other{" "}
+                {otherPendingCount === 1 ? "party" : "parties"}
+              </Badge>
+            )}
           </div>
 
           {/* Actions */}
@@ -176,7 +199,7 @@ export function DateChangeBanner({
           </div>
 
           {/* Off-platform notice */}
-          {allEntries.some((c) => !c.onPlatform && c.status === "pending") && (
+          {!isChild && allEntries.some((c) => !c.onPlatform && c.status === "pending") && (
             <p className="text-xs text-muted-foreground italic">
               Some parties are not on the platform yet. You can confirm on their behalf, or an email confirmation will be sent (coming soon).
             </p>

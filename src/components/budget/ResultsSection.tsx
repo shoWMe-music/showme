@@ -54,13 +54,15 @@ export function ResultsSection({
                 >
                   <Edit2 className="h-2.5 w-2.5 text-muted-foreground" />
                 </button>
-                <button
-                  className="h-4 w-4 flex items-center justify-center rounded hover:bg-muted"
-                  onClick={() => onRemoveField(field.id)}
-                  title="Remove"
-                >
-                  <Trash2 className="h-2.5 w-2.5 text-destructive" />
-                </button>
+                {!field.readOnly && field.removable !== false && (
+                  <button
+                    className="h-4 w-4 flex items-center justify-center rounded hover:bg-muted"
+                    onClick={() => onRemoveField(field.id)}
+                    title="Remove"
+                  >
+                    <Trash2 className="h-2.5 w-2.5 text-destructive" />
+                  </button>
+                )}
               </div>
             </div>
             {editingResultId === field.id ? (

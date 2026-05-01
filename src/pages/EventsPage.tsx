@@ -372,7 +372,7 @@ export default function EventsPage() {
                             {event.date}
                           </Link>
                         </td>
-                        <td className="px-6 py-4"><EventStatusBadge status={event.eventStatus} /></td>
+                        <td className="px-6 py-4"><EventStatusBadge status={event.eventStatus} event={event} /></td>
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-end gap-1">
                             <Tooltip>
@@ -510,7 +510,7 @@ export default function EventsPage() {
                               {child.date}
                             </Link>
                           </td>
-                          <td className="px-6 py-3"><EventStatusBadge status={child.eventStatus} /></td>
+                          <td className="px-6 py-3"><EventStatusBadge status={child.eventStatus} event={child} /></td>
                           <td className="px-6 py-3">
                             <div className="flex items-center justify-end">
                               <Button variant="ghost" size="sm" className="h-7 text-xs" asChild>

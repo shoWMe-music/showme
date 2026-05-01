@@ -197,6 +197,22 @@ export default function EventManagerPage() {
           </div>
         )}
 
+        {event.autoCancelledReason === "expired_unconfirmed" && (
+          <div className="mt-4 mb-6 rounded-xl border-2 border-red-400/50 bg-red-50/80 dark:bg-red-950/20 dark:border-red-500/30 p-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="rounded-full bg-red-100 dark:bg-red-900/40 p-2 shrink-0 mt-0.5">
+                <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-semibold text-sm">Event auto-cancelled</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  The event date passed without being confirmed, so the system moved it to Cancelled. It stays in your records for any settlement or follow-up.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {em.eventMeta.pendingDateChange && (
           <div className="mt-4 mb-6">
             <DateChangeBanner

@@ -199,6 +199,17 @@ export const onEventUpdated = onDocumentWritten(
           body: `"${after.name || "Event"}" status changed from ${before.eventStatus} to ${after.eventStatus}`,
           eventName: after.name,
         }, [performerPid]);
+      } else if (
+        after.eventStatus === "cancelled" &&
+        after.autoCancelledReason === "expired_unconfirmed"
+      ) {
+        await notifyEventProfiles(eventId, actorUid, {
+          type: "event_status_changed",
+          title: "Event auto-cancelled",
+          body: `Date passed without confirmation — "${after.name || "Event"}" was moved to Cancelled.`,
+          eventName: after.name,
+          eventId,
+        });
       } else {
         await notifyEventProfiles(eventId, actorUid, {
           type: "event_status_changed",

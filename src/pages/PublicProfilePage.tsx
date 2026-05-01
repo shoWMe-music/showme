@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { useUser, operatorRoleLabels, getBaseRole, formatLocation, getPrimaryLocation, type OperatorRole, type SharedProfile, type SubVenue, type ProfileLocation } from "@/lib/user-context";
-import { useEvents } from "@/lib/queries";
+import { queryKeys } from "@/lib/queries/keys";
 import type { Event as AppEvent } from "@/lib/models";
-import { fetchPublicProfileBySlug } from "@/lib/db";
+import { fetchPublicProfileBySlug, fetchPublishedEvents } from "@/lib/db";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MapPin, Globe, Image, Video, Users, ExternalLink, Calendar, ChevronDown, ChevronUp, CalendarPlus } from "lucide-react";
@@ -26,7 +27,11 @@ function formatPerformerLocation(loc: ProfileLocation | undefined): string {
 export default function PublicProfilePage() {
   const { slug } = useParams({ from: "/p/$slug" });
   const { profiles: localProfiles, currentUser, loaded: userLoaded } = useUser();
-  const events = useEvents();
+  const { data: events = [] } = useQuery({
+    queryKey: queryKeys.publishedEvents(),
+    queryFn: () => fetchPublishedEvents(200),
+    staleTime: 5 * 60 * 1000,
+  });
   const [loading, setLoading] = useState(true);
   const [foundRole, setFoundRole] = useState<OperatorRole | null>(null);
   const [foundProfile, setFoundProfile] = useState<SharedProfile | null>(null);
@@ -204,9 +209,6 @@ export default function PublicProfilePage() {
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-3xl font-bold tracking-tight">{profile.name}</h1>
                 <Badge variant="secondary" className="text-xs">{operatorRoleLabels[role]}</Badge>
-                {profile.id && (
-                  <span className="text-xs font-mono text-muted-foreground select-all">{profile.id}</span>
-                )}
               </div>
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {profile.genres?.map(g => <Badge key={g} variant="outline" className="text-xs">{g}</Badge>)}
@@ -249,7 +251,7 @@ export default function PublicProfilePage() {
             (e.venue.toLowerCase().includes(profileName) || e.artist.toLowerCase().includes(profileName) || e.operator.toLowerCase().includes(profileName))
           ).sort((a, b) => a.date.localeCompare(b.date));
 
-          return <UpcomingEventsSection events={upcomingEvents} limit={6} />;
+          return <UpcomingEventsSection events={upcomingEvents} limit={6} role={role} />;
         })()}
 
         {/* Content */}
@@ -418,7 +420,7 @@ function VenueRequestButtons({ operatorOwnerUid, slug }: { operatorOwnerUid: str
   );
 }
 
-function UpcomingEventsSection({ events, limit }: { events: AppEvent[]; limit: number }) {
+function UpcomingEventsSection({ events, limit, role }: { events: AppEvent[]; limit: number; role: string }) {
   const [showAll, setShowAll] = useState(false);
   const visible = showAll ? events : events.slice(0, limit);
   const hasMore = events.length > limit;
@@ -434,18 +436,29 @@ function UpcomingEventsSection({ events, limit }: { events: AppEvent[]; limit: n
         ) : (
           <>
             <div className="space-y-3">
-              {visible.map((evt) => (
-                <Link key={evt.id} to="/event/$id" params={{ id: evt.id }} className="flex items-center gap-4 rounded-lg border bg-background p-4 hover:bg-muted/50 transition-colors">
-                  <div className="flex flex-col items-center justify-center rounded-lg bg-primary/10 px-3 py-2 min-w-[60px]">
-                    <span className="text-xs font-medium text-primary">{new Date(evt.date).toLocaleDateString("en-US", { month: "short" })}</span>
-                    <span className="text-lg font-bold text-primary">{new Date(evt.date).getDate()}</span>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-sm">{evt.name}</p>
-                    <p className="text-xs text-muted-foreground">{evt.artist} · {evt.venue}</p>
-                  </div>
-                </Link>
-              ))}
+              {visible.map((evt) => {
+                // On a venue's profile show the visiting performer; on a
+                // performer's profile show the venue. Otherwise fall back to
+                // the artist as the headline.
+                const heading = role === "performer" ? evt.venue : evt.artist;
+                const timeBits: string[] = [];
+                if (evt.doorTime) timeBits.push(`Doors Open ${evt.doorTime}`);
+                if (evt.startTime) timeBits.push(`Show-time ${evt.startTime}`);
+                return (
+                  <Link key={evt.id} to="/event/$id" params={{ id: evt.id }} className="flex items-center gap-4 rounded-lg border bg-background p-4 hover:bg-muted/50 transition-colors">
+                    <div className="flex flex-col items-center justify-center rounded-lg bg-primary/10 px-3 py-2 min-w-[60px]">
+                      <span className="text-xs font-medium text-primary">{new Date(evt.date).toLocaleDateString("en-US", { month: "short" })}</span>
+                      <span className="text-lg font-bold text-primary">{new Date(evt.date).getDate()}</span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-sm">{heading}</p>
+                      {timeBits.length > 0 && (
+                        <p className="text-xs text-muted-foreground">{timeBits.join(" · ")}</p>
+                      )}
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
             {hasMore && (
               <Button variant="ghost" size="sm" onClick={() => setShowAll(!showAll)} className="w-full mt-3 gap-1.5 text-muted-foreground">

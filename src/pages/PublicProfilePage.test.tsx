@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // ─── Mocks ────────────────────────────────────────────────────────────────
 
@@ -35,9 +36,6 @@ vi.mock("@/components/RequestDateForm", () => ({
 
 const mockEvents = vi.fn();
 const mockUseUser = vi.fn();
-vi.mock("@/lib/queries", () => ({
-  useEvents: () => mockEvents(),
-}));
 
 vi.mock("@/lib/user-context", async () => {
   const actual = await vi.importActual<typeof import("@/lib/user-context")>("@/lib/user-context");
@@ -49,6 +47,7 @@ vi.mock("@/lib/user-context", async () => {
 
 vi.mock("@/lib/db", () => ({
   fetchPublicProfileBySlug: vi.fn(() => Promise.resolve(null)),
+  fetchPublishedEvents: vi.fn(() => Promise.resolve(mockEvents())),
 }));
 
 import PublicProfilePage from "./PublicProfilePage";
@@ -87,6 +86,11 @@ function makeEvent(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function renderWithClient(ui: React.ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
+
 describe("PublicProfilePage — Coming Events section (Wave 5 B6)", () => {
   beforeEach(() => {
     mockEvents.mockReset();
@@ -100,42 +104,43 @@ describe("PublicProfilePage — Coming Events section (Wave 5 B6)", () => {
 
   it("renders Coming Events with future, published, non-archived events for the profile", async () => {
     mockEvents.mockReturnValue([
-      makeEvent({ id: "evt-1", name: "Future Show", date: "2099-01-01", venue: "My Venue" }),
-      makeEvent({ id: "evt-2", name: "Past Show", date: "1999-01-01", venue: "My Venue" }),
-      makeEvent({ id: "evt-3", name: "Not Mine", date: "2099-01-01", venue: "Other Venue" }),
-      makeEvent({ id: "evt-4", name: "Archived Show", date: "2099-01-01", venue: "My Venue", archived: true }),
-      makeEvent({ id: "evt-5", name: "Unpublished Show", date: "2099-01-01", venue: "My Venue", published: false }),
+      makeEvent({ id: "evt-1", artist: "Future Performer", date: "2099-01-01", venue: "My Venue" }),
+      makeEvent({ id: "evt-2", artist: "Past Performer", date: "1999-01-01", venue: "My Venue" }),
+      makeEvent({ id: "evt-3", artist: "Not Mine", date: "2099-01-01", venue: "Other Venue" }),
+      makeEvent({ id: "evt-4", artist: "Archived Performer", date: "2099-01-01", venue: "My Venue", archived: true }),
+      makeEvent({ id: "evt-5", artist: "Unpublished Performer", date: "2099-01-01", venue: "My Venue", published: false }),
     ]);
 
-    render(<PublicProfilePage />);
+    renderWithClient(<PublicProfilePage />);
 
     await waitFor(() => expect(screen.getByText(/Coming Events/i)).toBeInTheDocument());
 
-    // Future + published + non-archived for "My Venue"
-    expect(screen.getByText("Future Show")).toBeInTheDocument();
+    // Future + published + non-archived for "My Venue" — heading shows the
+    // visiting performer (this profile is a venue).
+    expect(screen.getByText("Future Performer")).toBeInTheDocument();
 
     // Filtered out
-    expect(screen.queryByText("Past Show")).not.toBeInTheDocument();
+    expect(screen.queryByText("Past Performer")).not.toBeInTheDocument();
     expect(screen.queryByText("Not Mine")).not.toBeInTheDocument();
-    expect(screen.queryByText("Archived Show")).not.toBeInTheDocument();
-    expect(screen.queryByText("Unpublished Show")).not.toBeInTheDocument();
+    expect(screen.queryByText("Archived Performer")).not.toBeInTheDocument();
+    expect(screen.queryByText("Unpublished Performer")).not.toBeInTheDocument();
   });
 
   it("links Coming Events rows to the public event page route /event/$id", async () => {
     mockEvents.mockReturnValue([
-      makeEvent({ id: "evt-99", name: "Linkable", date: "2099-01-01", venue: "My Venue" }),
+      makeEvent({ id: "evt-99", artist: "Linkable Performer", date: "2099-01-01", venue: "My Venue" }),
     ]);
 
-    render(<PublicProfilePage />);
+    renderWithClient(<PublicProfilePage />);
 
-    const link = await screen.findByRole("link", { name: /Linkable/i });
+    const link = await screen.findByRole("link", { name: /Linkable Performer/i });
     expect(link).toHaveAttribute("href", "/event/evt-99");
   });
 
   it("shows an empty state when there are no upcoming events", async () => {
     mockEvents.mockReturnValue([]);
 
-    render(<PublicProfilePage />);
+    renderWithClient(<PublicProfilePage />);
 
     await waitFor(() => expect(screen.getAllByText(/Coming Events/i).length).toBeGreaterThan(0));
     expect(screen.getAllByText(/No upcoming events scheduled/i).length).toBeGreaterThan(0);

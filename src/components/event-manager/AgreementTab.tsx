@@ -470,11 +470,11 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
         )}
 
         {/* Amenities */}
-        {eventMeta.amenities?.length > 0 && (
+        {event.amenities && event.amenities.length > 0 && (
           <div className="mt-4 pt-4 border-t">
             <h4 className="text-sm font-semibold mb-2">Amenities</h4>
             <div className="flex flex-wrap gap-1.5">
-              {eventMeta.amenities.map((a: AmenityKey) => (
+              {event.amenities.map((a: AmenityKey) => (
                 <Badge key={a} variant="secondary" className="text-xs">{amenityLabels[a] || a}</Badge>
               ))}
             </div>

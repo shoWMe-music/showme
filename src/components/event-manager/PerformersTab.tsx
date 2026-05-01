@@ -73,7 +73,7 @@ export function PerformersTab({ childEvents, childEconomics, eventCurrency }: Pe
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <EventStatusBadge status={child.eventStatus} />
+                    <EventStatusBadge status={child.eventStatus} event={child} />
                     {childSettlement && <StatusBadge status={childSettlement.status} />}
                   </div>
                 </div>

@@ -40,6 +40,39 @@ function shouldInviteCollaborators(
 }
 
 /**
+ * Pull amenities / catering / accommodation off a venue profile so we can
+ * seed the event's meta on creation. Returns null when the venue profile has
+ * none of those fields set.
+ */
+function pickVenueAmenities(
+  profile: SharedProfile | undefined,
+): { amenities?: string[]; cateringNotes?: string; accommodationNotes?: string } | null {
+  if (!profile) return null;
+  const out: { amenities?: string[]; cateringNotes?: string; accommodationNotes?: string } = {};
+  if (profile.amenities && profile.amenities.length > 0) out.amenities = [...profile.amenities];
+  if (profile.cateringNotes) out.cateringNotes = profile.cateringNotes;
+  if (profile.accommodationNotes) out.accommodationNotes = profile.accommodationNotes;
+  return Object.keys(out).length === 0 ? null : out;
+}
+
+/** Find the venue profile to inherit amenities from for an event being created. */
+function resolveVenueProfile(
+  profiles: Record<string, SharedProfile>,
+  selectedRole: OperatorRole | null,
+  hostProfileId: string | undefined,
+  venueName: string,
+): SharedProfile | undefined {
+  if (selectedRole === "venue" && hostProfileId) {
+    return Object.values(profiles).find(p => p.id === hostProfileId);
+  }
+  const trimmed = venueName.trim().toLowerCase();
+  if (!trimmed) return undefined;
+  return Object.values(profiles).find(
+    p => p.role === "venue" && p.name?.trim().toLowerCase() === trimmed,
+  );
+}
+
+/**
  * Resolve the host profile ID strictly by the selected role.
  * Only accepts a profile when its stored `role` matches `selectedRole` —
  * this prevents picking up an unrelated profile (e.g. a venue operator who
@@ -233,6 +266,20 @@ export function useCreateEventSubmit() {
         };
       });
 
+      // Seed amenities / catering / accommodation from the venue profile so
+      // they show on the event without the user opening the edit dialog.
+      const venueProfile = resolveVenueProfile(profiles, selectedRole, hostProfileId, resolvedVenue);
+      const venueAmenities = pickVenueAmenities(venueProfile);
+      const parentVenueLower = resolvedVenue.trim().toLowerCase();
+      const childEventsWithAmenities = venueAmenities
+        ? childEvents.map(c => {
+            const cv = (c.event.venue || "").trim().toLowerCase();
+            return cv && cv === parentVenueLower
+              ? { ...c, event: { ...c.event, ...venueAmenities } }
+              : c;
+          })
+        : childEvents;
+
       const totalCapacity = performers.reduce((sum, p) => sum + (parseInt(p.stageCapacity) || 0), 0);
       const parentEvent: Event = {
         id: parentId, name: eventName,
@@ -244,9 +291,10 @@ export function useCreateEventSubmit() {
         isMultiPerformer: true, childEventIds: childEvents.map(c => c.event.id),
         hostProfileId, accessUids: multiAccessUids, accessProfileIds: multiAccessProfileIds,
         ...(roomStage ? { roomStage } : {}),
+        ...(venueAmenities ?? {}),
       } as Event;
 
-      await addMultiPerformerEventMutation.mutateAsync({ parent: parentEvent, children: childEvents });
+      await addMultiPerformerEventMutation.mutateAsync({ parent: parentEvent, children: childEventsWithAmenities });
 
       // C3 — Wave 7: collaborator riders/documents (performer + venue) NEVER
       // migrate on multi-performer event creation. They flow in via
@@ -302,6 +350,9 @@ export function useCreateEventSubmit() {
         }
       }
 
+      const venueProfile = resolveVenueProfile(profiles, selectedRole, hostProfileId, venueName);
+      const venueAmenities = pickVenueAmenities(venueProfile);
+
       await addEventMutation.mutateAsync({
         event: {
           id, name: eventName, date: date ? format(date, "yyyy-MM-dd") : "",
@@ -314,6 +365,7 @@ export function useCreateEventSubmit() {
           ...(roomStage ? { roomStage } : {}),
           ...(prefillData?.sourceRequestId ? { sourceRequestId: prefillData.sourceRequestId } : {}),
           ...(prefillData?.sourceRequestDate ? { sourceRequestDate: prefillData.sourceRequestDate } : {}),
+          ...(venueAmenities ?? {}),
         } as Event,
         deal: {
           eventId: id, dealType,
@@ -356,6 +408,7 @@ export function useCreateEventSubmit() {
         }
       }
       if (profileRiders.length > 0) await upsertRidersMutation.mutateAsync({ eventId: id, riders: profileRiders });
+
       if (defaultStatus === "on_hold") {
         resolveHoldRankConflicts(id, date ? format(date, "yyyy-MM-dd") : "", venueName, roomStage || "", holdRank);
       }

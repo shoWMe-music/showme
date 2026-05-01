@@ -101,6 +101,14 @@ export interface Event {
   holdRank?: number;
   /** If true, automatically promote this hold to confirmed when higher-ranked holds are removed. */
   holdAutoPromote?: boolean;
+  /** Set when the system auto-cancelled this event because its date passed without confirmation. */
+  autoCancelledReason?: "expired_unconfirmed";
+  /** Venue amenities for the event. Seeded from the venue profile on create; editable in Details tab. */
+  amenities?: string[];
+  /** Catering arrangements / dietary notes for the event. Seeded from the venue profile on create. */
+  cateringNotes?: string;
+  /** Accommodation arrangements for the event. Seeded from the venue profile on create. */
+  accommodationNotes?: string;
   /** @deprecated Use hostProfileId. Kept for Firestore rule compatibility during transition. */
   owner_uid?: string;
   /** @deprecated Use hostProfileId. */
