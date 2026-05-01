@@ -1,5 +1,7 @@
 import { useParams, Link } from "@tanstack/react-router";
-import { useEvent, useEventsLoaded } from "@/lib/queries";
+import { useQuery } from "@tanstack/react-query";
+import { fetchPublicEvent } from "@/lib/db";
+import { queryKeys } from "@/lib/queries/keys";
 import { useCreateRsvp } from "@/lib/queries/useAudienceRsvp";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,15 +15,19 @@ import AddressAutocomplete from "@/components/AddressAutocomplete";
 
 export default function PublicEventPage() {
   const { id } = useParams({ from: "/event/$id" });
-  const eventsLoaded = useEventsLoaded();
-  const event = useEvent(id);
+  const { data: event, isLoading } = useQuery({
+    queryKey: queryKeys.publicEvent(id),
+    queryFn: () => fetchPublicEvent(id),
+    enabled: !!id,
+    staleTime: 5 * 60 * 1000,
+  });
   const [rsvpName, setRsvpName] = useState("");
   const [rsvpEmail, setRsvpEmail] = useState("");
   const [rsvpCity, setRsvpCity] = useState("");
   const [rsvpSubmitted, setRsvpSubmitted] = useState(false);
   const createRsvp = useCreateRsvp();
 
-  if (!eventsLoaded) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-background">
         {/* Hero skeleton */}

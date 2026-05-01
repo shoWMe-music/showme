@@ -1182,6 +1182,26 @@ export async function fetchUpcomingEventsForPublicProfile(
     .slice(0, limitCount);
 }
 
+/**
+ * Fetch a single event by ID for the public event page (`/event/<id>`).
+ *
+ * Single-doc read goes through the public read rule on `events/{id}` which
+ * requires `published == true && eventStatus == "confirmed"`. Returns `null`
+ * when the doc is missing or doesn't satisfy the rule (rule rejection
+ * surfaces as `permission-denied`, treated as not-found here).
+ */
+export async function fetchPublicEvent(id: string): Promise<Event | null> {
+  if (!id) return null;
+  try {
+    const snap = await getDoc(eventDoc(id));
+    if (!snap.exists()) return null;
+    const ev = eventRowToEvent({ id: snap.id, ...snap.data() });
+    return ev.archived ? null : ev;
+  } catch {
+    return null;
+  }
+}
+
 export async function upsertEvent(event: Event) {
   const uid = requireUid();
   const ref = eventDoc(event.id);

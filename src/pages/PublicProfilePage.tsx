@@ -53,11 +53,11 @@ export default function PublicProfilePage() {
         setLoading(false);
         return;
       }
-      for (const [role, profile] of Object.entries(localProfiles)) {
+      for (const [slotKey, profile] of Object.entries(localProfiles)) {
         if (!profile.created) continue;
-        const profileSlug = profile.slug || profile.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || role;
+        const profileSlug = profile.slug || profile.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || slotKey;
         if (profileSlug === slug) {
-          setFoundRole(role as OperatorRole);
+          setFoundRole(getBaseRole(slotKey));
           setFoundProfile(profile);
           setIsOwner(true);
           setProfileOwnerUid(currentUser.id);
