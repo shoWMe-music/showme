@@ -1,3 +1,4 @@
+import * as admin from "firebase-admin";
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
@@ -5,6 +6,15 @@ import { sendMail, BREVO_API_KEY } from "./mail";
 import { otpEmail, invitationEmail } from "./emailTemplates";
 
 const db = () => getFirestore();
+
+async function emailIsAlreadyRegistered(email: string): Promise<boolean> {
+  try {
+    await admin.auth().getUserByEmail(email);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const APP_BASE_URL = process.env.APP_BASE_URL || "https://showme-production.web.app";
 
@@ -61,6 +71,23 @@ export const createInvitationCode = onCall<CreateInvitationCodeData, Promise<{ c
 
     if (!source) {
       throw new HttpsError("invalid-argument", "source is required.");
+    }
+
+    // Defense-in-depth: never mint an invitation code (which doubles as a
+    // signup link) for an email that is already a registered platform user.
+    // Clicking the signup link would otherwise let the recipient overwrite
+    // someone's password via createUserWithEmailAndPassword. The client is
+    // expected to branch into the "add existing user directly" path before
+    // calling this function — this guard catches stale clients and direct
+    // callable invocations.
+    if (source === "collaborator_invite" && recipientEmail) {
+      const normalized = recipientEmail.toLowerCase().trim();
+      if (normalized && (await emailIsAlreadyRegistered(normalized))) {
+        throw new HttpsError(
+          "already-exists",
+          "This email is already registered. Add the user directly instead of sending a signup invite.",
+        );
+      }
     }
 
     // Admin-only guard

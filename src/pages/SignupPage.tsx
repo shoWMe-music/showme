@@ -382,7 +382,24 @@ export default function SignupPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      await createUserWithEmailAndPassword(getAuthClient(), email.trim(), password);
+      try {
+        await createUserWithEmailAndPassword(getAuthClient(), email.trim(), password);
+      } catch (createErr) {
+        // Firebase already prevents password overwrite; we surface a clearer
+        // message and redirect to /login (with the code preserved) so the
+        // recipient claims the invitation instead of attempting to recreate
+        // an account they already have.
+        const errCode = (createErr as { code?: string })?.code;
+        if (errCode === "auth/email-already-in-use") {
+          toast({
+            title: "You already have an account",
+            description: "Sign in with your existing password to claim this invitation.",
+          });
+          navigate({ to: "/login" });
+          return;
+        }
+        throw createErr;
+      }
 
       // Claim the invitation code
       if (codeData) {

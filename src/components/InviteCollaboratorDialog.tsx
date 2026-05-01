@@ -15,6 +15,8 @@ import { useMyInvitationCodes } from "@/lib/queries/useInvitationCodes";
 import { useAddContact } from "@/lib/queries/useContactMutations";
 import { useAuth } from "@/lib/auth-context";
 import { createPerformerInvitation, sendPerformerInvitationEmail } from "@/lib/createPerformerInvitation";
+import { httpsCallable } from "firebase/functions";
+import { getFirebaseFunctions } from "@/integrations/firebase/app";
 
 type Permission = "admin" | "editor" | "view_only";
 
@@ -63,6 +65,10 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
   const [sentEmail, setSentEmail] = useState("");
   const [sentRole, setSentRole] = useState("");
   const emailContainerRef = useRef<HTMLDivElement>(null);
+  // Synchronous guard against double-clicks. setGenerating/setSending update on
+  // the next render, so a fast double-click can fire two handlers (and two
+  // createPerformerInvitation batches) before the disabled flag takes effect.
+  const submittingRef = useRef(false);
 
   const { user } = useAuth();
   const contacts = useContacts();
@@ -106,6 +112,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
     setSentRole("");
     setGeneratedLink("");
     setInvitationCode("");
+    submittingRef.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally only on open
   }, [open]);
 
@@ -139,15 +146,87 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
 
   const effectivePermission: Permission = restrictToViewOnly ? "view_only" : permission;
 
-  const generateInvite = async () => {
+  type InviteResult =
+    | { kind: "code"; url: string; code: string }
+    | { kind: "direct"; userUid: string };
+
+  const generateInvite = async (): Promise<InviteResult | null> => {
     if (!eventId || !user) return null;
     const roleLabel = role === "Custom" ? customRoleName || "Custom" : role;
     const eventRole = inviteToEventRole(roleLabel, effectivePermission);
     const displayName = defaultName || email.trim().split("@")[0];
+    const trimmedEmail = email.trim();
 
+    // Pre-check: if the email already belongs to a platform user, never mint a
+    // signup link (that would be a password-overwrite vector). Branch into the
+    // direct-add path or surface a clear error.
+    try {
+      const lookup = await httpsCallable<
+        { email: string; role?: string },
+        {
+          exists: boolean;
+          uid?: string;
+          hasMatchingProfile?: boolean;
+          matchingProfile?: { id: string; name: string; role: string; slug?: string | null };
+        }
+      >(getFirebaseFunctions(), "lookupUserForInvite")({
+        email: trimmedEmail,
+        role: roleLabel.toLowerCase(),
+      });
+
+      const data = lookup.data;
+      if (data.exists) {
+        if (!data.hasMatchingProfile || !data.matchingProfile) {
+          toast({
+            title: "User already on shoWMe",
+            description: `${trimmedEmail} has an account but no ${roleLabel.toLowerCase()} profile. Ask them to create one, or invite them to a profile they already have.`,
+            variant: "destructive",
+          });
+          return null;
+        }
+
+        const addRes = await httpsCallable<
+          {
+            eventId: string;
+            email: string;
+            profileId: string;
+            displayName: string;
+            role?: string;
+            eventRole?: string;
+            message?: string;
+          },
+          { ok: true; collaboratorId: string; userUid: string }
+        >(getFirebaseFunctions(), "addExistingUserAsCollaborator")({
+          eventId,
+          email: trimmedEmail,
+          profileId: data.matchingProfile.id,
+          displayName: data.matchingProfile.name || displayName,
+          role: roleLabel,
+          eventRole,
+          message: message.trim() || undefined,
+        });
+
+        toast({
+          title: "Collaborator added",
+          description: `${data.matchingProfile.name || trimmedEmail} now has access to this event.`,
+        });
+        onCollaboratorAdded?.();
+        return { kind: "direct", userUid: addRes.data.userUid };
+      }
+    } catch (err) {
+      console.error("lookupUserForInvite failed:", err);
+      toast({
+        title: "Could not verify recipient",
+        description: "Try again in a moment.",
+        variant: "destructive",
+      });
+      return null;
+    }
+
+    // New user (not registered) — original signup-link flow.
     const result = await createPerformerInvitation({
       eventId,
-      email: email.trim(),
+      email: trimmedEmail,
       displayName,
       userUid: user.uid,
       queryClient,
@@ -165,7 +244,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
 
     setInvitationCode(result.code);
     setGeneratedLink(result.url);
-    return { url: result.url, code: result.code };
+    return { kind: "code", url: result.url, code: result.code };
   };
 
   const handleCopyLink = async () => {
@@ -174,14 +253,23 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
       copyToast("Link copied", "Collaboration link copied to clipboard.");
       return;
     }
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setGenerating(true);
     try {
       const result = await generateInvite();
       if (!result) return;
+      if (result.kind === "direct") {
+        // Existing-user direct-add: no link to copy. Close the dialog — the
+        // user already saw the success toast from generateInvite.
+        onOpenChange(false);
+        return;
+      }
       await navigator.clipboard.writeText(result.url);
       copyToast("Link copied", "Collaboration link copied to clipboard.");
     } finally {
       setGenerating(false);
+      submittingRef.current = false;
     }
   };
 
@@ -193,11 +281,17 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
   };
 
   const handleSendEmail = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSending(true);
     try {
-      const result = generatedLink ? { url: generatedLink, code: invitationCode } : await generateInvite();
-      if (!result) {
-        setSending(false);
+      const result = generatedLink
+        ? ({ kind: "code" as const, url: generatedLink, code: invitationCode })
+        : await generateInvite();
+      if (!result) return;
+      if (result.kind === "direct") {
+        // Existing user already added directly — no signup email to send.
+        onOpenChange(false);
         return;
       }
 
@@ -222,6 +316,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
       setShowSuccess(true);
     } finally {
       setSending(false);
+      submittingRef.current = false;
     }
   };
 

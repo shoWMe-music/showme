@@ -59,32 +59,39 @@ export const onProfileInviteCreated = onDocumentCreated(
 
     const senderName = await resolveActorName(invitedByUid);
 
-    // Email
-    const tpl = profileAdminInviteEmail({
-      recipientEmail: email,
-      profileName,
-      senderName,
-      role,
-      appBaseUrl: APP_BASE_URL,
-    });
-    try {
-      await sendMail({ to: email, subject: tpl.subject, html: tpl.html });
-      logger.info("Profile-admin invite email sent", {
-        inviteId: event.params.inviteId,
-        email,
+    // Resolve the recipient first so we can skip the onboarding email when
+    // they already have an account — sending the OTP / signup email to an
+    // existing user creates a confusing dual onboarding flow and is the
+    // password-overwrite vector this trigger should never enable.
+    const recipientUid = await findUidByEmail(email);
+
+    // Email — only for genuinely new users.
+    if (!recipientUid) {
+      const tpl = profileAdminInviteEmail({
+        recipientEmail: email,
         profileName,
+        senderName,
+        role,
+        appBaseUrl: APP_BASE_URL,
       });
-    } catch (err) {
-      logger.error("Failed to send profile-admin invite email", {
-        err,
-        inviteId: event.params.inviteId,
-        email,
-      });
+      try {
+        await sendMail({ to: email, subject: tpl.subject, html: tpl.html });
+        logger.info("Profile-admin invite email sent", {
+          inviteId: event.params.inviteId,
+          email,
+          profileName,
+        });
+      } catch (err) {
+        logger.error("Failed to send profile-admin invite email", {
+          err,
+          inviteId: event.params.inviteId,
+          email,
+        });
+      }
     }
 
     // In-app notification — only if the recipient already has an account
     if (!profileId) return;
-    const recipientUid = await findUidByEmail(email);
     if (!recipientUid) return;
 
     try {

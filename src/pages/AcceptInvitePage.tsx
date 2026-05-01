@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { httpsCallable } from "firebase/functions";
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-} from "firebase/auth";
+import { createUserWithEmailAndPassword } from "firebase/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -95,29 +92,30 @@ export default function AcceptInvitePage() {
     const normalized = email.trim().toLowerCase();
     setLoading(true);
     try {
-      try {
-        await createUserWithEmailAndPassword(getAuthClient(), normalized, password);
-        toast({ title: "Account created", description: "Welcome to shoWMe!" });
-      } catch (createErr) {
-        const errCode = (createErr as { code?: string })?.code;
-        if (errCode === "auth/email-already-in-use") {
-          // Existing account — sign in with the same password they entered.
-          await signInWithEmailAndPassword(getAuthClient(), normalized, password);
-          toast({ title: "Signed in", description: "Welcome back!" });
-        } else {
-          throw createErr;
-        }
-      }
+      await createUserWithEmailAndPassword(getAuthClient(), normalized, password);
+      toast({ title: "Account created", description: "Welcome to shoWMe!" });
       // Settings → Profile Access shows pending invites in a banner so the
       // user can accept (or decline) explicitly.
       navigate({ to: "/settings", hash: "profile-access", replace: true });
     } catch (err) {
       const errCode = (err as { code?: string })?.code;
-      const description =
-        errCode === "auth/wrong-password" || errCode === "auth/invalid-credential"
-          ? "We found an existing shoWMe account for this email, but the password is wrong."
-          : getFirebaseAuthErrorMessage(err);
-      toast({ title: "Could not sign in", description, variant: "destructive" });
+      if (errCode === "auth/email-already-in-use") {
+        // Never silently sign the user in with the password they typed — that
+        // would let an attacker who guesses a known email's password complete
+        // the invite as that account. Funnel them through the explicit login
+        // page where they can enter their real password.
+        toast({
+          title: "You already have a shoWMe account",
+          description: "Sign in with your existing password to accept this invitation.",
+        });
+        navigate({ to: "/login" });
+        return;
+      }
+      toast({
+        title: "Could not create account",
+        description: getFirebaseAuthErrorMessage(err),
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
@@ -142,7 +140,7 @@ export default function AcceptInvitePage() {
           <CardDescription>
             {step === "send" && "Confirm your email to get started."}
             {step === "verify" && `We sent a 6-digit code to ${email}.`}
-            {step === "password" && "Set a password to finish signing up. If you already have a shoWMe account, enter your existing password to sign in."}
+            {step === "password" && "Set a password to finish signing up."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
