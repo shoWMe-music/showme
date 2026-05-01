@@ -503,6 +503,7 @@ export const onMessageSent = onDocumentCreated(
       body: `${senderName}: ${preview || "sent a message"}`,
       eventName,
       link: `/events/${eventId}`,
+      metadata: { tab: "messages" },
     });
   },
 );
