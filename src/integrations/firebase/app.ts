@@ -32,9 +32,14 @@ export function getFirestoreDb(): Firestore {
   const app = getFirebaseApp();
 
   // Use initializeFirestore with long-polling to avoid WebChannel issues
-  // that cause "Unexpected state" crashes with the emulator
+  // that cause "Unexpected state" crashes with the emulator.
+  // ignoreUndefinedProperties strips nested `undefined` before write — the
+  // emulator tolerates them but the real backend rejects, which silently
+  // breaks any save with an optional field cleared to undefined (e.g.
+  // SubVenue.sittingCapacity).
   const db = initializeFirestore(app, {
     experimentalAutoDetectLongPolling: true,
+    ignoreUndefinedProperties: true,
   });
 
   if (shouldConnectFirebaseEmulators() && !firestoreEmulatorConnected) {

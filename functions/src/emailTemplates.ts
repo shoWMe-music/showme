@@ -1,3 +1,6 @@
+const APP_BASE_URL = (process.env.APP_BASE_URL || "https://showme-production.web.app").replace(/\/$/, "");
+const LOGO_URL = `${APP_BASE_URL}/images/showme-logo.png`;
+
 function baseLayout(content: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -14,7 +17,7 @@ function baseLayout(content: string): string {
           <!-- Header -->
           <tr>
             <td style="padding:32px 32px 0;text-align:center">
-              <span style="font-size:24px;font-weight:700;color:#18181b;letter-spacing:-0.5px">sho<span style="color:#f97316">W</span>Me</span>
+              <img src="${LOGO_URL}" alt="shoWMe" height="36" style="height:36px;width:auto;display:inline-block;border:0;outline:none;text-decoration:none" />
             </td>
           </tr>
           <!-- Content -->
