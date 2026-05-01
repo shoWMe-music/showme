@@ -132,6 +132,8 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "accessProfileIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "published", "order": "ASCENDING" },
+        { "fieldPath": "eventStatus", "order": "ASCENDING" },
         { "fieldPath": "date", "order": "ASCENDING" }
       ]
     },

@@ -1154,9 +1154,11 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
 
 /**
  * Upcoming published events for a single public profile page (`/p/<slug>`).
- * Uses the profile-scoped `accessProfileIds` index instead of pulling the
- * global published feed and filtering client-side. Overshoots the requested
- * count to absorb the `published`/`archived`/`eventStatus` client-side filter.
+ *
+ * The `published`/`eventStatus` filters are required to satisfy the
+ * unauthenticated-read rule on `events/{id}` (see firestore.rules) — without
+ * them, Firestore rejects the entire list query for anonymous viewers because
+ * it can't guarantee every returned doc passes the rule.
  */
 export async function fetchUpcomingEventsForPublicProfile(
   profileId: string,
@@ -1167,14 +1169,16 @@ export async function fetchUpcomingEventsForPublicProfile(
   const q = query(
     collection(getFirestoreDb(), TOP_EVENTS),
     where("accessProfileIds", "array-contains", profileId),
+    where("published", "==", true),
+    where("eventStatus", "==", "confirmed"),
     where("date", ">=", today),
     orderBy("date", "asc"),
-    limit(limitCount * 4),
+    limit(limitCount * 2),
   );
   const snap = await getDocs(q);
   return snap.docs
     .map((d) => eventRowToEvent({ id: d.id, ...d.data() }))
-    .filter((e) => e.published && !e.archived && e.eventStatus === "confirmed")
+    .filter((e) => !e.archived)
     .slice(0, limitCount);
 }
 
