@@ -453,9 +453,27 @@ export default function CalendarPage() {
     return map;
   }, [events]);
 
+  // Set of `${venue}::${room}` keys that exist as registered room entities.
+  // An event with a `roomStage` matching one of these is filtered by its room
+  // entity, not its parent venue — selecting only "Main Hall" should show
+  // Main Hall events even when the parent venue checkbox is off.
+  const roomEntityKeys = useMemo(() => {
+    const set = new Set<string>();
+    calendarEntities.forEach(ent => { if (ent.type === "room") set.add(ent.name); });
+    return set;
+  }, [calendarEntities]);
+
+  const eventMatchesVisibleCalendars = useCallback((e: { venue: string; artist: string; operator: string; roomStage?: string }) => {
+    const roomKey = e.roomStage ? `${e.venue}::${e.roomStage}` : null;
+    const venueOrRoomVisible = roomKey && roomEntityKeys.has(roomKey)
+      ? visibleCalendars.has(roomKey)
+      : visibleCalendars.has(e.venue);
+    return venueOrRoomVisible || visibleCalendars.has(e.artist) || visibleCalendars.has(e.operator);
+  }, [roomEntityKeys, visibleCalendars]);
+
   const activeEvents = useMemo(() => {
     let filtered = events.filter(e => !e.archived && !e.parentEventId);
-    if (calendarEntities.length > 0) filtered = filtered.filter(e => visibleCalendars.has(e.venue) || visibleCalendars.has(e.artist) || visibleCalendars.has(e.operator));
+    if (calendarEntities.length > 0) filtered = filtered.filter(eventMatchesVisibleCalendars);
     if (filterStatus.length > 0) filtered = filtered.filter(e => filterStatus.includes(e.eventStatus));
     if (filterArtist) filtered = filtered.filter(e =>
       e.artist.toLowerCase().includes(filterArtist.toLowerCase()) ||
@@ -473,14 +491,14 @@ export default function CalendarPage() {
           if (child) {
             if (filterStatus.length > 0 && !filterStatus.includes(child.eventStatus)) return;
             if (filterArtist && !child.artist.toLowerCase().includes(filterArtist.toLowerCase())) return;
-            if (calendarEntities.length > 0 && !visibleCalendars.has(child.venue) && !visibleCalendars.has(child.artist) && !visibleCalendars.has(child.operator)) return;
+            if (calendarEntities.length > 0 && !eventMatchesVisibleCalendars(child)) return;
             expanded.push(child);
           }
         });
       } else expanded.push(e);
     });
     return expanded;
-  }, [events, filterStatus, filterArtist, filterVenue, calendarEntities, visibleCalendars]);
+  }, [events, filterStatus, filterArtist, filterVenue, calendarEntities, eventMatchesVisibleCalendars]);
 
   const eventsByDate = useMemo(() => {
     const map = new Map<string, typeof events>();

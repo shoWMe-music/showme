@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useNavigate, Link } from "@tanstack/react-router";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { QueryDocumentSnapshot } from "firebase/firestore";
@@ -91,15 +91,36 @@ export default function IncomingRequestsPage() {
   const allEvents = useEvents();
   const updateEventMutation = useUpdateEvent();
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    debounceRef.current = setTimeout(() => setDebouncedSearch(search), 250);
+    return () => clearTimeout(debounceRef.current);
+  }, [search]);
+
   const [statusFilter, setStatusFilter] = useState<string>(
     () => localStorage.getItem("incomingRequestsFilter") ?? "all"
   );
+  const [profileFilter, setProfileFilter] = useState<string>("all");
   const [page, setPage] = useState(0);
   const handleFilterChange = (value: string) => {
     setStatusFilter(value);
     setPage(0);
     localStorage.setItem("incomingRequestsFilter", value);
   };
+
+  const profileOptions = useMemo(
+    () =>
+      Object.entries(profiles)
+        .filter(([, p]) => p.created && p.id)
+        .map(([, p]) => ({ id: p.id!, slug: p.slug ?? "", name: p.name, role: p.role })),
+    [profiles],
+  );
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setPage(0);
+  }, [debouncedSearch, statusFilter, profileFilter]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeRequest, setActiveRequest] = useState<BookingRequest | null>(null);
   const [dialogMode, setDialogMode] = useState<"draft" | "offer">("draft");
@@ -145,14 +166,24 @@ export default function IncomingRequestsPage() {
     }
   }, [neededCount, allRequests.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
+  // Auto-fetch all remaining pages when search is active so client-side filtering is comprehensive
+  useEffect(() => {
+    if (debouncedSearch && hasNextPage && !isFetchingNextPage) {
+      void fetchNextPage();
+    }
+  }, [debouncedSearch, hasNextPage, isFetchingNextPage, fetchNextPage]);
+
   // Event invitations: events where the user is the performer
   const myArtistProfileIds = useMemo(() => {
     const ids: string[] = [];
     for (const [, p] of Object.entries(profiles)) {
-      if (p.role === "performer" && p.id) ids.push(p.id);
+      if (p.role === "performer" && p.id) {
+        if (profileFilter !== "all" && p.id !== profileFilter) continue;
+        ids.push(p.id);
+      }
     }
     return ids;
-  }, [profiles]);
+  }, [profiles, profileFilter]);
 
   const allInvitations = useMemo(() => {
     const matched = allEvents.filter(e =>
@@ -263,11 +294,15 @@ export default function IncomingRequestsPage() {
   };
 
   // When a specific status is selected, Firestore already filters — only apply client-side
-  // filtering for "all" (hide archived/blocked) and text search.
+  // filtering for "all" (hide archived/blocked), profile, and text search.
   const filtered = allRequests.filter(r => {
     if (statusFilter === "all" && (r.status === "archived" || r.status === "blocked" || r.status === "draft_created")) return false;
-    if (search) {
-      const q = search.toLowerCase();
+    if (profileOptions.length > 1 && profileFilter !== "all") {
+      const selected = profileOptions.find(p => p.id === profileFilter);
+      if (!selected || !selected.slug || r.target_profile_slug !== selected.slug) return false;
+    }
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase();
       return r.name.toLowerCase().includes(q) || r.artist_name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q);
     }
     return true;
@@ -419,21 +454,52 @@ export default function IncomingRequestsPage() {
               className="w-full rounded-lg border bg-card pl-10 pr-4 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
-          <div className="flex gap-1 flex-wrap">
-            {STATUS_FILTERS.map(f => (
-              <button
-                key={f.value}
-                onClick={() => handleFilterChange(f.value)}
-                className={cn(
-                  "px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
-                  statusFilter === f.value
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {f.label}
-              </button>
-            ))}
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex gap-1 flex-wrap">
+              {STATUS_FILTERS.map(f => (
+                <button
+                  key={f.value}
+                  onClick={() => handleFilterChange(f.value)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
+                    statusFilter === f.value
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            {profileOptions.length > 1 && (
+              <div className="flex gap-1 flex-wrap justify-end shrink-0">
+                <button
+                  onClick={() => setProfileFilter("all")}
+                  className={cn(
+                    "px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
+                    profileFilter === "all"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  All profiles
+                </button>
+                {profileOptions.map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => setProfileFilter(p.id)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
+                      profileFilter === p.id
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
