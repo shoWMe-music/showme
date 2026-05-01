@@ -10,19 +10,19 @@ import { useQuery, useInfiniteQuery, useQueryClient, keepPreviousData } from "@t
 import type { QueryDocumentSnapshot } from "firebase/firestore";
 
 import { useAuth } from "@/lib/auth-context";
-import { useUser } from "@/lib/user-context";
 import { fetchEvents, fetchEventPage, fetchEventsInRange, upsertEvent, type EventPageFilters } from "@/lib/db";
 import type { Event } from "@/lib/models";
 import { todayLocalIso, UNCONFIRMED_STATUSES } from "@/lib/eventLifecycle";
 import { queryKeys } from "./keys";
+import { useAllProfiles } from "./useProfilesQuery";
 
 // ── Main query ─────────────────────────────────────────────────────────────────
 
 export function useEventsQuery() {
   const { user, loading: authLoading } = useAuth();
   const uid = user?.uid ?? "";
-  const { profiles } = useUser();
-  const profileIds = Object.values(profiles).map(p => p.id).filter(Boolean) as string[];
+  const allProfiles = useAllProfiles();
+  const profileIds = allProfiles.map(p => p.id).filter(Boolean) as string[];
   const profileKey = profileIds.slice().sort().join(",");
 
   return useQuery<Event[]>({
@@ -73,8 +73,8 @@ interface EventPage {
 export function usePaginatedEvents(pageSize: number, filters?: EventPageFilters) {
   const { user, loading: authLoading } = useAuth();
   const uid = user?.uid ?? "";
-  const { profiles } = useUser();
-  const profileIds = Object.values(profiles).map(p => p.id).filter(Boolean) as string[];
+  const allProfiles = useAllProfiles();
+  const profileIds = allProfiles.map(p => p.id).filter(Boolean) as string[];
   const profileKey = profileIds.slice().sort().join(",");
 
   return useInfiniteQuery<EventPage, Error>({

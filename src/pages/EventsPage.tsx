@@ -2,7 +2,7 @@ import React from "react";
 import AppLayout from "@/components/AppLayout";
 import { EventStatusBadge } from "@/components/StatusBadge";
 import { useUpdateEvent, useArchiveEvent, useDuplicateEvent, useDeleteEvent } from "@/lib/queries/useEventMutations";
-import { usePaginatedEvents } from "@/lib/queries";
+import { usePaginatedEvents, useAllProfiles } from "@/lib/queries";
 import { useUser } from "@/lib/user-context";
 import { EventStatus } from "@/lib/models";
 import CreateEventDialog from "@/components/CreateEventDialog";
@@ -46,16 +46,21 @@ const STATUS_ORDER: Record<string, number> = {
 };
 
 /**
- * Resolve the operator/host display name for an event row.
- * Looks up the user's profiles map by hostProfileId, falling back to event.operator
- * (always populated for active events). Exported for testing.
+ * Resolve the operator/host display name for an event row. Accepts either the
+ * slot-keyed Record (legacy callers) or the flat array from `useAllProfiles()`.
+ * The flat-array form is required to find profiles the user is a *member* of —
+ * the slot Record collapses two profiles of the same role-type. Exported for
+ * testing.
  */
 export function resolveOperatorName(
   event: { hostProfileId?: string; operator?: string },
-  profiles: Record<string, { id?: string; name: string }>,
+  profiles:
+    | Record<string, { id?: string; name: string }>
+    | ReadonlyArray<{ id?: string; name: string }>,
 ): string {
   if (event.hostProfileId) {
-    const match = Object.values(profiles).find(p => p.id === event.hostProfileId);
+    const list = Array.isArray(profiles) ? profiles : Object.values(profiles);
+    const match = list.find((p) => p.id === event.hostProfileId);
     if (match?.name) return match.name;
   }
   return event.operator || "";
@@ -124,19 +129,22 @@ export default function EventsPage() {
   const deleteEvent = (id: string) => deleteEventMutation.mutate({ id });
   const [duplicateEventId, setDuplicateEventId] = useState<string | null>(null);
   const togglePublish = usePublishEventToggle(updateEvent);
-  const { canCreate, profiles } = useUser();
+  const { canCreate } = useUser();
+  // Source from the flat `all` array, not the slotted dict — two profiles of
+  // the same role-type collide on slot, which would silently hide a profile
+  // the user is a *member of* from the filter dropdown when they also own
+  // one of the same type.
+  const allProfiles = useAllProfiles();
   const [profileFilter, setProfileFilter] = useState<string>("all");
 
   // Build list of profiles the user has (with id + name)
-  const profileOptions = Object.entries(profiles)
-    .filter(([, p]) => p.created && p.id)
-    .map(([, p]) => ({ id: p.id!, name: p.name, role: p.role }));
+  const profileOptions = allProfiles
+    .filter((p) => p.created && p.id)
+    .map((p) => ({ id: p.id!, name: p.name, role: p.role }));
   const allProfileIds = profileOptions.map((p) => p.id);
 
-  // Resolve the host name for a given event using the user's profile map
-  // (falls back to event.operator which is always populated for active events).
   const hostNameForEvent = (e: { hostProfileId?: string; operator?: string }): string =>
-    resolveOperatorName(e, profiles);
+    resolveOperatorName(e, allProfiles);
 
   // Reset to first page whenever filters change.
   useEffect(() => { setPage(1); }, [debouncedSearch, statusFilter, profileFilter, sortKey, sortDir]);
