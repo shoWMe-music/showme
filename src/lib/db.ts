@@ -294,8 +294,10 @@ export async function fetchProfiles(): Promise<{
     query(collection(getFirestoreDb(), PROFILE_COLLECTION), where("owner_uid", "==", uid)),
   );
   ownedSnap.forEach((d) => pushProfile(d.id, d.data() as Record<string, unknown>, uid));
+  const ownedProfileIds = ownedSnap.docs.map((d) => d.id);
 
   // Profiles where this user is a member (shared/team profiles)
+  const memberProfileIds = new Set<string>();
   try {
     const memberSnap = await getDocs(
       query(
@@ -307,6 +309,7 @@ export async function fetchProfiles(): Promise<{
       memberSnap.docs.map(async (d) => {
         const profileRef = d.ref.parent.parent;
         if (!profileRef || !profileRef.path.startsWith(`${PROFILE_COLLECTION}/`)) return;
+        memberProfileIds.add(profileRef.id);
         const profileSnap = await getDoc(profileRef);
         if (!profileSnap.exists()) return;
         pushProfile(profileSnap.id, profileSnap.data() as Record<string, unknown>, "");
@@ -314,6 +317,15 @@ export async function fetchProfiles(): Promise<{
     );
   } catch {
     // Collection-group query may fail in some emulator configs; owned profiles still load.
+  }
+
+  // Self-heal: legacy owned profiles without a `members/{uid}` doc fail the
+  // isProfileMember rule check, breaking calendar/templates/team reads.
+  // Bootstrap the missing owner row in the background — idempotent and safe.
+  for (const pid of ownedProfileIds) {
+    if (!memberProfileIds.has(pid)) {
+      Promise.resolve(ensureProfileOwnerMember(pid, uid)).catch(() => {});
+    }
   }
 
   return { slotted, all };
@@ -1990,17 +2002,31 @@ function parseCalendarItemDoc(d: QueryDocumentSnapshot, profileId?: string): Cal
 export async function fetchCalendarItems(): Promise<CalendarItem[]> {
   const uid = getAuthClient().currentUser?.uid;
   if (!uid) return [];
-  const snap = await getDocs(userDataCol(uid, "calendar_items"));
-  return snap.docs.map((d) => parseCalendarItemDoc(d));
+  try {
+    const snap = await getDocs(userDataCol(uid, "calendar_items"));
+    return snap.docs.map((d) => parseCalendarItemDoc(d));
+  } catch {
+    return [];
+  }
 }
 
-/** Fetch profile-level calendar items visible to all profile members. */
+/**
+ * Fetch profile-level calendar items visible to all profile members.
+ *
+ * Per-profile reads are wrapped in try/catch — a legacy profile missing its
+ * owner `members/{uid}` doc would otherwise return permission-denied and
+ * reject the whole batch, taking the calendar page down with it.
+ */
 export async function fetchProfileCalendarItems(profileIds: string[]): Promise<CalendarItem[]> {
   if (profileIds.length === 0) return [];
   const all = await Promise.all(
     profileIds.map(async (pid) => {
-      const snap = await getDocs(collection(getFirestoreDb(), PROFILE_COLLECTION, pid, "calendar_items"));
-      return snap.docs.map((d) => parseCalendarItemDoc(d, pid));
+      try {
+        const snap = await getDocs(collection(getFirestoreDb(), PROFILE_COLLECTION, pid, "calendar_items"));
+        return snap.docs.map((d) => parseCalendarItemDoc(d, pid));
+      } catch {
+        return [];
+      }
     }),
   );
   return all.flat();
@@ -2039,9 +2065,13 @@ export async function deleteCalendarItemFromDb(id: string, profileId?: string) {
 // ── Unavailability ────────────────────────────────────────────────────────────
 
 export async function fetchProfileUnavailability(profileId: string): Promise<string[]> {
-  const snap = await getDoc(doc(getFirestoreDb(), PROFILE_COLLECTION, profileId, "unavailability", "main"));
-  if (!snap.exists()) return [];
-  return (snap.data().dates as string[]) || [];
+  try {
+    const snap = await getDoc(doc(getFirestoreDb(), PROFILE_COLLECTION, profileId, "unavailability", "main"));
+    if (!snap.exists()) return [];
+    return (snap.data().dates as string[]) || [];
+  } catch {
+    return [];
+  }
 }
 
 export async function saveProfileUnavailability(profileId: string, dates: string[]): Promise<void> {
