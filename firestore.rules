@@ -291,6 +291,15 @@ service cloud.firestore {
         && resource.data.owner_uid == uid();
     }
 
+    // Collection-group rule for `members` — needed so
+    // `collectionGroup('members').where('user_uid', '==', uid)` (in
+    // fetchProfiles) can be statically matched against the rule constraint.
+    // Single allow clause keyed on resource.data.user_uid so the analyzer
+    // recognizes the query/rule pair.
+    match /{path=**}/members/{memberUid} {
+      allow read: if request.auth != null && request.auth.uid == resource.data.user_uid;
+    }
+
     match /profiles/{profileId}/members/{memberUid} {
       function profOwnerUid() {
         return exists(/databases/$(database)/documents/profiles/$(profileId))
@@ -312,12 +321,9 @@ service cloud.firestore {
           && profileId.matches(uid() + '__.*');
       }
 
-      allow read: if
-        isAuthed() && (
-          uid() == memberUid
-          || isProfileMember(profileId)
-          || uid() == profOwnerUid()
-        );
+      allow read: if isAuthed() && uid() == memberUid;
+      allow read: if isAuthed() && isProfileMember(profileId);
+      allow read: if isAuthed() && uid() == profOwnerUid();
 
       allow update, delete: if requesterCanManageMembers();
 
