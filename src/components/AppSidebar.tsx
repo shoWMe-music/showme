@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import logo from "@/assets/showme-icon.png";
 import { useAuth } from "@/lib/auth-context";
 import { useUser } from "@/lib/user-context";
-import { operatorRoleLabels } from "@/lib/user-context";
 import { useEvents } from "@/lib/queries";
 import { queryKeys } from "@/lib/queries/keys";
 import { fetchBookingRequestPage } from "@/lib/db";
@@ -53,8 +52,6 @@ export default function AppSidebar() {
   const { currentUser, profiles } = useUser();
   const { collapsed, toggle } = useSidebarCollapse();
   const allEvents = useEvents();
-
-  const roleDisplay = currentUser.roles.map(r => operatorRoleLabels[r]).join(", ");
 
   const invitationCount = useMemo(() => {
     const artistProfileIds = Object.values(profiles)
@@ -185,7 +182,6 @@ export default function AppSidebar() {
           {!collapsed && (
             <div className="flex-1 text-left min-w-0">
               <p className="text-sm font-medium text-sidebar-accent-foreground">{currentUser.name}</p>
-              <p className="text-xs text-sidebar-foreground truncate">{roleDisplay}</p>
             </div>
           )}
         </Link>
