@@ -410,6 +410,7 @@ export default function TasksPage() {
   const { teamMembers, profiles, currentUser } = useUser();
   const { user } = useAuth();
   const [filter, setFilter] = useState<Filter>("all");
+  const [profileFilter, setProfileFilter] = useState<string>("all");
   const [groupBy, setGroupBy] = useState<GroupBy>("event");
   const [groupByOpen, setGroupByOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -459,25 +460,42 @@ export default function TasksPage() {
   );
   const upsertProfileTodosMut = useUpsertProfileTodos();
 
+  // Profile filter — same chip pattern as EventsPage. Shown only when the
+  // user has more than one profile, since otherwise the choice is moot.
+  const profileOptions = useMemo(
+    () => allProfiles.filter(p => p.created && p.id).map(p => ({ id: p.id!, name: p.name })),
+    [allProfiles],
+  );
+
+  // Apply the profile filter to the source events. Action-item and todo
+  // derivations all read from this, so the filter cascades through both
+  // lanes without us having to thread it everywhere.
+  const visibleEvents = useMemo(() => {
+    if (profileOptions.length <= 1 || profileFilter === "all") return events;
+    return events.filter(e =>
+      e.hostProfileId === profileFilter || e.accessProfileIds?.includes(profileFilter),
+    );
+  }, [events, profileFilter, profileOptions.length]);
+
   const today = new Date().toISOString().slice(0, 10);
   const sevenDaysOut = useMemo(() => {
     const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10);
   }, []);
 
   const allActionItems = useMemo(() => {
-    const items = buildActionItems(events, allEconomics).filter(a => !dismissedActions.has(a.id));
+    const items = buildActionItems(visibleEvents, allEconomics).filter(a => !dismissedActions.has(a.id));
     return items.sort((a, b) => {
       if (a.priority !== b.priority) return a.priority - b.priority;
-      const dateA = a.eventId ? (events.find(e => e.id === a.eventId)?.date ?? "") : "";
-      const dateB = b.eventId ? (events.find(e => e.id === b.eventId)?.date ?? "") : "";
+      const dateA = a.eventId ? (visibleEvents.find(e => e.id === a.eventId)?.date ?? "") : "";
+      const dateB = b.eventId ? (visibleEvents.find(e => e.id === b.eventId)?.date ?? "") : "";
       const cmp = dateA.localeCompare(dateB);
       return sortOrder === "asc" ? cmp : -cmp;
     });
-  }, [events, allEconomics, dismissedActions, sortOrder]);
+  }, [visibleEvents, allEconomics, dismissedActions, sortOrder]);
 
   const allUserTodos = useMemo<UserTodo[]>(() => {
     const tasks: UserTodo[] = [];
-    for (const event of events.filter(e => !e.archived)) {
+    for (const event of visibleEvents.filter(e => !e.archived)) {
       const base = {
         kind: "user" as const,
         eventId: event.id, eventName: event.name, eventDate: event.date,
@@ -513,7 +531,7 @@ export default function TasksPage() {
       const cmp = a.dueDate.localeCompare(b.dueDate);
       return sortOrder === "asc" ? cmp : -cmp;
     });
-  }, [events, allEconomics, allProfileTodos, sortOrder]);
+  }, [visibleEvents, allEconomics, allProfileTodos, sortOrder]);
 
   // Apply filter + search to produce the sets fed into grouping
   const filteredActions = useMemo(() => {
@@ -568,7 +586,7 @@ export default function TasksPage() {
   }, [grouped]);
 
   // Reset to page 1 when filters, grouping, search, or sort change
-  useEffect(() => { setPage(1); }, [filter, groupBy, search, sortOrder]);
+  useEffect(() => { setPage(1); }, [filter, profileFilter, groupBy, search, sortOrder]);
 
   // Fetch more events from Firestore when user pages past available tasks
   useEffect(() => {
@@ -965,6 +983,35 @@ export default function TasksPage() {
               </button>
             ))}
           </div>
+          {profileOptions.length > 1 && (
+            <div className="flex gap-1 flex-wrap">
+              <button
+                onClick={() => setProfileFilter("all")}
+                className={cn(
+                  "px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
+                  profileFilter === "all"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:text-foreground",
+                )}
+              >
+                All profiles
+              </button>
+              {profileOptions.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => setProfileFilter(p.id)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
+                    profileFilter === p.id
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Loading skeleton — only on first load, not on return visits */}
