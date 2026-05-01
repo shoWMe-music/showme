@@ -283,6 +283,10 @@ export const onDealUpdated = onDocumentWritten(
     const before = event.data.before.data();
     const after = event.data.after.data();
     if (!after) return;
+    // Suppress notification on initial creation — the deal doc gets seeded
+    // alongside the event itself and the "New event" notification already
+    // covers it. Only notify on real subsequent updates.
+    if (!before) return;
 
     const eventId = event.params.eventId;
     const actorUid: string = after._lastUpdatedBy || "";
@@ -290,9 +294,7 @@ export const onDealUpdated = onDocumentWritten(
     await notifyEventProfiles(eventId, actorUid, {
       type: "deal_updated",
       title: "Deal updated",
-      body: before
-        ? `Deal structure has been modified`
-        : `Deal structure has been added`,
+      body: "Deal structure has been modified",
       link: `/events/${eventId}`,
     });
   },
@@ -304,8 +306,12 @@ export const onRevenueUpdated = onDocumentWritten(
   { document: "events/{eventId}/revenue/main", region: "europe-west1" },
   async (event) => {
     if (!event.data) return;
+    const before = event.data.before.data();
     const after = event.data.after.data();
     if (!after) return;
+    // Suppress notification on initial creation — the revenue doc is seeded
+    // with the event and conveys no real activity yet.
+    if (!before) return;
 
     const eventId = event.params.eventId;
     const actorUid: string = after._lastUpdatedBy || "";
@@ -328,11 +334,14 @@ export const onSettlementUpdated = onDocumentWritten(
     const before = event.data.before.data();
     const after = event.data.after.data();
     if (!after) return;
+    // Suppress on initial creation — the settlement doc seeds with status
+    // "open" alongside the event; that is not a meaningful status change.
+    if (!before) return;
 
     const eventId = event.params.eventId;
     const actorUid: string = after._lastUpdatedBy || "";
 
-    if (before?.status !== after.status) {
+    if (before.status !== after.status) {
       await notifyEventProfiles(eventId, actorUid, {
         type: "settlement_status_changed",
         title: `Settlement: ${after.status}`,
