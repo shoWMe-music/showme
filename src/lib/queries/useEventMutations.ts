@@ -282,6 +282,16 @@ export function useUpdateEvent() {
 
           await upsertEventMeta(id, { pendingDateChange });
 
+          // Mirror to active children so each child's performer sees the banner
+          // when viewing their child event. The parent remains the source of
+          // truth — child responses are relayed back via cloud function.
+          if (current.isMultiPerformer && childEvents) {
+            for (const child of childEvents) {
+              if (child.archived || child.eventStatus === "cancelled") continue;
+              await upsertEventMeta(child.id, { pendingDateChange });
+            }
+          }
+
           // Apply remaining (non-date) updates if any
           const nonDateKeys = Object.keys(nonDateUpdates);
           if (nonDateKeys.length > 0) {
@@ -368,7 +378,7 @@ export function useUpdateEvent() {
 
       return { snapshot };
     },
-    onSuccess: (result, { id, updates, actingProfile, collaborators }, context) => {
+    onSuccess: (result, { id, updates, actingProfile, collaborators, childEvents }, context) => {
       const oldEvent = context?.snapshot?.find((e) => e.id === id);
       if (!oldEvent) return;
 
@@ -381,7 +391,15 @@ export function useUpdateEvent() {
         // Set the proposedByProfile now that we have actingProfile
         if (actingProfile) {
           result.pendingDateChange.proposedByProfile = actingProfile;
-          void upsertEventMeta(id, { pendingDateChange: result.pendingDateChange });
+          const updatedPending = result.pendingDateChange;
+          void upsertEventMeta(id, { pendingDateChange: updatedPending });
+          // Re-mirror to active children
+          if (oldEvent.isMultiPerformer && childEvents) {
+            for (const child of childEvents) {
+              if (child.archived || child.eventStatus === "cancelled") continue;
+              void upsertEventMeta(child.id, { pendingDateChange: updatedPending });
+            }
+          }
         }
 
         const details: Record<string, string> = {};
@@ -888,6 +906,37 @@ export function useRespondToDateChange() {
       confirmation.respondedBy = u?.uid || uid;
       confirmation.respondedByName = by;
 
+      const data = getEventsData(queryClient, uid);
+      const current = data?.find((e) => e.id === eventId);
+      const isChild = !!current?.parentEventId;
+      const activeChildren =
+        current?.isMultiPerformer && current.childEventIds?.length && data
+          ? data.filter(
+              (e) =>
+                current.childEventIds!.includes(e.id) &&
+                !e.archived &&
+                e.eventStatus !== "cancelled",
+            )
+          : [];
+
+      // Performer responding on a child event — write to child's meta only.
+      // The cloud function (onEventMetaUpdated) relays the response to the
+      // parent's meta and triggers all-confirmed application.
+      if (isChild) {
+        await upsertEventMeta(eventId, { pendingDateChange: pending });
+        appendEventActivity(
+          eventId,
+          response === "declined" ? "date_change_declined" : "date_change_confirmed",
+          by,
+          response === "declined"
+            ? { declinedBy: confirmation.profileName }
+            : { confirmedBy: confirmation.profileName },
+          () => void queryClient.invalidateQueries({ queryKey: queryKeys.eventActivity(eventId) }),
+          actingProfile,
+        );
+        return { applied: false, declined: response === "declined" };
+      }
+
       const allConfirmed = Object.values(pending.confirmations).every(
         (c) => c.status === "confirmed",
       );
@@ -895,6 +944,10 @@ export function useRespondToDateChange() {
       if (response === "declined") {
         // Save updated confirmations (keep pending visible so organizer sees decline)
         await upsertEventMeta(eventId, { pendingDateChange: pending });
+        // Mirror to active children
+        for (const child of activeChildren) {
+          await upsertEventMeta(child.id, { pendingDateChange: pending });
+        }
         appendEventActivity(
           eventId,
           "date_change_declined",
@@ -908,8 +961,6 @@ export function useRespondToDateChange() {
 
       if (allConfirmed) {
         // Apply the date change to the event
-        const data = getEventsData(queryClient, uid);
-        const current = data?.find((e) => e.id === eventId);
         if (current) {
           const dateUpdates: Partial<Event> = {};
           if (pending.proposedValues.date) dateUpdates.date = pending.proposedValues.date;
@@ -919,15 +970,9 @@ export function useRespondToDateChange() {
 
           // Cascade to children of a multi-performer parent so their dates stay in sync.
           const cascadeIds: string[] = [];
-          if (current.isMultiPerformer && current.childEventIds?.length && data) {
-            const childIdSet = new Set(current.childEventIds);
-            const children = data.filter(
-              (e) => childIdSet.has(e.id) && !e.archived && e.eventStatus !== "cancelled",
-            );
-            for (const child of children) {
-              await upsertEvent({ ...child, ...dateUpdates });
-              cascadeIds.push(child.id);
-            }
+          for (const child of activeChildren) {
+            await upsertEvent({ ...child, ...dateUpdates });
+            cascadeIds.push(child.id);
           }
 
           // Optimistic cache update for the event + any cascaded children
@@ -945,8 +990,11 @@ export function useRespondToDateChange() {
           }
         }
 
-        // Clear pending date change
+        // Clear pending date change from parent + all active children
         await clearPendingDateChange(eventId);
+        for (const child of activeChildren) {
+          await clearPendingDateChange(child.id);
+        }
 
         const details: Record<string, string> = {};
         if (pending.proposedValues.date) details.date = `${pending.previousValues.date || ""} → ${pending.proposedValues.date}`;
@@ -965,8 +1013,11 @@ export function useRespondToDateChange() {
         return { applied: true, declined: false };
       }
 
-      // Partially confirmed — save updated confirmations
+      // Partially confirmed — save updated confirmations + mirror to children
       await upsertEventMeta(eventId, { pendingDateChange: pending });
+      for (const child of activeChildren) {
+        await upsertEventMeta(child.id, { pendingDateChange: pending });
+      }
       appendEventActivity(
         eventId,
         "date_change_confirmed",
@@ -1011,6 +1062,20 @@ export function useCancelDateChange() {
   return useMutation({
     mutationFn: async ({ eventId, actingProfile }: { eventId: string; actingProfile?: string }) => {
       await clearPendingDateChange(eventId);
+
+      // Also clear from children of a multi-performer parent
+      const data = getEventsData(queryClient, uid);
+      const current = data?.find((e) => e.id === eventId);
+      if (current?.isMultiPerformer && current.childEventIds?.length && data) {
+        const childIdSet = new Set(current.childEventIds);
+        const activeChildren = data.filter(
+          (e) => childIdSet.has(e.id) && !e.archived && e.eventStatus !== "cancelled",
+        );
+        for (const child of activeChildren) {
+          await clearPendingDateChange(child.id);
+        }
+      }
+
       const u = getAuthClient().currentUser;
       const by = u?.displayName || u?.email || "Unknown";
       appendEventActivity(

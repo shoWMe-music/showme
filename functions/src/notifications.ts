@@ -622,6 +622,12 @@ export const onEventMetaUpdated = onDocumentWritten(
     const eventId = event.params.eventId;
     const actorUid: string = after._lastUpdatedBy || "";
 
+    // ── Date-change relay (child → parent) ─────────────────────────────────────
+    // When a performer responds on a child event, they can only write to that
+    // child's meta. Mirror the response up to the parent (and across siblings)
+    // here, since the parent owns the source-of-truth pendingDateChange.
+    await relayChildDateChangeResponse(eventId, before, after);
+
     // Check for new todo assignments
     const beforeTodos: Array<Record<string, unknown>> = (before?.todos as Array<Record<string, unknown>>) || [];
     const afterTodos: Array<Record<string, unknown>> = (after.todos as Array<Record<string, unknown>>) || [];
@@ -696,3 +702,213 @@ export const onEventMetaUpdated = onDocumentWritten(
     }
   },
 );
+
+// ── Date-change relay helper ──────────────────────────────────────────────────
+//
+// The host writes pendingDateChange to the parent's meta + each active child's
+// meta (mirrored). Performers who only have access to their child event respond
+// by writing to the child's meta. This helper detects such a response and
+// relays it back to the parent's pendingDateChange — the source of truth.
+// When all parties have confirmed, dates are applied to parent + children and
+// pendingDateChange is cleared everywhere.
+
+interface DateChangeConfirmation {
+  status: "pending" | "confirmed" | "declined";
+  respondedAt?: string;
+  respondedBy?: string;
+  respondedByName?: string;
+  role: "performer" | "venue";
+  profileName: string;
+  onPlatform: boolean;
+}
+
+interface PendingDateChange {
+  id: string;
+  proposedBy: string;
+  proposedByProfile?: string;
+  proposedAt: string;
+  previousValues: { date?: string; startTime?: string; endTime?: string };
+  proposedValues: { date?: string; startTime?: string; endTime?: string };
+  confirmations: Record<string, DateChangeConfirmation>;
+}
+
+async function relayChildDateChangeResponse(
+  eventId: string,
+  before: FirebaseFirestore.DocumentData | undefined,
+  after: FirebaseFirestore.DocumentData,
+): Promise<void> {
+  const beforePending = before?.pendingDateChange as PendingDateChange | undefined;
+  const afterPending = after.pendingDateChange as PendingDateChange | undefined;
+  if (!afterPending || !afterPending.confirmations) return;
+
+  // Detect confirmations whose respondedAt advanced (i.e., a real response)
+  const changed: string[] = [];
+  for (const [pid, conf] of Object.entries(afterPending.confirmations)) {
+    if (!conf?.respondedAt) continue;
+    const beforeConf = beforePending?.confirmations?.[pid];
+    if (conf.respondedAt !== beforeConf?.respondedAt) {
+      changed.push(pid);
+    }
+  }
+  if (changed.length === 0) return;
+
+  // Only relay if this event is a child — the parent's own writes are
+  // already authoritative (and the host's client has mirrored to children).
+  const eventSnap = await db().collection("events").doc(eventId).get();
+  if (!eventSnap.exists) return;
+  const eventData = eventSnap.data() || {};
+  const parentEventId = (eventData.parentEventId as string | undefined) || "";
+  if (!parentEventId) return;
+
+  const parentMetaRef = db().doc(`events/${parentEventId}/meta/main`);
+  const parentMetaSnap = await parentMetaRef.get();
+  const parentMeta = parentMetaSnap.data() || {};
+  const parentPending = parentMeta.pendingDateChange as PendingDateChange | undefined;
+  if (!parentPending || !parentPending.confirmations) {
+    logger.info("Parent has no pending date change; skipping relay", { eventId, parentEventId });
+    return;
+  }
+
+  // Skip if parent already reflects the child's state (loop prevention: we
+  // just got a mirror-down from parent, no upstream change to propagate).
+  let needsRelay = false;
+  for (const pid of changed) {
+    const childConf = afterPending.confirmations[pid];
+    const parentConf = parentPending.confirmations[pid];
+    if (!parentConf) continue;
+    if (childConf.respondedAt !== parentConf.respondedAt) {
+      parentPending.confirmations[pid] = childConf;
+      needsRelay = true;
+    }
+  }
+  if (!needsRelay) return;
+
+  const allConfirmed = Object.values(parentPending.confirmations).every(
+    (c) => c.status === "confirmed",
+  );
+
+  const parentEventSnap = await db().collection("events").doc(parentEventId).get();
+  if (!parentEventSnap.exists) return;
+  const parentEvent = parentEventSnap.data() || {};
+  const childIds: string[] = Array.isArray(parentEvent.childEventIds)
+    ? (parentEvent.childEventIds as string[])
+    : [];
+
+  // Resolve actor name for activity log
+  const responder = changed
+    .map((pid) => parentPending.confirmations[pid])
+    .find((c) => c?.respondedByName);
+  const responderName = responder?.respondedByName || "Someone";
+
+  if (allConfirmed) {
+    // Apply dates to parent + active children, clear pendingDateChange across all
+    const dateUpdates: Record<string, string> = {};
+    if (parentPending.proposedValues.date) dateUpdates.date = parentPending.proposedValues.date;
+    if (parentPending.proposedValues.startTime) dateUpdates.startTime = parentPending.proposedValues.startTime;
+    if (parentPending.proposedValues.endTime) dateUpdates.endTime = parentPending.proposedValues.endTime;
+
+    const batch = db().batch();
+    batch.set(
+      db().collection("events").doc(parentEventId),
+      { ...dateUpdates, _lastUpdatedBy: actorUidFromConfirmation(responder) },
+      { merge: true },
+    );
+    batch.set(
+      parentMetaRef,
+      {
+        pendingDateChange: admin.firestore.FieldValue.delete(),
+        _lastUpdatedBy: actorUidFromConfirmation(responder),
+      },
+      { merge: true },
+    );
+
+    for (const cid of childIds) {
+      const cs = await db().collection("events").doc(cid).get();
+      if (!cs.exists) continue;
+      const cd = cs.data() || {};
+      if (cd.archived || cd.eventStatus === "cancelled") continue;
+      batch.set(
+        cs.ref,
+        { ...dateUpdates, _lastUpdatedBy: actorUidFromConfirmation(responder) },
+        { merge: true },
+      );
+      batch.set(
+        db().doc(`events/${cid}/meta/main`),
+        {
+          pendingDateChange: admin.firestore.FieldValue.delete(),
+          _lastUpdatedBy: actorUidFromConfirmation(responder),
+        },
+        { merge: true },
+      );
+    }
+
+    // Activity log on parent
+    const details: Record<string, string> = {};
+    if (parentPending.proposedValues.date) details.date = `${parentPending.previousValues.date || ""} → ${parentPending.proposedValues.date}`;
+    if (parentPending.proposedValues.startTime) details.startTime = `${parentPending.previousValues.startTime || ""} → ${parentPending.proposedValues.startTime}`;
+    if (parentPending.proposedValues.endTime) details.endTime = `${parentPending.previousValues.endTime || ""} → ${parentPending.proposedValues.endTime}`;
+
+    const activityRef = db()
+      .collection("events").doc(parentEventId)
+      .collection("event_activity").doc();
+    batch.set(activityRef, {
+      type: "date_change_confirmed",
+      by: responderName,
+      details,
+      ...(actorUidFromConfirmation(responder) ? { actorUid: actorUidFromConfirmation(responder) } : {}),
+      timestamp: new Date().toISOString(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await batch.commit();
+    logger.info("Date change applied via relay", { parentEventId, eventId });
+    return;
+  }
+
+  // Partial — write the updated parentPending to parent + sibling children
+  const batch = db().batch();
+  batch.set(
+    parentMetaRef,
+    { pendingDateChange: parentPending, _lastUpdatedBy: actorUidFromConfirmation(responder) },
+    { merge: true },
+  );
+  for (const cid of childIds) {
+    if (cid === eventId) continue; // skip originating child
+    const cs = await db().collection("events").doc(cid).get();
+    if (!cs.exists) continue;
+    const cd = cs.data() || {};
+    if (cd.archived || cd.eventStatus === "cancelled") continue;
+    batch.set(
+      db().doc(`events/${cid}/meta/main`),
+      { pendingDateChange: parentPending, _lastUpdatedBy: actorUidFromConfirmation(responder) },
+      { merge: true },
+    );
+  }
+
+  // Activity log on parent
+  const isDecline = changed.some(
+    (pid) => parentPending.confirmations[pid]?.status === "declined",
+  );
+  const profileName = changed
+    .map((pid) => parentPending.confirmations[pid]?.profileName)
+    .filter(Boolean)
+    .join(", ") || "Someone";
+  const activityRef = db()
+    .collection("events").doc(parentEventId)
+    .collection("event_activity").doc();
+  batch.set(activityRef, {
+    type: isDecline ? "date_change_declined" : "date_change_confirmed",
+    by: responderName,
+    details: isDecline ? { declinedBy: profileName } : { confirmedBy: profileName },
+    ...(actorUidFromConfirmation(responder) ? { actorUid: actorUidFromConfirmation(responder) } : {}),
+    timestamp: new Date().toISOString(),
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  await batch.commit();
+  logger.info("Date change response relayed", { parentEventId, eventId, changed });
+}
+
+function actorUidFromConfirmation(c: DateChangeConfirmation | undefined): string {
+  return c?.respondedBy || "";
+}
