@@ -1,4 +1,4 @@
-import { doc, serverTimestamp, writeBatch } from "firebase/firestore";
+import { collection, doc, getDocs, limit, query, serverTimestamp, where, writeBatch } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { getFirestoreDb, getFirebaseFunctions } from "@/integrations/firebase/app";
 import { PROFILE_ROOT_SCHEMA_VERSION } from "@/lib/profiles";
@@ -39,13 +39,39 @@ export async function createPerformerInvitation(
     onCollaboratorAdded,
   } = params;
 
-  const token = `collab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const stubProfileId = `stub-${eventId}-${token}`;
   const trimmedEmail = email.trim();
   const trimmedMessage = message.trim();
-  const invitedAt = new Date().toISOString();
 
   const db = getFirestoreDb();
+
+  // Defense-in-depth: if an active invitation already exists for this
+  // (event, email, creator), reuse it instead of writing duplicate docs.
+  // Belt-and-braces with the dialog's link-state preservation.
+  const existingQuery = query(
+    collection(db, "invitationCodes"),
+    where("createdByUid", "==", userUid),
+    where("linkedEventId", "==", eventId),
+    where("recipientEmail", "==", trimmedEmail),
+    where("status", "==", "active"),
+    limit(1),
+  );
+  const existingSnap = await getDocs(existingQuery);
+  if (!existingSnap.empty) {
+    const existingDoc = existingSnap.docs[0];
+    const existingCode = existingDoc.id;
+    const existingToken = (existingDoc.data() as { sourceCollaboratorInviteToken?: string }).sourceCollaboratorInviteToken ?? "";
+    onCollaboratorAdded?.();
+    return {
+      url: `${window.location.origin}/signup?code=${existingCode}`,
+      code: existingCode,
+      token: existingToken,
+    };
+  }
+
+  const token = `collab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const stubProfileId = `stub-${eventId}-${token}`;
+  const invitedAt = new Date().toISOString();
+
   const batch = writeBatch(db);
 
   // inlined into batch for atomicity — keep payload shape in sync with insertCollaboratorInvite

@@ -86,39 +86,46 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
       )
     : contactSuggestions;
 
+  // Reset form state only when the dialog transitions open. Putting downstream
+  // data (like myInvitationCodes) in deps caused the freshly-generated link to
+  // be wiped after invalidation, which made the next click re-fire generateInvite
+  // and create duplicate collaborators.
   useEffect(() => {
-    if (open) {
-      setEmail(defaultEmail || "");
-      setRole(defaultRole || "Performer");
-      setPermission(restrictToViewOnly ? "view_only" : "editor");
-      setCustomRoleName("");
-      setMessage("");
-      setShowContactSuggestions(false);
-      setGenerating(false);
-      setSending(false);
-      setShowSuccess(false);
-      setSentName("");
-      setSentEmail("");
-      setSentRole("");
+    if (!open) return;
+    setEmail(defaultEmail || "");
+    setRole(defaultRole || "Performer");
+    setPermission(restrictToViewOnly ? "view_only" : "editor");
+    setCustomRoleName("");
+    setMessage("");
+    setShowContactSuggestions(false);
+    setGenerating(false);
+    setSending(false);
+    setShowSuccess(false);
+    setSentName("");
+    setSentEmail("");
+    setSentRole("");
+    setGeneratedLink("");
+    setInvitationCode("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally only on open
+  }, [open]);
 
-      // Check for an existing active invitation code for this event + name
-      const existing = myInvitationCodes?.find(
-        (ic) =>
-          ic.status === "active" &&
-          ic.linkedEventId === eventId &&
-          defaultName &&
-          ic.recipientName === defaultName,
-      );
-      if (existing) {
-        setInvitationCode(existing.code);
-        setGeneratedLink(`${window.location.origin}/signup?code=${existing.code}`);
-        if (existing.recipientEmail) setEmail(existing.recipientEmail);
-      } else {
-        setGeneratedLink("");
-        setInvitationCode("");
-      }
+  // Hydrate from an existing invitation code if one matches. Idempotent: only
+  // sets state, never clears it, so a link generated this session survives a
+  // myInvitationCodes refetch.
+  useEffect(() => {
+    if (!open || !defaultName) return;
+    const existing = myInvitationCodes?.find(
+      (ic) =>
+        ic.status === "active" &&
+        ic.linkedEventId === eventId &&
+        ic.recipientName === defaultName,
+    );
+    if (existing) {
+      setInvitationCode(existing.code);
+      setGeneratedLink(`${window.location.origin}/signup?code=${existing.code}`);
+      if (existing.recipientEmail) setEmail(existing.recipientEmail);
     }
-  }, [open, eventId, defaultName, defaultEmail, defaultRole, myInvitationCodes, restrictToViewOnly]);
+  }, [open, eventId, defaultName, myInvitationCodes]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -393,7 +400,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
             </div>
           )}
         </div>
-        <DialogFooter className="flex-col sm:flex-row gap-2 shrink-0">
+        <DialogFooter className="flex-col sm:flex-row sm:flex-wrap gap-2 shrink-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
             onClick={handleCopyLink}
@@ -404,7 +411,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
             {generating ? (
               <><Loader2 className="h-4 w-4 animate-spin" /> Generating...</>
             ) : (
-              <><Copy className="h-4 w-4" /> Copy Invite Link</>
+              <><Copy className="h-4 w-4" /> Copy Link</>
             )}
           </Button>
           <Button
@@ -418,7 +425,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
               </>
             ) : (
               <>
-                <Send className="h-4 w-4" /> Send via Email
+                <Send className="h-4 w-4" /> Send Email
               </>
             )}
           </Button>

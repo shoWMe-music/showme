@@ -187,6 +187,16 @@
       ]
     },
     {
+      "collectionGroup": "invitationCodes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "createdByUid", "order": "ASCENDING" },
+        { "fieldPath": "linkedEventId", "order": "ASCENDING" },
+        { "fieldPath": "recipientEmail", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "otpCodes",
       "queryScope": "COLLECTION",
       "fields": [
