@@ -19,7 +19,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { OperatorRole, operatorRoleLabels, type ProfileLocation } from "@/lib/user-context";
+import { OperatorRole, operatorRoleLabels, operatorRoleIcons, operatorRoleDescriptions, type ProfileLocation } from "@/lib/user-context";
 import { upsertUserSettings, fetchInvitationCode, upsertProfile } from "@/lib/db";
 import { queryKeys } from "@/lib/queries";
 import type { InvitationCode } from "@/lib/db";
@@ -27,16 +27,11 @@ import { InvitationCodeInput } from "@/components/InvitationCodeInput";
 import { OtpVerification } from "@/components/OtpVerification";
 import logo from "@/assets/showme-logo.png";
 import {
-  Building2,
-  Megaphone,
-  CalendarDays,
-  Music,
   ArrowRight,
   Check,
   Plus,
   X,
   Globe,
-  Tent,
   Loader2,
   UserCircle,
   Sparkles,
@@ -58,21 +53,6 @@ function normalizeToOperatorRole(raw: string | undefined): OperatorRole | undefi
   return map[lower] ?? undefined;
 }
 
-const roleIcons: Record<OperatorRole, typeof Building2> = {
-  venue: Building2,
-  promoter: Megaphone,
-  organizer: CalendarDays,
-  performer: Music,
-  festival: Tent,
-};
-
-const roleDescriptions: Record<OperatorRole, string> = {
-  venue: "Manage your spaces, bookings, and operations",
-  promoter: "Plan, execute, and coordinate events",
-  organizer: "Produce and oversee event logistics",
-  performer: "Manage your bookings, riders, and deals",
-  festival: "Organize multi-stage, multi-performer festivals",
-};
 
 const roleNameLabels: Record<OperatorRole, string> = {
   venue: "Venue Name",
@@ -900,7 +880,7 @@ export default function SignupPage() {
             <div className="animate-fade-in-up space-y-4" key="roles">
               <div className="grid grid-cols-2 gap-3">
                 {(Object.keys(operatorRoleLabels) as OperatorRole[]).map(role => {
-                  const Icon = roleIcons[role];
+                  const Icon = operatorRoleIcons[role];
                   const selected = selectedRoles.includes(role);
                   return (
                     <button
@@ -918,7 +898,7 @@ export default function SignupPage() {
                       <Icon className="h-5 w-5 text-primary" />
                       <div>
                         <p className="font-medium text-sm">{operatorRoleLabels[role]}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">{roleDescriptions[role]}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{operatorRoleDescriptions[role]}</p>
                       </div>
                     </button>
                   );
@@ -962,7 +942,7 @@ export default function SignupPage() {
               {effectiveRole && (
                 <div className="flex items-center gap-2">
                   <Badge variant="secondary" className="gap-1.5">
-                    {(() => { const Icon = roleIcons[effectiveRole]; return Icon ? <Icon className="h-3 w-3" /> : null; })()}
+                    {(() => { const Icon = operatorRoleIcons[effectiveRole]; return Icon ? <Icon className="h-3 w-3" /> : null; })()}
                     {operatorRoleLabels[effectiveRole] ?? effectiveRole}
                   </Badge>
                   {selectedRoles.length > 1 && (

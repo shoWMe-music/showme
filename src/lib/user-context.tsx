@@ -1,6 +1,7 @@
 /* user-context v6 – TanStack Query */
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Building2, Megaphone, CalendarDays, Music, Tent, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { queryKeys } from "@/lib/queries";
 import { fetchUserSettings, upsertUserSettings, fetchProfiles, upsertProfile, fetchAllProfileTeamMembers, upsertProfileTeamMember, deleteProfileTeamMember } from "./db";
@@ -18,6 +19,22 @@ export const operatorRoleLabels: Record<OperatorRole, string> = {
   organizer: "Event Organizer / Producer",
   performer: "Performer",
   festival: "Festival",
+};
+
+export const operatorRoleDescriptions: Record<OperatorRole, string> = {
+  venue: "Manage your spaces, bookings, and operations",
+  promoter: "Plan, execute, and coordinate events",
+  organizer: "Produce and oversee event logistics",
+  performer: "Manage your bookings, riders, and deals",
+  festival: "Organize multi-stage, multi-performer festivals",
+};
+
+export const operatorRoleIcons: Record<OperatorRole, LucideIcon> = {
+  venue: Building2,
+  promoter: Megaphone,
+  organizer: CalendarDays,
+  performer: Music,
+  festival: Tent,
 };
 
 export interface SubVenue {

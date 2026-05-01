@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Check } from "lucide-react";
-import { useUser, operatorRoleLabels, type OperatorRole, type SharedProfile, type ProfileLocation } from "@/lib/user-context";
+import { useUser, operatorRoleLabels, operatorRoleDescriptions, type OperatorRole, type SharedProfile, type ProfileLocation } from "@/lib/user-context";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
@@ -18,14 +18,6 @@ function nextSlot(profiles: Record<string, SharedProfile>, role: OperatorRole): 
   while (profiles[`${role}_${i}`]?.created) i++;
   return `${role}_${i}`;
 }
-
-const ROLE_DESCRIPTIONS: Record<OperatorRole, string> = {
-  venue: "Host events at your space",
-  promoter: "Promote and book events",
-  organizer: "Produce and manage events",
-  performer: "Manage performances & tours",
-  festival: "Run multi-stage festivals",
-};
 
 type Form = {
   name: string;
@@ -162,7 +154,7 @@ export function CreateProfileDialog({ open, onOpenChange, onCreated }: Props) {
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <p className="font-semibold text-sm">{operatorRoleLabels[role]}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">{ROLE_DESCRIPTIONS[role]}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{operatorRoleDescriptions[role]}</p>
                       </div>
                       {selectedRole === role && (
                         <div className="h-5 w-5 rounded-full bg-primary flex items-center justify-center shrink-0">

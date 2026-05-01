@@ -1,6 +1,6 @@
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useUser, operatorRoleLabels, type OperatorRole } from "@/lib/user-context";
+import { useUser, operatorRoleLabels, operatorRoleDescriptions, type OperatorRole } from "@/lib/user-context";
 import { canUserCreateEventsWithProfiles } from "@/lib/eventPermissions";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -42,15 +42,18 @@ export function RoleSelectionStep({ selectedRole, onRoleSelect, onNext }: RoleSe
                 : "border-border hover:border-primary/50"
             )}
           >
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="font-semibold text-sm">{operatorRoleLabels[role]}</p>
-                {currentUser.defaultRole === role && (
-                  <span className="text-[10px] text-primary font-medium">Default</span>
-                )}
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="font-semibold text-sm">{operatorRoleLabels[role]}</p>
+                  {currentUser.defaultRole === role && (
+                    <span className="text-[10px] text-primary font-medium">Default</span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">{operatorRoleDescriptions[role]}</p>
               </div>
               {selectedRole === role && (
-                <div className="h-5 w-5 rounded-full bg-primary flex items-center justify-center">
+                <div className="h-5 w-5 rounded-full bg-primary flex items-center justify-center shrink-0">
                   <Check className="h-3 w-3 text-primary-foreground" />
                 </div>
               )}
