@@ -266,7 +266,7 @@ export function useEventManager() {
         { id: "collaborators", label: "Collaborators" },
         { id: "changelog", label: "Event History", badge: changeLogBadgeCount },
       ];
-  const PERFORMER_TABS: TabId[] = ["details", "agreement", "crew", "messages", "changelog"];
+  const PERFORMER_TABS: TabId[] = ["todo", "budget", "details", "agreement", "crew", "messages", "changelog"];
   const filteredTabs = isPerformer
     ? allTabs.filter((t) => PERFORMER_TABS.includes(t.id))
     : allTabs;
