@@ -1,17 +1,17 @@
-import { useParams, Link } from "@tanstack/react-router";
+import { useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { fetchPublicEvent } from "@/lib/db";
 import { queryKeys } from "@/lib/queries/keys";
 import { useCreateRsvp } from "@/lib/queries/useAudienceRsvp";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Calendar, MapPin, Music, Users, Ticket, ArrowLeft, CheckCircle, ExternalLink } from "lucide-react";
+import { Calendar, Ticket, CheckCircle, ExternalLink } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { useState } from "react";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
+import { PublicProfileBadge } from "@/components/PublicProfileBadge";
 
 export default function PublicEventPage() {
   const { id } = useParams({ from: "/event/$id" });
@@ -116,10 +116,6 @@ export default function PublicEventPage() {
       {/* Hero header */}
       <div className="bg-gradient-to-br from-primary/15 via-primary/5 to-muted py-16">
         <div className="max-w-3xl mx-auto px-6">
-          <Link to="/" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-8 transition-colors">
-            <ArrowLeft className="h-4 w-4" /> Back
-          </Link>
-
           <div className="flex items-start gap-5">
             <div className="flex flex-col items-center justify-center rounded-xl bg-primary/10 border border-primary/20 px-4 py-3 min-w-[72px] shrink-0">
               <span className="text-xs font-semibold text-primary uppercase tracking-wide">
@@ -130,9 +126,13 @@ export default function PublicEventPage() {
             </div>
             <div className="min-w-0">
               <h1 className="text-3xl font-bold tracking-tight">{event.name}</h1>
-              <div className="flex flex-wrap items-center gap-3 mt-2 text-muted-foreground text-sm">
-                <span className="flex items-center gap-1.5"><Music className="h-4 w-4" />{event.artist}</span>
-                <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4" />{event.venue}{roomStage ? ` — ${roomStage}` : ""}</span>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3 text-sm">
+                <PublicProfileBadge name={event.artist} profileId={event.performerProfileId} size="md" />
+                <PublicProfileBadge
+                  name={roomStage ? `${event.venue} — ${roomStage}` : event.venue}
+                  profileId={event.hostProfileId}
+                  size="md"
+                />
               </div>
             </div>
           </div>
@@ -153,11 +153,11 @@ export default function PublicEventPage() {
             </div>
             <div>
               <dt className="text-muted-foreground font-medium">Performer</dt>
-              <dd className="mt-0.5">{event.artist}</dd>
+              <dd className="mt-1"><PublicProfileBadge name={event.artist} profileId={event.performerProfileId} size="sm" /></dd>
             </div>
             <div>
               <dt className="text-muted-foreground font-medium">Venue</dt>
-              <dd className="mt-0.5">{event.venue}</dd>
+              <dd className="mt-1"><PublicProfileBadge name={event.venue} profileId={event.hostProfileId} size="sm" /></dd>
             </div>
             {roomStage && (
               <div>

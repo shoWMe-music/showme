@@ -11,6 +11,7 @@ import { MapPin, Globe, Image, Video, Users, ExternalLink, Calendar, ChevronDown
 import { Button } from "@/components/ui/button";
 import VenueMap from "@/components/VenueMap";
 import RequestDateForm from "@/components/RequestDateForm";
+import { PublicProfileBadge } from "@/components/PublicProfileBadge";
 function getVideoEmbed(url: string): { embedUrl: string | null } {
   const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]+)/);
   if (ytMatch) return { embedUrl: `https://www.youtube.com/embed/${ytMatch[1]}` };
@@ -434,22 +435,31 @@ function UpcomingEventsSection({ events, limit, role }: { events: AppEvent[]; li
                 // performer's profile show the venue. Otherwise fall back to
                 // the artist as the headline.
                 const heading = role === "performer" ? evt.venue : evt.artist;
+                const relatedProfileId = role === "performer" ? evt.hostProfileId : evt.performerProfileId;
                 const timeBits: string[] = [];
                 if (evt.doorTime) timeBits.push(`Doors Open ${evt.doorTime}`);
                 if (evt.startTime) timeBits.push(`Show-time ${evt.startTime}`);
                 return (
-                  <Link key={evt.id} to="/event/$id" params={{ id: evt.id }} className="flex items-center gap-4 rounded-lg border bg-background p-4 hover:bg-muted/50 transition-colors">
-                    <div className="flex flex-col items-center justify-center rounded-lg bg-primary/10 px-3 py-2 min-w-[60px]">
-                      <span className="text-xs font-medium text-primary">{new Date(evt.date).toLocaleDateString("en-US", { month: "short" })}</span>
-                      <span className="text-lg font-bold text-primary">{new Date(evt.date).getDate()}</span>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-sm">{heading}</p>
-                      {timeBits.length > 0 && (
-                        <p className="text-xs text-muted-foreground">{timeBits.join(" · ")}</p>
-                      )}
-                    </div>
-                  </Link>
+                  <div key={evt.id} className="flex items-center gap-3 rounded-lg border bg-background p-4 hover:bg-muted/50 transition-colors">
+                    <PublicProfileBadge
+                      name={heading}
+                      profileId={relatedProfileId}
+                      size="md"
+                      withName={false}
+                    />
+                    <Link to="/event/$id" params={{ id: evt.id }} className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="flex flex-col items-center justify-center rounded-lg bg-primary/10 px-3 py-2 min-w-[60px]">
+                        <span className="text-xs font-medium text-primary">{new Date(evt.date).toLocaleDateString("en-US", { month: "short" })}</span>
+                        <span className="text-lg font-bold text-primary">{new Date(evt.date).getDate()}</span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-sm truncate">{heading}</p>
+                        {timeBits.length > 0 && (
+                          <p className="text-xs text-muted-foreground">{timeBits.join(" · ")}</p>
+                        )}
+                      </div>
+                    </Link>
+                  </div>
                 );
               })}
             </div>
