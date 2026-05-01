@@ -1,10 +1,13 @@
 import { useMemo } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import logo from "@/assets/showme-icon.png";
 import { useAuth } from "@/lib/auth-context";
 import { useUser } from "@/lib/user-context";
 import { operatorRoleLabels } from "@/lib/user-context";
 import { useEvents } from "@/lib/queries";
+import { queryKeys } from "@/lib/queries/keys";
+import { fetchBookingRequestPage } from "@/lib/db";
 import { useSidebarCollapse } from "./AppLayout";
 import {
   LayoutDashboard,
@@ -66,6 +69,15 @@ export default function AppSidebar() {
       e.performerResponse !== "declined"
     ).length;
   }, [allEvents, profiles]);
+
+  const { data: pendingRequestsPage } = useQuery({
+    queryKey: queryKeys.pendingBookingRequestsForSidebar(),
+    queryFn: () => fetchBookingRequestPage(50, null, { status: "pending" }),
+    enabled: !!currentUser.id,
+    staleTime: 5 * 60 * 1000,
+  });
+  const pendingRequestsCount = pendingRequestsPage?.requests.length ?? 0;
+  const requestsBadgeCount = invitationCount + pendingRequestsCount;
 
   const handleSignOut = async () => {
     try {
@@ -144,18 +156,18 @@ export default function AppSidebar() {
             >
               <span className="relative shrink-0">
                 <Icon className="h-4 w-4" />
-                {to === "/requests" && invitationCount > 0 && collapsed && (
+                {to === "/requests" && requestsBadgeCount > 0 && collapsed && (
                   <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
-                    {invitationCount > 9 ? "9+" : invitationCount}
+                    {requestsBadgeCount > 9 ? "9+" : requestsBadgeCount}
                   </span>
                 )}
               </span>
               {!collapsed && (
                 <>
                   {label}
-                  {to === "/requests" && invitationCount > 0 && (
+                  {to === "/requests" && requestsBadgeCount > 0 && (
                     <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-bold text-primary-foreground">
-                      {invitationCount}
+                      {requestsBadgeCount}
                     </span>
                   )}
                 </>

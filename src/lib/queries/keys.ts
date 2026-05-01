@@ -37,6 +37,9 @@ export const queryKeys = {
   // ── Booking requests ─────────────────────────────────────────────────────
   bookingRequests: (filters?: Record<string, unknown>) => ["bookingRequests", filters ?? {}] as const,
   bookingRequestForEvent: (eventId: string) => ["bookingRequestForEvent", eventId] as const,
+  /** Sidebar-only pending count. Prefixed by `bookingRequests` so it's caught
+   *  by `invalidateQueries({ queryKey: ["bookingRequests"] })` from the page. */
+  pendingBookingRequestsForSidebar: () => ["bookingRequests", "sidebar-pending"] as const,
 
   // Settlement activity log
   settlementActivity: (eventId: string) => ["settlementActivity", eventId] as const,
