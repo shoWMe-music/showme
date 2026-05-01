@@ -108,9 +108,8 @@ export default function AcceptInvitePage() {
           throw createErr;
         }
       }
-      // The user-context hook claims pending profileInvites automatically on
-      // first sign-in, so by the time Settings → Profile Access loads they
-      // already have membership.
+      // Settings → Profile Access shows pending invites in a banner so the
+      // user can accept (or decline) explicitly.
       navigate({ to: "/settings", hash: "profile-access", replace: true });
     } catch (err) {
       const errCode = (err as { code?: string })?.code;

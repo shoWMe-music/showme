@@ -119,10 +119,10 @@ export function useNotificationInvalidator(notifications: AppNotification[]) {
         case "message_sent":
           break;
 
-        // ── Profile invite — refresh the profiles list so the new
-        //    shared profile shows up under Settings → Profile Access.
+        // ── Profile invite — refresh the pending-invites banner under
+        //    Settings → Profile Access so a fresh invite appears live.
         case "profile_invite":
-          scheduleInvalidation(queryKeys.profiles(uid));
+          scheduleInvalidation(["pendingProfileInvites"]);
           break;
       }
     }

@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
 import { queryKeys } from "@/lib/queries";
-import { fetchUserSettings, upsertUserSettings, fetchProfiles, upsertProfile, fetchAllProfileTeamMembers, upsertProfileTeamMember, deleteProfileTeamMember, claimProfileInvites } from "./db";
+import { fetchUserSettings, upsertUserSettings, fetchProfiles, upsertProfile, fetchAllProfileTeamMembers, upsertProfileTeamMember, deleteProfileTeamMember } from "./db";
 import type { UserSettings, DateFormatOption, TimeFormatOption } from "./db";
 import { useToast } from "@/hooks/use-toast";
 
@@ -309,24 +309,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       setLoaded(true);
     }
   }, [queriesEnabled, authLoading, settingsQuery.isSuccess, settingsQuery.isError, profilesQuery.isSuccess, profilesQuery.isError]);
-
-  // ── 4. Claim invites side effect — fires after settings + profiles load ───
-  useEffect(() => {
-    if (!firebaseUser?.email) return;
-    if (!settingsQuery.isSuccess || !profilesQuery.isSuccess) return;
-
-    claimProfileInvites(
-      firebaseUser.email,
-      firebaseUser.displayName || firebaseUser.email,
-    )
-      .then(claimed => {
-        if (claimed > 0) {
-          queryClient.invalidateQueries({ queryKey: queryKeys.profiles(uid) });
-        }
-      })
-      .catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firebaseUser?.email, settingsQuery.isSuccess, profilesQuery.isSuccess]);
 
   // ── Debounced Firestore settings save ────────────────────────────────────
   const debouncedSaveSettings = useCallback((user: WorkspaceUser) => {

@@ -27,12 +27,12 @@ async function findUidByEmail(email: string): Promise<string | null> {
 }
 
 /**
- * Send the profile-admin invite email when a new doc lands in profileInvites,
- * and — if the invitee already has an account — auto-claim membership and
- * notify them so the new profile appears in their app immediately.
+ * On a new profileInvites doc: send the email and — if the recipient already
+ * has an account — also write an in-app notification so they can accept the
+ * invite from Settings → Profile Access without logging in via the email link.
  *
- * For invitees without an account, we leave the invite doc in place; the
- * client claims it after sign-up via `claimProfileInvites`.
+ * The invite doc itself is left in place; the recipient explicitly accepts or
+ * declines from the banner on the Profile Access tab.
  */
 export const onProfileInviteCreated = onDocumentCreated(
   {
@@ -59,7 +59,7 @@ export const onProfileInviteCreated = onDocumentCreated(
 
     const senderName = await resolveActorName(invitedByUid);
 
-    // 1. Email — always send so the recipient gets a heads-up
+    // Email
     const tpl = profileAdminInviteEmail({
       recipientEmail: email,
       profileName,
@@ -82,36 +82,19 @@ export const onProfileInviteCreated = onDocumentCreated(
       });
     }
 
-    // 2. Auto-claim if the recipient already has an account
+    // In-app notification — only if the recipient already has an account
     if (!profileId) return;
     const recipientUid = await findUidByEmail(email);
-    if (!recipientUid) return; // new user — client claims after sign-up
+    if (!recipientUid) return;
 
-    const db = admin.firestore();
     try {
-      await db
-        .collection("profiles").doc(profileId)
-        .collection("members").doc(recipientUid)
-        .set({
-          user_uid: recipientUid,
-          role,
-          email,
-          displayName: (await admin.auth().getUser(recipientUid)).displayName || email,
-          schemaVersion: 1,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-      // Delete the now-claimed invite so it stops appearing in pending lists
-      await event.data?.ref.delete();
-
-      // Notification — drives the client to refresh profiles & shows in the bell
-      await db
+      await admin.firestore()
         .collection("users").doc(recipientUid)
         .collection("notifications").doc()
         .set({
           type: "profile_invite",
-          title: `${senderName} added you to ${profileName}`,
-          body: `You're now a${role === "admin" ? "n admin" : "n editor"} of ${profileName}.`,
+          title: `${senderName} invited you to ${profileName}`,
+          body: `Accept the invite to become a${role === "admin" ? "n admin" : "n editor"} of ${profileName}.`,
           actorName: senderName,
           actorUid: invitedByUid,
           read: false,
@@ -119,16 +102,9 @@ export const onProfileInviteCreated = onDocumentCreated(
           link: "/settings#profile-access",
           metadata: { profileId, role },
         });
-
-      logger.info("Auto-claimed profile invite for existing user", {
-        inviteId: event.params.inviteId,
-        recipientUid,
-        profileId,
-      });
     } catch (err) {
-      logger.error("Failed to auto-claim profile invite", {
+      logger.error("Failed to write profile-invite notification", {
         err,
-        inviteId: event.params.inviteId,
         recipientUid,
         profileId,
       });

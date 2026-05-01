@@ -10,9 +10,14 @@ import {
   inviteProfileAdmin,
   cancelProfileInvite,
   deleteProfile,
+  fetchPendingProfileInvitesForEmail,
+  acceptProfileInvite,
+  declineProfileInvite,
   type ProfileMemberInfo,
 } from "@/lib/db";
 import type { ProfileInviteRecord } from "@/lib/profiles";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,7 +34,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
-import { Crown, Edit2, Mail, Plus, Trash2, UserCheck, Users, X } from "lucide-react";
+import { Check, Crown, Edit2, Mail, Plus, Trash2, UserCheck, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const ROLE_LABELS = { owner: "Owner", admin: "Admin", editor: "Editor" } as const;
@@ -51,8 +56,22 @@ interface InviteForm {
 }
 
 export function ProfileAdminsTab() {
-  const { profiles, setProfiles } = useUser();
+  const { profiles, setProfiles, currentUser } = useUser();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [actingInviteId, setActingInviteId] = useState<string | null>(null);
+
+  // Pending invites for this user's email — surfaced as accept/decline banners
+  // at the top of the tab. Invalidated by useNotificationInvalidator on
+  // `profile_invite` so a fresh invite shows up without a manual refresh.
+  const myEmail = (user?.email || "").toLowerCase().trim();
+  const pendingInvitesQuery = useQuery({
+    queryKey: queryKeys.pendingProfileInvites(myEmail),
+    queryFn: () => fetchPendingProfileInvitesForEmail(myEmail),
+    enabled: !!myEmail,
+    staleTime: 30_000,
+  });
+  const pendingInvites = pendingInvitesQuery.data ?? [];
 
   // Owned profiles include legacy "artist" slot entries left over from the
   // artist -> performer rename, so the user can delete the phantom record.
@@ -136,6 +155,44 @@ export function ProfileAdminsTab() {
     loadProfile(profileId);
   };
 
+  const handleAcceptInvite = async (invite: ProfileInviteRecord) => {
+    if (!invite.id) return;
+    setActingInviteId(invite.id);
+    try {
+      await acceptProfileInvite(invite, currentUser.name || myEmail);
+      toast({ title: "Invite accepted", description: `You're now a${invite.role === "admin" ? "n admin" : "n editor"} of ${invite.profileName}.` });
+      // Refresh both: pending invites disappears, profiles picks up the new membership.
+      queryClient.invalidateQueries({ queryKey: queryKeys.pendingProfileInvites(myEmail) });
+      if (user?.uid) queryClient.invalidateQueries({ queryKey: queryKeys.profiles(user.uid) });
+    } catch (err) {
+      toast({
+        title: "Could not accept invite",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setActingInviteId(null);
+    }
+  };
+
+  const handleDeclineInvite = async (invite: ProfileInviteRecord) => {
+    if (!invite.id) return;
+    setActingInviteId(invite.id);
+    try {
+      await declineProfileInvite(invite);
+      toast({ title: "Invite declined" });
+      queryClient.invalidateQueries({ queryKey: queryKeys.pendingProfileInvites(myEmail) });
+    } catch (err) {
+      toast({
+        title: "Could not decline invite",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setActingInviteId(null);
+    }
+  };
+
   const handleDeleteProfile = useCallback(
     async (slot: string, profileId: string | undefined) => {
       setDeletingProfileId(profileId ?? slot);
@@ -161,7 +218,10 @@ export function ProfileAdminsTab() {
     [setProfiles],
   );
 
-  if (ownedProfiles.length === 0 && sharedProfiles.length === 0) {
+  const hasAnything =
+    ownedProfiles.length > 0 || sharedProfiles.length > 0 || pendingInvites.length > 0;
+
+  if (!hasAnything) {
     return (
       <div className="rounded-xl border bg-card p-12 text-center">
         <Users className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
@@ -172,9 +232,56 @@ export function ProfileAdminsTab() {
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-muted-foreground">
-        Admins and editors can manage your profiles and events. Owners cannot be removed.
-      </p>
+      {pendingInvites.length > 0 && (
+        <div className="space-y-3">
+          {pendingInvites.map((inv) => {
+            const isActing = actingInviteId === inv.id;
+            return (
+              <div
+                key={inv.id}
+                className="rounded-xl border border-primary/30 bg-primary/5 px-5 py-4 flex items-center gap-4"
+              >
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+                  <Mail className="h-5 w-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">
+                    You've been invited to manage <span className="font-semibold">{inv.profileName}</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Role: <span className="capitalize">{inv.role}</span>
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    disabled={isActing}
+                    onClick={() => handleDeclineInvite(inv)}
+                  >
+                    <X className="h-3.5 w-3.5" /> Decline
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="gap-1.5"
+                    disabled={isActing}
+                    onClick={() => handleAcceptInvite(inv)}
+                  >
+                    <Check className="h-3.5 w-3.5" /> Accept
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {(ownedProfiles.length > 0 || sharedProfiles.length > 0) && (
+        <p className="text-sm text-muted-foreground">
+          Admins and editors can manage your profiles and events. Owners cannot be removed.
+        </p>
+      )}
 
       {ownedProfiles.length > 0 && sharedProfiles.length > 0 && (
         <h3 className="text-sm font-semibold text-muted-foreground">Profiles you own</h3>

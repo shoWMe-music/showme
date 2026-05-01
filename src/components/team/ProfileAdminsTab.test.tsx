@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // ─── Mocks ────────────────────────────────────────────────────────────────
 
@@ -33,6 +34,9 @@ vi.mock("@/lib/db", () => ({
   inviteProfileAdmin: vi.fn(() => Promise.resolve()),
   cancelProfileInvite: vi.fn(() => Promise.resolve()),
   deleteProfile: (id: string) => mockDeleteProfile(id),
+  fetchPendingProfileInvitesForEmail: vi.fn(() => Promise.resolve([])),
+  acceptProfileInvite: vi.fn(() => Promise.resolve()),
+  declineProfileInvite: vi.fn(() => Promise.resolve()),
 }));
 
 const mockUseUser = vi.fn();
@@ -69,6 +73,11 @@ function makeProfile(overrides: { id: string; name?: string; role?: string; crea
   };
 }
 
+function renderWithQuery(ui: React.ReactElement) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
+
 describe("ProfileAdminsTab", () => {
   beforeEach(() => {
     mockDeleteProfile.mockClear();
@@ -86,7 +95,7 @@ describe("ProfileAdminsTab", () => {
       setProfiles,
     });
 
-    render(<ProfileAdminsTab />);
+    renderWithQuery(<ProfileAdminsTab />);
 
     await waitFor(() => {
       expect(screen.getByText("My Venue")).toBeInTheDocument();
@@ -109,7 +118,7 @@ describe("ProfileAdminsTab", () => {
       setProfiles,
     });
 
-    render(<ProfileAdminsTab />);
+    renderWithQuery(<ProfileAdminsTab />);
 
     await waitFor(() => expect(screen.getByText("My Venue")).toBeInTheDocument());
 
@@ -152,7 +161,7 @@ describe("ProfileAdminsTab", () => {
       setProfiles,
     });
 
-    render(<ProfileAdminsTab />);
+    renderWithQuery(<ProfileAdminsTab />);
 
     await waitFor(() => expect(screen.getByText("My Venue")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /^Delete$/i }));
@@ -177,7 +186,7 @@ describe("ProfileAdminsTab", () => {
       setProfiles,
     });
 
-    render(<ProfileAdminsTab />);
+    renderWithQuery(<ProfileAdminsTab />);
 
     await waitFor(() => {
       expect(screen.getByText("Phantom")).toBeInTheDocument();

@@ -624,49 +624,53 @@ export async function fetchProfileInvites(
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as import("@/lib/profiles").ProfileInviteRecord);
 }
 
-/**
- * Called on login: finds all pending profile invites for this email, creates the
- * member doc (using the self-claim Firestore rule), then deletes the invite.
- */
-export async function claimProfileInvites(
+/** Lists pending profile invites whose recipient email matches the argument. */
+export async function fetchPendingProfileInvitesForEmail(
   userEmail: string,
-  displayName: string,
-): Promise<number> {
-  const uid = requireUid();
+): Promise<import("@/lib/profiles").ProfileInviteRecord[]> {
   const normalizedEmail = userEmail.toLowerCase().trim();
-
+  if (!normalizedEmail) return [];
   const snap = await getDocs(
     query(
       collection(getFirestoreDb(), PROFILE_INVITES),
       where("email", "==", normalizedEmail),
     ),
   );
-  if (snap.empty) return 0;
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as import("@/lib/profiles").ProfileInviteRecord);
+}
 
-  let claimed = 0;
-  for (const inviteDoc of snap.docs) {
-    const invite = inviteDoc.data() as import("@/lib/profiles").ProfileInviteRecord;
-    try {
-      // Create member doc first (self-claim rule checks invite existence)
-      await safeSetDoc(
-        doc(getFirestoreDb(), PROFILE_COLLECTION, invite.profileId, PROFILE_MEMBERS_SUBCOLLECTION, uid),
-        {
-          user_uid: uid,
-          role: invite.role,
-          email: normalizedEmail,
-          displayName,
-          schemaVersion: 1,
-          updatedAt: serverTimestamp(),
-        },
-      );
-      // Then delete the invite
-      await deleteDoc(inviteDoc.ref);
-      claimed++;
-    } catch {
-      // Non-fatal — invite might have been cancelled or already claimed
-    }
+/**
+ * Accept a single profile invite: creates the member doc (self-claim rule
+ * requires the invite to still exist) and then deletes the invite.
+ */
+export async function acceptProfileInvite(
+  invite: import("@/lib/profiles").ProfileInviteRecord,
+  displayName: string,
+): Promise<void> {
+  const uid = requireUid();
+  const normalizedEmail = invite.email.toLowerCase().trim();
+  await safeSetDoc(
+    doc(getFirestoreDb(), PROFILE_COLLECTION, invite.profileId, PROFILE_MEMBERS_SUBCOLLECTION, uid),
+    {
+      user_uid: uid,
+      role: invite.role,
+      email: normalizedEmail,
+      displayName,
+      schemaVersion: 1,
+      updatedAt: serverTimestamp(),
+    },
+  );
+  if (invite.id) {
+    await deleteDoc(doc(getFirestoreDb(), PROFILE_INVITES, invite.id));
   }
-  return claimed;
+}
+
+/** Decline a single profile invite by deleting the invite doc. */
+export async function declineProfileInvite(
+  invite: import("@/lib/profiles").ProfileInviteRecord,
+): Promise<void> {
+  if (!invite.id) return;
+  await deleteDoc(doc(getFirestoreDb(), PROFILE_INVITES, invite.id));
 }
 
 // ── Profile Templates ─────────────────────────────────────────────────────────
