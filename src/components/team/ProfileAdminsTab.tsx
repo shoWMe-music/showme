@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useUser, getBaseRole } from "@/lib/user-context";
 import { useAuth } from "@/lib/auth-context";
@@ -92,6 +92,9 @@ export function ProfileAdminsTab() {
   const [inviteOpen, setInviteOpen] = useState<string | null>(null); // profileId
   const [inviteForm, setInviteForm] = useState<InviteForm>({ email: "", role: "admin" });
   const [inviting, setSaving] = useState(false);
+  // Synchronous double-click guard: setSaving(true) doesn't take effect until
+  // the next render, so a fast double-click can fire two inviteProfileAdmin calls.
+  const invitingRef = useRef(false);
   const [deletingProfileId, setDeletingProfileId] = useState<string | null>(null);
   // Double-confirm flow: which profile slot is in stage-1 (warning) vs stage-2 (type-name) of deletion
   const [deleteStage, setDeleteStage] = useState<{ slot: string; stage: 1 | 2 } | null>(null);
@@ -133,8 +136,10 @@ export function ProfileAdminsTab() {
 
   const handleInvite = async () => {
     if (!inviteOpen || !inviteForm.email.trim()) return;
+    if (invitingRef.current) return;
     const [slot, p] = ownedProfiles.find(([s]) => profiles[s]?.id === inviteOpen) ?? [];
     if (!slot || !p) return;
+    invitingRef.current = true;
     setSaving(true);
     try {
       await inviteProfileAdmin(inviteOpen, p.name ?? slot, inviteForm.email, inviteForm.role);
@@ -146,6 +151,7 @@ export function ProfileAdminsTab() {
       toast({ title: "Could not send invite", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
     } finally {
       setSaving(false);
+      invitingRef.current = false;
     }
   };
 

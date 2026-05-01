@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 const ALL_ROLES: OperatorRole[] = ["venue", "promoter", "organizer", "performer", "festival"];
@@ -42,7 +43,12 @@ export function CreateProfileDialog({ open, onOpenChange, onCreated }: Props) {
   const [step, setStep] = useState(0);
   const [selectedRole, setSelectedRole] = useState<OperatorRole | null>(null);
   const [form, setForm] = useState<Form>(emptyForm());
+  const [submitting, setSubmitting] = useState(false);
   const geoFetched = useRef(false);
+  // Synchronous guard against double-clicks: setSubmitting won't reflect in the
+  // DOM until after the current event-loop tick, so a fast double-click can fire
+  // handleCreate twice before the button's disabled flag updates.
+  const submittingRef = useRef(false);
 
   // Auto-detect location from browser geolocation
   useEffect(() => {
@@ -76,6 +82,8 @@ export function CreateProfileDialog({ open, onOpenChange, onCreated }: Props) {
     setStep(0);
     setSelectedRole(null);
     setForm(emptyForm());
+    setSubmitting(false);
+    submittingRef.current = false;
     geoFetched.current = false;
   };
 
@@ -92,15 +100,37 @@ export function CreateProfileDialog({ open, onOpenChange, onCreated }: Props) {
 
   const handleCreate = () => {
     if (!selectedRole || !form.name.trim()) return;
+    if (submittingRef.current) return;
+
+    const trimmedName = form.name.trim();
+    const lowerName = trimmedName.toLowerCase();
+    const duplicate = Object.values(profiles).some(
+      (p) =>
+        p.created &&
+        p.role === selectedRole &&
+        typeof p.name === "string" &&
+        p.name.trim().toLowerCase() === lowerName,
+    );
+    if (duplicate) {
+      toast({
+        title: "Profile name already in use",
+        description: `You already have a ${operatorRoleLabels[selectedRole].toLowerCase()} profile named "${trimmedName}". Pick a different name.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    submittingRef.current = true;
+    setSubmitting(true);
 
     const slot = nextSlot(profiles, selectedRole);
-    const slug = form.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || slot;
+    const slug = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || slot;
     const locations: ProfileLocation[] = form.city.trim() || form.country.trim()
       ? [{ id: "loc-primary", label: "Primary", city: form.city.trim(), country: form.country.trim() }]
       : [];
     const profile: SharedProfile = {
       role: selectedRole,
-      name: form.name.trim(),
+      name: trimmedName,
       locations,
       bio: form.bio.trim(),
       genres: [],
@@ -234,9 +264,9 @@ export function CreateProfileDialog({ open, onOpenChange, onCreated }: Props) {
               </div>
             )}
             <div className="flex justify-between pt-2">
-              <Button variant="outline" onClick={() => setStep(0)}>Back</Button>
-              <Button onClick={handleCreate} disabled={!form.name.trim()}>
-                Create Profile
+              <Button variant="outline" onClick={() => setStep(0)} disabled={submitting}>Back</Button>
+              <Button onClick={handleCreate} disabled={!form.name.trim() || submitting}>
+                {submitting ? "Creating…" : "Create Profile"}
               </Button>
             </div>
           </div>
