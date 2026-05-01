@@ -33,7 +33,6 @@ export default function TeamMemberSelect({ value, onValueChange, teamMembers, pl
       placeholder={placeholder}
       search={search}
       onSearchChange={setSearch}
-      className={className}
       buttonClassName={cn("font-normal text-xs", className)}
       searchPlaceholder="Search name or role..."
     >
