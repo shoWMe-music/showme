@@ -27,6 +27,8 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarPicker } from "@/components/ui/calendar";
+import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast, copyToast } from "@/hooks/use-toast";
 import { useUser, type SharedProfile, type ProfileDocument } from "@/lib/user-context";
@@ -472,6 +474,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
   const [editAccommodationNotes, setEditAccommodationNotes] = useState<string>("");
   const [newCustomAmenity, setNewCustomAmenity] = useState<string>("");
   const [editEvent, setEditEvent] = useState({ name: event.name, date: event.date, venue: event.venue, artist: event.artist, capacity: event.capacity, ticketingProvider: event.ticketingProvider, eventStatus: event.eventStatus, roomStage: event.roomStage || "", ticketUrls: event.ticketUrls || [] as string[], holdRank: event.holdRank || 1 as number, holdAutoPromote: event.holdAutoPromote !== false as boolean });
+  const [editDatePickerOpen, setEditDatePickerOpen] = useState(false);
   // C5 — Track whether the user has manually edited the capacity field.
   // Once set, room/stage changes no longer auto-overwrite capacity.
   const capacityManuallyEdited = useRef(false);
@@ -562,7 +565,28 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div><Label>Event Name</Label><Input value={editEvent.name} onChange={(e) => setEditEvent(p => ({...p, name: e.target.value}))} className="mt-1" /></div>
-              <div><Label>Date</Label><Input type="date" value={editEvent.date} onChange={(e) => setEditEvent(p => ({...p, date: e.target.value}))} className="mt-1" /></div>
+              <div>
+                <Label>Date</Label>
+                <Popover open={editDatePickerOpen} onOpenChange={setEditDatePickerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn("w-full mt-1 justify-start text-left font-normal", !editEvent.date && "text-muted-foreground")}>
+                      <Calendar className="mr-2 h-4 w-4" />
+                      {editEvent.date ? format(parseISO(editEvent.date), "PPP") : "Pick a date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <CalendarPicker
+                      mode="single"
+                      selected={editEvent.date ? parseISO(editEvent.date) : undefined}
+                      onSelect={(d) => {
+                        if (d) setEditEvent(p => ({ ...p, date: format(d, "yyyy-MM-dd") }));
+                        setEditDatePickerOpen(false);
+                      }}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
               <div><Label>Venue</Label><ContactCombobox contactType="venue" value={editEvent.venue} onChange={(v) => setEditEvent(p => ({...p, venue: v}))} placeholder="Search or type venue name" /></div>
               {!event.isMultiPerformer && (() => {
                 const performerLocked = event.eventStatus !== "draft";
