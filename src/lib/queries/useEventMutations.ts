@@ -375,6 +375,13 @@ export function useUpdateEvent() {
         if (!old) return old;
         return old.map((e) => (e.id !== id ? e : { ...e, ...optimisticUpdates }));
       });
+      // The calendar uses a separate date-range query that's not a prefix of
+      // queryKeys.events — patch it explicitly so calendar UI reflects the
+      // change without waiting for invalidation.
+      queryClient.setQueriesData<Event[]>({ queryKey: ["calendarEvents", uid] }, (old) => {
+        if (!old) return old;
+        return old.map((e) => (e.id !== id ? e : { ...e, ...optimisticUpdates }));
+      });
 
       return { snapshot };
     },
@@ -507,6 +514,10 @@ export function useUpdateEvent() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.events(uid) });
+      // Calendar uses a different prefix; invalidate explicitly so it picks
+      // up server truth (or recovers from drift after a failed optimistic
+      // update).
+      queryClient.invalidateQueries({ queryKey: ["calendarEvents", uid] });
     },
   });
 }
@@ -1499,14 +1510,17 @@ export function useHoldRankMutations() {
       }
     }
 
-    // Optimistic cache update
-    queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
+    // Optimistic cache update — patch both the events query and the calendar
+    // date-range query (different prefixes, so neither implies the other).
+    const patchHoldRanks = (old: Event[] | undefined) => {
       if (!old) return old;
       return old.map((e) => {
         if (!Object.prototype.hasOwnProperty.call(localRanks, e.id)) return e;
         return { ...e, holdRank: localRanks[e.id] };
       });
-    });
+    };
+    queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, patchHoldRanks);
+    queryClient.setQueriesData<Event[]>({ queryKey: ["calendarEvents", uid] }, patchHoldRanks);
 
     // Persist changed events
     holdsOnDate.forEach((e) => {
@@ -1591,14 +1605,17 @@ export function useHoldRankMutations() {
       }
     }
 
-    // Optimistic cache update
-    queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, (old) => {
+    // Optimistic cache update — patch both the events query and the calendar
+    // date-range query (different prefixes, so neither implies the other).
+    const patchHoldRanks = (old: Event[] | undefined) => {
       if (!old) return old;
       return old.map((e) => {
         if (!Object.prototype.hasOwnProperty.call(localRanks, e.id)) return e;
         return { ...e, holdRank: localRanks[e.id] };
       });
-    });
+    };
+    queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, patchHoldRanks);
+    queryClient.setQueriesData<Event[]>({ queryKey: ["calendarEvents", uid] }, patchHoldRanks);
 
     // Persist changed events
     holdIds.forEach((eid) => {

@@ -722,7 +722,14 @@ export default function CalendarPage() {
 
             {popupItem && (() => {
               const isEvt = popupItem.kind === "event";
-              const evt = isEvt ? popupItem.data as AppEvent : null;
+              // Look up the live event so the popup's controlled props
+              // (holdRank, holdAutoPromote, eventStatus, published) reflect
+              // post-mutation cache state rather than the snapshot captured
+              // when the user clicked. Falls back to the snapshot if the
+              // event isn't in the current calendar window.
+              const evt = isEvt
+                ? (events.find((e) => e.id === popupItem.data.id) || popupItem.data) as AppEvent
+                : null;
               return (
                 <CalendarItemPopup
                   item={popupItem}
