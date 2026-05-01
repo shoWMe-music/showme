@@ -37,6 +37,8 @@ vi.mock("@/lib/db", () => ({
   fetchPendingProfileInvitesForEmail: vi.fn(() => Promise.resolve([])),
   acceptProfileInvite: vi.fn(() => Promise.resolve()),
   declineProfileInvite: vi.fn(() => Promise.resolve()),
+  // Used by useAllProfiles via the same TanStack cache key as useUser().profiles.
+  fetchProfiles: vi.fn(() => Promise.resolve({ slotted: {}, all: [] })),
 }));
 
 const mockUseUser = vi.fn();

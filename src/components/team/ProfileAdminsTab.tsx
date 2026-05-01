@@ -17,7 +17,7 @@ import {
 } from "@/lib/db";
 import type { ProfileInviteRecord } from "@/lib/profiles";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { queryKeys } from "@/lib/queries";
+import { queryKeys, useAllProfiles } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -81,12 +81,24 @@ export function ProfileAdminsTab() {
   });
 
   // Profiles where the user is a member but not the owner (invited admin/editor).
-  // Surface them so an invitee sees confirmation that their access was granted.
-  const sharedProfiles = Object.entries(profiles).filter(([, p]) => {
-    if (!p.created) return false;
-    if (p.owner_uid === user?.uid || p.id?.startsWith(`${user?.uid}__`)) return false;
-    return true;
-  });
+  // Source from the flat `all` array, not the slotted dict — two profiles of
+  // the same role-type collapse on slot, which would silently hide a shared
+  // venue if the invitee already owned a venue. Synthesize a stable display
+  // key (`profile.slot ?? profile.role`) used only for the role label render.
+  const allProfiles = useAllProfiles();
+  const sharedProfiles: Array<[string, typeof allProfiles[number]]> = allProfiles
+    .filter((p) => {
+      if (!p.created) return false;
+      if (p.owner_uid === user?.uid || p.id?.startsWith(`${user?.uid}__`)) return false;
+      return true;
+    })
+    .map((p) => {
+      const displaySlot =
+        (typeof (p as { slot?: unknown }).slot === "string" && (p as { slot: string }).slot) ||
+        (p.role as string) ||
+        "shared";
+      return [displaySlot, p];
+    });
 
   const [profileState, setProfileState] = useState<Record<string, ProfileState>>({});
   const [inviteOpen, setInviteOpen] = useState<string | null>(null); // profileId
@@ -115,12 +127,18 @@ export function ProfileAdminsTab() {
 
   useEffect(() => {
     if (!user) return;
-    for (const [slot] of [...ownedProfiles, ...sharedProfiles]) {
+    // Owned profiles come from the slotted dict; shared profiles come straight
+    // from the flat array tuple — slot lookup against `profiles` would collide
+    // with an owned profile of the same role-type and load the wrong members.
+    for (const [slot] of ownedProfiles) {
       const profileId = profiles[slot]?.id;
       if (profileId) loadProfile(profileId);
     }
+    for (const [, profile] of sharedProfiles) {
+      if (profile.id) loadProfile(profile.id);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.uid, Object.keys(profiles).join(",")]);
+  }, [user?.uid, Object.keys(profiles).join(","), sharedProfiles.length]);
 
   const handleChangeRole = async (profileId: string, memberUid: string, role: "admin" | "editor") => {
     await setProfileMemberRole(profileId, memberUid, role);
