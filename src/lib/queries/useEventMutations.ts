@@ -1629,5 +1629,58 @@ export function useHoldRankMutations() {
     });
   };
 
-  return { promoteHoldsOnDate, resolveHoldRankConflicts };
+  /**
+   * Detect any (date, venue, room) groups where multiple on-hold events share
+   * the same holdRank, and renumber them deterministically (sort by current
+   * rank ASC, then id ASC; assign 1..N). Persists corrections and updates the
+   * cache. Idempotent — safe to call repeatedly. Self-healing safety net for
+   * any code path that creates/edits an on-hold event without going through
+   * `resolveHoldRankConflicts`.
+   */
+  const normalizeAllHoldRanks = (eventList?: Event[]): void => {
+    const events = eventList ?? getEventsData(queryClient, uid);
+    if (!events) return;
+
+    const holdsByKey = new Map<string, Event[]>();
+    for (const e of events) {
+      if (e.eventStatus !== "on_hold" || e.archived) continue;
+      const key = `${e.date}|${e.venue}|${e.roomStage || ""}`;
+      const list = holdsByKey.get(key);
+      if (list) list.push(e); else holdsByKey.set(key, [e]);
+    }
+
+    const corrections = new Map<string, number>();
+    for (const group of holdsByKey.values()) {
+      if (group.length < 2) continue;
+      const ranks = group.map((e) => e.holdRank || 1);
+      const hasDupes = new Set(ranks).size !== ranks.length;
+      if (!hasDupes) continue;
+      const sorted = [...group].sort((a, b) => {
+        const ra = a.holdRank || 1;
+        const rb = b.holdRank || 1;
+        if (ra !== rb) return ra - rb;
+        return a.id.localeCompare(b.id);
+      });
+      sorted.forEach((e, i) => {
+        const next = i + 1;
+        if ((e.holdRank || 1) !== next) corrections.set(e.id, next);
+      });
+    }
+
+    if (corrections.size === 0) return;
+
+    const patch = (old: Event[] | undefined) => {
+      if (!old) return old;
+      return old.map((e) => corrections.has(e.id) ? { ...e, holdRank: corrections.get(e.id)! } : e);
+    };
+    queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, patch);
+    queryClient.setQueriesData<Event[]>({ queryKey: ["calendarEvents", uid] }, patch);
+
+    for (const e of events) {
+      const next = corrections.get(e.id);
+      if (next != null) void upsertEvent({ ...e, holdRank: next });
+    }
+  };
+
+  return { promoteHoldsOnDate, resolveHoldRankConflicts, normalizeAllHoldRanks };
 }

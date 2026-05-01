@@ -84,7 +84,17 @@ export default function CalendarPage() {
   const { data: events = [], isFetching: eventsFetching } = useCalendarEvents(dateFrom, dateTo);
   const updateEventMutation = useUpdateEvent();
   const updateEvent = (id: string, updates: Partial<typeof events[0]>) => updateEventMutation.mutate({ id, updates });
-  const { promoteHoldsOnDate, resolveHoldRankConflicts } = useHoldRankMutations();
+  const { promoteHoldsOnDate, resolveHoldRankConflicts, normalizeAllHoldRanks } = useHoldRankMutations();
+
+  // Self-heal duplicate hold ranks. Any (date, venue, room) group where two
+  // events share the same holdRank gets renumbered 1..N. Catches data created
+  // by paths that bypassed resolveHoldRankConflicts (e.g. multi-performer
+  // create, legacy data).
+  useEffect(() => {
+    if (events.length === 0) return;
+    normalizeAllHoldRanks(events);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events]);
   const { canCreate, profiles, currentUser, teamMembers } = useUser();
   const [calendarItems, setCalendarItems] = useState<CalendarItem[]>([]);
   const calendarLoaded = useRef(false);
