@@ -286,7 +286,7 @@ export default function EventManagerPage() {
           }} />
         )}
         {em.activeTab === "collaborators" && (
-          <CollaboratorsTab event={event} collaborators={em.collaborators} profiles={em.profiles} onInviteOpen={() => setInviteOpen(true)} />
+          <CollaboratorsTab event={event} collaborators={em.collaborators} profiles={em.profiles} onRefresh={em.refreshCollaborators} />
         )}
         {em.activeTab === "crew" && !em.economicsLoaded && (
           <div className="space-y-4">

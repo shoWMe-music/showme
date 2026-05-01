@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { deleteDoc, doc } from "firebase/firestore";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,11 +10,12 @@ import {
   collaboratorIsActive,
 } from "@/lib/models";
 import { formatLocation, getPrimaryLocation, type SharedProfile } from "@/lib/user-context";
-import { Users, UserPlus, Link as LinkIcon, Mail, Clock, Check, X, Shield, Copy, XCircle } from "lucide-react";
+import { Users, Link as LinkIcon, Mail, Clock, Check, X, Shield, Copy, XCircle } from "lucide-react";
 import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 import { useMyInvitationCodes, useRevokeInvitationCode } from "@/lib/queries/useInvitationCodes";
 import { toast, copyToast } from "@/hooks/use-toast";
 import { useChildEvents } from "@/lib/queries";
+import { getFirestoreDb } from "@/integrations/firebase/app";
 
 const statusConfig: Record<string, { label: string; color: string; icon: typeof Check }> = {
   active: { label: "Connected", color: "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400", icon: Check },
@@ -28,13 +30,35 @@ interface CollaboratorsTabProps {
   event: AppEvent;
   collaborators: EventCollaborator[];
   profiles: Record<string, SharedProfile>;
-  onInviteOpen: () => void;
+  onRefresh?: () => void;
 }
 
-export function CollaboratorsTab({ event, collaborators, profiles, onInviteOpen }: CollaboratorsTabProps) {
+export function CollaboratorsTab({ event, collaborators, profiles, onRefresh }: CollaboratorsTabProps) {
   const { data: invitationCodes } = useMyInvitationCodes();
   const revokeMutation = useRevokeInvitationCode();
   const childEvents = useChildEvents(event.id);
+
+  // Revoking an invitation code alone leaves the EventCollaborator + stub
+  // profile docs in place, which made the row stick around in the UI. Pair the
+  // revoke with a delete of those paired docs so the row disappears.
+  // Note: collaboratorInvites/{token} has no client delete rule (only update),
+  // so we leave it — it's not what drives the list.
+  const revokeAndCleanup = async (codeStr: string, collaboratorToken: string, stubProfileId?: string | null) => {
+    try {
+      await revokeMutation.mutateAsync(codeStr);
+      const db = getFirestoreDb();
+      await deleteDoc(doc(db, "events", event.id, "collaborators", collaboratorToken));
+      if (stubProfileId) {
+        // Best-effort: stub profile delete may fail if it was already claimed
+        // (claimInvitationCode deletes the stub on transfer), so swallow errors.
+        try { await deleteDoc(doc(db, "profiles", stubProfileId)); } catch { /* ignore */ }
+      }
+      onRefresh?.();
+    } catch (err) {
+      console.error("Failed to revoke and cleanup invitation:", err);
+      toast({ title: "Failed to revoke invitation", variant: "destructive" });
+    }
+  };
 
   // Build a map from profileId → profile for quick lookup
   const profileById = useMemo(() => {
@@ -104,16 +128,9 @@ export function CollaboratorsTab({ event, collaborators, profiles, onInviteOpen 
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="font-display text-lg font-semibold">Collaborators</h3>
-          <p className="text-sm text-muted-foreground">Profiles and parties connected to this event</p>
-        </div>
-        {event.eventStatus !== "draft" && event.eventStatus !== "suggested" && (
-          <Button className="gap-2" onClick={onInviteOpen}>
-            <UserPlus className="h-4 w-4" /> Invite Collaborator
-          </Button>
-        )}
+      <div>
+        <h3 className="font-display text-lg font-semibold">Collaborators</h3>
+        <p className="text-sm text-muted-foreground">Profiles and parties connected to this event</p>
       </div>
 
       {/* Host profile card */}
@@ -234,7 +251,7 @@ export function CollaboratorsTab({ event, collaborators, profiles, onInviteOpen 
                                 size="icon"
                                 className="h-7 w-7 text-destructive hover:text-destructive"
                                 disabled={revokeMutation.isPending}
-                                onClick={() => revokeMutation.mutate(matchingCode.code)}
+                                onClick={() => revokeAndCleanup(matchingCode.code, c.id, matchingCode.linkedProfileId)}
                               >
                                 <XCircle className="h-3.5 w-3.5" />
                               </Button>
