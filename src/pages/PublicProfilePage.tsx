@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useUser, operatorRoleLabels, getBaseRole, formatLocation, getPrimaryLocation, type OperatorRole, type SharedProfile, type SubVenue, type ProfileLocation } from "@/lib/user-context";
 import { queryKeys } from "@/lib/queries/keys";
 import type { Event as AppEvent } from "@/lib/models";
-import { fetchPublicProfileBySlug, fetchPublishedEvents } from "@/lib/db";
+import { fetchPublicProfileBySlug, fetchUpcomingEventsForPublicProfile } from "@/lib/db";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MapPin, Globe, Image, Video, Users, ExternalLink, Calendar, ChevronDown, ChevronUp, CalendarPlus } from "lucide-react";
@@ -27,16 +27,19 @@ function formatPerformerLocation(loc: ProfileLocation | undefined): string {
 export default function PublicProfilePage() {
   const { slug } = useParams({ from: "/p/$slug" });
   const { profiles: localProfiles, currentUser, loaded: userLoaded } = useUser();
-  const { data: events = [] } = useQuery({
-    queryKey: queryKeys.publishedEvents(),
-    queryFn: () => fetchPublishedEvents(200),
-    staleTime: 5 * 60 * 1000,
-  });
   const [loading, setLoading] = useState(true);
   const [foundRole, setFoundRole] = useState<OperatorRole | null>(null);
   const [foundProfile, setFoundProfile] = useState<SharedProfile | null>(null);
   const [isOwner, setIsOwner] = useState(false);
   const [profileOwnerUid, setProfileOwnerUid] = useState("");
+
+  const profileIdForEvents = foundProfile?.id ?? "";
+  const { data: upcomingEvents = [] } = useQuery({
+    queryKey: queryKeys.upcomingEventsForPublicProfile(profileIdForEvents),
+    queryFn: () => fetchUpcomingEventsForPublicProfile(profileIdForEvents, 12),
+    enabled: !!profileIdForEvents,
+    staleTime: 5 * 60 * 1000,
+  });
 
   useEffect(() => {
     if (!userLoaded) return; // wait for owned profiles to load before falling back to remote
@@ -242,30 +245,7 @@ export default function PublicProfilePage() {
         </div>
 
         {/* Coming Events — published upcoming events for this profile */}
-        {(() => {
-          const profileId = profile.id;
-          const profileName = profile.name?.toLowerCase() || "";
-          const today = new Date().toISOString().split("T")[0];
-          const upcomingEvents = events.filter(e => {
-            if (!e.published || e.archived || e.date < today) return false;
-            // Primary match: profile ID linked on the event (host, performer, or any access).
-            if (profileId && (
-              e.hostProfileId === profileId ||
-              e.performerProfileId === profileId ||
-              e.accessProfileIds?.includes(profileId)
-            )) return true;
-            // Fallback: name substring match for legacy events created before
-            // profile IDs were attached.
-            if (profileName && (
-              e.venue.toLowerCase().includes(profileName) ||
-              e.artist.toLowerCase().includes(profileName) ||
-              e.operator.toLowerCase().includes(profileName)
-            )) return true;
-            return false;
-          }).sort((a, b) => a.date.localeCompare(b.date));
-
-          return <UpcomingEventsSection events={upcomingEvents} limit={6} role={role} />;
-        })()}
+        <UpcomingEventsSection events={upcomingEvents} limit={6} role={role} />
 
         {/* Content */}
         <div className="p-8 pt-6">

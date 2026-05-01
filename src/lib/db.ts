@@ -1152,19 +1152,30 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
   return chunks;
 }
 
-/** Published confirmed events for public calendars. */
-export async function fetchPublishedEvents(limitCount = 50): Promise<Event[]> {
+/**
+ * Upcoming published events for a single public profile page (`/p/<slug>`).
+ * Uses the profile-scoped `accessProfileIds` index instead of pulling the
+ * global published feed and filtering client-side. Overshoots the requested
+ * count to absorb the `published`/`archived`/`eventStatus` client-side filter.
+ */
+export async function fetchUpcomingEventsForPublicProfile(
+  profileId: string,
+  limitCount = 12,
+): Promise<Event[]> {
+  if (!profileId) return [];
+  const today = new Date().toISOString().split("T")[0];
   const q = query(
     collection(getFirestoreDb(), TOP_EVENTS),
-    where("published", "==", true),
-    where("eventStatus", "==", "confirmed"),
-    orderBy("date", "desc"),
-    limit(limitCount),
+    where("accessProfileIds", "array-contains", profileId),
+    where("date", ">=", today),
+    orderBy("date", "asc"),
+    limit(limitCount * 4),
   );
   const snap = await getDocs(q);
   return snap.docs
     .map((d) => eventRowToEvent({ id: d.id, ...d.data() }))
-    .filter((e) => !e.archived);
+    .filter((e) => e.published && !e.archived && e.eventStatus === "confirmed")
+    .slice(0, limitCount);
 }
 
 export async function upsertEvent(event: Event) {

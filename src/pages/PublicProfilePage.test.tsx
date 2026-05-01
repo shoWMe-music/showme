@@ -47,7 +47,7 @@ vi.mock("@/lib/user-context", async () => {
 
 vi.mock("@/lib/db", () => ({
   fetchPublicProfileBySlug: vi.fn(() => Promise.resolve(null)),
-  fetchPublishedEvents: vi.fn(() => Promise.resolve(mockEvents())),
+  fetchUpcomingEventsForPublicProfile: vi.fn(() => Promise.resolve(mockEvents())),
 }));
 
 import PublicProfilePage from "./PublicProfilePage";
@@ -102,28 +102,18 @@ describe("PublicProfilePage — Coming Events section (Wave 5 B6)", () => {
     });
   });
 
-  it("renders Coming Events with future, published, non-archived events for the profile", async () => {
+  it("renders Coming Events using the events returned by fetchUpcomingEventsForPublicProfile", async () => {
+    // The fetcher already filters by profile + future + published + confirmed +
+    // non-archived server-side; the page just renders what comes back.
     mockEvents.mockReturnValue([
       makeEvent({ id: "evt-1", artist: "Future Performer", date: "2099-01-01", venue: "My Venue" }),
-      makeEvent({ id: "evt-2", artist: "Past Performer", date: "1999-01-01", venue: "My Venue" }),
-      makeEvent({ id: "evt-3", artist: "Not Mine", date: "2099-01-01", venue: "Other Venue" }),
-      makeEvent({ id: "evt-4", artist: "Archived Performer", date: "2099-01-01", venue: "My Venue", archived: true }),
-      makeEvent({ id: "evt-5", artist: "Unpublished Performer", date: "2099-01-01", venue: "My Venue", published: false }),
     ]);
 
     renderWithClient(<PublicProfilePage />);
 
     await waitFor(() => expect(screen.getByText(/Coming Events/i)).toBeInTheDocument());
 
-    // Future + published + non-archived for "My Venue" — heading shows the
-    // visiting performer (this profile is a venue).
     expect(screen.getByText("Future Performer")).toBeInTheDocument();
-
-    // Filtered out
-    expect(screen.queryByText("Past Performer")).not.toBeInTheDocument();
-    expect(screen.queryByText("Not Mine")).not.toBeInTheDocument();
-    expect(screen.queryByText("Archived Performer")).not.toBeInTheDocument();
-    expect(screen.queryByText("Unpublished Performer")).not.toBeInTheDocument();
   });
 
   it("links Coming Events rows to the public event page route /event/$id", async () => {
