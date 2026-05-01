@@ -1,7 +1,10 @@
 import AppLayout from "@/components/AppLayout";
 import { EventStatusBadge } from "@/components/StatusBadge";
 import StatusBadge from "@/components/StatusBadge";
-import { useEvents, useAllEventEconomics, useEventsLoaded } from "@/lib/queries";
+import { useEvents, useAllEventEconomics, useEventsLoaded, useUpdateAnyEventMeta } from "@/lib/queries";
+import { useUser } from "@/lib/user-context";
+import { Checkbox } from "@/components/ui/checkbox";
+import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { DealStructure, TicketRevenue, Settlement } from "@/lib/models";
 import {
@@ -41,6 +44,130 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
+
+// ─── My Tasks Section ─────────────────────────────────────────────
+interface MyTaskItem {
+  id: string;
+  title: string;
+  dueDate?: string;
+  eventId: string;
+  eventName: string;
+  completed: boolean;
+}
+
+function MyTasksSection({
+  events,
+  allEconomics,
+}: {
+  events: import("@/lib/models").Event[];
+  allEconomics: ReturnType<typeof useAllEventEconomics>;
+}) {
+  const { currentUser } = useUser();
+  const updateAnyEventMeta = useUpdateAnyEventMeta();
+  const today = new Date().toISOString().slice(0, 10);
+
+  const myTasks = useMemo<MyTaskItem[]>(() => {
+    const items: MyTaskItem[] = [];
+    for (const event of events) {
+      if (event.archived) continue;
+      const meta = allEconomics[event.id]?.meta;
+      const todos = (meta?.todos ?? []) as Array<{
+        id: string; title: string; completed: boolean;
+        assignee?: string; dueDate?: string;
+      }>;
+      for (const t of todos) {
+        if (t.completed) continue;
+        if (!currentUser.name || t.assignee !== currentUser.name) continue;
+        items.push({
+          id: t.id,
+          title: t.title,
+          dueDate: t.dueDate,
+          eventId: event.id,
+          eventName: event.name,
+          completed: t.completed,
+        });
+      }
+    }
+    return items.sort((a, b) => {
+      if (!a.dueDate && !b.dueDate) return 0;
+      if (!a.dueDate) return 1;
+      if (!b.dueDate) return -1;
+      return a.dueDate.localeCompare(b.dueDate);
+    });
+  }, [events, allEconomics, currentUser.name]);
+
+  const visible = myTasks.slice(0, 5);
+  const hasMore = myTasks.length > 5;
+
+  const toggleTask = (eventId: string, taskId: string) => {
+    const meta = allEconomics[eventId]?.meta;
+    const todos = (meta?.todos ?? []) as Array<{
+      id: string; completed: boolean; completedAt?: string;
+    }>;
+    const updated = todos.map(t =>
+      t.id === taskId
+        ? { ...t, completed: !t.completed, completedAt: !t.completed ? new Date().toISOString() : undefined }
+        : t,
+    );
+    updateAnyEventMeta(eventId, { todos: updated });
+  };
+
+  return (
+    <div>
+      <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-2">
+        <ListTodo className="h-4 w-4" /> My Tasks
+      </h2>
+      <p className="text-xs text-muted-foreground mb-3">
+        Tasks assigned to you across your events.
+      </p>
+      {myTasks.length === 0 ? (
+        <div className="rounded-xl border bg-card p-5 shadow-sm text-center">
+          <PartyPopper className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">No open tasks assigned to you.</p>
+        </div>
+      ) : (
+        <div className="rounded-xl border bg-card shadow-sm divide-y">
+          {visible.map(task => {
+            const isOverdue = !!task.dueDate && task.dueDate < today;
+            return (
+              <div key={task.id} className="flex items-center gap-3 px-4 py-3">
+                <Checkbox
+                  checked={task.completed}
+                  onCheckedChange={() => toggleTask(task.eventId, task.id)}
+                  className="shrink-0"
+                />
+                <Link
+                  to="/events/$id"
+                  params={{ id: task.eventId }}
+                  className="flex-1 min-w-0 text-sm hover:text-primary transition-colors"
+                >
+                  <span className="truncate block">{task.title}</span>
+                  <span className="text-xs text-muted-foreground truncate block">
+                    {task.eventName}
+                    {task.dueDate && (
+                      <span className={cn("ml-2", isOverdue && "text-destructive font-medium")}>
+                        · {new Date(task.dueDate + "T00:00:00").toLocaleDateString()}
+                        {isOverdue && " · Overdue"}
+                      </span>
+                    )}
+                  </span>
+                </Link>
+              </div>
+            );
+          })}
+          {hasMore && (
+            <Link
+              to="/tasks"
+              className="flex items-center justify-center gap-1.5 px-4 py-3 text-sm text-muted-foreground hover:text-primary hover:bg-muted/30 transition-colors"
+            >
+              View all {myTasks.length} tasks <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── To-Do Section ───────────────────────────────────────────────
 function TodoSection({
@@ -194,7 +321,7 @@ function TodoSection({
   return (
     <div>
       <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-2">
-        <ListTodo className="h-4 w-4" /> To Do
+        <ListTodo className="h-4 w-4" /> System Recommendations
       </h2>
       <p className="text-xs text-muted-foreground mb-3">
         These tasks are suggested by the system. You can mark them done and remove them as you wish. The system will suggest new tasks.
@@ -520,15 +647,28 @@ export default function Dashboard() {
 
           {/* To Do + Recent Activity skeletons */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            <div>
-              <Skeleton className="h-4 w-24 mb-3" />
-              <div className="rounded-xl border bg-card shadow-sm divide-y">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="flex items-center gap-3 px-4 py-3">
-                    <Skeleton className="h-4 w-4 rounded-full shrink-0" />
-                    <Skeleton className="h-4 flex-1" />
-                  </div>
-                ))}
+            <div className="space-y-6">
+              <div>
+                <Skeleton className="h-4 w-24 mb-3" />
+                <div className="rounded-xl border bg-card shadow-sm divide-y">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-3 px-4 py-3">
+                      <Skeleton className="h-4 w-4 rounded-full shrink-0" />
+                      <Skeleton className="h-4 flex-1" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <Skeleton className="h-4 w-40 mb-3" />
+                <div className="rounded-xl border bg-card shadow-sm divide-y">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-3 px-4 py-3">
+                      <Skeleton className="h-4 w-4 rounded-full shrink-0" />
+                      <Skeleton className="h-4 flex-1" />
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
             <div>
@@ -621,9 +761,12 @@ export default function Dashboard() {
           <p className="mt-1 text-muted-foreground">Overview of your events and settlements</p>
         </div>
 
-        {/* To Do + Recent Activity side by side */}
+        {/* To Do (My Tasks + System Recommendations) + Recent Activity side by side */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <TodoSection events={events} settlements={settlements} deals={deals} revenue={revenue} />
+          <div className="space-y-6">
+            <MyTasksSection events={events} allEconomics={allEconomics} />
+            <TodoSection events={events} settlements={settlements} deals={deals} revenue={revenue} />
+          </div>
           <ActivityFeed events={events} settlements={settlements} />
         </div>
 
