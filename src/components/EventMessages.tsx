@@ -60,14 +60,6 @@ export default function EventMessages({ eventId }: { eventId: string }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Fall back to email (username portion) before "Anonymous". Invited members
-  // who haven't filled in their settings have an empty currentUser.name, and
-  // sender_name is *persisted* into the message doc — so a missing name would
-  // brand all their messages as "Anonymous" forever in the chat history.
-  const emailLocal = currentUser.email?.split("@")[0]?.trim();
-  const senderName =
-    currentUser.name?.trim() || emailLocal || currentUser.email || "Unknown user";
-
   // Resolve the acting profile for the current user (first created profile)
   const actingProfile = useMemo(() => {
     for (const [, p] of Object.entries(profiles)) {
@@ -75,6 +67,18 @@ export default function EventMessages({ eventId }: { eventId: string }) {
     }
     return undefined;
   }, [profiles]);
+
+  // Display name for the current sender. Format: "John Doe (Profile Name)" so
+  // recipients see both who is talking and which profile they represent. Falls
+  // back through email-local → email when the user hasn't filled out their
+  // name (common for users who joined via a profile invite). sender_name is
+  // *persisted* into the message doc, so we never want to write "Anonymous".
+  const emailLocal = currentUser.email?.split("@")[0]?.trim();
+  const userPart =
+    currentUser.name?.trim() || emailLocal || currentUser.email || "Unknown user";
+  const senderName = actingProfile?.name
+    ? `${userPart} (${actingProfile.name})`
+    : userPart;
 
   const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
