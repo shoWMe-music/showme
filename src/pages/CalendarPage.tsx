@@ -44,6 +44,7 @@ import { CalendarSidebar } from "@/components/calendar/CalendarSidebar";
 import { CalendarHeader } from "@/components/calendar/CalendarHeader";
 import { CalendarFilterBar } from "@/components/calendar/CalendarFilterBar";
 import { CalendarLegend } from "@/components/calendar/CalendarLegend";
+import { CalendarGridSkeleton } from "@/components/calendar/CalendarGridSkeleton";
 
 // ── Main Page ──
 
@@ -81,7 +82,15 @@ export default function CalendarPage() {
   // Load events for current month ± 1 month
   const dateFrom = useMemo(() => format(startOfMonth(subMonths(currentMonth, 1)), "yyyy-MM-dd"), [currentMonth]);
   const dateTo = useMemo(() => format(endOfMonth(addMonths(currentMonth, 1)), "yyyy-MM-dd"), [currentMonth]);
-  const { data: events = [], isFetching: eventsFetching } = useCalendarEvents(dateFrom, dateTo);
+  const { data: eventsData, isFetching: eventsFetching } = useCalendarEvents(dateFrom, dateTo);
+  // Memoize the fallback so deriving `events` doesn't allocate a new [] on
+  // every render (which would invalidate every downstream useMemo dep).
+  const events = useMemo(() => eventsData ?? [], [eventsData]);
+  // First-load skeleton: no cached events for this date range yet. Subsequent
+  // month/week/day navigation keeps showing the previous data via
+  // `placeholderData: keepPreviousData`, so the skeleton only fires on cold
+  // page load — not on every navigation.
+  const isInitialLoad = eventsData === undefined;
   const updateEventMutation = useUpdateEvent();
   const updateEvent = (id: string, updates: Partial<typeof events[0]>) => updateEventMutation.mutate({ id, updates });
   const { promoteHoldsOnDate, resolveHoldRankConflicts, normalizeAllHoldRanks } = useHoldRankMutations();
@@ -744,9 +753,15 @@ export default function CalendarPage() {
           )}
 
           <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-y-auto">
-            {viewMode === "month" && <CalendarMonthView {...viewSharedProps} currentMonth={currentMonth} calendarDays={calendarDays} selectedDate={selectedDate} onSelectDays={markDaysUnavailable} />}
-            {viewMode === "day" && <CalendarDayView {...viewSharedProps} dayViewDate={dayViewDate} dayViewEvents={dayViewEvents} dayViewCalItems={dayViewCalItems} />}
-            {viewMode === "week" && <CalendarWeekView {...viewSharedProps} weekViewDays={weekViewDays} />}
+            {isInitialLoad ? (
+              <CalendarGridSkeleton viewMode={viewMode} cellCount={calendarDays.length} />
+            ) : (
+              <>
+                {viewMode === "month" && <CalendarMonthView {...viewSharedProps} currentMonth={currentMonth} calendarDays={calendarDays} selectedDate={selectedDate} onSelectDays={markDaysUnavailable} />}
+                {viewMode === "day" && <CalendarDayView {...viewSharedProps} dayViewDate={dayViewDate} dayViewEvents={dayViewEvents} dayViewCalItems={dayViewCalItems} />}
+                {viewMode === "week" && <CalendarWeekView {...viewSharedProps} weekViewDays={weekViewDays} />}
+              </>
+            )}
 
             {quickCreateDate && quickCreatePos && canCreate && !markingMode && (
               <CalendarQuickCreateMenu quickCreateDate={quickCreateDate} quickCreatePos={quickCreatePos} quickCreateTime={quickCreateTime} onQuickCreate={handleQuickCreate} onClose={() => setQuickCreateDate(null)} />
