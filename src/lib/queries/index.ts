@@ -69,7 +69,11 @@ export {
 export { useAddContact, useUpdateContact, useDeleteContact } from "./useContactMutations";
 
 // Meta mutations
-export { useUpdateEventMeta, useUpdateAnyEventMeta } from "./useMetaMutations";
+export { useUpdateEventMeta, useUpdateAnyEventMeta, useUpsertProfileTodos } from "./useMetaMutations";
+
+// Profile-scoped todos
+export type { ProfileTodoGroup } from "./useProfileTodos";
+export { useAllProfileTodos, resolveWriteScopeId } from "./useProfileTodos";
 
 // Settlement activity
 export { useSettlementActivity, useLogSettlementActivity } from "./useSettlementActivity";

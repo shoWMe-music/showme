@@ -5,6 +5,10 @@ import {
   usePaginatedEvents,
   useAllEventEconomics,
   useUpdateAnyEventMeta,
+  useAllProfileTodos,
+  useAllProfiles,
+  useUpsertProfileTodos,
+  resolveWriteScopeId,
   type EventEconomicsData,
 } from "@/lib/queries";
 import type { Event } from "@/lib/models";
@@ -27,6 +31,16 @@ import {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+/**
+ * Source tells the mutation handlers which Firestore doc to write back to:
+ *   - "main": legacy `events/{eventId}/meta/main.todos` array
+ *   - { kind: "profile"; scopeId }: per-profile `events/{eventId}/meta/todos_{scopeId}`
+ *
+ * The scopeId form is what TodoTab in EventManager writes today, so unless
+ * you're looking at a very old event, todos should be in the profile form.
+ */
+type TodoSource = "main" | { kind: "profile"; scopeId: string };
+
 interface UserTodo {
   kind: "user";
   id: string;
@@ -43,6 +57,7 @@ interface UserTodo {
   eventDate: string;
   artist: string;
   venue: string;
+  source: TodoSource;
 }
 
 interface ActionItem {
@@ -427,10 +442,22 @@ export default function TasksPage() {
   );
 
   // Load economics for all non-archived non-parent events in parallel via TanStack Query
-  const activeEventIds = events
-    .filter(e => !e.archived && !e.parentEventId)
-    .map(e => e.id);
+  const activeEvents = useMemo(
+    () => events.filter(e => !e.archived && !e.parentEventId),
+    [events],
+  );
+  const activeEventIds = useMemo(() => activeEvents.map(e => e.id), [activeEvents]);
   const allEconomics = useAllEventEconomics(activeEventIds);
+  // Profile-scoped todos (events/{eventId}/meta/todos_{scopeId}) — where the
+  // current TodoTab writes. Without this, anything created via TodoTab is
+  // invisible here, including everyone's tasks since the per-profile split.
+  const allProfileTodos = useAllProfileTodos(activeEvents);
+  const allProfiles = useAllProfiles();
+  const userProfileIds = useMemo(
+    () => allProfiles.map(p => p.id).filter(Boolean) as string[],
+    [allProfiles],
+  );
+  const upsertProfileTodosMut = useUpsertProfileTodos();
 
   const today = new Date().toISOString().slice(0, 10);
   const sevenDaysOut = useMemo(() => {
@@ -451,15 +478,32 @@ export default function TasksPage() {
   const allUserTodos = useMemo<UserTodo[]>(() => {
     const tasks: UserTodo[] = [];
     for (const event of events.filter(e => !e.archived)) {
+      const base = {
+        kind: "user" as const,
+        eventId: event.id, eventName: event.name, eventDate: event.date,
+        artist: event.artist, venue: event.venue,
+      };
+      // Legacy: events/{eventId}/meta/main.todos (older events / pre-migration)
       const meta = allEconomics[event.id]?.meta;
-      if (!meta?.todos?.length) continue;
-      for (const todo of meta.todos as UserTodo[]) {
-        tasks.push({
-          kind: "user", ...todo,
-          reminders: Array.isArray(todo.reminders) ? todo.reminders : [],
-          eventId: event.id, eventName: event.name, eventDate: event.date,
-          artist: event.artist, venue: event.venue,
-        });
+      if (meta?.todos?.length) {
+        for (const todo of meta.todos as Omit<UserTodo, "kind" | "source" | "eventId" | "eventName" | "eventDate" | "artist" | "venue">[]) {
+          tasks.push({
+            ...base, ...todo,
+            reminders: Array.isArray(todo.reminders) ? todo.reminders : [],
+            source: "main",
+          });
+        }
+      }
+      // Per-profile: events/{eventId}/meta/todos_{scopeId} (where TodoTab writes today)
+      const scopeGroups = allProfileTodos[event.id] ?? [];
+      for (const group of scopeGroups) {
+        for (const todo of group.todos) {
+          tasks.push({
+            ...base, ...todo,
+            reminders: Array.isArray(todo.reminders) ? todo.reminders : [],
+            source: { kind: "profile", scopeId: group.scopeId },
+          });
+        }
       }
     }
     return tasks.sort((a, b) => {
@@ -469,7 +513,7 @@ export default function TasksPage() {
       const cmp = a.dueDate.localeCompare(b.dueDate);
       return sortOrder === "asc" ? cmp : -cmp;
     });
-  }, [events, allEconomics, sortOrder]);
+  }, [events, allEconomics, allProfileTodos, sortOrder]);
 
   // Apply filter + search to produce the sets fed into grouping
   const filteredActions = useMemo(() => {
@@ -574,41 +618,67 @@ export default function TasksPage() {
     return candidates.filter(m => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
   }, [events, teamMembers, profiles, user?.uid]);
 
-  const toggleTodo = useCallback((eventId: string, todoId: string) => {
-    const meta = allEconomics[eventId]?.meta;
-    if (!meta?.todos) return;
-    const todo = (meta.todos as UserTodo[]).find(t => t.id === todoId);
-    const wasCompleted = todo?.completed;
-    const updated = (meta.todos as UserTodo[]).map(t =>
+  /**
+   * Read the todos array for a given source so we can mutate it. The
+   * caller passes the source so we route to the right Firestore doc.
+   */
+  const readTodosForSource = useCallback(
+    (eventId: string, source: TodoSource): UserTodo[] => {
+      if (source === "main") {
+        const meta = allEconomics[eventId]?.meta;
+        return (meta?.todos as UserTodo[]) ?? [];
+      }
+      const group = (allProfileTodos[eventId] ?? []).find(g => g.scopeId === source.scopeId);
+      return (group?.todos as UserTodo[]) ?? [];
+    },
+    [allEconomics, allProfileTodos],
+  );
+
+  const writeTodosForSource = useCallback(
+    (eventId: string, source: TodoSource, todos: UserTodo[]) => {
+      if (source === "main") {
+        updateAnyEventMeta(eventId, { todos });
+      } else {
+        upsertProfileTodosMut(eventId, source.scopeId, todos);
+      }
+    },
+    [updateAnyEventMeta, upsertProfileTodosMut],
+  );
+
+  const toggleTodo = useCallback((eventId: string, todoId: string, source: TodoSource) => {
+    const list = readTodosForSource(eventId, source);
+    const todo = list.find(t => t.id === todoId);
+    if (!todo) return;
+    const wasCompleted = todo.completed;
+    const updated = list.map(t =>
       t.id === todoId ? { ...t, completed: !t.completed, completedAt: !t.completed ? new Date().toISOString() : undefined } : t,
     );
-    updateAnyEventMeta(eventId, { todos: updated });
+    writeTodosForSource(eventId, source, updated);
 
-    if (!wasCompleted && todo) {
+    if (!wasCompleted) {
       sonnerToast.success("Task completed", {
         action: {
           label: "Undo",
           onClick: () => {
-            const currentMeta = allEconomics[eventId]?.meta;
-            if (!currentMeta?.todos) return;
-            const reverted = (currentMeta.todos as UserTodo[]).map(t =>
+            const current = readTodosForSource(eventId, source);
+            const reverted = current.map(t =>
               t.id === todoId ? { ...t, completed: false, completedAt: undefined } : t,
             );
-            updateAnyEventMeta(eventId, { todos: reverted });
+            writeTodosForSource(eventId, source, reverted);
           },
         },
       });
     }
-  }, [allEconomics, updateAnyEventMeta]);
+  }, [readTodosForSource, writeTodosForSource]);
 
-  const assignTodo = useCallback((eventId: string, todoId: string, name: string | undefined) => {
-    const meta = allEconomics[eventId]?.meta;
-    if (!meta?.todos) return;
-    const updated = (meta.todos as UserTodo[]).map(t =>
+  const assignTodo = useCallback((eventId: string, todoId: string, source: TodoSource, name: string | undefined) => {
+    const list = readTodosForSource(eventId, source);
+    if (!list.length) return;
+    const updated = list.map(t =>
       t.id === todoId ? { ...t, assignee: name } : t,
     );
-    updateAnyEventMeta(eventId, { todos: updated });
-  }, [allEconomics, updateAnyEventMeta]);
+    writeTodosForSource(eventId, source, updated);
+  }, [readTodosForSource, writeTodosForSource]);
 
   const assignActionItem = useCallback((eventId: string, actionId: string, name: string | undefined) => {
     const existing = allEconomics[eventId]?.meta?.actionItemAssignees ?? {};
@@ -620,15 +690,21 @@ export default function TasksPage() {
 
   const createTask = useCallback(() => {
     if (!newTaskTitle.trim() || !newTaskEventId) return;
-    const meta = allEconomics[newTaskEventId]?.meta;
-    const existingTodos = (meta?.todos as UserTodo[]) ?? [];
+    const event = events.find(e => e.id === newTaskEventId);
+    if (!event) return;
+    // New tasks always go to the per-profile scope so they match where
+    // TodoTab in EventManager writes (and so they stay readable to that
+    // profile's members rather than leaking into the legacy meta/main doc).
+    const scopeId = resolveWriteScopeId(event, userProfileIds, user?.uid ?? "");
+    const existingGroup = (allProfileTodos[newTaskEventId] ?? []).find(g => g.scopeId === scopeId);
+    const existingTodos = existingGroup?.todos ?? [];
     const newTodos = buildNewTodos({
       title: newTaskTitle,
       assignees: newTaskAssignees,
       dueDate: newTaskDueDate || undefined,
     });
     if (newTodos.length === 0) return;
-    updateAnyEventMeta(newTaskEventId, { todos: [...existingTodos, ...newTodos] });
+    upsertProfileTodosMut(newTaskEventId, scopeId, [...existingTodos, ...newTodos]);
     setNewTaskTitle("");
     setNewTaskAssignees(currentUser.name ? [currentUser.name] : []);
     setNewTaskDueDate("");
@@ -639,7 +715,7 @@ export default function TasksPage() {
     sonnerToast.success(
       newTodos.length > 1 ? `${newTodos.length} tasks created` : "Task created",
     );
-  }, [newTaskTitle, newTaskEventId, newTaskAssignees, newTaskDueDate, allEconomics, updateAnyEventMeta, currentUser.name]);
+  }, [newTaskTitle, newTaskEventId, newTaskAssignees, newTaskDueDate, events, allProfileTodos, userProfileIds, user?.uid, upsertProfileTodosMut, currentUser.name]);
 
   const overdueCt = allUserTodos.filter(t => !t.completed && !!t.dueDate && t.dueDate < today).length;
   const totalVisible = filteredActions.length + filteredTodos.length;
@@ -1010,7 +1086,7 @@ export default function TasksPage() {
                       const isOverdue = !task.completed && !!task.dueDate && task.dueDate < today;
                       return (
                         <div key={task.id} className="flex items-start gap-3 px-4 py-3 hover:bg-muted/20 transition-colors group/row">
-                          <Checkbox checked={task.completed} onCheckedChange={() => toggleTodo(task.eventId, task.id)} className="mt-0.5" />
+                          <Checkbox checked={task.completed} onCheckedChange={() => toggleTodo(task.eventId, task.id, task.source)} className="mt-0.5" />
                           <div className="flex-1 min-w-0">
                             <p className={cn("text-sm font-medium", task.completed && "line-through text-muted-foreground")}>
                               {task.title}
@@ -1048,7 +1124,7 @@ export default function TasksPage() {
                           <AssigneeButton
                             assignee={task.assignee}
                             members={membersForEvent(task.eventId)}
-                            onAssign={name => assignTodo(task.eventId, task.id, name)}
+                            onAssign={name => assignTodo(task.eventId, task.id, task.source, name)}
                           />
                         </div>
                       );

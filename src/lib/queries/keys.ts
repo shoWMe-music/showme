@@ -17,6 +17,9 @@ export const queryKeys = {
   // ── Per-event economics (deal + revenue + settlement + meta) ────────────
   eventEconomics: (eventId: string) => ["eventEconomics", eventId] as const,
 
+  // ── Per-event profile-scoped todos (events/{eventId}/meta/todos_{scopeId}) ──
+  profileTodos: (eventId: string, scopeId: string) => ["profileTodos", eventId, scopeId] as const,
+
   // ── Existing / shared query keys (preserved from queryKeys.ts) ──────────
   publicShareByToken: (token: string) => ["publicShare", token] as const,
   upcomingEventsForPublicProfile: (profileId: string) => ["upcomingEventsForPublicProfile", profileId] as const,

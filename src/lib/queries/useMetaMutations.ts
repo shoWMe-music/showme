@@ -8,7 +8,7 @@
 import { useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { upsertEventMeta, type EventMeta } from "@/lib/db";
+import { upsertEventMeta, upsertProfileTodos, type EventMeta, type Todo } from "@/lib/db";
 import { queryKeys } from "./keys";
 import type { EventEconomicsData } from "./useEventEconomics";
 
@@ -24,6 +24,18 @@ export function useUpdateAnyEventMeta(): (eventId: string, data: Partial<EventMe
       (old) => old ? { ...old, meta: { ...(old.meta ?? {}), ...data } } : old,
     );
     void upsertEventMeta(eventId, data);
+  };
+}
+
+/**
+ * Write a profile-scoped todos doc (events/{eventId}/meta/todos_{scopeId}),
+ * keeping the TanStack cache in sync so list pages re-render immediately.
+ */
+export function useUpsertProfileTodos(): (eventId: string, scopeId: string, todos: Todo[]) => void {
+  const queryClient = useQueryClient();
+  return (eventId, scopeId, todos) => {
+    queryClient.setQueryData<Todo[]>(queryKeys.profileTodos(eventId, scopeId), todos);
+    void upsertProfileTodos(eventId, scopeId, todos);
   };
 }
 
