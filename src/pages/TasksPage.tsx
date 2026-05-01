@@ -424,6 +424,9 @@ export default function TasksPage() {
   );
   const [newTaskDueDate, setNewTaskDueDate] = useState("");
   const [newTaskEventId, setNewTaskEventId] = useState("");
+  // Which scope (profile or personal) the new task gets written to. Empty
+  // until an event is picked; defaulted by the effect below.
+  const [newTaskScopeId, setNewTaskScopeId] = useState("");
   const [assigneePickerOpen, setAssigneePickerOpen] = useState(false);
   const [assigneeSearch, setAssigneeSearch] = useState("");
   const [createMemberOpen, setCreateMemberOpen] = useState(false);
@@ -458,6 +461,33 @@ export default function TasksPage() {
     [allProfiles],
   );
   const upsertProfileTodosMut = useUpsertProfileTodos();
+
+  // Scope picker for the create form. Options are: every profile of mine
+  // that has access to the chosen event, plus a personal "Just me" scope.
+  const newTaskScopeOptions = useMemo(() => {
+    if (!newTaskEventId) return [] as { value: string; label: string }[];
+    const event = events.find(e => e.id === newTaskEventId);
+    if (!event) return [];
+    const eventProfileIds = (event.accessProfileIds ?? []).filter(pid =>
+      userProfileIds.includes(pid),
+    );
+    const profileOptions = eventProfileIds.map(pid => {
+      const p = allProfiles.find(pr => pr.id === pid);
+      return { value: pid, label: p?.name ?? pid };
+    });
+    return [
+      ...profileOptions,
+      { value: `user_${user?.uid ?? ""}`, label: "Just me" },
+    ];
+  }, [newTaskEventId, events, userProfileIds, allProfiles, user?.uid]);
+
+  // Reset the scope to a sensible default whenever the chosen event changes.
+  useEffect(() => {
+    if (!newTaskEventId) { setNewTaskScopeId(""); return; }
+    const event = events.find(e => e.id === newTaskEventId);
+    if (!event) return;
+    setNewTaskScopeId(resolveWriteScopeId(event, userProfileIds, user?.uid ?? ""));
+  }, [newTaskEventId, events, userProfileIds, user?.uid]);
 
   const today = new Date().toISOString().slice(0, 10);
   const sevenDaysOut = useMemo(() => {
@@ -692,10 +722,12 @@ export default function TasksPage() {
     if (!newTaskTitle.trim() || !newTaskEventId) return;
     const event = events.find(e => e.id === newTaskEventId);
     if (!event) return;
-    // New tasks always go to the per-profile scope so they match where
-    // TodoTab in EventManager writes (and so they stay readable to that
-    // profile's members rather than leaking into the legacy meta/main doc).
-    const scopeId = resolveWriteScopeId(event, userProfileIds, user?.uid ?? "");
+    // Honour the scope the user picked (defaults to resolveWriteScopeId via
+    // the effect above). New tasks always go to a per-profile scope so they
+    // match where TodoTab in EventManager writes — never the legacy
+    // meta/main doc.
+    const scopeId = newTaskScopeId
+      || resolveWriteScopeId(event, userProfileIds, user?.uid ?? "");
     const existingGroup = (allProfileTodos[newTaskEventId] ?? []).find(g => g.scopeId === scopeId);
     const existingTodos = existingGroup?.todos ?? [];
     const newTodos = buildNewTodos({
@@ -709,13 +741,14 @@ export default function TasksPage() {
     setNewTaskAssignees(currentUser.name ? [currentUser.name] : []);
     setNewTaskDueDate("");
     setNewTaskEventId("");
+    setNewTaskScopeId("");
     setAssigneePickerOpen(false);
     setAssigneeSearch("");
     setShowCreateForm(false);
     sonnerToast.success(
       newTodos.length > 1 ? `${newTodos.length} tasks created` : "Task created",
     );
-  }, [newTaskTitle, newTaskEventId, newTaskAssignees, newTaskDueDate, events, allProfileTodos, userProfileIds, user?.uid, upsertProfileTodosMut, currentUser.name]);
+  }, [newTaskTitle, newTaskEventId, newTaskScopeId, newTaskAssignees, newTaskDueDate, events, allProfileTodos, userProfileIds, user?.uid, upsertProfileTodosMut, currentUser.name]);
 
   const overdueCt = allUserTodos.filter(t => !t.completed && !!t.dueDate && t.dueDate < today).length;
   const totalVisible = filteredActions.length + filteredTodos.length;
@@ -766,6 +799,21 @@ export default function TasksPage() {
                   {events.filter(e => !e.archived && !e.parentEventId).map(e => (
                     <option key={e.id} value={e.id}>{e.name} ({e.date})</option>
                   ))}
+                </select>
+              </div>
+              <div>
+                <select
+                  value={newTaskScopeId}
+                  onChange={e => setNewTaskScopeId(e.target.value)}
+                  disabled={!newTaskEventId || newTaskScopeOptions.length <= 1}
+                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                  data-testid="new-task-scope-select"
+                >
+                  {newTaskEventId
+                    ? newTaskScopeOptions.map(opt => (
+                        <option key={opt.value} value={opt.value}>For: {opt.label}</option>
+                      ))
+                    : <option value="">For: (pick an event first)</option>}
                 </select>
               </div>
               <div>
@@ -890,6 +938,7 @@ export default function TasksPage() {
                 setNewTaskAssignees(currentUser.name ? [currentUser.name] : []);
                 setNewTaskDueDate("");
                 setNewTaskEventId("");
+                setNewTaskScopeId("");
                 setAssigneePickerOpen(false);
                 setAssigneeSearch("");
               }}>
