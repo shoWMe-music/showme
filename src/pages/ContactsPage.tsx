@@ -440,7 +440,7 @@ export default function ContactsPage() {
                         className="mr-3 shrink-0"
                       />
                       <button
-                        className="flex flex-1 items-center justify-between min-w-0"
+                        className="flex flex-1 items-center justify-between min-w-0 text-left"
                         onClick={() => navigate({ to: "/contacts/$id", params: { id: party.id } })}
                       >
                         <div className="min-w-0">
