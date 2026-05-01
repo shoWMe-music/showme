@@ -60,7 +60,13 @@ export default function EventMessages({ eventId }: { eventId: string }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const senderName = currentUser.name || "Anonymous";
+  // Fall back to email (username portion) before "Anonymous". Invited members
+  // who haven't filled in their settings have an empty currentUser.name, and
+  // sender_name is *persisted* into the message doc — so a missing name would
+  // brand all their messages as "Anonymous" forever in the chat history.
+  const emailLocal = currentUser.email?.split("@")[0]?.trim();
+  const senderName =
+    currentUser.name?.trim() || emailLocal || currentUser.email || "Unknown user";
 
   // Resolve the acting profile for the current user (first created profile)
   const actingProfile = useMemo(() => {

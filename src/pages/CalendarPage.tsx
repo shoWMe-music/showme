@@ -7,7 +7,7 @@ import {
 import { useSearch } from "@tanstack/react-router";
 import AppLayout from "@/components/AppLayout";
 import { useUpdateEvent, useHoldRankMutations } from "@/lib/queries/useEventMutations";
-import { useCalendarEvents } from "@/lib/queries";
+import { useCalendarEvents, useAllProfiles } from "@/lib/queries";
 
 import { useUser } from "@/lib/user-context";
 import {
@@ -95,7 +95,11 @@ export default function CalendarPage() {
     normalizeAllHoldRanks(events);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events]);
-  const { canCreate, profiles, currentUser, teamMembers } = useUser();
+  const { canCreate, currentUser, teamMembers } = useUser();
+  // Source from the flat array, not the slot record — owned + shared profiles
+  // both need to appear in the Calendars filter and as valid entities for
+  // events tied to a profile the user is a member of.
+  const allProfiles = useAllProfiles();
   const [calendarItems, setCalendarItems] = useState<CalendarItem[]>([]);
   const calendarLoaded = useRef(false);
   const [createEventOpen, setCreateEventOpen] = useState(false);
@@ -138,10 +142,10 @@ export default function CalendarPage() {
 
   // Profile + member options for calendar item form
   const profileOptions = useMemo<ProfileOption[]>(() =>
-    Object.entries(profiles)
-      .filter(([, p]) => p.created && p.id && p.name)
-      .map(([, p]) => ({ id: p.id!, name: p.name })),
-    [profiles],
+    allProfiles
+      .filter((p) => p.created && p.id && p.name)
+      .map((p) => ({ id: p.id!, name: p.name })),
+    [allProfiles],
   );
 
   const memberOptions = useMemo<MemberOption[]>(() => {
@@ -164,11 +168,11 @@ export default function CalendarPage() {
   // Maps entity name → Firestore profile document ID for unavailability persistence
   const entityProfileIdMap = useMemo(() => {
     const map = new Map<string, string>();
-    Object.entries(profiles).forEach(([, profile]) => {
+    allProfiles.forEach((profile) => {
       if (profile.id && profile.name) map.set(profile.name, profile.id);
     });
     return map;
-  }, [profiles]);
+  }, [allProfiles]);
 
   // Unavailability
   const [unavailableDates, setUnavailableDates] = useState<Record<string, Set<string>>>({});
@@ -214,10 +218,10 @@ export default function CalendarPage() {
   const calendarEntities = useMemo<CalendarEntity[]>(() => {
     const entities: CalendarEntity[] = [];
     const seen = new Set<string>();
-    Object.entries(profiles).forEach(([key, profile]) => {
+    allProfiles.forEach((profile) => {
       if (!profile?.created || !profile.name) return;
-      const base = key.startsWith("venue") ? "venue" : key.startsWith("performer") ? "performer" : key.startsWith("festival") ? "festival" : key.startsWith("promoter") ? "promoter" : key.startsWith("organizer") ? "organizer" : null;
-      if (!base) return;
+      const base = profile.role;
+      if (base !== "venue" && base !== "performer" && base !== "festival" && base !== "promoter" && base !== "organizer") return;
       if (!seen.has(profile.name)) {
         seen.add(profile.name);
         entities.push({ name: profile.name, type: base as CalendarEntity["type"], color: "" });
@@ -233,7 +237,7 @@ export default function CalendarPage() {
       }
     });
     return entities.map((ent, i) => ({ ...ent, color: CALENDAR_ENTITY_COLORS[i % CALENDAR_ENTITY_COLORS.length] }));
-  }, [profiles]);
+  }, [allProfiles]);
 
   const [visibleCalendars, setVisibleCalendars] = useState<Set<string>>(new Set());
 
