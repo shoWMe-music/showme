@@ -25,7 +25,7 @@ function Calendar({
     <DayPicker
       showOutsideDays={showOutsideDays}
       className={cn(
-        "group/calendar bg-background p-3 [--cell-size:--spacing(8)] [[data-slot=card-content]_&]:bg-transparent [[data-slot=popover-content]_&]:bg-transparent",
+        "group/calendar bg-background p-3 [--cell-size:--spacing(12)] [[data-slot=card-content]_&]:bg-transparent [[data-slot=popover-content]_&]:bg-transparent",
         "rtl:**:[.rdp-button_next>svg]:rotate-180",
         "rtl:**:[.rdp-button_previous>svg]:rotate-180",
         className,
@@ -54,7 +54,7 @@ function Calendar({
           defaultClassNames.button_next,
         ),
         month_caption: cn(
-          "flex h-(--cell-size) w-full items-center justify-center px-(--cell-size)",
+          "flex h-(--cell-size) w-full items-center justify-center px-[calc(var(--cell-size)+0.5rem)]",
           defaultClassNames.month_caption,
         ),
         dropdowns: cn(
@@ -67,19 +67,19 @@ function Calendar({
         ),
         dropdown: cn("absolute inset-0 opacity-0", defaultClassNames.dropdown),
         caption_label: cn(
-          "font-medium select-none",
+          "font-medium select-none leading-none",
           captionLayout === "label"
             ? "text-sm"
             : "flex h-8 items-center gap-1 rounded-md pr-1 pl-2 text-sm [&>svg]:size-3.5 [&>svg]:text-muted-foreground",
           defaultClassNames.caption_label,
         ),
         table: "w-full border-collapse",
-        weekdays: cn("flex", defaultClassNames.weekdays),
+        weekdays: cn("flex gap-1", defaultClassNames.weekdays),
         weekday: cn(
           "flex-1 rounded-md text-[0.8rem] font-normal text-muted-foreground select-none",
           defaultClassNames.weekday,
         ),
-        week: cn("mt-2 flex w-full", defaultClassNames.week),
+        week: cn("mt-1 flex w-full gap-1", defaultClassNames.week),
         week_number_header: cn("w-(--cell-size) select-none", defaultClassNames.week_number_header),
         week_number: cn("text-[0.8rem] text-muted-foreground select-none", defaultClassNames.week_number),
         day: cn(
