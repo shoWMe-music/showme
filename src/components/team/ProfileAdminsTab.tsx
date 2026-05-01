@@ -54,16 +54,20 @@ export function ProfileAdminsTab() {
   const { profiles, setProfiles } = useUser();
   const { user } = useAuth();
 
-  // Show all profiles the current user owns — including legacy "artist" slot
-  // entries left over from the artist -> performer rename, so the user can
-  // delete the phantom record from this page.
-  const ownedProfiles = Object.entries(profiles).filter(
-    ([, p]) => {
-      if (!p.created) return false;
-      if (!(p.owner_uid === user?.uid || p.id?.startsWith(`${user?.uid}__`))) return false;
-      return true;
-    },
-  );
+  // Owned profiles include legacy "artist" slot entries left over from the
+  // artist -> performer rename, so the user can delete the phantom record.
+  const ownedProfiles = Object.entries(profiles).filter(([, p]) => {
+    if (!p.created) return false;
+    return p.owner_uid === user?.uid || !!p.id?.startsWith(`${user?.uid}__`);
+  });
+
+  // Profiles where the user is a member but not the owner (invited admin/editor).
+  // Surface them so an invitee sees confirmation that their access was granted.
+  const sharedProfiles = Object.entries(profiles).filter(([, p]) => {
+    if (!p.created) return false;
+    if (p.owner_uid === user?.uid || p.id?.startsWith(`${user?.uid}__`)) return false;
+    return true;
+  });
 
   const [profileState, setProfileState] = useState<Record<string, ProfileState>>({});
   const [inviteOpen, setInviteOpen] = useState<string | null>(null); // profileId
@@ -89,7 +93,7 @@ export function ProfileAdminsTab() {
 
   useEffect(() => {
     if (!user) return;
-    for (const [slot] of ownedProfiles) {
+    for (const [slot] of [...ownedProfiles, ...sharedProfiles]) {
       const profileId = profiles[slot]?.id;
       if (profileId) loadProfile(profileId);
     }
@@ -157,7 +161,7 @@ export function ProfileAdminsTab() {
     [setProfiles],
   );
 
-  if (ownedProfiles.length === 0) {
+  if (ownedProfiles.length === 0 && sharedProfiles.length === 0) {
     return (
       <div className="rounded-xl border bg-card p-12 text-center">
         <Users className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
@@ -171,6 +175,10 @@ export function ProfileAdminsTab() {
       <p className="text-sm text-muted-foreground">
         Admins and editors can manage your profiles and events. Owners cannot be removed.
       </p>
+
+      {ownedProfiles.length > 0 && sharedProfiles.length > 0 && (
+        <h3 className="text-sm font-semibold text-muted-foreground">Profiles you own</h3>
+      )}
 
       {ownedProfiles.map(([slot, profile]) => {
         const profileId = profile.id || "";
@@ -319,6 +327,73 @@ export function ProfileAdminsTab() {
           </div>
         );
       })}
+
+      {sharedProfiles.length > 0 && (
+        <>
+          <h3 className="text-sm font-semibold text-muted-foreground pt-2">
+            Profiles you have access to
+          </h3>
+          {sharedProfiles.map(([slot, profile]) => {
+            const profileId = profile.id || "";
+            const state = profileState[profileId];
+            const myMember = state?.members.find((m) => m.uid === user?.uid);
+            const myRole = myMember?.role ?? "admin";
+            return (
+              <div key={profileId || slot} className="rounded-xl border bg-card shadow-sm overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-4 border-b bg-muted/30">
+                  <div>
+                    <p className="font-semibold">{profile.name ?? slot}</p>
+                    <p className="text-xs text-muted-foreground capitalize">{slot}</p>
+                  </div>
+                  <span className={cn(
+                    "inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full",
+                    ROLE_COLORS[myRole],
+                  )}>
+                    You are an {ROLE_LABELS[myRole]}
+                  </span>
+                </div>
+                {state?.loading ? (
+                  <div className="px-5 py-4 space-y-3">
+                    {[1, 2].map((i) => (
+                      <div key={i} className="flex items-center gap-3">
+                        <Skeleton className="h-8 w-8 rounded-full" />
+                        <div className="flex-1 space-y-1.5">
+                          <Skeleton className="h-3.5 w-32" />
+                          <Skeleton className="h-3 w-24" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <ul className="divide-y">
+                    {state?.members.map((m) => (
+                      <li key={m.uid} className="flex items-center gap-3 px-5 py-3">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold">
+                          {m.displayName ? m.displayName.slice(0, 2).toUpperCase() : m.uid.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {m.displayName ?? (m.email ? m.email.split("@")[0] : `User ${m.uid.slice(0, 6)}`)}
+                            {m.uid === user?.uid && <span className="text-xs text-muted-foreground ml-1">(you)</span>}
+                          </p>
+                          {m.email && <p className="text-xs text-muted-foreground flex items-center gap-1"><Mail className="h-3 w-3" />{m.email}</p>}
+                        </div>
+                        <span className={cn(
+                          "inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full",
+                          ROLE_COLORS[m.role],
+                        )}>
+                          {m.role === "owner" && <Crown className="h-3 w-3" />}
+                          {ROLE_LABELS[m.role]}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
+        </>
+      )}
 
       {/* Two-step Delete Confirmation */}
       {deleteStage && (() => {
