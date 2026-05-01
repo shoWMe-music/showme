@@ -24,9 +24,19 @@ export function useEventsQuery() {
   const allProfiles = useAllProfiles();
   const profileIds = allProfiles.map(p => p.id).filter(Boolean) as string[];
   const profileKey = profileIds.slice().sort().join(",");
+  const queryClient = useQueryClient();
+
+  // Keep the queryKey stable so we don't re-key (and re-skeleton) when
+  // profiles finish loading mid-flight. Instead, invalidate when the user's
+  // profile set changes so events can re-fetch with the wider access scope —
+  // the in-place refetch leaves the previously loaded events on screen.
+  useEffect(() => {
+    if (!uid) return;
+    queryClient.invalidateQueries({ queryKey: queryKeys.events(uid) });
+  }, [profileKey, uid, queryClient]);
 
   return useQuery<Event[]>({
-    queryKey: [...queryKeys.events(uid), profileKey],
+    queryKey: queryKeys.events(uid),
     enabled: !!uid && !authLoading,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchEvents(profileIds),
@@ -76,9 +86,23 @@ export function usePaginatedEvents(pageSize: number, filters?: EventPageFilters)
   const allProfiles = useAllProfiles();
   const profileIds = allProfiles.map(p => p.id).filter(Boolean) as string[];
   const profileKey = profileIds.slice().sort().join(",");
+  const queryClient = useQueryClient();
+
+  // Same idea as useEventsQuery: keep the cache key stable across the profile
+  // load, then invalidate when the profile set changes so the wider access
+  // scope is picked up without flashing a fresh skeleton.
+  const pagedKey = queryKeys.eventPages(uid, filters as Record<string, unknown>);
+  useEffect(() => {
+    if (!uid) return;
+    queryClient.invalidateQueries({ queryKey: pagedKey });
+    // pagedKey is recomputed each render but its content depends only on uid
+    // and filters, both already in the dep list via `pagedKey` shape — using
+    // profileKey is enough to trigger when profiles change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileKey, uid, queryClient]);
 
   return useInfiniteQuery<EventPage, Error>({
-    queryKey: [...queryKeys.eventPages(uid, filters as Record<string, unknown>), profileKey],
+    queryKey: pagedKey,
     enabled: !!uid && !authLoading,
     staleTime: 5 * 60 * 1000,
     initialPageParam: null as QueryDocumentSnapshot | null,
