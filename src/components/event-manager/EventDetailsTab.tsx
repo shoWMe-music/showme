@@ -442,6 +442,8 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
 
   const onSaveRef = useRef(onSave);
   onSaveRef.current = onSave;
+  const updateEventRef = useRef(updateEvent);
+  updateEventRef.current = updateEvent;
   /** Skip one effect run per `event.id` so opening Details does not write the same payload and race Firestore streams. */
   const eventAutosavePrimed = useRef<string | null>(null);
   const metaAutosavePrimed = useRef<string | null>(null);
@@ -451,8 +453,8 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
       eventAutosavePrimed.current = event.id;
       return;
     }
-    updateEvent(event.id, { amenities, cateringNotes, accommodationNotes });
-  }, [event.id, amenities, cateringNotes, accommodationNotes, updateEvent]);
+    updateEventRef.current(event.id, { amenities, cateringNotes, accommodationNotes });
+  }, [event.id, amenities, cateringNotes, accommodationNotes]);
 
   useEffect(() => {
     if (metaAutosavePrimed.current !== event.id) {

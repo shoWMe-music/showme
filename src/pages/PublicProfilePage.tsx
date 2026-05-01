@@ -243,13 +243,26 @@ export default function PublicProfilePage() {
 
         {/* Coming Events — published upcoming events for this profile */}
         {(() => {
+          const profileId = profile.id;
           const profileName = profile.name?.toLowerCase() || "";
           const today = new Date().toISOString().split("T")[0];
-          const upcomingEvents = events.filter(e =>
-            e.published && !e.archived &&
-            e.date >= today &&
-            (e.venue.toLowerCase().includes(profileName) || e.artist.toLowerCase().includes(profileName) || e.operator.toLowerCase().includes(profileName))
-          ).sort((a, b) => a.date.localeCompare(b.date));
+          const upcomingEvents = events.filter(e => {
+            if (!e.published || e.archived || e.date < today) return false;
+            // Primary match: profile ID linked on the event (host, performer, or any access).
+            if (profileId && (
+              e.hostProfileId === profileId ||
+              e.performerProfileId === profileId ||
+              e.accessProfileIds?.includes(profileId)
+            )) return true;
+            // Fallback: name substring match for legacy events created before
+            // profile IDs were attached.
+            if (profileName && (
+              e.venue.toLowerCase().includes(profileName) ||
+              e.artist.toLowerCase().includes(profileName) ||
+              e.operator.toLowerCase().includes(profileName)
+            )) return true;
+            return false;
+          }).sort((a, b) => a.date.localeCompare(b.date));
 
           return <UpcomingEventsSection events={upcomingEvents} limit={6} role={role} />;
         })()}
