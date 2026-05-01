@@ -3,6 +3,11 @@ import * as logger from "firebase-functions/logger";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { FieldValue } from "firebase-admin/firestore";
 
+import { sendMail, BREVO_API_KEY } from "./mail";
+import { eventCollaboratorInviteEmail } from "./emailTemplates";
+
+const APP_BASE_URL = process.env.APP_BASE_URL || "https://showme-production.web.app";
+
 const db = () => admin.firestore();
 
 /**
@@ -169,7 +174,7 @@ export const addExistingUserAsCollaborator = onCall<
   AddExistingUserAsCollaboratorData,
   Promise<AddExistingUserAsCollaboratorResult>
 >(
-  { region: "europe-west1" },
+  { region: "europe-west1", secrets: [BREVO_API_KEY] },
   async (request) => {
     const callerUid = request.auth?.uid;
     if (!callerUid) {
@@ -264,6 +269,8 @@ export const addExistingUserAsCollaborator = onCall<
       // ignore
     }
     const eventName = typeof eventData.name === "string" ? eventData.name : "an event";
+    const venueName = typeof eventData.venue === "string" ? eventData.venue : undefined;
+    const eventDate = typeof eventData.date === "string" ? eventData.date : undefined;
     const trimmedMessage = (message || "").trim();
     try {
       await db()
@@ -286,6 +293,28 @@ export const addExistingUserAsCollaborator = onCall<
       logger.error("Failed to write collaborator-added notification", {
         err,
         recipientUid: found.uid,
+        eventId,
+      });
+    }
+
+    // Email — let the recipient know they were added (mirrors the in-app
+    // notification but ensures they see it even if they don't log in).
+    try {
+      const tpl = eventCollaboratorInviteEmail({
+        recipientName: displayName,
+        senderName: actorName,
+        eventName,
+        venueName,
+        eventDate,
+        role: labelRole,
+        message: trimmedMessage || undefined,
+        eventLink: `${APP_BASE_URL.replace(/\/$/, "")}/event/${eventId}`,
+      });
+      await sendMail({ to: email, toName: displayName, subject: tpl.subject, html: tpl.html });
+    } catch (err) {
+      logger.error("Failed to send collaborator-added email", {
+        err,
+        email,
         eventId,
       });
     }
