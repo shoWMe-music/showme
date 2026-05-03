@@ -1578,7 +1578,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
         <EditableSection
           title="Financial Deal"
           icon={<DollarSign className="h-5 w-5 text-primary" />}
-          readOnly={readOnly}
+          readOnly={readOnly || event.eventStatus === "confirmed"}
           onEditStart={() => setEditDeal({ ...deal })}
           onSave={() => {
             if (editDeal) {
@@ -1601,8 +1601,8 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-3">
                 <div>
-                  <Label className={cn(event.eventStatus === "confirmed" && "text-muted-foreground")}>Deal Type</Label>
-                  <Select value={editDeal.dealType} onValueChange={(v) => setEditDeal({...editDeal, dealType: v as DealType})} disabled={event.eventStatus === "confirmed"}>
+                  <Label>Deal Type</Label>
+                  <Select value={editDeal.dealType} onValueChange={(v) => setEditDeal({...editDeal, dealType: v as DealType})}>
                     <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="guarantee">Guarantee</SelectItem>
@@ -1611,9 +1611,6 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                       <SelectItem value="rental">Rental</SelectItem>
                     </SelectContent>
                   </Select>
-                  {event.eventStatus === "confirmed" && (
-                    <p className="text-xs text-muted-foreground mt-1">Locked because the event is confirmed. Re-open the agreement to change deal type.</p>
-                  )}
                 </div>
                 <div>
                   <Label className={cn(!(editDeal.dealType === "guarantee" || editDeal.dealType === "guarantee_vs_door") && "text-muted-foreground")}>Performer Guarantee ({getCurrencySymbol(currency)})</Label>
