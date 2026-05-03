@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { SETTLEMENT_STATUS_DOT } from "@/components/settlements/settlementConstants";
-import { usePaginatedEvents, useAllEventEconomics } from "@/lib/queries";
+import { usePaginatedEvents, useAllEventEconomics, useShowDayEvents } from "@/lib/queries";
 import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 
 export default function SettlementsPage() {
@@ -31,19 +31,26 @@ export default function SettlementsPage() {
   const PAGE_SIZE = 25;
   const FETCH_SIZE = 50;
 
-  // Fetch only concluded events from Firestore
+  // Fetch concluded events (paginated) plus today's confirmed events —
+  // settlements unlock on show day before the event auto-concludes.
   const {
     data: paginatedData,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-    isSuccess: eventsLoaded,
+    isSuccess: concludedLoaded,
   } = usePaginatedEvents(FETCH_SIZE, { status: "concluded" });
 
-  const events = useMemo(
-    () => paginatedData?.pages.flatMap((p) => p.events) ?? [],
-    [paginatedData],
-  );
+  const { data: showDayData, isSuccess: showDayLoaded } = useShowDayEvents();
+
+  const events = useMemo(() => {
+    const concluded = paginatedData?.pages.flatMap((p) => p.events) ?? [];
+    const showDay = showDayData ?? [];
+    const seen = new Set(concluded.map((e) => e.id));
+    return [...showDay.filter((e) => !seen.has(e.id)), ...concluded];
+  }, [paginatedData, showDayData]);
+
+  const eventsLoaded = concludedLoaded && showDayLoaded;
 
   // Load economics for all loaded concluded events in parallel
   const concludedEventIds = events

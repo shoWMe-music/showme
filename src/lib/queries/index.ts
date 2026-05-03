@@ -14,6 +14,7 @@ export {
   useEventsLoaded,
   usePaginatedEvents,
   useCalendarEvents,
+  useShowDayEvents,
   useEvent,
   useChildEvents,
   useAutoConcludeEvents,

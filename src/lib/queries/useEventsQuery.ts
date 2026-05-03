@@ -10,7 +10,7 @@ import { useQuery, useInfiniteQuery, useQueryClient, keepPreviousData } from "@t
 import type { QueryDocumentSnapshot } from "firebase/firestore";
 
 import { useAuth } from "@/lib/auth-context";
-import { fetchEvents, fetchEventPage, fetchEventsInRange, upsertEvent, type EventPageFilters } from "@/lib/db";
+import { fetchEvents, fetchEventPage, fetchEventsInRange, fetchShowDayEvents, upsertEvent, type EventPageFilters } from "@/lib/db";
 import type { Event } from "@/lib/models";
 import { todayLocalIso, UNCONFIRMED_STATUSES } from "@/lib/eventLifecycle";
 import { queryKeys } from "./keys";
@@ -127,6 +127,25 @@ export function useCalendarEvents(dateFrom: string, dateTo: string) {
     staleTime: 5 * 60 * 1000,
     placeholderData: keepPreviousData,
     queryFn: () => fetchEventsInRange(dateFrom, dateTo),
+  });
+}
+
+// ── Show-day events ───────────────────────────────────────────────────────────
+
+/**
+ * Confirmed events whose date is today. They have an open settlement (per
+ * `settlementUnlocked`) but won't appear in `eventStatus == "concluded"`
+ * queries — used by the settlements list to surface show-day work.
+ */
+export function useShowDayEvents() {
+  const { user, loading: authLoading } = useAuth();
+  const uid = user?.uid ?? "";
+
+  return useQuery<Event[]>({
+    queryKey: queryKeys.showDayEvents(uid),
+    enabled: !!uid && !authLoading,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchShowDayEvents(),
   });
 }
 

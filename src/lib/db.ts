@@ -1102,6 +1102,36 @@ export async function fetchEventsInRange(
   }
 }
 
+/**
+ * Fetch confirmed events whose date is today — these have an open settlement
+ * (`settlementUnlocked`) but won't appear in queries filtered to
+ * `eventStatus == "concluded"`. Used by the settlements list to surface
+ * show-day events alongside concluded ones.
+ */
+export async function fetchShowDayEvents(): Promise<Event[]> {
+  const uid = getAuthClient().currentUser?.uid;
+  if (!uid) return [];
+
+  const today = new Date();
+  const y = today.getFullYear();
+  const m = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  const todayIso = `${y}-${m}-${day}`;
+
+  const constraints = [
+    where("accessUids", "array-contains", uid),
+    where("eventStatus", "==", "confirmed"),
+    where("date", "==", todayIso),
+  ];
+
+  try {
+    const snap = await getDocs(query(collection(getFirestoreDb(), TOP_EVENTS), ...constraints));
+    return snap.docs.map((d) => eventRowToEvent({ id: d.id, ...d.data() }));
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchEventPage(
   pageSize: number,
   cursor: QueryDocumentSnapshot | null,

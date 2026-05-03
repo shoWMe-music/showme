@@ -10,6 +10,7 @@ export const queryKeys = {
   events: (uid: string) => ["events", uid] as const,
   eventPages: (uid: string, filters?: Record<string, unknown>) => ["eventPages", uid, filters ?? {}] as const,
   calendarEvents: (uid: string, dateFrom: string, dateTo: string) => ["calendarEvents", uid, dateFrom, dateTo] as const,
+  showDayEvents: (uid: string) => ["showDayEvents", uid] as const,
   contacts: (uid: string) => ["contacts", uid] as const,
   contactPages: (uid: string, filters?: Record<string, unknown>) => ["contactPages", uid, filters ?? {}] as const,
   shareTokens: (uid: string) => ["shareTokens", uid] as const,
