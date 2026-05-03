@@ -33,3 +33,13 @@ firebase-export-*/
 *.njsproj
 *.sln
 *.sw?
+
+# Ad-hoc investigation / probe scripts (not part of dev or deploy workflows).
+# Workflow scripts (seed, migrate, build-ssr-template, require-paired-deploy,
+# verify-ssr-template, wait-for-emulators, dev-local) are tracked explicitly.
+scripts/inspect-*.ts
+scripts/find-*.ts
+scripts/probe-*.ts
+scripts/plan-*.ts
+scripts/test-*.ts
+scripts/cleanup-*.ts
