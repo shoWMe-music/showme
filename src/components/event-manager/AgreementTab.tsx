@@ -154,6 +154,12 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
 
   const allConfirmed = dealParties.length > 0 && dealParties.every(p => confirmations.some(c => c.party === p));
 
+  // Lock document/terms edits whenever the event is confirmed, not just when
+  // the in-memory `allConfirmed` is true — editing the Financial Deal clears
+  // confirmations without resetting eventStatus, which would otherwise leave
+  // the agreement editable on a confirmed event.
+  const editingLocked = readOnly || allConfirmed || event.eventStatus === "confirmed";
+
   // When all parties confirm, update event status to confirmed
   const prevAllConfirmed = useRef(allConfirmed);
   useEffect(() => {
@@ -485,7 +491,7 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
       <div className="rounded-xl border bg-card p-6 shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-display text-lg font-semibold">Agreements & Documents</h3>
-          {!readOnly && !allConfirmed && (
+          {!editingLocked && (
             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAddOpen(true)}>
               <Plus className="h-3.5 w-3.5" /> Add Document
             </Button>
@@ -509,7 +515,7 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
                     <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => { if (ag.fileUrl && ag.fileName) setPreviewDoc({ fileName: ag.fileName, fileUrl: ag.fileUrl }); }}>
                       <Download className="h-3 w-3" /> {ag.fileName}
                     </Button>
-                  ) : !readOnly && !allConfirmed ? (
+                  ) : !editingLocked ? (
                     <FileUploadButton onFile={(name, url) => {
                       const updated = [...agreements];
                       updated[i] = { ...updated[i], fileName: name, fileUrl: url };
@@ -524,7 +530,7 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
                     {ag.status === "signed" && <CheckCircle2 className="h-3 w-3 mr-1" />}
                     {ag.status.charAt(0).toUpperCase() + ag.status.slice(1)}
                   </Badge>
-                  {!readOnly && !allConfirmed && (
+                  {!editingLocked && (
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDeleteIndex(i)}>
                       <Trash2 className="h-3.5 w-3.5 text-destructive" />
                     </Button>
@@ -538,7 +544,7 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
 
       <div className="rounded-xl border bg-card p-6 shadow-sm">
         <h3 className="font-display text-lg font-semibold mb-4">Terms & Conditions</h3>
-        {readOnly || allConfirmed ? (
+        {editingLocked ? (
           terms ? (
             <p className="text-sm whitespace-pre-wrap">{terms}</p>
           ) : (
