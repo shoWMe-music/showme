@@ -19,14 +19,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import CreateTeamMemberDialog from "@/components/CreateTeamMemberDialog";
-import { cn } from "@/lib/utils";
+import { cn, toLocalIsoDate } from "@/lib/utils";
+import { format } from "date-fns";
 import { toast as sonnerToast } from "sonner";
 import {
   Search, ListTodo, Calendar, User, Bell, ArrowRight, DollarSign,
   CheckCircle2, Clock, PauseCircle, FileEdit, MessageSquare,
   CalendarRange, Send, TicketCheck, Zap, ChevronDown, Plus,
-  Mic2, MapPin, CalendarDays, ChevronLeft, ChevronRight, ArrowUpDown, Loader2,
+  Mic2, MapPin, CalendarDays, ChevronLeft, ChevronRight, ArrowUpDown, Loader2, X,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -423,7 +425,8 @@ export default function TasksPage() {
   const [newTaskAssignees, setNewTaskAssignees] = useState<string[]>(
     currentUser.name ? [currentUser.name] : [],
   );
-  const [newTaskDueDate, setNewTaskDueDate] = useState("");
+  const [newTaskDueDate, setNewTaskDueDate] = useState<Date | undefined>(undefined);
+  const [newTaskDateOpen, setNewTaskDateOpen] = useState(false);
   const [newTaskEventId, setNewTaskEventId] = useState("");
   const [assigneePickerOpen, setAssigneePickerOpen] = useState(false);
   const [assigneeSearch, setAssigneeSearch] = useState("");
@@ -719,13 +722,13 @@ export default function TasksPage() {
     const newTodos = buildNewTodos({
       title: newTaskTitle,
       assignees: newTaskAssignees,
-      dueDate: newTaskDueDate || undefined,
+      dueDate: newTaskDueDate ? toLocalIsoDate(newTaskDueDate) : undefined,
     });
     if (newTodos.length === 0) return;
     upsertProfileTodosMut(newTaskEventId, scopeId, [...existingTodos, ...newTodos]);
     setNewTaskTitle("");
     setNewTaskAssignees(currentUser.name ? [currentUser.name] : []);
-    setNewTaskDueDate("");
+    setNewTaskDueDate(undefined);
     setNewTaskEventId("");
     setAssigneePickerOpen(false);
     setAssigneeSearch("");
@@ -890,12 +893,42 @@ export default function TasksPage() {
                 </Popover>
               </div>
               <div>
-                <input
-                  type="date"
-                  value={newTaskDueDate}
-                  onChange={e => setNewTaskDueDate(e.target.value)}
-                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                />
+                <Popover open={newTaskDateOpen} onOpenChange={setNewTaskDateOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !newTaskDueDate && "text-muted-foreground",
+                      )}
+                    >
+                      <Calendar className="mr-2 h-4 w-4" />
+                      {newTaskDueDate ? format(newTaskDueDate, "PPP") : "Pick a deadline"}
+                      {newTaskDueDate && (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => { e.stopPropagation(); setNewTaskDueDate(undefined); }}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); setNewTaskDueDate(undefined); } }}
+                          className="ml-auto rounded p-0.5 text-muted-foreground hover:text-destructive"
+                          title="Remove deadline"
+                        >
+                          <X className="h-3 w-3" />
+                        </span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <CalendarPicker
+                      mode="single"
+                      selected={newTaskDueDate}
+                      onSelect={(d) => { setNewTaskDueDate(d); setNewTaskDateOpen(false); }}
+                      initialFocus
+                      className="p-3 pointer-events-auto"
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -906,7 +939,7 @@ export default function TasksPage() {
                 setShowCreateForm(false);
                 setNewTaskTitle("");
                 setNewTaskAssignees(currentUser.name ? [currentUser.name] : []);
-                setNewTaskDueDate("");
+                setNewTaskDueDate(undefined);
                 setNewTaskEventId("");
                 setAssigneePickerOpen(false);
                 setAssigneeSearch("");

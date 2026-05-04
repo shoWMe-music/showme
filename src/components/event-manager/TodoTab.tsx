@@ -14,7 +14,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
-import { cn } from "@/lib/utils";
+import { cn, toLocalIsoDate } from "@/lib/utils";
 import { toast, copyToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { insertShareTokenRow } from "@/lib/db";
@@ -110,7 +110,7 @@ export function TodoTab({ todos: externalTodos, event, onSaveTodos, teamMemberNa
       id: crypto.randomUUID(),
       title: newTitle.trim(),
       description: newDescription.trim() || undefined,
-      dueDate: newDueDate ? newDueDate.toISOString().slice(0, 10) : undefined,
+      dueDate: newDueDate ? toLocalIsoDate(newDueDate) : undefined,
       completed: false,
       reminders: [],
       createdAt: new Date().toISOString(),
@@ -174,7 +174,7 @@ export function TodoTab({ todos: externalTodos, event, onSaveTodos, teamMemberNa
   };
 
   const updateDueDate = (id: string, date: Date | undefined) => {
-    save(todos.map(t => t.id === id ? { ...t, dueDate: date ? date.toISOString().slice(0, 10) : undefined } : t));
+    save(todos.map(t => t.id === id ? { ...t, dueDate: date ? toLocalIsoDate(date) : undefined } : t));
   };
 
   const updateDescription = (id: string, desc: string) => {
@@ -183,7 +183,7 @@ export function TodoTab({ todos: externalTodos, event, onSaveTodos, teamMemberNa
 
   const addReminder = (todoId: string) => {
     if (!reminderDate) return;
-    const r: TodoReminder = { id: crypto.randomUUID(), date: reminderDate.toISOString().slice(0, 10), time: reminderTime, label: reminderLabel.trim() || undefined };
+    const r: TodoReminder = { id: crypto.randomUUID(), date: toLocalIsoDate(reminderDate), time: reminderTime, label: reminderLabel.trim() || undefined };
     save(todos.map(t => t.id === todoId ? { ...t, reminders: [...t.reminders, r] } : t));
     setReminderOpenId(null);
     setReminderDate(undefined);
@@ -605,18 +605,25 @@ export function TodoCard({ todo, editingId, editTitle, setEditTitle, onToggle, o
 
           <div className="flex items-center gap-2 mt-1 flex-wrap">
             {/* Due date */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <button className={cn("inline-flex items-center gap-1 text-xs rounded px-1.5 py-0.5 hover:bg-accent", isOverdue ? "text-destructive bg-destructive/10" : todo.dueDate ? "text-muted-foreground" : "text-muted-foreground/60")}>
-                  <Calendar className="h-3 w-3" />
-                  {todo.dueDate ? new Date(todo.dueDate + "T00:00:00").toLocaleDateString() : "No date"}
-                  {isOverdue && <span className="font-medium ml-0.5">Overdue</span>}
+            <span className={cn("inline-flex items-center text-xs rounded hover:bg-accent", isOverdue ? "text-destructive bg-destructive/10" : todo.dueDate ? "text-muted-foreground" : "text-muted-foreground/60")}>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button className="inline-flex items-center gap-1 px-1.5 py-0.5">
+                    <Calendar className="h-3 w-3" />
+                    {todo.dueDate ? `Deadline: ${new Date(todo.dueDate + "T00:00:00").toLocaleDateString()}` : "Deadline"}
+                    {isOverdue && <span className="font-medium ml-0.5">Overdue</span>}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <CalendarPicker mode="single" selected={todo.dueDate ? new Date(todo.dueDate + "T00:00:00") : undefined} onSelect={onDueDateChange} className="p-3 pointer-events-auto" />
+                </PopoverContent>
+              </Popover>
+              {todo.dueDate && (
+                <button onClick={() => onDueDateChange(undefined)} className="pr-1.5 hover:text-destructive" title="Remove deadline">
+                  <X className="h-3 w-3" />
                 </button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <CalendarPicker mode="single" selected={todo.dueDate ? new Date(todo.dueDate + "T00:00:00") : undefined} onSelect={onDueDateChange} className="p-3 pointer-events-auto" />
-              </PopoverContent>
-            </Popover>
+              )}
+            </span>
 
             {/* Reminders */}
             {todo.reminders.map(r => (
@@ -637,7 +644,16 @@ export function TodoCard({ todo, editingId, editTitle, setEditTitle, onToggle, o
               </PopoverTrigger>
               <PopoverContent className="w-72 p-3 space-y-3" align="start">
                 <p className="text-xs font-medium">New Reminder</p>
-                <CalendarPicker mode="single" selected={reminderDate} onSelect={setReminderDate} className="p-2 pointer-events-auto" />
+                <CalendarPicker
+                  mode="single"
+                  selected={reminderDate}
+                  onSelect={setReminderDate}
+                  disabled={todo.dueDate ? (d) => d > new Date(todo.dueDate + "T23:59:59") : undefined}
+                  className="p-2 pointer-events-auto"
+                />
+                {todo.dueDate && (
+                  <p className="text-[10px] text-muted-foreground">Reminders must be on or before the deadline ({new Date(todo.dueDate + "T00:00:00").toLocaleDateString()}).</p>
+                )}
                 <div className="flex items-center gap-2">
                   <Label className="text-xs w-10">Time</Label>
                   <Input type="time" value={reminderTime} onChange={e => setReminderTime(e.target.value)} className="h-8 text-xs flex-1" />
