@@ -162,6 +162,12 @@ interface AddExistingUserAsCollaboratorData {
   /** Event role (e.g. "performer", "staff"). */
   eventRole?: string;
   message?: string;
+  /**
+   * When true, also send a notification email to the recipient. The in-app
+   * notification is always written. Copy-Link callers pass false because they
+   * surface the access grant via clipboard; Send-Email callers pass true.
+   */
+  sendEmail: boolean;
 }
 
 interface AddExistingUserAsCollaboratorResult {
@@ -181,7 +187,7 @@ export const addExistingUserAsCollaborator = onCall<
       throw new HttpsError("unauthenticated", "Authentication required.");
     }
 
-    const { eventId, email: rawEmail, profileId, displayName, role, eventRole, message } = request.data || {};
+    const { eventId, email: rawEmail, profileId, displayName, role, eventRole, message, sendEmail } = request.data || {};
 
     if (!eventId || typeof eventId !== "string") {
       throw new HttpsError("invalid-argument", "eventId is required.");
@@ -286,7 +292,9 @@ export const addExistingUserAsCollaborator = onCall<
           actorUid: callerUid,
           read: false,
           createdAt: new Date().toISOString(),
-          link: `/event/${eventId}`,
+          eventId,
+          eventName,
+          link: `/events/${eventId}`,
           metadata: { eventId, profileId, role: labelRole, eventRole: finalEventRole },
         });
     } catch (err) {
@@ -298,25 +306,28 @@ export const addExistingUserAsCollaborator = onCall<
     }
 
     // Email — let the recipient know they were added (mirrors the in-app
-    // notification but ensures they see it even if they don't log in).
-    try {
-      const tpl = eventCollaboratorInviteEmail({
-        recipientName: displayName,
-        senderName: actorName,
-        eventName,
-        venueName,
-        eventDate,
-        role: labelRole,
-        message: trimmedMessage || undefined,
-        eventLink: `${APP_BASE_URL.replace(/\/$/, "")}/event/${eventId}`,
-      });
-      await sendMail({ to: email, toName: displayName, subject: tpl.subject, html: tpl.html });
-    } catch (err) {
-      logger.error("Failed to send collaborator-added email", {
-        err,
-        email,
-        eventId,
-      });
+    // notification but ensures they see it even if they don't log in). Skipped
+    // for Copy-Link flows where the inviter shares the event URL themselves.
+    if (sendEmail) {
+      try {
+        const tpl = eventCollaboratorInviteEmail({
+          recipientName: displayName,
+          senderName: actorName,
+          eventName,
+          venueName,
+          eventDate,
+          role: labelRole,
+          message: trimmedMessage || undefined,
+          eventLink: `${APP_BASE_URL.replace(/\/$/, "")}/events/${eventId}`,
+        });
+        await sendMail({ to: email, toName: displayName, subject: tpl.subject, html: tpl.html });
+      } catch (err) {
+        logger.error("Failed to send collaborator-added email", {
+          err,
+          email,
+          eventId,
+        });
+      }
     }
 
     logger.info("Existing user added as collaborator", {

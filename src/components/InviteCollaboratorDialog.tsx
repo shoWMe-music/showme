@@ -150,7 +150,9 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
     | { kind: "code"; url: string; code: string }
     | { kind: "direct"; userUid: string };
 
-  const generateInvite = async (): Promise<InviteResult | null> => {
+  type InviteIntent = "copy-link" | "send-email";
+
+  const generateInvite = async (intent: InviteIntent): Promise<InviteResult | null> => {
     if (!eventId || !user) return null;
     const roleLabel = role === "Custom" ? customRoleName || "Custom" : role;
     const eventRole = inviteToEventRole(roleLabel, effectivePermission);
@@ -194,6 +196,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
             role?: string;
             eventRole?: string;
             message?: string;
+            sendEmail: boolean;
           },
           { ok: true; collaboratorId: string; userUid: string }
         >(getFirebaseFunctions(), "addExistingUserAsCollaborator")({
@@ -204,6 +207,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
           role: roleLabel,
           eventRole,
           message: message.trim() || undefined,
+          sendEmail: intent === "send-email",
         });
 
         toast({
@@ -257,15 +261,13 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
     submittingRef.current = true;
     setGenerating(true);
     try {
-      const result = await generateInvite();
+      const result = await generateInvite("copy-link");
       if (!result) return;
-      if (result.kind === "direct") {
-        // Existing-user direct-add: no link to copy. Close the dialog — the
-        // user already saw the success toast from generateInvite.
-        onOpenChange(false);
-        return;
-      }
-      await navigator.clipboard.writeText(result.url);
+      const url =
+        result.kind === "code"
+          ? result.url
+          : `${window.location.origin}/events/${eventId}`;
+      await navigator.clipboard.writeText(url);
       copyToast("Link copied", "Collaboration link copied to clipboard.");
     } finally {
       setGenerating(false);
@@ -287,7 +289,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
     try {
       const result = generatedLink
         ? ({ kind: "code" as const, url: generatedLink, code: invitationCode })
-        : await generateInvite();
+        : await generateInvite("send-email");
       if (!result) return;
       if (result.kind === "direct") {
         // Existing user already added directly — no signup email to send.
