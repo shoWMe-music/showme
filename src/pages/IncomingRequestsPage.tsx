@@ -13,15 +13,37 @@ import { useUpdateEvent } from "@/lib/queries/useEventMutations";
 import { queryKeys, useEvents } from "@/lib/queries";
 import CreateEventDialog from "@/components/CreateEventDialog";
 import InviteCollaboratorDialog from "@/components/InviteCollaboratorDialog";
-import { FileText, Send, X, Archive, Ban, Search, Clock, ExternalLink, Copy, Music, Video, ChevronDown, ChevronLeft, ChevronRight, Mail, CalendarCheck, MapPin, Check, XCircle, Loader2 } from "lucide-react";
+import { FileText, Send, X, Archive, Ban, Search, Clock, ExternalLink, Copy, Music, Video, ChevronDown, ChevronLeft, ChevronRight, Mail, CalendarCheck, MapPin, Check, XCircle, Loader2, Globe, Link2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 import { useUser } from "@/lib/user-context";
 import { formatCurrency, type BookingRequest, type Event } from "@/lib/models";
+import {
+  senderTypeForVenueLabels,
+  senderTypeForPerformerLabels,
+  performerTypeLabels,
+} from "@/lib/enums";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 type BookingRequestUpdate = Partial<Pick<BookingRequest, "status" | "event_id">>;
+
+// sender_type vocabulary depends on the role being requested (venue vs performer);
+// fall back to the raw value if a record arrives with an unknown key.
+function senderTypeLabel(req: BookingRequest): string | undefined {
+  if (!req.sender_type) return undefined;
+  const labels = req.target_role === "venue"
+    ? senderTypeForVenueLabels as Record<string, string>
+    : req.target_role === "performer"
+      ? senderTypeForPerformerLabels as Record<string, string>
+      : undefined;
+  return labels?.[req.sender_type] ?? req.sender_type;
+}
+
+function performerTypeLabel(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  return (performerTypeLabels as Record<string, string>)[value] ?? value;
+}
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning))] border-[hsl(var(--warning)/0.3)]",
@@ -396,6 +418,45 @@ export default function IncomingRequestsPage() {
             )}
             {req.note && <p className="mt-1 text-muted-foreground/80 italic">"{req.note}"</p>}
           </div>
+          {(req.performer_type || (req.genres && req.genres.length > 0)) && (
+            <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+              {req.performer_type && (
+                <Badge variant="secondary" className="text-[10px]">
+                  {performerTypeLabel(req.performer_type)}
+                </Badge>
+              )}
+              {req.genres?.map((g) => (
+                <Badge key={g} variant="outline" className="text-[10px]">{g}</Badge>
+              ))}
+            </div>
+          )}
+          {(req.website_url || (req.social_links && req.social_links.length > 0)) && (
+            <div className="mt-1.5 flex items-center gap-2 flex-wrap text-[11px]">
+              {req.website_url && (
+                <a
+                  href={req.website_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={e => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                >
+                  <Globe className="h-3 w-3" /> Website
+                </a>
+              )}
+              {req.social_links?.map((link, i) => (
+                <a
+                  key={`${link.platform}-${i}`}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={e => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                >
+                  <Link2 className="h-3 w-3" /> {link.platform}
+                </a>
+              ))}
+            </div>
+          )}
           <div className="flex items-center gap-1 mt-1.5 text-[10px] text-muted-foreground">
             <Clock className="h-3 w-3" />
             {new Date(req.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
@@ -727,6 +788,9 @@ export default function IncomingRequestsPage() {
                 </div>
                 <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
                   <span className="text-muted-foreground font-medium">Name</span><span>{detailRequest.name}</span>
+                  {senderTypeLabel(detailRequest) && (
+                    <><span className="text-muted-foreground font-medium">Sender Type</span><span>{senderTypeLabel(detailRequest)}</span></>
+                  )}
                   <span className="text-muted-foreground font-medium">Email</span>
                   <span className="flex items-center gap-1">
                     {detailRequest.email}
@@ -741,7 +805,48 @@ export default function IncomingRequestsPage() {
                   {detailRequest.artist_fee != null && detailRequest.artist_fee > 0 && (
                     <><span className="text-muted-foreground font-medium">Fee</span><span>{formatCurrency(detailRequest.artist_fee, currency)}</span></>
                   )}
+                  {detailRequest.performer_type && (
+                    <><span className="text-muted-foreground font-medium">Performer Type</span><span>{performerTypeLabel(detailRequest.performer_type)}</span></>
+                  )}
+                  {detailRequest.website_url && (
+                    <>
+                      <span className="text-muted-foreground font-medium">Website</span>
+                      <a href={detailRequest.website_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate">
+                        {detailRequest.website_url}
+                      </a>
+                    </>
+                  )}
                 </div>
+                {detailRequest.genres && detailRequest.genres.length > 0 && (
+                  <div>
+                    <p className="text-xs text-muted-foreground font-medium mb-1.5">Genres</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {detailRequest.genres.map((g) => (
+                        <Badge key={g} variant="outline" className="text-xs">{g}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {detailRequest.social_links && detailRequest.social_links.length > 0 && (
+                  <div>
+                    <p className="text-xs text-muted-foreground font-medium mb-1.5">Social Links</p>
+                    <div className="space-y-1">
+                      {detailRequest.social_links.map((link, i) => (
+                        <a
+                          key={`${link.platform}-${i}`}
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 text-sm text-primary hover:underline"
+                        >
+                          <Link2 className="h-3.5 w-3.5 shrink-0" />
+                          <span className="font-medium text-foreground">{link.platform}</span>
+                          <span className="truncate text-xs">{link.url}</span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {(detailRequest.music_url || detailRequest.video_url) && (
                   <div className="flex gap-3">
                     {detailRequest.music_url && (
