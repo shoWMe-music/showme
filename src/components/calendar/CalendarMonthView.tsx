@@ -34,7 +34,7 @@ export function CalendarMonthView({
   selectedDate,
   eventsByDate,
   calItemsByDate,
-  parentNameMap,
+  parentEventMap,
   flatCombinedUnavailable,
   dragOverTarget,
   markingMode,
@@ -175,29 +175,46 @@ export function CalendarMonthView({
               </div>
               <div className="flex flex-col gap-0.5 overflow-y-auto overflow-x-hidden flex-1 min-h-0 scrollbar-thin">
                 {(() => {
-                  const grouped: { parentName?: string; events: typeof dayEvents }[] = [];
-                  const parentGroups = new Map<string, typeof dayEvents>();
+                  const childGroups = new Map<string, typeof dayEvents>();
                   const standalone: typeof dayEvents = [];
                   dayEvents.forEach(event => {
-                    if (event.parentEventId && parentNameMap.has(event.parentEventId)) {
-                      if (!parentGroups.has(event.parentEventId)) parentGroups.set(event.parentEventId, []);
-                      parentGroups.get(event.parentEventId)!.push(event);
+                    if (event.parentEventId && parentEventMap.has(event.parentEventId)) {
+                      if (!childGroups.has(event.parentEventId)) childGroups.set(event.parentEventId, []);
+                      childGroups.get(event.parentEventId)!.push(event);
                     } else {
                       standalone.push(event);
                     }
                   });
-                  standalone.forEach(e => grouped.push({ events: [e] }));
-                  parentGroups.forEach((children, pid) => grouped.push({ parentName: parentNameMap.get(pid), events: children }));
-                  return grouped.map((group, gi) => (
-                    <div key={gi}>
-                      {group.parentName && (
-                        <div className="text-[9px] leading-tight px-1 text-muted-foreground font-medium truncate" title={group.parentName} />
-                      )}
-                      {group.events.map(event =>
-                        renderEventChip(event, "text-[11px] leading-tight px-1.5 py-0.5", !!group.parentName)
-                      )}
-                    </div>
-                  ));
+                  // A parent that's also in dayEvents would otherwise render twice — skip it from standalone since it'll render as the group header.
+                  const finalStandalone = standalone.filter(e => !childGroups.has(e.id));
+                  return (
+                    <>
+                      {finalStandalone.map(event => (
+                        <div key={event.id}>
+                          {renderEventChip(event, "text-[11px] leading-tight px-1.5 py-0.5")}
+                        </div>
+                      ))}
+                      {Array.from(childGroups.entries()).map(([pid, children]) => {
+                        const parent = parentEventMap.get(pid)!;
+                        return (
+                          <div key={pid} className="bg-muted/30 rounded-lg p-0.5 flex flex-col gap-0.5">
+                            {renderEventChip(parent, "text-[11px] leading-tight px-1.5 py-0.5", parent.name)}
+                            <div className="ml-2 pl-2 flex flex-col gap-0.5
+                              [&>*]:relative
+                              [&>*]:before:absolute [&>*]:before:-left-2 [&>*]:before:top-0 [&>*]:before:h-1/2 [&>*]:before:w-2
+                              [&>*]:before:border-l [&>*]:before:border-b [&>*]:before:border-muted-foreground/30
+                              [&>*:not(:last-child)]:after:absolute [&>*:not(:last-child)]:after:-left-2 [&>*:not(:last-child)]:after:top-1/2 [&>*:not(:last-child)]:after:bottom-[-2px] [&>*:not(:last-child)]:after:w-px [&>*:not(:last-child)]:after:bg-muted-foreground/30">
+                              {children.map(event => (
+                                <div key={event.id}>
+                                  {renderEventChip(event, "text-[11px] leading-tight px-1.5 py-0.5")}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  );
                 })()}
                 {dayCalItems.map((ci) =>
                   renderCalItemChip(ci, "text-[11px] leading-tight px-1.5 py-0.5", true)

@@ -15,7 +15,7 @@ export function CalendarDayView({
   dayViewDate,
   dayViewEvents,
   dayViewCalItems,
-  parentNameMap,
+  parentEventMap,
   dragOverTarget,
   hours,
   renderCalItemChip,
@@ -35,41 +35,40 @@ export function CalendarDayView({
             <p className="text-[10px] uppercase font-medium text-muted-foreground mb-2">All Day</p>
             <div className="flex flex-wrap gap-1.5">
               {(() => {
-                const parentGroups = new Map<string, typeof dayViewEvents>();
+                const childGroups = new Map<string, typeof dayViewEvents>();
                 const standalone: typeof dayViewEvents = [];
                 dayViewEvents.forEach(event => {
-                  if (event.parentEventId && parentNameMap.has(event.parentEventId)) {
-                    if (!parentGroups.has(event.parentEventId)) parentGroups.set(event.parentEventId, []);
-                    parentGroups.get(event.parentEventId)!.push(event);
+                  if (event.parentEventId && parentEventMap.has(event.parentEventId)) {
+                    if (!childGroups.has(event.parentEventId)) childGroups.set(event.parentEventId, []);
+                    childGroups.get(event.parentEventId)!.push(event);
                   } else standalone.push(event);
                 });
+                const finalStandalone = standalone.filter(e => !childGroups.has(e.id));
+                const renderEventButton = (event: typeof dayViewEvents[number], labelOverride?: string) => {
+                  const color = getEventEntityColor(event);
+                  const label = labelOverride ?? `${event.name}${event.artist ? ` — ${event.artist}` : ""}`;
+                  return (
+                    <button key={event.id} onClick={(e) => onItemClick({ kind: "event", data: event }, e)}
+                      className={cn("text-xs px-2 py-1 rounded border font-medium flex items-center gap-1", EVENT_STATUS_COLORS[event.eventStatus], "hover:opacity-80")}>
+                      {color && <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }} />}
+                      {label}
+                    </button>
+                  );
+                };
                 return (
                   <>
-                    {standalone.map(event => {
-                      const color = getEventEntityColor(event);
+                    {finalStandalone.map(event => renderEventButton(event))}
+                    {Array.from(childGroups.entries()).map(([pid, children]) => {
+                      const parent = parentEventMap.get(pid)!;
                       return (
-                        <button key={event.id} onClick={(e) => onItemClick({ kind: "event", data: event }, e)}
-                          className={cn("text-xs px-2 py-1 rounded border font-medium flex items-center gap-1", EVENT_STATUS_COLORS[event.eventStatus], "hover:opacity-80")}>
-                          {color && <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }} />}
-                          {event.name} — {event.artist}
-                        </button>
+                        <div key={pid} className="flex items-center gap-1 bg-muted/30 rounded-lg p-1">
+                          {renderEventButton(parent, parent.name)}
+                          <div className="flex items-center gap-1 pl-2 ml-1 border-l border-muted-foreground/30">
+                            {children.map(event => renderEventButton(event, event.artist))}
+                          </div>
+                        </div>
                       );
                     })}
-                    {Array.from(parentGroups.entries()).map(([pid, children]) => (
-                      <div key={pid} className="flex items-center gap-1 bg-muted/30 rounded-lg px-1.5 py-0.5">
-                        <span className="text-[10px] text-muted-foreground font-medium whitespace-nowrap">🎪 {parentNameMap.get(pid)}</span>
-                        {children.map(event => {
-                          const color = getEventEntityColor(event);
-                          return (
-                            <button key={event.id} onClick={(e) => onItemClick({ kind: "event", data: event }, e)}
-                              className={cn("text-xs px-2 py-1 rounded border font-medium flex items-center gap-1", EVENT_STATUS_COLORS[event.eventStatus], "hover:opacity-80")}>
-                              {color && <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }} />}
-                              {event.artist}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ))}
                   </>
                 );
               })()}

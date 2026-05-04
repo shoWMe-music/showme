@@ -9,8 +9,8 @@ export interface CalendarViewSharedProps {
   calItemsByDate: Map<string, CalendarItem[]>;
   /** All calendar items (needed for week all-day row filtering) */
   calendarItems: CalendarItem[];
-  /** Map of parentEventId -> parent event name */
-  parentNameMap: Map<string, string>;
+  /** Map of parentEventId -> the parent (multi-performer) event */
+  parentEventMap: Map<string, AppEvent>;
   /** Set of dateKey strings that are unavailable */
   flatCombinedUnavailable: Set<string>;
   /** Currently dragged-over drop target key */
@@ -19,8 +19,8 @@ export interface CalendarViewSharedProps {
   markingMode: boolean;
   /** Chip renderer for CalendarItems */
   renderCalItemChip: (ci: CalendarItem, sizeClass: string, showTime?: boolean) => React.ReactNode;
-  /** Chip renderer for Events */
-  renderEventChip: (event: AppEvent, sizeClass: string, showParentIndent?: boolean) => React.ReactNode;
+  /** Chip renderer for Events. Pass `labelOverride` to force a specific label (e.g. parent festival name). */
+  renderEventChip: (event: AppEvent, sizeClass: string, labelOverride?: string) => React.ReactNode;
   /** Get entity color for an event */
   getEventEntityColor: (event: AppEvent) => string | undefined;
   /** Fired when a grid cell is clicked */

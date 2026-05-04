@@ -460,9 +460,9 @@ export default function CalendarPage() {
     return days;
   }, [currentMonth]);
 
-  const parentNameMap = useMemo(() => {
-    const map = new Map<string, string>();
-    events.forEach(e => { if (e.isMultiPerformer && e.childEventIds?.length) map.set(e.id, e.name); });
+  const parentEventMap = useMemo(() => {
+    const map = new Map<string, AppEvent>();
+    events.forEach(e => { if (e.isMultiPerformer && e.childEventIds?.length) map.set(e.id, e); });
     return map;
   }, [events]);
 
@@ -605,20 +605,22 @@ export default function CalendarPage() {
     </button>
   ), [handleItemClick]);
 
-  const renderEventChip = useCallback((event: AppEvent, sizeClass: string, showParentIndent: boolean = false) => {
+  const renderEventChip = useCallback((event: AppEvent, sizeClass: string, labelOverride?: string) => {
     const color = getEventEntityColor(event);
     const holdRank = event.eventStatus === "on_hold" && event.holdRank ? event.holdRank : 0;
     const rankLabel = holdRank > 0 ? (holdRank === 1 ? "1st" : holdRank === 2 ? "2nd" : holdRank === 3 ? "3rd" : `${holdRank}th`) : "";
-    const chipLabel = titleDisplay === "event"
-      ? (event.name || event.artist)
-      : titleDisplay === "both"
-        ? [event.artist, event.name].filter(Boolean).join(" — ")
-        : (event.artist || event.name);
+    const chipLabel = labelOverride !== undefined
+      ? labelOverride
+      : titleDisplay === "event"
+        ? (event.name || event.artist)
+        : titleDisplay === "both"
+          ? [event.artist, event.name].filter(Boolean).join(" — ")
+          : (event.artist || event.name);
     return (
       <button
         key={event.id}
         onClick={(e) => handleItemClick({ kind: "event", data: event }, e)}
-        className={cn(sizeClass, "rounded truncate font-medium border text-left w-full flex items-center gap-1", showParentIndent && "ml-1.5 border-l-2", EVENT_STATUS_COLORS[event.eventStatus], "hover:opacity-80 transition-opacity")}
+        className={cn(sizeClass, "rounded truncate font-medium border text-left w-full flex items-center gap-1", EVENT_STATUS_COLORS[event.eventStatus], "hover:opacity-80 transition-opacity")}
         title={`${event.name}${event.artist ? ` — ${event.artist}` : ''}${rankLabel ? ` (${rankLabel} hold)` : ''}`}
       >
         {color && <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }} />}
@@ -652,7 +654,7 @@ export default function CalendarPage() {
     eventsByDate,
     calItemsByDate,
     calendarItems,
-    parentNameMap,
+    parentEventMap,
     flatCombinedUnavailable,
     dragOverTarget,
     markingMode,
