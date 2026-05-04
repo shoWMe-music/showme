@@ -95,9 +95,9 @@ export default function AppSidebar() {
       {/* Header with collapse arrow */}
       <div className="relative">
         <Link to="/" className={cn("flex items-center gap-3 px-4 py-5", collapsed ? "justify-center" : "px-6")}>
-          <img src={logo} alt="shoWMe" className="h-16 rounded-lg shrink-0 object-contain" />
+          <img src={logo} alt="shoWMe" className="h-8 rounded-lg shrink-0 object-contain" />
           {!collapsed && (
-            <span className="font-display text-xl font-bold text-sidebar-accent-foreground tracking-tight">
+            <span className="mt-3 font-display text-xl font-bold leading-none text-sidebar-accent-foreground tracking-tight">
               shoWMe
             </span>
           )}
