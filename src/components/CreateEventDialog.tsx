@@ -202,6 +202,11 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const [inviteConfirmOpen, setInviteConfirmOpen] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+
+  const isDirty = step > 0 || !!eventName.trim();
+
+  const closeAndReset = () => { setOpen(false); resetForm(); };
 
   /**
    * True when the form has at least one collaborator attached via a real
@@ -258,7 +263,12 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
     : ["Choose Your Role", "Event Details", "Deal Structure"];
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm(); }}>
+    <Dialog open={open} onOpenChange={(v) => {
+      if (v) { setOpen(true); return; }
+      if (submitting) return;
+      if (isDirty) { setCancelConfirmOpen(true); return; }
+      closeAndReset();
+    }}>
       {externalOpen === undefined && (
         <DialogTrigger asChild>
           {trigger || (
@@ -342,6 +352,24 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
           />
         )}
       </DialogContent>
+
+      {/* Cancel-creation confirmation: shown when the user tries to close with unsaved input. */}
+      <AlertDialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard event details?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You'll lose anything you've entered so far. This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setCancelConfirmOpen(false); closeAndReset(); }}>
+              Discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Invite-now confirmation: shown when collaborator profiles are attached. */}
       <AlertDialog open={inviteConfirmOpen} onOpenChange={setInviteConfirmOpen}>
