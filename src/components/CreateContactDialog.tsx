@@ -32,11 +32,19 @@ interface CreateContactDialogProps {
    * `Contact.invitationStatus` directly.
    */
   invitation?: { code: string; status: "active" | "used" | "accepted" | "revoked" } | null;
+  /**
+   * Optional invite-after-save handler. When provided, saving a NEW performer
+   * contact with a valid email opens a confirmation dialog offering to also
+   * send a platform invitation to the recipient.
+   */
+  onInviteAfterSave?: (contact: Contact, recipientEmail: string, recipientName: string) => void;
 }
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const emptyContact: ContactPerson = { name: "", email: "", phone: "" };
 
-export default function CreateContactDialog({ open, onOpenChange, onSave, editingContact, customTypes = [], invitation }: CreateContactDialogProps) {
+export default function CreateContactDialog({ open, onOpenChange, onSave, editingContact, customTypes = [], invitation, onInviteAfterSave }: CreateContactDialogProps) {
   const [name, setName] = useState("");
   const [types, setTypes] = useState<ContactType[]>(["promoter"]);
   const [customTypeInput, setCustomTypeInput] = useState("");
@@ -48,6 +56,8 @@ export default function CreateContactDialog({ open, onOpenChange, onSave, editin
   const [notes, setNotes] = useState("");
   const [copied, setCopied] = useState(false);
   const [revokeConfirmOpen, setRevokeConfirmOpen] = useState(false);
+  const [invitePromptOpen, setInvitePromptOpen] = useState(false);
+  const [pendingSaveContact, setPendingSaveContact] = useState<{ contact: Contact; email: string; recipientName: string } | null>(null);
   const revokeInvitationMutation = useRevokeInvitationCode();
 
   const handleCopyInvite = () => {
@@ -132,7 +142,41 @@ export default function CreateContactDialog({ open, onOpenChange, onSave, editin
       contacts: contacts.filter(c => c.name || c.email || c.phone),
       iban, bankName, vatId, address, notes,
     };
+
+    const isNewPerformer = !editingContact && types.includes("performer");
+    const firstEmailContact = contact.contacts.find(c => c.email && EMAIL_REGEX.test(c.email.trim()));
+    if (
+      isNewPerformer &&
+      firstEmailContact &&
+      onInviteAfterSave &&
+      !invitation
+    ) {
+      setPendingSaveContact({
+        contact,
+        email: firstEmailContact.email.trim(),
+        recipientName: firstEmailContact.name.trim() || contact.name,
+      });
+      setInvitePromptOpen(true);
+      return;
+    }
+
     onSave(contact);
+    onOpenChange(false);
+  };
+
+  const finalizeSave = (alsoInvite: boolean) => {
+    if (!pendingSaveContact) return;
+    if (alsoInvite) {
+      // The invite-after-save handler is responsible for both saving the
+      // contact AND firing the invitation — keeping the save inside the
+      // handler avoids racing the contact write against the server-side
+      // "find existing contact by email" lookup in createInvitationCode.
+      onInviteAfterSave?.(pendingSaveContact.contact, pendingSaveContact.email, pendingSaveContact.recipientName);
+    } else {
+      onSave(pendingSaveContact.contact);
+    }
+    setPendingSaveContact(null);
+    setInvitePromptOpen(false);
     onOpenChange(false);
   };
 
@@ -304,6 +348,33 @@ export default function CreateContactDialog({ open, onOpenChange, onSave, editin
             {editingContact ? "Save Changes" : "Add Contact"}
           </Button>
         </DialogFooter>
+
+        {/* Invite-on-save prompt — only fires for NEW performer contacts with an email */}
+        <AlertDialog
+          open={invitePromptOpen}
+          onOpenChange={(v) => {
+            setInvitePromptOpen(v);
+            if (!v) setPendingSaveContact(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Invite {pendingSaveContact?.recipientName || "this performer"} to shoWMe?</AlertDialogTitle>
+              <AlertDialogDescription>
+                If they aren't on shoWMe yet, you can send them an invitation now so they can claim their profile and collaborate on events. You can always send the invite later from their contact card.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <Button variant="outline" onClick={() => finalizeSave(false)}>
+                Save without invite
+              </Button>
+              <AlertDialogAction onClick={() => finalizeSave(true)}>
+                Save & invite
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Revoke invitation confirmation */}
         <AlertDialog open={revokeConfirmOpen} onOpenChange={setRevokeConfirmOpen}>

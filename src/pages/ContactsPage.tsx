@@ -1,11 +1,15 @@
 import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { httpsCallable } from "firebase/functions";
+import { getFirebaseFunctions } from "@/integrations/firebase/app";
 import AppLayout from "@/components/AppLayout";
 import CreateContactDialog from "@/components/CreateContactDialog";
 import ImportContactsDialog from "@/components/ImportContactsDialog";
 import ContactExportDialog from "@/components/ContactExportDialog";
 import { usePaginatedContacts, useAddContact, useUpdateContact, useDeleteContact } from "@/lib/queries";
 import { useMyInvitationCodes } from "@/lib/queries/useInvitationCodes";
+import { queryKeys } from "@/lib/queries/keys";
 import type { InvitationCode } from "@/lib/db";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Contact, ContactType, contactTypeLabels } from "@/lib/models";
@@ -103,11 +107,12 @@ function mergeContacts(parties: Contact[]): Contact {
 }
 
 export default function ContactsPage() {
-  const { profiles } = useUser();
+  const { profiles, currentUser } = useUser();
   const addContactMutation = useAddContact();
   const updateContactMutation = useUpdateContact();
   const deleteContactMutation = useDeleteContact();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -281,6 +286,66 @@ export default function ContactsPage() {
       addContactMutation.mutate({ contact });
     }
     setEditingContact(null);
+  };
+
+  const handleInviteAfterSave = async (
+    contact: Contact,
+    recipientEmail: string,
+    recipientName: string,
+  ) => {
+    try {
+      // Wait for the contact write so createInvitationCode (server-side) finds it
+      // by email and links to it instead of creating a duplicate "performer" stub.
+      await addContactMutation.mutateAsync({ contact });
+
+      const createInvitationCodeFn = httpsCallable<
+        {
+          recipientEmail?: string;
+          recipientName?: string;
+          recipientRole?: string;
+          source: string;
+        },
+        { code: string }
+      >(getFirebaseFunctions(), "createInvitationCode");
+
+      const result = await createInvitationCodeFn({
+        source: "team",
+        recipientEmail,
+        recipientName,
+        recipientRole: "performer",
+      });
+
+      const sendInvitationEmailFn = httpsCallable<
+        {
+          code: string;
+          recipientEmail: string;
+          recipientName: string;
+          senderName: string;
+          message?: string;
+        },
+        { ok: true }
+      >(getFirebaseFunctions(), "sendInvitationEmail");
+
+      await sendInvitationEmailFn({
+        code: result.data.code,
+        recipientEmail,
+        recipientName,
+        senderName: currentUser.name || currentUser.email || "A shoWMe user",
+      });
+
+      queryClient.invalidateQueries({ queryKey: queryKeys.myInvitationCodes(currentUser.id) });
+      toast({
+        title: "Invitation sent",
+        description: `${recipientName} will receive an email with their invitation code.`,
+      });
+    } catch (err) {
+      console.error("Failed to send invitation:", err);
+      toast({
+        title: "Could not send invitation",
+        description: "The contact was saved, but the invitation email failed. Try again from the contact card.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleMerge = (group: DuplicateGroup) => {
@@ -527,6 +592,7 @@ export default function ContactsPage() {
         editingContact={editingContact}
         customTypes={customTypes}
         invitation={getInviteForDialog(editingContact)}
+        onInviteAfterSave={handleInviteAfterSave}
       />
       <ContactExportDialog
         open={exportOpen}

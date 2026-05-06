@@ -173,6 +173,12 @@ export function useCreateEventSubmit() {
       inviteCollaborators,
     } = params;
     const willInvite = shouldInviteCollaborators(inviteCollaborators, defaultStatus);
+    // No-performer creates always start as a draft regardless of willInvite —
+    // there is nobody to suggest the event to yet. The user can promote it to
+    // "suggested" later by adding a performer in the event detail page.
+    const hasPerformer = isMultiPerformer
+      ? performers.some((p) => p.artistName.trim())
+      : !!artistName.trim();
     // When a performer is invited at creation time, the event leaves draft
     // and lands in "suggested" so the performer sees it as a real proposal
     // (not just an internal draft they happen to have access to). Explicit
@@ -180,7 +186,7 @@ export function useCreateEventSubmit() {
     // flows) win — we only override the draft default.
     const computedStatus = defaultStatus && defaultStatus !== "draft"
       ? defaultStatus
-      : (willInvite ? "suggested" : "draft");
+      : (willInvite && hasPerformer ? "suggested" : "draft");
 
     const operatorType = selectedRole === "venue" ? "venue" as const : selectedRole === "organizer" ? "organizer" as const : "promoter" as const;
     const hostProfileId = resolveHostProfileId(profiles, selectedRole);
