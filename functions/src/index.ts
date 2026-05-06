@@ -17,6 +17,7 @@ export {
 } from "./invitations";
 export { setCollaboratorInvitePassword } from "./collaboratorInvitePassword";
 export { onProfileInviteCreated } from "./profileInvites";
+export { onProfileMemberWritten } from "./profileMembers";
 export { lookupUserForInvite, addExistingUserAsCollaborator } from "./userLookup";
 export { submitPublicShareComment } from "./publicShares";
 export {

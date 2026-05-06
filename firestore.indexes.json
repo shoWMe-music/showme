@@ -141,6 +141,108 @@
       "collectionGroup": "events",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "accessProfileIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "accessProfileIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "accessProfileIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "artist", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "accessProfileIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "artist", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "accessProfileIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "venue", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "accessProfileIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "venue", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "accessProfileIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "eventStatus", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "accessProfileIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "eventStatus", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "accessProfileIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "eventStatus", "order": "ASCENDING" },
+        { "fieldPath": "artist", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "accessProfileIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "eventStatus", "order": "ASCENDING" },
+        { "fieldPath": "artist", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "accessProfileIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "eventStatus", "order": "ASCENDING" },
+        { "fieldPath": "venue", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "accessProfileIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "eventStatus", "order": "ASCENDING" },
+        { "fieldPath": "venue", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "participant_uids", "arrayConfig": "CONTAINS" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]

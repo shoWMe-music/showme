@@ -120,13 +120,24 @@ export function usePaginatedEvents(pageSize: number, filters?: EventPageFilters)
 export function useCalendarEvents(dateFrom: string, dateTo: string) {
   const { user, loading: authLoading } = useAuth();
   const uid = user?.uid ?? "";
+  const allProfiles = useAllProfiles();
+  const profileIds = allProfiles.map(p => p.id).filter(Boolean) as string[];
+  const profileKey = profileIds.slice().sort().join(",");
+  const queryClient = useQueryClient();
+
+  // Invalidate when profile membership changes so the calendar picks up
+  // newly-accessible events without flashing a fresh skeleton.
+  useEffect(() => {
+    if (!uid) return;
+    queryClient.invalidateQueries({ queryKey: queryKeys.calendarEvents(uid, dateFrom, dateTo) });
+  }, [profileKey, uid, dateFrom, dateTo, queryClient]);
 
   return useQuery<Event[]>({
     queryKey: queryKeys.calendarEvents(uid, dateFrom, dateTo),
     enabled: !!uid && !authLoading && !!dateFrom && !!dateTo,
     staleTime: 5 * 60 * 1000,
     placeholderData: keepPreviousData,
-    queryFn: () => fetchEventsInRange(dateFrom, dateTo),
+    queryFn: () => fetchEventsInRange(dateFrom, dateTo, profileIds),
   });
 }
 
@@ -140,12 +151,21 @@ export function useCalendarEvents(dateFrom: string, dateTo: string) {
 export function useShowDayEvents() {
   const { user, loading: authLoading } = useAuth();
   const uid = user?.uid ?? "";
+  const allProfiles = useAllProfiles();
+  const profileIds = allProfiles.map(p => p.id).filter(Boolean) as string[];
+  const profileKey = profileIds.slice().sort().join(",");
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!uid) return;
+    queryClient.invalidateQueries({ queryKey: queryKeys.showDayEvents(uid) });
+  }, [profileKey, uid, queryClient]);
 
   return useQuery<Event[]>({
     queryKey: queryKeys.showDayEvents(uid),
     enabled: !!uid && !authLoading,
     staleTime: 5 * 60 * 1000,
-    queryFn: () => fetchShowDayEvents(),
+    queryFn: () => fetchShowDayEvents(profileIds),
   });
 }
 
