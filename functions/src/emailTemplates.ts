@@ -78,6 +78,43 @@ export function passwordResetEmail(resetLink: string, recipientName?: string): {
   };
 }
 
+export function verifyAndChangeEmailTemplate(opts: {
+  verifyLink: string;
+  newEmail: string;
+  recipientName?: string;
+}): { subject: string; html: string } {
+  const greeting = opts.recipientName ? `Hi ${opts.recipientName},` : "Hi,";
+
+  const content = `
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b">Confirm your new email</h2>
+    <p style="margin:0 0 20px;font-size:14px;color:#71717a;line-height:1.6">
+      ${greeting} we received a request to change your shoWMe sign-in email to <strong>${opts.newEmail}</strong>. Click the button below to confirm. After confirming, sign in with this address.
+    </p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td align="center" style="padding:8px 0 24px">
+          <a href="${opts.verifyLink}" target="_blank" style="display:inline-block;padding:12px 32px;background:#f97316;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;border-radius:8px">
+            Confirm new email
+          </a>
+        </td>
+      </tr>
+    </table>
+    <p style="margin:0 0 8px;font-size:13px;color:#a1a1aa;line-height:1.5">
+      If the button doesn't work, copy and paste this link into your browser:
+    </p>
+    <p style="margin:0 0 20px;font-size:12px;color:#f97316;word-break:break-all;line-height:1.5">
+      ${opts.verifyLink}
+    </p>
+    <p style="margin:0;font-size:13px;color:#a1a1aa;line-height:1.5">
+      If you didn't request this change, you can safely ignore this email — your sign-in address will stay the same.
+    </p>`;
+
+  return {
+    subject: "Confirm your new email — shoWMe",
+    html: baseLayout(content),
+  };
+}
+
 export function otpEmail(code: string, recipientName?: string): { subject: string; html: string } {
   const greeting = recipientName ? `Hi ${recipientName},` : "Hi,";
 

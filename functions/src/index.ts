@@ -4,7 +4,11 @@ import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 // bcryptjs (pure JS) is used over native bcrypt to avoid build issues in the Cloud Functions runtime.
 import * as bcrypt from "bcryptjs";
 import { sendMail, BREVO_API_KEY } from "./mail";
-import { passwordResetEmail, teamMemberMessageEmail } from "./emailTemplates";
+import {
+  passwordResetEmail,
+  teamMemberMessageEmail,
+  verifyAndChangeEmailTemplate,
+} from "./emailTemplates";
 
 export { exchangeRate, supportedCurrencies } from "./currencyHttp";
 export { ssrRender } from "./ssr";
@@ -119,6 +123,101 @@ export const sendPasswordReset = onCall<SendPasswordResetData, Promise<{ ok: tru
       // Don't reveal whether the email exists — always return success
       logger.warn("Password reset error (suppressed for user)", { email: trimmed, error: String(err) });
     }
+
+    return { ok: true };
+  },
+);
+
+// ---------------------------------------------------------------------------
+// sendVerifyAndChangeEmail — branded email-change confirmation
+//
+// Generates a Firebase verify-and-change-email action link via Admin SDK, then
+// delivers it via Brevo with our own template. Auth's email credential only
+// changes after the recipient clicks the link in the new inbox — proving
+// ownership of the new address.
+// ---------------------------------------------------------------------------
+
+interface SendVerifyAndChangeEmailData {
+  newEmail: string;
+}
+
+export const sendVerifyAndChangeEmail = onCall<
+  SendVerifyAndChangeEmailData,
+  Promise<{ ok: true }>
+>(
+  { region: "europe-west1", secrets: [BREVO_API_KEY] },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "Sign in to change your email.");
+    }
+
+    const newEmail = request.data?.newEmail?.toLowerCase().trim();
+    if (!newEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+      throw new HttpsError("invalid-argument", "A valid newEmail is required.");
+    }
+
+    const userRecord = await admin.auth().getUser(uid);
+    const currentEmail = userRecord.email;
+    if (!currentEmail) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Your account has no email on file. Contact support.",
+      );
+    }
+    if (currentEmail.toLowerCase() === newEmail) {
+      throw new HttpsError(
+        "invalid-argument",
+        "That's already your email address.",
+      );
+    }
+
+    // Reject if the new email is already used by another auth account so we
+    // don't surface a confusing "link clicked but nothing happened" later.
+    try {
+      const existing = await admin.auth().getUserByEmail(newEmail);
+      if (existing && existing.uid !== uid) {
+        throw new HttpsError(
+          "already-exists",
+          "That email is already in use by another account.",
+        );
+      }
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code !== "auth/user-not-found") {
+        // Re-throw HttpsError, swallow other lookup errors silently
+        if (err instanceof HttpsError) throw err;
+      }
+    }
+
+    let link: string;
+    try {
+      link = await admin.auth().generateVerifyAndChangeEmailLink(
+        currentEmail,
+        newEmail,
+        { url: "https://showme-production.web.app/login" },
+      );
+    } catch (err) {
+      logger.error("generateVerifyAndChangeEmailLink failed", {
+        uid,
+        currentEmail,
+        newEmail,
+        error: String(err),
+      });
+      throw new HttpsError(
+        "internal",
+        "Could not generate verification link. Try again.",
+      );
+    }
+
+    const recipientName =
+      (userRecord.displayName as string | undefined) || undefined;
+    const { subject, html } = verifyAndChangeEmailTemplate({
+      verifyLink: link,
+      newEmail,
+      recipientName,
+    });
+    await sendMail({ to: newEmail, toName: recipientName, subject, html });
 
     return { ok: true };
   },

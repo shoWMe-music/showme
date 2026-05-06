@@ -280,10 +280,20 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     const settings: UserSettings | null | undefined = settingsQuery.data;
     if (!settings) return;
     const roles = (settings.roles as OperatorRole[]) || [];
+    // Firebase Auth is the source of truth for email — if the user verified an
+    // email change in another tab/inbox, auth.email is fresh and Firestore is
+    // stale. Prefer auth, and write the drift back to Firestore.
+    const authEmail = firebaseUser?.email || "";
+    const resolvedEmail = authEmail || settings.email || "";
+    if (authEmail && settings.email && authEmail.toLowerCase() !== settings.email.toLowerCase()) {
+      upsertUserSettings({ email: authEmail }).catch((err) => {
+        console.error("[user-context] failed to sync auth email to settings:", err);
+      });
+    }
     setCurrentUser(prev => ({
       ...prev,
       name: settings.name || prev.name,
-      email: settings.email || prev.email,
+      email: resolvedEmail || prev.email,
       initials: settings.initials || prev.initials,
       roles,
       defaultRoles: roles,
@@ -294,7 +304,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       dateFormat: settings.dateFormat || prev.dateFormat,
       timeFormat: settings.timeFormat || prev.timeFormat,
     }));
-  }, [settingsQuery.data]);
+  }, [settingsQuery.data, firebaseUser?.email]);
 
   useEffect(() => {
     const dbProfiles = profilesQuery.data;

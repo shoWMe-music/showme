@@ -9,11 +9,15 @@ import {
 } from "@/components/ui/select";
 import { Camera } from "lucide-react";
 import { uploadUserBinary } from "@/lib/firebaseStorageUpload";
+import { ChangeEmailDialog } from "./ChangeEmailDialog";
+import { ChangePasswordDialog } from "./ChangePasswordDialog";
 
 export function GeneralTab() {
   const { currentUser, updateUser } = useUser();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
 
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -79,7 +83,12 @@ export function GeneralTab() {
           </div>
           <div>
             <Label>Email</Label>
-            <Input value={currentUser.email} onChange={(e) => updateUser({ email: e.target.value })} className="mt-1" />
+            <div className="mt-1 flex items-center gap-2">
+              <Input value={currentUser.email} readOnly className="flex-1" />
+              <Button variant="outline" size="sm" onClick={() => setEmailDialogOpen(true)}>
+                Change
+              </Button>
+            </div>
           </div>
         </div>
         <div className="mt-4">
@@ -117,7 +126,9 @@ export function GeneralTab() {
             </Select>
           </div>
         </div>
-        <Button variant="outline" size="sm" className="mt-4">Change Password</Button>
+        <Button variant="outline" size="sm" className="mt-4" onClick={() => setPasswordDialogOpen(true)}>
+          Change Password
+        </Button>
       </div>
 
       {/* Organization */}
@@ -134,6 +145,16 @@ export function GeneralTab() {
           Save Details
         </Button>
       </div>
+
+      <ChangeEmailDialog
+        open={emailDialogOpen}
+        onOpenChange={setEmailDialogOpen}
+        currentEmail={currentUser.email}
+      />
+      <ChangePasswordDialog
+        open={passwordDialogOpen}
+        onOpenChange={setPasswordDialogOpen}
+      />
     </div>
   );
 }
