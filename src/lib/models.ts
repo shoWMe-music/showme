@@ -109,6 +109,8 @@ export interface Event {
   cateringNotes?: string;
   /** Accommodation arrangements for the event. Seeded from the venue profile on create. */
   accommodationNotes?: string;
+  /** Free-form notes for the event. Long-form. */
+  notes?: string;
   /** @deprecated Use hostProfileId. Kept for Firestore rule compatibility during transition. */
   owner_uid?: string;
   /** @deprecated Use hostProfileId. */

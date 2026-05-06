@@ -347,6 +347,12 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
   const [dateChangePartyNames, setDateChangePartyNames] = useState<string[]>([]);
   const [pendingDateEditEvent, setPendingDateEditEvent] = useState<typeof editEvent | null>(null);
 
+  // "Invite this performer?" prompt — shown when a performer profile is added
+  // to a draft event for the first time. YES promotes to "suggested" and
+  // pushes access to the performer's dashboard; NO keeps it as a draft.
+  const [invitePerformerPromptOpen, setInvitePerformerPromptOpen] = useState(false);
+  const [pendingInvitePerformerEvent, setPendingInvitePerformerEvent] = useState<typeof editEvent | null>(null);
+
   // ── Riders subcollection sync ──────────────────────────────────────────────
   const ridersLoaded = useRef<string | null>(null);
   const prevRiderIds = useRef(new Set<string>(legacyRiders.map((r: Rider) => r.id)));
@@ -473,7 +479,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
   const [editCateringNotes, setEditCateringNotes] = useState<string>("");
   const [editAccommodationNotes, setEditAccommodationNotes] = useState<string>("");
   const [newCustomAmenity, setNewCustomAmenity] = useState<string>("");
-  const [editEvent, setEditEvent] = useState({ name: event.name, date: event.date, venue: event.venue, artist: event.artist, capacity: event.capacity, ticketingProvider: event.ticketingProvider, eventStatus: event.eventStatus, roomStage: event.roomStage || "", ticketUrls: event.ticketUrls || [] as string[], holdRank: event.holdRank || 1 as number, holdAutoPromote: event.holdAutoPromote !== false as boolean });
+  const [editEvent, setEditEvent] = useState({ name: event.name, date: event.date, venue: event.venue, artist: event.artist, performerProfileId: event.performerProfileId || "", capacity: event.capacity, ticketingProvider: event.ticketingProvider, eventStatus: event.eventStatus, roomStage: event.roomStage || "", ticketUrls: event.ticketUrls || [] as string[], holdRank: event.holdRank || 1 as number, holdAutoPromote: event.holdAutoPromote !== false as boolean, notes: event.notes || "" });
   const [editDatePickerOpen, setEditDatePickerOpen] = useState(false);
   // C5 — Track whether the user has manually edited the capacity field.
   // Once set, room/stage changes no longer auto-overwrite capacity.
@@ -492,11 +498,42 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
     if (event.eventStatus === "on_hold" && ev.eventStatus !== "on_hold") {
       promoteHoldsOnDate(event.date, event.venue, event.roomStage || "", event.holdRank || 1);
     }
-    const holdRank = ev.holdRank || 1;
-    const holdAutoPromote = ev.holdAutoPromote !== false;
-    updateEvent(event.id, { ...ev, holdRank, holdAutoPromote });
+
+    // Only ship fields that actually changed, so unchanged optional fields
+    // (e.g. roomStage `undefined` re-saved as `""`) don't trip the diff in
+    // useEventMutations and produce phantom activity-log/notification entries.
+    const updates: Partial<AppEvent> = {};
+    const sameStr = (a?: string, b?: string) => (a ?? "") === (b ?? "");
+    const sameArr = (a?: string[], b?: string[]) => {
+      const aa = a ?? [];
+      const bb = b ?? [];
+      if (aa.length !== bb.length) return false;
+      return aa.every((v, i) => v === bb[i]);
+    };
+
+    if (!sameStr(ev.name, event.name)) updates.name = ev.name;
+    if (!sameStr(ev.date, event.date)) updates.date = ev.date;
+    if (!sameStr(ev.venue, event.venue)) updates.venue = ev.venue;
+    if (!sameStr(ev.artist, event.artist)) updates.artist = ev.artist;
+    const nextPerformerId = ev.performerProfileId ? ev.performerProfileId : undefined;
+    if (nextPerformerId !== (event.performerProfileId || undefined)) updates.performerProfileId = nextPerformerId;
+    if (ev.capacity !== event.capacity) updates.capacity = ev.capacity;
+    if (!sameStr(ev.ticketingProvider, event.ticketingProvider)) updates.ticketingProvider = ev.ticketingProvider;
+    if (ev.eventStatus !== event.eventStatus) updates.eventStatus = ev.eventStatus;
+    if (!sameStr(ev.roomStage, event.roomStage)) updates.roomStage = ev.roomStage;
+    if (!sameArr(ev.ticketUrls, event.ticketUrls)) updates.ticketUrls = ev.ticketUrls;
+    const nextHoldRank = ev.holdRank || 1;
+    if (nextHoldRank !== (event.holdRank || 1)) updates.holdRank = nextHoldRank;
+    const nextAutoPromote = ev.holdAutoPromote !== false;
+    if (nextAutoPromote !== (event.holdAutoPromote !== false)) updates.holdAutoPromote = nextAutoPromote;
+    if (!sameStr(ev.notes, event.notes)) updates.notes = ev.notes;
+
+    if (Object.keys(updates).length > 0) {
+      updateEvent(event.id, updates);
+    }
+
     if (ev.eventStatus === "on_hold") {
-      resolveHoldRankConflicts(event.id, ev.date, ev.venue, ev.roomStage || "", holdRank);
+      resolveHoldRankConflicts(event.id, ev.date, ev.venue, ev.roomStage || "", nextHoldRank);
     }
   };
 
@@ -532,6 +569,18 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
       }
     }
 
+    // First-time performer profile attached to a draft → ask whether to invite
+    // them now (promote to "suggested") or keep the event as a draft.
+    const isAddingPerformerToDraft =
+      event.eventStatus === "draft" &&
+      !event.performerProfileId &&
+      !!editEvent.performerProfileId.trim();
+    if (isAddingPerformerToDraft) {
+      setPendingInvitePerformerEvent({ ...editEvent });
+      setInvitePerformerPromptOpen(true);
+      return;
+    }
+
     commitEventSave(editEvent);
   };
   const [newTicketUrl, setNewTicketUrl] = useState("");
@@ -559,7 +608,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
         title="Event Information"
         icon={<Calendar className="h-5 w-5 text-primary" />}
         readOnly={readOnly}
-        onEditStart={() => { setEditEvent({ name: event.name, date: event.date, venue: event.venue, artist: event.artist, capacity: event.capacity, ticketingProvider: event.ticketingProvider, eventStatus: event.eventStatus, roomStage: event.roomStage || "", ticketUrls: event.ticketUrls || [], holdRank: event.holdRank || 1, holdAutoPromote: event.holdAutoPromote !== false }); setNewTicketUrl(""); capacityManuallyEdited.current = false; }}
+        onEditStart={() => { setEditEvent({ name: event.name, date: event.date, venue: event.venue, artist: event.artist, performerProfileId: event.performerProfileId || "", capacity: event.capacity, ticketingProvider: event.ticketingProvider, eventStatus: event.eventStatus, roomStage: event.roomStage || "", ticketUrls: event.ticketUrls || [], holdRank: event.holdRank || 1, holdAutoPromote: event.holdAutoPromote !== false, notes: event.notes || "" }); setNewTicketUrl(""); capacityManuallyEdited.current = false; }}
         onSave={handleSaveEventInfo}
         editContent={
           <div className="space-y-4">
@@ -589,7 +638,9 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
               </div>
               <div><Label>Venue</Label><ContactCombobox contactType="venue" value={editEvent.venue} onChange={(v) => setEditEvent(p => ({...p, venue: v}))} placeholder="Search or type venue name" /></div>
               {!event.isMultiPerformer && (() => {
-                const performerLocked = event.eventStatus !== "draft";
+                // Only lock the performer field once one is set on a non-draft event.
+                // Without an artist, the user must still be able to add one.
+                const performerLocked = !!event.artist && event.eventStatus !== "draft";
                 return (
                   <div>
                     <Label>Performer</Label>
@@ -597,10 +648,17 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                       <div className="mt-1 flex items-center gap-2 h-10 px-3 rounded-md border bg-muted text-sm">
                         <Music className="h-4 w-4 text-muted-foreground shrink-0" />
                         <ProfilePreviewPopover name={event.artist} profileId={event.performerProfileId} />
-                        <Badge variant="outline" className="text-[10px] ml-auto">Linked</Badge>
+                        {event.performerProfileId && (
+                          <Badge variant="outline" className="text-[10px] ml-auto">Linked</Badge>
+                        )}
                       </div>
                     ) : (
-                      <PerformerSearch value={editEvent.artist} onChange={(name) => setEditEvent(p => ({...p, artist: name}))} placeholder="Search or type artist name" className="mt-1" />
+                      <PerformerSearch
+                        value={editEvent.artist}
+                        onChange={(name, profile) => setEditEvent(p => ({ ...p, artist: name, performerProfileId: profile?.id || "" }))}
+                        placeholder="Search or type artist name"
+                        className="mt-1"
+                      />
                     )}
                   </div>
                 );
@@ -707,6 +765,17 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                 </div>
               </div>
             </div>
+            {/* Notes */}
+            <div>
+              <Label>Notes</Label>
+              <Textarea
+                value={editEvent.notes}
+                onChange={(e) => setEditEvent(p => ({ ...p, notes: e.target.value }))}
+                placeholder="Add notes for this event…"
+                rows={6}
+                className="mt-1"
+              />
+            </div>
           </div>
         }
       >
@@ -747,7 +816,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
           )}
           {/* Performers section — shown on all events */}
           {!event.parentEventId && (
-            <div className="mt-3 pt-3 border-t">
+            <div className="mt-3 pb-3 pt-3 border-t">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-semibold">Performers</span>
                 {!readOnly && (
@@ -848,6 +917,13 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                   <p className="text-xs text-muted-foreground py-2">No performers added yet.</p>
                 )}
               </div>
+            </div>
+          )}
+          {/* Notes — read-only display; editing happens inside the Event Information edit form */}
+          {event.notes && (
+            <div className="mt-3 pt-3 border-t">
+              <span className="text-sm text-muted-foreground font-medium">Notes</span>
+              <p className="text-sm whitespace-pre-wrap mt-1">{event.notes}</p>
             </div>
           )}
         </div>
@@ -1928,6 +2004,43 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
               setDateChangeConfirmOpen(false);
               setPendingDateEditEvent(null);
             }}>Propose change</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Invite-Performer Prompt — adding a performer profile to a draft */}
+      <AlertDialog open={invitePerformerPromptOpen} onOpenChange={setInvitePerformerPromptOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Invite this performer now?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  You added <strong>{pendingInvitePerformerEvent?.artist || "a performer"}</strong> to this draft. Inviting them will move the event to <strong>Suggested</strong> and surface it on their dashboard.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Choose <em>Save as draft</em> to attach the performer without notifying them — you can invite them later.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setInvitePerformerPromptOpen(false);
+              setPendingInvitePerformerEvent(null);
+            }}>Cancel</AlertDialogCancel>
+            <Button variant="outline" onClick={() => {
+              if (pendingInvitePerformerEvent) commitEventSave(pendingInvitePerformerEvent);
+              setInvitePerformerPromptOpen(false);
+              setPendingInvitePerformerEvent(null);
+            }}>Save as draft</Button>
+            <AlertDialogAction onClick={() => {
+              if (pendingInvitePerformerEvent) {
+                commitEventSave({ ...pendingInvitePerformerEvent, eventStatus: "suggested" });
+              }
+              setInvitePerformerPromptOpen(false);
+              setPendingInvitePerformerEvent(null);
+            }}>Invite & Suggest</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
