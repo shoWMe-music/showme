@@ -1,4 +1,5 @@
-const APP_BASE_URL = (process.env.APP_BASE_URL || "https://showme-production.web.app").replace(/\/$/, "");
+import { APP_BASE_URL } from "./appBaseUrl";
+
 const LOGO_URL = `${APP_BASE_URL}/images/showme-logo.png`;
 
 function baseLayout(content: string): string {

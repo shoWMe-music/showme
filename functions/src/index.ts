@@ -9,6 +9,7 @@ import {
   teamMemberMessageEmail,
   verifyAndChangeEmailTemplate,
 } from "./emailTemplates";
+import { APP_BASE_URL } from "./appBaseUrl";
 
 export { exchangeRate, supportedCurrencies } from "./currencyHttp";
 export { ssrRender } from "./ssr";
@@ -114,7 +115,7 @@ export const sendPasswordReset = onCall<SendPasswordResetData, Promise<{ ok: tru
 
     try {
       const link = await admin.auth().generatePasswordResetLink(trimmed, {
-        url: "https://showme-production.web.app/login",
+        url: `${APP_BASE_URL}/login`,
       });
 
       const { subject, html } = passwordResetEmail(link);
@@ -195,7 +196,7 @@ export const sendVerifyAndChangeEmail = onCall<
       link = await admin.auth().generateVerifyAndChangeEmailLink(
         currentEmail,
         newEmail,
-        { url: "https://showme-production.web.app/login" },
+        { url: `${APP_BASE_URL}/login` },
       );
     } catch (err) {
       logger.error("generateVerifyAndChangeEmailLink failed", {

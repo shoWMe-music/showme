@@ -4,6 +4,7 @@ import * as logger from "firebase-functions/logger";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { sendMail, BREVO_API_KEY } from "./mail";
 import { otpEmail, invitationEmail } from "./emailTemplates";
+import { APP_BASE_URL } from "./appBaseUrl";
 
 const db = () => getFirestore();
 
@@ -15,8 +16,6 @@ async function emailIsAlreadyRegistered(email: string): Promise<boolean> {
     return false;
   }
 }
-
-const APP_BASE_URL = process.env.APP_BASE_URL || "https://showme-production.web.app";
 
 // Alphabet without ambiguous characters: 0/O, 1/I/L
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";

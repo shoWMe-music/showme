@@ -4,8 +4,7 @@ import { onDocumentCreated } from "firebase-functions/v2/firestore";
 
 import { sendMail, BREVO_API_KEY } from "./mail";
 import { profileAdminInviteEmail } from "./emailTemplates";
-
-const APP_BASE_URL = process.env.APP_BASE_URL || "https://showme-production.web.app";
+import { APP_BASE_URL } from "./appBaseUrl";
 
 async function resolveActorName(uid: string): Promise<string> {
   if (!uid) return "Someone";

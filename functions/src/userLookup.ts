@@ -5,8 +5,7 @@ import { FieldValue } from "firebase-admin/firestore";
 
 import { sendMail, BREVO_API_KEY } from "./mail";
 import { eventCollaboratorInviteEmail } from "./emailTemplates";
-
-const APP_BASE_URL = process.env.APP_BASE_URL || "https://showme-production.web.app";
+import { APP_BASE_URL } from "./appBaseUrl";
 
 const db = () => admin.firestore();
 
