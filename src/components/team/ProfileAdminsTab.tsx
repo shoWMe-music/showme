@@ -35,7 +35,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { BlockingProgressDialog } from "@/components/BlockingProgressDialog";
 import { toast } from "@/hooks/use-toast";
-import { Check, Crown, Edit2, Mail, Plus, Trash2, UserCheck, Users, X } from "lucide-react";
+import { Check, Crown, Edit2, LogOut, Mail, Plus, Trash2, UserCheck, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const ROLE_LABELS = { owner: "Owner", admin: "Admin", editor: "Editor" } as const;
@@ -183,17 +183,23 @@ export function ProfileAdminsTab() {
   };
 
   const handleRemove = async (profileId: string, memberUid: string) => {
-    setBlockingLabel("Removing member…");
+    const isSelf = !!user?.uid && memberUid === user.uid;
+    setBlockingLabel(isSelf ? "Leaving profile…" : "Removing member…");
     try {
       await removeProfileMember(profileId, memberUid);
       if (user?.uid) {
         await queryClient.invalidateQueries({ queryKey: queryKeys.events(user.uid) });
+        if (isSelf) {
+          // Self-removal drops the profile from the user's accessible set —
+          // refresh the profiles query so the list and slot Record re-sync.
+          await queryClient.invalidateQueries({ queryKey: queryKeys.profiles(user.uid) });
+        }
       }
-      toast({ title: "Member removed" });
+      toast({ title: isSelf ? "You left the profile" : "Member removed" });
       refreshProfile(profileId);
     } catch (err) {
       toast({
-        title: "Could not remove member",
+        title: isSelf ? "Could not leave profile" : "Could not remove member",
         description: err instanceof Error ? err.message : "Unknown error",
         variant: "destructive",
       });
@@ -619,6 +625,39 @@ export function ProfileAdminsTab() {
                                       className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                     >
                                       Remove
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </>
+                          ) : m.uid === user?.uid && m.role !== "owner" ? (
+                            <>
+                              <span className={cn(
+                                "inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full",
+                                ROLE_COLORS[m.role],
+                              )}>
+                                {ROLE_LABELS[m.role]}
+                              </span>
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
+                                    <LogOut className="h-3.5 w-3.5" /> Leave
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Leave {profile.name ?? slot}?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      You will lose access to this profile and any events linked to it. The profile owner will need to re-invite you to restore access.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={() => handleRemove(profileId, m.uid)}
+                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    >
+                                      Leave profile
                                     </AlertDialogAction>
                                   </AlertDialogFooter>
                                 </AlertDialogContent>

@@ -351,7 +351,9 @@ export const removeProfileMember = onCall<
     const ownerUid =
       typeof profile.owner_uid === "string" ? profile.owner_uid : "";
 
-    let authorized = ownerUid === uid;
+    // Self-removal is always allowed for non-owner members. The owner check
+    // below still blocks owners from removing themselves.
+    let authorized = ownerUid === uid || uid === memberUid;
     if (!authorized) {
       const callerMemberSnap = await profileRef
         .collection("members")
@@ -422,6 +424,7 @@ export const removeProfileMember = onCall<
           // best-effort
         }
 
+        const isSelfRemoval = uid === memberUid;
         const now = new Date().toISOString();
         const batch = db.batch();
         for (const recipientUid of recipients) {
@@ -429,14 +432,22 @@ export const removeProfileMember = onCall<
             .collection("users").doc(recipientUid)
             .collection("notifications").doc();
           const isRemoved = recipientUid === memberUid;
+          let title: string;
+          let body: string;
+          if (isSelfRemoval) {
+            title = `${actorName} left ${profileName}`;
+            body = `${actorName} removed themselves from ${profileName}.`;
+          } else if (isRemoved) {
+            title = `You were removed from ${profileName}`;
+            body = `${actorName} removed your access to ${profileName}.`;
+          } else {
+            title = `Member removed from ${profileName}`;
+            body = `${actorName} removed a member from ${profileName}.`;
+          }
           batch.set(ref, {
             type: "profile_member_removed",
-            title: isRemoved
-              ? `You were removed from ${profileName}`
-              : `Member removed from ${profileName}`,
-            body: isRemoved
-              ? `${actorName} removed your access to ${profileName}.`
-              : `${actorName} removed a member from ${profileName}.`,
+            title,
+            body,
             actorName,
             actorUid: uid,
             read: false,
