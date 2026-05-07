@@ -1,4 +1,5 @@
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 // bcryptjs (pure JS) is used over native bcrypt to avoid build issues in the Cloud Functions runtime.
@@ -23,9 +24,17 @@ export {
 export { setCollaboratorInvitePassword } from "./collaboratorInvitePassword";
 export { onProfileInviteCreated } from "./profileInvites";
 export { onProfileMemberWritten } from "./profileMembers";
+export { onProfileMemberClaimsSync } from "./profileClaims";
+export {
+  acceptProfileInvite,
+  declineProfileInvite,
+  removeProfileMember,
+  setProfileMemberRole,
+} from "./profileMembership";
 export { lookupUserForInvite, addExistingUserAsCollaborator } from "./userLookup";
 export { submitPublicShareComment } from "./publicShares";
 export {
+  onEventCreated,
   onEventUpdated,
   onDealUpdated,
   onRevenueUpdated,
@@ -88,7 +97,7 @@ export const joinEventAsCollaborator = onCall<
     }
     const eventRole = (typeof inv.eventRole === "string" && inv.eventRole) || "staff";
     await db.collection("events").doc(eventId).update({
-      participant_uids: admin.firestore.FieldValue.arrayUnion(uid),
+      participant_uids: FieldValue.arrayUnion(uid),
       [`participant_roles.${uid}`]: eventRole,
     });
     return { ok: true, eventId };

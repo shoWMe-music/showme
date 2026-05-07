@@ -1,4 +1,5 @@
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import {
   onDocumentWritten,
@@ -138,6 +139,46 @@ async function notifyProfile(
   }
   await batch.commit();
 }
+
+// ── Event creation ───────────────────────────────────────────────────────────
+
+/**
+ * Fans an "event_created" notification out to every member of every profile
+ * tied to a freshly-created event (host + performer + collaborators), minus
+ * the actor. Profile owners receive this via the same members-subcollection
+ * fanout as everyone else — owners have a `members/{ownerUid}` doc with
+ * role=owner, so `collectMemberUids` picks them up.
+ *
+ * `onEventUpdated` early-returns when `before` is missing, so without this
+ * trigger nobody is notified about a new event until something changes on it.
+ */
+export const onEventCreated = onDocumentCreated(
+  { document: "events/{eventId}", region: "europe-west1" },
+  async (event) => {
+    const after = event.data?.data();
+    if (!after) return;
+
+    const eventId = event.params.eventId;
+    const actorUid: string =
+      (typeof after._lastUpdatedBy === "string" && after._lastUpdatedBy) ||
+      (typeof after.owner_uid === "string" && after.owner_uid) ||
+      "";
+    if (!actorUid) return;
+
+    const eventName = (typeof after.name === "string" && after.name) || "Event";
+    const dateLabel = (typeof after.date === "string" && after.date) || "TBD";
+    const venueLabel = (typeof after.venue === "string" && after.venue) || "";
+
+    await notifyEventProfiles(eventId, actorUid, {
+      type: "event_created",
+      title: "New event created",
+      body: venueLabel
+        ? `"${eventName}" on ${dateLabel} at ${venueLabel}`
+        : `"${eventName}" on ${dateLabel}`,
+      eventName,
+    });
+  },
+);
 
 // ── Event status & details ───────────────────────────────────────────────────
 
@@ -828,7 +869,7 @@ async function relayChildDateChangeResponse(
     batch.set(
       parentMetaRef,
       {
-        pendingDateChange: admin.firestore.FieldValue.delete(),
+        pendingDateChange: FieldValue.delete(),
         _lastUpdatedBy: actorUidFromConfirmation(responder),
       },
       { merge: true },
@@ -847,7 +888,7 @@ async function relayChildDateChangeResponse(
       batch.set(
         db().doc(`events/${cid}/meta/main`),
         {
-          pendingDateChange: admin.firestore.FieldValue.delete(),
+          pendingDateChange: FieldValue.delete(),
           _lastUpdatedBy: actorUidFromConfirmation(responder),
         },
         { merge: true },
@@ -869,7 +910,7 @@ async function relayChildDateChangeResponse(
       details,
       ...(actorUidFromConfirmation(responder) ? { actorUid: actorUidFromConfirmation(responder) } : {}),
       timestamp: new Date().toISOString(),
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
     });
 
     await batch.commit();
@@ -914,7 +955,7 @@ async function relayChildDateChangeResponse(
     details: isDecline ? { declinedBy: profileName } : { confirmedBy: profileName },
     ...(actorUidFromConfirmation(responder) ? { actorUid: actorUidFromConfirmation(responder) } : {}),
     timestamp: new Date().toISOString(),
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdAt: FieldValue.serverTimestamp(),
   });
 
   await batch.commit();

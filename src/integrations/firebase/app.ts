@@ -43,7 +43,7 @@ export function getFirestoreDb(): Firestore {
   });
 
   if (shouldConnectFirebaseEmulators() && !firestoreEmulatorConnected) {
-    const host = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST ?? "127.0.0.1";
+    const host = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST ?? "localhost";
     const port = Number(import.meta.env.VITE_FIRESTORE_EMULATOR_PORT ?? "8090");
     connectFirestoreEmulator(db, host, port);
     firestoreEmulatorConnected = true;
@@ -57,7 +57,7 @@ export function getFirebaseStorage(): FirebaseStorage {
   const storage = getStorage(getFirebaseApp());
 
   if (shouldConnectFirebaseEmulators() && !storageEmulatorConnected) {
-    const host = import.meta.env.VITE_STORAGE_EMULATOR_HOST ?? "127.0.0.1";
+    const host = import.meta.env.VITE_STORAGE_EMULATOR_HOST ?? "localhost";
     const port = Number(import.meta.env.VITE_STORAGE_EMULATOR_PORT ?? "9199");
     connectStorageEmulator(storage, host, port);
     storageEmulatorConnected = true;
@@ -70,7 +70,7 @@ export function getFirebaseFunctions(): Functions {
   const f = getFunctions(getFirebaseApp(), "europe-west1");
 
   if (shouldConnectFirebaseEmulators() && !functionsEmulatorConnected) {
-    const host = import.meta.env.VITE_FUNCTIONS_EMULATOR_HOST ?? "127.0.0.1";
+    const host = import.meta.env.VITE_FUNCTIONS_EMULATOR_HOST ?? "localhost";
     const port = Number(import.meta.env.VITE_FUNCTIONS_EMULATOR_PORT ?? "5001");
     connectFunctionsEmulator(f, host, port);
     functionsEmulatorConnected = true;

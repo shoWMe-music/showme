@@ -13,7 +13,7 @@ export function getAuthClient(): Auth {
     if (shouldConnectFirebaseEmulators() && !authEmulatorConnected) {
       const url =
         import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_URL ??
-        "http://127.0.0.1:9099";
+        "http://localhost:9099";
       connectAuthEmulator(cached, url, { disableWarnings: true });
       authEmulatorConnected = true;
     }

@@ -144,7 +144,10 @@ const landingRoute = createRoute({
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
-  validateSearch: (raw: Record<string, unknown>) => parseRedirectSearch(raw),
+  validateSearch: (raw: Record<string, unknown>) => ({
+    ...parseRedirectSearch(raw),
+    reason: parseOptionalString(raw, "reason"),
+  }),
   component: LoginPage,
   staticData: {
     meta: {

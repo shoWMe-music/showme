@@ -1,4 +1,5 @@
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 
@@ -12,7 +13,7 @@ const db = () => admin.firestore();
  * Used by the profile-member trigger and the admin backfill. Recomputing on
  * every change is symmetric across create/delete and self-heals any drift.
  */
-async function computeEventAccessUids(
+export async function computeEventAccessUids(
   eventId: string,
   ev: FirebaseFirestore.DocumentData,
 ): Promise<string[]> {
@@ -76,7 +77,7 @@ async function computeEventAccessUids(
   return Array.from(uids);
 }
 
-async function recomputeAccessUidsForEvents(profileId: string): Promise<number> {
+export async function recomputeAccessUidsForEvents(profileId: string): Promise<number> {
   if (!profileId) return 0;
   const evSnap = await db()
     .collection("events")
@@ -100,7 +101,7 @@ async function recomputeAccessUidsForEvents(profileId: string): Promise<number> 
       try {
         await d.ref.update({
           accessUids: next,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
         });
         updated += 1;
       } catch (err) {

@@ -9,16 +9,18 @@ import { useToast } from "@/hooks/use-toast";
 import logo from "@/assets/showme-logo.png";
 import { getAuthClient } from "@/lib/firebaseAuth";
 import { getFirebaseAuthErrorMessage } from "@/lib/firebaseAuthErrors";
-import { Loader2 } from "lucide-react";
+import { Clock, Loader2, X } from "lucide-react";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
   const navigate = useNavigate();
-  const { redirect } = useSearch({ from: "/login" });
+  const { redirect, reason } = useSearch({ from: "/login" });
   const { toast } = useToast();
+  const showIdleBanner = reason === "idle" && !dismissed;
 
   const handleGoogleSignIn = async () => {
     setGoogleLoading(true);
@@ -63,6 +65,22 @@ export default function LoginPage() {
           <CardDescription>Sign in to your account</CardDescription>
         </CardHeader>
         <CardContent>
+          {showIdleBanner && (
+            <div className="rounded-md p-3 mb-4 bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-2">
+              <Clock className="h-4 w-4 mt-0.5 shrink-0" />
+              <p className="text-sm flex-1">
+                You were signed out after one hour of inactivity. Sign in again to continue.
+              </p>
+              <button
+                type="button"
+                onClick={() => setDismissed(true)}
+                aria-label="Dismiss"
+                className="text-amber-900/70 hover:text-amber-900 shrink-0"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>

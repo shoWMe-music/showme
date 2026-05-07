@@ -1,4 +1,5 @@
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { randomUUID } from "node:crypto";
@@ -133,7 +134,7 @@ export const submitPublicShareComment = onCall<
       const comments = Array.isArray(data.comments) ? data.comments : [];
       tx.update(settlementRef, {
         comments: [...comments, newComment],
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       });
     });
 
@@ -146,7 +147,7 @@ export const submitPublicShareComment = onCall<
         via: "public_share",
         token,
         details: { party: reviewerName.trim(), attachmentCount: stored.length },
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
       });
     } catch (err) {
       logger.warn("submitPublicShareComment: failed to write activity", { err: String(err) });
@@ -169,7 +170,7 @@ export const submitPublicShareComment = onCall<
               revenue: revenueSnap.data(),
               settlement: refreshedSettlementSnap.data(),
             },
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
           },
           { merge: true },
         );
