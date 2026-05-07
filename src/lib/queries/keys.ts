@@ -31,6 +31,7 @@ export const queryKeys = {
   userSettings: (uid: string) => ["userSettings", uid] as const,
   profiles: (uid: string) => ["profiles", uid] as const,
   pendingProfileInvites: (email: string) => ["pendingProfileInvites", email] as const,
+  profileMembers: (profileId: string) => ["profileMembers", profileId] as const,
   teamMembers: (uid: string) => ["teamMembers", uid] as const,
 
   // ── Budget domain ────────────────────────────────────────────────────────
@@ -52,6 +53,10 @@ export const queryKeys = {
 
   // Event activity log
   eventActivity: (eventId: string) => ["eventActivity", eventId] as const,
+
+  // Single event by id — direct doc-fetch fallback when the events list cache
+  // hasn't picked up a freshly-created event yet.
+  eventDoc: (eventId: string) => ["eventDoc", eventId] as const,
 
   // ── Invitation codes ────────────────────────────────────────────────────
   invitationCode: (code: string) => ["invitationCode", code] as const,

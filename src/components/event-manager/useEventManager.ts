@@ -7,7 +7,7 @@ import {
 } from "@/lib/queries/useEventMutations";
 import {
   useEventEconomics, useAllEventEconomics, useUpdateSettlementStatus, useAddComment,
-  useEvents, useEventsLoaded, useEvent, useChildEvents,
+  useEvents, useEventsLoaded, useEventWithFallback, useChildEvents,
   useUpdateDeal, useUpdateRevenue, useUpdateAnyEventMeta,
   useEventActivityLog,
   useAllProfiles,
@@ -39,7 +39,12 @@ export function useEventManager() {
 
   const allEventsMain = useEvents();
   const eventsLoaded = useEventsLoaded();
-  const event = useEvent(id ?? "");
+  // Use the fallback variant: if `id` isn't in the events list cache yet (a
+  // common race when the user clicks a freshly-arrived `event_created`
+  // notification), this issues a direct doc fetch so the page can still
+  // render the event instead of showing "Event not found".
+  const { event: eventFromQueries, isLoading: eventLoading } = useEventWithFallback(id ?? "");
+  const event = eventFromQueries;
   const childEventsList = useChildEvents(id ?? "");
   const childEconomics = useAllEventEconomics(childEventsList.map((c) => c.id));
   const updateEventMutation = useUpdateEvent();
@@ -306,7 +311,7 @@ export function useEventManager() {
   }, [eventsLoaded, id, getAllowedTabs, tabParam, navigate]);
 
   return {
-    id, navigate, eventsLoaded, event, isParent, isChild, isPerformer, isPerformerInvitation, parentEvent, childEvents, childEconomics,
+    id, navigate, eventsLoaded, eventLoading, event, isParent, isChild, isPerformer, isPerformerInvitation, parentEvent, childEvents, childEconomics,
     collaborators, setCollaborators, refreshCollaborators, eventCurrency, setEventCurrency,
     economicsLoaded, eventMeta, effectiveDeal, revenue, settlement,
     todoBudgetItems, budgetProfileChoices, resolvedBudgetProfileId, canAccessBudget,

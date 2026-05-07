@@ -10,7 +10,7 @@ import { useQuery, useInfiniteQuery, useQueryClient, keepPreviousData } from "@t
 import type { QueryDocumentSnapshot } from "firebase/firestore";
 
 import { useAuth } from "@/lib/auth-context";
-import { fetchEvents, fetchEventPage, fetchEventsInRange, fetchShowDayEvents, upsertEvent, type EventPageFilters } from "@/lib/db";
+import { fetchEvents, fetchEventById, fetchEventPage, fetchEventsInRange, fetchShowDayEvents, upsertEvent, type EventPageFilters } from "@/lib/db";
 import type { Event } from "@/lib/models";
 import { todayLocalIso, UNCONFIRMED_STATUSES } from "@/lib/eventLifecycle";
 import { queryKeys } from "./keys";
@@ -58,6 +58,31 @@ export function useEventsLoaded(): boolean {
 export function useEvent(id: string): Event | undefined {
   const events = useEvents();
   return events.find((e) => e.id === id);
+}
+
+/**
+ * Read an event by id from the events-list cache, with a direct doc-fetch
+ * fallback when it's missing. Covers the window between a freshly-created
+ * event being committed and the recipient's events query catching up — e.g.
+ * a recipient clicking an `event_created` notification before the debounced
+ * notification invalidator has flushed. Returns `{ event, isLoading }`:
+ *   - cached hit ⇒ `{ event, isLoading: false }` (fallback query is disabled)
+ *   - cache miss + fetching the doc ⇒ `{ event: undefined, isLoading: true }`
+ *   - cache miss + doc fetched (or 404) ⇒ `{ event, isLoading: false }`
+ */
+export function useEventWithFallback(id: string): { event: Event | undefined; isLoading: boolean } {
+  const cached = useEvent(id);
+  const eventsLoaded = useEventsLoaded();
+  const fallback = useQuery<Event | null>({
+    queryKey: queryKeys.eventDoc(id),
+    enabled: !!id && eventsLoaded && !cached,
+    staleTime: 60 * 1000,
+    queryFn: () => fetchEventById(id),
+  });
+
+  if (cached) return { event: cached, isLoading: false };
+  if (!eventsLoaded) return { event: undefined, isLoading: true };
+  return { event: fallback.data ?? undefined, isLoading: fallback.isLoading };
 }
 
 export function useChildEvents(parentId: string): Event[] {

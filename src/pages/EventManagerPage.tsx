@@ -95,7 +95,7 @@ export default function EventManagerPage() {
     return [{ artist: em.event.artist || "Performer", fee: em.effectiveDeal?.artistGuarantee ?? 0 }];
   }, [em.isParent, em.event?.artist, em.effectiveDeal?.artistGuarantee]);
 
-  if (!em.eventsLoaded) return <EventManagerSkeleton />;
+  if (!em.eventsLoaded || em.eventLoading) return <EventManagerSkeleton />;
   if (!em.event) {
     return (
       <AppLayout>

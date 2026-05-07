@@ -16,6 +16,7 @@ export {
   useCalendarEvents,
   useShowDayEvents,
   useEvent,
+  useEventWithFallback,
   useChildEvents,
   useAutoConcludeEvents,
 } from "./useEventsQuery";

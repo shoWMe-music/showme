@@ -22,7 +22,8 @@ import {
 import type { QueryDocumentSnapshot } from "firebase/firestore";
 
 import type { DocumentReference, SetOptions } from "firebase/firestore";
-import { getFirestoreDb } from "@/integrations/firebase/app";
+import { httpsCallable } from "firebase/functions";
+import { getFirebaseFunctions, getFirestoreDb } from "@/integrations/firebase/app";
 
 /** Wrapper around setDoc that strips `undefined` values (Firestore rejects them). */
 function cleanData(data: Record<string, unknown>): Record<string, unknown> {
@@ -592,17 +593,31 @@ export async function setProfileMemberRole(
   memberUid: string,
   role: "admin" | "editor",
 ) {
-  await safeSetDoc(
-    doc(getFirestoreDb(), PROFILE_COLLECTION, profileId, PROFILE_MEMBERS_SUBCOLLECTION, memberUid),
-    { role, updatedAt: serverTimestamp() },
-    { merge: true },
-  );
+  type SetRoleResponse = { ok: true };
+  const fn = httpsCallable<
+    { profileId: string; memberUid: string; role: "admin" | "editor" },
+    SetRoleResponse
+  >(getFirebaseFunctions(), "setProfileMemberRole");
+  try {
+    await fn({ profileId, memberUid, role });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to update member role";
+    throw new Error(message);
+  }
 }
 
 export async function removeProfileMember(profileId: string, memberUid: string) {
-  await deleteDoc(
-    doc(getFirestoreDb(), PROFILE_COLLECTION, profileId, PROFILE_MEMBERS_SUBCOLLECTION, memberUid),
+  type RemoveMemberResponse = { ok: true; eventsUpdated: number };
+  const fn = httpsCallable<{ profileId: string; memberUid: string }, RemoveMemberResponse>(
+    getFirebaseFunctions(),
+    "removeProfileMember",
   );
+  try {
+    await fn({ profileId, memberUid });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to remove profile member";
+    throw new Error(message);
+  }
 }
 
 export async function inviteProfileAdmin(
@@ -656,37 +671,52 @@ export async function fetchPendingProfileInvitesForEmail(
 }
 
 /**
- * Accept a single profile invite: creates the member doc (self-claim rule
- * requires the invite to still exist) and then deletes the invite.
+ * Accept a single profile invite via the `acceptProfileInvite` callable. The
+ * server creates the member doc, deletes the invite, and reconciles
+ * `accessUids` on every event whose `accessProfileIds` includes the profile
+ * before returning.
  */
 export async function acceptProfileInvite(
   invite: import("@/lib/profiles").ProfileInviteRecord,
-  displayName: string,
+  _displayName: string,
 ): Promise<void> {
-  const uid = requireUid();
-  const normalizedEmail = invite.email.toLowerCase().trim();
-  await safeSetDoc(
-    doc(getFirestoreDb(), PROFILE_COLLECTION, invite.profileId, PROFILE_MEMBERS_SUBCOLLECTION, uid),
-    {
-      user_uid: uid,
-      role: invite.role,
-      email: normalizedEmail,
-      displayName,
-      schemaVersion: 1,
-      updatedAt: serverTimestamp(),
-    },
+  void _displayName;
+  if (!invite.id) {
+    throw new Error("Profile invite is missing an id");
+  }
+  type AcceptInviteResponse = { ok: true; profileId: string; eventsUpdated: number };
+  const fn = httpsCallable<{ inviteId: string }, AcceptInviteResponse>(
+    getFirebaseFunctions(),
+    "acceptProfileInvite",
   );
-  if (invite.id) {
-    await deleteDoc(doc(getFirestoreDb(), PROFILE_INVITES, invite.id));
+  try {
+    await fn({ inviteId: invite.id });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to accept profile invite";
+    throw new Error(message);
   }
 }
 
-/** Decline a single profile invite by deleting the invite doc. */
+/**
+ * Decline a single profile invite. Calls a Cloud Function so the inviter and
+ * profile owner get a `profile_invite_declined` notification before the
+ * invite doc is deleted.
+ */
 export async function declineProfileInvite(
   invite: import("@/lib/profiles").ProfileInviteRecord,
 ): Promise<void> {
   if (!invite.id) return;
-  await deleteDoc(doc(getFirestoreDb(), PROFILE_INVITES, invite.id));
+  type DeclineInviteResponse = { ok: true };
+  const fn = httpsCallable<{ inviteId: string }, DeclineInviteResponse>(
+    getFirebaseFunctions(),
+    "declineProfileInvite",
+  );
+  try {
+    await fn({ inviteId: invite.id });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to decline profile invite";
+    throw new Error(message);
+  }
 }
 
 // ── Profile Templates ─────────────────────────────────────────────────────────
@@ -1317,6 +1347,24 @@ export async function fetchPublicEvent(id: string): Promise<Event | null> {
     if (!snap.exists()) return null;
     const ev = eventRowToEvent({ id: snap.id, ...snap.data() });
     return ev.archived ? null : ev;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Direct event-doc fetch for authenticated users. Used as a fallback when the
+ * events-list cache hasn't yet picked up a freshly-created event (e.g. when a
+ * recipient clicks an `event_created` notification before the debounced
+ * invalidator has flushed). Read is gated by the events read rule; rule
+ * rejection surfaces as `null`.
+ */
+export async function fetchEventById(id: string): Promise<Event | null> {
+  if (!id) return null;
+  try {
+    const snap = await getDoc(eventDoc(id));
+    if (!snap.exists()) return null;
+    return eventRowToEvent({ id: snap.id, ...snap.data() });
   } catch {
     return null;
   }
