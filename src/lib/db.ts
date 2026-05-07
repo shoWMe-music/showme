@@ -2115,6 +2115,37 @@ export async function fetchContacts(): Promise<Contact[]> {
   });
 }
 
+/**
+ * Direct contact-doc fetch. Mirrors fetchEventById — single-doc fallback when
+ * the contacts-list cache hasn't yet caught up to a fresh write. Returns null
+ * for missing/inaccessible docs (e.g. unauthenticated, rule rejection).
+ */
+export async function fetchContactById(id: string): Promise<Contact | null> {
+  if (!id) return null;
+  const uid = getAuthClient().currentUser?.uid;
+  if (!uid) return null;
+  try {
+    const snap = await getDoc(userDataDoc(uid, "contacts", id));
+    if (!snap.exists()) return null;
+    const r = snap.data() as Record<string, unknown>;
+    return {
+      id: snap.id,
+      name: r.name as string,
+      type: r.type as string,
+      contacts: Array.isArray(r.contacts) ? r.contacts : [],
+      iban: r.iban as string | undefined,
+      bankName: r.bankName as string | undefined,
+      vatId: r.vatId as string | undefined,
+      address: r.address as string | undefined,
+      notes: r.notes as string | undefined,
+      invitationCode: r.invitationCode as string | undefined,
+      invitationStatus: r.invitationStatus as Contact["invitationStatus"],
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function upsertContact(contact: Contact) {
   const uid = requireUid();
   await safeSetDoc(

@@ -3,11 +3,10 @@ import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import AppSidebar from "./AppSidebar";
 import { TopBreadcrumbBar } from "./TopBreadcrumb";
-import { useNotifications, useContacts, queryKeys } from "@/lib/queries";
+import { useNotifications, queryKeys } from "@/lib/queries";
 import { useAuth } from "@/lib/auth-context";
 import { useNotificationInvalidator } from "@/lib/queries/useNotificationInvalidator";
 import { resolveNotificationTarget } from "@/components/notifications/notificationLinks";
-import { toast } from "@/hooks/use-toast";
 import {
   Bell,
   Calendar,
@@ -74,10 +73,9 @@ function timeAgo(iso: string): string {
 }
 
 export default function AppLayout({ children }: { children: ReactNode }) {
-  const { notifications, unreadCount, markRead, markAllRead, remove } = useNotifications();
+  const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
   useNotificationInvalidator(notifications);
   const navigate = useNavigate();
-  const contacts = useContacts();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const uid = user?.uid ?? "";
@@ -93,25 +91,16 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   /**
    * Click handler for a notification row. Marks the notification read and
-   * routes to the resolved target. Event notifications skip the cache check
-   * entirely — many notification types signal a *new* visibility (event_created,
-   * event_invitation, status_changed, accessUids change, etc.), and the cache
-   * can't tell "not yet refetched" from "actually deleted". EventManagerPage
-   * does its own direct doc-fetch fallback, so missing docs surface as a
-   * proper "Event not found" page rather than a misleading "deleted" toast.
+   * routes to the resolved target. We don't gate on cache existence — many
+   * notification types signal a *new* visibility (event_created, invitation,
+   * status_changed, accessUids change, etc.), and the cache can't tell "not
+   * yet refetched" from "actually deleted". Destination pages do their own
+   * direct doc-fetch fallback, so missing docs surface as a proper "not
+   * found" page rather than a misleading "deleted" toast.
    */
   const handleNotificationClick = (n: AppNotification) => {
     void markRead(n);
     const target = resolveNotificationTarget(n);
-
-    if (target.kind === "contact") {
-      const exists = contacts.some((c) => c.id === target.params.id);
-      if (!exists) {
-        toast({ title: "This notification points to a deleted item." });
-        void remove(n);
-        return;
-      }
-    }
 
     // Discriminated dispatch — TanStack Router needs the literal `to` path
     // alongside its `params`/`search` to actually match a parameterized route.
@@ -129,6 +118,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         ...(target.search ? { search: target.search } : {}),
       });
     } else if (target.kind === "contact") {
+      // Same race as events — kick a refetch so ContactDetailPage doesn't
+      // mount against a stale cache.
+      if (uid) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.contacts(uid) });
+      }
       void navigate({ to: target.to, params: target.params });
     } else if (target.kind === "profile-public") {
       void navigate({ to: target.to, params: target.params });

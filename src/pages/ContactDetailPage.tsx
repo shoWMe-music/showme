@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "@tanstack/react-router";
 import AppLayout from "@/components/AppLayout";
 import CreateContactDialog from "@/components/CreateContactDialog";
 import StatusBadge from "@/components/StatusBadge";
-import { useContact, useEvents, useUpdateContact, useDeleteContact, useAllEventEconomics, useEventsLoaded, useContactsLoaded } from "@/lib/queries";
+import { useContactWithFallback, useEvents, useUpdateContact, useDeleteContact, useAllEventEconomics, useEventsLoaded, useContactsLoaded } from "@/lib/queries";
 import { useMyInvitationCodes } from "@/lib/queries/useInvitationCodes";
 import type { InvitationCode } from "@/lib/db";
 import { Contact, contactTypeLabels, formatCurrency } from "@/lib/models";
@@ -34,7 +34,7 @@ export default function ContactDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
 
   const dataLoaded = useEventsLoaded() && useContactsLoaded();
-  const contact = useContact(id || "");
+  const { contact, isLoading: contactLoading } = useContactWithFallback(id || "");
   const events = useEvents();
   const { data: invitationCodes } = useMyInvitationCodes();
 
@@ -65,8 +65,8 @@ export default function ContactDetailPage() {
   const linkedEventIds = useMemo(() => linkedEvents.map(e => e.id), [linkedEvents]);
   const economicsMap = useAllEventEconomics(linkedEventIds);
 
-  if (!dataLoaded || !contact) {
-    if (dataLoaded && !contact) {
+  if (!dataLoaded || contactLoading || !contact) {
+    if (dataLoaded && !contactLoading && !contact) {
       return (
         <AppLayout>
           <div className="text-center py-20">

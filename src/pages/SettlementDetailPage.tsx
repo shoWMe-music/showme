@@ -3,7 +3,7 @@ import AppLayout from "@/components/AppLayout";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft } from "lucide-react";
 import { useMemo } from "react";
-import { useEvent, useEventEconomics, useUpdateSettlementStatus, useAddComment, useUpdateRevenue, useEventsLoaded, useChildEvents, useAllProfiles } from "@/lib/queries";
+import { useEventWithFallback, useEventEconomics, useUpdateSettlementStatus, useAddComment, useUpdateRevenue, useEventsLoaded, useChildEvents, useAllProfiles } from "@/lib/queries";
 import { upsertShareToken } from "@/lib/db";
 import { useUser } from "@/lib/user-context";
 import { SettlementWorkspace } from "@/components/settlements/SettlementWorkspace";
@@ -17,7 +17,7 @@ export default function SettlementDetailPage() {
   const { currentUser } = useUser();
   const allProfiles = useAllProfiles();
 
-  const event = useEvent(id);
+  const { event, isLoading: eventLoading } = useEventWithFallback(id);
   const { isLoaded, deal, revenue, settlement } = useEventEconomics(id);
   const childEvents = useChildEvents(id);
   const viewerIsPerformer = useMemo(
@@ -36,7 +36,7 @@ export default function SettlementDetailPage() {
     return `${window.location.origin}/review/${token}`;
   };
 
-  if (!eventsLoaded || !isLoaded) {
+  if (!eventsLoaded || eventLoading || !isLoaded) {
     return (
       <AppLayout>
         <div className="animate-fade-in space-y-6">

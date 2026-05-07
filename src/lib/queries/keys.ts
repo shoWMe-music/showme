@@ -58,6 +58,9 @@ export const queryKeys = {
   // hasn't picked up a freshly-created event yet.
   eventDoc: (eventId: string) => ["eventDoc", eventId] as const,
 
+  // Single contact by id — same fallback pattern as eventDoc.
+  contactDoc: (contactId: string) => ["contactDoc", contactId] as const,
+
   // ── Invitation codes ────────────────────────────────────────────────────
   invitationCode: (code: string) => ["invitationCode", code] as const,
   myInvitationCodes: (uid: string) => ["myInvitationCodes", uid] as const,

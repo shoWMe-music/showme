@@ -71,10 +71,9 @@ useUser().profiles → slot Record (UI lookups only)
 useAllProfiles()   → flat array (access matching, performer detection, accessProfileIds membership)
 ```
 
-The four call sites that do access matching are pinned in `src/lib/db.fetchProfiles.test.ts` and use `useAllProfiles`:
+The call sites that do access matching are pinned in `src/lib/db.fetchProfiles.test.ts` and use `useAllProfiles`:
 
 - `src/lib/eventPermissions.ts` — `userIsEventPerformer(event, profiles[], childPerformerProfileIds[])`
-- `src/pages/EventDetailPage.tsx`
 - `src/pages/SettlementDetailPage.tsx`
 - `src/components/event-manager/useEventManager.ts` — exposes `allProfiles`
 

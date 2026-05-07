@@ -27,6 +27,7 @@ export {
   useContacts,
   useContactsLoaded,
   useContact,
+  useContactWithFallback,
   usePaginatedContacts,
 } from "./useContactsQuery";
 

@@ -8,7 +8,7 @@ import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import type { QueryDocumentSnapshot } from "firebase/firestore";
 
 import { useAuth } from "@/lib/auth-context";
-import { fetchContacts, fetchContactPage, type ContactPageFilters } from "@/lib/db";
+import { fetchContacts, fetchContactById, fetchContactPage, type ContactPageFilters } from "@/lib/db";
 import type { Contact } from "@/lib/models";
 import { queryKeys } from "./keys";
 
@@ -41,6 +41,30 @@ export function useContactsLoaded(): boolean {
 export function useContact(id: string): Contact | undefined {
   const contacts = useContacts();
   return contacts.find((c) => c.id === id);
+}
+
+/**
+ * Read a contact by id from the contacts-list cache, with a direct doc-fetch
+ * fallback when missing — same pattern as `useEventWithFallback`. Covers the
+ * window between a contact write being committed and the contacts query
+ * catching up. Returns `{ contact, isLoading }`:
+ *   - cached hit ⇒ `{ contact, isLoading: false }`
+ *   - cache miss + fetching the doc ⇒ `{ contact: undefined, isLoading: true }`
+ *   - cache miss + doc fetched (or 404) ⇒ `{ contact, isLoading: false }`
+ */
+export function useContactWithFallback(id: string): { contact: Contact | undefined; isLoading: boolean } {
+  const cached = useContact(id);
+  const contactsLoaded = useContactsLoaded();
+  const fallback = useQuery<Contact | null>({
+    queryKey: queryKeys.contactDoc(id),
+    enabled: !!id && contactsLoaded && !cached,
+    staleTime: 60 * 1000,
+    queryFn: () => fetchContactById(id),
+  });
+
+  if (cached) return { contact: cached, isLoading: false };
+  if (!contactsLoaded) return { contact: undefined, isLoading: true };
+  return { contact: fallback.data ?? undefined, isLoading: fallback.isLoading };
 }
 
 // ── Paginated query (for ContactsPage) ────────────────────────────────────────
