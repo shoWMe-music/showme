@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import AppSidebar from "./AppSidebar";
 import { TopBreadcrumbBar } from "./TopBreadcrumb";
-import { useNotifications, useEvents, useContacts, queryKeys } from "@/lib/queries";
+import { useNotifications, useContacts, queryKeys } from "@/lib/queries";
 import { useAuth } from "@/lib/auth-context";
 import { useNotificationInvalidator } from "@/lib/queries/useNotificationInvalidator";
 import { resolveNotificationTarget } from "@/components/notifications/notificationLinks";
@@ -77,7 +77,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const { notifications, unreadCount, markRead, markAllRead, remove } = useNotifications();
   useNotificationInvalidator(notifications);
   const navigate = useNavigate();
-  const events = useEvents();
   const contacts = useContacts();
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -93,32 +92,19 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   };
 
   /**
-   * Click handler for a notification row. Marks the notification read, then
-   * routes to the resolved target — but if the linked entity has been deleted
-   * (event/contact missing from cache), dismiss the notification with a toast
-   * instead of navigating into a 404.
+   * Click handler for a notification row. Marks the notification read and
+   * routes to the resolved target. Event notifications skip the cache check
+   * entirely — many notification types signal a *new* visibility (event_created,
+   * event_invitation, status_changed, accessUids change, etc.), and the cache
+   * can't tell "not yet refetched" from "actually deleted". EventManagerPage
+   * does its own direct doc-fetch fallback, so missing docs surface as a
+   * proper "Event not found" page rather than a misleading "deleted" toast.
    */
   const handleNotificationClick = (n: AppNotification) => {
     void markRead(n);
     const target = resolveNotificationTarget(n);
 
-    // Lightweight existence check: if the target points at an event or contact
-    // we already know about, ensure it's still in the cache. This catches the
-    // common "deleted item" case without an extra round-trip.
-    //
-    // Skip the check for `event_created` — that notification IS the recipient's
-    // first signal a new event exists; the events query is invalidated on the
-    // same tick but the refetch hasn't completed by the time the user clicks,
-    // so a cache-miss here is "not seen yet", not "deleted". The event-detail
-    // page handles missing-doc state on arrival.
-    if (target.kind === "event" && n.type !== "event_created") {
-      const exists = events.some((e) => e.id === target.params.id && !e.archived);
-      if (!exists) {
-        toast({ title: "This notification points to a deleted item." });
-        void remove(n);
-        return;
-      }
-    } else if (target.kind === "contact") {
+    if (target.kind === "contact") {
       const exists = contacts.some((c) => c.id === target.params.id);
       if (!exists) {
         toast({ title: "This notification points to a deleted item." });
