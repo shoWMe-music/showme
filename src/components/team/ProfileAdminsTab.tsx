@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useUser, getBaseRole } from "@/lib/user-context";
 import { useAuth } from "@/lib/auth-context";
@@ -16,7 +16,7 @@ import {
   type ProfileMemberInfo,
 } from "@/lib/db";
 import type { ProfileInviteRecord } from "@/lib/profiles";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys, useAllProfiles } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { BlockingProgressDialog } from "@/components/BlockingProgressDialog";
 import { toast } from "@/hooks/use-toast";
 import { Check, Crown, Edit2, Mail, Plus, Trash2, UserCheck, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -50,6 +51,11 @@ interface ProfileState {
   loading: boolean;
 }
 
+interface ProfileMembersAndInvites {
+  members: ProfileMemberInfo[];
+  invites: ProfileInviteRecord[];
+}
+
 interface InviteForm {
   email: string;
   role: "admin" | "editor";
@@ -60,6 +66,7 @@ export function ProfileAdminsTab() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [actingInviteId, setActingInviteId] = useState<string | null>(null);
+  const [blockingLabel, setBlockingLabel] = useState<string | null>(null);
 
   // Pending invites for this user's email — surfaced as accept/decline banners
   // at the top of the tab. Invalidated by useNotificationInvalidator on
@@ -100,7 +107,6 @@ export function ProfileAdminsTab() {
       return [displaySlot, p];
     });
 
-  const [profileState, setProfileState] = useState<Record<string, ProfileState>>({});
   const [inviteOpen, setInviteOpen] = useState<string | null>(null); // profileId
   const [inviteForm, setInviteForm] = useState<InviteForm>({ email: "", role: "admin" });
   const [inviting, setSaving] = useState(false);
@@ -112,59 +118,106 @@ export function ProfileAdminsTab() {
   const [deleteStage, setDeleteStage] = useState<{ slot: string; stage: 1 | 2 } | null>(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
 
-  const loadProfile = useCallback(async (profileId: string) => {
-    setProfileState((p) => ({ ...p, [profileId]: { members: [], invites: [], loading: true } }));
-    try {
-      const [members, invites] = await Promise.all([
-        fetchProfileMembers(profileId),
-        fetchProfileInvites(profileId),
-      ]);
-      setProfileState((p) => ({ ...p, [profileId]: { members, invites, loading: false } }));
-    } catch {
-      setProfileState((p) => ({ ...p, [profileId]: { members: [], invites: [], loading: false } }));
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!user) return;
-    // Owned profiles come from the slotted dict; shared profiles come straight
-    // from the flat array tuple — slot lookup against `profiles` would collide
-    // with an owned profile of the same role-type and load the wrong members.
+  // Members + invites for every profile this user can see, keyed by profileId.
+  // useNotificationInvalidator flushes ["profileMembers"] on profile_member_*
+  // notifications to refresh these without a manual refetch.
+  const allProfileIds = useMemo(() => {
+    const ids = new Set<string>();
     for (const [slot] of ownedProfiles) {
-      const profileId = profiles[slot]?.id;
-      if (profileId) loadProfile(profileId);
+      const id = profiles[slot]?.id;
+      if (id) ids.add(id);
     }
     for (const [, profile] of sharedProfiles) {
-      if (profile.id) loadProfile(profile.id);
+      if (profile.id) ids.add(profile.id);
     }
+    return Array.from(ids);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.uid, Object.keys(profiles).join(","), sharedProfiles.length]);
+  }, [Object.keys(profiles).join(","), sharedProfiles.length]);
+
+  const profileQueries = useQueries({
+    queries: allProfileIds.map((profileId) => ({
+      queryKey: queryKeys.profileMembers(profileId),
+      queryFn: async (): Promise<ProfileMembersAndInvites> => {
+        const [members, invites] = await Promise.all([
+          fetchProfileMembers(profileId),
+          fetchProfileInvites(profileId),
+        ]);
+        return { members, invites };
+      },
+      staleTime: 30_000,
+    })),
+  });
+
+  const profileState: Record<string, ProfileState> = {};
+  allProfileIds.forEach((profileId, i) => {
+    const q = profileQueries[i];
+    profileState[profileId] = {
+      members: q?.data?.members ?? [],
+      invites: q?.data?.invites ?? [],
+      loading: q?.isLoading ?? false,
+    };
+  });
+
+  const refreshProfile = useCallback(
+    (profileId: string) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.profileMembers(profileId) });
+    },
+    [queryClient],
+  );
 
   const handleChangeRole = async (profileId: string, memberUid: string, role: "admin" | "editor") => {
-    await setProfileMemberRole(profileId, memberUid, role);
-    toast({ title: "Role updated" });
-    loadProfile(profileId);
+    setBlockingLabel("Updating profile member…");
+    try {
+      await setProfileMemberRole(profileId, memberUid, role);
+      toast({ title: "Role updated" });
+      refreshProfile(profileId);
+    } catch (err) {
+      toast({
+        title: "Could not update role",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setBlockingLabel(null);
+    }
   };
 
   const handleRemove = async (profileId: string, memberUid: string) => {
-    await removeProfileMember(profileId, memberUid);
-    toast({ title: "Member removed" });
-    loadProfile(profileId);
+    setBlockingLabel("Removing member…");
+    try {
+      await removeProfileMember(profileId, memberUid);
+      if (user?.uid) {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.events(user.uid) });
+      }
+      toast({ title: "Member removed" });
+      refreshProfile(profileId);
+    } catch (err) {
+      toast({
+        title: "Could not remove member",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setBlockingLabel(null);
+    }
   };
 
   const handleInvite = async () => {
     if (!inviteOpen || !inviteForm.email.trim()) return;
     if (invitingRef.current) return;
-    const [slot, p] = ownedProfiles.find(([s]) => profiles[s]?.id === inviteOpen) ?? [];
-    if (!slot || !p) return;
+    // Owners and admins can both invite — look up the target profile across
+    // owned + shared via the flat `all` array.
+    const target = allProfiles.find((p) => p.id === inviteOpen);
+    if (!target) return;
+    const targetName = target.name ?? "the profile";
     invitingRef.current = true;
     setSaving(true);
     try {
-      await inviteProfileAdmin(inviteOpen, p.name ?? slot, inviteForm.email, inviteForm.role);
+      await inviteProfileAdmin(inviteOpen, targetName, inviteForm.email, inviteForm.role);
       toast({ title: "Invite sent", description: `${inviteForm.email} will get access when they next log in.` });
       setInviteOpen(null);
       setInviteForm({ email: "", role: "admin" });
-      loadProfile(inviteOpen);
+      refreshProfile(inviteOpen);
     } catch (err) {
       toast({ title: "Could not send invite", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
     } finally {
@@ -176,18 +229,22 @@ export function ProfileAdminsTab() {
   const handleCancelInvite = async (profileId: string, email: string) => {
     await cancelProfileInvite(profileId, email);
     toast({ title: "Invite cancelled" });
-    loadProfile(profileId);
+    refreshProfile(profileId);
   };
 
   const handleAcceptInvite = async (invite: ProfileInviteRecord) => {
     if (!invite.id) return;
     setActingInviteId(invite.id);
+    setBlockingLabel("Loading new profile data…");
     try {
       await acceptProfileInvite(invite, currentUser.name || myEmail);
       toast({ title: "Invite accepted", description: `You're now a${invite.role === "admin" ? "n admin" : "n editor"} of ${invite.profileName}.` });
       // Refresh both: pending invites disappears, profiles picks up the new membership.
       queryClient.invalidateQueries({ queryKey: queryKeys.pendingProfileInvites(myEmail) });
-      if (user?.uid) queryClient.invalidateQueries({ queryKey: queryKeys.profiles(user.uid) });
+      if (user?.uid) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.profiles(user.uid) });
+        await queryClient.invalidateQueries({ queryKey: queryKeys.events(user.uid) });
+      }
     } catch (err) {
       toast({
         title: "Could not accept invite",
@@ -196,6 +253,7 @@ export function ProfileAdminsTab() {
       });
     } finally {
       setActingInviteId(null);
+      setBlockingLabel(null);
     }
   };
 
@@ -473,7 +531,12 @@ export function ProfileAdminsTab() {
             const profileId = profile.id || "";
             const state = profileState[profileId];
             const myMember = state?.members.find((m) => m.uid === user?.uid);
-            const myRole = myMember?.role ?? "admin";
+            const myRole = myMember?.role;
+            // Admins on a shared profile can manage members (invite, remove,
+            // change roles) — same surface as the owner, minus profile delete
+            // and minus any control over the owner row. Server side enforces
+            // the same rules; this gate is purely UX.
+            const canManage = myRole === "admin";
             return (
               <div key={profileId || slot} className="rounded-xl border bg-card shadow-sm overflow-hidden">
                 <div className="flex items-center justify-between px-5 py-4 border-b bg-muted/30">
@@ -481,12 +544,22 @@ export function ProfileAdminsTab() {
                     <p className="font-semibold">{profile.name ?? slot}</p>
                     <p className="text-xs text-muted-foreground capitalize">{slot}</p>
                   </div>
-                  <span className={cn(
-                    "inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full",
-                    ROLE_COLORS[myRole],
-                  )}>
-                    You are an {ROLE_LABELS[myRole]}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {canManage && (
+                      <Button size="sm" variant="outline" className="gap-1.5"
+                        onClick={() => { setInviteOpen(profileId); setInviteForm({ email: "", role: "admin" }); }}>
+                        <Plus className="h-3.5 w-3.5" /> Invite
+                      </Button>
+                    )}
+                    {myRole && (
+                      <span className={cn(
+                        "inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full",
+                        ROLE_COLORS[myRole],
+                      )}>
+                        You are {myRole === "editor" ? "an" : myRole === "admin" ? "an" : "the"} {ROLE_LABELS[myRole]}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 {state?.loading ? (
                   <div className="px-5 py-4 space-y-3">
@@ -514,13 +587,72 @@ export function ProfileAdminsTab() {
                           </p>
                           {m.email && <p className="text-xs text-muted-foreground flex items-center gap-1"><Mail className="h-3 w-3" />{m.email}</p>}
                         </div>
-                        <span className={cn(
-                          "inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full",
-                          ROLE_COLORS[m.role],
-                        )}>
-                          {m.role === "owner" && <Crown className="h-3 w-3" />}
-                          {ROLE_LABELS[m.role]}
-                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {canManage && m.role !== "owner" && m.uid !== user?.uid ? (
+                            <>
+                              <Select value={m.role} onValueChange={(v) => handleChangeRole(profileId, m.uid, v as "admin" | "editor")}>
+                                <SelectTrigger className={cn("h-7 w-24 text-xs border-0 rounded-full", ROLE_COLORS[m.role])}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="admin">Admin</SelectItem>
+                                  <SelectItem value="editor">Editor</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7">
+                                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Remove access?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Remove this person's access to {profile.name ?? slot}? They will no longer be able to manage this profile.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={() => handleRemove(profileId, m.uid)}
+                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    >
+                                      Remove
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </>
+                          ) : (
+                            <span className={cn(
+                              "inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full",
+                              ROLE_COLORS[m.role],
+                            )}>
+                              {m.role === "owner" && <Crown className="h-3 w-3" />}
+                              {ROLE_LABELS[m.role]}
+                            </span>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+
+                    {canManage && state?.invites.map((inv) => (
+                      <li key={inv.id} className="flex items-center gap-3 px-5 py-3 bg-muted/20">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs">
+                          <Mail className="h-4 w-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm truncate">{inv.email}</p>
+                          <p className="text-xs text-muted-foreground">Pending invite</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge variant="outline" className="text-xs capitalize">{inv.role}</Badge>
+                          <Button variant="ghost" size="icon" className="h-7 w-7"
+                            onClick={() => handleCancelInvite(profileId, inv.email)}>
+                            <X className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                        </div>
                       </li>
                     ))}
                   </ul>
@@ -648,6 +780,12 @@ export function ProfileAdminsTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BlockingProgressDialog
+        open={blockingLabel !== null}
+        title={blockingLabel ?? ""}
+        description="Please don't close this tab — we're updating your access across all events."
+      />
     </div>
   );
 }

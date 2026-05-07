@@ -42,7 +42,7 @@ export type NotificationNavTarget =
   | { kind: "contact"; to: "/contacts/$id"; params: { id: string } }
   | { kind: "profile-public"; to: "/p/$slug"; params: { slug: string } }
   | { kind: "profile-list"; to: "/profiles" }
-  | { kind: "static"; to: string };
+  | { kind: "static"; to: string; hash?: string };
 
 /**
  * Resolve a notification to a navigation descriptor. Pure / side-effect free.
@@ -52,9 +52,18 @@ export type NotificationNavTarget =
 export function resolveNotificationTarget(n: AppNotification): NotificationNavTarget {
   const md = n.metadata || {};
 
-  // 0. Profile-invite — always lands on Settings → Profile Access
-  if (n.type === "profile_invite") {
-    return { kind: "static", to: "/settings#profile-access" };
+  // 0. Profile membership notifications — always land on
+  //    Settings → Profile Access. Each carries metadata.profileId, but no
+  //    per-profile route exists, and the Profile Access tab shows the full
+  //    list anyway.
+  if (
+    n.type === "profile_invite" ||
+    n.type === "profile_invite_declined" ||
+    n.type === "profile_member_joined" ||
+    n.type === "profile_member_removed" ||
+    n.type === "profile_member_role_changed"
+  ) {
+    return { kind: "static", to: "/settings", hash: "profile-access" };
   }
 
   // 1. Event-scoped: most common case

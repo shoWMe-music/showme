@@ -42,6 +42,18 @@ export default function SettingsPage() {
     window.location.hash = activeTab;
   }, [activeTab]);
 
+  // React to external hash changes (e.g. clicking a "profile_member_*"
+  // notification while already on /settings) — without this listener, the
+  // hash updates but `activeTab` stays put because `initialTab` is read once.
+  useEffect(() => {
+    const onHashChange = () => {
+      const next = window.location.hash.slice(1) as SettingsTab;
+      if (validTabs.has(next)) setActiveTab(next);
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
   const handleSignOut = async () => {
     try {
       await signOut();

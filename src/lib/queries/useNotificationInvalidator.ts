@@ -53,6 +53,7 @@ export function useNotificationInvalidator(notifications: AppNotification[]) {
 
       switch (notif.type as NotificationType) {
         // ── Events list ──────────────────────────────────────────────
+        case "event_created":
         case "event_status_changed":
         case "event_details_updated":
         case "event_archived":
@@ -123,6 +124,38 @@ export function useNotificationInvalidator(notifications: AppNotification[]) {
         //    Settings → Profile Access so a fresh invite appears live.
         case "profile_invite":
           scheduleInvalidation(["pendingProfileInvites"]);
+          break;
+
+        // ── Profile member joined — refresh the members list on the
+        //    Profile Access tab. Prefix-only invalidation matches every
+        //    queryKeys.profileMembers(profileId) entry.
+        case "profile_member_joined":
+          scheduleInvalidation(["profileMembers"]);
+          break;
+
+        // ── Profile member removed — refresh the members list and (for
+        //    the removed user) the events query and profiles list since
+        //    their access just changed.
+        case "profile_member_removed":
+          scheduleInvalidation(["profileMembers"]);
+          scheduleInvalidation(queryKeys.events(uid));
+          scheduleInvalidation(queryKeys.profiles(uid));
+          break;
+
+        // ── Profile invite declined — refresh the pending invites list
+        //    on the recipient side and the profile members/invites view
+        //    on the sender side.
+        case "profile_invite_declined":
+          scheduleInvalidation(["pendingProfileInvites"]);
+          scheduleInvalidation(["profileMembers"]);
+          break;
+
+        // ── Profile role changed — refresh members list (so the affected
+        //    user's role badge updates) and the user's profiles list (the
+        //    role is part of the profile membership shape).
+        case "profile_member_role_changed":
+          scheduleInvalidation(["profileMembers"]);
+          scheduleInvalidation(queryKeys.profiles(uid));
           break;
       }
     }

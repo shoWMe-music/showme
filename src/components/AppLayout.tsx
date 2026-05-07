@@ -1,8 +1,10 @@
 import { ReactNode, useState, createContext, useContext } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import AppSidebar from "./AppSidebar";
 import { TopBreadcrumbBar } from "./TopBreadcrumb";
-import { useNotifications, useEvents, useContacts } from "@/lib/queries";
+import { useNotifications, useEvents, useContacts, queryKeys } from "@/lib/queries";
+import { useAuth } from "@/lib/auth-context";
 import { useNotificationInvalidator } from "@/lib/queries/useNotificationInvalidator";
 import { resolveNotificationTarget } from "@/components/notifications/notificationLinks";
 import { toast } from "@/hooks/use-toast";
@@ -77,6 +79,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const events = useEvents();
   const contacts = useContacts();
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const uid = user?.uid ?? "";
   const [collapsed, setCollapsed] = useState(getInitial);
 
   const toggle = () => {
@@ -100,7 +105,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     // Lightweight existence check: if the target points at an event or contact
     // we already know about, ensure it's still in the cache. This catches the
     // common "deleted item" case without an extra round-trip.
-    if (target.kind === "event") {
+    //
+    // Skip the check for `event_created` — that notification IS the recipient's
+    // first signal a new event exists; the events query is invalidated on the
+    // same tick but the refetch hasn't completed by the time the user clicks,
+    // so a cache-miss here is "not seen yet", not "deleted". The event-detail
+    // page handles missing-doc state on arrival.
+    if (target.kind === "event" && n.type !== "event_created") {
       const exists = events.some((e) => e.id === target.params.id && !e.archived);
       if (!exists) {
         toast({ title: "This notification points to a deleted item." });
@@ -119,6 +130,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     // Discriminated dispatch — TanStack Router needs the literal `to` path
     // alongside its `params`/`search` to actually match a parameterized route.
     if (target.kind === "event") {
+      // Force-refetch the events list before the destination page reads it.
+      // The notification fanout's debounced invalidator (500ms) often races
+      // against the click — without this, EventManagerPage mounts against a
+      // stale cache and shows "Event not found" until the next refetch lands.
+      if (uid) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.events(uid) });
+      }
       void navigate({
         to: target.to,
         params: target.params,
@@ -131,7 +149,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     } else if (target.kind === "profile-list") {
       void navigate({ to: target.to });
     } else {
-      void navigate({ href: target.to });
+      // Static target — `to` is a freeform path (allowlisted). TanStack
+      // Router's typed `to` doesn't accept arbitrary strings, so cast through
+      // `unknown` and pass `hash` as a sibling so `/settings` + `#profile-access`
+      // is a real hash navigation, not a literal `/settings%23profile-access`.
+      const navArgs = target.hash
+        ? { to: target.to, hash: target.hash }
+        : { to: target.to };
+      void navigate(navArgs as unknown as Parameters<typeof navigate>[0]);
     }
   };
 

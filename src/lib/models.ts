@@ -883,6 +883,7 @@ export function calculateProFee(estimate: ProEstimate): { fee: number; confidenc
 // ── Notifications ──
 
 export type NotificationType =
+  | "event_created"
   | "event_status_changed"
   | "event_details_updated"
   | "event_archived"
@@ -906,7 +907,11 @@ export type NotificationType =
   | "agreement_updated"
   | "crew_updated"
   | "schedule_updated"
-  | "profile_invite";
+  | "profile_invite"
+  | "profile_member_joined"
+  | "profile_member_removed"
+  | "profile_invite_declined"
+  | "profile_member_role_changed";
 
 export interface AppNotification {
   id: string;
@@ -928,6 +933,7 @@ export interface AppNotification {
 }
 
 export const notificationTypeLabels: Record<NotificationType, string> = {
+  event_created: "New event created",
   event_status_changed: "Event status changed",
   event_details_updated: "Event details updated",
   event_archived: "Event archived",
@@ -952,4 +958,8 @@ export const notificationTypeLabels: Record<NotificationType, string> = {
   crew_updated: "Crew updated",
   schedule_updated: "Schedule updated",
   profile_invite: "Profile invitation",
+  profile_member_joined: "Profile member joined",
+  profile_member_removed: "Profile member removed",
+  profile_invite_declined: "Profile invite declined",
+  profile_member_role_changed: "Profile role changed",
 };
