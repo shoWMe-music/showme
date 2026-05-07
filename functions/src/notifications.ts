@@ -108,15 +108,27 @@ async function notifyEventProfiles(
 }
 
 /**
- * Write one notification per member of `profileId`, excluding the actor.
- * Each notification lands at users/{uid}/notifications/{auto}.
+ * Write one notification per member of `profileId`, excluding the actor and
+ * (optionally) anyone who is a member of `excludeProfileIds`. Each notification
+ * lands at users/{uid}/notifications/{auto}.
+ *
+ * The `excludeProfileIds` escape hatch is for cases where the targeted profile
+ * shares members with another profile already involved in the event — e.g.
+ * sending an `event_invitation` to the performer should not reach a venue
+ * teammate who happens to also be on the performer's team, since "the venue
+ * has suggested you" doesn't apply to someone on the venue's side.
  */
 async function notifyProfile(
   profileId: string,
   payload: NotificationPayload,
+  excludeProfileIds?: string[],
 ): Promise<void> {
   const recipientUids = await collectMemberUids([profileId]);
   if (payload.actorUid) recipientUids.delete(payload.actorUid);
+  if (excludeProfileIds && excludeProfileIds.length > 0) {
+    const excludedUids = await collectMemberUids(excludeProfileIds);
+    for (const uid of excludedUids) recipientUids.delete(uid);
+  }
   if (recipientUids.size === 0) return;
 
   const now = new Date().toISOString();
@@ -220,6 +232,11 @@ export const onEventUpdated = onDocumentWritten(
         const dateLabel = after.date || "TBD";
         const venueLabel = after.venue || "";
 
+        // Exclude the host's team — if a venue teammate happens to also be on
+        // the performer's roster, "the venue has suggested you" makes no sense
+        // for them. They still receive the host-side `event_status_changed`
+        // notification below.
+        const hostExclusion = after.hostProfileId ? [after.hostProfileId as string] : [];
         await notifyProfile(performerPid, {
           type: "event_invitation",
           title: "New event suggestion",
@@ -231,7 +248,7 @@ export const onEventUpdated = onDocumentWritten(
           actorName: hostName,
           actorUid,
           link: "/requests",
-        });
+        }, hostExclusion);
 
         // Also notify other profiles (not the performer, they already got the invitation)
         await notifyEventProfiles(eventId, actorUid, {
