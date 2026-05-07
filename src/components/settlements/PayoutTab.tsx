@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { formatCurrency, getStatusLabel, type Event as AppEvent, type DealStructure, type TicketRevenue, type Settlement } from "@/lib/models";
+import { buildPayoutParties } from "@/lib/settlementParties";
 import { User, Building } from "lucide-react";
 
 export function PayoutTab({ event, settlement, buildPayoutRows, deal, revenue, currency = "EUR" }: {
@@ -30,14 +31,7 @@ export function PayoutTab({ event, settlement, buildPayoutRows, deal, revenue, c
   const [guestDetails, setGuestDetails] = useState<Record<string, { company: string; vatNumber: string; address: string }>>({});
   const payoutRef = `PO-${event.id}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 
-  const operatorRole = event.operatorType;
-
-  const allParties = [
-    { key: "artist", party: `Artist (${event.artist})`, amount: settlement.artistPayout, defaultIban: "NL91 ABNA 0417 1643 00" },
-    { key: "promoter", party: `Promoter (${event.operator})`, amount: settlement.promoterPayout, defaultIban: "NL20 INGB 0001 2345 67" },
-    { key: "venue", party: `Venue (${event.venue})`, amount: settlement.venuePayout, defaultIban: "NL86 RABO 0145 8372 81" },
-    ...settlement.commissionPayouts.filter(c => c.payout > 0).map(c => ({ key: c.key, party: `${c.label} (${c.name})`, amount: c.payout, defaultIban: "NL44 RABO 0312 4567 89" })),
-  ].filter(p => p.key !== operatorRole);
+  const allParties = buildPayoutParties(event, settlement);
   const defaultParties = allParties.filter(p => p.amount > 0);
   const owedToOperator = allParties.filter(p => p.amount < 0);
 

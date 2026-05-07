@@ -10,6 +10,11 @@ import {
   calculateSettlement, SettlementStatus,
   type Event as AppEvent, type DealStructure, type TicketRevenue, type Settlement, type PartyBreakdown,
 } from "@/lib/models";
+import {
+  visiblePartyBreakdowns,
+  buildPartyNames,
+  buildPayoutRows as computePayoutRows,
+} from "@/lib/settlementParties";
 import { OverviewTab } from "./OverviewTab";
 import { DealTab } from "./DealTab";
 import { FinancialsTab } from "./FinancialsTab";
@@ -62,7 +67,8 @@ export function SettlementWorkspace({ event, deal, revenue, settlement, initialT
   const settlementTotal = settlement.artistPayout + settlement.promoterPayout + settlement.venuePayout + settlement.commissionPayouts.reduce((sum, c) => sum + c.payout, 0);
 
   const recalc = deal && revenue ? calculateSettlement(deal, revenue) : null;
-  const partyBreakdowns: PartyBreakdown[] = recalc?.partyBreakdowns || [];
+  const rawBreakdowns: PartyBreakdown[] = recalc?.partyBreakdowns || [];
+  const partyBreakdowns = visiblePartyBreakdowns(event, rawBreakdowns);
 
   const totalAdditionalRevenue = revenue ? (revenue.additionalRevenue || []).reduce((s, r) => s + r.amount, 0) : 0;
   const totalRevenue = revenue ? revenue.grossRevenue + revenue.doorSales + totalAdditionalRevenue : 0;
@@ -78,29 +84,9 @@ export function SettlementWorkspace({ event, deal, revenue, settlement, initialT
   const totalDeductions = revenue ? revenue.ticketFees + revenue.tax + revenue.refunds + revenue.productionExpenses + revenue.additionalCosts + totalCustomDeductions + totalCustomCosts + overviewVenueRentalDeduction : 0;
   const netRevenue = totalRevenue - totalDeductions;
 
-  const operatorRole = event.operatorType;
+  const partyNames = buildPartyNames(event);
 
-  const partyNames: Record<string, string> = {
-    Performer: event.artist,
-    Venue: event.venue,
-    Promoter: event.operator,
-  };
-
-  const buildPayoutRows = () => {
-    const allRows: { label: string; value: number; color: string; role: string }[] = [
-      { label: `Performer Payout (${event.artist})`, value: settlement.artistPayout, role: "artist", color: "bg-primary" },
-      { label: `Promoter Payout (${event.operator})`, value: settlement.promoterPayout, role: "promoter", color: "bg-foreground" },
-      { label: `Venue Payout (${event.venue})`, value: settlement.venuePayout, role: "venue", color: "bg-muted-foreground" },
-    ];
-    const orgBreakdown = partyBreakdowns.find(pb => pb.party === "Organizer");
-    if (orgBreakdown) {
-      allRows.push({ label: "Organizer Payout", value: orgBreakdown.finalPayout, role: "organizer", color: "bg-accent" });
-    }
-    for (const c of settlement.commissionPayouts) {
-      if (c.payout > 0) allRows.push({ label: `${c.label}${c.name ? ` (${c.name})` : ""}`, value: c.payout, role: c.key, color: "bg-accent-foreground/50" });
-    }
-    return allRows.filter(r => r.role !== operatorRole);
-  };
+  const buildPayoutRows = () => computePayoutRows(event, settlement, partyBreakdowns);
 
   return (
     <>
