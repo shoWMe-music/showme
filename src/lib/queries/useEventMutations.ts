@@ -39,6 +39,7 @@ import type { ProfileDocument } from "@/lib/user-context";
 import { isPrimaryEventOwner } from "@/lib/eventPermissions";
 import type { SharedProfile } from "@/lib/user-context";
 import { buildSettlementUpdate, emptyRevenue } from "@/lib/settlementUtils";
+import { newShareToken } from "@/lib/shareToken";
 import { toast } from "@/hooks/use-toast";
 import { queryKeys } from "./keys";
 
@@ -1120,7 +1121,7 @@ async function initEventData(
 ) {
   const rev = emptyRevenue(event.id);
   const settlement: Settlement = buildSettlementUpdate(deal, rev, undefined);
-  const token = `review-${event.id}`;
+  const token = newShareToken();
   const shareToken: ShareToken = {
     token,
     eventId: event.id,

@@ -1,16 +1,21 @@
 import { useState, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useParams, useSearch, useNavigate } from "@tanstack/react-router";
-import { fetchPublicShareByToken, updatePublicShareAgreementConfirmations } from "@/lib/db";
+import {
+  callConfirmShareParty,
+  fetchPublicShareByToken,
+  getShareIdentity,
+  ShareAuthRequiredError,
+  type Todo,
+} from "@/lib/db";
+import ShareOtpGate from "@/components/share/ShareOtpGate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { formatCurrency } from "@/lib/models";
-import type { DealStructure, Event, EventCollaborator, ScheduleItem, CrewMember, TicketType, Agreement } from "@/lib/models";
+import type { DealStructure, Event, EventCollaborator, ScheduleItem, CrewMember, TicketType, Agreement, Rider, ProEstimate, Settlement } from "@/lib/models";
 import { generateSignatureHash } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import { Calendar, MapPin, Music, Users, Ticket, DollarSign, Clock, FileText, Share2, Lock, Mail, AlertCircle, CheckCircle2, Check, LogOut, ShieldAlert } from "lucide-react";
+import { Calendar, MapPin, Music, Users, Ticket, DollarSign, Clock, FileText, Share2, AlertCircle, CheckCircle2, Check, FileBox, Calculator, TrendingUp, ListChecks, StickyNote, Receipt } from "lucide-react";
 
 interface AgreementConfirmation {
   party: string;
@@ -18,6 +23,18 @@ interface AgreementConfirmation {
   confirmedBy: string;
   method: string;
   signature: string;
+}
+
+interface BudgetField {
+  id?: string;
+  name: string;
+  value: number;
+}
+
+interface BudgetSnapshot {
+  revenueFields?: BudgetField[];
+  costFields?: BudgetField[];
+  resultFields?: BudgetField[];
 }
 
 interface ManagerData {
@@ -28,12 +45,20 @@ interface ManagerData {
   crew?: CrewMember[];
   agreements?: Agreement[];
   collaborators?: EventCollaborator[];
+  riders?: Rider[];
+  crewScheduleItems?: { id: string; time: string; label: string; assignee: string }[];
+  todos?: Todo[];
+  privateNotes?: { id: string; text: string; assignee: string }[];
+  proEstimate?: ProEstimate;
+  budget?: BudgetSnapshot;
 }
 
 interface SharedEventSnapshot {
   event?: Event;
   deal?: DealStructure;
   revenue?: { ticketTypes?: TicketType[] };
+  settlement?: Settlement;
+  currency?: string;
   eventMeta?: ManagerData;
   managerData?: ManagerData;
 }
@@ -43,28 +68,18 @@ export default function SharedEventPage() {
   const search = useSearch({ from: "/shared/event/$eventId" });
   const navigate = useNavigate();
 
-  /** Email the viewer entered to match optional share recipients (not Firebase auth). */
-  const [verifiedEmail, setVerifiedEmail] = useState<string | null>(null);
-
   const [snapshot, setSnapshot] = useState<SharedEventSnapshot | null>(null);
   const [shareInfo, setShareInfo] = useState<{ createdBy: string; createdAt: string } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<{ code: string; message: string; email?: string } | null>(null);
-
-  // Auth form state
-  const [isSignup, setIsSignup] = useState(true);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [authError, setAuthError] = useState("");
-  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [error, setError] = useState<{ code: string; message: string } | null>(null);
+  const [authRequired, setAuthRequired] = useState(false);
+  /** Bumped after the OTP gate unlocks so the load effect re-runs. */
+  const [reloadTick, setReloadTick] = useState(0);
 
   const token = search.token;
   const tabs = search.tabs?.split(",").filter(Boolean) || [];
   const sections = search.sections?.split(",").filter(Boolean) || [];
   const showAll = tabs.length === 0 && sections.length === 0;
-
-  // Whether this share requires email verification (null = unknown yet)
-  const [requiresAuth, setRequiresAuth] = useState<boolean | null>(null);
 
   const showTab = (tabId: string) => showAll || tabs.includes(tabId);
   const showSection = (sectionId: string) => showAll || sections.includes(sectionId) || tabs.some(t => {
@@ -73,59 +88,22 @@ export default function SharedEventPage() {
       agreement: ["event-summary", "agreements-docs", "terms"],
       crew: ["shared-team", "schedule", "tasks", "private-notes"],
       settlement: ["settlement-overview"],
+      budget: ["budget-calculator", "budget-charts", "pro-estimator"],
     };
     return tabSections[t]?.includes(sectionId);
   });
 
-  // Step 1: Check if share has recipients — if not, bypass auth gate
   useEffect(() => {
     if (!token || !eventId) return;
-    if (verifiedEmail) return; // already authenticated
-    if (requiresAuth !== null) return; // already checked
-
-    const check = async () => {
-      setLoading(true);
-      try {
-        const pub = await fetchPublicShareByToken(token);
-        if (!pub || pub.kind !== "event_snapshot" || pub.eventId !== eventId) {
-          setError({ code: "NOT_FOUND", message: "This shared link is invalid or has expired." });
-          setRequiresAuth(false);
-          setLoading(false);
-          return;
-        }
-        const recipients = (pub.recipients || []).map((r: string) => String(r).toLowerCase().trim()).filter(Boolean);
-        if (recipients.length === 0) {
-          // No recipients — public link, skip auth
-          setRequiresAuth(false);
-          setVerifiedEmail("__public__");
-        } else {
-          setRequiresAuth(true);
-        }
-      } catch {
-        setRequiresAuth(true);
-      }
-      setLoading(false);
-    };
-    void check();
-  }, [token, eventId, verifiedEmail, requiresAuth]);
-
-  // Step 2: Load snapshot data once we have a verified email (or public bypass)
-  useEffect(() => {
-    if (!verifiedEmail || !token || !eventId) return;
 
     const resolve = async () => {
       setLoading(true);
       setError(null);
+      setAuthRequired(false);
       try {
         const pub = await fetchPublicShareByToken(token);
         if (!pub || pub.kind !== "event_snapshot" || pub.eventId !== eventId) {
           setError({ code: "NOT_FOUND", message: "This shared link is invalid or has expired." });
-          setLoading(false);
-          return;
-        }
-        const recipients = (pub.recipients || []).map((r: string) => String(r).toLowerCase().trim()).filter(Boolean);
-        if (recipients.length > 0 && verifiedEmail !== "__public__" && !recipients.includes(verifiedEmail.toLowerCase().trim())) {
-          setError({ code: "ACCESS_DENIED", message: "", email: verifiedEmail });
           setLoading(false);
           return;
         }
@@ -153,30 +131,18 @@ export default function SharedEventPage() {
           createdAt: String(pub.createdAt || new Date().toISOString()),
         });
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Failed to load shared event.";
-        setError({ code: "NETWORK", message: msg });
+        if (err instanceof ShareAuthRequiredError) {
+          setAuthRequired(true);
+          setSnapshot(null);
+        } else {
+          const msg = err instanceof Error ? err.message : "Failed to load shared event.";
+          setError({ code: "NETWORK", message: msg });
+        }
       }
       setLoading(false);
     };
     void resolve();
-  }, [token, eventId, verifiedEmail]);
-
-  // Mock signup/login — just set the email locally
-  const handleAuth = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim() || !password.trim()) return;
-    setAuthSubmitting(true);
-    setAuthError("");
-    // Accept any password, just store the email
-    setVerifiedEmail(email.trim().toLowerCase());
-    setAuthSubmitting(false);
-  };
-
-  const handleSignOut = () => {
-    setVerifiedEmail(null);
-    setSnapshot(null);
-    setError(null);
-  };
+  }, [token, eventId, reloadTick]);
 
   // Loading state
   if (loading) {
@@ -200,88 +166,16 @@ export default function SharedEventPage() {
     );
   }
 
-  // Auth gate — show login/signup when not "authenticated" and share requires it
-  if (!verifiedEmail && requiresAuth !== false) {
+  // OTP gate — getPublicShare rejected with permission-denied, meaning the
+  // share is protected and the caller has no Firebase Auth identity on the
+  // recipient list nor a valid OTP JWT. Render the gate; on unlock, bump the
+  // reload tick so the load effect re-runs (which now picks up the cached JWT).
+  if (authRequired && token) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <div className="w-full max-w-sm space-y-6">
-          <div className="text-center space-y-2">
-            <img src="/images/showme-logo.png" alt="shoWMe" className="h-8 mx-auto mb-2" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-            <Lock className="h-10 w-10 mx-auto text-primary" />
-            <h1 className="text-2xl font-bold">Private Event Link</h1>
-            <p className="text-sm text-muted-foreground">Sign in or create an account to access this shared event. Only authorized email addresses can view this content.</p>
-          </div>
-
-          <div className="rounded-xl border bg-card p-6 shadow-sm">
-            <p className="text-sm text-muted-foreground mb-4 text-center">
-              {isSignup
-                ? "Create an account with the email this link was shared to."
-                : "Sign in with your account to access this event."}
-            </p>
-
-            <form onSubmit={handleAuth} className="space-y-4">
-              <div>
-                <Label className="flex items-center gap-1.5"><Mail className="h-3.5 w-3.5" /> Email</Label>
-                <Input
-                  type="email"
-                  placeholder="your@email.com"
-                  value={email}
-                  onChange={(e) => { setEmail(e.target.value); setAuthError(""); }}
-                  className="mt-1"
-                  autoFocus
-                />
-              </div>
-              <div>
-                <Label className="flex items-center gap-1.5"><Lock className="h-3.5 w-3.5" /> {isSignup ? "Create Password" : "Password"}</Label>
-                <Input
-                  type="password"
-                  placeholder={isSignup ? "Min. 6 characters" : "Enter your password"}
-                  value={password}
-                  onChange={(e) => { setPassword(e.target.value); setAuthError(""); }}
-                  className="mt-1"
-                />
-              </div>
-              {authError && <p className="text-sm text-destructive">{authError}</p>}
-              <Button type="submit" className="w-full" disabled={!email.trim() || !password.trim() || authSubmitting}>
-                {authSubmitting ? "Please wait..." : isSignup ? "Create Account" : "Sign In"}
-              </Button>
-            </form>
-
-            <div className="mt-4 text-center">
-              <button
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() => { setIsSignup(!isSignup); setAuthError(""); }}
-              >
-                {isSignup ? "Already have an account? Sign in" : "First time? Create an account"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Access denied
-  if (error?.code === "ACCESS_DENIED") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <div className="w-full max-w-sm space-y-6 text-center">
-          <img src="/images/showme-logo.png" alt="shoWMe" className="h-8 mx-auto mb-2" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          <ShieldAlert className="h-12 w-12 mx-auto text-destructive" />
-          <h1 className="text-xl font-bold">Access Denied</h1>
-          <p className="text-sm text-muted-foreground">
-            Your email <span className="font-medium text-foreground">{error.email || verifiedEmail}</span> is not authorized to view this shared event.
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Only specific email addresses invited by the event creator can access this link.
-          </p>
-          <div className="flex flex-col gap-2">
-            <Button variant="outline" onClick={handleSignOut} className="gap-2">
-              <LogOut className="h-4 w-4" /> Sign out & try a different account
-            </Button>
-          </div>
-        </div>
-      </div>
+      <ShareOtpGate
+        token={token}
+        onUnlocked={() => setReloadTick((t) => t + 1)}
+      />
     );
   }
 
@@ -300,9 +194,6 @@ export default function SharedEventPage() {
               This link may have expired or needs to be re-shared by the event creator.
             </p>
           )}
-          <Button variant="outline" onClick={handleSignOut} className="gap-2">
-            <LogOut className="h-4 w-4" /> Sign out
-          </Button>
         </div>
       </div>
     );
@@ -320,7 +211,9 @@ export default function SharedEventPage() {
   const event = snapshot.event;
   const deal = snapshot.deal;
   const revenue = snapshot.revenue;
+  const settlement = snapshot.settlement;
   const managerData = snapshot.eventMeta ?? snapshot.managerData;
+  const budget = managerData?.budget;
 
   return (
     <div className="min-h-screen bg-background">
@@ -328,12 +221,6 @@ export default function SharedEventPage() {
         {/* Header bar */}
         <div className="flex items-center justify-between mb-6">
           <img src="/images/showme-logo.png" alt="shoWMe" className="h-8" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span>{verifiedEmail}</span>
-            <Button variant="ghost" size="sm" onClick={handleSignOut} className="gap-1 h-7 text-xs">
-              <LogOut className="h-3 w-3" /> Sign out
-            </Button>
-          </div>
         </div>
 
         {/* Share metadata */}
@@ -438,6 +325,21 @@ export default function SharedEventPage() {
             </div>
           )}
 
+          {/* Riders & Documents */}
+          {showSection("riders") && managerData?.riders && managerData.riders.length > 0 && (
+            <div className="rounded-xl border bg-card p-6 shadow-sm">
+              <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><FileBox className="h-5 w-5 text-primary" /> Riders & Documents</h3>
+              <div className="space-y-2">
+                {managerData.riders.map((r: Rider) => (
+                  <div key={r.id} className="flex items-center justify-between rounded-lg border p-3 text-sm">
+                    <div><span className="font-medium">{r.name}</span></div>
+                    <Badge variant="outline" className="text-xs capitalize">{r.type}</Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Shared Team */}
           {showSection("shared-team") && managerData?.crew?.length > 0 && (
             <div className="rounded-xl border bg-card p-6 shadow-sm">
@@ -453,6 +355,153 @@ export default function SharedEventPage() {
             </div>
           )}
 
+          {/* Team Schedule */}
+          {showSection("schedule") && managerData?.crewScheduleItems && managerData.crewScheduleItems.length > 0 && (
+            <div className="rounded-xl border bg-card p-6 shadow-sm">
+              <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><Clock className="h-5 w-5 text-primary" /> Team Schedule</h3>
+              <div className="space-y-2 text-sm">
+                {managerData.crewScheduleItems.map((s) => (
+                  <div key={s.id} className="flex items-center gap-4">
+                    <span className="text-muted-foreground w-14 shrink-0">{s.time || "--:--"}</span>
+                    <span className="font-medium flex-1">{s.label}</span>
+                    <span className="text-xs text-muted-foreground">{s.assignee || "Unassigned"}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Tasks */}
+          {showSection("tasks") && managerData?.todos && managerData.todos.length > 0 && (
+            <div className="rounded-xl border bg-card p-6 shadow-sm">
+              <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><ListChecks className="h-5 w-5 text-primary" /> Tasks</h3>
+              <div className="space-y-2">
+                {managerData.todos.map((t: Todo) => (
+                  <div key={t.id} className="flex items-center justify-between rounded-lg border p-3 text-sm">
+                    <div className="flex items-center gap-2">
+                      {t.completed ? <CheckCircle2 className="h-4 w-4 text-[hsl(var(--success))]" /> : <div className="h-4 w-4 rounded-full border" />}
+                      <span className={t.completed ? "line-through text-muted-foreground" : "font-medium"}>{t.title}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">{t.assignee || "Unassigned"}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Private Notes */}
+          {showSection("private-notes") && managerData?.privateNotes && managerData.privateNotes.length > 0 && (
+            <div className="rounded-xl border bg-card p-6 shadow-sm">
+              <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><StickyNote className="h-5 w-5 text-primary" /> Private Notes</h3>
+              <div className="space-y-2">
+                {managerData.privateNotes.map((n) => (
+                  <div key={n.id} className="rounded-lg border p-3 text-sm">
+                    <p className="whitespace-pre-wrap">{n.text}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{n.assignee || "Unassigned"}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Settlement Overview */}
+          {showSection("settlement-overview") && settlement && (
+            <div className="rounded-xl border bg-card p-6 shadow-sm">
+              <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><DollarSign className="h-5 w-5 text-primary" /> Settlement</h3>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><span className="text-muted-foreground">Status:</span> <span className="font-medium ml-2 capitalize">{settlement.status}</span></div>
+                {settlement.artistPayout > 0 && <div><span className="text-muted-foreground">Performer Payout:</span> <span className="font-medium ml-2">{formatCurrency(settlement.artistPayout)}</span></div>}
+                {settlement.venuePayout > 0 && <div><span className="text-muted-foreground">Venue Payout:</span> <span className="font-medium ml-2">{formatCurrency(settlement.venuePayout)}</span></div>}
+                {settlement.promoterPayout > 0 && <div><span className="text-muted-foreground">Promoter Payout:</span> <span className="font-medium ml-2">{formatCurrency(settlement.promoterPayout)}</span></div>}
+              </div>
+            </div>
+          )}
+
+          {/* Budget Calculator */}
+          {showSection("budget-calculator") && budget && ((budget.revenueFields && budget.revenueFields.length > 0) || (budget.costFields && budget.costFields.length > 0) || (budget.resultFields && budget.resultFields.length > 0)) && (
+            <div className="rounded-xl border bg-card p-6 shadow-sm">
+              <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><Calculator className="h-5 w-5 text-primary" /> Budget Calculator</h3>
+              <div className="space-y-4 text-sm">
+                {budget.revenueFields && budget.revenueFields.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Revenue</p>
+                    <div className="space-y-1">
+                      {budget.revenueFields.map((f) => (
+                        <div key={f.name} className="flex justify-between border-b py-1">
+                          <span>{f.name}</span><span className="font-medium">{formatCurrency(f.value)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {budget.costFields && budget.costFields.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Costs</p>
+                    <div className="space-y-1">
+                      {budget.costFields.map((f) => (
+                        <div key={f.name} className="flex justify-between border-b py-1">
+                          <span>{f.name}</span><span className="font-medium">{formatCurrency(f.value)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {budget.resultFields && budget.resultFields.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Result</p>
+                    <div className="space-y-1">
+                      {budget.resultFields.map((f) => {
+                        const display = f.id === "profit_margin"
+                          ? `${f.value.toFixed(1)}%`
+                          : f.id === "breakeven_tickets"
+                          ? Math.round(f.value).toString()
+                          : formatCurrency(f.value);
+                        return (
+                          <div key={f.name} className="flex justify-between border-b py-1">
+                            <span>{f.name}</span><span className="font-medium">{display}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Break-even Analysis */}
+          {showSection("budget-charts") && budget?.resultFields && budget.resultFields.length > 0 && (
+            <div className="rounded-xl border bg-card p-6 shadow-sm">
+              <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><TrendingUp className="h-5 w-5 text-primary" /> Break-even Analysis</h3>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Profit / Loss:</span>
+                  <span className="font-medium ml-2">{formatCurrency(budget.resultFields.find(f => f.id === "profit_loss")?.value ?? 0)}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Break-even Tickets:</span>
+                  <span className="font-medium ml-2">{Math.round(budget.resultFields.find(f => f.id === "breakeven_tickets")?.value ?? 0)}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* PRO Fee Estimate */}
+          {showSection("pro-estimator") && managerData?.proEstimate && (
+            <div className="rounded-xl border bg-card p-6 shadow-sm">
+              <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><Receipt className="h-5 w-5 text-primary" /> PRO Fee Estimate</h3>
+              <p className="text-xs text-muted-foreground mb-3">Estimate only — review before final decisions.</p>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><span className="text-muted-foreground">PRO:</span> <span className="font-medium ml-2 uppercase">{managerData.proEstimate.pro}</span></div>
+                <div><span className="text-muted-foreground">Country:</span> <span className="font-medium ml-2">{managerData.proEstimate.country}</span></div>
+                <div><span className="text-muted-foreground">Event Type:</span> <span className="font-medium ml-2 capitalize">{String(managerData.proEstimate.eventType).replace(/_/g, " ")}</span></div>
+                <div><span className="text-muted-foreground">Ticket Price:</span> <span className="font-medium ml-2">{formatCurrency(managerData.proEstimate.ticketPrice)}</span></div>
+                <div><span className="text-muted-foreground">Expected Tickets:</span> <span className="font-medium ml-2">{managerData.proEstimate.expectedTickets}</span></div>
+                <div><span className="text-muted-foreground">Estimated Fee:</span> <span className="font-medium ml-2">{formatCurrency(managerData.proEstimate.estimatedFee)}</span></div>
+              </div>
+            </div>
+          )}
+
           {/* Agreement Confirmation */}
           {showSection("agreements-docs") && managerData && token && (
             <SharedAgreementConfirm
@@ -460,7 +509,7 @@ export default function SharedEventPage() {
               eventId={eventId!}
               managerData={managerData}
               deal={deal}
-              userEmail={verifiedEmail}
+              userEmail={getShareIdentity(token).email}
               onConfirmationsUpdated={(updated) => {
                 setSnapshot((s) =>
                   s ? {
@@ -469,6 +518,7 @@ export default function SharedEventPage() {
                   } : null,
                 );
               }}
+              onConfirmed={() => setReloadTick((t) => t + 1)}
             />
           )}
         </div>
@@ -486,6 +536,7 @@ function SharedAgreementConfirm({
   deal,
   userEmail,
   onConfirmationsUpdated,
+  onConfirmed,
 }: {
   shareToken: string;
   eventId: string;
@@ -493,7 +544,11 @@ function SharedAgreementConfirm({
   deal: DealStructure | undefined;
   userEmail: string | null;
   onConfirmationsUpdated: (rows: AgreementConfirmation[]) => void;
+  onConfirmed?: () => void;
 }) {
+  // eventId is referenced by the shareToken on the server; surface it here so
+  // the callsite signature stays explicit.
+  void eventId;
   const confirmations: AgreementConfirmation[] = managerData.agreementConfirmations || [];
   const lastChangedAt = managerData.agreementLastChangedAt;
   const agreements = managerData.agreements || [];
@@ -503,14 +558,19 @@ function SharedAgreementConfirm({
   const [localConfirmations, setLocalConfirmations] = useState(confirmations);
 
   const confirmMutation = useMutation({
-    mutationFn: (updated: AgreementConfirmation[]) =>
-      updatePublicShareAgreementConfirmations(shareToken, updated as unknown[]),
-    onSuccess: (_data, updated) => {
-      onConfirmationsUpdated(updated);
-      toast({ title: "Agreement confirmed", description: `You have approved the agreement as ${updated[updated.length - 1]?.party}.` });
+    mutationFn: async ({ party }: { party: string; updated: AgreementConfirmation[] }) =>
+      callConfirmShareParty(shareToken, party),
+    onSuccess: (_data, vars) => {
+      onConfirmationsUpdated(vars.updated);
+      onConfirmed?.();
+      toast({ title: "Confirmation recorded" });
     },
     onError: () => {
-      toast({ title: "Could not save", description: "Confirmation was not persisted. Check Firestore rules.", variant: "destructive" });
+      toast({
+        title: "Could not save",
+        description: "Confirmation was not recorded. Verify your access and try again.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -550,7 +610,7 @@ function SharedAgreementConfirm({
     const newConfirmation = { party, confirmedAt: now, confirmedBy: userEmail, method: "self" as const, signature };
     const updated = [...localConfirmations.filter(c => c.party !== party), newConfirmation];
     setLocalConfirmations(updated);
-    confirmMutation.mutate(updated);
+    confirmMutation.mutate({ party, updated });
   };
 
   return (

@@ -1,8 +1,6 @@
 import { useParams, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { httpsCallable } from "firebase/functions";
-import { getFirebaseFunctions } from "@/integrations/firebase/app";
 import { Button } from "@/components/ui/button";
 import {
   formatCurrency,
@@ -26,13 +24,21 @@ import { useAuth } from "@/lib/auth-context";
 import showmeLogo from "@/assets/showme-logo.png";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
-import { fetchPublicShareByToken, approvePublicShare, type SettlementShareSnapshot } from "@/lib/db";
+import {
+  callConfirmShareParty,
+  callSubmitPublicShareComment,
+  fetchPublicShareByToken,
+  ShareAuthRequiredError,
+  type SettlementShareSnapshot,
+} from "@/lib/db";
 import { queryKeys, useShareTokens, useEvent, useEventEconomics } from "@/lib/queries";
+import ShareOtpGate from "@/components/share/ShareOtpGate";
 
 export default function SettlementReviewPage() {
   const { token } = useParams({ from: "/review/$token" });
   const { user } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   // Resolve eventId from share token cache
   const shareTokens = useShareTokens();
@@ -46,29 +52,38 @@ export default function SettlementReviewPage() {
     !!tokenEventId,
   );
 
-  const { data: remoteResult, isPending: remoteLoading } = useQuery({
+  const { data: remoteResult, isPending: remoteLoading, error: remoteError } = useQuery({
     queryKey: queryKeys.publicShareByToken(token ?? ""),
     queryFn: async (): Promise<{ snapshot: SettlementShareSnapshot; approved: boolean; updatedAtMs: number | null } | null> => {
       if (!token) return null;
-      try {
-        const pub = await fetchPublicShareByToken(token);
-        if (pub?.snapshot?.event && pub.snapshot.deal && pub.snapshot.revenue && pub.snapshot.settlement) {
-          return {
-            snapshot: pub.snapshot as SettlementShareSnapshot,
-            approved: pub.approved === true,
-            updatedAtMs: pub.updatedAtMs ?? null,
-          };
-        }
-        return null;
-      } catch {
-        return null;
+      const pub = await fetchPublicShareByToken(token);
+      if (pub?.snapshot?.event && pub.snapshot.deal && pub.snapshot.revenue && pub.snapshot.settlement) {
+        return {
+          snapshot: pub.snapshot as SettlementShareSnapshot,
+          approved: pub.approved === true,
+          updatedAtMs: pub.updatedAtMs ?? null,
+        };
       }
+      return null;
     },
     enabled: !!token,
+    // Don't auto-retry — ShareAuthRequiredError is a deliberate signal to gate.
+    retry: false,
   });
   const remote = remoteResult?.snapshot ?? null;
   const remoteApproved = remoteResult?.approved ?? false;
   const remoteUpdatedAtMs = remoteResult?.updatedAtMs ?? null;
+
+  if (remoteError instanceof ShareAuthRequiredError && token) {
+    return (
+      <ShareOtpGate
+        token={token}
+        onUnlocked={() =>
+          void queryClient.invalidateQueries({ queryKey: queryKeys.publicShareByToken(token) })
+        }
+      />
+    );
+  }
 
   const isAuthenticated = Boolean(user);
 
@@ -307,14 +322,11 @@ function SettlementReviewContent({ event, deal, revenue, settlement, reviewerNam
         type: f.type || f.name.split(".").pop() || "file",
         data: await fileToBase64(f),
       })));
-      const submit = httpsCallable<
-        { token: string; message: string; reviewerName: string; date: string; attachments: typeof attachments },
-        { ok: true }
-      >(getFirebaseFunctions(), "submitPublicShareComment");
-      await submit({
+      await callSubmitPublicShareComment({
         token,
         message: commentText.trim(),
         reviewerName,
+        party: reviewerName,
         date: new Date().toISOString().slice(0, 10),
         attachments,
       });
@@ -487,8 +499,9 @@ function SettlementReviewContent({ event, deal, revenue, settlement, reviewerNam
           ) : (
             <Button onClick={async () => {
               try {
-                await approvePublicShare(token, reviewerName);
+                await callConfirmShareParty(token, reviewerName);
                 setApproved(true);
+                void queryClient.invalidateQueries({ queryKey: queryKeys.publicShareByToken(token) });
                 toast({ title: "Settlement approved" });
               } catch {
                 toast({ title: "Failed to approve settlement", description: "Please try again.", variant: "destructive" });

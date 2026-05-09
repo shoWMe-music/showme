@@ -2299,41 +2299,6 @@ export async function upsertShareToken(
   );
 }
 
-/**
- * If a settlement-review share token already exists for this event, refresh
- * its public snapshot from the latest event/deal/revenue/settlement docs.
- * No-op if no share has been created yet.
- */
-export async function refreshShareTokenIfExists(eventId: string): Promise<void> {
-  const token = `review-${eventId}`;
-  const ref = doc(getFirestoreDb(), PUBLIC_SHARES, token);
-  const existing = await getDoc(ref);
-  if (!existing.exists()) return;
-  const existingData = existing.data() as { parties?: unknown; ownerUid?: string };
-
-  const eventSnap = await getDoc(eventDoc(eventId));
-  if (!eventSnap.exists()) return;
-  const event = eventRowToEvent({ id: eventSnap.id, ...eventSnap.data() });
-
-  const [deal, revenue, settlement] = await Promise.all([
-    fetchDeal(eventId),
-    fetchRevenue(eventId),
-    fetchSettlement(eventId),
-  ]);
-  if (!deal || !revenue || !settlement) return;
-
-  const snapshot: SettlementShareSnapshot = { event, deal, revenue, settlement };
-  await safeSetDoc(
-    ref,
-    {
-      snapshot: stripUndefined(snapshot),
-      updatedAt: serverTimestamp(),
-      ...(existingData.parties !== undefined ? {} : { parties: [] }),
-    },
-    { merge: true },
-  );
-}
-
 export async function fetchShareTokens(): Promise<
   Record<string, { token: string; eventId: string; createdAt: string; parties: string[] }>
 > {
@@ -2357,26 +2322,58 @@ export async function fetchShareTokens(): Promise<
   return result;
 }
 
+/**
+ * Sentinel thrown by `fetchPublicShareByToken` when `getPublicShare` rejects
+ * with `permission-denied` — i.e. the share is protected and the caller has
+ * neither a Firebase Auth identity on the recipient list nor a valid OTP JWT.
+ * Page components catch this and render the OTP gate.
+ */
+export class ShareAuthRequiredError extends Error {
+  constructor(public readonly token: string) {
+    super("Share requires recipient verification");
+    this.name = "ShareAuthRequiredError";
+  }
+}
+
 export async function fetchPublicShareByToken(token: string) {
-  const snap = await getDoc(doc(getFirestoreDb(), PUBLIC_SHARES, token));
-  if (!snap.exists()) return null;
-  const raw = snap.data() as Record<string, unknown>;
-  const updatedAtRaw = raw.updatedAt as { toMillis?: () => number } | string | undefined;
+  let share: Record<string, unknown>;
+  try {
+    const res = await callPublicShareGet(token);
+    share = (res.share ?? {}) as Record<string, unknown>;
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    if (code === "functions/not-found" || code === "not-found") return null;
+    if (code === "functions/permission-denied" || code === "permission-denied") {
+      throw new ShareAuthRequiredError(token);
+    }
+    throw err;
+  }
+  // Wire-serialised Firestore Timestamps arrive as { _seconds, _nanoseconds }
+  // (legacy admin SDK shape) or as ISO strings (new schema). Cover both plus
+  // the in-process Timestamp object for safety.
+  const updatedAtRaw = share.updatedAt as
+    | { toMillis?: () => number; _seconds?: number; _nanoseconds?: number }
+    | string
+    | undefined;
   let updatedAtMs: number | null = null;
-  if (updatedAtRaw && typeof updatedAtRaw === "object" && typeof updatedAtRaw.toMillis === "function") {
-    updatedAtMs = updatedAtRaw.toMillis();
+  if (updatedAtRaw && typeof updatedAtRaw === "object") {
+    if (typeof updatedAtRaw.toMillis === "function") {
+      updatedAtMs = updatedAtRaw.toMillis();
+    } else if (typeof updatedAtRaw._seconds === "number") {
+      updatedAtMs = updatedAtRaw._seconds * 1000 + Math.floor((updatedAtRaw._nanoseconds ?? 0) / 1e6);
+    }
   } else if (typeof updatedAtRaw === "string") {
     const parsed = Date.parse(updatedAtRaw);
     if (!Number.isNaN(parsed)) updatedAtMs = parsed;
   }
   return {
-    ...(raw as {
+    ...(share as {
       kind?: string;
       ownerUid?: string;
       eventId?: string;
       parties?: unknown;
       snapshot?: SettlementShareSnapshot | null;
-      recipients?: string[];
+      recipients?: { email: string }[];
       snapshotData?: unknown;
       agreementConfirmations?: unknown[];
       createdAt?: string;
@@ -2387,14 +2384,134 @@ export async function fetchPublicShareByToken(token: string) {
   };
 }
 
-export async function updatePublicShareAgreementConfirmations(
+const SHARE_JWT_STORAGE_PREFIX = "share-jwt:";
+
+function shareJwtStorageKey(token: string): string {
+  return `${SHARE_JWT_STORAGE_PREFIX}${token}`;
+}
+
+export function cacheShareJwt(token: string, jwt: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(shareJwtStorageKey(token), jwt);
+  } catch {
+    // sessionStorage may be unavailable (private mode quotas, SSR shims) —
+    // failing silently is fine; the next callable will surface auth errors.
+  }
+}
+
+export function clearShareJwt(token: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(shareJwtStorageKey(token));
+  } catch {
+    // ignore — see cacheShareJwt
+  }
+}
+
+function readCachedShareJwt(token: string): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    return window.sessionStorage.getItem(shareJwtStorageKey(token)) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function callPublicShareGet(
   token: string,
-  confirmations: unknown[],
-) {
-  await updateDoc(doc(getFirestoreDb(), PUBLIC_SHARES, token), {
-    agreementConfirmations: confirmations,
-    agreementUpdatedAt: serverTimestamp(),
-  });
+  jwt?: string,
+): Promise<{ share: unknown }> {
+  const fn = httpsCallable<{ token: string; jwt?: string }, { share: unknown }>(
+    getFirebaseFunctions(),
+    "getPublicShare",
+  );
+  // Explicit jwt arg wins; fall back to cached. Never send empty string —
+  // the callable treats absence as "no JWT" and would reject "" as bad sig.
+  const effectiveJwt = jwt ?? readCachedShareJwt(token);
+  const res = await fn({ token, jwt: effectiveJwt });
+  return res.data;
+}
+
+export async function callRequestShareOtp(token: string, email: string): Promise<void> {
+  const fn = httpsCallable<{ token: string; email: string }, { ok: true }>(
+    getFirebaseFunctions(),
+    "requestShareOtp",
+  );
+  await fn({ token, email });
+}
+
+export async function callVerifyShareOtp(
+  token: string,
+  email: string,
+  code: string,
+): Promise<{ jwt: string }> {
+  const fn = httpsCallable<{ token: string; email: string; code: string }, { jwt: string }>(
+    getFirebaseFunctions(),
+    "verifyShareOtp",
+  );
+  const res = await fn({ token, email, code });
+  return res.data;
+}
+
+export async function callConfirmShareParty(
+  token: string,
+  party: string,
+  jwt?: string,
+): Promise<{ verifiedEmail: string }> {
+  const fn = httpsCallable<
+    { token: string; party: string; jwt?: string },
+    { ok: true; verifiedEmail: string }
+  >(getFirebaseFunctions(), "confirmShareParty");
+  const effectiveJwt = jwt ?? readCachedShareJwt(token);
+  const res = await fn({ token, party, jwt: effectiveJwt });
+  return { verifiedEmail: res.data.verifiedEmail };
+}
+
+export interface SubmitShareCommentArgs {
+  token: string;
+  message: string;
+  reviewerName: string;
+  date: string;
+  attachments?: { name: string; size: number; type: string; data: string }[];
+  party?: string;
+  jwt?: string;
+}
+
+export async function callSubmitPublicShareComment(args: SubmitShareCommentArgs): Promise<void> {
+  const fn = httpsCallable<SubmitShareCommentArgs, { ok: true }>(
+    getFirebaseFunctions(),
+    "submitPublicShareComment",
+  );
+  const effectiveJwt = args.jwt ?? readCachedShareJwt(args.token);
+  await fn({ ...args, jwt: effectiveJwt });
+}
+
+/**
+ * Decode the email claim from a cached OTP-JWT for UI purposes only — never
+ * trust client-side verification. Returns the Firebase Auth email if signed
+ * in; otherwise the JWT email; otherwise null.
+ */
+export function getShareIdentity(token: string): { email: string | null; source: "auth" | "otp" | "none" } {
+  const authEmail = getAuthClient().currentUser?.email;
+  if (authEmail) return { email: authEmail.toLowerCase().trim(), source: "auth" };
+  const cached = readCachedShareJwt(token);
+  if (!cached) return { email: null, source: "none" };
+  const parts = cached.split(".");
+  if (parts.length < 2) return { email: null, source: "none" };
+  try {
+    // Base64URL → base64 padding before decoding the payload segment.
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const json = typeof atob === "function"
+      ? atob(padded)
+      : Buffer.from(padded, "base64").toString("utf-8");
+    const claims = JSON.parse(json) as { email?: unknown };
+    const email = typeof claims.email === "string" ? claims.email.toLowerCase().trim() : null;
+    return { email, source: email ? "otp" : "none" };
+  } catch {
+    return { email: null, source: "none" };
+  }
 }
 
 export async function approvePublicShare(token: string, party: string) {
@@ -2434,8 +2551,6 @@ export async function approvePublicShare(token: string, party: string) {
       );
       tx.update(shareRef, { approved: true, approvedAt });
     });
-    // Re-snapshot the share doc so subsequent fetches include the new approval state.
-    await refreshShareTokenIfExists(eventId);
     return;
   }
 
@@ -2445,7 +2560,8 @@ export async function approvePublicShare(token: string, party: string) {
 
 export type PublicEventSharePayload = {
   eventId: string;
-  recipients: string[];
+  access: "public" | "protected";
+  recipients: { email: string }[];
   snapshotData: unknown;
   sections: string[];
   tabs: string[];

@@ -17,6 +17,14 @@ const mockWhere = vi.fn().mockReturnValue({});
 const mockOrderBy = vi.fn().mockReturnValue({});
 const mockServerTimestamp = vi.fn().mockReturnValue("TIMESTAMP");
 
+const { mockCallable, mockHttpsCallable } = vi.hoisted(() => {
+  const callable = vi.fn();
+  return {
+    mockCallable: callable,
+    mockHttpsCallable: vi.fn().mockReturnValue(callable),
+  };
+});
+
 vi.mock("firebase/firestore", () => ({
   getFirestore: vi.fn(),
   doc: (...args: unknown[]) => mockDoc(...args),
@@ -32,8 +40,13 @@ vi.mock("firebase/firestore", () => ({
   Timestamp: { now: () => ({ toDate: () => new Date() }) },
 }));
 
+vi.mock("firebase/functions", () => ({
+  httpsCallable: mockHttpsCallable,
+}));
+
 vi.mock("@/integrations/firebase/app", () => ({
   getFirestoreDb: vi.fn().mockReturnValue({}),
+  getFirebaseFunctions: vi.fn().mockReturnValue({ __functions: true }),
 }));
 
 vi.mock("@/lib/firebaseAuth", () => ({
@@ -44,13 +57,24 @@ vi.mock("@/lib/firebaseAuth", () => ({
 
 // Now import the functions under test
 import {
+  cacheShareJwt,
+  callConfirmShareParty,
+  callPublicShareGet,
+  callRequestShareOtp,
+  callSubmitPublicShareComment,
+  callVerifyShareOtp,
+  clearShareJwt,
   createPublicEventShare,
   fetchPublicShareByToken,
   insertShareTokenRow,
+  ShareAuthRequiredError,
 } from "./db";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  if (typeof window !== "undefined") {
+    window.sessionStorage.clear();
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -61,7 +85,8 @@ describe("createPublicEventShare", () => {
   it("writes share document with correct structure", async () => {
     await createPublicEventShare("token-abc", {
       eventId: "EVT-001",
-      recipients: ["user@test.com"],
+      access: "protected",
+      recipients: [{ email: "user@test.com" }],
       snapshotData: { event: { name: "Test" } },
       sections: ["event-info", "deal-structure"],
       tabs: ["details"],
@@ -73,15 +98,17 @@ describe("createPublicEventShare", () => {
     const [, data] = mockSetDoc.mock.calls[0];
     expect(data.kind).toBe("event_snapshot");
     expect(data.eventId).toBe("EVT-001");
-    expect(data.recipients).toEqual(["user@test.com"]);
+    expect(data.access).toBe("protected");
+    expect(data.recipients).toEqual([{ email: "user@test.com" }]);
     expect(data.creatorName).toBe("Daniel");
     expect(data.ownerUid).toBe("test-user-123");
     expect(data.snapshotData).toEqual({ event: { name: "Test" } });
   });
 
-  it("stores empty recipients array for public links", async () => {
+  it("persists access='public' with empty recipients for public links", async () => {
     await createPublicEventShare("token-public", {
       eventId: "EVT-002",
+      access: "public",
       recipients: [],
       snapshotData: {},
       sections: [],
@@ -91,6 +118,7 @@ describe("createPublicEventShare", () => {
     });
 
     const [, data] = mockSetDoc.mock.calls[0];
+    expect(data.access).toBe("public");
     expect(data.recipients).toEqual([]);
   });
 
@@ -101,6 +129,7 @@ describe("createPublicEventShare", () => {
   it("strips deeply nested undefined values from snapshotData", async () => {
     await createPublicEventShare("token-with-undefined", {
       eventId: "EVT-003",
+      access: "public",
       recipients: [],
       snapshotData: {
         event: {
@@ -138,31 +167,53 @@ describe("createPublicEventShare", () => {
 // ---------------------------------------------------------------------------
 
 describe("fetchPublicShareByToken", () => {
-  it("returns share data when document exists", async () => {
-    mockGetDoc.mockResolvedValueOnce({
-      exists: () => true,
-      data: () => ({
-        kind: "event_snapshot",
-        eventId: "EVT-001",
-        recipients: ["a@b.com"],
-        snapshotData: { event: { name: "Gig" } },
-      }),
+  it("returns share data when callable resolves", async () => {
+    mockCallable.mockResolvedValueOnce({
+      data: {
+        share: {
+          kind: "event_snapshot",
+          eventId: "EVT-001",
+          recipients: ["a@b.com"],
+          snapshotData: { event: { name: "Gig" } },
+        },
+      },
     });
 
     const result = await fetchPublicShareByToken("some-token");
+    expect(mockHttpsCallable).toHaveBeenCalledWith({ __functions: true }, "getPublicShare");
+    expect(mockCallable).toHaveBeenCalledWith({ token: "some-token", jwt: undefined });
     expect(result).toBeTruthy();
     expect(result?.kind).toBe("event_snapshot");
     expect(result?.eventId).toBe("EVT-001");
     expect(result?.recipients).toEqual(["a@b.com"]);
   });
 
-  it("returns null when document does not exist", async () => {
-    mockGetDoc.mockResolvedValueOnce({
-      exists: () => false,
-    });
+  it("returns null when callable throws not-found", async () => {
+    mockCallable.mockRejectedValueOnce(Object.assign(new Error("missing"), { code: "functions/not-found" }));
 
     const result = await fetchPublicShareByToken("bad-token");
     expect(result).toBeNull();
+  });
+
+  it("throws ShareAuthRequiredError when callable rejects with permission-denied", async () => {
+    mockCallable.mockRejectedValueOnce(Object.assign(new Error("denied"), { code: "functions/permission-denied" }));
+
+    await expect(fetchPublicShareByToken("locked-token")).rejects.toBeInstanceOf(ShareAuthRequiredError);
+  });
+
+  it("propagates other callable errors (e.g. internal)", async () => {
+    mockCallable.mockRejectedValueOnce(Object.assign(new Error("boom"), { code: "functions/internal" }));
+
+    await expect(fetchPublicShareByToken("broken-token")).rejects.toThrow("boom");
+  });
+
+  it("parses wire-serialised Firestore Timestamp into updatedAtMs", async () => {
+    mockCallable.mockResolvedValueOnce({
+      data: { share: { updatedAt: { _seconds: 1700000000, _nanoseconds: 500_000_000 } } },
+    });
+
+    const result = await fetchPublicShareByToken("ts-token");
+    expect(result?.updatedAtMs).toBe(1700000000 * 1000 + 500);
   });
 });
 
@@ -260,5 +311,242 @@ describe("insertShareTokenRow", () => {
     // Defined fields must still be present.
     expect(userParties.eventName).toBe("Draft Event");
     expect(publicParties.eventName).toBe("Draft Event");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// callPublicShareGet (callable wrapper)
+// ---------------------------------------------------------------------------
+
+describe("callPublicShareGet", () => {
+  it("invokes the getPublicShare callable with the token and returns its data", async () => {
+    mockCallable.mockResolvedValueOnce({ data: { share: { kind: "settlement_review" } } });
+
+    const result = await callPublicShareGet("tok-1");
+
+    expect(mockHttpsCallable).toHaveBeenCalledWith({ __functions: true }, "getPublicShare");
+    expect(mockCallable).toHaveBeenCalledWith({ token: "tok-1", jwt: undefined });
+    expect(result).toEqual({ share: { kind: "settlement_review" } });
+  });
+
+  it("forwards the optional jwt argument", async () => {
+    mockCallable.mockResolvedValueOnce({ data: { share: null } });
+
+    await callPublicShareGet("tok-2", "jwt-xyz");
+
+    expect(mockCallable).toHaveBeenCalledWith({ token: "tok-2", jwt: "jwt-xyz" });
+  });
+
+  it("auto-attaches a cached JWT from sessionStorage when none is passed", async () => {
+    cacheShareJwt("tok-cached", "cached-jwt-value");
+    mockCallable.mockResolvedValueOnce({ data: { share: null } });
+
+    await callPublicShareGet("tok-cached");
+
+    expect(mockCallable).toHaveBeenCalledWith({ token: "tok-cached", jwt: "cached-jwt-value" });
+  });
+
+  it("explicit jwt argument wins over the cached value", async () => {
+    cacheShareJwt("tok-cached-2", "cached-jwt");
+    mockCallable.mockResolvedValueOnce({ data: { share: null } });
+
+    await callPublicShareGet("tok-cached-2", "explicit-jwt");
+
+    expect(mockCallable).toHaveBeenCalledWith({ token: "tok-cached-2", jwt: "explicit-jwt" });
+  });
+
+  it("clearShareJwt removes the cached JWT so subsequent calls send undefined", async () => {
+    cacheShareJwt("tok-clear", "to-be-cleared");
+    clearShareJwt("tok-clear");
+    mockCallable.mockResolvedValueOnce({ data: { share: null } });
+
+    await callPublicShareGet("tok-clear");
+
+    expect(mockCallable).toHaveBeenCalledWith({ token: "tok-clear", jwt: undefined });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// callRequestShareOtp + callVerifyShareOtp (OTP wrappers)
+// ---------------------------------------------------------------------------
+
+describe("callRequestShareOtp", () => {
+  it("invokes requestShareOtp with the token + email", async () => {
+    mockCallable.mockResolvedValueOnce({ data: { ok: true } });
+
+    await callRequestShareOtp("tok-otp", "alice@test.com");
+
+    expect(mockHttpsCallable).toHaveBeenCalledWith({ __functions: true }, "requestShareOtp");
+    expect(mockCallable).toHaveBeenCalledWith({ token: "tok-otp", email: "alice@test.com" });
+  });
+
+  it("propagates callable errors (e.g. resource-exhausted)", async () => {
+    mockCallable.mockRejectedValueOnce(
+      Object.assign(new Error("limit"), { code: "functions/resource-exhausted" }),
+    );
+
+    await expect(callRequestShareOtp("tok-otp", "alice@test.com")).rejects.toThrow("limit");
+  });
+});
+
+describe("callVerifyShareOtp", () => {
+  it("invokes verifyShareOtp with token+email+code and returns the JWT", async () => {
+    mockCallable.mockResolvedValueOnce({ data: { jwt: "signed.jwt.value" } });
+
+    const result = await callVerifyShareOtp("tok-otp", "bob@test.com", "123456");
+
+    expect(mockHttpsCallable).toHaveBeenCalledWith({ __functions: true }, "verifyShareOtp");
+    expect(mockCallable).toHaveBeenCalledWith({
+      token: "tok-otp",
+      email: "bob@test.com",
+      code: "123456",
+    });
+    expect(result).toEqual({ jwt: "signed.jwt.value" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// callConfirmShareParty (callable wrapper)
+// ---------------------------------------------------------------------------
+
+describe("callConfirmShareParty", () => {
+  it("invokes confirmShareParty with token+party and returns the verified email", async () => {
+    mockCallable.mockResolvedValueOnce({
+      data: { ok: true, verifiedEmail: "bob@example.com" },
+    });
+
+    const result = await callConfirmShareParty("tok-cp", "Promoter");
+
+    expect(mockHttpsCallable).toHaveBeenCalledWith({ __functions: true }, "confirmShareParty");
+    expect(mockCallable).toHaveBeenCalledWith({
+      token: "tok-cp",
+      party: "Promoter",
+      jwt: undefined,
+    });
+    expect(result).toEqual({ verifiedEmail: "bob@example.com" });
+  });
+
+  it("forwards the optional jwt argument when supplied", async () => {
+    mockCallable.mockResolvedValueOnce({
+      data: { ok: true, verifiedEmail: "bob@example.com" },
+    });
+
+    await callConfirmShareParty("tok-cp", "Promoter", "explicit-jwt");
+
+    expect(mockCallable).toHaveBeenCalledWith({
+      token: "tok-cp",
+      party: "Promoter",
+      jwt: "explicit-jwt",
+    });
+  });
+
+  it("auto-attaches a cached JWT from sessionStorage when none is passed", async () => {
+    cacheShareJwt("tok-cp-cached", "cached-jwt-value");
+    mockCallable.mockResolvedValueOnce({
+      data: { ok: true, verifiedEmail: "bob@example.com" },
+    });
+
+    await callConfirmShareParty("tok-cp-cached", "Performer");
+
+    expect(mockCallable).toHaveBeenCalledWith({
+      token: "tok-cp-cached",
+      party: "Performer",
+      jwt: "cached-jwt-value",
+    });
+  });
+
+  it("explicit jwt argument wins over the cached value", async () => {
+    cacheShareJwt("tok-cp-cached-2", "cached-jwt");
+    mockCallable.mockResolvedValueOnce({
+      data: { ok: true, verifiedEmail: "bob@example.com" },
+    });
+
+    await callConfirmShareParty("tok-cp-cached-2", "Performer", "explicit-jwt");
+
+    expect(mockCallable).toHaveBeenCalledWith({
+      token: "tok-cp-cached-2",
+      party: "Performer",
+      jwt: "explicit-jwt",
+    });
+  });
+
+  it("propagates callable errors (e.g. permission-denied)", async () => {
+    mockCallable.mockRejectedValueOnce(
+      Object.assign(new Error("denied"), { code: "functions/permission-denied" }),
+    );
+
+    await expect(callConfirmShareParty("tok-cp", "Promoter")).rejects.toThrow("denied");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// callSubmitPublicShareComment (callable wrapper)
+// ---------------------------------------------------------------------------
+
+describe("callSubmitPublicShareComment", () => {
+  it("invokes submitPublicShareComment with the args and an undefined jwt by default", async () => {
+    mockCallable.mockResolvedValueOnce({ data: { ok: true } });
+
+    await callSubmitPublicShareComment({
+      token: "tok-sc",
+      message: "Looks good.",
+      reviewerName: "Bob",
+      date: "2026-05-09",
+      party: "Promoter",
+    });
+
+    expect(mockHttpsCallable).toHaveBeenCalledWith(
+      { __functions: true },
+      "submitPublicShareComment",
+    );
+    expect(mockCallable).toHaveBeenCalledWith({
+      token: "tok-sc",
+      message: "Looks good.",
+      reviewerName: "Bob",
+      date: "2026-05-09",
+      party: "Promoter",
+      jwt: undefined,
+    });
+  });
+
+  it("auto-attaches a cached JWT from sessionStorage when none is passed", async () => {
+    cacheShareJwt("tok-sc-cached", "cached-jwt-value");
+    mockCallable.mockResolvedValueOnce({ data: { ok: true } });
+
+    await callSubmitPublicShareComment({
+      token: "tok-sc-cached",
+      message: "Hi",
+      reviewerName: "Bob",
+      date: "2026-05-09",
+    });
+
+    expect(mockCallable).toHaveBeenCalledWith({
+      token: "tok-sc-cached",
+      message: "Hi",
+      reviewerName: "Bob",
+      date: "2026-05-09",
+      jwt: "cached-jwt-value",
+    });
+  });
+
+  it("explicit jwt wins over cached value", async () => {
+    cacheShareJwt("tok-sc-cached-2", "cached-jwt");
+    mockCallable.mockResolvedValueOnce({ data: { ok: true } });
+
+    await callSubmitPublicShareComment({
+      token: "tok-sc-cached-2",
+      message: "Hi",
+      reviewerName: "Bob",
+      date: "2026-05-09",
+      jwt: "explicit-jwt",
+    });
+
+    expect(mockCallable).toHaveBeenCalledWith({
+      token: "tok-sc-cached-2",
+      message: "Hi",
+      reviewerName: "Bob",
+      date: "2026-05-09",
+      jwt: "explicit-jwt",
+    });
   });
 });

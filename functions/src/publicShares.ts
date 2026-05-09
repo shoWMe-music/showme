@@ -4,6 +4,12 @@ import * as logger from "firebase-functions/logger";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { randomUUID } from "node:crypto";
 
+import { SHARE_JWT_SECRET } from "./shareOtpApi";
+import {
+  assertEmailMatchesParty,
+  resolveVerifiedShareEmail,
+} from "./shareIdentity";
+
 if (!admin.apps.length) {
   admin.initializeApp();
 }
@@ -21,6 +27,8 @@ interface SubmitCommentData {
   reviewerName: string;
   date: string;
   attachments?: SubmitCommentAttachment[];
+  party?: string;
+  jwt?: string;
 }
 
 interface StoredAttachment {
@@ -41,14 +49,9 @@ export const submitPublicShareComment = onCall<
   SubmitCommentData,
   Promise<{ ok: true }>
 >(
-  { region: "europe-west1", memory: "512MiB" },
+  { region: "europe-west1", memory: "512MiB", secrets: [SHARE_JWT_SECRET] },
   async (request) => {
-    const uid = request.auth?.uid;
-    if (!uid) {
-      throw new HttpsError("unauthenticated", "Sign in to submit a comment.");
-    }
-
-    const { token, message, reviewerName, date, attachments = [] } = request.data ?? {};
+    const { token, message, reviewerName, date, attachments = [], party, jwt: _jwt } = request.data ?? {};
 
     if (typeof token !== "string" || token.length < 4) {
       throw new HttpsError("invalid-argument", "Invalid share token.");
@@ -76,6 +79,23 @@ export const submitPublicShareComment = onCall<
     if (!eventId) {
       throw new HttpsError("failed-precondition", "Share has no associated event.");
     }
+    const access = share.access;
+    if (access !== "protected") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Comments require a protected share with a recipient list.",
+      );
+    }
+
+    // Verified email comes from Firebase Auth or the OTP-JWT — never from
+    // unauthenticated callers. resolveVerifiedShareEmail throws if neither
+    // identity source is present.
+    const verifiedEmail = resolveVerifiedShareEmail(request, token);
+    // When the client tells us which party the comment is attributed to, gate
+    // the write on that party's identity. Falling back to reviewerName covers
+    // legacy clients that have not yet adopted the explicit party field.
+    const partyForCheck = typeof party === "string" && party.trim() ? party : reviewerName.trim();
+    await assertEmailMatchesParty(db, eventId, partyForCheck, verifiedEmail);
 
     const settlementRef = db
       .collection("events").doc(eventId)
@@ -120,7 +140,8 @@ export const submitPublicShareComment = onCall<
     }
 
     const newComment: Record<string, unknown> = {
-      party: reviewerName.trim(),
+      party: partyForCheck,
+      email: verifiedEmail,
       message: message.trim(),
       date,
     };
@@ -138,15 +159,17 @@ export const submitPublicShareComment = onCall<
       });
     });
 
-    // Append activity entry (best-effort)
+    // Append activity entry (best-effort) — skip actorUid for OTP recipients
+    // since they have no Firebase Auth identity, just the verified email.
     try {
       await db.collection("events").doc(eventId).collection("activity").add({
         kind: "comment_added",
         actor: reviewerName.trim(),
-        actorUid: uid,
+        actorUid: request.auth?.uid ?? null,
+        actorEmail: verifiedEmail,
         via: "public_share",
         token,
-        details: { party: reviewerName.trim(), attachmentCount: stored.length },
+        details: { party: partyForCheck, attachmentCount: stored.length },
         createdAt: FieldValue.serverTimestamp(),
       });
     } catch (err) {

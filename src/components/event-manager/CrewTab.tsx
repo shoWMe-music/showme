@@ -23,6 +23,7 @@ import {
   fetchCrew, upsertCrewMember, deleteCrewMember,
   insertShareTokenRow, appendEventActivity, type EventMeta, type Todo,
 } from "@/lib/db";
+import { newShareToken } from "@/lib/shareToken";
 import { useChildEvents } from "@/lib/queries";
 import { getAuthClient } from "@/lib/firebaseAuth";
 import {
@@ -312,7 +313,7 @@ th{background:#f5f5f5;font-weight:600}.meta{color:#666;font-size:13px;margin-bot
     eventName: string
   ) {
     try {
-      const token = crypto.randomUUID();
+      const token = newShareToken();
       const shareData = {
         type: "in-house",
         eventName,

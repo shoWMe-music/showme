@@ -4,18 +4,22 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Share2, AlertTriangle } from "lucide-react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import { Share2, AlertTriangle, Globe, Lock } from "lucide-react";
 import { toast, copyToast } from "@/hooks/use-toast";
-import { createPublicEventShare, fetchSchedule, fetchCrew, fetchRiders, fetchAgreements } from "@/lib/db";
+import { createPublicEventShare, fetchSchedule, fetchCrew, fetchRiders, fetchAgreements, fetchEventCollaborators, fetchEventBudgetCalculator } from "@/lib/db";
 import { useEvent, useEventEconomics } from "@/lib/queries";
 import { useUser } from "@/lib/user-context";
+import { newShareToken } from "@/lib/shareToken";
 import type { TeamMember } from "@/lib/user-context";
 import { TAB_SECTIONS, type SelectionLevel, type EventExportData } from "./export-event/types";
 import { buildCSVContent } from "./export-event/buildCSVContent";
 import { buildPrintHTML } from "./export-event/buildPrintHTML";
 import { SectionSelector } from "./export-event/SectionSelector";
 import { RecipientsInput } from "./export-event/RecipientsInput";
-import { ExportActions } from "./export-event/ExportActions";
+import { ExportActions, type ShareAccess } from "./export-event/ExportActions";
+import { PublicShareWarningModal } from "./export-event/PublicShareWarningModal";
 import { parseRecipientInput } from "./export-event/parseRecipientInput";
 import type { DealStructure, TicketRevenue, Settlement } from "@/lib/models";
 
@@ -39,32 +43,60 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
   // Wave 2/3 moved this data from the legacy managerData bridge into proper
   // subcollections; the export pipeline must wait for ALL of them before the
   // print HTML is allowed to render, otherwise the resulting PDF has a logo
-  // and header but no section content.
-  const fetchSubcollections = open && !eventDataProp;
-  const scheduleQ = useQuery({ queryKey: ["export-schedule", eventId], queryFn: () => fetchSchedule(eventId), enabled: fetchSubcollections });
-  const crewQ = useQuery({ queryKey: ["export-crew", eventId], queryFn: () => fetchCrew(eventId), enabled: fetchSubcollections });
-  const ridersQ = useQuery({ queryKey: ["export-riders", eventId], queryFn: () => fetchRiders(eventId), enabled: fetchSubcollections });
-  const agreementsQ = useQuery({ queryKey: ["export-agreements", eventId], queryFn: () => fetchAgreements(eventId), enabled: fetchSubcollections });
+  // and header but no section content. These run even when eventDataProp is
+  // supplied (EventManagerPage path), because the parent's eventMeta comes
+  // from useEventEconomics which does NOT include subcollection data — so
+  // without these fetches the snapshot would store an eventMeta with no
+  // schedule/crew/riders/agreements.
+  const scheduleQ = useQuery({ queryKey: ["export-schedule", eventId], queryFn: () => fetchSchedule(eventId), enabled: open });
+  const crewQ = useQuery({ queryKey: ["export-crew", eventId], queryFn: () => fetchCrew(eventId), enabled: open });
+  const ridersQ = useQuery({ queryKey: ["export-riders", eventId], queryFn: () => fetchRiders(eventId), enabled: open });
+  const agreementsQ = useQuery({ queryKey: ["export-agreements", eventId], queryFn: () => fetchAgreements(eventId), enabled: open });
+  const collaboratorsQ = useQuery({ queryKey: ["export-collaborators", eventId], queryFn: () => fetchEventCollaborators(eventId), enabled: open });
   const schedule = scheduleQ.data;
   const crew = crewQ.data;
   const riders = ridersQ.data;
   const agreements = agreementsQ.data;
-  const subcollectionsLoaded = !fetchSubcollections || (
-    scheduleQ.isSuccess && crewQ.isSuccess && ridersQ.isSuccess && agreementsQ.isSuccess
+  const collaborators = collaboratorsQ.data;
+
+  // Budget snapshot lives in events/{id}/budgets/{profileDocId}; we need the
+  // profile id from eventMeta to fetch it. The recipient renderer reads
+  // eventMeta.budget.{revenue,cost,result}Fields, so without this the budget
+  // sections render as empty placeholders.
+  const sourceMeta = eventDataProp?.eventMeta ?? eventMeta;
+  const budgetProfileId = typeof sourceMeta?.budgetProfileId === "string" && sourceMeta.budgetProfileId.trim()
+    ? sourceMeta.budgetProfileId.trim()
+    : null;
+  const budgetQ = useQuery({
+    queryKey: ["export-budget", eventId, budgetProfileId],
+    queryFn: () => fetchEventBudgetCalculator(eventId, budgetProfileId!),
+    enabled: open && !!budgetProfileId,
+  });
+  const budget = budgetQ.data;
+
+  const subcollectionsLoaded = !open || (
+    scheduleQ.isSuccess && crewQ.isSuccess && ridersQ.isSuccess && agreementsQ.isSuccess && collaboratorsQ.isSuccess
+    && (!budgetProfileId || budgetQ.isSuccess)
   );
 
   const eventData = useMemo<EventExportData | undefined>(() => {
-    if (eventDataProp) return eventDataProp;
+    if (eventDataProp) {
+      if (!subcollectionsLoaded) return undefined;
+      return {
+        ...eventDataProp,
+        eventMeta: { ...eventDataProp.eventMeta, schedule, crew, riders, agreements, collaborators, budget: budget ?? undefined } as EventExportData["eventMeta"],
+      };
+    }
     if (!event || !economicsLoaded || !subcollectionsLoaded) return undefined;
     return {
       event,
       deal: deal ?? { eventId: event.id, dealType: "guarantee" as const, artistGuarantee: 0, artistSplit: 80, promoterSplit: 10, venueSplit: 10, organizerSplit: 0, artistCostSplit: 0, promoterCostSplit: 50, venueCostSplit: 50, organizerCostSplit: 0, venueRental: 0, commissions: [] } satisfies DealStructure,
       revenue: revenue ?? { eventId: event.id, ticketsSold: 0, grossRevenue: 0, ticketFees: 0, tax: 0, refunds: 0, doorSales: 0, productionExpenses: 0, additionalCosts: 0 } as TicketRevenue,
       settlement: settlement ?? { eventId: event.id, promoterPayout: 0, artistPayout: 0, venuePayout: 0, commissionPayouts: [], status: "open" as const, approvals: [{ party: "Operator", approved: false }, { party: "Performer", approved: false }, { party: "Venue", approved: false }], comments: [], revisions: [] } as Settlement,
-      eventMeta: { ...eventMeta, schedule, crew, riders, agreements } as EventExportData["eventMeta"],
+      eventMeta: { ...eventMeta, schedule, crew, riders, agreements, collaborators, budget: budget ?? undefined } as EventExportData["eventMeta"],
       currency: currentUser?.currency || "EUR",
     };
-  }, [eventDataProp, event, economicsLoaded, subcollectionsLoaded, deal, revenue, settlement, eventMeta, schedule, crew, riders, agreements, currentUser?.currency]);
+  }, [eventDataProp, event, economicsLoaded, subcollectionsLoaded, deal, revenue, settlement, eventMeta, schedule, crew, riders, agreements, collaborators, budget, currentUser?.currency]);
 
   const [level, setLevel] = useState<SelectionLevel>("sections");
   const [selectedTabs, setSelectedTabs] = useState<Set<string>>(new Set());
@@ -73,6 +105,10 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
   const [recipientInput, setRecipientInput] = useState("");
   const [recipients, setRecipients] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
+  // Default to Protected — public links require explicit opt-in plus a legal
+  // acknowledgement, so the safer mode is the default.
+  const [access, setAccess] = useState<ShareAccess>("protected");
+  const [publicWarningOpen, setPublicWarningOpen] = useState(false);
 
   const allSectionIds = useMemo(() => {
     const ids = new Set<string>();
@@ -168,11 +204,21 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
         deal: eventData.deal, revenue: eventData.revenue, eventMeta: eventData.eventMeta,
         settlement: eventData.settlement, currency: eventData.currency,
       } : {};
-      const shareToken = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `share-${Date.now()}`;
+      // Always mint a fresh random token — share docs are frozen by design,
+      // so reusing a token would silently overwrite a previous snapshot.
+      const shareToken = newShareToken();
+      const recipientsForWrite = access === "public"
+        ? []
+        : recipients.map((email) => ({ email }));
       await createPublicEventShare(shareToken, {
-        eventId, recipients, snapshotData,
-        sections: Array.from(selectedSections), tabs: Array.from(selectedTabs),
-        level, creatorName: creatorName || "Unknown",
+        eventId,
+        access,
+        recipients: recipientsForWrite,
+        snapshotData,
+        sections: Array.from(selectedSections),
+        tabs: Array.from(selectedTabs),
+        level,
+        creatorName: creatorName || "Unknown",
       });
       return shareToken;
     },
@@ -182,10 +228,16 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
       try {
         await navigator.clipboard.writeText(url);
         setCopied(true); setTimeout(() => setCopied(false), 2000);
-        copyToast("Link copied", recipients.length > 0 ? `Only accessible by: ${recipients.join(", ")}` : "Anyone with the link can access this.");
+        copyToast(
+          "Link copied",
+          access === "protected" && recipients.length > 0
+            ? `Only accessible by: ${recipients.join(", ")}`
+            : "Public link — anyone with the URL can access this.",
+        );
       } catch {
         toast({ title: "Could not copy", variant: "destructive" });
       }
+      setPublicWarningOpen(false);
     },
     onError: (err: any) => {
       toast({ title: "Failed to create share link", description: err?.message || "Unknown error", variant: "destructive" });
@@ -231,6 +283,14 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
       toast({ title: "Please wait for data to load", description: "Event data is still loading. Please try again in a moment.", variant: "destructive" });
       return;
     }
+    if (access === "public") {
+      setPublicWarningOpen(true);
+      return;
+    }
+    shareMutation.mutate();
+  };
+
+  const handleConfirmPublic = () => {
     shareMutation.mutate();
   };
 
@@ -277,26 +337,84 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
 
         <Separator />
 
-        <RecipientsInput
-          recipientInput={recipientInput}
-          recipients={recipients}
-          teamMembers={teamMembers}
-          onChangeInput={setRecipientInput}
-          onAdd={addRecipient}
-          onRemove={(email) => setRecipients(prev => prev.filter(x => x !== email))}
-          onAddTeamMember={addTeamMemberRecipient}
-        />
+        <div className="space-y-2">
+          <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Link access</Label>
+          <RadioGroup
+            value={access}
+            onValueChange={(v) => setAccess(v as ShareAccess)}
+            className="grid grid-cols-1 sm:grid-cols-2 gap-2"
+          >
+            <label
+              htmlFor="share-access-protected"
+              className={`flex items-start gap-2 rounded-md border p-3 cursor-pointer transition-colors ${
+                access === "protected" ? "border-primary bg-primary/5" : "hover:bg-muted/40"
+              }`}
+            >
+              <RadioGroupItem id="share-access-protected" value="protected" className="mt-0.5" />
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-1.5 text-sm font-medium">
+                  <Lock className="h-3.5 w-3.5" /> Protected
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Only the recipients you list can open the link.
+                </p>
+              </div>
+            </label>
+            <label
+              htmlFor="share-access-public"
+              className={`flex items-start gap-2 rounded-md border p-3 cursor-pointer transition-colors ${
+                access === "public" ? "border-primary bg-primary/5" : "hover:bg-muted/40"
+              }`}
+            >
+              <RadioGroupItem id="share-access-public" value="public" className="mt-0.5" />
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-1.5 text-sm font-medium">
+                  <Globe className="h-3.5 w-3.5" /> Public
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Anyone with the URL can open the link.
+                </p>
+              </div>
+            </label>
+          </RadioGroup>
+        </div>
+
+        {access === "protected" ? (
+          <RecipientsInput
+            recipientInput={recipientInput}
+            recipients={recipients}
+            teamMembers={teamMembers}
+            onChangeInput={setRecipientInput}
+            onAdd={addRecipient}
+            onRemove={(email) => setRecipients(prev => prev.filter(x => x !== email))}
+            onAddTeamMember={addTeamMemberRecipient}
+          />
+        ) : (
+          <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            Public link — anyone with the URL can view this snapshot. No recipient list required.
+          </div>
+        )}
 
         <Separator />
 
         <ExportActions
           hasSelection={hasSelection}
+          access={access}
           recipients={recipients}
           sharing={shareMutation.isPending}
           copied={copied}
           onPrint={handlePrint}
           onCSV={handleCSV}
           onShareLink={handleShareLink}
+        />
+
+        <PublicShareWarningModal
+          open={publicWarningOpen}
+          onOpenChange={(v) => {
+            if (!shareMutation.isPending) setPublicWarningOpen(v);
+          }}
+          onConfirm={handleConfirmPublic}
+          pending={shareMutation.isPending}
         />
       </DialogContent>
     </Dialog>

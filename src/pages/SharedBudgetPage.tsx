@@ -1,10 +1,11 @@
 import { useParams } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { TrendingUp, TrendingDown, DollarSign, Target, Calculator } from "lucide-react";
-import { fetchShareTokenPartiesForBudget } from "@/lib/db";
+import { fetchShareTokenPartiesForBudget, ShareAuthRequiredError } from "@/lib/db";
 import { queryKeys } from "@/lib/queries";
 import { formatCurrency } from "@/lib/models";
 import { cn } from "@/lib/utils";
+import ShareOtpGate from "@/components/share/ShareOtpGate";
 
 interface SharedField {
   id: string;
@@ -45,11 +46,13 @@ const EXCLUDED_REVENUE_IDS = ["ticket_price", "expected_tickets", "capacity", "a
 
 export default function SharedBudgetPage() {
   const { token } = useParams({ from: "/shared/budget/$token" });
+  const queryClient = useQueryClient();
 
   const {
     data: rawData,
     isPending: loading,
     isError,
+    error,
   } = useQuery({
     queryKey: queryKeys.shareBudgetParties(token ?? ""),
     queryFn: async () => {
@@ -58,7 +61,20 @@ export default function SharedBudgetPage() {
       return parties || null;
     },
     enabled: !!token,
+    // Don't auto-retry — ShareAuthRequiredError is a deliberate signal to gate.
+    retry: false,
   });
+
+  if (error instanceof ShareAuthRequiredError && token) {
+    return (
+      <ShareOtpGate
+        token={token}
+        onUnlocked={() =>
+          void queryClient.invalidateQueries({ queryKey: queryKeys.shareBudgetParties(token) })
+        }
+      />
+    );
+  }
 
   const rawType = rawData && typeof rawData === "object" ? (rawData as Record<string, unknown>).type : undefined;
   const isTodoSchedule = rawType === "todo-schedule";
@@ -67,7 +83,7 @@ export default function SharedBudgetPage() {
   const todoData = isTodoSchedule ? (rawData as unknown as SharedTodoSchedule) : null;
   const inHouseData = isInHouse ? (rawData as unknown as SharedInHouseAssignment) : null;
 
-  const error =
+  const errorMessage =
     isError
       ? "Shared link not found or has expired."
       : !loading && !data && !todoData && !inHouseData
@@ -173,11 +189,11 @@ export default function SharedBudgetPage() {
     );
   }
 
-  if (error || !data) {
+  if (errorMessage || !data) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center space-y-2">
-          <p className="text-lg font-semibold text-destructive">{error}</p>
+          <p className="text-lg font-semibold text-destructive">{errorMessage}</p>
           <p className="text-sm text-muted-foreground">The link may be invalid or the report was removed.</p>
         </div>
       </div>

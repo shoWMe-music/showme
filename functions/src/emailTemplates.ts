@@ -116,6 +116,38 @@ export function verifyAndChangeEmailTemplate(opts: {
   };
 }
 
+export function shareOtpEmail(opts: {
+  code: string;
+  eventName: string;
+  expiresInMin: number;
+}): { subject: string; html: string; text: string } {
+  const content = `
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b">Your share access code</h2>
+    <p style="margin:0 0 20px;font-size:14px;color:#71717a;line-height:1.6">
+      Use the code below to view <strong>${opts.eventName}</strong> on shoWMe.
+    </p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td align="center" style="padding:8px 0 24px">
+          <span style="display:inline-block;padding:16px 32px;background:#f4f4f5;border-radius:8px;font-size:28px;font-weight:700;letter-spacing:6px;color:#18181b;font-family:monospace">
+            ${opts.code}
+          </span>
+        </td>
+      </tr>
+    </table>
+    <p style="margin:0;font-size:13px;color:#a1a1aa;line-height:1.5">
+      This code expires in ${opts.expiresInMin} minutes. If you didn't request access, you can safely ignore this email.
+    </p>`;
+
+  const text = `Your shoWMe share access code: ${opts.code}\n\nUse this code to view ${opts.eventName}. Code expires in ${opts.expiresInMin} minutes.\n\nIf you didn't request access, you can safely ignore this email.`;
+
+  return {
+    subject: "Your shoWMe share access code",
+    html: baseLayout(content),
+    text,
+  };
+}
+
 export function otpEmail(code: string, recipientName?: string): { subject: string; html: string } {
   const greeting = recipientName ? `Hi ${recipientName},` : "Hi,";
 

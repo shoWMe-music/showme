@@ -32,6 +32,9 @@ export {
   setProfileMemberRole,
 } from "./profileMembership";
 export { lookupUserForInvite, addExistingUserAsCollaborator } from "./userLookup";
+export { getPublicShare } from "./publicShareApi";
+export { requestShareOtp, verifyShareOtp } from "./shareOtpApi";
+export { confirmShareParty } from "./confirmShareApi";
 export { submitPublicShareComment } from "./publicShares";
 export {
   onEventCreated,
