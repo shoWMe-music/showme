@@ -9,12 +9,15 @@ import CreateEventDialog from "@/components/CreateEventDialog";
 import InviteCollaboratorDialog from "@/components/InviteCollaboratorDialog";
 import ExportEventDialog from "@/components/ExportEventDialog";
 import { Link } from "@tanstack/react-router";
-import { Search, Globe, EyeOff, CreditCard, UserPlus, Printer, Trash2, Archive, ArchiveRestore, Users, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, ArrowUpDown, Loader2, Copy } from "lucide-react";
+import { Search, Globe, EyeOff, CreditCard, UserPlus, Printer, Trash2, Archive, ArchiveRestore, Users, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, ArrowUpDown, Loader2, Copy, MoreHorizontal } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "@/hooks/use-toast";
 import { usePublishEventToggle } from "@/hooks/usePublishEventToggle";
 import {
@@ -402,115 +405,78 @@ export default function EventsPage() {
                         </td>
                         <td className="px-6 py-4"><EventStatusBadge status={event.eventStatus} event={event} /></td>
                         <td className="px-6 py-4">
-                          <div className="flex items-center justify-end gap-1">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  onClick={() => togglePublish(event)}
-                                >
-                                  {event.published ? <Globe className="h-4 w-4 text-primary" /> : <EyeOff className="h-4 w-4 text-muted-foreground" />}
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>{event.published ? "Unpublish" : "Publish"}</TooltipContent>
-                            </Tooltip>
-
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-                                  <Link to="/events/$id" params={{ id: event.id }} search={{ tab: "settlement" }}>
-                                    <CreditCard className="h-4 w-4 text-muted-foreground" />
-                                  </Link>
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Settlement</TooltipContent>
-                            </Tooltip>
-
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setInviteEventId(event.id)}>
-                                  <UserPlus className="h-4 w-4 text-muted-foreground" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Invite Collaborator</TooltipContent>
-                            </Tooltip>
-
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPrintEventId(event.id)}>
-                                  <Printer className="h-4 w-4 text-muted-foreground" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Print Event Details</TooltipContent>
-                            </Tooltip>
-
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  onClick={() => setDuplicateEventId(event.id)}
-                                  data-testid={`event-row-duplicate-${event.id}`}
-                                  aria-label="Duplicate Event"
-                                >
-                                  <Copy className="h-4 w-4 text-muted-foreground" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Duplicate Event</TooltipContent>
-                            </Tooltip>
-
-                            {event.archived ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
-                                    updateEvent(event.id, { archived: false });
-                                    toast({ title: "Event restored" });
-                                  }}>
-                                    <ArchiveRestore className="h-4 w-4 text-muted-foreground hover:text-primary" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Restore Event</TooltipContent>
-                              </Tooltip>
-                            ) : (() => {
+                          <div className="flex items-center justify-end">
+                            {(() => {
                               const isDraft = event.eventStatus === "draft";
                               const isCancelled = event.eventStatus === "cancelled";
                               const isReadyToArchive = readyToArchiveIds.has(event.id);
-                              const showArchiveIcon = isCancelled || isReadyToArchive;
-                              const handleClick = () => {
+                              const showArchiveAction = !event.archived && (isCancelled || isReadyToArchive);
+                              const handleDestructive = () => {
                                 if (isDraft) {
                                   setDeleteDialog({ eventId: event.id, step: "delete-draft" });
-                                } else if (showArchiveIcon) {
+                                } else if (showArchiveAction) {
                                   setDeleteDialog({ eventId: event.id, step: "archive-only" });
                                 } else {
                                   setDeleteDialog({ eventId: event.id, step: "cancel-confirm" });
                                 }
                               };
-                              const tooltipLabel = isDraft
+                              const destructiveLabel = isDraft
                                 ? "Delete Draft"
-                                : showArchiveIcon
+                                : showArchiveAction
                                   ? "Archive Event"
                                   : "Cancel / Archive Event";
                               return (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8"
-                                      onClick={handleClick}
-                                      data-testid={`event-row-delete-${event.id}`}
-                                      aria-label={tooltipLabel}
-                                    >
-                                      {showArchiveIcon
-                                        ? <Archive className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-                                        : <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />}
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Event actions" data-testid={`event-row-actions-${event.id}`}>
+                                      <MoreHorizontal className="h-4 w-4" />
                                     </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>{tooltipLabel}</TooltipContent>
-                                </Tooltip>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-56">
+                                    <DropdownMenuItem onClick={() => togglePublish(event)}>
+                                      {event.published
+                                        ? <><Globe className="h-4 w-4 mr-2 text-primary" /> Unpublish</>
+                                        : <><EyeOff className="h-4 w-4 mr-2" /> Publish</>}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem asChild>
+                                      <Link to="/events/$id" params={{ id: event.id }} search={{ tab: "settlement" }}>
+                                        <CreditCard className="h-4 w-4 mr-2" /> Settlement
+                                      </Link>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => setInviteEventId(event.id)}>
+                                      <UserPlus className="h-4 w-4 mr-2" /> Invite Collaborator
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => setPrintEventId(event.id)}>
+                                      <Printer className="h-4 w-4 mr-2" /> Print Event Details
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onClick={() => setDuplicateEventId(event.id)}
+                                      data-testid={`event-row-duplicate-${event.id}`}
+                                    >
+                                      <Copy className="h-4 w-4 mr-2" /> Duplicate Event
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    {event.archived ? (
+                                      <DropdownMenuItem onClick={() => {
+                                        updateEvent(event.id, { archived: false });
+                                        toast({ title: "Event restored" });
+                                      }}>
+                                        <ArchiveRestore className="h-4 w-4 mr-2" /> Restore Event
+                                      </DropdownMenuItem>
+                                    ) : (
+                                      <DropdownMenuItem
+                                        onClick={handleDestructive}
+                                        data-testid={`event-row-delete-${event.id}`}
+                                        className="text-destructive focus:text-destructive"
+                                      >
+                                        {showArchiveAction
+                                          ? <Archive className="h-4 w-4 mr-2" />
+                                          : <Trash2 className="h-4 w-4 mr-2" />}
+                                        {destructiveLabel}
+                                      </DropdownMenuItem>
+                                    )}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               );
                             })()}
                           </div>
