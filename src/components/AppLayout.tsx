@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import AppSidebar from "./AppSidebar";
 import { TopBreadcrumbBar } from "./TopBreadcrumb";
-import { useNotifications, queryKeys } from "@/lib/queries";
+import { useNotifications, queryKeys, useAutoConcludeEvents } from "@/lib/queries";
 import { useAuth } from "@/lib/auth-context";
 import { useNotificationInvalidator } from "@/lib/queries/useNotificationInvalidator";
 import { resolveNotificationTarget } from "@/components/notifications/notificationLinks";
@@ -75,6 +75,8 @@ function timeAgo(iso: string): string {
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
   useNotificationInvalidator(notifications);
+  // Auto-transition confirmed past-date events to "concluded" so settlements unlock.
+  useAutoConcludeEvents();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
