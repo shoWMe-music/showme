@@ -93,6 +93,20 @@ describe("buildCSVContent", () => {
     expect(csv).toContain("open");
   });
 
+  it("includes event.notes in the event-info section when set", () => {
+    const data = makeEventData({
+      event: { ...makeEventData().event, notes: "Backstage door is around the back\nCode: 1234" } as EventExportData["event"],
+    });
+    const csv = buildCSVContent(["details"], new Set(["event-info"]), "sections", data);
+    expect(csv).toContain(`"Notes","Backstage door is around the back`);
+    expect(csv).toContain("Code: 1234");
+  });
+
+  it("omits the Notes row when event.notes is unset", () => {
+    const csv = buildCSVContent(["details"], new Set(["event-info"]), "sections", makeEventData());
+    expect(csv).not.toContain(`"Notes",`);
+  });
+
   it("renders the Event Summary section under the agreement tab", () => {
     const csv = buildCSVContent(["agreement"], new Set(), "tabs", makeEventData());
     expect(csv).toContain("--- Event Summary ---");

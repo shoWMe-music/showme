@@ -23,7 +23,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 
-const EVENT_STATUS_FILTERS: { value: EventStatus | "all" | "archived"; label: string }[] = [
+type StatusFilterValue = EventStatus | "all" | "archived" | "next-shows";
+
+const EVENT_STATUS_FILTERS: { value: StatusFilterValue; label: string }[] = [
+  { value: "next-shows", label: "Next Shows" },
   { value: "all", label: "All" },
   { value: "draft", label: "Draft" },
   { value: "suggested", label: "Suggested" },
@@ -76,7 +79,7 @@ export default function EventsPage() {
     return () => clearTimeout(debounceRef.current);
   }, [search]);
 
-  const [statusFilter, setStatusFilter] = useState<EventStatus | "all" | "archived">("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>("next-shows");
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(1);
@@ -97,13 +100,14 @@ export default function EventsPage() {
   const serverSortField = sortKey === "performer" ? "artist" : sortKey === "status" ? "date" : sortKey;
   const serverSortDir = sortKey === "status" ? "desc" : sortDir;
 
+  const isStatusServerFilter = statusFilter !== "all" && statusFilter !== "archived" && statusFilter !== "next-shows";
   const firestoreFilters = useMemo(
     () => ({
-      ...(statusFilter !== "all" && statusFilter !== "archived" ? { status: statusFilter } : {}),
+      ...(isStatusServerFilter ? { status: statusFilter as EventStatus } : {}),
       sortField: serverSortField as "date" | "artist" | "venue",
       sortDir: serverSortDir as "asc" | "desc",
     }),
-    [statusFilter, serverSortField, serverSortDir],
+    [statusFilter, isStatusServerFilter, serverSortField, serverSortDir],
   );
 
   const {
@@ -156,9 +160,14 @@ export default function EventsPage() {
     }
   }, [debouncedSearch, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
+  const today = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
   const filtered = allLoadedEvents.filter((e) => {
     if (statusFilter === "archived") return !!e.archived;
     if (e.archived) return false;
+    if (statusFilter === "next-shows" && e.date < today) return false;
     // Hide child events unless the user is the performer on it (not the host)
     if (e.parentEventId) {
       const isMyChildEvent = allProfileIds.some(

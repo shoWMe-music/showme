@@ -273,6 +273,12 @@ export default function SharedEventPage() {
                 <div><span className="text-muted-foreground">Operator:</span> <span className="font-medium ml-2">{event.operator}</span></div>
                 {event.ticketingProvider && <div><span className="text-muted-foreground">Ticketing:</span> <span className="font-medium ml-2">{event.ticketingProvider}</span></div>}
               </div>
+              {event.notes && (
+                <div className="mt-4 pt-4 border-t">
+                  <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1">Notes</div>
+                  <p className="text-sm whitespace-pre-wrap">{event.notes}</p>
+                </div>
+              )}
             </div>
           )}
 

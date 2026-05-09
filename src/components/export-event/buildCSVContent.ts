@@ -47,6 +47,7 @@ export function buildCSVContent(
     lines.push(`"Status","${s(event.eventStatus, "N/A")}"`);
     lines.push(`"Capacity","${s(event.capacity, "N/A")}"`);
     lines.push(`"Ticketing Provider","${s(event.ticketingProvider, "N/A")}"`);
+    if (event.notes) lines.push(`"Notes","${s(event.notes)}"`);
     lines.push("");
   }
 

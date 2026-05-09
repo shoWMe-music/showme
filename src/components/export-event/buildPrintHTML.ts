@@ -52,6 +52,9 @@ th{background:#f5f5f5;font-weight:600}
       <tr><td>Capacity</td><td>${s(event.capacity)}</td></tr>
       <tr><td>Ticketing Provider</td><td>${s(event.ticketingProvider)}</td></tr>
     </table>`;
+    if (event.notes) {
+      html += `<h2>Notes</h2><p style="white-space:pre-wrap;font-size:13px">${s(event.notes)}</p>`;
+    }
   }
 
   if (includeSection("ticketing", "details") && revenue?.ticketTypes?.length) {
