@@ -366,7 +366,7 @@ export default function EventsPage() {
                       return (
                       <React.Fragment key={event.id}>
                       <tr className={`transition-colors hover:bg-muted/30 ${event.isMultiPerformer ? "border-l-4 border-l-primary/40 bg-primary/[0.02]" : ""} ${isChildEvent ? "border-l-4 border-l-primary/20 bg-muted/10" : ""}`}>
-                        <td className="px-6 py-4">
+                        <td className={`py-4 pr-6 ${event.isMultiPerformer || isChildEvent ? "pl-3" : "pl-6"}`}>
                           {isChildEvent && parentName && (
                             <p className="text-[10px] text-muted-foreground/70 font-medium mb-0.5 pl-2">{parentName}</p>
                           )}
