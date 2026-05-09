@@ -81,7 +81,18 @@ export default function EventsPage() {
 
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>("next-shows");
   const [sortKey, setSortKey] = useState<SortKey>("date");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  // When the filter changes, reset the date sort direction to its natural reading
+  // order — asc for upcoming/Next Shows (soonest first), desc otherwise (newest first).
+  useEffect(() => {
+    if (sortKey === "date") {
+      setSortDir(statusFilter === "next-shows" ? "asc" : "desc");
+    }
+    // sortKey is intentionally not a dep — toggleSort already manages direction
+    // when the user clicks a column header. This effect only reacts to filter changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter]);
   const [page, setPage] = useState(1);
   const [inviteEventId, setInviteEventId] = useState<string | null>(null);
   const [printEventId, setPrintEventId] = useState<string | null>(null);
@@ -213,7 +224,7 @@ export default function EventsPage() {
       setSortDir(d => d === "asc" ? "desc" : "asc");
     } else {
       setSortKey(key);
-      setSortDir(key === "date" ? "desc" : "asc");
+      setSortDir(key === "date" && statusFilter !== "next-shows" ? "desc" : "asc");
     }
   };
 
