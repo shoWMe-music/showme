@@ -48,6 +48,11 @@ export function buildCSVContent(
     lines.push(`"Capacity","${s(event.capacity, "N/A")}"`);
     lines.push(`"Ticketing Provider","${s(event.ticketingProvider, "N/A")}"`);
     if (event.notes) lines.push(`"Notes","${s(event.notes)}"`);
+    if (event.amenities && event.amenities.length > 0) {
+      lines.push(`"Amenities","${s(event.amenities.join(", "))}"`);
+    }
+    if (event.cateringNotes) lines.push(`"Catering","${s(event.cateringNotes)}"`);
+    if (event.accommodationNotes) lines.push(`"Accommodation","${s(event.accommodationNotes)}"`);
     lines.push("");
   }
 
@@ -87,9 +92,9 @@ export function buildCSVContent(
   const riderItems = (eventMeta as unknown as { riders?: Rider[] }).riders;
   if (includeSection("riders", "details") && riderItems?.length) {
     lines.push(`"--- Riders & Documents ---"`);
-    lines.push(`"Type","Name"`);
+    lines.push(`"Type","Name","File","URL"`);
     riderItems.forEach((r: Rider) => {
-      lines.push(`"${s(r.type)}","${s(r.name)}"`);
+      lines.push(`"${s(r.type)}","${s(r.name)}","${s(r.fileName)}","${s(r.fileUrl)}"`);
     });
     lines.push("");
   }
@@ -113,9 +118,9 @@ export function buildCSVContent(
     const agreementItems = (eventMeta as unknown as { agreements?: Agreement[] }).agreements;
     if (includeSection("agreements-docs", "agreement") && agreementItems?.length) {
       lines.push(`"--- Agreements ---"`);
-      lines.push(`"Type","Name","Status"`);
+      lines.push(`"Type","Name","Status","File","URL"`);
       agreementItems.forEach((a: Agreement) => {
-        lines.push(`"${s(a.type)}","${s(a.name)}","${s(a.status)}"`);
+        lines.push(`"${s(a.type)}","${s(a.name)}","${s(a.status)}","${s(a.fileName)}","${s(a.fileUrl)}"`);
       });
       lines.push("");
     }

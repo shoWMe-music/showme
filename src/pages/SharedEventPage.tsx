@@ -15,7 +15,7 @@ import { formatCurrency } from "@/lib/models";
 import type { DealStructure, Event, EventCollaborator, ScheduleItem, CrewMember, TicketType, Agreement, Rider, ProEstimate, Settlement } from "@/lib/models";
 import { generateSignatureHash } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import { Calendar, MapPin, Music, Users, Ticket, DollarSign, Clock, FileText, Share2, AlertCircle, CheckCircle2, Check, FileBox, Calculator, TrendingUp, ListChecks, StickyNote, Receipt } from "lucide-react";
+import { Calendar, MapPin, Music, Users, Ticket, DollarSign, Clock, FileText, Share2, AlertCircle, CheckCircle2, Check, FileBox, Calculator, TrendingUp, ListChecks, StickyNote, Receipt, Download, Sparkles } from "lucide-react";
 
 interface AgreementConfirmation {
   party: string;
@@ -279,6 +279,32 @@ export default function SharedEventPage() {
                   <p className="text-sm whitespace-pre-wrap">{event.notes}</p>
                 </div>
               )}
+              {((event.amenities && event.amenities.length > 0) || event.cateringNotes || event.accommodationNotes) && (
+                <div className="mt-4 pt-4 border-t">
+                  <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5" /> Amenities
+                  </div>
+                  {event.amenities && event.amenities.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {event.amenities.map((a) => (
+                        <Badge key={a} variant="outline" className="text-xs">{a}</Badge>
+                      ))}
+                    </div>
+                  )}
+                  {event.cateringNotes && (
+                    <div className="mt-2">
+                      <div className="text-xs font-medium mb-0.5">Catering</div>
+                      <p className="text-sm whitespace-pre-wrap text-muted-foreground">{event.cateringNotes}</p>
+                    </div>
+                  )}
+                  {event.accommodationNotes && (
+                    <div className="mt-2">
+                      <div className="text-xs font-medium mb-0.5">Accommodation</div>
+                      <p className="text-sm whitespace-pre-wrap text-muted-foreground">{event.accommodationNotes}</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -337,9 +363,53 @@ export default function SharedEventPage() {
               <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><FileBox className="h-5 w-5 text-primary" /> Riders & Documents</h3>
               <div className="space-y-2">
                 {managerData.riders.map((r: Rider) => (
-                  <div key={r.id} className="flex items-center justify-between rounded-lg border p-3 text-sm">
-                    <div><span className="font-medium">{r.name}</span></div>
-                    <Badge variant="outline" className="text-xs capitalize">{r.type}</Badge>
+                  <div key={r.id} className="flex items-center justify-between rounded-lg border p-3 text-sm gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium truncate">{r.name}</div>
+                      {r.fileName && (
+                        <div className="text-xs text-muted-foreground truncate">{r.fileName}</div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge variant="outline" className="text-xs capitalize">{r.type}</Badge>
+                      {r.fileUrl && (
+                        <Button asChild size="sm" variant="outline" className="h-8 gap-1.5">
+                          <a href={r.fileUrl} target="_blank" rel="noopener noreferrer" download={r.fileName}>
+                            <Download className="h-3.5 w-3.5" /> Download
+                          </a>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Agreements & Documents */}
+          {showSection("agreements-docs") && managerData?.agreements && managerData.agreements.length > 0 && (
+            <div className="rounded-xl border bg-card p-6 shadow-sm">
+              <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><FileText className="h-5 w-5 text-primary" /> Agreements & Documents</h3>
+              <div className="space-y-2">
+                {managerData.agreements.map((a: Agreement) => (
+                  <div key={a.id} className="flex items-center justify-between rounded-lg border p-3 text-sm gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium truncate">{a.name}</div>
+                      {a.fileName && (
+                        <div className="text-xs text-muted-foreground truncate">{a.fileName}</div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge variant="outline" className="text-xs capitalize">{a.type}</Badge>
+                      <Badge variant="outline" className="text-xs capitalize">{a.status}</Badge>
+                      {a.fileUrl && (
+                        <Button asChild size="sm" variant="outline" className="h-8 gap-1.5">
+                          <a href={a.fileUrl} target="_blank" rel="noopener noreferrer" download={a.fileName}>
+                            <Download className="h-3.5 w-3.5" /> Download
+                          </a>
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

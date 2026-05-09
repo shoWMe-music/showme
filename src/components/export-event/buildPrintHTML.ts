@@ -55,6 +55,18 @@ th{background:#f5f5f5;font-weight:600}
     if (event.notes) {
       html += `<h2>Notes</h2><p style="white-space:pre-wrap;font-size:13px">${s(event.notes)}</p>`;
     }
+    if ((event.amenities && event.amenities.length > 0) || event.cateringNotes || event.accommodationNotes) {
+      html += `<h2>Amenities</h2>`;
+      if (event.amenities && event.amenities.length > 0) {
+        html += `<p style="font-size:13px">${event.amenities.map(a => s(a)).join(", ")}</p>`;
+      }
+      if (event.cateringNotes) {
+        html += `<p style="white-space:pre-wrap;font-size:13px"><strong>Catering:</strong> ${s(event.cateringNotes)}</p>`;
+      }
+      if (event.accommodationNotes) {
+        html += `<p style="white-space:pre-wrap;font-size:13px"><strong>Accommodation:</strong> ${s(event.accommodationNotes)}</p>`;
+      }
+    }
   }
 
   if (includeSection("ticketing", "details") && revenue?.ticketTypes?.length) {
@@ -96,9 +108,12 @@ th{background:#f5f5f5;font-weight:600}
   const riderItems = md ? (md as unknown as { riders?: Rider[] }).riders : undefined;
   if (includeSection("riders", "details") && riderItems?.length) {
     html += `<h2>Riders & Documents</h2><table>
-      <tr><th>Type</th><th>Name</th></tr>`;
+      <tr><th>Type</th><th>Name</th><th>File</th></tr>`;
     riderItems.forEach((r: Rider) => {
-      html += `<tr><td>${s(r.type)}</td><td>${s(r.name)}</td></tr>`;
+      const fileCell = r.fileUrl
+        ? `<a href="${r.fileUrl}" target="_blank" rel="noopener noreferrer">${s(r.fileName, "Download")}</a>`
+        : "—";
+      html += `<tr><td>${s(r.type)}</td><td>${s(r.name)}</td><td>${fileCell}</td></tr>`;
     });
     html += `</table>`;
   }
@@ -121,9 +136,12 @@ th{background:#f5f5f5;font-weight:600}
   const agreementItems = md ? (md as unknown as { agreements?: Agreement[] }).agreements : undefined;
   if (includeSection("agreements-docs", "agreement") && agreementItems?.length) {
     html += `<h2>Agreements & Documents</h2><table>
-      <tr><th>Type</th><th>Name</th><th>Status</th></tr>`;
+      <tr><th>Type</th><th>Name</th><th>Status</th><th>File</th></tr>`;
     agreementItems.forEach((a: Agreement) => {
-      html += `<tr><td>${s(a.type)}</td><td>${s(a.name)}</td><td>${s(a.status)}</td></tr>`;
+      const fileCell = a.fileUrl
+        ? `<a href="${a.fileUrl}" target="_blank" rel="noopener noreferrer">${s(a.fileName, "Download")}</a>`
+        : "—";
+      html += `<tr><td>${s(a.type)}</td><td>${s(a.name)}</td><td>${s(a.status)}</td><td>${fileCell}</td></tr>`;
     });
     html += `</table>`;
   }
