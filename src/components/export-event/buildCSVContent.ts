@@ -12,13 +12,21 @@ export function buildCSVContent(
   const sym = getCurrencySymbol(currency);
   const lines: string[] = [];
 
-  lines.push(`"Event Report - ${event.name}"`);
+  // Stringify safely for CSV: empty/null/undefined → fallback, embedded
+  // double quotes escaped per RFC 4180. Mirrors the s() helper in
+  // buildPrintHTML.ts so a missing field never serialises as "undefined".
+  const s = (v: unknown, fallback = ""): string => {
+    if (v === null || v === undefined || v === "") return fallback;
+    return String(v).replace(/"/g, '""');
+  };
+
+  lines.push(`"Event Report - ${s(event.name)}"`);
   lines.push(`"Generated","${new Date().toLocaleDateString()}"`);
-  lines.push(`"Event","${event.name}"`);
-  lines.push(`"Date","${event.date}"`);
-  lines.push(`"Venue","${event.venue}"`);
-  lines.push(`"Performer","${event.artist}"`);
-  lines.push(`"Capacity","${event.capacity}"`);
+  lines.push(`"Event","${s(event.name)}"`);
+  lines.push(`"Date","${s(event.date)}"`);
+  lines.push(`"Venue","${s(event.venue)}"`);
+  lines.push(`"Performer","${s(event.artist)}"`);
+  lines.push(`"Capacity","${s(event.capacity)}"`);
   lines.push("");
 
   const includeSection = (sectionId: string, tabId: string) => {
@@ -30,15 +38,15 @@ export function buildCSVContent(
   if (includeSection("event-info", "details")) {
     lines.push(`"--- Event Information ---"`);
     lines.push(`"Field","Value"`);
-    lines.push(`"Name","${event.name}"`);
-    lines.push(`"Date","${event.date}"`);
-    lines.push(`"Venue","${event.venue}"`);
-    lines.push(`"Performer","${event.artist}"`);
-    lines.push(`"Operator","${event.operator}"`);
-    lines.push(`"Operator Type","${event.operatorType}"`);
-    lines.push(`"Status","${event.eventStatus}"`);
-    lines.push(`"Capacity","${event.capacity}"`);
-    lines.push(`"Ticketing Provider","${event.ticketingProvider || "N/A"}"`);
+    lines.push(`"Name","${s(event.name, "N/A")}"`);
+    lines.push(`"Date","${s(event.date, "N/A")}"`);
+    lines.push(`"Venue","${s(event.venue, "N/A")}"`);
+    lines.push(`"Performer","${s(event.artist, "N/A")}"`);
+    lines.push(`"Operator","${s(event.operator, "N/A")}"`);
+    lines.push(`"Operator Type","${s(event.operatorType, "N/A")}"`);
+    lines.push(`"Status","${s(event.eventStatus, "N/A")}"`);
+    lines.push(`"Capacity","${s(event.capacity, "N/A")}"`);
+    lines.push(`"Ticketing Provider","${s(event.ticketingProvider, "N/A")}"`);
     lines.push("");
   }
 
@@ -46,9 +54,9 @@ export function buildCSVContent(
     lines.push(`"--- Ticket Information ---"`);
     lines.push(`"Type","Price (${sym})","Expected Sold"`);
     revenue.ticketTypes.forEach(t => {
-      lines.push(`"${t.name}","${t.price}","${t.sold}"`);
+      lines.push(`"${s(t.name)}","${s(t.price, "0")}","${s(t.sold, "0")}"`);
     });
-    const totalRev = revenue.ticketTypes.reduce((s, t) => s + t.price * t.sold, 0);
+    const totalRev = revenue.ticketTypes.reduce((sum, t) => sum + (t.price ?? 0) * (t.sold ?? 0), 0);
     lines.push(`"Total Ticket Revenue","${totalRev}",""`);
     lines.push("");
   }
@@ -56,11 +64,11 @@ export function buildCSVContent(
   if (includeSection("deal-structure", "details")) {
     lines.push(`"--- Financial Deal ---"`);
     lines.push(`"Field","Value"`);
-    lines.push(`"Deal Type","${deal.dealType}"`);
+    lines.push(`"Deal Type","${s(deal?.dealType, "N/A")}"`);
     if (deal.artistGuarantee) lines.push(`"Performer Guarantee","${formatCurrency(deal.artistGuarantee, currency)}"`);
     if (deal.venueRental) lines.push(`"Venue Rental","${formatCurrency(deal.venueRental, currency)}"`);
-    if (deal.dealType !== "guarantee" && deal.dealType !== "rental" && (deal.artistSplit || deal.venueSplit)) lines.push(`"Split","Performer ${deal.artistSplit}% / Venue ${deal.venueSplit}%"`);
-    if (deal.artistCostSplit > 0 || deal.promoterCostSplit > 0 || deal.venueCostSplit > 0) lines.push(`"Costs Split","Performer ${deal.artistCostSplit || 0}% / Promoter ${deal.promoterCostSplit}% / Venue ${deal.venueCostSplit}%"`);
+    if (deal.dealType !== "guarantee" && deal.dealType !== "rental" && (deal.artistSplit || deal.venueSplit)) lines.push(`"Split","Performer ${deal.artistSplit ?? 0}% / Venue ${deal.venueSplit ?? 0}%"`);
+    if ((deal.artistCostSplit ?? 0) > 0 || (deal.promoterCostSplit ?? 0) > 0 || (deal.venueCostSplit ?? 0) > 0) lines.push(`"Costs Split","Performer ${deal.artistCostSplit ?? 0}% / Promoter ${deal.promoterCostSplit ?? 0}% / Venue ${deal.venueCostSplit ?? 0}%"`);
     lines.push("");
   }
 
@@ -69,8 +77,8 @@ export function buildCSVContent(
   if (includeSection("production-schedule", "details") && scheduleItems?.length) {
     lines.push(`"--- Production Schedule ---"`);
     lines.push(`"Time","Activity"`);
-    scheduleItems.forEach((s: ScheduleItem) => {
-      lines.push(`"${s.time || ""}","${s.label}"`);
+    scheduleItems.forEach((it: ScheduleItem) => {
+      lines.push(`"${s(it.time)}","${s(it.label)}"`);
     });
     lines.push("");
   }
@@ -80,7 +88,7 @@ export function buildCSVContent(
     lines.push(`"--- Riders & Documents ---"`);
     lines.push(`"Type","Name"`);
     riderItems.forEach((r: Rider) => {
-      lines.push(`"${r.type}","${r.name}"`);
+      lines.push(`"${s(r.type)}","${s(r.name)}"`);
     });
     lines.push("");
   }
@@ -88,13 +96,13 @@ export function buildCSVContent(
   if (includeSection("event-summary", "agreement")) {
     lines.push(`"--- Event Summary ---"`);
     lines.push(`"Field","Value"`);
-    lines.push(`"Event","${event.name}"`);
-    lines.push(`"Date","${event.date}"`);
-    lines.push(`"Venue","${event.venue}"`);
-    lines.push(`"Performer","${event.artist}"`);
-    lines.push(`"Operator","${event.operator} (${event.operatorType})"`);
+    lines.push(`"Event","${s(event.name, "N/A")}"`);
+    lines.push(`"Date","${s(event.date, "N/A")}"`);
+    lines.push(`"Venue","${s(event.venue, "N/A")}"`);
+    lines.push(`"Performer","${s(event.artist, "N/A")}"`);
+    lines.push(`"Operator","${s(event.operator, "N/A")} (${s(event.operatorType, "N/A")})"`);
     if (deal) {
-      lines.push(`"Deal Type","${deal.dealType}"`);
+      lines.push(`"Deal Type","${s(deal.dealType, "N/A")}"`);
       if (deal.artistGuarantee) lines.push(`"Performer Guarantee","${formatCurrency(deal.artistGuarantee, currency)}"`);
     }
     lines.push("");
@@ -106,13 +114,13 @@ export function buildCSVContent(
       lines.push(`"--- Agreements ---"`);
       lines.push(`"Type","Name","Status"`);
       agreementItems.forEach((a: Agreement) => {
-        lines.push(`"${a.type}","${a.name}","${a.status}"`);
+        lines.push(`"${s(a.type)}","${s(a.name)}","${s(a.status)}"`);
       });
       lines.push("");
     }
     if (includeSection("terms", "agreement") && eventMeta?.dealDescription) {
       lines.push(`"--- Terms & Conditions ---"`);
-      lines.push(`"${String(eventMeta.dealDescription).replace(/"/g, '""')}"`);
+      lines.push(`"${s(eventMeta.dealDescription)}"`);
       lines.push("");
     }
   }
@@ -124,21 +132,22 @@ export function buildCSVContent(
       lines.push(`"--- Budget Calculator ---"`);
       if (budget.revenueFields?.length) {
         lines.push(`"Revenue","Value (${sym})"`);
-        budget.revenueFields.forEach(f => lines.push(`"${f.name}","${formatCurrency(f.value, currency)}"`));
+        budget.revenueFields.forEach(f => lines.push(`"${s(f.name)}","${formatCurrency(f.value ?? 0, currency)}"`));
       }
       if (budget.costFields?.length) {
         lines.push(`"Costs","Value (${sym})"`);
-        budget.costFields.forEach(f => lines.push(`"${f.name}","${formatCurrency(f.value, currency)}"`));
+        budget.costFields.forEach(f => lines.push(`"${s(f.name)}","${formatCurrency(f.value ?? 0, currency)}"`));
       }
       if (budget.resultFields?.length) {
         lines.push(`"Result","Value"`);
         budget.resultFields.forEach(f => {
+          const value = f.value ?? 0;
           const formatted = f.id === "profit_margin"
-            ? `${f.value.toFixed(1)}%`
+            ? `${value.toFixed(1)}%`
             : f.id === "breakeven_tickets"
-            ? Math.round(f.value).toString()
-            : formatCurrency(f.value, currency);
-          lines.push(`"${f.name}","${formatted}"`);
+            ? Math.round(value).toString()
+            : formatCurrency(value, currency);
+          lines.push(`"${s(f.name)}","${formatted}"`);
         });
       }
       lines.push("");
@@ -163,12 +172,12 @@ export function buildCSVContent(
     const p = eventMeta.proEstimate;
     lines.push(`"--- PRO Fee Estimate ---"`);
     lines.push(`"Field","Value"`);
-    lines.push(`"PRO","${p.pro}"`);
-    lines.push(`"Country","${p.country}"`);
-    lines.push(`"Event Type","${p.eventType}"`);
-    lines.push(`"Ticket Price","${formatCurrency(p.ticketPrice, currency)}"`);
-    lines.push(`"Expected Tickets","${p.expectedTickets}"`);
-    lines.push(`"Estimated Fee","${formatCurrency(p.estimatedFee, currency)}"`);
+    lines.push(`"PRO","${s(p.pro)}"`);
+    lines.push(`"Country","${s(p.country)}"`);
+    lines.push(`"Event Type","${s(p.eventType)}"`);
+    lines.push(`"Ticket Price","${formatCurrency(p.ticketPrice ?? 0, currency)}"`);
+    lines.push(`"Expected Tickets","${s(p.expectedTickets, "0")}"`);
+    lines.push(`"Estimated Fee","${formatCurrency(p.estimatedFee ?? 0, currency)}"`);
     lines.push("");
   }
 
@@ -177,7 +186,7 @@ export function buildCSVContent(
     lines.push(`"--- Shared Team ---"`);
     lines.push(`"Name","Role","Email","Phone","Group"`);
     crewItems.forEach((c: CrewMember) => {
-      lines.push(`"${c.name}","${c.role}","${c.email || ""}","${c.phone || ""}","${c.collaborator || ""}"`);
+      lines.push(`"${s(c.name)}","${s(c.role)}","${s(c.email)}","${s(c.phone)}","${s(c.collaborator)}"`);
     });
     lines.push("");
   }
@@ -185,8 +194,8 @@ export function buildCSVContent(
   if (includeSection("schedule", "crew") && eventMeta?.crewScheduleItems?.length) {
     lines.push(`"--- Team Schedule ---"`);
     lines.push(`"Time","Activity","Assignee"`);
-    eventMeta.crewScheduleItems.forEach((s) => {
-      lines.push(`"${s.time || ""}","${s.label}","${s.assignee || "Unassigned"}"`);
+    eventMeta.crewScheduleItems.forEach((it) => {
+      lines.push(`"${s(it.time)}","${s(it.label)}","${s(it.assignee, "Unassigned")}"`);
     });
     lines.push("");
   }
@@ -195,7 +204,7 @@ export function buildCSVContent(
     lines.push(`"--- Tasks ---"`);
     lines.push(`"Task","Status","Assignee"`);
     eventMeta.todos.forEach((t: Todo) => {
-      lines.push(`"${t.title}","${t.completed ? "Done" : "Open"}","${t.assignee || "Unassigned"}"`);
+      lines.push(`"${s(t.title)}","${t.completed ? "Done" : "Open"}","${s(t.assignee, "Unassigned")}"`);
     });
     lines.push("");
   }
@@ -206,7 +215,7 @@ export function buildCSVContent(
       lines.push(`"--- Private Notes ---"`);
       lines.push(`"Note","Assignee"`);
       notes.forEach((n) => {
-        lines.push(`"${String(n.text).replace(/"/g, '""')}","${n.assignee || "Unassigned"}"`);
+        lines.push(`"${s(n.text)}","${s(n.assignee, "Unassigned")}"`);
       });
       lines.push("");
     }
@@ -215,10 +224,10 @@ export function buildCSVContent(
   if (includeSection("settlement-overview", "settlement")) {
     lines.push(`"--- Settlement ---"`);
     lines.push(`"Field","Value"`);
-    lines.push(`"Status","${settlement.status}"`);
-    if (settlement.artistPayout) lines.push(`"Performer Payout","${formatCurrency(settlement.artistPayout, currency)}"`);
-    if (settlement.venuePayout) lines.push(`"Venue Payout","${formatCurrency(settlement.venuePayout, currency)}"`);
-    if (settlement.promoterPayout) lines.push(`"Promoter Payout","${formatCurrency(settlement.promoterPayout, currency)}"`);
+    lines.push(`"Status","${s(settlement?.status, "N/A")}"`);
+    if (settlement?.artistPayout) lines.push(`"Performer Payout","${formatCurrency(settlement.artistPayout, currency)}"`);
+    if (settlement?.venuePayout) lines.push(`"Venue Payout","${formatCurrency(settlement.venuePayout, currency)}"`);
+    if (settlement?.promoterPayout) lines.push(`"Promoter Payout","${formatCurrency(settlement.promoterPayout, currency)}"`);
     lines.push("");
   }
 

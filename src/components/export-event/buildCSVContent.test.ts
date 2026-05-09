@@ -121,6 +121,104 @@ describe("buildCSVContent", () => {
     expect(csv).toContain("Break-even Ticket Count");
   });
 
+  it("renders split row without 'undefined' when venueSplit is unset", () => {
+    // The split row only renders when artistSplit OR venueSplit is truthy,
+    // so seed one and leave the other unset to exercise interpolation safety.
+    const data = makeEventData({
+      deal: {
+        eventId: "EVT-001", dealType: "split",
+        artistGuarantee: 0, artistSplit: 70, promoterSplit: 0, venueSplit: undefined,
+        organizerSplit: 0, artistCostSplit: 0, promoterCostSplit: 0, venueCostSplit: 0,
+        organizerCostSplit: 0, venueRental: 0, commissions: [],
+      } as unknown as EventExportData["deal"],
+    });
+    const csv = buildCSVContent(["details"], new Set(["deal-structure"]), "sections", data);
+    expect(csv).toContain("Performer 70% / Venue 0%");
+    expect(csv).not.toContain("undefined");
+  });
+
+  it("renders cost-split row without 'undefined' when promoterCostSplit/venueCostSplit are unset", () => {
+    const data = makeEventData({
+      deal: {
+        eventId: "EVT-001", dealType: "split",
+        artistGuarantee: 0, artistSplit: 0, promoterSplit: 0, venueSplit: 0,
+        organizerSplit: 0, artistCostSplit: 25, promoterCostSplit: undefined, venueCostSplit: undefined,
+        organizerCostSplit: 0, venueRental: 0, commissions: [],
+      } as unknown as EventExportData["deal"],
+    });
+    const csv = buildCSVContent(["details"], new Set(["deal-structure"]), "sections", data);
+    expect(csv).toContain("Performer 25% / Promoter 0% / Venue 0%");
+    expect(csv).not.toContain("undefined");
+  });
+
+  it("renders Deal Type as N/A when dealType is unset (deal-structure section)", () => {
+    const data = makeEventData({
+      deal: {
+        eventId: "EVT-001", dealType: undefined,
+        artistGuarantee: 0, artistSplit: 0, promoterSplit: 0, venueSplit: 0,
+        organizerSplit: 0, artistCostSplit: 0, promoterCostSplit: 0, venueCostSplit: 0,
+        organizerCostSplit: 0, venueRental: 0, commissions: [],
+      } as unknown as EventExportData["deal"],
+    });
+    const csv = buildCSVContent(["details"], new Set(["deal-structure"]), "sections", data);
+    expect(csv).toContain(`"Deal Type","N/A"`);
+    expect(csv).not.toContain(`"Deal Type","undefined"`);
+    expect(csv).not.toContain(`"Deal Type","null"`);
+  });
+
+  it("renders Deal Type as N/A in Event Summary when dealType is unset", () => {
+    const data = makeEventData({
+      deal: {
+        eventId: "EVT-001", dealType: undefined,
+        artistGuarantee: 0, artistSplit: 0, promoterSplit: 0, venueSplit: 0,
+        organizerSplit: 0, artistCostSplit: 0, promoterCostSplit: 0, venueCostSplit: 0,
+        organizerCostSplit: 0, venueRental: 0, commissions: [],
+      } as unknown as EventExportData["deal"],
+    });
+    const csv = buildCSVContent(["agreement"], new Set(["event-summary"]), "sections", data);
+    expect(csv).toContain(`"Deal Type","N/A"`);
+    expect(csv).not.toContain(`"Deal Type","undefined"`);
+  });
+
+  it("never emits 'undefined' for missing event-info / ticketing / settlement fields", () => {
+    const data = makeEventData({
+      event: {
+        id: "EVT-002", name: "Sparse", date: "", venue: "",
+        artist: undefined, operator: undefined, operatorType: undefined,
+        capacity: undefined, eventStatus: undefined, ticketingProvider: undefined,
+      } as unknown as EventExportData["event"],
+      revenue: {
+        eventId: "EVT-002", ticketsSold: 0, grossRevenue: 0, ticketFees: 0,
+        tax: 0, refunds: 0, doorSales: 0, productionExpenses: 0, additionalCosts: 0,
+        ticketTypes: [{ id: "t1", name: "GA", price: undefined as unknown as number, sold: undefined as unknown as number }],
+      } as EventExportData["revenue"],
+      settlement: {
+        eventId: "EVT-002", promoterPayout: 0, artistPayout: 0, venuePayout: 0,
+        commissionPayouts: [], status: undefined as unknown as "open",
+        approvals: [], comments: [], revisions: [],
+      } as EventExportData["settlement"],
+    });
+    const csv = buildCSVContent([], new Set(), "all", data);
+    expect(csv).not.toContain("undefined");
+    expect(csv).not.toContain('"null"');
+  });
+
+  it("never emits 'undefined' for sparse schedule / crew / tasks / private-notes", () => {
+    const data = makeEventData({
+      eventMeta: {
+        crewScheduleItems: [{ id: "1", time: "", label: "Soundcheck", assignee: "" }],
+        todos: [{ id: "1", title: "Print posters", completed: false, assignee: undefined } as unknown as EventExportData["eventMeta"]["todos"][0]],
+        privateNotes: [{ id: "1", text: "Backstage code: 1234", assignee: undefined as unknown as string }],
+        schedule: [{ id: "1", time: undefined as unknown as string, label: "Doors open" }],
+        crew: [{ id: "1", name: "Pat", role: undefined, email: undefined, phone: undefined, collaborator: undefined } as unknown as EventExportData["eventMeta"]["crew"][0]],
+        riders: [{ id: "1", type: undefined, name: "Hospitality" } as unknown as EventExportData["eventMeta"]["riders"][0]],
+        agreements: [{ id: "1", type: undefined, name: "Performer Contract", status: undefined } as unknown as EventExportData["eventMeta"]["agreements"][0]],
+      } as unknown as EventExportData["eventMeta"],
+    });
+    const csv = buildCSVContent([], new Set(), "all", data);
+    expect(csv).not.toContain("undefined");
+  });
+
   it("renders the PRO estimate when proEstimate is on eventMeta", () => {
     const data = makeEventData({
       eventMeta: {
