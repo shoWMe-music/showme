@@ -3,8 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { useUser, getBaseRole } from "@/lib/user-context";
 import { useAuth } from "@/lib/auth-context";
 import {
-  fetchProfileMembers,
-  fetchProfileInvites,
+  fetchProfileMembershipBatch,
   setProfileMemberRole,
   removeProfileMember,
   inviteProfileAdmin,
@@ -16,7 +15,7 @@ import {
   type ProfileMemberInfo,
 } from "@/lib/db";
 import type { ProfileInviteRecord } from "@/lib/profiles";
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys, useAllProfiles } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,18 +50,13 @@ interface ProfileState {
   loading: boolean;
 }
 
-interface ProfileMembersAndInvites {
-  members: ProfileMemberInfo[];
-  invites: ProfileInviteRecord[];
-}
-
 interface InviteForm {
   email: string;
   role: "admin" | "editor";
 }
 
 export function ProfileAdminsTab() {
-  const { profiles, setProfiles, currentUser } = useUser();
+  const { profiles, setProfiles, currentUser, loaded: userLoaded } = useUser();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [actingInviteId, setActingInviteId] = useState<string | null>(null);
@@ -80,32 +74,42 @@ export function ProfileAdminsTab() {
   });
   const pendingInvites = pendingInvitesQuery.data ?? [];
 
-  // Owned profiles include legacy "artist" slot entries left over from the
-  // artist -> performer rename, so the user can delete the phantom record.
-  const ownedProfiles = Object.entries(profiles).filter(([, p]) => {
-    if (!p.created) return false;
-    return p.owner_uid === user?.uid || !!p.id?.startsWith(`${user?.uid}__`);
-  });
+  const allProfiles = useAllProfiles();
+
+  // Pulled from the slotted dict (not `all`) so the legacy "artist" slot
+  // entry left over from the artist -> performer rename surfaces with its
+  // original slot key — the only way the user can identify and delete it.
+  const ownedProfiles = useMemo(
+    () =>
+      Object.entries(profiles).filter(([, p]) => {
+        if (!p.created) return false;
+        return p.owner_uid === user?.uid || !!p.id?.startsWith(`${user?.uid}__`);
+      }),
+    [profiles, user?.uid],
+  );
 
   // Profiles where the user is a member but not the owner (invited admin/editor).
   // Source from the flat `all` array, not the slotted dict — two profiles of
   // the same role-type collapse on slot, which would silently hide a shared
   // venue if the invitee already owned a venue. Synthesize a stable display
   // key (`profile.slot ?? profile.role`) used only for the role label render.
-  const allProfiles = useAllProfiles();
-  const sharedProfiles: Array<[string, typeof allProfiles[number]]> = allProfiles
-    .filter((p) => {
-      if (!p.created) return false;
-      if (p.owner_uid === user?.uid || p.id?.startsWith(`${user?.uid}__`)) return false;
-      return true;
-    })
-    .map((p) => {
-      const displaySlot =
-        (typeof (p as { slot?: unknown }).slot === "string" && (p as { slot: string }).slot) ||
-        (p.role as string) ||
-        "shared";
-      return [displaySlot, p];
-    });
+  const sharedProfiles: Array<[string, typeof allProfiles[number]]> = useMemo(
+    () =>
+      allProfiles
+        .filter((p) => {
+          if (!p.created) return false;
+          if (p.owner_uid === user?.uid || p.id?.startsWith(`${user?.uid}__`)) return false;
+          return true;
+        })
+        .map((p) => {
+          const displaySlot =
+            (typeof (p as { slot?: unknown }).slot === "string" && (p as { slot: string }).slot) ||
+            (p.role as string) ||
+            "shared";
+          return [displaySlot, p] as [string, typeof allProfiles[number]];
+        }),
+    [allProfiles, user?.uid],
+  );
 
   const [inviteOpen, setInviteOpen] = useState<string | null>(null); // profileId
   const [inviteForm, setInviteForm] = useState<InviteForm>({ email: "", role: "admin" });
@@ -123,44 +127,50 @@ export function ProfileAdminsTab() {
   // notifications to refresh these without a manual refetch.
   const allProfileIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const [slot] of ownedProfiles) {
-      const id = profiles[slot]?.id;
-      if (id) ids.add(id);
+    for (const [, profile] of ownedProfiles) {
+      if (profile.id) ids.add(profile.id);
     }
     for (const [, profile] of sharedProfiles) {
       if (profile.id) ids.add(profile.id);
     }
     return Array.from(ids);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [Object.keys(profiles).join(","), sharedProfiles.length]);
+  }, [ownedProfiles, sharedProfiles]);
 
-  const profileQueries = useQueries({
-    queries: allProfileIds.map((profileId) => ({
-      queryKey: queryKeys.profileMembers(profileId),
-      queryFn: async (): Promise<ProfileMembersAndInvites> => {
-        const [members, invites] = await Promise.all([
-          fetchProfileMembers(profileId),
-          fetchProfileInvites(profileId),
-        ]);
-        return { members, invites };
-      },
-      staleTime: 30_000,
-    })),
+  // One callable round-trip beats N×2 client-side getDocs: against the local
+  // emulator forced long-polling exhausts the browser's per-origin connection
+  // budget; in prod it dodges N rules-engine `isProfileMember` exists() hops.
+  // Server-side gates invites to admin/owner so editors no longer hit
+  // permission-denied + retry storms.
+  const batchKey = useMemo(
+    () => allProfileIds.slice().sort().join(","),
+    [allProfileIds],
+  );
+  const membershipBatchQuery = useQuery({
+    queryKey: queryKeys.profileMembersBatch(batchKey),
+    queryFn: () => fetchProfileMembershipBatch(allProfileIds),
+    enabled: allProfileIds.length > 0,
+    staleTime: 30_000,
+    retry: false,
   });
 
   const profileState: Record<string, ProfileState> = {};
-  allProfileIds.forEach((profileId, i) => {
-    const q = profileQueries[i];
+  const batchEntriesById = new Map(
+    (membershipBatchQuery.data ?? []).map((e) => [e.profileId, e]),
+  );
+  for (const profileId of allProfileIds) {
+    const entry = batchEntriesById.get(profileId);
     profileState[profileId] = {
-      members: q?.data?.members ?? [],
-      invites: q?.data?.invites ?? [],
-      loading: q?.isLoading ?? false,
+      members: entry?.members ?? [],
+      invites: entry?.invites ?? [],
+      loading: membershipBatchQuery.isLoading,
     };
-  });
+  }
 
   const refreshProfile = useCallback(
-    (profileId: string) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.profileMembers(profileId) });
+    (_profileId: string) => {
+      // Batch query covers every profile — invalidate the whole prefix so
+      // notification-driven refreshes still flow through.
+      queryClient.invalidateQueries({ queryKey: ["profileMembers"] });
     },
     [queryClient],
   );
@@ -308,6 +318,40 @@ export function ProfileAdminsTab() {
 
   const hasAnything =
     ownedProfiles.length > 0 || sharedProfiles.length > 0 || pendingInvites.length > 0;
+
+  // Hold the empty state until profiles + pending-invites have resolved at
+  // least once. Otherwise users see a "No profiles yet" flash before their
+  // profiles render. `userLoaded` flips true when settings + profiles queries
+  // have both settled (success or error).
+  const initialLoading =
+    !userLoaded || (!!myEmail && pendingInvitesQuery.isPending);
+
+  if (initialLoading) {
+    return (
+      <div className="space-y-4">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="rounded-xl border bg-card shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b bg-muted/30">
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-3 w-20" />
+              </div>
+              <Skeleton className="h-8 w-24" />
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-8 w-8 rounded-full" />
+                <div className="flex-1 space-y-1.5">
+                  <Skeleton className="h-3.5 w-32" />
+                  <Skeleton className="h-3 w-24" />
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   if (!hasAnything) {
     return (

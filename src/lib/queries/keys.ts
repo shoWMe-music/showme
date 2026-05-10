@@ -32,6 +32,7 @@ export const queryKeys = {
   profiles: (uid: string) => ["profiles", uid] as const,
   pendingProfileInvites: (email: string) => ["pendingProfileInvites", email] as const,
   profileMembers: (profileId: string) => ["profileMembers", profileId] as const,
+  profileMembersBatch: (idsKey: string) => ["profileMembers", "batch", idsKey] as const,
   teamMembers: (uid: string) => ["teamMembers", uid] as const,
 
   // ── Budget domain ────────────────────────────────────────────────────────

@@ -310,6 +310,11 @@ export async function fetchProfiles(): Promise<{
         const profileRef = d.ref.parent.parent;
         if (!profileRef || !profileRef.path.startsWith(`${PROFILE_COLLECTION}/`)) return;
         memberProfileIds.add(profileRef.id);
+        // Owned profiles already loaded by the owner_uid query above — skip the
+        // extra getDoc round trip for them. Saves N round trips on initial
+        // page load for users who own profiles (the auto-bootstrapped member
+        // doc points back at the same profile).
+        if (seenIds.has(profileRef.id)) return;
         try {
           const profileSnap = await getDoc(profileRef);
           if (!profileSnap.exists()) return;
@@ -653,6 +658,31 @@ export async function fetchProfileInvites(
     ),
   );
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as import("@/lib/profiles").ProfileInviteRecord);
+}
+
+export interface ProfileMembershipBatchEntry {
+  profileId: string;
+  members: ProfileMemberInfo[];
+  invites: import("@/lib/profiles").ProfileInviteRecord[];
+}
+
+/**
+ * One round-trip fetch of members + pending invites for many profiles. Use
+ * this in place of N×2 client-side getDocs in the Profile Access tab —
+ * dramatically faster against the emulator (forced long-polling exhausts the
+ * browser's per-origin connection budget) and removes the editors-vs-invites
+ * permission-denied retry storm by gating invites server-side.
+ */
+export async function fetchProfileMembershipBatch(
+  profileIds: string[],
+): Promise<ProfileMembershipBatchEntry[]> {
+  if (profileIds.length === 0) return [];
+  const fn = httpsCallable<
+    { profileIds: string[] },
+    { entries: ProfileMembershipBatchEntry[] }
+  >(getFirebaseFunctions(), "getProfileMembershipBatch");
+  const result = await fn({ profileIds });
+  return result.data.entries;
 }
 
 /** Lists pending profile invites whose recipient email matches the argument. */

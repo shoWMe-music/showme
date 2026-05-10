@@ -476,6 +476,156 @@ export const removeProfileMember = onCall<
   },
 );
 
+interface ProfileMemberInfo {
+  uid: string;
+  role: "owner" | "admin" | "editor";
+  email?: string;
+  displayName?: string;
+}
+
+interface ProfileInviteRecord {
+  id: string;
+  profileId: string;
+  profileName: string;
+  email: string;
+  role: "admin" | "editor";
+  invitedAt: string;
+  invitedByUid: string;
+}
+
+interface ProfileMembershipBatchEntry {
+  profileId: string;
+  members: ProfileMemberInfo[];
+  invites: ProfileInviteRecord[];
+}
+
+interface GetProfileMembershipBatchData {
+  profileIds: string[];
+}
+
+interface GetProfileMembershipBatchResult {
+  entries: ProfileMembershipBatchEntry[];
+}
+
+const MAX_BATCH_PROFILE_IDS = 50;
+
+/**
+ * Read members + pending invites for many profiles in one round-trip. The
+ * client-side `useQueries` fan-out used to fire 2×N HTTP requests, which is
+ * particularly painful against the local emulator where forced long-polling
+ * uses a fresh connection per request and quickly hits the browser's
+ * 6-connection per-origin limit.
+ *
+ * Server-side runs with admin privileges so we don't pay the rules-engine
+ * cost (`isProfileMember` exists checks on every list). Authorization here
+ * mirrors the rules: caller must be a member of each profile to see members,
+ * and an admin/owner to see invites.
+ */
+export const getProfileMembershipBatch = onCall<
+  GetProfileMembershipBatchData,
+  Promise<GetProfileMembershipBatchResult>
+>(
+  { region: "europe-west1" },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "Sign in to load profile members.");
+    }
+
+    const raw = request.data?.profileIds;
+    if (!Array.isArray(raw)) {
+      throw new HttpsError("invalid-argument", "profileIds must be an array.");
+    }
+    const profileIds = Array.from(
+      new Set(
+        raw.filter((id): id is string => typeof id === "string" && id.trim().length > 0),
+      ),
+    );
+    if (profileIds.length === 0) {
+      return { entries: [] };
+    }
+    if (profileIds.length > MAX_BATCH_PROFILE_IDS) {
+      throw new HttpsError(
+        "invalid-argument",
+        `profileIds exceeds limit of ${MAX_BATCH_PROFILE_IDS}.`,
+      );
+    }
+
+    const db = admin.firestore();
+
+    const entries = await Promise.all(
+      profileIds.map(async (profileId): Promise<ProfileMembershipBatchEntry | null> => {
+        const profileRef = db.collection("profiles").doc(profileId);
+
+        const callerMemberSnap = await profileRef
+          .collection("members")
+          .doc(uid)
+          .get();
+        if (!callerMemberSnap.exists) return null;
+
+        const callerRole =
+          typeof (callerMemberSnap.data() as Record<string, unknown>).role === "string"
+            ? ((callerMemberSnap.data() as Record<string, unknown>).role as string)
+            : "";
+        const canSeeInvites = callerRole === "owner" || callerRole === "admin";
+
+        const [membersSnap, invitesSnap] = await Promise.all([
+          profileRef.collection("members").get(),
+          canSeeInvites
+            ? db
+                .collection("profileInvites")
+                .where("profileId", "==", profileId)
+                .get()
+            : Promise.resolve(null),
+        ]);
+
+        const members: ProfileMemberInfo[] = membersSnap.docs.map((d) => {
+          const data = d.data() as Record<string, unknown>;
+          const role =
+            data.role === "owner" || data.role === "admin" || data.role === "editor"
+              ? (data.role as "owner" | "admin" | "editor")
+              : "editor";
+          return {
+            uid: d.id,
+            role,
+            email: typeof data.email === "string" ? data.email : undefined,
+            displayName:
+              typeof data.displayName === "string" ? data.displayName : undefined,
+          };
+        });
+
+        const invites: ProfileInviteRecord[] = invitesSnap
+          ? invitesSnap.docs.map((d) => {
+              const data = d.data() as Record<string, unknown>;
+              return {
+                id: d.id,
+                profileId:
+                  typeof data.profileId === "string" ? data.profileId : profileId,
+                profileName:
+                  typeof data.profileName === "string" ? data.profileName : "",
+                email: typeof data.email === "string" ? data.email : "",
+                role:
+                  data.role === "admin" || data.role === "editor"
+                    ? (data.role as "admin" | "editor")
+                    : "editor",
+                invitedAt:
+                  typeof data.invitedAt === "string" ? data.invitedAt : "",
+                invitedByUid:
+                  typeof data.invitedByUid === "string" ? data.invitedByUid : "",
+              };
+            })
+          : [];
+
+        return { profileId, members, invites };
+      }),
+    );
+
+    return {
+      entries: entries.filter((e): e is ProfileMembershipBatchEntry => e !== null),
+    };
+  },
+);
+
 interface SetProfileMemberRoleData {
   profileId: string;
   memberUid: string;

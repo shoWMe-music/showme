@@ -30,6 +30,7 @@ export {
   declineProfileInvite,
   removeProfileMember,
   setProfileMemberRole,
+  getProfileMembershipBatch,
 } from "./profileMembership";
 export { lookupUserForInvite, addExistingUserAsCollaborator } from "./userLookup";
 export { getPublicShare } from "./publicShareApi";

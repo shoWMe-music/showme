@@ -27,8 +27,7 @@ vi.mock("@tanstack/react-router", () => ({
 
 const mockDeleteProfile = vi.fn(() => Promise.resolve());
 vi.mock("@/lib/db", () => ({
-  fetchProfileMembers: vi.fn(() => Promise.resolve([])),
-  fetchProfileInvites: vi.fn(() => Promise.resolve([])),
+  fetchProfileMembershipBatch: vi.fn(() => Promise.resolve([])),
   setProfileMemberRole: vi.fn(() => Promise.resolve()),
   removeProfileMember: vi.fn(() => Promise.resolve()),
   inviteProfileAdmin: vi.fn(() => Promise.resolve()),
@@ -95,6 +94,7 @@ describe("ProfileAdminsTab", () => {
         venue: makeProfile({ id: "venue-1", name: "My Venue", role: "venue" }),
       },
       setProfiles,
+      loaded: true,
     });
 
     renderWithQuery(<ProfileAdminsTab />);
@@ -118,6 +118,7 @@ describe("ProfileAdminsTab", () => {
         venue: makeProfile({ id: "venue-1", name: "My Venue", role: "venue" }),
       },
       setProfiles,
+      loaded: true,
     });
 
     renderWithQuery(<ProfileAdminsTab />);
@@ -161,6 +162,7 @@ describe("ProfileAdminsTab", () => {
         venue: makeProfile({ id: "venue-1", name: "My Venue", role: "venue" }),
       },
       setProfiles,
+      loaded: true,
     });
 
     renderWithQuery(<ProfileAdminsTab />);
@@ -186,6 +188,7 @@ describe("ProfileAdminsTab", () => {
         venue: makeProfile({ id: "venue-1", name: "My Venue", role: "venue" }),
       },
       setProfiles,
+      loaded: true,
     });
 
     renderWithQuery(<ProfileAdminsTab />);

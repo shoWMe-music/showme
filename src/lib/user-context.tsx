@@ -1,5 +1,5 @@
 /* user-context v6 – TanStack Query */
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Building2, Megaphone, CalendarDays, Music, Tent, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
@@ -198,6 +198,8 @@ interface UserContextValue {
   currentUser: WorkspaceUser;
   updateRoles: (roles: OperatorRole[]) => void;
   updateUser: (updates: Partial<WorkspaceUser>) => void;
+  /** Update local state without triggering a Firestore save. Use after a manual write. */
+  updateUserLocal: (updates: Partial<WorkspaceUser>) => void;
   setDefaultRole: (role: OperatorRole) => void;
   isOperator: boolean;
   canCreate: boolean;
@@ -228,7 +230,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const uid = firebaseUser?.uid ?? "";
 
   const [currentUser, setCurrentUser] = useState<WorkspaceUser>(emptyWorkspaceUser);
-  const [profiles, setProfiles] = useState<Record<string, SharedProfile>>({});
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [customRoles, setCustomRoles] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -306,11 +307,57 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     }));
   }, [settingsQuery.data, firebaseUser?.email]);
 
-  useEffect(() => {
-    const dbProfiles = profilesQuery.data;
-    if (dbProfiles === undefined) return;
-    setProfiles(normalizeLegacyProfiles(dbProfiles.slotted));
-  }, [profilesQuery.data]);
+  // Derive profiles synchronously from the query, no useState mirror. The
+  // previous mirror lagged one render behind because useEffect runs after
+  // commit — so the first paint after the query resolved would briefly show
+  // an empty profiles map, flashing "No profiles yet" before the effect ran.
+  const profiles = useMemo<Record<string, SharedProfile>>(() => {
+    const slotted = profilesQuery.data?.slotted;
+    if (!slotted) return {};
+    return normalizeLegacyProfiles(slotted);
+  }, [profilesQuery.data?.slotted]);
+
+  // Optimistic-update API for callers (saveProfile, AddVenueDialog, …).
+  // Updates the query cache directly so the next render reads the new shape
+  // without going through Firestore.
+  const setProfiles = useCallback<
+    React.Dispatch<React.SetStateAction<Record<string, SharedProfile>>>
+  >(
+    (action) => {
+      queryClient.setQueryData<{ slotted: Record<string, SharedProfile>; all: SharedProfile[] }>(
+        queryKeys.profiles(uid),
+        (prev) => {
+          const prevSlotted = normalizeLegacyProfiles(prev?.slotted ?? {});
+          const nextSlotted =
+            typeof action === "function"
+              ? (action as (
+                  s: Record<string, SharedProfile>,
+                ) => Record<string, SharedProfile>)(prevSlotted)
+              : action;
+          // Re-derive `all` so access matching stays in sync. Shared profiles
+          // owned by other users only appear in `all`, never in slotted —
+          // identify them as the prev.all entries whose ids weren't in
+          // prev.slotted, then concat with the new owned slot values. This
+          // makes optimistic delete (drop a slot) correctly drop the profile
+          // from `all` too, while shared profiles are preserved across the
+          // mutation.
+          const prevSlotIds = new Set(
+            Object.values(prevSlotted)
+              .map((p) => p.id)
+              .filter((id): id is string => !!id),
+          );
+          const sharedOnly = (prev?.all ?? []).filter(
+            (p) => p.id && !prevSlotIds.has(p.id),
+          );
+          return {
+            slotted: nextSlotted,
+            all: [...Object.values(nextSlotted), ...sharedOnly],
+          };
+        },
+      );
+    },
+    [queryClient, uid],
+  );
 
   useEffect(() => {
     const dbTeam = teamMembersQuery.data;
@@ -435,6 +482,10 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     });
   }, [debouncedSaveSettings]);
 
+  const updateUserLocal = useCallback((updates: Partial<WorkspaceUser>) => {
+    setCurrentUser(prev => ({ ...prev, ...updates }));
+  }, []);
+
   const setDefaultRole = useCallback((role: OperatorRole) => {
     setCurrentUser(prev => {
       const updated = { ...prev, defaultRole: role };
@@ -514,7 +565,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <UserContext.Provider value={{
-      currentUser, updateRoles, updateUser, setDefaultRole,
+      currentUser, updateRoles, updateUser, updateUserLocal, setDefaultRole,
       isOperator: true, canCreate: true, canApprove: true,
       profiles, setProfiles,
       teamMembers, setTeamMembers,
