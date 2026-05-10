@@ -48,7 +48,7 @@ const navItems = [
 export default function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { signOut } = useAuth();
+  const { signOut, user: firebaseUser } = useAuth();
   const { currentUser, profiles } = useUser();
   const { collapsed, toggle } = useSidebarCollapse();
   const allEvents = useEvents();
@@ -70,7 +70,7 @@ export default function AppSidebar() {
   const { data: pendingRequestsPage } = useQuery({
     queryKey: queryKeys.pendingBookingRequestsForSidebar(),
     queryFn: () => fetchBookingRequestPage(50, null, { status: "pending" }),
-    enabled: !!currentUser.id,
+    enabled: !!firebaseUser?.uid,
     staleTime: 5 * 60 * 1000,
   });
   const pendingRequestsCount = pendingRequestsPage?.requests.length ?? 0;
@@ -176,8 +176,12 @@ export default function AppSidebar() {
 
       <div className="shrink-0 border-t border-sidebar-border px-3 py-4 space-y-2">
         <Link to="/settings" className={cn("flex w-full items-center gap-3 rounded-lg px-1 py-1 hover:bg-sidebar-accent transition-colors", collapsed && "justify-center")}>
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground text-xs font-bold">
-            {currentUser.initials}
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-sidebar-primary text-sidebar-primary-foreground text-xs font-bold">
+            {currentUser.avatarUrl ? (
+              <img src={currentUser.avatarUrl} alt={currentUser.name} className="h-full w-full object-cover" />
+            ) : (
+              currentUser.initials
+            )}
           </div>
           {!collapsed && (
             <div className="flex-1 text-left min-w-0">

@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { cn } from "@/lib/utils";
 import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 import { useUser } from "@/lib/user-context";
+import { useAuth } from "@/lib/auth-context";
 import { formatCurrency, type BookingRequest, type Event } from "@/lib/models";
 import {
   senderTypeForVenueLabels,
@@ -108,6 +109,7 @@ export function dedupeInvitationEvents(events: Event[]): Event[] {
 export default function IncomingRequestsPage() {
   const navigate = useNavigate();
   const { currentUser, profiles } = useUser();
+  const { user: firebaseUser } = useAuth();
   const queryClient = useQueryClient();
   const currency = currentUser.currency || "EUR";
   const allEvents = useEvents();
@@ -165,7 +167,7 @@ export default function IncomingRequestsPage() {
     hasNextPage,
   } = useInfiniteQuery<BookingRequestPage, Error>({
     queryKey: queryKeys.bookingRequests(firestoreFilters as Record<string, unknown>),
-    enabled: !!currentUser.id,
+    enabled: !!firebaseUser?.uid,
     staleTime: 5 * 60 * 1000,
     initialPageParam: null as QueryDocumentSnapshot | null,
     queryFn: ({ pageParam }) =>

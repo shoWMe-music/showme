@@ -1056,53 +1056,32 @@ export async function fetchEvents(profileIds?: string[]): Promise<Event[]> {
   if (!uid) return [];
   const byId = new Map<string, Event>();
 
-  // Primary: profile-based access (covers everything reachable via membership).
-  if (profileIds && profileIds.length > 0) {
-    for (const chunk of chunkArray(profileIds, 30)) {
-      try {
-        const profileQ = query(
-          collection(getFirestoreDb(), TOP_EVENTS),
-          where("accessProfileIds", "array-contains-any", chunk),
-          orderBy("date", "desc"),
-        );
-        const snap = await getDocs(profileQ);
-        snap.forEach((d) => {
-          byId.set(d.id, eventRowToEvent({ id: d.id, ...d.data() }));
-        });
-      } catch {
-        // Rule rejection or missing index — fall back to accessUids query below.
-      }
-    }
-  }
-
-  // Fallback: direct-uid access (collaborators not reached via any profile).
-  try {
-    const accessQ = query(
+  // accessUids covers profile-membership access (the membership-sync callable
+  // denormalizes profile members into accessUids on every event). The
+  // accessProfileIds primary was removed: current rules don't grant via that
+  // field, so the query rejected every time and only added latency. Phase 3
+  // rule cutover will reintroduce it.
+  // Legacy owner_uid runs in parallel for events created before accessUids.
+  const [accessSnap, ownerSnap] = await Promise.all([
+    getDocs(query(
       collection(getFirestoreDb(), TOP_EVENTS),
       where("accessUids", "array-contains", uid),
       orderBy("date", "desc"),
-    );
-    const snap = await getDocs(accessQ);
-    snap.forEach((d) => {
-      if (!byId.has(d.id)) byId.set(d.id, eventRowToEvent({ id: d.id, ...d.data() }));
-    });
-  } catch {
-    // ignore — primary query already covers profile-membership access.
-  }
-
-  // Legacy: events where this uid is the original owner_uid (pre-accessUids).
-  try {
-    const legacyOwnerQ = query(
+    )).catch(() => null),
+    getDocs(query(
       collection(getFirestoreDb(), TOP_EVENTS),
       where("owner_uid", "==", uid),
       orderBy("date", "desc"),
-    );
-    const snap = await getDocs(legacyOwnerQ);
-    snap.forEach((d) => {
+    )).catch(() => null),
+  ]);
+
+  if (accessSnap) {
+    accessSnap.forEach((d) => byId.set(d.id, eventRowToEvent({ id: d.id, ...d.data() })));
+  }
+  if (ownerSnap) {
+    ownerSnap.forEach((d) => {
       if (!byId.has(d.id)) byId.set(d.id, eventRowToEvent({ id: d.id, ...d.data() }));
     });
-  } catch {
-    // ignore — primary/fallback already cover most cases.
   }
 
   return Array.from(byId.values()).filter(e => isDraftVisibleToUser(e, uid, profileIds));
@@ -1144,30 +1123,12 @@ export interface EventPageFilters {
 export async function fetchEventsInRange(
   dateFrom: string,
   dateTo: string,
-  profileIds?: string[],
+  _profileIds?: string[],
 ): Promise<Event[]> {
   const uid = getAuthClient().currentUser?.uid;
   if (!uid) return [];
-  const byId = new Map<string, Event>();
 
-  // Primary: profile-based access.
-  if (profileIds && profileIds.length > 0) {
-    for (const chunk of chunkArray(profileIds, 30)) {
-      try {
-        const profileQ = query(
-          collection(getFirestoreDb(), TOP_EVENTS),
-          where("accessProfileIds", "array-contains-any", chunk),
-          where("date", ">=", dateFrom),
-          where("date", "<=", dateTo),
-          orderBy("date", "asc"),
-        );
-        const snap = await getDocs(profileQ);
-        snap.forEach((d) => byId.set(d.id, eventRowToEvent({ id: d.id, ...d.data() })));
-      } catch { /* index may not exist */ }
-    }
-  }
-
-  // Fallback: direct-uid access.
+  // See fetchEvents: accessProfileIds primary removed pending Phase 3 rules.
   try {
     const accessQ = query(
       collection(getFirestoreDb(), TOP_EVENTS),
@@ -1177,12 +1138,10 @@ export async function fetchEventsInRange(
       orderBy("date", "asc"),
     );
     const snap = await getDocs(accessQ);
-    snap.forEach((d) => {
-      if (!byId.has(d.id)) byId.set(d.id, eventRowToEvent({ id: d.id, ...d.data() }));
-    });
-  } catch { /* */ }
-
-  return Array.from(byId.values()).sort((a, b) => a.date.localeCompare(b.date));
+    return snap.docs.map((d) => eventRowToEvent({ id: d.id, ...d.data() }));
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -1191,7 +1150,7 @@ export async function fetchEventsInRange(
  * `eventStatus == "concluded"`. Used by the settlements list to surface
  * show-day events alongside concluded ones.
  */
-export async function fetchShowDayEvents(profileIds?: string[]): Promise<Event[]> {
+export async function fetchShowDayEvents(_profileIds?: string[]): Promise<Event[]> {
   const uid = getAuthClient().currentUser?.uid;
   if (!uid) return [];
 
@@ -1201,25 +1160,7 @@ export async function fetchShowDayEvents(profileIds?: string[]): Promise<Event[]
   const day = String(today.getDate()).padStart(2, "0");
   const todayIso = `${y}-${m}-${day}`;
 
-  const byId = new Map<string, Event>();
-
-  // Primary: profile-based access.
-  if (profileIds && profileIds.length > 0) {
-    for (const chunk of chunkArray(profileIds, 30)) {
-      try {
-        const profileQ = query(
-          collection(getFirestoreDb(), TOP_EVENTS),
-          where("accessProfileIds", "array-contains-any", chunk),
-          where("eventStatus", "==", "confirmed"),
-          where("date", "==", todayIso),
-        );
-        const snap = await getDocs(profileQ);
-        snap.forEach((d) => byId.set(d.id, eventRowToEvent({ id: d.id, ...d.data() })));
-      } catch { /* index may not exist */ }
-    }
-  }
-
-  // Fallback: direct-uid access.
+  // See fetchEvents: accessProfileIds primary removed pending Phase 3 rules.
   try {
     const accessQ = query(
       collection(getFirestoreDb(), TOP_EVENTS),
@@ -1228,12 +1169,10 @@ export async function fetchShowDayEvents(profileIds?: string[]): Promise<Event[]
       where("date", "==", todayIso),
     );
     const snap = await getDocs(accessQ);
-    snap.forEach((d) => {
-      if (!byId.has(d.id)) byId.set(d.id, eventRowToEvent({ id: d.id, ...d.data() }));
-    });
-  } catch { /* */ }
-
-  return Array.from(byId.values());
+    return snap.docs.map((d) => eventRowToEvent({ id: d.id, ...d.data() }));
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchEventPage(
@@ -1248,88 +1187,37 @@ export async function fetchEventPage(
   const sortField = filters?.sortField ?? "date";
   const sortDirection = filters?.sortDir ?? "desc";
 
-  // Primary: profile-based access (paginated). `array-contains-any` caps at
-  // 30 — chunked queries can't share a single cursor, so when profileIds
-  // exceeds 30 we lose strict pagination on the primary path. In practice
-  // profileIds is small.
-  const useProfileQuery = !!profileIds && profileIds.length > 0;
-  const buildConstraints = (clause: ReturnType<typeof where>) => [
-    clause,
+  // See fetchEvents: accessProfileIds primary removed pending Phase 3 rules.
+  // accessUids covers profile-membership access via the membership-sync
+  // denormalization, so a single paginated query is enough.
+  const constraints = [
+    where("accessUids", "array-contains", uid),
     ...(filters?.status ? [where("eventStatus", "==", filters.status)] : []),
     orderBy(sortField, sortDirection),
     ...(cursor ? [startAfter(cursor)] : []),
     limit(pageSize + 1),
   ];
 
-  const profileClause = useProfileQuery
-    ? where("accessProfileIds", "array-contains-any", profileIds!.slice(0, 30))
-    : null;
-  const uidClause = where("accessUids", "array-contains", uid);
-
   let primaryDocs: QueryDocumentSnapshot[] = [];
   let hasMore = false;
-  let primaryFailed = false;
 
-  if (profileClause) {
-    try {
-      const snap = await getDocs(query(collection(getFirestoreDb(), TOP_EVENTS), ...buildConstraints(profileClause)));
-      hasMore = snap.size > pageSize;
-      primaryDocs = hasMore ? snap.docs.slice(0, pageSize) : snap.docs;
-    } catch (err) {
-      // Don't swallow silently — empty pages got cached and broke the events
-      // list on navigation / status-filter clicks. Fall through to the
-      // accessUids query so the user still sees their events.
-      console.error("[fetchEventPage] accessProfileIds primary failed; falling back to accessUids", err);
-      primaryFailed = true;
-    }
+  try {
+    const snap = await getDocs(query(collection(getFirestoreDb(), TOP_EVENTS), ...constraints));
+    hasMore = snap.size > pageSize;
+    primaryDocs = hasMore ? snap.docs.slice(0, pageSize) : snap.docs;
+  } catch (err) {
+    console.error("[fetchEventPage] accessUids query failed", err);
   }
 
-  const byId = new Map<string, Event>();
-  for (const d of primaryDocs) {
-    byId.set(d.id, eventRowToEvent({ id: d.id, ...d.data() }));
-  }
-
-  // Run the accessUids query when:
-  //  - we never had profiles to query by (becomes the primary), OR
-  //  - the profile primary failed (recover gracefully — becomes the primary), OR
-  //  - we're on the first page and want to supplement collaborator-only events
-  //    not reached by any of the user's profiles.
-  const runUidQuery = !profileClause || primaryFailed || !cursor;
-  const usingUidAsPrimary = !profileClause || primaryFailed;
-  if (runUidQuery) {
-    try {
-      const snap = await getDocs(query(collection(getFirestoreDb(), TOP_EVENTS), ...buildConstraints(uidClause)));
-      if (usingUidAsPrimary) {
-        hasMore = snap.size > pageSize;
-        primaryDocs = hasMore ? snap.docs.slice(0, pageSize) : snap.docs;
-        byId.clear();
-        for (const d of primaryDocs) byId.set(d.id, eventRowToEvent({ id: d.id, ...d.data() }));
-      } else {
-        // Supplement only — don't touch primaryDocs (its tail is the next-page cursor).
-        snap.forEach((d) => {
-          if (!byId.has(d.id)) byId.set(d.id, eventRowToEvent({ id: d.id, ...d.data() }));
-        });
-      }
-    } catch (err) {
-      console.error("[fetchEventPage] accessUids query failed", err);
-    }
-  }
-
-  const events = Array.from(byId.values()).filter(e =>
-    isDraftVisibleToUser(e, uid, profileIds),
-  );
+  const events = primaryDocs
+    .map((d) => eventRowToEvent({ id: d.id, ...d.data() }))
+    .filter((e) => isDraftVisibleToUser(e, uid, profileIds));
 
   return {
     events,
     lastDoc: primaryDocs[primaryDocs.length - 1] ?? null,
     hasMore,
   };
-}
-
-function chunkArray<T>(arr: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
-  return chunks;
 }
 
 /**
