@@ -28,6 +28,7 @@ firebase-export-*/
 !.vscode/extensions.json
 .idea
 .DS_Store
+.claude/*.lock
 *.suo
 *.ntvs*
 *.njsproj
