@@ -31,19 +31,23 @@ export function getFirestoreDb(): Firestore {
 
   const app = getFirebaseApp();
 
-  // Use initializeFirestore with long-polling to avoid WebChannel issues
-  // that cause "Unexpected state" crashes with the emulator.
   // ignoreUndefinedProperties strips nested `undefined` before write — the
   // emulator tolerates them but the real backend rejects, which silently
   // breaks any save with an optional field cleared to undefined (e.g.
   // SubVenue.sittingCapacity).
+  // Against the emulator, force long-polling: WebChannel is flaky there and
+  // the auto-detect path adds multi-second stalls before falling back. In
+  // prod, auto-detect is fine.
+  const useEmulators = shouldConnectFirebaseEmulators();
   const db = initializeFirestore(app, {
-    experimentalAutoDetectLongPolling: true,
+    ...(useEmulators
+      ? { experimentalForceLongPolling: true }
+      : { experimentalAutoDetectLongPolling: true }),
     ignoreUndefinedProperties: true,
   });
 
-  if (shouldConnectFirebaseEmulators() && !firestoreEmulatorConnected) {
-    const host = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST ?? "localhost";
+  if (useEmulators && !firestoreEmulatorConnected) {
+    const host = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST ?? "127.0.0.1";
     const port = Number(import.meta.env.VITE_FIRESTORE_EMULATOR_PORT ?? "8090");
     connectFirestoreEmulator(db, host, port);
     firestoreEmulatorConnected = true;
@@ -57,7 +61,7 @@ export function getFirebaseStorage(): FirebaseStorage {
   const storage = getStorage(getFirebaseApp());
 
   if (shouldConnectFirebaseEmulators() && !storageEmulatorConnected) {
-    const host = import.meta.env.VITE_STORAGE_EMULATOR_HOST ?? "localhost";
+    const host = import.meta.env.VITE_STORAGE_EMULATOR_HOST ?? "127.0.0.1";
     const port = Number(import.meta.env.VITE_STORAGE_EMULATOR_PORT ?? "9199");
     connectStorageEmulator(storage, host, port);
     storageEmulatorConnected = true;
@@ -70,7 +74,7 @@ export function getFirebaseFunctions(): Functions {
   const f = getFunctions(getFirebaseApp(), "europe-west1");
 
   if (shouldConnectFirebaseEmulators() && !functionsEmulatorConnected) {
-    const host = import.meta.env.VITE_FUNCTIONS_EMULATOR_HOST ?? "localhost";
+    const host = import.meta.env.VITE_FUNCTIONS_EMULATOR_HOST ?? "127.0.0.1";
     const port = Number(import.meta.env.VITE_FUNCTIONS_EMULATOR_PORT ?? "5001");
     connectFunctionsEmulator(f, host, port);
     functionsEmulatorConnected = true;
