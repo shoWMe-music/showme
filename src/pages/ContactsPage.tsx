@@ -504,9 +504,22 @@ export default function ContactsPage() {
                         onCheckedChange={() => toggleSelect(party.id)}
                         className="mr-3 shrink-0"
                       />
-                      <button
-                        className="flex flex-1 items-center justify-between min-w-0 text-left"
+                      {/*
+                        role="button" wrapper instead of <button> so the inner
+                        copy-code / copy-email <button>s remain valid HTML.
+                        Keyboard parity preserved via onKeyDown.
+                      */}
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className="flex flex-1 items-center justify-between min-w-0 text-left cursor-pointer"
                         onClick={() => navigate({ to: "/contacts/$id", params: { id: party.id } })}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            navigate({ to: "/contacts/$id", params: { id: party.id } });
+                          }
+                        }}
                       >
                         <div className="min-w-0">
                           <p className="text-sm font-medium">{party.name}</p>
@@ -545,7 +558,7 @@ export default function ContactsPage() {
                           )}
                           <span className="text-xs text-muted-foreground">{contactPrimaryType(party) !== "ticketing" && party.iban ? "IBAN ✓" : ""}</span>
                         </div>
-                      </button>
+                      </div>
                       <Button
                         variant="ghost"
                         size="icon"
