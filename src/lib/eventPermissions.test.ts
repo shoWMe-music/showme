@@ -7,6 +7,7 @@ import {
   canAccessEventBudget,
   roleCanManageEventCore,
   roleCanEditPerformersMaterials,
+  userHasEventAccess,
 } from "./eventPermissions";
 import type { SharedProfile } from "./user-context";
 
@@ -412,5 +413,89 @@ describe("canAccessEventBudget", () => {
       participant_roles: {},
     };
     expect(canAccessEventBudget(event, "fallback-uid")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// userHasEventAccess
+// ---------------------------------------------------------------------------
+
+describe("userHasEventAccess", () => {
+  it("grants when uid is in accessUids", () => {
+    expect(
+      userHasEventAccess({ accessUids: ["a", "b"] }, "a", []),
+    ).toBe(true);
+  });
+
+  it("grants when uid matches legacy owner_uid", () => {
+    expect(
+      userHasEventAccess({ accessUids: [], owner_uid: "a" }, "a", []),
+    ).toBe(true);
+  });
+
+  it("grants when one of the user's profiles is the hostProfileId", () => {
+    expect(
+      userHasEventAccess(
+        { accessUids: [], hostProfileId: "profile-host" },
+        "user-uid",
+        ["profile-host", "profile-other"],
+      ),
+    ).toBe(true);
+  });
+
+  it("grants when one of the user's profiles is the performerProfileId", () => {
+    expect(
+      userHasEventAccess(
+        { accessUids: [], performerProfileId: "profile-perf" },
+        "user-uid",
+        ["profile-perf"],
+      ),
+    ).toBe(true);
+  });
+
+  it("grants when uid is in legacy participant_uids", () => {
+    expect(
+      userHasEventAccess(
+        { accessUids: [], participant_uids: ["user-uid"] },
+        "user-uid",
+        [],
+      ),
+    ).toBe(true);
+  });
+
+  // The whole reason this helper exists — Firestore rules grant public read
+  // to published+confirmed events, so a stranger can load the doc and would
+  // otherwise hit the manager UI. The app-side gate must NOT consider the
+  // published flag at all.
+  it("denies a stranger viewing a published+confirmed event they have no profile/uid on", () => {
+    const event = {
+      accessUids: ["someone-else"],
+      owner_uid: "someone-else",
+      hostProfileId: "their-host-profile",
+      performerProfileId: "their-perf-profile",
+      participant_uids: [],
+    };
+    expect(userHasEventAccess(event, "stranger-uid", ["my-unrelated-profile"])).toBe(false);
+  });
+
+  it("denies when event is null/undefined", () => {
+    expect(userHasEventAccess(null, "a", ["p"])).toBe(false);
+    expect(userHasEventAccess(undefined, "a", ["p"])).toBe(false);
+  });
+
+  it("denies when uid is undefined", () => {
+    expect(
+      userHasEventAccess({ accessUids: ["a"] }, undefined, []),
+    ).toBe(false);
+  });
+
+  it("ignores hostProfileId / performerProfileId when the user has no matching profile", () => {
+    expect(
+      userHasEventAccess(
+        { accessUids: [], hostProfileId: "their-host", performerProfileId: "their-perf" },
+        "user-uid",
+        ["my-profile"],
+      ),
+    ).toBe(false);
   });
 });

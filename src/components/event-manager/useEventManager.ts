@@ -29,13 +29,28 @@ export function useEventManager() {
   const { id } = useParams({ from: "/events/$id" });
   const { tab: tabParam } = useSearch({ from: "/events/$id" });
   const navigate = useNavigate();
-  const [collaborators, setCollaborators] = useState<EventCollaborator[]>([]);
+  const queryClient = useQueryClient();
 
-  const refreshCollaborators = () => {
-    if (id) fetchEventCollaborators(id).then(setCollaborators);
-  };
+  // Collaborators live in a TanStack Query so notification-driven invalidation
+  // (see useNotificationInvalidator) can refresh the list when the server-side
+  // collaborator_joined trigger fires after a recipient accepts an invite.
+  const collaboratorsQuery = useQuery({
+    queryKey: id ? queryKeys.eventCollaborators(id) : ["eventCollaborators", "noop"],
+    queryFn: () => fetchEventCollaborators(id!),
+    enabled: !!id,
+  });
+  const collaborators = collaboratorsQuery.data ?? [];
 
-  useEffect(() => { refreshCollaborators(); }, [id]);
+  const refreshCollaborators = useCallback(() => {
+    if (id) queryClient.invalidateQueries({ queryKey: queryKeys.eventCollaborators(id) });
+  }, [id, queryClient]);
+
+  // Optimistic-update shim. EventActionsMenu's "remove collaborator" path
+  // writes the post-removal list locally before the server sync; expose the
+  // query-cache equivalent so we don't widen its prop surface.
+  const setCollaborators = useCallback((next: EventCollaborator[]) => {
+    if (id) queryClient.setQueryData(queryKeys.eventCollaborators(id), next);
+  }, [id, queryClient]);
 
   const allEventsMain = useEvents();
   const eventsLoaded = useEventsLoaded();
@@ -92,7 +107,6 @@ export function useEventManager() {
   );
   // Stable cache key + in-place invalidate when the profile set changes —
   // same pattern as useEventsQuery to avoid re-skeletoning mid-load.
-  const queryClient = useQueryClient();
   const profileKey = myProfileIds.join(",");
   const linkedRequestKey = queryKeys.bookingRequestForEvent(id ?? "");
   useEffect(() => {

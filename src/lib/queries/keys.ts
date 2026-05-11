@@ -18,6 +18,9 @@ export const queryKeys = {
   // ── Per-event economics (deal + revenue + settlement + meta) ────────────
   eventEconomics: (eventId: string) => ["eventEconomics", eventId] as const,
 
+  // ── Per-event collaborators (events/{eventId}/collaborators) ────────────
+  eventCollaborators: (eventId: string) => ["eventCollaborators", eventId] as const,
+
   // ── Per-event profile-scoped todos (events/{eventId}/meta/todos_{scopeId}) ──
   profileTodos: (eventId: string, scopeId: string) => ["profileTodos", eventId, scopeId] as const,
 

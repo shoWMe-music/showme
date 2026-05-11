@@ -48,6 +48,7 @@ import CollaboratorAuthPage from "@/pages/CollaboratorAuthPage";
 import CollaboratorEventView from "@/pages/CollaboratorEventView";
 import ResetPasswordPage from "@/pages/ResetPasswordPage";
 import AcceptInvitePage from "@/pages/AcceptInvitePage";
+import InvitePage from "@/pages/InvitePage";
 
 function parseOptionalString(raw: Record<string, unknown>, key: string) {
   const v = raw[key];
@@ -454,6 +455,21 @@ const acceptInviteRoute = createRoute({
   },
 });
 
+const inviteRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/invite",
+  validateSearch: (raw: Record<string, unknown>) => ({
+    code: parseOptionalString(raw, "code"),
+  }),
+  component: InvitePage,
+  staticData: {
+    meta: {
+      title: "Accept invitation — shoWMe",
+      description: "Accept your shoWMe invitation.",
+    },
+  },
+});
+
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   landingRoute,
@@ -491,6 +507,7 @@ export const routeTree = rootRoute.addChildren([
   collaborateAuthRoute,
   adminInvitationsRoute,
   acceptInviteRoute,
+  inviteRoute,
 ]);
 
 export const router = createRouter({

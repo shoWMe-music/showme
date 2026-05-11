@@ -62,7 +62,7 @@ export async function createPerformerInvitation(
     const existingToken = (existingDoc.data() as { sourceCollaboratorInviteToken?: string }).sourceCollaboratorInviteToken ?? "";
     onCollaboratorAdded?.();
     return {
-      url: `${window.location.origin}/signup?code=${existingCode}`,
+      url: `${window.location.origin}/invite?code=${existingCode}`,
       code: existingCode,
       token: existingToken,
     };
@@ -161,7 +161,7 @@ export async function createPerformerInvitation(
 
   onCollaboratorAdded?.();
 
-  const url = `${window.location.origin}/signup?code=${code}`;
+  const url = `${window.location.origin}/invite?code=${code}`;
   return { url, code, token };
 }
 

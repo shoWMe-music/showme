@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useRouterState } from "@tanstack/react-router";
 import { deleteDoc, doc } from "firebase/firestore";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -126,8 +127,20 @@ export function CollaboratorsTab({ event, collaborators, profiles, onRefresh }: 
     grouped.set(c.eventRole, list);
   }
 
+  // Scroll target for the collaborator_joined notification (#collaborators).
+  // Re-fires on hash change so two notifications in a row both work.
+  const collaboratorsRef = useRef<HTMLDivElement>(null);
+  const routerHash = useRouterState({ select: (s) => s.location.hash });
+  useEffect(() => {
+    if (routerHash !== "collaborators") return;
+    const raf = requestAnimationFrame(() => {
+      collaboratorsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [routerHash]);
+
   return (
-    <div className="space-y-6">
+    <div id="collaborators" ref={collaboratorsRef} className="space-y-6 scroll-mt-24">
       <div>
         <h3 className="font-display text-lg font-semibold">Collaborators</h3>
         <p className="text-sm text-muted-foreground">Profiles and parties connected to this event</p>
@@ -230,6 +243,7 @@ export function CollaboratorsTab({ event, collaborators, profiles, onRefresh }: 
                               ic.status === "active",
                           );
                           if (!matchingCode) return null;
+                          const inviteUrl = `${window.location.origin}/invite?code=${matchingCode.code}`;
                           return (
                             <div className="mt-3 ml-14 flex items-center gap-2">
                               <Badge variant="outline" className="text-xs font-mono">
@@ -239,6 +253,7 @@ export function CollaboratorsTab({ event, collaborators, profiles, onRefresh }: 
                                 variant="ghost"
                                 size="icon"
                                 className="h-7 w-7"
+                                title="Copy invitation code"
                                 onClick={() => {
                                   navigator.clipboard.writeText(matchingCode.code);
                                   copyToast("Code copied to clipboard");
@@ -249,7 +264,20 @@ export function CollaboratorsTab({ event, collaborators, profiles, onRefresh }: 
                               <Button
                                 variant="ghost"
                                 size="icon"
+                                className="h-7 w-7"
+                                title="Copy invitation link"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(inviteUrl);
+                                  copyToast("Link copied", "Invitation link copied to clipboard.");
+                                }}
+                              >
+                                <LinkIcon className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
                                 className="h-7 w-7 text-destructive hover:text-destructive"
+                                title="Revoke invitation"
                                 disabled={revokeMutation.isPending}
                                 onClick={() => revokeAndCleanup(matchingCode.code, c.id, matchingCode.linkedProfileId)}
                               >
@@ -259,28 +287,41 @@ export function CollaboratorsTab({ event, collaborators, profiles, onRefresh }: 
                           );
                         })()}
 
-                        {/* Profile details when linked */}
-                        {linkedProfile && collaboratorIsActive(c.status) && (
-                          <div className="mt-3 ml-14 rounded-lg border bg-muted/20 p-3 space-y-1.5">
-                            {linkedProfile.bio && (
-                              <p className="text-xs text-muted-foreground line-clamp-2">{linkedProfile.bio}</p>
-                            )}
-                            {linkedProfile.genres && linkedProfile.genres.length > 0 && (
-                              <div className="flex flex-wrap gap-1">
-                                {linkedProfile.genres.slice(0, 6).map((g) => (
-                                  <Badge key={g} variant="secondary" className="text-[10px] py-0 px-1.5">{g}</Badge>
-                                ))}
-                                {linkedProfile.genres.length > 6 && (
-                                  <span className="text-[10px] text-muted-foreground">+{linkedProfile.genres.length - 6} more</span>
-                                )}
-                              </div>
-                            )}
-                            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                              {linkedProfile.capacity && <span>Capacity: {linkedProfile.capacity.toLocaleString()}</span>}
-                              {linkedProfile.setupType && <span>Setup: {linkedProfile.setupType}</span>}
+                        {/* Profile details when linked — only render if at
+                            least one field has content, otherwise the outer
+                            container draws an empty box for role types like
+                            Promoter that have no bio/genres/capacity/setup. */}
+                        {(() => {
+                          if (!linkedProfile || !collaboratorIsActive(c.status)) return null;
+                          const hasBio = Boolean(linkedProfile.bio);
+                          const hasGenres = (linkedProfile.genres?.length ?? 0) > 0;
+                          const hasCapacity = Boolean(linkedProfile.capacity);
+                          const hasSetup = Boolean(linkedProfile.setupType);
+                          if (!hasBio && !hasGenres && !hasCapacity && !hasSetup) return null;
+                          return (
+                            <div className="mt-3 ml-14 rounded-lg border bg-muted/20 p-3 space-y-1.5">
+                              {hasBio && (
+                                <p className="text-xs text-muted-foreground line-clamp-2">{linkedProfile.bio}</p>
+                              )}
+                              {hasGenres && (
+                                <div className="flex flex-wrap gap-1">
+                                  {linkedProfile.genres!.slice(0, 6).map((g) => (
+                                    <Badge key={g} variant="secondary" className="text-[10px] py-0 px-1.5">{g}</Badge>
+                                  ))}
+                                  {linkedProfile.genres!.length > 6 && (
+                                    <span className="text-[10px] text-muted-foreground">+{linkedProfile.genres!.length - 6} more</span>
+                                  )}
+                                </div>
+                              )}
+                              {(hasCapacity || hasSetup) && (
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                  {hasCapacity && <span>Capacity: {linkedProfile.capacity!.toLocaleString()}</span>}
+                                  {hasSetup && <span>Setup: {linkedProfile.setupType}</span>}
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        )}
+                          );
+                        })()}
                       </div>
                     );
                   })}

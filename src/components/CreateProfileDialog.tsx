@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { Check } from "lucide-react";
+import { collection, doc } from "firebase/firestore";
 import { useUser, operatorRoleLabels, operatorRoleDescriptions, type OperatorRole, type SharedProfile, type ProfileLocation } from "@/lib/user-context";
+import { getFirestoreDb } from "@/integrations/firebase/app";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
@@ -34,14 +36,23 @@ const emptyForm = (): Form => ({ name: "", city: "", country: "", bio: "", capac
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreated: (role: string) => void;
+  /** Fires after a successful save. Receives the slot key (e.g. "promoter")
+   *  and the Firestore profile document id so the caller can chain follow-up
+   *  work like activating an invite. */
+  onCreated: (slot: string, profileId: string) => void;
+  /**
+   * When set, skips step 0 (role picker) and locks the wizard to this role.
+   * Used by the invite-claim flow where the recipient must create a profile
+   * in a specific role to accept the invitation.
+   */
+  forcedRole?: OperatorRole;
 }
 
-export function CreateProfileDialog({ open, onOpenChange, onCreated }: Props) {
+export function CreateProfileDialog({ open, onOpenChange, onCreated, forcedRole }: Props) {
   const { profiles, currentUser, setProfiles, saveProfile, updateRoles } = useUser();
 
-  const [step, setStep] = useState(0);
-  const [selectedRole, setSelectedRole] = useState<OperatorRole | null>(null);
+  const [step, setStep] = useState(forcedRole ? 1 : 0);
+  const [selectedRole, setSelectedRole] = useState<OperatorRole | null>(forcedRole ?? null);
   const [form, setForm] = useState<Form>(emptyForm());
   const [submitting, setSubmitting] = useState(false);
   const geoFetched = useRef(false);
@@ -79,8 +90,8 @@ export function CreateProfileDialog({ open, onOpenChange, onCreated }: Props) {
 
 
   const reset = () => {
-    setStep(0);
-    setSelectedRole(null);
+    setStep(forcedRole ? 1 : 0);
+    setSelectedRole(forcedRole ?? null);
     setForm(emptyForm());
     setSubmitting(false);
     submittingRef.current = false;
@@ -128,7 +139,11 @@ export function CreateProfileDialog({ open, onOpenChange, onCreated }: Props) {
     const locations: ProfileLocation[] = form.city.trim() || form.country.trim()
       ? [{ id: "loc-primary", label: "Primary", city: form.city.trim(), country: form.country.trim() }]
       : [];
+    // Pre-generate the Firestore id so callers can act on the new profile
+    // synchronously (e.g. claim an invite that requires this exact id).
+    const profileId = doc(collection(getFirestoreDb(), "profiles")).id;
     const profile: SharedProfile = {
+      id: profileId,
       role: selectedRole,
       name: trimmedName,
       locations,
@@ -147,7 +162,7 @@ export function CreateProfileDialog({ open, onOpenChange, onCreated }: Props) {
     }
 
     saveProfile(slot, profile);
-    onCreated(slot);
+    onCreated(slot, profileId);
     handleOpenChange(false);
   };
 
@@ -156,6 +171,8 @@ export function CreateProfileDialog({ open, onOpenChange, onCreated }: Props) {
     "What type of profile do you want to create?",
     `Set up your ${selectedRole ? operatorRoleLabels[selectedRole] : ""} profile`,
   ];
+  const totalSteps = forcedRole ? 1 : 2;
+  const visibleStep = forcedRole ? 1 : step + 1;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -163,7 +180,7 @@ export function CreateProfileDialog({ open, onOpenChange, onCreated }: Props) {
         <DialogHeader>
           <DialogTitle>{stepTitles[step]}</DialogTitle>
           <DialogDescription>
-            Step {step + 1} of 2 — {stepDesc[step]}
+            Step {visibleStep} of {totalSteps} — {stepDesc[step]}
           </DialogDescription>
         </DialogHeader>
 
@@ -264,7 +281,11 @@ export function CreateProfileDialog({ open, onOpenChange, onCreated }: Props) {
               </div>
             )}
             <div className="flex justify-between pt-2">
-              <Button variant="outline" onClick={() => setStep(0)} disabled={submitting}>Back</Button>
+              {forcedRole ? (
+                <span />
+              ) : (
+                <Button variant="outline" onClick={() => setStep(0)} disabled={submitting}>Back</Button>
+              )}
               <Button onClick={handleCreate} disabled={!form.name.trim() || submitting}>
                 {submitting ? "Creating…" : "Create Profile"}
               </Button>

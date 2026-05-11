@@ -8,15 +8,6 @@ import { APP_BASE_URL } from "./appBaseUrl";
 
 const db = () => getFirestore();
 
-async function emailIsAlreadyRegistered(email: string): Promise<boolean> {
-  try {
-    await admin.auth().getUserByEmail(email);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 // Alphabet without ambiguous characters: 0/O, 1/I/L
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
@@ -70,23 +61,6 @@ export const createInvitationCode = onCall<CreateInvitationCodeData, Promise<{ c
 
     if (!source) {
       throw new HttpsError("invalid-argument", "source is required.");
-    }
-
-    // Defense-in-depth: never mint an invitation code (which doubles as a
-    // signup link) for an email that is already a registered platform user.
-    // Clicking the signup link would otherwise let the recipient overwrite
-    // someone's password via createUserWithEmailAndPassword. The client is
-    // expected to branch into the "add existing user directly" path before
-    // calling this function — this guard catches stale clients and direct
-    // callable invocations.
-    if (source === "collaborator_invite" && recipientEmail) {
-      const normalized = recipientEmail.toLowerCase().trim();
-      if (normalized && (await emailIsAlreadyRegistered(normalized))) {
-        throw new HttpsError(
-          "already-exists",
-          "This email is already registered. Add the user directly instead of sending a signup invite.",
-        );
-      }
     }
 
     // Admin-only guard
@@ -561,7 +535,7 @@ export const sendInvitationEmail = onCall<SendInvitationEmailData, Promise<{ ok:
       throw new HttpsError("invalid-argument", "code, recipientEmail, recipientName, and senderName are required.");
     }
 
-    const signupLink = `${APP_BASE_URL.replace(/\/$/, "")}/signup?code=${encodeURIComponent(code)}`;
+    const signupLink = `${APP_BASE_URL.replace(/\/$/, "")}/invite?code=${encodeURIComponent(code)}`;
 
     const tpl = invitationEmail({
       recipientName,
@@ -580,5 +554,296 @@ export const sendInvitationEmail = onCall<SendInvitationEmailData, Promise<{ ok:
     });
 
     return { ok: true };
+  },
+);
+
+// ---------------------------------------------------------------------------
+// peekInvitationCode
+//
+// Read-only metadata lookup used by the /invite landing page to decide how to
+// render: auto-claim with existing profile, prompt to create one, or surface
+// "wrong account". Auth-required so we can compare caller email to the code's
+// recipientEmail without leaking PII to anonymous callers.
+// ---------------------------------------------------------------------------
+
+interface PeekInvitationCodeData {
+  code: string;
+}
+
+type PeekStatus = "active" | "used" | "revoked" | "not-found";
+
+interface PeekInvitationCodeResult {
+  status: PeekStatus;
+  /** True iff caller's auth email matches the code's recipientEmail. */
+  emailMatches?: boolean;
+  /** Caller-facing details — only included when emailMatches is true. */
+  recipientEmail?: string;
+  recipientName?: string;
+  recipientRole?: string;
+  linkedEventId?: string;
+  eventName?: string;
+  senderName?: string;
+  /** A profile owned by the caller that matches recipientRole, if one exists. */
+  matchingProfile?: { id: string; name: string; role: string };
+}
+
+export const peekInvitationCode = onCall<PeekInvitationCodeData, Promise<PeekInvitationCodeResult>>(
+  { region: "europe-west1" },
+  async (request) => {
+    const callerUid = request.auth?.uid;
+    if (!callerUid) {
+      throw new HttpsError("unauthenticated", "Sign in to view this invitation.");
+    }
+
+    const { code } = request.data;
+    if (!code || typeof code !== "string") {
+      throw new HttpsError("invalid-argument", "code is required.");
+    }
+
+    const snap = await db().collection("invitationCodes").doc(code).get();
+    if (!snap.exists) {
+      return { status: "not-found" };
+    }
+    const data = snap.data() as Record<string, unknown>;
+    const rawStatus = String(data.status || "");
+    if (rawStatus !== "active") {
+      return { status: (rawStatus as PeekStatus) || "revoked" };
+    }
+
+    const callerEmail = (request.auth?.token?.email || "").toLowerCase();
+    const recipientEmail = String(data.recipientEmail || "").toLowerCase();
+    const emailMatches = !!callerEmail && !!recipientEmail && callerEmail === recipientEmail;
+    if (!emailMatches) {
+      // Active but for someone else — don't leak details.
+      return { status: "active", emailMatches: false };
+    }
+
+    const recipientName = typeof data.recipientName === "string" ? data.recipientName : undefined;
+    const recipientRole = typeof data.recipientRole === "string" ? data.recipientRole : undefined;
+    const linkedEventId = typeof data.linkedEventId === "string" ? data.linkedEventId : undefined;
+
+    let eventName: string | undefined;
+    if (linkedEventId) {
+      try {
+        const eventSnap = await db().collection("events").doc(linkedEventId).get();
+        if (eventSnap.exists) {
+          const ev = eventSnap.data() ?? {};
+          eventName = typeof ev.name === "string" ? ev.name : undefined;
+        }
+      } catch {
+        // ignore — eventName is optional
+      }
+    }
+
+    let senderName: string | undefined;
+    const createdByUid = typeof data.createdByUid === "string" ? data.createdByUid : undefined;
+    if (createdByUid) {
+      try {
+        const sender = await admin.auth().getUser(createdByUid);
+        senderName = sender.displayName || sender.email || undefined;
+      } catch {
+        // ignore
+      }
+    }
+
+    let matchingProfile: { id: string; name: string; role: string } | undefined;
+    if (recipientRole) {
+      const profSnap = await db()
+        .collection("profiles")
+        .where("owner_uid", "==", callerUid)
+        .where("role", "==", recipientRole)
+        .get();
+      for (const doc of profSnap.docs) {
+        const p = doc.data() as Record<string, unknown>;
+        if (p.created !== true) continue;
+        if (p.unclaimed === true) continue;
+        matchingProfile = {
+          id: doc.id,
+          name: typeof p.name === "string" ? p.name : "",
+          role: typeof p.role === "string" ? p.role : "",
+        };
+        break;
+      }
+    }
+
+    return {
+      status: "active",
+      emailMatches: true,
+      recipientEmail,
+      recipientName,
+      recipientRole,
+      linkedEventId,
+      eventName,
+      senderName,
+      matchingProfile,
+    };
+  },
+);
+
+// ---------------------------------------------------------------------------
+// claimInviteWithProfile
+//
+// Caller-supplied-profile variant of claimInvitationCode. Activates the
+// pending collaborator row using a profile the caller already owns (either
+// one they had before clicking the link, or one they just created via the
+// CreateProfileDialog forced-role wizard). Deletes the stub profile that
+// createPerformerInvitation seeded and marks the code used.
+// ---------------------------------------------------------------------------
+
+interface ClaimInviteWithProfileData {
+  code: string;
+  profileId: string;
+}
+
+interface ClaimInviteWithProfileResult {
+  ok: true;
+  eventId?: string;
+  profileId: string;
+}
+
+export const claimInviteWithProfile = onCall<
+  ClaimInviteWithProfileData,
+  Promise<ClaimInviteWithProfileResult>
+>(
+  { region: "europe-west1" },
+  async (request) => {
+    const callerUid = request.auth?.uid;
+    if (!callerUid) {
+      throw new HttpsError("unauthenticated", "Sign in to accept the invitation.");
+    }
+
+    const { code, profileId } = request.data;
+    if (!code || typeof code !== "string") {
+      throw new HttpsError("invalid-argument", "code is required.");
+    }
+    if (!profileId || typeof profileId !== "string") {
+      throw new HttpsError("invalid-argument", "profileId is required.");
+    }
+
+    // Verify the caller's profile up front so we never mark the code used on a
+    // bad input. Read profile + code in parallel; both are independent.
+    const [profileSnap, codeSnap] = await Promise.all([
+      db().collection("profiles").doc(profileId).get(),
+      db().collection("invitationCodes").doc(code).get(),
+    ]);
+
+    if (!codeSnap.exists) {
+      throw new HttpsError("not-found", "Invitation code not found.");
+    }
+    const codeData = codeSnap.data() as Record<string, unknown>;
+    if (String(codeData.status || "") !== "active") {
+      throw new HttpsError("failed-precondition", "This invitation code has already been used or revoked.");
+    }
+
+    const recipientEmail = String(codeData.recipientEmail || "").toLowerCase();
+    const callerEmail = (request.auth?.token?.email || "").toLowerCase();
+    if (!recipientEmail || !callerEmail || recipientEmail !== callerEmail) {
+      throw new HttpsError(
+        "permission-denied",
+        "This invitation is reserved for a different email address.",
+      );
+    }
+
+    if (!profileSnap.exists) {
+      throw new HttpsError("not-found", "Profile not found.");
+    }
+    const profileData = profileSnap.data() as Record<string, unknown>;
+    if (profileData.owner_uid !== callerUid) {
+      throw new HttpsError("permission-denied", "Profile is not owned by the caller.");
+    }
+    if (profileData.created !== true || profileData.unclaimed === true) {
+      throw new HttpsError("failed-precondition", "Profile is not active.");
+    }
+    const recipientRole = typeof codeData.recipientRole === "string" ? codeData.recipientRole : "";
+    if (recipientRole && profileData.role !== recipientRole) {
+      throw new HttpsError(
+        "failed-precondition",
+        `Profile role must be ${recipientRole} to accept this invitation.`,
+      );
+    }
+
+    const linkedEventId = typeof codeData.linkedEventId === "string" ? codeData.linkedEventId : undefined;
+    const linkedProfileId = typeof codeData.linkedProfileId === "string" ? codeData.linkedProfileId : undefined;
+    const inviteToken = typeof codeData.sourceCollaboratorInviteToken === "string"
+      ? codeData.sourceCollaboratorInviteToken
+      : undefined;
+    const profileSlug = typeof profileData.slug === "string" ? profileData.slug : null;
+
+    // 1. Mark the invitation code used.
+    await db().collection("invitationCodes").doc(code).update({
+      status: "used",
+      usedByUid: callerUid,
+      usedAt: FieldValue.serverTimestamp(),
+    });
+
+    // 2. Activate the collaborator row (keyed by the original invite token) and
+    //    grant event access. Best-effort — if the event or collaborator row is
+    //    missing we still complete the claim so the user gets a clean exit.
+    if (linkedEventId) {
+      const eventRef = db().collection("events").doc(linkedEventId);
+
+      const eventUpdates: Record<string, unknown> = {
+        accessUids: FieldValue.arrayUnion(callerUid),
+        accessProfileIds: FieldValue.arrayUnion(profileId),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+
+      try {
+        await eventRef.update(eventUpdates);
+      } catch (err) {
+        logger.warn("Failed to grant event access on claim", {
+          err: String(err),
+          eventId: linkedEventId,
+          callerUid,
+        });
+      }
+
+      if (inviteToken) {
+        try {
+          await eventRef.collection("collaborators").doc(inviteToken).update({
+            status: "active",
+            userUid: callerUid,
+            profileId,
+            inviteProfileSlug: profileSlug,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        } catch (err) {
+          logger.warn("Failed to activate collaborator row on claim", {
+            err: String(err),
+            eventId: linkedEventId,
+            inviteToken,
+          });
+        }
+      }
+    }
+
+    // 3. Delete the stub profile that createPerformerInvitation seeded — but
+    //    only if it's the unclaimed stub and not the profile the caller chose.
+    if (linkedProfileId && linkedProfileId !== profileId) {
+      const stubRef = db().collection("profiles").doc(linkedProfileId);
+      try {
+        const stubSnap = await stubRef.get();
+        if (stubSnap.exists) {
+          const stub = stubSnap.data() ?? {};
+          if (stub.unclaimed === true) {
+            await stubRef.delete();
+          }
+        }
+      } catch (err) {
+        logger.warn("Failed to delete stub profile on claim", {
+          err: String(err),
+          stubProfileId: linkedProfileId,
+        });
+      }
+    }
+
+    logger.info("Invitation claimed with caller-supplied profile", {
+      code,
+      callerUid,
+      profileId,
+      linkedEventId,
+    });
+
+    return { ok: true, eventId: linkedEventId, profileId };
   },
 );

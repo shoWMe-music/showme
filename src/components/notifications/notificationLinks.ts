@@ -38,7 +38,7 @@ const STATIC_LINK_ALLOWLIST: readonly string[] = [
 ];
 
 export type NotificationNavTarget =
-  | { kind: "event"; to: "/events/$id"; params: { id: string }; search?: Record<string, string> }
+  | { kind: "event"; to: "/events/$id"; params: { id: string }; search?: Record<string, string>; hash?: string }
   | { kind: "contact"; to: "/contacts/$id"; params: { id: string } }
   | { kind: "profile-public"; to: "/p/$slug"; params: { slug: string } }
   | { kind: "profile-list"; to: "/profiles" }
@@ -66,16 +66,20 @@ export function resolveNotificationTarget(n: AppNotification): NotificationNavTa
     return { kind: "static", to: "/settings", hash: "profile-access" };
   }
 
-  // 1. Event-scoped: most common case
+  // 1. Event-scoped: most common case.
+  //    `metadata.tab` selects the EventManagerPage tab via `?tab=…`.
+  //    `metadata.section` scrolls to a sub-section within that tab via `#…`
+  //    (e.g. agreement_confirmed lands on the agreement tab and scrolls to
+  //    the confirmations card).
   if (n.eventId) {
     const search: Record<string, string> = {};
-    const tab = md.tab || md.section;
-    if (tab) search.tab = tab;
+    if (md.tab) search.tab = md.tab;
     return {
       kind: "event",
       to: "/events/$id",
       params: { id: n.eventId },
       ...(Object.keys(search).length > 0 ? { search } : {}),
+      ...(md.section ? { hash: md.section } : {}),
     };
   }
 

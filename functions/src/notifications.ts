@@ -629,6 +629,8 @@ export const onCollaboratorUpdated = onDocumentWritten(
         type: "collaborator_joined",
         title: "Collaborator joined",
         body: `${collabName} has joined the event`,
+        link: `/events/${eventId}?tab=collaborators#collaborators`,
+        metadata: { tab: "collaborators", section: "collaborators" },
       });
     }
   },
@@ -873,7 +875,8 @@ export const onEventMetaUpdated = onDocumentWritten(
           title: "Agreement confirmed",
           body: `${profileName} confirmed the agreement for "${eventName}" as ${party}`,
           eventName,
-          link: `/events/${eventId}?tab=agreement`,
+          link: `/events/${eventId}?tab=agreement#confirmations`,
+          metadata: { tab: "agreement", section: "confirmations" },
         });
       }
     }

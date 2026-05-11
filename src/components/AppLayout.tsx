@@ -55,6 +55,7 @@ const notificationIcons: Record<NotificationType, typeof Bell> = {
   task_assigned: ClipboardList,
   rider_updated: Music,
   agreement_updated: HandshakeIcon,
+  agreement_confirmed: HandshakeIcon,
   crew_updated: Truck,
   schedule_updated: Clock,
   profile_invite: UserPlus,
@@ -118,6 +119,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         to: target.to,
         params: target.params,
         ...(target.search ? { search: target.search } : {}),
+        ...(target.hash ? { hash: target.hash } : {}),
       });
     } else if (target.kind === "contact") {
       // Same race as events — kick a refetch so ContactDetailPage doesn't

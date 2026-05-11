@@ -46,9 +46,22 @@ describe("resolveNotificationTarget", () => {
     });
   });
 
-  it("uses metadata.section as a tab fallback when tab is unset", () => {
+  it("treats metadata.section as a hash (sub-section within a tab)", () => {
     const target = resolveNotificationTarget(
-      makeNotif({ eventId: "evt-9", metadata: { section: "agreement" } }),
+      makeNotif({ eventId: "evt-9", metadata: { tab: "agreement", section: "confirmations" } }),
+    );
+    expect(target).toEqual({
+      kind: "event",
+      to: "/events/$id",
+      params: { id: "evt-9" },
+      search: { tab: "agreement" },
+      hash: "confirmations",
+    });
+  });
+
+  it("omits hash when metadata.section is unset", () => {
+    const target = resolveNotificationTarget(
+      makeNotif({ eventId: "evt-9", metadata: { tab: "agreement" } }),
     );
     expect(target).toEqual({
       kind: "event",

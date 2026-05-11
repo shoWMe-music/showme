@@ -96,6 +96,12 @@ export function useNotificationInvalidator(notifications: AppNotification[]) {
         case "collaborator_invited":
         case "collaborator_joined":
           scheduleInvalidation(queryKeys.events(uid));
+          // Per-event collaborator list also needs to refresh so the
+          // Collaborators tab status flips from "Invite pending" → "Connected"
+          // the moment the recipient accepts and the server trigger fires.
+          if (eventId) {
+            scheduleInvalidation(queryKeys.eventCollaborators(eventId));
+          }
           break;
 
         // ── Booking requests ─────────────────────────────────────────
@@ -105,9 +111,14 @@ export function useNotificationInvalidator(notifications: AppNotification[]) {
           break;
 
         // ── Event sub-data (todos, riders, etc.) ─────────────────────
+        // agreement_confirmed lives here too: the confirmations array is
+        // stored on event meta and surfaces through useEventEconomics, so the
+        // Agreement Confirmation rows flip from "Not yet confirmed" the moment
+        // the cache is invalidated.
         case "task_assigned":
         case "rider_updated":
         case "agreement_updated":
+        case "agreement_confirmed":
         case "crew_updated":
         case "schedule_updated":
           if (eventId) {

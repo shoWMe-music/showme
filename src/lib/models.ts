@@ -912,6 +912,7 @@ export type NotificationType =
   | "task_assigned"
   | "rider_updated"
   | "agreement_updated"
+  | "agreement_confirmed"
   | "crew_updated"
   | "schedule_updated"
   | "profile_invite"
@@ -962,6 +963,7 @@ export const notificationTypeLabels: Record<NotificationType, string> = {
   task_assigned: "Task assigned",
   rider_updated: "Rider updated",
   agreement_updated: "Agreement updated",
+  agreement_confirmed: "Agreement confirmed",
   crew_updated: "Crew updated",
   schedule_updated: "Schedule updated",
   profile_invite: "Profile invitation",

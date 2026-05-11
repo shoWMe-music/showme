@@ -68,6 +68,36 @@ export function isPrimaryEventOwner(
   return Boolean(primary && primary === uid);
 }
 
+/**
+ * Mirrors the `hasEventAccess` Firestore rule for client-side gating. The rule
+ * granting public read for `published && confirmed` events is intentional (it
+ * powers /event/$id and Share & Export) — but it means the *manager* page must
+ * check access itself, since a stranger with the URL would otherwise see the
+ * full event UI for any published+confirmed event.
+ *
+ * A user has access if any of:
+ *   - their uid is in `accessUids` (denormalized)
+ *   - their uid is the legacy `owner_uid`
+ *   - they're a member of `hostProfileId` or `performerProfileId`
+ *   - their uid is in legacy `participant_uids`
+ */
+export function userHasEventAccess(
+  event: Pick<
+    Event,
+    "accessUids" | "owner_uid" | "hostProfileId" | "performerProfileId" | "participant_uids"
+  > | undefined | null,
+  uid: string | undefined,
+  userProfileIds: readonly string[],
+): boolean {
+  if (!event || !uid) return false;
+  if (event.accessUids?.includes(uid)) return true;
+  if (event.owner_uid === uid) return true;
+  if (event.hostProfileId && userProfileIds.includes(event.hostProfileId)) return true;
+  if (event.performerProfileId && userProfileIds.includes(event.performerProfileId)) return true;
+  if (event.participant_uids?.includes(uid)) return true;
+  return false;
+}
+
 /** Budget planner: uid in accessUids, legacy primary owner, or event collaborator with a core economics / admin role. */
 export function canAccessEventBudget(
   event: Pick<Event, "primary_owner_uid" | "owner_uid" | "accessUids" | "participant_roles"> | undefined,

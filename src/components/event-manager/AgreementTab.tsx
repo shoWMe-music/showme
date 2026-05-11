@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
+import { useRouterState } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -62,6 +63,20 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
   const [reopenRequest, setReopenRequest] = useState<AgreementReopenRequest | null>(
     eventMeta.agreementReopenRequest ?? null
   );
+
+  // Scroll target for the agreement_confirmed notification (#confirmations).
+  // Watches router hash so the scroll re-fires if the user clicks two such
+  // notifications in a row without leaving the page.
+  const confirmationsRef = useRef<HTMLDivElement>(null);
+  const routerHash = useRouterState({ select: (s) => s.location.hash });
+  useEffect(() => {
+    if (routerHash !== "confirmations") return;
+    // Defer one frame so the tab content has mounted before we measure.
+    const raf = requestAnimationFrame(() => {
+      confirmationsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [routerHash]);
 
   // Sync confirmations when eventMeta loads/changes (e.g. after query resolves)
   const prevConfirmationsRef = useRef(eventMeta.agreementConfirmations);
@@ -169,49 +184,86 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
     prevAllConfirmed.current = allConfirmed;
   }, [allConfirmed, onConfirmed]);
 
-  // Determine which parties must confirm themselves (no "confirm on behalf of" allowed)
+  // Determine which parties must confirm themselves (no "confirm on behalf
+  // of" allowed). Rule: if a real, identifiable party exists for that role
+  // — they're the host, or there's a collaborator with a linked profile or
+  // an email — they're the only one who gets to sign for themselves. The
+  // "confirm on behalf of" escape hatch is reserved for unattached, named-
+  // only parties in the deal.
   const partyMustSelfConfirm = (party: string): boolean => {
     // Performers always confirm themselves — whether connected, invited by email, or just named
     if (party === "Performer") return true;
-    if (party === "Venue") {
-      if (event.operatorType === "venue") return true; // venue is the host, always on platform
-      return collaborators.some(c => c.eventRole === "venue" && (c.profileId || c.email));
-    }
-    return false;
+    const partyToRole: Record<string, "venue" | "promoter" | "organizer" | "festival" | undefined> = {
+      Venue: "venue",
+      Promoter: "promoter",
+      Organizer: "organizer",
+      Festival: "festival",
+    };
+    const role = partyToRole[party];
+    if (!role) return false;
+    if (event.operatorType === role) return true; // this role is the host
+    return collaborators.some(c => c.eventRole === role && (c.profileId || c.email));
   };
 
-  // Which parties can the current user self-confirm, and what profile name do they represent?
+  // Which parties can the current user self-confirm, and what profile name do
+  // they represent? Sourced from the flat profile array (member-of profiles
+  // included) so a user who's a collaborator-only promoter still self-confirms
+  // instead of being routed through the "on behalf of" branch.
   const { myConfirmableParties, partyProfileName } = useMemo(() => {
     const parties = new Set<string>();
     const names: Record<string, string> = {};
-    const allProfiles = Object.values(profiles);
-    const myProfileIds = allProfiles.map(p => p.id).filter(Boolean) as string[];
-    // Performer: user owns the performer profile on this event
+    const mine = Object.values(profiles);
+    const myProfileIds = mine.map(p => p.id).filter(Boolean) as string[];
+
+    // Performer: user owns the performer profile on this event.
     if (event.performerProfileId) {
-      const myArtistProfiles = allProfiles.filter(p => p.role === "performer" && p.id);
-      const match = myArtistProfiles.find(p => p.id === event.performerProfileId);
+      const match = mine.find(p => p.role === "performer" && p.id === event.performerProfileId);
       if (match) { parties.add("Performer"); names["Performer"] = match.name; }
     }
-    // Venue: user owns a venue profile linked as host or as a collaborator
-    const myVenueProfiles = allProfiles.filter(p => p.role === "venue" && p.id);
-    if (myVenueProfiles.length > 0) {
-      if (event.operatorType === "venue" && event.hostProfileId) {
-        const match = myVenueProfiles.find(p => p.id === event.hostProfileId);
-        if (match) { parties.add("Venue"); names["Venue"] = match.name; }
+
+    // Host-type roles (venue/promoter/organizer/festival): the user can be
+    // either (a) the event host, or (b) a collaborator with this role whose
+    // profile they own. Same shape for all four — keep them in one loop so
+    // adding a new role doesn't re-introduce the missing-promoter bug.
+    const hostRoleToParty: Array<{ role: "venue" | "promoter" | "organizer" | "festival"; party: string }> = [
+      { role: "venue", party: "Venue" },
+      { role: "promoter", party: "Promoter" },
+      { role: "organizer", party: "Organizer" },
+      { role: "festival", party: "Festival" },
+    ];
+    for (const { role, party } of hostRoleToParty) {
+      const myProfilesInRole = mine.filter(p => p.role === role && p.id);
+      if (myProfilesInRole.length === 0) continue;
+      // Host match — only applies when the event's operatorType matches the role.
+      const operatorMatches =
+        (role === "venue" && event.operatorType === "venue") ||
+        (role === "promoter" && event.operatorType === "promoter") ||
+        (role === "organizer" && event.operatorType === "organizer") ||
+        (role === "festival" && event.operatorType === "festival");
+      if (operatorMatches && event.hostProfileId) {
+        const match = myProfilesInRole.find(p => p.id === event.hostProfileId);
+        if (match) { parties.add(party); names[party] = names[party] || match.name; }
       }
-      const venueCollab = collaborators.find(c => c.eventRole === "venue" && c.profileId && myVenueProfiles.some(p => p.id === c.profileId));
-      if (venueCollab) {
-        const match = myVenueProfiles.find(p => p.id === venueCollab.profileId);
-        if (match) { parties.add("Venue"); names["Venue"] = names["Venue"] || match.name; }
+      // Collaborator match — any role.
+      const collab = collaborators.find(c => c.eventRole === role && c.profileId && myProfilesInRole.some(p => p.id === c.profileId));
+      if (collab) {
+        const match = myProfilesInRole.find(p => p.id === collab.profileId);
+        if (match) { parties.add(party); names[party] = names[party] || match.name; }
       }
     }
-    // Host (Promoter/Organizer): user owns the host profile
+
+    // Catch-all: the user owns the hostProfileId but its role doesn't map to
+    // an entry in the table above (legacy hosts whose `role` was never set, or
+    // a value that drifted from operatorType).
     if (event.hostProfileId && myProfileIds.includes(event.hostProfileId)) {
       const hostParty = event.operatorType === "venue" ? "Venue" : event.operatorType === "organizer" ? "Organizer" : "Promoter";
-      const match = allProfiles.find(p => p.id === event.hostProfileId);
-      parties.add(hostParty);
-      if (match) names[hostParty] = names[hostParty] || match.name;
+      if (!parties.has(hostParty)) {
+        const match = mine.find(p => p.id === event.hostProfileId);
+        parties.add(hostParty);
+        if (match) names[hostParty] = names[hostParty] || match.name;
+      }
     }
+
     return { myConfirmableParties: parties, partyProfileName: names };
   }, [event, profiles, collaborators]);
 
@@ -567,8 +619,9 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
         )}
       </div>
 
-      {/* Agreement Confirmation Card */}
-      <div className="rounded-xl border bg-card p-6 shadow-sm">
+      {/* Agreement Confirmation Card — `id` is the scroll target the
+          `agreement_confirmed` notification points to via `#confirmations`. */}
+      <div id="confirmations" ref={confirmationsRef} className="rounded-xl border bg-card p-6 shadow-sm scroll-mt-24">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-display text-lg font-semibold">Agreement Confirmation</h3>
           <span className="text-xs text-muted-foreground">

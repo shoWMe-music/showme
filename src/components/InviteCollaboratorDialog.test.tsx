@@ -188,12 +188,12 @@ describe("InviteCollaboratorDialog — new user path", () => {
   beforeEach(() => {
     mockLookupCallable.mockResolvedValue({ data: { exists: false } });
     mockCreatePerformerInvitation.mockResolvedValue({
-      url: "https://app.example/signup?code=ABC123",
+      url: "https://app.example/invite?code=ABC123",
       code: "ABC123",
     });
   });
 
-  it("Copy Link mints a signup invitation and copies the signup URL", async () => {
+  it("Copy Link mints an invitation and copies the invite URL", async () => {
     renderDialog();
     fireEvent.click(screen.getByRole("button", { name: /copy link/i }));
 
@@ -201,7 +201,7 @@ describe("InviteCollaboratorDialog — new user path", () => {
     expect(mockAddExistingCallable).not.toHaveBeenCalled();
     await waitFor(() => expect(mockClipboardWriteText).toHaveBeenCalled());
     expect(mockClipboardWriteText.mock.calls[0][0]).toBe(
-      "https://app.example/signup?code=ABC123",
+      "https://app.example/invite?code=ABC123",
     );
     expect(mockSendPerformerInvitationEmail).not.toHaveBeenCalled();
   });
@@ -220,5 +220,54 @@ describe("InviteCollaboratorDialog — new user path", () => {
         eventName: "Test Event",
       }),
     );
+  });
+});
+
+// Bug ref (ClickUp 86c9qbj1p): inviting an existing user as a role they don't
+// yet have a profile for used to hard-fail with a destructive toast. The fix
+// routes that case through the invitation-code flow so the /invite page can
+// walk them through profile creation on accept.
+describe("InviteCollaboratorDialog — existing user without matching profile", () => {
+  beforeEach(() => {
+    mockLookupCallable.mockResolvedValue({
+      data: {
+        exists: true,
+        uid: "recipient-uid",
+        hasMatchingProfile: false,
+      },
+    });
+    mockCreatePerformerInvitation.mockResolvedValue({
+      url: "https://app.example/invite?code=XYZ789",
+      code: "XYZ789",
+    });
+  });
+
+  it("Copy Link no longer hard-fails — mints an invitation and copies the link", async () => {
+    renderDialog();
+    fireEvent.click(screen.getByRole("button", { name: /copy link/i }));
+
+    await waitFor(() => expect(mockCreatePerformerInvitation).toHaveBeenCalledTimes(1));
+    expect(mockAddExistingCallable).not.toHaveBeenCalled();
+    await waitFor(() => expect(mockClipboardWriteText).toHaveBeenCalled());
+    expect(mockClipboardWriteText.mock.calls[0][0]).toBe(
+      "https://app.example/invite?code=XYZ789",
+    );
+    // The pre-fix destructive toast must not surface.
+    const destructiveCalls = mockToast.mock.calls.filter(([arg]) => arg?.variant === "destructive");
+    expect(destructiveCalls).toHaveLength(0);
+  });
+
+  it("Send Email no longer hard-fails — mints an invitation and sends the welcome email", async () => {
+    renderDialog();
+    fireEvent.click(screen.getByRole("button", { name: /send email/i }));
+
+    await waitFor(() => expect(mockSendPerformerInvitationEmail).toHaveBeenCalledTimes(1));
+    expect(mockCreatePerformerInvitation).toHaveBeenCalledTimes(1);
+    expect(mockAddExistingCallable).not.toHaveBeenCalled();
+    expect(mockSendPerformerInvitationEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "XYZ789", recipientEmail: "recipient@example.com" }),
+    );
+    const destructiveCalls = mockToast.mock.calls.filter(([arg]) => arg?.variant === "destructive");
+    expect(destructiveCalls).toHaveLength(0);
   });
 });

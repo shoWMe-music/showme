@@ -29,6 +29,7 @@ import CreateEventDialog from "@/components/CreateEventDialog";
 import EventMessages from "@/components/EventMessages";
 import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 import { useEventManager } from "@/components/event-manager/useEventManager";
+import { userHasEventAccess } from "@/lib/eventPermissions";
 import type { PrefillData } from "@/components/create-event/types";
 
 export default function EventManagerPage() {
@@ -102,6 +103,37 @@ export default function EventManagerPage() {
         <div className="flex flex-col items-center justify-center py-20">
           <p className="text-lg text-muted-foreground">Event not found</p>
           <Link to="/events" className="mt-4 text-primary hover:underline">Back to events</Link>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  // The Firestore rules grant public read access to any published+confirmed
+  // event so the /event/$id surface and Share & Export can render anonymously.
+  // That same read-permission means a signed-in user typing the manager URL
+  // for an event they're not on would otherwise see the full editor. Gate it
+  // explicitly here: only members of the event (via uid or one of their
+  // profiles) get the manager view; everyone else is bounced to the public
+  // viewer if it exists, or to their events list.
+  const hasAccess =
+    userHasEventAccess(em.event, em.user?.uid, userProfileIds) || em.isPerformer;
+  if (!hasAccess) {
+    const isPublic = em.event.published === true && em.event.eventStatus === "confirmed";
+    return (
+      <AppLayout>
+        <div className="flex flex-col items-center justify-center py-20 gap-4 text-center px-6">
+          <p className="text-lg font-semibold">You don't have access to this event</p>
+          <p className="text-sm text-muted-foreground max-w-md">
+            Ask the event owner to invite you as a collaborator.
+          </p>
+          <div className="flex gap-2">
+            <Link to="/events" className="text-sm text-primary hover:underline">Back to events</Link>
+            {isPublic && (
+              <Link to="/event/$id" params={{ id: em.id! }} className="text-sm text-primary hover:underline">
+                View public page
+              </Link>
+            )}
+          </div>
         </div>
       </AppLayout>
     );

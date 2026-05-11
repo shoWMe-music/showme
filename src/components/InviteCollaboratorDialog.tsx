@@ -129,7 +129,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
     );
     if (existing) {
       setInvitationCode(existing.code);
-      setGeneratedLink(`${window.location.origin}/signup?code=${existing.code}`);
+      setGeneratedLink(`${window.location.origin}/invite?code=${existing.code}`);
       if (existing.recipientEmail) setEmail(existing.recipientEmail);
     }
   }, [open, eventId, defaultName, myInvitationCodes]);
@@ -159,9 +159,11 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
     const displayName = defaultName || email.trim().split("@")[0];
     const trimmedEmail = email.trim();
 
-    // Pre-check: if the email already belongs to a platform user, never mint a
-    // signup link (that would be a password-overwrite vector). Branch into the
-    // direct-add path or surface a clear error.
+    // Pre-check: if the email already belongs to a platform user with a
+    // profile in the requested role, skip the invitation-code dance and add
+    // them directly. Otherwise (new user OR existing user without a matching
+    // profile) fall through to the code flow — the /invite page handles both
+    // cases (signup link for new users, create-profile prompt for existing).
     try {
       const lookup = await httpsCallable<
         { email: string; role?: string },
@@ -177,16 +179,12 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
       });
 
       const data = lookup.data;
-      if (data.exists) {
-        if (!data.hasMatchingProfile || !data.matchingProfile) {
-          toast({
-            title: "User already on shoWMe",
-            description: `${trimmedEmail} has an account but no ${roleLabel.toLowerCase()} profile. Ask them to create one, or invite them to a profile they already have.`,
-            variant: "destructive",
-          });
-          return null;
-        }
-
+      // Recipient is on the platform AND already has a matching-role profile —
+      // fast-path: add them straight to the event. If they exist but don't yet
+      // have a profile in this role, fall through to the invitation-code flow
+      // below; the /invite page will walk them through profile creation when
+      // they click the link.
+      if (data.exists && data.hasMatchingProfile && data.matchingProfile) {
         const addRes = await httpsCallable<
           {
             eventId: string;
@@ -227,7 +225,10 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
       return null;
     }
 
-    // New user (not registered) — original signup-link flow.
+    // Invitation-code flow. Covers two cases:
+    //   1. New user (not on the platform) — they'll sign up via the link.
+    //   2. Existing user without a profile in this role — the /invite page
+    //      will prompt them to create one and link it to the event on accept.
     const result = await createPerformerInvitation({
       eventId,
       email: trimmedEmail,

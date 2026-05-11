@@ -20,6 +20,8 @@ export {
   sendOtpEmail,
   verifyOtp,
   sendInvitationEmail,
+  peekInvitationCode,
+  claimInviteWithProfile,
 } from "./invitations";
 export { setCollaboratorInvitePassword } from "./collaboratorInvitePassword";
 export { onProfileInviteCreated } from "./profileInvites";
