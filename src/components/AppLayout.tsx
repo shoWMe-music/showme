@@ -17,11 +17,14 @@ import {
   ArrowLeftRight,
   Archive,
   UserPlus,
+  UserMinus,
   Inbox,
   Music,
   Truck,
   HandshakeIcon,
   Clock,
+  ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { NotificationType, AppNotification } from "@/lib/models";
@@ -34,6 +37,7 @@ const SidebarCollapseContext = createContext({ collapsed: false, toggle: () => {
 export const useSidebarCollapse = () => useContext(SidebarCollapseContext);
 
 const notificationIcons: Record<NotificationType, typeof Bell> = {
+  event_created: Sparkles,
   event_status_changed: Calendar,
   event_details_updated: Calendar,
   event_archived: Archive,
@@ -52,6 +56,7 @@ const notificationIcons: Record<NotificationType, typeof Bell> = {
   event_invitation: Inbox,
   booking_request_received: Inbox,
   booking_request_responded: Inbox,
+  booking_request_status_changed: Inbox,
   task_assigned: ClipboardList,
   rider_updated: Music,
   agreement_updated: HandshakeIcon,
@@ -59,6 +64,10 @@ const notificationIcons: Record<NotificationType, typeof Bell> = {
   crew_updated: Truck,
   schedule_updated: Clock,
   profile_invite: UserPlus,
+  profile_invite_declined: UserMinus,
+  profile_member_joined: UserPlus,
+  profile_member_removed: UserMinus,
+  profile_member_role_changed: ShieldCheck,
 };
 
 function timeAgo(iso: string): string {

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef } from "react";
-import { useRouterState } from "@tanstack/react-router";
+import { useMemo } from "react";
+import { useScrollToHash } from "@/hooks/useScrollToHash";
 import { deleteDoc, doc } from "firebase/firestore";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -127,17 +127,9 @@ export function CollaboratorsTab({ event, collaborators, profiles, onRefresh }: 
     grouped.set(c.eventRole, list);
   }
 
-  // Scroll target for the collaborator_joined notification (#collaborators).
-  // Re-fires on hash change so two notifications in a row both work.
-  const collaboratorsRef = useRef<HTMLDivElement>(null);
-  const routerHash = useRouterState({ select: (s) => s.location.hash });
-  useEffect(() => {
-    if (routerHash !== "collaborators") return;
-    const raf = requestAnimationFrame(() => {
-      collaboratorsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [routerHash]);
+  // Scroll target for the collaborator_invited / collaborator_joined
+  // notifications (#collaborators).
+  const collaboratorsRef = useScrollToHash<HTMLDivElement>("collaborators");
 
   return (
     <div id="collaborators" ref={collaboratorsRef} className="space-y-6 scroll-mt-24">

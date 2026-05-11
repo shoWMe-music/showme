@@ -344,7 +344,11 @@ export const onEventUpdated = onDocumentWritten(
         title: "Event details updated",
         body: `"${after.name || "Event"}" — updated: ${changes.join(", ")}`,
         eventName: after.name,
-        metadata: Object.fromEntries(changes.map((f) => [f, String(after[f] ?? "")])),
+        link: `/events/${eventId}?tab=details`,
+        metadata: {
+          ...Object.fromEntries(changes.map((f) => [f, String(after[f] ?? "")])),
+          tab: "details",
+        },
       });
     }
   },
@@ -371,7 +375,8 @@ export const onDealUpdated = onDocumentWritten(
       type: "deal_updated",
       title: "Deal updated",
       body: "Deal structure has been modified",
-      link: `/events/${eventId}`,
+      link: `/events/${eventId}?tab=budget#deal`,
+      metadata: { tab: "budget", section: "deal" },
     });
   },
 );
@@ -396,7 +401,8 @@ export const onRevenueUpdated = onDocumentWritten(
       type: "revenue_updated",
       title: "Revenue updated",
       body: "Ticket revenue figures have been updated",
-      link: `/events/${eventId}`,
+      link: `/events/${eventId}?tab=budget#revenue`,
+      metadata: { tab: "budget", section: "revenue" },
     });
   },
 );
@@ -422,7 +428,8 @@ export const onSettlementUpdated = onDocumentWritten(
         type: "settlement_status_changed",
         title: `Settlement: ${after.status}`,
         body: `Settlement status changed to "${after.status}"`,
-        link: `/events/${eventId}`,
+        link: `/events/${eventId}?tab=settlement`,
+        metadata: { tab: "settlement" },
       });
     }
   },
@@ -446,11 +453,13 @@ export const onSettlementActivity = onDocumentCreated(
     const actorUid: string = data.actorUid || eventData?._lastUpdatedBy || "";
 
     if (type === "comment_added") {
+      const details = (data.details as Record<string, string> | undefined) ?? {};
       await notifyEventProfiles(eventId, actorUid, {
         type: "settlement_comment_added",
         title: "New settlement comment",
         body: `${by} commented on the settlement`,
-        metadata: data.details as Record<string, string> | undefined,
+        link: `/events/${eventId}?tab=settlement#activity`,
+        metadata: { ...details, tab: "settlement", section: "activity" },
       });
     }
 
@@ -459,6 +468,8 @@ export const onSettlementActivity = onDocumentCreated(
         type: "settlement_revision_added",
         title: "Settlement revision",
         body: `${by} submitted a settlement revision`,
+        link: `/events/${eventId}?tab=settlement#activity`,
+        metadata: { tab: "settlement", section: "activity" },
       });
     }
   },
@@ -512,6 +523,8 @@ export const onEventActivity = onDocumentCreated(
           title: "Rider updated",
           body: `${by} updated a rider for "${eventName}"`,
           eventName,
+          link: `/events/${eventId}?tab=details#riders`,
+          metadata: { tab: "details", section: "riders" },
         });
         break;
       case "agreement_updated":
@@ -520,6 +533,8 @@ export const onEventActivity = onDocumentCreated(
           title: "Agreement updated",
           body: `${by} updated an agreement for "${eventName}"`,
           eventName,
+          link: `/events/${eventId}?tab=agreement`,
+          metadata: { tab: "agreement" },
         });
         break;
       case "crew_updated":
@@ -528,6 +543,8 @@ export const onEventActivity = onDocumentCreated(
           title: "Crew updated",
           body: `${by} updated crew for "${eventName}"`,
           eventName,
+          link: `/events/${eventId}?tab=crew`,
+          metadata: { tab: "crew" },
         });
         break;
       case "schedule_updated":
@@ -536,6 +553,8 @@ export const onEventActivity = onDocumentCreated(
           title: "Schedule updated",
           body: `${by} updated the schedule for "${eventName}"`,
           eventName,
+          link: `/events/${eventId}?tab=details#schedule`,
+          metadata: { tab: "details", section: "schedule" },
         });
         break;
     }
@@ -567,7 +586,7 @@ export const onMessageSent = onDocumentCreated(
       title: `New message on "${eventName}"`,
       body: `${senderName}: ${preview || "sent a message"}`,
       eventName,
-      link: `/events/${eventId}`,
+      link: `/events/${eventId}?tab=messages`,
       metadata: { tab: "messages" },
     });
   },
@@ -601,7 +620,8 @@ export const onCollaboratorAdded = onDocumentCreated(
         actorUid: inviterUid,
         eventId,
         eventName,
-        link: `/events/${eventId}`,
+        link: `/events/${eventId}?tab=collaborators#collaborators`,
+        metadata: { tab: "collaborators", section: "collaborators" },
       });
     }
   },
@@ -702,7 +722,7 @@ export const onBookingRequestCreated = onDocumentCreated(
       body: `${artistName} requested a booking${requestDate ? ` for ${requestDate}` : ""}`,
       actorName: artistName,
       actorUid: "",
-      link: "/incoming-requests",
+      link: "/requests",
     });
   },
 );
@@ -770,7 +790,7 @@ export const onBookingRequestUpdated = onDocumentWritten(
         title: `Booking ${newStatus.replace("_", " ")}`,
         body: `A teammate ${verb} ${artistName}`,
         actorUid,
-        link: "/incoming-requests",
+        link: "/requests",
       });
     } catch (err) {
       logger.error("onBookingRequestUpdated: in-app notify failed", {
@@ -915,7 +935,8 @@ export const onEventMetaUpdated = onDocumentWritten(
         actorUid,
         eventId,
         eventName: todoEventName,
-        link: `/events/${eventId}`,
+        link: `/events/${eventId}?tab=todo`,
+        metadata: { tab: "todo" },
       });
     }
   },

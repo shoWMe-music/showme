@@ -909,6 +909,7 @@ export type NotificationType =
   | "event_invitation"
   | "booking_request_received"
   | "booking_request_responded"
+  | "booking_request_status_changed"
   | "task_assigned"
   | "rider_updated"
   | "agreement_updated"
@@ -960,6 +961,7 @@ export const notificationTypeLabels: Record<NotificationType, string> = {
   event_invitation: "Event invitation",
   booking_request_received: "Booking request received",
   booking_request_responded: "Booking request response",
+  booking_request_status_changed: "Booking request updated",
   task_assigned: "Task assigned",
   rider_updated: "Rider updated",
   agreement_updated: "Agreement updated",

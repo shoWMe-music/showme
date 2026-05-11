@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { useRouterState } from "@tanstack/react-router";
+import { useScrollToHash } from "@/hooks/useScrollToHash";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -65,18 +65,7 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
   );
 
   // Scroll target for the agreement_confirmed notification (#confirmations).
-  // Watches router hash so the scroll re-fires if the user clicks two such
-  // notifications in a row without leaving the page.
-  const confirmationsRef = useRef<HTMLDivElement>(null);
-  const routerHash = useRouterState({ select: (s) => s.location.hash });
-  useEffect(() => {
-    if (routerHash !== "confirmations") return;
-    // Defer one frame so the tab content has mounted before we measure.
-    const raf = requestAnimationFrame(() => {
-      confirmationsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [routerHash]);
+  const confirmationsRef = useScrollToHash<HTMLDivElement>("confirmations");
 
   // Sync confirmations when eventMeta loads/changes (e.g. after query resolves)
   const prevConfirmationsRef = useRef(eventMeta.agreementConfirmations);

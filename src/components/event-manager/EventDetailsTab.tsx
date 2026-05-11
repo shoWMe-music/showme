@@ -7,6 +7,7 @@ import { SectionTemplateMenu } from "@/components/SectionTemplateMenu";
 import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Link } from "@tanstack/react-router";
+import { useScrollToHash } from "@/hooks/useScrollToHash";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -294,6 +295,11 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
     collaborators,
   });
   const [childRidersMap, setChildRidersMap] = useState<Record<string, Rider[]>>({});
+
+  // Scroll targets for rider_updated (#riders) and schedule_updated (#schedule)
+  // notifications. Each wraps the matching EditableSection.
+  const ridersRef = useScrollToHash<HTMLDivElement>("riders");
+  const scheduleRef = useScrollToHash<HTMLDivElement>("schedule");
 
   useEffect(() => {
     if (!event.isMultiPerformer || !event.childEventIds?.length) return;
@@ -966,7 +972,9 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
         </div>
       </EditableSection>
 
-      {/* Riders & Documents */}
+      {/* Riders & Documents — wrapper exists so the rider_updated
+          notification can scroll here via the #riders hash. */}
+      <div id="riders" ref={ridersRef} className="scroll-mt-24">
       {(() => {
         // Aggregate child event riders for parent multi-performer events
         const childRiders: { performer: string; childId: string; riders: Rider[] }[] = [];
@@ -1225,8 +1233,11 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
           </EditableSection>
         );
       })()}
+      </div>
 
-      {/* Event Schedule */}
+      {/* Event Schedule — wrapper exists so schedule_updated notifications
+          scroll here via the #schedule hash. */}
+      <div id="schedule" ref={scheduleRef} className="scroll-mt-24">
       <EditableSection
         title="Event Schedule"
         icon={<Clock className="h-5 w-5 text-primary" />}
@@ -1344,6 +1355,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
           );
         })()}
       </EditableSection>
+      </div>
 
       {/* Amenities */}
       <EditableSection

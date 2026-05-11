@@ -107,6 +107,7 @@ export function useNotificationInvalidator(notifications: AppNotification[]) {
         // ── Booking requests ─────────────────────────────────────────
         case "booking_request_received":
         case "booking_request_responded":
+        case "booking_request_status_changed":
           scheduleInvalidation(queryKeys.bookingRequests());
           break;
 

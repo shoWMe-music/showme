@@ -2,6 +2,7 @@ import NumberInput from "@/components/NumberInput";
 import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import BudgetCalculator from "@/components/BudgetCalculator";
+import { useScrollToHash } from "@/hooks/useScrollToHash";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -93,8 +94,13 @@ export function BudgetPlannerTab({ canAccessBudget, event, revenue, eventMeta, c
     );
   }
 
+  // Scroll target for deal_updated (#deal) and revenue_updated (#revenue).
+  // Both land on the budget tab; the calculator surfaces both, so a single
+  // anchor on the tab root is the closest reasonable target.
+  const tabRef = useScrollToHash<HTMLDivElement>("deal", "revenue");
+
   return (
-    <div className="space-y-6">
+    <div ref={tabRef} className="space-y-6 scroll-mt-24">
       <div className="rounded-xl border bg-card p-4 shadow-sm flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <Label className="text-sm font-medium">Planning view</Label>
