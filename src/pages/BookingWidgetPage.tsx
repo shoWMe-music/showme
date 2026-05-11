@@ -90,6 +90,7 @@ export default function BookingWidgetPage() {
           open={formOpen}
           onOpenChange={(v) => setFormOpen(v)}
           targetProfileSlug={slug}
+          targetProfileId={profile.id ?? ""}
           targetRole={role}
           source="widget"
           operatorOwnerUid={ownerUid}

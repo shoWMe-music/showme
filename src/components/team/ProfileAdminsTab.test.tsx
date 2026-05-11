@@ -103,9 +103,9 @@ describe("ProfileAdminsTab", () => {
       expect(screen.getByText("My Venue")).toBeInTheDocument();
     });
 
-    // Edit Profile link routes to /profiles/venue/edit
+    // Edit Profile link routes to /profiles/<profileId>/edit
     const editLink = screen.getByRole("link", { name: /Edit Profile/i });
-    expect(editLink).toHaveAttribute("href", "/profiles/venue/edit");
+    expect(editLink).toHaveAttribute("href", "/profiles/venue-1/edit");
 
     // Delete button is present
     expect(screen.getByRole("button", { name: /Delete/i })).toBeInTheDocument();

@@ -310,7 +310,7 @@ const profilesRoute = createRoute({
 
 const profileEditRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/profiles/$role/edit",
+  path: "/profiles/$profileId/edit",
   component: ProfileEditPage,
 });
 

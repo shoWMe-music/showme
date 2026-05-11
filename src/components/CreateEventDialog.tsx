@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { format, parse } from "date-fns";
 import { Plus } from "lucide-react";
 import { useUser, type OperatorRole, type SubVenue } from "@/lib/user-context";
-import { useEvents } from "@/lib/queries";
+import { useEvents, useAllProfiles } from "@/lib/queries";
 import type { DealType } from "@/lib/models";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger,
@@ -25,7 +25,8 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
   const open = externalOpen !== undefined ? externalOpen : internalOpen;
   const setOpen = onExternalOpenChange || setInternalOpen;
   const [step, setStep] = useState(0);
-  const { currentUser, profiles } = useUser();
+  const { currentUser } = useUser();
+  const allProfiles = useAllProfiles();
   const allEvents = useEvents();
   const { handleSubmit } = useCreateEventSubmit();
 
@@ -143,9 +144,9 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
 
   const isPromoter = selectedRole === "promoter" || selectedRole === "organizer";
 
-  const allVenueOptions = Object.entries(profiles)
-    .filter(([, p]) => p.role === "venue" && p.created)
-    .map(([, p]) => ({
+  const allVenueOptions = allProfiles
+    .filter((p) => p.role === "venue" && p.created)
+    .map((p) => ({
       name: p.name,
       capacity: p.capacity,
       rooms: (p.subVenues || []).filter((sv: SubVenue) => sv.type === "room" || sv.type === "stage"),
@@ -166,7 +167,8 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
 
   const handleRoleSelect = (role: OperatorRole) => {
     setSelectedRole(role);
-    if (role === "performer" && profiles["performer"]?.name) setArtistName(profiles["performer"].name);
+    const performerProfile = allProfiles.find((p) => p.role === "performer" && p.created);
+    if (role === "performer" && performerProfile?.name) setArtistName(performerProfile.name);
     if (role === "venue" && allVenueOptions.length === 1) {
       setVenueName(allVenueOptions[0].name);
       if (allVenueOptions[0].capacity) setCapacity(String(allVenueOptions[0].capacity));

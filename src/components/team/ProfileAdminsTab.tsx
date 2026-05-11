@@ -451,8 +451,8 @@ export function ProfileAdminsTab() {
                     <Plus className="h-3.5 w-3.5" /> Invite
                   </Button>
                 )}
-                {editRole && (
-                  <Link to="/profiles/$role/edit" params={{ role: editRole }}>
+                {editRole && profileId && (
+                  <Link to="/profiles/$profileId/edit" params={{ profileId }}>
                     <Button size="sm" variant="outline" className="gap-1.5">
                       <Edit2 className="h-3.5 w-3.5" /> Edit Profile
                     </Button>

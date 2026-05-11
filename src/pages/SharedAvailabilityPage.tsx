@@ -24,6 +24,7 @@ export default function SharedAvailabilityPage() {
         unavailable: string[];
         generated: string;
         profileSlug?: string;
+        profileId?: string;
         profileRole?: string;
         ownerUid?: string | null;
       };
@@ -140,6 +141,7 @@ export default function SharedAvailabilityPage() {
             open={requestOpen}
             onOpenChange={setRequestOpen}
             targetProfileSlug={data.profileSlug}
+            targetProfileId={data.profileId}
             targetRole={data.profileRole || "venue"}
             source="availability"
             defaultDate={requestDate}

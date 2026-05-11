@@ -4,9 +4,10 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 // ─── Mocks ────────────────────────────────────────────────────────────────
 
 vi.mock("@tanstack/react-router", () => ({
-  useParams: () => ({ role: "venue" }),
+  useParams: () => ({ profileId: "venue-1" }),
   useNavigate: () => vi.fn(),
   Link: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  Navigate: () => null,
 }));
 
 vi.mock("@/lib/firebaseStorageUpload", () => ({
@@ -49,6 +50,11 @@ vi.mock("@/lib/user-context", async () => {
   };
 });
 
+const mockUseAllProfiles = vi.fn();
+vi.mock("@/lib/queries/useProfilesQuery", () => ({
+  useAllProfiles: () => mockUseAllProfiles(),
+}));
+
 import ProfileEditPage from "./ProfileEditPage";
 
 function makeVenueProfile(overrides: Record<string, unknown> = {}) {
@@ -70,15 +76,18 @@ describe("ProfileEditPage — venue capacity setups (Wave 5 B4)", () => {
     mockSaveProfile.mockClear();
     mockSetProfiles.mockClear();
     mockUseUser.mockReset();
+    mockUseAllProfiles.mockReset();
   });
 
   it("renders the Capacity Setups section for a venue profile", () => {
+    const profile = makeVenueProfile();
     mockUseUser.mockReturnValue({
-      profiles: { venue: makeVenueProfile() },
+      profiles: { venue: profile },
       setProfiles: mockSetProfiles,
       saveProfile: mockSaveProfile,
       loaded: true,
     });
+    mockUseAllProfiles.mockReturnValue([profile]);
 
     render(<ProfileEditPage />);
 
@@ -88,12 +97,14 @@ describe("ProfileEditPage — venue capacity setups (Wave 5 B4)", () => {
   });
 
   it("Add Setup creates a row with sitting/standing inputs and a Main checkbox", () => {
+    const profile = makeVenueProfile();
     mockUseUser.mockReturnValue({
-      profiles: { venue: makeVenueProfile() },
+      profiles: { venue: profile },
       setProfiles: mockSetProfiles,
       saveProfile: mockSaveProfile,
       loaded: true,
     });
+    mockUseAllProfiles.mockReturnValue([profile]);
 
     render(<ProfileEditPage />);
 
@@ -116,12 +127,14 @@ describe("ProfileEditPage — venue capacity setups (Wave 5 B4)", () => {
     // C1: the "Add custom deal type" input + button were removed because the
     // Performance Bonus tiered-deal rebuild was deferred to Wave 8. Existing
     // custom deals on the profile must still render as removable badges.
+    const profile = makeVenueProfile({ dealTypes: ["Door Split", "Sponsored Showcase"] });
     mockUseUser.mockReturnValue({
-      profiles: { venue: makeVenueProfile({ dealTypes: ["Door Split", "Sponsored Showcase"] }) },
+      profiles: { venue: profile },
       setProfiles: mockSetProfiles,
       saveProfile: mockSaveProfile,
       loaded: true,
     });
+    mockUseAllProfiles.mockReturnValue([profile]);
 
     render(<ProfileEditPage />);
 
@@ -134,19 +147,19 @@ describe("ProfileEditPage — venue capacity setups (Wave 5 B4)", () => {
   });
 
   it("preserves existing venueCapacitySetups on the profile", () => {
+    const profile = makeVenueProfile({
+      venueCapacitySetups: [
+        { id: "VCS-1", name: "Theater", capacitySitting: 200, capacityStanding: 0, isMain: true },
+        { id: "VCS-2", name: "Standing only", capacityStanding: 350, isMain: false },
+      ],
+    });
     mockUseUser.mockReturnValue({
-      profiles: {
-        venue: makeVenueProfile({
-          venueCapacitySetups: [
-            { id: "VCS-1", name: "Theater", capacitySitting: 200, capacityStanding: 0, isMain: true },
-            { id: "VCS-2", name: "Standing only", capacityStanding: 350, isMain: false },
-          ],
-        }),
-      },
+      profiles: { venue: profile },
       setProfiles: mockSetProfiles,
       saveProfile: mockSaveProfile,
       loaded: true,
     });
+    mockUseAllProfiles.mockReturnValue([profile]);
 
     render(<ProfileEditPage />);
 

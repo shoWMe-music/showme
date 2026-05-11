@@ -1,6 +1,7 @@
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import AppLayout from "@/components/AppLayout";
 import { useUser, operatorRoleLabels, getBaseRole, formatLocation, getPrimaryLocation, type OperatorRole, type SharedProfile, type SubVenue } from "@/lib/user-context";
+import { useAllProfiles } from "@/lib/queries/useProfilesQuery";
 import { useEvents } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -133,40 +134,72 @@ const LAST_PROFILE_KEY = "showme:lastSelectedProfile";
 
 export default function ProfilesPage() {
   const { profiles, setProfiles, saveProfile: saveProfileToDb, loaded } = useUser();
-  const createdProfiles = Object.entries(profiles).filter(([_, p]) => p.created) as [string, SharedProfile][];
-  const [selectedRole, setSelectedRoleRaw] = useState<string>("");
+  const allProfiles = useAllProfiles();
+  const createdProfiles = useMemo(
+    () => allProfiles.filter((p): p is SharedProfile & { id: string } => !!p.id && !!p.created),
+    [allProfiles],
+  );
+  const [selectedProfileId, setSelectedProfileIdRaw] = useState<string>("");
   const [addProfileOpen, setAddProfileOpen] = useState(false);
 
-  const setSelectedRole = useCallback((role: string) => {
-    setSelectedRoleRaw(role);
-    if (role) localStorage.setItem(LAST_PROFILE_KEY, role);
+  const setSelectedProfileId = useCallback((id: string) => {
+    setSelectedProfileIdRaw(id);
+    if (id) localStorage.setItem(LAST_PROFILE_KEY, id);
   }, []);
 
-  // Once profiles load, pick the last-selected or first profile
+  // Once profiles load, pick the last-selected or first profile. Handles a
+  // legacy localStorage value (role string) by transparently migrating it to
+  // the matching profile id and persisting the id back.
   useEffect(() => {
     if (!loaded || createdProfiles.length === 0) return;
-    setSelectedRoleRaw(prev => {
-      if (prev && createdProfiles.some(([k]) => k === prev)) return prev;
+    setSelectedProfileIdRaw(prev => {
+      if (prev && createdProfiles.some(p => p.id === prev)) return prev;
+      // The freshly-created profile path: onCreated() may have set this to a
+      // slot/role string. Resolve to id and persist.
+      if (prev) {
+        const byRole = createdProfiles.find(p => p.role === prev);
+        if (byRole) {
+          localStorage.setItem(LAST_PROFILE_KEY, byRole.id);
+          return byRole.id;
+        }
+      }
       const saved = localStorage.getItem(LAST_PROFILE_KEY);
-      if (saved && createdProfiles.some(([k]) => k === saved)) return saved;
-      return createdProfiles[0][0];
+      if (saved) {
+        // Modern: stored value is already a profile id.
+        const byId = createdProfiles.find(p => p.id === saved);
+        if (byId) return saved;
+        // Legacy migration: stored value is a role string from before the
+        // id-keyed rewrite. Resolve to the first created profile with that
+        // role and persist its id so the next read is a direct hit.
+        const byLegacyRole = createdProfiles.find(p => p.role === saved);
+        if (byLegacyRole) {
+          localStorage.setItem(LAST_PROFILE_KEY, byLegacyRole.id);
+          return byLegacyRole.id;
+        }
+      }
+      const fallbackId = createdProfiles[0].id;
+      localStorage.setItem(LAST_PROFILE_KEY, fallbackId);
+      return fallbackId;
     });
-  }, [loaded, createdProfiles.map(([k]) => k).join(",")]);
+  }, [loaded, createdProfiles]);
 
-  const handleDeleteProfile = useCallback((key: string) => {
-    const profileId = profiles[key]?.id;
-    setProfiles(prev => {
-      const updated = { ...prev };
-      delete updated[key];
-      return updated;
-    });
-    // Also remove from DB
-    if (profileId) deleteProfile(profileId).catch(() => {});
+  const handleDeleteProfile = useCallback((profileId: string) => {
+    // Find the slot key (if any) so the slot-keyed local state stays consistent.
+    const slotKey = Object.entries(profiles).find(([, p]) => p.id === profileId)?.[0];
+    if (slotKey) {
+      setProfiles(prev => {
+        const updated = { ...prev };
+        delete updated[slotKey];
+        return updated;
+      });
+    }
+    // Always remove from DB by id — works for any profile the user can delete.
+    deleteProfile(profileId).catch(() => {});
     // Switch to another profile if available
-    const remaining = createdProfiles.filter(([k]) => k !== key);
-    setSelectedRole(remaining[0]?.[0] || "");
+    const remaining = createdProfiles.filter(p => p.id !== profileId);
+    setSelectedProfileId(remaining[0]?.id || "");
     toast({ title: "Profile deleted", description: "The profile has been removed." });
-  }, [createdProfiles, setProfiles]);
+  }, [createdProfiles, profiles, setProfiles, setSelectedProfileId]);
 
   if (!loaded) {
     return (
@@ -232,14 +265,20 @@ export default function ProfilesPage() {
           <CreateProfileDialog
             open={addProfileOpen}
             onOpenChange={setAddProfileOpen}
-            onCreated={(role) => setSelectedRole(role)}
+            onCreated={(role) => setSelectedProfileId(role)}
           />
         </div>
       </AppLayout>
     );
   }
 
-  const selectedProfile = createdProfiles.find(([role]) => role === selectedRole);
+  const selectedProfile = createdProfiles.find(p => p.id === selectedProfileId);
+  // Resolve a slot key for write paths (subVenue add/remove). When the
+  // selected profile is member-of (not in the slot Record), fall back to its
+  // role — those write paths only succeed for owned profiles anyway.
+  const selectedProfileSlotKey = selectedProfile
+    ? Object.entries(profiles).find(([, p]) => p.id === selectedProfile.id)?.[0] ?? selectedProfile.role
+    : "";
 
   return (
     <AppLayout>
@@ -251,13 +290,13 @@ export default function ProfilesPage() {
 
         {/* Profile Selector */}
         <div className="flex flex-wrap gap-3 mb-8">
-          {createdProfiles.map(([role, profile]) => (
+          {createdProfiles.map((profile) => (
             <button
-              key={role}
-              onClick={() => setSelectedRole(role)}
+              key={profile.id}
+              onClick={() => setSelectedProfileId(profile.id)}
               className={cn(
                 "flex items-center gap-3 rounded-xl border px-4 py-3 transition-all text-left",
-                selectedRole === role
+                selectedProfileId === profile.id
                   ? "border-primary bg-primary/5 ring-1 ring-primary shadow-sm"
                   : "border-border bg-card hover:bg-muted/50"
               )}
@@ -287,7 +326,7 @@ export default function ProfilesPage() {
                     </Tooltip>
                   </TooltipProvider>
                 </div>
-                <Badge variant="secondary" className="text-[10px] mt-0.5">{operatorRoleLabels[getBaseRole(role)]}</Badge>
+                <Badge variant="secondary" className="text-[10px] mt-0.5">{operatorRoleLabels[getBaseRole(profile.role)]}</Badge>
               </div>
             </button>
           ))}
@@ -302,13 +341,13 @@ export default function ProfilesPage() {
         </div>
 
         {selectedProfile && (
-          <ProfileCard role={selectedProfile[0] as OperatorRole} profile={selectedProfile[1]} profileKey={selectedProfile[0]} profiles={profiles} setProfiles={setProfiles} saveProfileToDb={saveProfileToDb} onDelete={handleDeleteProfile} />
+          <ProfileCard role={selectedProfile.role as OperatorRole} profile={selectedProfile} profileKey={selectedProfileSlotKey} setProfiles={setProfiles} saveProfileToDb={saveProfileToDb} onDelete={handleDeleteProfile} />
         )}
 
         <CreateProfileDialog
           open={addProfileOpen}
           onOpenChange={setAddProfileOpen}
-          onCreated={(role) => setSelectedRole(role)}
+          onCreated={(role) => setSelectedProfileId(role)}
         />
       </div>
     </AppLayout>
@@ -317,14 +356,13 @@ export default function ProfilesPage() {
 
 /* ─── Profile Card (View-only) ─── */
 
-function ProfileCard({ role, profile, profileKey, profiles, setProfiles, saveProfileToDb, onDelete }: {
+function ProfileCard({ role, profile, profileKey, setProfiles, saveProfileToDb, onDelete }: {
   role: OperatorRole;
   profile: SharedProfile;
   profileKey: string;
-  profiles: Record<string, SharedProfile>;
   setProfiles: React.Dispatch<React.SetStateAction<Record<string, SharedProfile>>>;
   saveProfileToDb: (role: string, profile: SharedProfile) => void;
-  onDelete: (key: string) => void;
+  onDelete: (profileId: string) => void;
 }) {
   const baseRole = getBaseRole(role);
   const [copied, setCopied] = useState(false);
@@ -441,7 +479,7 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
                 <Users className="h-3.5 w-3.5" /> Access
               </Button>
             </Link>
-            <Link to="/profiles/$role/edit" params={{ role }}>
+            <Link to="/profiles/$profileId/edit" params={{ profileId: profile.id ?? "" }}>
               <Button variant="outline" size="sm" className="gap-1.5 text-xs">
                 <Edit2 className="h-3.5 w-3.5" /> Edit Profile
               </Button>
@@ -654,7 +692,7 @@ function ProfileCard({ role, profile, profileKey, profiles, setProfiles, savePro
               onClick={() => {
                 setDeleteStage(null);
                 setDeleteConfirmName("");
-                onDelete(profileKey);
+                if (profile.id) onDelete(profile.id);
               }}
             >
               Delete Profile

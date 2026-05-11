@@ -463,9 +463,16 @@ service cloud.firestore {
         request.resource.data.owner_uid is string
         && request.resource.data.owner_uid.size() > 0
         && request.resource.data.created_at is string;
+      // Dual-path: owner_uid keeps the legacy fallback live during backfill, and
+      // any admin/member of the targeted profile gets access via the `profileIds`
+      // token claim. The claim is populated by `onProfileMemberClaimsSync` and
+      // capped at 16 ids — overflow users (rare) keep the owner_uid path.
       allow read, update: if
         isAuthed()
-        && uid() == resource.data.owner_uid;
+        && (
+          uid() == resource.data.get('owner_uid', '')
+          || resource.data.get('target_profile_id', '') in request.auth.token.get('profileIds', [])
+        );
     }
 
     // Legacy — read-only for any migration

@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { cn } from "@/lib/utils";
 import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 import { useUser } from "@/lib/user-context";
+import { useAllProfiles } from "@/lib/queries/useProfilesQuery";
 import { useAuth } from "@/lib/auth-context";
 import { formatCurrency, type BookingRequest, type Event } from "@/lib/models";
 import {
@@ -108,7 +109,12 @@ export function dedupeInvitationEvents(events: Event[]): Event[] {
 
 export default function IncomingRequestsPage() {
   const navigate = useNavigate();
-  const { currentUser, profiles } = useUser();
+  const { currentUser } = useUser();
+  // `useAllProfiles()` is the source of truth for access matching — includes both
+  // owned profiles and ones the user is a member of (admin/editor). The slot Record
+  // on `useUser().profiles` silently drops duplicates by slot, so two profiles
+  // sharing a slot key would disappear from `Object.entries(profiles)` reads.
+  const allProfiles = useAllProfiles();
   const { user: firebaseUser } = useAuth();
   const queryClient = useQueryClient();
   const currency = currentUser.currency || "EUR";
@@ -135,10 +141,22 @@ export default function IncomingRequestsPage() {
 
   const profileOptions = useMemo(
     () =>
-      Object.entries(profiles)
-        .filter(([, p]) => p.created && p.id)
-        .map(([, p]) => ({ id: p.id!, slug: p.slug ?? "", name: p.name, role: p.role })),
-    [profiles],
+      allProfiles
+        .filter((p) => p.created && p.id)
+        .map((p) => ({ id: p.id!, slug: p.slug ?? "", name: p.name, role: p.role })),
+    [allProfiles],
+  );
+
+  // Memoize the profile-id list separately so the query key + queryFn capture
+  // an identity-stable array (filter+sort so equal-membership re-renders don't
+  // bust the cache).
+  const myProfileIds = useMemo(
+    () =>
+      allProfiles
+        .map((p) => p.id)
+        .filter((id): id is string => !!id)
+        .sort(),
+    [allProfiles],
   );
 
   // Reset to first page when filters change
@@ -159,6 +177,20 @@ export default function IncomingRequestsPage() {
     return { status: statusFilter };
   }, [statusFilter]);
 
+  // Same pattern as useEventsQuery: keep the cache key stable across profile
+  // load so we don't flash a fresh skeleton each time the profile set settles.
+  // Invalidate in-place when the user's profile set changes so the wider access
+  // scope is picked up without dropping the previously loaded data on the floor.
+  const profileKey = myProfileIds.join(",");
+  const bookingRequestsKey = queryKeys.bookingRequests(firestoreFilters as Record<string, unknown>);
+  useEffect(() => {
+    if (!firebaseUser?.uid) return;
+    queryClient.invalidateQueries({ queryKey: bookingRequestsKey });
+    // bookingRequestsKey identity is incidental; the load-bearing trigger is
+    // profileKey + filter change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileKey, firebaseUser?.uid, statusFilter, queryClient]);
+
   const {
     data: paginatedData,
     isPending: loading,
@@ -166,12 +198,12 @@ export default function IncomingRequestsPage() {
     fetchNextPage,
     hasNextPage,
   } = useInfiniteQuery<BookingRequestPage, Error>({
-    queryKey: queryKeys.bookingRequests(firestoreFilters as Record<string, unknown>),
-    enabled: !!firebaseUser?.uid,
+    queryKey: bookingRequestsKey,
+    enabled: !!firebaseUser?.uid && myProfileIds.length > 0,
     staleTime: 5 * 60 * 1000,
     initialPageParam: null as QueryDocumentSnapshot | null,
     queryFn: ({ pageParam }) =>
-      fetchBookingRequestPage(FETCH_SIZE, pageParam, firestoreFilters),
+      fetchBookingRequestPage(FETCH_SIZE, pageParam, firestoreFilters, myProfileIds),
     getNextPageParam: (lastPage) =>
       lastPage.hasMore ? lastPage.lastDoc : undefined,
   });
@@ -197,17 +229,19 @@ export default function IncomingRequestsPage() {
     }
   }, [debouncedSearch, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  // Event invitations: events where the user is the performer
+  // Event invitations: events where the user is the performer.
+  // Read from `allProfiles` (flat list) so member-of profiles are included —
+  // not the slot Record which silently drops slot collisions.
   const myArtistProfileIds = useMemo(() => {
     const ids: string[] = [];
-    for (const [, p] of Object.entries(profiles)) {
+    for (const p of allProfiles) {
       if (p.role === "performer" && p.id) {
         if (profileFilter !== "all" && p.id !== profileFilter) continue;
         ids.push(p.id);
       }
     }
     return ids;
-  }, [profiles, profileFilter]);
+  }, [allProfiles, profileFilter]);
 
   const allInvitations = useMemo(() => {
     const matched = allEvents.filter(e =>
@@ -729,7 +763,9 @@ export default function IncomingRequestsPage() {
             {/* Pagination controls */}
             <div className="mt-6 flex items-center justify-between">
               <p className="text-sm text-muted-foreground">
-                Showing {pageStart + 1}–{Math.min(pageEnd, totalLoaded)} of {totalLoaded}{hasNextPage ? "+" : ""} requests
+                Showing {pageStart + 1}–{Math.min(pageEnd, totalLoaded)} of {totalLoaded}{hasNextPage ? "+" : ""} booking requests
+                {eventInvitations.length > 0 && ` · ${eventInvitations.length} event invitation${eventInvitations.length === 1 ? "" : "s"}`}
+                {holdEvents.length > 0 && ` · ${holdEvents.length} hold${holdEvents.length === 1 ? "" : "s"}`}
               </p>
               <div className="flex items-center gap-2">
                 {isFetchingNextPage && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}

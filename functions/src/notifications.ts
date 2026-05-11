@@ -5,6 +5,9 @@ import {
   onDocumentWritten,
   onDocumentCreated,
 } from "firebase-functions/v2/firestore";
+import { sendMail, BREVO_API_KEY } from "./mail";
+import { bookingRequestStatusEmail } from "./emailTemplates";
+import { APP_BASE_URL } from "./appBaseUrl";
 
 const db = () => admin.firestore();
 
@@ -16,8 +19,8 @@ interface NotificationPayload {
   body: string;
   eventId?: string;
   eventName?: string;
-  actorName: string;
-  actorUid: string;
+  actorName?: string;
+  actorUid?: string;
   link?: string;
   metadata?: Record<string, string>;
 }
@@ -135,19 +138,23 @@ async function notifyProfile(
   const batch = db().batch();
   for (const uid of recipientUids) {
     const ref = db().collection("users").doc(uid).collection("notifications").doc();
-    batch.set(ref, {
+    // Firestore rejects undefined; drop missing optional fields rather than
+    // sending them. Some notification sources (booking requests, profile
+    // invites) have no event context.
+    const docData: Record<string, unknown> = {
       type: payload.type,
       title: payload.title,
       body: payload.body,
-      eventId: payload.eventId,
-      eventName: payload.eventName,
-      actorName: payload.actorName,
-      actorUid: payload.actorUid,
       read: false,
       createdAt: now,
-      link: payload.link,
       metadata: payload.metadata || {},
-    });
+    };
+    if (payload.eventId) docData.eventId = payload.eventId;
+    if (payload.eventName) docData.eventName = payload.eventName;
+    if (payload.actorName) docData.actorName = payload.actorName;
+    if (payload.actorUid) docData.actorUid = payload.actorUid;
+    if (payload.link) docData.link = payload.link;
+    batch.set(ref, docData);
   }
   await batch.commit();
 }
@@ -634,46 +641,184 @@ export const onBookingRequestCreated = onDocumentCreated(
   async (event) => {
     const data = event.data?.data();
     if (!data) return;
+    const ref = event.data?.ref;
+    if (!ref) return;
 
-    const profileId = data.profileId as string | undefined;
+    // The public request form stores snake_case fields (see RequestDateForm /
+    // insertPublicBookingRequest). Fall back to the legacy camelCase keys for
+    // any pre-migration docs that might still land here.
+    const profileId =
+      (data.target_profile_id as string | undefined) ||
+      (data.profileId as string | undefined);
     if (!profileId) return;
 
-    const artistName = (data.artistName as string) || "An artist";
-    const requestDate = (data.preferredDate as string) || "";
+    const ownerUid = String(data.owner_uid ?? "").trim();
+    const requesterEmail = String(data.email ?? "").trim().toLowerCase();
+
+    // Sticky block: if this owner has previously blocked this requester's
+    // email, silently re-classify the new doc as blocked so it doesn't reach
+    // the team's pending queue or fire notifications.
+    if (ownerUid && requesterEmail) {
+      try {
+        const priorBlock = await db()
+          .collection("inboundBookingRequests")
+          .where("owner_uid", "==", ownerUid)
+          .where("email", "==", String(data.email ?? "").trim())
+          .where("status", "==", "blocked")
+          .limit(1)
+          .get();
+        if (!priorBlock.empty) {
+          // Omit _lastUpdatedBy so onBookingRequestUpdated treats this as a
+          // system-driven transition and skips its own fan-out.
+          await ref.update({ status: "blocked" });
+          logger.info("onBookingRequestCreated: auto-blocked from sticky block list", {
+            email: requesterEmail,
+            ownerUid,
+            requestId: ref.id,
+          });
+          return;
+        }
+      } catch (err) {
+        logger.warn("onBookingRequestCreated: sticky-block check failed", {
+          err: String(err),
+        });
+      }
+    }
+
+    const artistName =
+      (data.artist_name as string | undefined) ||
+      (data.artistName as string | undefined) ||
+      "An artist";
+    const requestDate =
+      (data.wanted_date as string | undefined) ||
+      (data.preferredDate as string | undefined) ||
+      "";
 
     await notifyProfile(profileId, {
       type: "booking_request_received",
       title: "New booking request",
       body: `${artistName} requested a booking${requestDate ? ` for ${requestDate}` : ""}`,
       actorName: artistName,
-      actorUid: (data.submittedByUid as string) || "",
-      link: "/requests",
+      actorUid: "",
+      link: "/incoming-requests",
     });
   },
 );
 
+/**
+ * Booking request status changed by a team member. Two side effects:
+ *
+ *   1. In-app: notify every other admin/member of the target profile so the
+ *      team doesn't act on a stale view. Excludes the actor via _lastUpdatedBy.
+ *      Fires for accepted | declined | archived | blocked | draft_created.
+ *
+ *   2. Email: notify the original requester (anonymous, identified only by the
+ *      email they supplied on submission). Fires only for accepted | declined
+ *      — internal status changes (archived/blocked/draft_created) are noise
+ *      from the requester's point of view.
+ *
+ * Both side effects are best-effort: an email failure doesn't block the in-app
+ * fan-out and vice versa.
+ */
 export const onBookingRequestUpdated = onDocumentWritten(
-  { document: "inboundBookingRequests/{requestId}", region: "europe-west1" },
+  {
+    document: "inboundBookingRequests/{requestId}",
+    region: "europe-west1",
+    secrets: [BREVO_API_KEY],
+  },
   async (event) => {
     if (!event.data) return;
     const before = event.data.before.data();
     const after = event.data.after.data();
     if (!before || !after) return;
 
-    if (before.status !== after.status && (after.status === "accepted" || after.status === "declined")) {
-      // Notify the requesting artist's profile if available
-      const artistProfileId = after.artistProfileId as string | undefined;
-      if (!artistProfileId) return;
+    if (before.status === after.status) return;
+    // System-driven transitions (e.g. sticky-block auto-classification in
+    // onBookingRequestCreated) omit `_lastUpdatedBy`. Skip team/email fan-out
+    // so the user never sees "A teammate blocked..." for an automatic
+    // classification, and the requester doesn't get an unexpected email.
+    if (!after._lastUpdatedBy) return;
+    const newStatus = String(after.status ?? "");
+    const NOTIFIABLE = new Set([
+      "accepted",
+      "declined",
+      "archived",
+      "blocked",
+      "draft_created",
+    ]);
+    if (!NOTIFIABLE.has(newStatus)) return;
 
-      const venueName = (after.profileName as string) || "The venue";
+    const profileId =
+      (after.target_profile_id as string | undefined) ||
+      (after.artistProfileId as string | undefined);
+    if (!profileId) return;
 
-      await notifyProfile(artistProfileId, {
-        type: "booking_request_responded",
-        title: `Booking ${after.status}`,
-        body: `${venueName} ${after.status} your booking request`,
-        actorName: venueName,
-        actorUid: (after.respondedByUid as string) || "",
-        link: "/requests",
+    const actorUid = (after._lastUpdatedBy as string | undefined) || "";
+    const artistName =
+      (after.artist_name as string | undefined) ||
+      (after.artistName as string | undefined) ||
+      "a booking request";
+    const verb =
+      newStatus === "draft_created" ? "drafted an event from" : newStatus;
+
+    // 1. In-app notification to the team.
+    try {
+      await notifyProfile(profileId, {
+        type: "booking_request_status_changed",
+        title: `Booking ${newStatus.replace("_", " ")}`,
+        body: `A teammate ${verb} ${artistName}`,
+        actorUid,
+        link: "/incoming-requests",
+      });
+    } catch (err) {
+      logger.error("onBookingRequestUpdated: in-app notify failed", {
+        profileId,
+        err: String(err),
+      });
+    }
+
+    // 2. Email to the anonymous requester — only on accepted/declined.
+    if (newStatus !== "accepted" && newStatus !== "declined") return;
+    const requesterEmail = String(after.email ?? "").trim();
+    if (!requesterEmail) return;
+    const requesterName = String(after.name ?? "").trim() || undefined;
+
+    let venueName = "the venue";
+    try {
+      const profileSnap = await db().collection("profiles").doc(profileId).get();
+      const profileData = profileSnap.data() as Record<string, unknown> | undefined;
+      if (profileData?.name && typeof profileData.name === "string") {
+        venueName = profileData.name;
+      }
+    } catch (err) {
+      logger.warn("onBookingRequestUpdated: profile lookup for email failed", {
+        profileId,
+        err: String(err),
+      });
+    }
+
+    const wantedDate = String(after.wanted_date ?? "").trim() || undefined;
+    const tpl = bookingRequestStatusEmail({
+      requesterName,
+      targetName: venueName,
+      artistName: typeof artistName === "string" && artistName !== "a booking request" ? artistName : undefined,
+      wantedDate,
+      status: newStatus,
+      appBaseUrl: APP_BASE_URL,
+    });
+
+    try {
+      await sendMail({
+        to: requesterEmail,
+        toName: requesterName,
+        subject: tpl.subject,
+        html: tpl.html,
+      });
+    } catch (err) {
+      logger.error("onBookingRequestUpdated: requester email failed", {
+        to: requesterEmail,
+        status: newStatus,
+        err: String(err),
       });
     }
   },

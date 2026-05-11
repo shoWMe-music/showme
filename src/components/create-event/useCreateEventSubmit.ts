@@ -13,6 +13,7 @@ import {
 import {
   useContacts,
   useAddContact,
+  useAllProfiles,
 } from "@/lib/queries";
 import type { DealType, ContactType, Rider, Event } from "@/lib/models";
 import type { SharedProfile } from "@/lib/user-context";
@@ -55,41 +56,47 @@ function pickVenueAmenities(
   return Object.keys(out).length === 0 ? null : out;
 }
 
-/** Find the venue profile to inherit amenities from for an event being created. */
+/**
+ * Find the venue profile to inherit amenities from for an event being created.
+ *
+ * Reads from the flat `allProfiles` array (owned + member-of) so a user who is
+ * an admin of a venue they don't own still resolves correctly. The slot Record
+ * silently drops profiles that share a slot key (e.g. user owns one venue and
+ * is admin of another), which is why we never use it for access matching.
+ */
 function resolveVenueProfile(
-  profiles: Record<string, SharedProfile>,
+  allProfiles: SharedProfile[],
   selectedRole: OperatorRole | null,
   hostProfileId: string | undefined,
   venueName: string,
 ): SharedProfile | undefined {
   if (selectedRole === "venue" && hostProfileId) {
-    return Object.values(profiles).find(p => p.id === hostProfileId);
+    return allProfiles.find((p) => p.id === hostProfileId);
   }
   const trimmed = venueName.trim().toLowerCase();
-  if (!trimmed) return undefined;
-  return Object.values(profiles).find(
-    p => p.role === "venue" && p.name?.trim().toLowerCase() === trimmed,
+  if (!trimmed) {
+    // No name to disambiguate by → fall back to any created venue profile.
+    return allProfiles.find((p) => p.role === "venue" && p.created);
+  }
+  return allProfiles.find(
+    (p) => p.role === "venue" && p.created && p.name?.trim().toLowerCase() === trimmed,
   );
 }
 
 /**
  * Resolve the host profile ID strictly by the selected role.
- * Only accepts a profile when its stored `role` matches `selectedRole` —
- * this prevents picking up an unrelated profile (e.g. a venue operator who
- * also owns a performer profile) when the slot key happens to collide.
+ *
+ * Reads from the flat `allProfiles` array (owned + member-of) so a user who is
+ * admin of e.g. a venue still picks up the venue profile id. The slot Record
+ * cannot be trusted for access-matching because two profiles can collide on a
+ * slot key and the loser is dropped.
  */
 export function resolveHostProfileId(
-  profiles: Record<string, SharedProfile>,
+  allProfiles: SharedProfile[],
   selectedRole: OperatorRole | null,
 ): string | undefined {
   if (!selectedRole) return undefined;
-  const candidate = profiles[selectedRole];
-  if (candidate?.created && candidate.role === selectedRole) return candidate.id;
-  // Fallback: find the first created profile whose role matches.
-  const fallback = Object.values(profiles).find(
-    (p) => p.created && p.role === selectedRole,
-  );
-  return fallback?.id;
+  return allProfiles.find((p) => p.created && p.role === selectedRole)?.id;
 }
 
 interface SubmitParams {
@@ -137,6 +144,7 @@ interface SubmitParams {
 export function useCreateEventSubmit() {
   const navigate = useNavigate();
   const { currentUser, profiles } = useUser();
+  const allProfiles = useAllProfiles();
   const { resolveHoldRankConflicts } = useHoldRankMutations();
   const addEventMutation = useAddEvent();
   const addMultiPerformerEventMutation = useAddMultiPerformerEvent();
@@ -190,7 +198,7 @@ export function useCreateEventSubmit() {
       : (willInvite && hasPerformer ? "suggested" : "draft");
 
     const operatorType = selectedRole === "venue" ? "venue" as const : selectedRole === "organizer" ? "organizer" as const : "promoter" as const;
-    const hostProfileId = resolveHostProfileId(profiles, selectedRole);
+    const hostProfileId = resolveHostProfileId(allProfiles, selectedRole);
     const accessUids = currentUser.id ? [currentUser.id] : [];
     const resolvedVenue = isMultiPerformer && multiVenueType === "festival" ? festivalName : venueName;
     const partyTypeMap: Record<string, ContactType> = { bookerAgent: "agent", promoter: "promoter", management: "manager" };
@@ -284,7 +292,7 @@ export function useCreateEventSubmit() {
 
       // Seed amenities / catering / accommodation from the venue profile so
       // they show on the event without the user opening the edit dialog.
-      const venueProfile = resolveVenueProfile(profiles, selectedRole, hostProfileId, resolvedVenue);
+      const venueProfile = resolveVenueProfile(allProfiles, selectedRole, hostProfileId, resolvedVenue);
       const venueAmenities = pickVenueAmenities(venueProfile);
       const parentVenueLower = resolvedVenue.trim().toLowerCase();
       const childEventsWithAmenities = venueAmenities
@@ -366,7 +374,7 @@ export function useCreateEventSubmit() {
         }
       }
 
-      const venueProfile = resolveVenueProfile(profiles, selectedRole, hostProfileId, venueName);
+      const venueProfile = resolveVenueProfile(allProfiles, selectedRole, hostProfileId, venueName);
       const venueAmenities = pickVenueAmenities(venueProfile);
 
       await addEventMutation.mutateAsync({

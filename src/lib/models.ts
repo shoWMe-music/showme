@@ -608,6 +608,13 @@ export interface BookingRequest {
   artist_fee: number | null;
   note: string;
   target_profile_slug: string;
+  /**
+   * Profile ID the request is addressed to. Required for admin/member access via
+   * the `profileIds` token claim (rule + client query both read this field).
+   * `target_profile_slug` is kept alongside for legacy display paths.
+   * Older docs may not have this; the backfill script populates it.
+   */
+  target_profile_id: string;
   target_role: string;
   status: string;
   source: string;

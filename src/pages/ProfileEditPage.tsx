@@ -1,8 +1,9 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import DocumentPreviewDialog from "@/components/DocumentPreviewDialog";
-import { useParams, useNavigate } from "@tanstack/react-router";
+import { useParams, useNavigate, Navigate } from "@tanstack/react-router";
 import AppLayout from "@/components/AppLayout";
-import { useUser, operatorRoleLabels, getBaseRole, type OperatorRole, type SharedProfile, type ProfileDocument, type ProfileLocation } from "@/lib/user-context";
+import { useUser, operatorRoleLabels, getBaseRole, type SharedProfile, type ProfileDocument, type ProfileLocation } from "@/lib/user-context";
+import { useAllProfiles } from "@/lib/queries/useProfilesQuery";
 import { Skeleton } from "@/components/ui/skeleton";
 import { uploadUserBinary } from "@/lib/firebaseStorageUpload";
 import { Button } from "@/components/ui/button";
@@ -35,13 +36,49 @@ function generateSlug(name: string, role: string): string {
 }
 
 export default function ProfileEditPage() {
-  const { role } = useParams({ from: "/profiles/$role/edit" });
+  const { profileId } = useParams({ from: "/profiles/$profileId/edit" });
   const navigate = useNavigate();
   const { profiles, setProfiles, saveProfile: saveProfileToDb, loaded } = useUser();
+  const allProfiles = useAllProfiles();
 
-  const typedRole = role as OperatorRole;
-  const baseRole = getBaseRole(role || "");
-  const profile = profiles[typedRole];
+  // Resolve the profile by id from the flat list (covers owned + member-of).
+  const profile = useMemo(
+    () => allProfiles.find(p => p.id === profileId),
+    [allProfiles, profileId],
+  );
+
+  // Find the slot key for this profile in the slotted Record. Slot is what
+  // `saveProfile`/`upsertProfile` writes back as the profile's `slot` field.
+  // Falls back to the profile's role if it's a member-of profile not in the
+  // current user's slotted map (saveProfile is still safe — the underlying
+  // upsert is gated by Firestore rules on owner_uid / membership).
+  const resolvedSlot = useMemo(() => {
+    if (!profile) return undefined;
+    for (const [slot, p] of Object.entries(profiles)) {
+      if (p.id === profile.id) return slot;
+    }
+    return profile.role;
+  }, [profiles, profile]);
+
+  // Legacy URL support: `/profiles/<role>/edit` (e.g. "venue", "performer").
+  // If the param doesn't match any profile id but does match a role on one of
+  // the user's profiles, redirect to the canonical id-based URL. Otherwise
+  // bounce to `/profiles`.
+  if (loaded && !profile) {
+    const fallback = allProfiles.find(
+      p => p.role === profileId && p.created && p.id,
+    );
+    if (fallback?.id) {
+      return <Navigate to="/profiles/$profileId/edit" params={{ profileId: fallback.id }} replace />;
+    }
+    // Only redirect away if the param genuinely doesn't resolve. If it
+    // looks like a profile id we just don't have access to, fall through
+    // to the "Profile not found" UI below.
+    const looksLikeRole = /^[a-z]+(?:[-_][a-z0-9]+)*$/i.test(profileId) && profileId.length < 32;
+    if (looksLikeRole) {
+      return <Navigate to="/profiles" replace />;
+    }
+  }
 
   if (!loaded) {
     return (
@@ -137,19 +174,25 @@ export default function ProfileEditPage() {
 
   return (
     <AppLayout>
-      <ProfileEditor role={typedRole} profile={profile} setProfiles={setProfiles} saveProfileToDb={saveProfileToDb} onDone={() => navigate({ to: "/profiles" })} />
+      <ProfileEditor
+        slot={resolvedSlot ?? profile.role}
+        profile={profile}
+        setProfiles={setProfiles}
+        saveProfileToDb={saveProfileToDb}
+        onDone={() => navigate({ to: "/profiles" })}
+      />
     </AppLayout>
   );
 }
 
-function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: {
-  role: OperatorRole;
+function ProfileEditor({ slot, profile, setProfiles, saveProfileToDb, onDone }: {
+  slot: string;
   profile: SharedProfile;
   setProfiles: React.Dispatch<React.SetStateAction<Record<string, SharedProfile>>>;
   saveProfileToDb: (role: string, profile: SharedProfile) => void;
   onDone: () => void;
 }) {
-  const baseRole = getBaseRole(role);
+  const baseRole = getBaseRole(slot);
   const [data, setData] = useState({ ...profile });
   // spotifyUrl is now derived from socialLinks with platform "Spotify"
   const spotifyUrl = data.socialLinks?.find(l => l.platform.toLowerCase() === "spotify")?.url || "";
@@ -179,14 +222,14 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
     const maxFileSize = 20 * 1024 * 1024;
     if (file.size > maxFileSize) throw new Error("Files must be smaller than 20MB.");
     const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-120);
-    const filePath = `profile-images/${role}/${folder}/${Date.now()}-${sanitizedName}`;
+    const filePath = `profile-images/${slot}/${folder}/${Date.now()}-${sanitizedName}`;
     const fileBytes = new Uint8Array(await file.arrayBuffer());
     return uploadUserBinary(
       filePath,
       fileBytes,
       file.type || "image/jpeg",
     );
-  }, [role]);
+  }, [slot]);
 
   const handleBanner = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -218,9 +261,9 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
       if (pendingAvatarFile) {
         avatarUrl = await uploadProfileImage(pendingAvatarFile, "avatars");
       }
-      const slug = generateSlug(data.name, role);
+      const slug = generateSlug(data.name, slot);
       const updatedProfile = { ...data, avatarUrl, spotifyUrl, slug, updatedAt: new Date().toISOString() } as typeof data & { spotifyUrl: string; slug: string; updatedAt: string };
-      saveProfileToDb(role, updatedProfile);
+      saveProfileToDb(slot, updatedProfile);
       toast({ title: "Profile saved", description: "Your profile has been updated." });
       onDone();
     } catch (err: any) {
@@ -238,14 +281,14 @@ function ProfileEditor({ role, profile, setProfiles, saveProfileToDb, onDone }: 
     }
 
     const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-120);
-    const filePath = `profile-documents/${role}/${Date.now()}-${sanitizedName}`;
+    const filePath = `profile-documents/${slot}/${Date.now()}-${sanitizedName}`;
     const fileBytes = new Uint8Array(await file.arrayBuffer());
     return uploadUserBinary(
       filePath,
       fileBytes,
       file.type || "application/octet-stream",
     );
-  }, [role]);
+  }, [slot]);
 
   const addVideoUrl = () => {
     if (!newVideoUrl.trim()) return;

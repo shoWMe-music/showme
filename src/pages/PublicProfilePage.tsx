@@ -236,10 +236,10 @@ export default function PublicProfilePage() {
             {/* Header action row — booking CTAs sit next to the name/avatar, not below social links */}
             <div className="pt-[5.5rem] shrink-0">
               {role === "venue" && (
-                <VenueRequestButtons operatorOwnerUid={profileOwnerUid} slug={slug!} />
+                <VenueRequestButtons operatorOwnerUid={profileOwnerUid} slug={slug!} profileId={foundProfile?.id ?? ""} />
               )}
               {role === "performer" && !isOwner && (
-                <PerformerBookingButtons operatorOwnerUid={profileOwnerUid} slug={slug!} />
+                <PerformerBookingButtons operatorOwnerUid={profileOwnerUid} slug={slug!} profileId={foundProfile?.id ?? ""} />
               )}
             </div>
           </div>
@@ -374,7 +374,7 @@ export default function PublicProfilePage() {
   );
 }
 
-function PerformerBookingButtons({ operatorOwnerUid, slug }: { operatorOwnerUid: string; slug: string }) {
+function PerformerBookingButtons({ operatorOwnerUid, slug, profileId }: { operatorOwnerUid: string; slug: string; profileId: string }) {
   const [requestOpen, setRequestOpen] = useState(false);
 
   return (
@@ -386,6 +386,7 @@ function PerformerBookingButtons({ operatorOwnerUid, slug }: { operatorOwnerUid:
         open={requestOpen}
         onOpenChange={setRequestOpen}
         targetProfileSlug={slug}
+        targetProfileId={profileId}
         targetRole="performer"
         source="profile"
         operatorOwnerUid={operatorOwnerUid}
@@ -394,7 +395,7 @@ function PerformerBookingButtons({ operatorOwnerUid, slug }: { operatorOwnerUid:
   );
 }
 
-function VenueRequestButtons({ operatorOwnerUid, slug }: { operatorOwnerUid: string; slug: string }) {
+function VenueRequestButtons({ operatorOwnerUid, slug, profileId }: { operatorOwnerUid: string; slug: string; profileId: string }) {
   const [requestOpen, setRequestOpen] = useState(false);
 
   return (
@@ -406,6 +407,7 @@ function VenueRequestButtons({ operatorOwnerUid, slug }: { operatorOwnerUid: str
         open={requestOpen}
         onOpenChange={setRequestOpen}
         targetProfileSlug={slug}
+        targetProfileId={profileId}
         targetRole="venue"
         source="profile"
         operatorOwnerUid={operatorOwnerUid}

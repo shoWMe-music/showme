@@ -1,9 +1,10 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import logo from "@/assets/showme-icon.png";
 import { useAuth } from "@/lib/auth-context";
 import { useUser } from "@/lib/user-context";
+import { useAllProfiles } from "@/lib/queries/useProfilesQuery";
 import { useEvents } from "@/lib/queries";
 import { queryKeys } from "@/lib/queries/keys";
 import { fetchBookingRequestPage } from "@/lib/db";
@@ -49,12 +50,24 @@ export default function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut, user: firebaseUser } = useAuth();
-  const { currentUser, profiles } = useUser();
+  const { currentUser } = useUser();
+  // Use the flat `useAllProfiles()` list (owned + member-of) for access matching.
+  // Slot Record on `useUser().profiles` would silently drop duplicate slots.
+  const allProfiles = useAllProfiles();
   const { collapsed, toggle } = useSidebarCollapse();
   const allEvents = useEvents();
 
+  const myProfileIds = useMemo(
+    () =>
+      allProfiles
+        .map((p) => p.id)
+        .filter((id): id is string => !!id)
+        .sort(),
+    [allProfiles],
+  );
+
   const invitationCount = useMemo(() => {
-    const artistProfileIds = Object.values(profiles)
+    const artistProfileIds = allProfiles
       .filter(p => p.role === "performer" && p.id)
       .map(p => p.id!);
     if (artistProfileIds.length === 0) return 0;
@@ -65,12 +78,24 @@ export default function AppSidebar() {
       !e.archived &&
       e.performerResponse !== "declined"
     ).length;
-  }, [allEvents, profiles]);
+  }, [allEvents, allProfiles]);
+
+  // Same pattern as useEventsQuery: stable cache key, invalidate when the
+  // profile set changes so we refetch in place without flashing a fresh
+  // skeleton (which the sidebar would render as a count of 0).
+  const queryClient = useQueryClient();
+  const profileKey = myProfileIds.join(",");
+  const sidebarKey = queryKeys.pendingBookingRequestsForSidebar();
+  useEffect(() => {
+    if (!firebaseUser?.uid) return;
+    queryClient.invalidateQueries({ queryKey: sidebarKey });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileKey, firebaseUser?.uid, queryClient]);
 
   const { data: pendingRequestsPage } = useQuery({
-    queryKey: queryKeys.pendingBookingRequestsForSidebar(),
-    queryFn: () => fetchBookingRequestPage(50, null, { status: "pending" }),
-    enabled: !!firebaseUser?.uid,
+    queryKey: sidebarKey,
+    queryFn: () => fetchBookingRequestPage(50, null, { status: "pending" }, myProfileIds),
+    enabled: !!firebaseUser?.uid && myProfileIds.length > 0,
     staleTime: 5 * 60 * 1000,
   });
   const pendingRequestsCount = pendingRequestsPage?.requests.length ?? 0;

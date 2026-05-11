@@ -46,6 +46,10 @@ const SEED_PASSWORD = process.env.SEED_PASSWORD ?? "123456";
 const SEED_DISPLAY_NAME = process.env.SEED_DISPLAY_NAME ?? "Daniel Islandman";
 const SEED_USER_PASSWORD = "123456";
 
+// Synthetic owner for the public seed-artist pool. Not a real auth account, so
+// no live user has these in their owned-profiles list / profileIds claim.
+const SEED_ARTIST_POOL_UID = "seed-artist-pool";
+
 const DEFAULT_SHARE_PARTIES = ["Performer", "Agent", "Venue"];
 
 // Test accounts — one per profile type, all password SEED_USER_PASSWORD
@@ -375,6 +379,10 @@ async function seedMainUser(): Promise<void> {
   }
 
   // ── Batch 5: standalone artist profiles (public, searchable) ───────────────
+  // Owned by a synthetic pool uid (no real auth account) so they don't bloat the
+  // main user's owned-profiles list — keeping their `profileIds` claim small.
+  // Discovery (search-by-name, public profile pages) still works since those
+  // paths don't gate on owner.
   batch = db.batch();
   const mainArtistName = SEED_PROFILES.performer.name; // skip if same as main user's profile
   let artistProfileCount = 0;
@@ -393,7 +401,7 @@ async function seedMainUser(): Promise<void> {
       slug,
       isPublic: true,
       created: true,
-      owner_uid: uid,
+      owner_uid: SEED_ARTIST_POOL_UID,
       slot: "performer",
       schemaVersion: 2,
       updatedAt: FieldValue.serverTimestamp(),
@@ -598,12 +606,48 @@ async function seedTestUsers(): Promise<void> {
   console.log(`✓ Seeded ${TEST_USERS.length} test users.`);
 }
 
+// ── Custom claims sync ────────────────────────────────────────────────────────
+// The onProfileMemberClaimsSync trigger populates this in production. In the
+// emulator the trigger can race against auth user creation (the seed creates
+// member docs before/while the auth user is being committed, so the trigger's
+// getUser() call fails). Populating claims directly here makes the emulator
+// state deterministic — independent of trigger timing.
+
+const PROFILE_IDS_CLAIM_CAP = 16;
+
+async function syncClaimsForUser(uid: string, email: string): Promise<void> {
+  const ids = new Set<string>();
+  const ownerSnap = await db.collection("profiles").where("owner_uid", "==", uid).get();
+  ownerSnap.forEach((d) => { if (d.id) ids.add(d.id); });
+  const memberSnap = await db.collectionGroup("members").where("user_uid", "==", uid).get();
+  memberSnap.forEach((m) => {
+    const pid = m.ref.parent.parent?.id;
+    if (pid) ids.add(pid);
+  });
+  const sorted = Array.from(ids).sort();
+  const claims: Record<string, unknown> = {
+    profileIds: sorted.slice(0, PROFILE_IDS_CLAIM_CAP),
+  };
+  if (sorted.length > PROFILE_IDS_CLAIM_CAP) claims.overflow = true;
+  await auth.setCustomUserClaims(uid, claims);
+  console.log(`  ○ Synced claims for ${email}: ${sorted.length} profileIds${sorted.length > PROFILE_IDS_CLAIM_CAP ? " (overflow)" : ""}`);
+}
+
+async function syncAllClaims(): Promise<void> {
+  console.log("\nSyncing custom claims for all seeded users…");
+  const list = await auth.listUsers(100);
+  for (const u of list.users) {
+    await syncClaimsForUser(u.uid, u.email ?? u.uid);
+  }
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 async function main() {
   console.log("Seeding local emulator database…");
   await seedMainUser();
   await seedTestUsers();
+  await syncAllClaims();
   console.log("\nAll accounts use password: 123456");
   console.log("Main account:  daniel.islandman@showme.music");
   for (const u of TEST_USERS) {

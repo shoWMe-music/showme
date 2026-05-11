@@ -1,11 +1,13 @@
 import { useState, useEffect, useMemo } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Plus, X, Trash2, ChevronsUpDown, Check } from "lucide-react";
+import { format, parseISO } from "date-fns";
+import { Plus, X, Trash2, ChevronsUpDown, Check, Calendar as CalendarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Calendar } from "@/components/ui/calendar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -49,6 +51,13 @@ interface RequestDateFormProps {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   targetProfileSlug: string;
+  /**
+   * Profile ID the request is addressed to. Used so admins/members of the
+   * target profile can read the request via the `profileIds` token claim.
+   * Optional only because the legacy availability-share link doesn't carry it;
+   * when missing, the backfill script will populate it from the slug.
+   */
+  targetProfileId?: string;
   targetRole: string;
   source: "profile" | "availability" | "widget";
   defaultDate?: string;
@@ -57,7 +66,7 @@ interface RequestDateFormProps {
   onSuccess?: () => void;
 }
 
-export default function RequestDateForm({ open, onOpenChange, targetProfileSlug, targetRole, source, defaultDate, operatorOwnerUid, onSuccess }: RequestDateFormProps) {
+export default function RequestDateForm({ open, onOpenChange, targetProfileSlug, targetProfileId, targetRole, source, defaultDate, operatorOwnerUid, onSuccess }: RequestDateFormProps) {
   const { currentUser } = useUser();
   const currency = currentUser.currency || "EUR";
   const currencySymbol = CURRENCY_SYMBOLS[currency] || currency;
@@ -67,6 +76,19 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
   const [phone, setPhone] = useState("");
   const [artistName, setArtistName] = useState("");
   const [wantedDate, setWantedDate] = useState(defaultDate || "");
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  // `wantedDate` is canonicalised to yyyy-MM-dd when the picker is used. The
+  // legacy "DD/MM/YY or MM/YY" free-text input is gone — but defaultDate from
+  // callers may still come in either shape, so be defensive when parsing.
+  const wantedDateAsDate = useMemo(() => {
+    if (!wantedDate) return undefined;
+    try {
+      const d = parseISO(wantedDate);
+      return Number.isNaN(d.getTime()) ? undefined : d;
+    } catch {
+      return undefined;
+    }
+  }, [wantedDate]);
   const [artistFee, setArtistFee] = useState("");
   const [note, setNote] = useState("");
   const [musicUrl, setMusicUrl] = useState("");
@@ -143,6 +165,7 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
       website_url: websiteUrl.trim(),
       social_links: cleanSocialLinks,
       target_profile_slug: targetProfileSlug,
+      target_profile_id: (targetProfileId ?? "").trim(),
       target_role: targetRole,
       source,
       owner_uid: operatorOwnerUid.trim(),
@@ -204,7 +227,37 @@ export default function RequestDateForm({ open, onOpenChange, targetProfileSlug,
             </div>
             <div>
               <Label className="text-xs">Wanted Date *</Label>
-              <Input value={wantedDate} onChange={e => setWantedDate(e.target.value)} placeholder="DD/MM/YY or MM/YY" className="mt-0.5 h-8 text-sm" />
+              <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={cn(
+                      "mt-0.5 h-8 w-full justify-start text-left text-sm font-normal",
+                      !wantedDateAsDate && "text-muted-foreground",
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                    {wantedDateAsDate ? format(wantedDateAsDate, "PPP") : "Pick a date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="p-0"
+                  align="start"
+                  style={{ width: "var(--radix-popover-trigger-width)" }}
+                >
+                  <Calendar
+                    mode="single"
+                    selected={wantedDateAsDate}
+                    onSelect={(d) => {
+                      setWantedDate(d ? format(d, "yyyy-MM-dd") : "");
+                      setDatePickerOpen(false);
+                    }}
+                    initialFocus
+                    className="p-3 pointer-events-auto w-full"
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
           <div>

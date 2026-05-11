@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useParams, useNavigate, useSearch } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useUpdateEvent, useArchiveEvent, useHoldRankMutations,
   useRespondToDateChange, useCancelDateChange,
@@ -80,10 +80,31 @@ export function useEventManager() {
 
   // For events created before sourceRequestId was added, look up the linked request by event_id.
   // Only runs when sourceRequestId is missing and the event is loaded.
+  // Pass the user's full profile-id list so admins/members (not just the owner)
+  // resolve the linked request via the `target_profile_id in profileIds` query.
+  const myProfileIds = useMemo(
+    () =>
+      allProfiles
+        .map((p) => p.id)
+        .filter((id): id is string => !!id)
+        .sort(),
+    [allProfiles],
+  );
+  // Stable cache key + in-place invalidate when the profile set changes —
+  // same pattern as useEventsQuery to avoid re-skeletoning mid-load.
+  const queryClient = useQueryClient();
+  const profileKey = myProfileIds.join(",");
+  const linkedRequestKey = queryKeys.bookingRequestForEvent(id ?? "");
+  useEffect(() => {
+    if (!id) return;
+    queryClient.invalidateQueries({ queryKey: linkedRequestKey });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileKey, id, queryClient]);
+
   const linkedRequestQuery = useQuery({
-    queryKey: queryKeys.bookingRequestForEvent(id ?? ""),
-    queryFn: () => fetchBookingRequestByEventId(id ?? ""),
-    enabled: !!id && !!event && !event.sourceRequestId,
+    queryKey: linkedRequestKey,
+    queryFn: () => fetchBookingRequestByEventId(id ?? "", myProfileIds),
+    enabled: !!id && !!event && !event.sourceRequestId && myProfileIds.length > 0,
     staleTime: Infinity,
   });
 

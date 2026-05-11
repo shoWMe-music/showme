@@ -9,6 +9,7 @@ import {
   getDocs,
   limit,
   onSnapshot,
+  or,
   orderBy,
   query,
   runTransaction,
@@ -2797,15 +2798,46 @@ export interface BookingRequestPage {
   hasMore: boolean;
 }
 
+/**
+ * Firestore `in` operator caps the array at 30 entries. Profile-id claims are
+ * capped at 16 today; the `or()` wrapper adds one more disjunct for owner_uid,
+ * so the practical ceiling for the inner `in` is FIRESTORE_IN_LIMIT - 1.
+ */
+const FIRESTORE_IN_LIMIT = 30;
+
+/**
+ * Composite access filter for `inboundBookingRequests` that aligns with the
+ * Firestore rule's dual-path logic (owner_uid OR target_profile_id-in-claim).
+ *
+ * Firestore validates list-query rules statically — each disjunct in the
+ * client query must align with a rule branch for the query to be permitted.
+ * A single-branch query (e.g. just `target_profile_id in [...]`) requires the
+ * claim to be populated for owner reads, which has a race condition during
+ * brand-new-account onboarding (and is null in the emulator before the trigger
+ * runs). The OR query bypasses that by covering both branches at the query
+ * level.
+ */
+function bookingRequestAccessFilter(uid: string, profileIds: string[]) {
+  const ids = profileIds
+    .filter((p) => typeof p === "string" && p)
+    .slice(0, FIRESTORE_IN_LIMIT - 1);
+  if (ids.length === 0) return where("owner_uid", "==", uid);
+  return or(
+    where("owner_uid", "==", uid),
+    where("target_profile_id", "in", ids),
+  );
+}
+
 export async function fetchBookingRequestPage(
   pageSize: number,
   cursor: QueryDocumentSnapshot | null,
   filters?: BookingRequestPageFilters,
+  profileIds: string[] = [],
 ): Promise<BookingRequestPage> {
   const uid = getAuthClient().currentUser?.uid;
   if (!uid) return { requests: [], lastDoc: null, hasMore: false };
   const constraints = [
-    where("owner_uid", "==", uid),
+    bookingRequestAccessFilter(uid, profileIds),
     ...(filters?.status ? [where("status", "==", filters.status)] : []),
     orderBy("created_at", "desc"),
     ...(cursor ? [startAfter(cursor)] : []),
@@ -2823,24 +2855,27 @@ export async function fetchBookingRequestPage(
   };
 }
 
-export async function fetchBookingRequests(): Promise<any[]> {
+export async function fetchBookingRequests(profileIds: string[] = []): Promise<any[]> {
   const uid = getAuthClient().currentUser?.uid;
   if (!uid) return [];
   const q = query(
     collection(getFirestoreDb(), INBOUND_BOOKING_REQUESTS),
-    where("owner_uid", "==", uid),
+    bookingRequestAccessFilter(uid, profileIds),
     orderBy("created_at", "desc"),
   );
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
-export async function fetchBookingRequestByEventId(eventId: string): Promise<{ id: string; wanted_date?: string } | null> {
+export async function fetchBookingRequestByEventId(
+  eventId: string,
+  profileIds: string[] = [],
+): Promise<{ id: string; wanted_date?: string } | null> {
   const uid = getAuthClient().currentUser?.uid;
   if (!uid) return null;
   const q = query(
     collection(getFirestoreDb(), INBOUND_BOOKING_REQUESTS),
-    where("owner_uid", "==", uid),
+    bookingRequestAccessFilter(uid, profileIds),
     where("event_id", "==", eventId),
   );
   const snap = await getDocs(q);
@@ -2865,13 +2900,18 @@ export async function insertPublicBookingRequest(row: Record<string, unknown>) {
 
 export async function updateBookingRequest(id: string, update: Record<string, unknown>) {
   const ref = doc(getFirestoreDb(), INBOUND_BOOKING_REQUESTS, id);
+  // Stamp the actor so `onBookingRequestUpdated` can exclude the acting admin
+  // from the fan-out (they don't need a "you accepted" notification for the
+  // action they just took).
+  const actorUid = getAuthClient().currentUser?.uid ?? "";
+  const stamped = { ...update, _lastUpdatedBy: actorUid, _lastUpdatedAt: new Date().toISOString() };
   const snap = await getDoc(ref);
   if (snap.exists()) {
-    await updateDoc(ref, update);
+    await updateDoc(ref, stamped);
     return;
   }
   // Legacy fallback
-  await updateDoc(doc(getFirestoreDb(), PUBLIC_BOOKING_REQUESTS_LEGACY, id), update);
+  await updateDoc(doc(getFirestoreDb(), PUBLIC_BOOKING_REQUESTS_LEGACY, id), stamped);
 }
 
 // ── Collaborator event access (for CollaboratorEventView) ─────────────────────

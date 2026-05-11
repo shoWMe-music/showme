@@ -23,11 +23,12 @@ import { CalendarEntity } from "./calendarConstants";
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 const DAY_INDICES = [1, 2, 3, 4, 5, 6, 0]; // JS getDay(): Mon=1..Sat=6, Sun=0
 
-export function ShareAvailabilityDialog({ open, onOpenChange, unavailableDates, profileSlug, profileRole, ownerUid, calendarEntities, selectedEntity, onEntityChange, events }: {
+export function ShareAvailabilityDialog({ open, onOpenChange, unavailableDates, profileSlug, profileId, profileRole, ownerUid, calendarEntities, selectedEntity, onEntityChange, events }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   unavailableDates: Record<string, Set<string>>;
   profileSlug?: string;
+  profileId?: string;
   profileRole?: string;
   /** Firebase auth uid of the operator sharing availability (routes booking requests). */
   ownerUid: string;
@@ -105,6 +106,7 @@ export function ShareAvailabilityDialog({ open, onOpenChange, unavailableDates, 
     unavailable: Array.from(allUnavailable),
     generated: new Date().toISOString(),
     profileSlug: profileSlug || null,
+    profileId: profileId || null,
     profileRole: profileRole || null,
     calendarEntity: selectedEntity || null,
     ownerUid: ownerUid || null,

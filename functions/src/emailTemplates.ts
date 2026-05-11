@@ -402,6 +402,46 @@ export function teamMemberMessageEmail(opts: {
   };
 }
 
+export function bookingRequestStatusEmail(opts: {
+  requesterName?: string;
+  targetName: string;
+  artistName?: string;
+  wantedDate?: string;
+  status: "accepted" | "declined";
+  appBaseUrl: string;
+}): { subject: string; html: string } {
+  const greeting = opts.requesterName ? `Hi ${opts.requesterName},` : "Hi,";
+  const artistLine = opts.artistName ? ` for <strong>${opts.artistName}</strong>` : "";
+  const dateLine = opts.wantedDate ? ` on <strong>${opts.wantedDate}</strong>` : "";
+
+  const signupLink = `${opts.appBaseUrl.replace(/\/$/, "")}/signup`;
+
+  const heading =
+    opts.status === "accepted"
+      ? `${opts.targetName} accepted your booking request`
+      : `${opts.targetName} couldn't accept your booking request`;
+
+  const lead =
+    opts.status === "accepted"
+      ? `${greeting} good news — <strong>${opts.targetName}</strong> accepted your booking request${artistLine}${dateLine}. They'll be in touch shortly with next steps.`
+      : `${greeting} <strong>${opts.targetName}</strong> can't accommodate your booking request${artistLine}${dateLine} at this time. Thanks for reaching out — we wish you the best with your booking.`;
+
+  const content = `
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b">${heading}</h2>
+    <p style="margin:0 0 16px;font-size:14px;color:#71717a;line-height:1.6">
+      ${lead}
+    </p>
+    ${signupCallToAction(signupLink)}`;
+
+  return {
+    subject:
+      opts.status === "accepted"
+        ? `${opts.targetName} accepted your booking request`
+        : `${opts.targetName} declined your booking request`,
+    html: baseLayout(content),
+  };
+}
+
 export function bookingRequestConfirmationEmail(opts: {
   requesterName: string;
   targetName?: string;
