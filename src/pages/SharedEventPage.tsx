@@ -11,11 +11,14 @@ import {
 import ShareOtpGate from "@/components/share/ShareOtpGate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatCurrency } from "@/lib/models";
-import type { DealStructure, Event, EventCollaborator, ScheduleItem, CrewMember, TicketType, Agreement, Rider, ProEstimate, Settlement } from "@/lib/models";
+import { formatCurrency, amenityLabels } from "@/lib/models";
+import type { DealStructure, Event, EventCollaborator, ScheduleItem, CrewMember, TicketType, Agreement, Rider, ProEstimate, Settlement, AmenityKey } from "@/lib/models";
+import { partitionAmenities } from "@/components/event-manager/EventDetailsTab";
+import { PERFORMER_ROLE_TAG_LABELS, type PerformerRoleTag } from "@/components/PerformerFormFields";
+import { TAB_SECTIONS } from "@/components/export-event/types";
 import { generateSignatureHash } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import { Calendar, MapPin, Music, Users, Ticket, DollarSign, Clock, FileText, Share2, AlertCircle, CheckCircle2, Check, FileBox, Calculator, TrendingUp, ListChecks, StickyNote, Receipt, Download, Sparkles } from "lucide-react";
+import { Calendar, MapPin, Music, Users, Ticket, DollarSign, Clock, FileText, Share2, AlertCircle, CheckCircle2, Check, FileBox, Calculator, TrendingUp, ListChecks, StickyNote, Receipt, Download, Shield, Wallet } from "lucide-react";
 
 interface AgreementConfirmation {
   party: string;
@@ -37,6 +40,26 @@ interface BudgetSnapshot {
   resultFields?: BudgetField[];
 }
 
+interface GuestEntry {
+  id: string;
+  name: string;
+  tickets: number;
+  invitingParty: string;
+}
+
+interface GuestListConfig {
+  totalTicketLimit: number;
+  perGuestTicketLimit: number;
+  guests: GuestEntry[];
+}
+
+interface ExpenseItem {
+  id: string;
+  label: string;
+  amount: number;
+  currency: string;
+}
+
 interface ManagerData {
   dealDescription?: string;
   agreementConfirmations?: AgreementConfirmation[];
@@ -51,16 +74,33 @@ interface ManagerData {
   privateNotes?: { id: string; text: string; assignee: string }[];
   proEstimate?: ProEstimate;
   budget?: BudgetSnapshot;
+  guestList?: GuestListConfig | null;
+  expenses?: ExpenseItem[];
 }
 
 interface SharedEventSnapshot {
   event?: Event;
   deal?: DealStructure;
-  revenue?: { ticketTypes?: TicketType[] };
+  /**
+   * `ticketsSold`, `grossRevenue`, `doorSales`, `ticketFees`, `tax`, `refunds`
+   * power the Ticket Information stat cards. Captured at share time from the
+   * full `TicketRevenue` doc on the source event.
+   */
+  revenue?: {
+    ticketTypes?: TicketType[];
+    ticketsSold?: number;
+    grossRevenue?: number;
+    doorSales?: number;
+    ticketFees?: number;
+    tax?: number;
+    refunds?: number;
+  };
   settlement?: Settlement;
   currency?: string;
   eventMeta?: ManagerData;
   managerData?: ManagerData;
+  /** Full child Event docs for multi-performer parents; empty otherwise. */
+  performers?: Event[];
 }
 
 export default function SharedEventPage() {
@@ -81,17 +121,12 @@ export default function SharedEventPage() {
   const sections = search.sections?.split(",").filter(Boolean) || [];
   const showAll = tabs.length === 0 && sections.length === 0;
 
-  const showTab = (tabId: string) => showAll || tabs.includes(tabId);
-  const showSection = (sectionId: string) => showAll || sections.includes(sectionId) || tabs.some(t => {
-    const tabSections: Record<string, string[]> = {
-      details: ["event-info", "ticketing", "production-schedule", "riders", "deal-structure"],
-      agreement: ["event-summary", "agreements-docs", "terms"],
-      crew: ["shared-team", "schedule", "tasks", "private-notes"],
-      settlement: ["settlement-overview"],
-      budget: ["budget-calculator", "budget-charts", "pro-estimator"],
-    };
-    return tabSections[t]?.includes(sectionId);
-  });
+  // Source-of-truth for tab→section mapping lives in TAB_SECTIONS; deriving
+  // it here keeps the share page and the export dialog in lockstep so a
+  // ticked tab always renders the exact same sections the picker advertises.
+  const showSection = (sectionId: string) => showAll || sections.includes(sectionId) || tabs.some(t =>
+    TAB_SECTIONS[t]?.sections.some(s => s.id === sectionId) ?? false,
+  );
 
   useEffect(() => {
     if (!token || !eventId) return;
@@ -214,6 +249,24 @@ export default function SharedEventPage() {
   const settlement = snapshot.settlement;
   const managerData = snapshot.eventMeta ?? snapshot.managerData;
   const budget = managerData?.budget;
+  // Currency captured at share time — used by every formatCurrency call below.
+  // Falling back to EUR mirrors the default that ExportEventDialog applies when
+  // the creator has no per-user currency setting.
+  const currency = snapshot.currency || "EUR";
+  // Performers: multi-performer parents have an array of child Event docs in
+  // snapshot.performers. For single-performer events this is empty and the
+  // header's `event.artist` line is the only performer surface.
+  const performers = snapshot.performers ?? [];
+  // Derived Ticket Information net revenue. Mirrors EventDetailsTab.tsx's
+  // `netRev` so the share-link figure matches the in-app number exactly.
+  const grossRev = revenue?.grossRevenue ?? 0;
+  const doorSales = revenue?.doorSales ?? 0;
+  const ticketFees = revenue?.ticketFees ?? 0;
+  const tax = revenue?.tax ?? 0;
+  const refunds = revenue?.refunds ?? 0;
+  const netRev = grossRev + doorSales - ticketFees - tax - refunds;
+  const guestList = managerData?.guestList ?? null;
+  const expenses = managerData?.expenses ?? [];
 
   return (
     <div className="min-h-screen bg-background">
@@ -225,9 +278,14 @@ export default function SharedEventPage() {
 
         {/* Share metadata */}
         {shareInfo && (
-          <div className="mb-4 flex items-center gap-3 rounded-lg border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
-            <Share2 className="h-3.5 w-3.5 shrink-0" />
-            <span>Shared by <span className="font-medium text-foreground">{shareInfo.createdBy}</span> on {new Date(shareInfo.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+          <div className="mb-4 rounded-lg border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
+            <div className="flex items-center gap-3">
+              <Share2 className="h-3.5 w-3.5 shrink-0" />
+              <span>Shared by <span className="font-medium text-foreground">{shareInfo.createdBy}</span> on {new Date(shareInfo.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+            </div>
+            <p className="mt-1 ml-6 text-[11px] text-muted-foreground/80">
+              Snapshot — does not update automatically. Ask {shareInfo.createdBy} for a fresh link to see the latest details.
+            </p>
           </div>
         )}
 
@@ -256,8 +314,8 @@ export default function SharedEventPage() {
                 <div><span className="text-muted-foreground">Venue:</span> <span className="font-medium ml-2">{event.venue}</span></div>
                 {event.artist && <div><span className="text-muted-foreground">Performer:</span> <span className="font-medium ml-2">{event.artist}</span></div>}
                 {deal?.dealType && <div><span className="text-muted-foreground">Deal Type:</span> <span className="font-medium ml-2 capitalize">{deal.dealType.replace(/_/g, " ")}</span></div>}
-                {deal?.artistGuarantee > 0 && <div><span className="text-muted-foreground">Performer Guarantee:</span> <span className="font-medium ml-2">{formatCurrency(deal.artistGuarantee)}</span></div>}
-                {deal?.venueRental > 0 && <div><span className="text-muted-foreground">Venue Rental:</span> <span className="font-medium ml-2">{formatCurrency(deal.venueRental)}</span></div>}
+                {deal?.artistGuarantee > 0 && <div><span className="text-muted-foreground">Performer Guarantee:</span> <span className="font-medium ml-2">{formatCurrency(deal.artistGuarantee, currency)}</span></div>}
+                {deal?.venueRental > 0 && <div><span className="text-muted-foreground">Venue Rental:</span> <span className="font-medium ml-2">{formatCurrency(deal.venueRental, currency)}</span></div>}
                 <div><span className="text-muted-foreground">Capacity:</span> <span className="font-medium ml-2">{event.capacity?.toLocaleString()}</span></div>
               </div>
             </div>
@@ -280,55 +338,113 @@ export default function SharedEventPage() {
                   </div>
                 ) : null}
               </div>
-              {event.notes && (
-                <div className="mt-4 pt-4 border-t">
-                  <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1">Notes</div>
-                  <p className="text-sm whitespace-pre-wrap">{event.notes}</p>
-                </div>
-              )}
-              {((event.amenities && event.amenities.length > 0) || event.cateringNotes || event.accommodationNotes) && (
-                <div className="mt-4 pt-4 border-t">
-                  <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Sparkles className="h-3.5 w-3.5" /> Amenities
-                  </div>
-                  {event.amenities && event.amenities.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                      {event.amenities.map((a) => (
-                        <Badge key={a} variant="outline" className="text-xs">{a}</Badge>
-                      ))}
-                    </div>
-                  )}
-                  {event.cateringNotes && (
-                    <div className="mt-2">
-                      <div className="text-xs font-medium mb-0.5">Catering</div>
-                      <p className="text-sm whitespace-pre-wrap text-muted-foreground">{event.cateringNotes}</p>
-                    </div>
-                  )}
-                  {event.accommodationNotes && (
-                    <div className="mt-2">
-                      <div className="text-xs font-medium mb-0.5">Accommodation</div>
-                      <p className="text-sm whitespace-pre-wrap text-muted-foreground">{event.accommodationNotes}</p>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           )}
 
-          {/* Ticket Types */}
-          {showSection("ticketing") && revenue?.ticketTypes?.length > 0 && (
+          {/* Performers — multi-performer parents have child events in snapshot.performers.
+              The header already shows event.artist for single-performer events, so we only
+              render this section when there's a non-empty performers array. */}
+          {showSection("performers") && performers.length > 0 && (
             <div className="rounded-xl border bg-card p-6 shadow-sm">
-              <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><Ticket className="h-5 w-5 text-primary" /> Ticket Types</h3>
-              <div className="rounded-lg border overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead><tr className="bg-muted/30 border-b"><th className="px-4 py-2 text-left text-xs font-semibold text-muted-foreground">Type</th><th className="px-4 py-2 text-right text-xs font-semibold text-muted-foreground">Price</th><th className="px-4 py-2 text-right text-xs font-semibold text-muted-foreground">Expected</th></tr></thead>
-                  <tbody className="divide-y">
-                    {revenue.ticketTypes.map((tt: TicketType) => (
-                      <tr key={tt.name}><td className="px-4 py-2">{tt.name}</td><td className="px-4 py-2 text-right">{formatCurrency(tt.price)}</td><td className="px-4 py-2 text-right">{tt.sold?.toLocaleString()}</td></tr>
-                    ))}
-                  </tbody>
-                </table>
+              <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><Music className="h-5 w-5 text-primary" /> Performers</h3>
+              <div className="space-y-2">
+                {performers.map((p) => (
+                  <div key={p.id} className="rounded-lg border p-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Music className="h-4 w-4 text-primary shrink-0" />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-medium truncate">{p.artist}</p>
+                          {p.performerRoleTag && (
+                            <Badge variant="secondary" className="text-[10px]">
+                              {PERFORMER_ROLE_TAG_LABELS[p.performerRoleTag as PerformerRoleTag]}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {p.venue}
+                          {p.roomStage ? ` — ${p.roomStage}` : ""}
+                          {p.capacity ? ` (${p.capacity} cap.)` : ""}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
+            </div>
+          )}
+
+          {/* Notes — its own section so a sharer can include it without the rest of Event Info. */}
+          {showSection("notes") && event?.notes && (
+            <div className="rounded-xl border bg-card p-6 shadow-sm">
+              <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><StickyNote className="h-5 w-5 text-primary" /> Notes</h3>
+              <p className="text-sm whitespace-pre-wrap">{event.notes}</p>
+            </div>
+          )}
+
+          {/* Amenities — its own section. Standard amenity keys are translated via
+              `amenityLabels`; custom strings render verbatim. Matches the in-app
+              Event Details rendering at EventDetailsTab.tsx:1465-1495. */}
+          {showSection("amenities") && event && ((event.amenities && event.amenities.length > 0) || event.cateringNotes || event.accommodationNotes) && (
+            <div className="rounded-xl border bg-card p-6 shadow-sm">
+              <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><Shield className="h-5 w-5 text-primary" /> Amenities</h3>
+              <div className="space-y-3">
+                {event.amenities && event.amenities.length > 0 && (() => {
+                  const { standard, custom } = partitionAmenities(event.amenities);
+                  return (
+                    <div className="flex flex-wrap gap-2">
+                      {standard.map((a) => (
+                        <Badge key={a} variant="secondary" className="text-sm py-1 px-3">{amenityLabels[a as AmenityKey]}</Badge>
+                      ))}
+                      {custom.map((a) => (
+                        <Badge key={a} variant="outline" className="text-sm py-1 px-3">{a}</Badge>
+                      ))}
+                    </div>
+                  );
+                })()}
+                {event.cateringNotes && (
+                  <div className="text-sm">
+                    <span className="font-medium">Catering: </span>
+                    <span className="text-muted-foreground whitespace-pre-wrap">{event.cateringNotes}</span>
+                  </div>
+                )}
+                {event.accommodationNotes && (
+                  <div className="text-sm">
+                    <span className="font-medium">Accommodation: </span>
+                    <span className="text-muted-foreground whitespace-pre-wrap">{event.accommodationNotes}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Ticket Information — 4 stat cards + optional types breakdown. Mirrors
+              EventDetailsTab.tsx:1968-1988. Gated on revenue existing; ticket-types
+              table only renders when ticketTypes is non-empty. */}
+          {showSection("ticketing") && revenue && (
+            <div className="rounded-xl border bg-card p-6 shadow-sm">
+              <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><Ticket className="h-5 w-5 text-primary" /> Ticket Information</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                <div className="rounded-lg bg-muted/50 p-3"><p className="text-xs text-muted-foreground">Tickets Sold</p><p className="text-lg font-bold">{(revenue.ticketsSold ?? 0).toLocaleString()}</p></div>
+                <div className="rounded-lg bg-muted/50 p-3"><p className="text-xs text-muted-foreground">Gross Revenue</p><p className="text-lg font-bold">{formatCurrency(grossRev, currency)}</p></div>
+                <div className="rounded-lg bg-muted/50 p-3"><p className="text-xs text-muted-foreground">Door Sales</p><p className="text-lg font-bold">{formatCurrency(doorSales, currency)}</p></div>
+                <div className="rounded-lg bg-muted/50 p-3"><p className="text-xs text-muted-foreground">Net Revenue</p><p className="text-lg font-bold">{formatCurrency(netRev, currency)}</p></div>
+              </div>
+              {revenue.ticketTypes && revenue.ticketTypes.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold mb-2">Ticket Types</h4>
+                  <div className="rounded-lg border overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead><tr className="bg-muted/30 border-b"><th className="px-4 py-2 text-left text-xs font-semibold text-muted-foreground">Type</th><th className="px-4 py-2 text-right text-xs font-semibold text-muted-foreground">Price</th><th className="px-4 py-2 text-right text-xs font-semibold text-muted-foreground">Expected</th></tr></thead>
+                      <tbody className="divide-y">
+                        {revenue.ticketTypes.map((tt: TicketType) => (
+                          <tr key={tt.name}><td className="px-4 py-2">{tt.name}</td><td className="px-4 py-2 text-right">{formatCurrency(tt.price, currency)}</td><td className="px-4 py-2 text-right">{tt.sold?.toLocaleString()}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -338,8 +454,8 @@ export default function SharedEventPage() {
               <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><DollarSign className="h-5 w-5 text-primary" /> Deal Structure</h3>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div><span className="text-muted-foreground">Deal Type:</span> <span className="font-medium ml-2 capitalize">{deal.dealType?.replace(/_/g, " ")}</span></div>
-                {deal.artistGuarantee > 0 && <div><span className="text-muted-foreground">Performer Guarantee:</span> <span className="font-medium ml-2">{formatCurrency(deal.artistGuarantee)}</span></div>}
-                {deal.venueRental > 0 && <div><span className="text-muted-foreground">Venue Rental:</span> <span className="font-medium ml-2">{formatCurrency(deal.venueRental)}</span></div>}
+                {deal.artistGuarantee > 0 && <div><span className="text-muted-foreground">Performer Guarantee:</span> <span className="font-medium ml-2">{formatCurrency(deal.artistGuarantee, currency)}</span></div>}
+                {deal.venueRental > 0 && <div><span className="text-muted-foreground">Venue Rental:</span> <span className="font-medium ml-2">{formatCurrency(deal.venueRental, currency)}</span></div>}
               </div>
             </div>
           )}
@@ -352,10 +468,12 @@ export default function SharedEventPage() {
             </div>
           )}
 
-          {/* Production Schedule */}
+          {/* Event Schedule — section id kept as `production-schedule` for backwards
+              compat with already-issued share URLs; heading reads "Event Schedule"
+              to match the in-app Event Details tab. */}
           {showSection("production-schedule") && managerData?.schedule?.length > 0 && (
             <div className="rounded-xl border bg-card p-6 shadow-sm">
-              <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><Clock className="h-5 w-5 text-primary" /> Production Schedule</h3>
+              <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><Clock className="h-5 w-5 text-primary" /> Event Schedule</h3>
               <div className="space-y-2 text-sm">
                 {managerData.schedule.filter((s: ScheduleItem) => s.time).map((s: ScheduleItem) => (
                   <div key={s.id} className="flex gap-4"><span className="text-muted-foreground w-14 shrink-0">{s.time}</span><span className="font-medium">{s.label}</span></div>
@@ -392,6 +510,70 @@ export default function SharedEventPage() {
               </div>
             </div>
           )}
+
+          {/* Guest List — totals + per-guest table, matches EventDetailsTab guest list. */}
+          {showSection("guest-list") && guestList && guestList.guests.length > 0 && (() => {
+            const totalTickets = guestList.guests.reduce((s, g) => s + g.tickets, 0);
+            return (
+              <div className="rounded-xl border bg-card p-6 shadow-sm">
+                <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><Users className="h-5 w-5 text-primary" /> Guest List</h3>
+                <p className="text-xs text-muted-foreground mb-3">
+                  {guestList.guests.length} guest{guestList.guests.length === 1 ? "" : "s"} · {totalTickets} ticket{totalTickets === 1 ? "" : "s"}
+                  {guestList.totalTicketLimit > 0 ? ` / ${guestList.totalTicketLimit} limit` : ""}
+                </p>
+                <div className="rounded-lg border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-muted/30 border-b">
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-muted-foreground w-10">#</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-muted-foreground">Guest Name</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-muted-foreground">Tickets</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-muted-foreground">Inviting Party</th>
+                    </tr></thead>
+                    <tbody className="divide-y">
+                      {guestList.guests.map((g, i) => (
+                        <tr key={g.id}>
+                          <td className="px-4 py-2 text-muted-foreground">{i + 1}</td>
+                          <td className="px-4 py-2 font-medium">{g.name}</td>
+                          <td className="px-4 py-2 text-right">{g.tickets}</td>
+                          <td className="px-4 py-2">{g.invitingParty}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Expenses */}
+          {showSection("expenses") && expenses.length > 0 && (() => {
+            const total = expenses.reduce((s, e) => s + (e.amount ?? 0), 0);
+            return (
+              <div className="rounded-xl border bg-card p-6 shadow-sm">
+                <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><Wallet className="h-5 w-5 text-primary" /> Expenses</h3>
+                <div className="rounded-lg border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-muted/30 border-b">
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-muted-foreground">Label</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-muted-foreground">Amount</th>
+                    </tr></thead>
+                    <tbody className="divide-y">
+                      {expenses.map((e) => (
+                        <tr key={e.id}>
+                          <td className="px-4 py-2">{e.label}</td>
+                          <td className="px-4 py-2 text-right">{formatCurrency(e.amount, e.currency || currency)}</td>
+                        </tr>
+                      ))}
+                      <tr className="bg-muted/20">
+                        <td className="px-4 py-2 font-semibold">Total</td>
+                        <td className="px-4 py-2 text-right font-semibold">{formatCurrency(total, currency)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Agreements & Documents */}
           {showSection("agreements-docs") && managerData?.agreements && managerData.agreements.length > 0 && (
@@ -493,9 +675,9 @@ export default function SharedEventPage() {
               <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><DollarSign className="h-5 w-5 text-primary" /> Settlement</h3>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div><span className="text-muted-foreground">Status:</span> <span className="font-medium ml-2 capitalize">{settlement.status}</span></div>
-                {settlement.artistPayout > 0 && <div><span className="text-muted-foreground">Performer Payout:</span> <span className="font-medium ml-2">{formatCurrency(settlement.artistPayout)}</span></div>}
-                {settlement.venuePayout > 0 && <div><span className="text-muted-foreground">Venue Payout:</span> <span className="font-medium ml-2">{formatCurrency(settlement.venuePayout)}</span></div>}
-                {settlement.promoterPayout > 0 && <div><span className="text-muted-foreground">Promoter Payout:</span> <span className="font-medium ml-2">{formatCurrency(settlement.promoterPayout)}</span></div>}
+                {settlement.artistPayout > 0 && <div><span className="text-muted-foreground">Performer Payout:</span> <span className="font-medium ml-2">{formatCurrency(settlement.artistPayout, currency)}</span></div>}
+                {settlement.venuePayout > 0 && <div><span className="text-muted-foreground">Venue Payout:</span> <span className="font-medium ml-2">{formatCurrency(settlement.venuePayout, currency)}</span></div>}
+                {settlement.promoterPayout > 0 && <div><span className="text-muted-foreground">Promoter Payout:</span> <span className="font-medium ml-2">{formatCurrency(settlement.promoterPayout, currency)}</span></div>}
               </div>
             </div>
           )}
@@ -511,7 +693,7 @@ export default function SharedEventPage() {
                     <div className="space-y-1">
                       {budget.revenueFields.map((f) => (
                         <div key={f.name} className="flex justify-between border-b py-1">
-                          <span>{f.name}</span><span className="font-medium">{formatCurrency(f.value)}</span>
+                          <span>{f.name}</span><span className="font-medium">{formatCurrency(f.value, currency)}</span>
                         </div>
                       ))}
                     </div>
@@ -523,7 +705,7 @@ export default function SharedEventPage() {
                     <div className="space-y-1">
                       {budget.costFields.map((f) => (
                         <div key={f.name} className="flex justify-between border-b py-1">
-                          <span>{f.name}</span><span className="font-medium">{formatCurrency(f.value)}</span>
+                          <span>{f.name}</span><span className="font-medium">{formatCurrency(f.value, currency)}</span>
                         </div>
                       ))}
                     </div>
@@ -538,7 +720,7 @@ export default function SharedEventPage() {
                           ? `${f.value.toFixed(1)}%`
                           : f.id === "breakeven_tickets"
                           ? Math.round(f.value).toString()
-                          : formatCurrency(f.value);
+                          : formatCurrency(f.value, currency);
                         return (
                           <div key={f.name} className="flex justify-between border-b py-1">
                             <span>{f.name}</span><span className="font-medium">{display}</span>
@@ -559,7 +741,7 @@ export default function SharedEventPage() {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <span className="text-muted-foreground">Profit / Loss:</span>
-                  <span className="font-medium ml-2">{formatCurrency(budget.resultFields.find(f => f.id === "profit_loss")?.value ?? 0)}</span>
+                  <span className="font-medium ml-2">{formatCurrency(budget.resultFields.find(f => f.id === "profit_loss")?.value ?? 0, currency)}</span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Break-even Tickets:</span>
@@ -578,9 +760,9 @@ export default function SharedEventPage() {
                 <div><span className="text-muted-foreground">PRO:</span> <span className="font-medium ml-2 uppercase">{managerData.proEstimate.pro}</span></div>
                 <div><span className="text-muted-foreground">Country:</span> <span className="font-medium ml-2">{managerData.proEstimate.country}</span></div>
                 <div><span className="text-muted-foreground">Event Type:</span> <span className="font-medium ml-2 capitalize">{String(managerData.proEstimate.eventType).replace(/_/g, " ")}</span></div>
-                <div><span className="text-muted-foreground">Ticket Price:</span> <span className="font-medium ml-2">{formatCurrency(managerData.proEstimate.ticketPrice)}</span></div>
+                <div><span className="text-muted-foreground">Ticket Price:</span> <span className="font-medium ml-2">{formatCurrency(managerData.proEstimate.ticketPrice, currency)}</span></div>
                 <div><span className="text-muted-foreground">Expected Tickets:</span> <span className="font-medium ml-2">{managerData.proEstimate.expectedTickets}</span></div>
-                <div><span className="text-muted-foreground">Estimated Fee:</span> <span className="font-medium ml-2">{formatCurrency(managerData.proEstimate.estimatedFee)}</span></div>
+                <div><span className="text-muted-foreground">Estimated Fee:</span> <span className="font-medium ml-2">{formatCurrency(managerData.proEstimate.estimatedFee, currency)}</span></div>
               </div>
             </div>
           )}
@@ -680,9 +862,16 @@ function SharedAgreementConfirm({
   const userParty = hasCollaborators
     ? collaborators.find((c: EventCollaborator) => c.email && userEmail && c.email.toLowerCase().trim() === userEmail.toLowerCase().trim())
     : null;
-  const userPartyName = hasCollaborators
-    ? (userParty ? (userParty.role || userParty.eventRole || userParty.name) : null)
-    : null; // When no collaborators, we allow confirming any derived party below
+  const userPartyName = hasCollaborators && userParty
+    ? (userParty.role || userParty.eventRole || userParty.name)
+    : null;
+
+  // Strict identity gate: the Agreement Confirmation widget is only rendered
+  // when the share's verified email (Firebase Auth or OTP-JWT) matches a
+  // collaborator listed on this event. Public-share viewers and OTP recipients
+  // whose email isn't tied to a party see nothing here — they can read the
+  // separate Terms & Conditions section but not the confirmation flow.
+  if (!userPartyName) return null;
 
   if (!allParties.length && !agreements.length && !terms) return null;
 

@@ -91,9 +91,11 @@ describe("buildPrintHTML", () => {
       "sections",
       makeEventData(),
     );
-    expect(html).toContain("Event Information");
+    // event-info heading itself must render
+    expect(html).toContain("<h2>Event Information</h2>");
     expect(html).not.toContain("Financial Deal");
-    expect(html).not.toContain("Ticket Information");
+    // Ticket Information heading must NOT render when only event-info is picked
+    expect(html).not.toContain("<h2>Ticket Information</h2>");
   });
 
   it("respects tab-level selection", () => {
@@ -108,7 +110,7 @@ describe("buildPrintHTML", () => {
     expect(html).not.toContain("Settlement");
   });
 
-  it("includes schedule when subcollection data is provided", () => {
+  it("includes schedule when subcollection data is provided (heading now reads 'Event Schedule')", () => {
     const data = makeEventData({
       eventMeta: {
         schedule: [
@@ -118,9 +120,11 @@ describe("buildPrintHTML", () => {
       } as unknown as EventExportData["eventMeta"],
     });
     const html = buildPrintHTML(new Set(), new Set(), "all", data);
-    expect(html).toContain("Production Schedule");
+    expect(html).toContain("Event Schedule");
     expect(html).toContain("Doors open");
     expect(html).toContain("Showtime");
+    // Old heading must no longer appear (covers the rename regression).
+    expect(html).not.toContain("Production Schedule");
   });
 
   it("includes crew when subcollection data is provided", () => {
@@ -300,7 +304,7 @@ describe("buildPrintHTML", () => {
     expect(html).toContain("Event Information");
     expect(html).toContain("Ticket Information");
     expect(html).toContain("Financial Deal");
-    expect(html).toContain("Production Schedule");
+    expect(html).toContain("Event Schedule");
     expect(html).toContain("Doors");
     expect(html).toContain("Riders");
     expect(html).toContain("Stage plot");
@@ -312,5 +316,129 @@ describe("buildPrintHTML", () => {
     expect(html).toContain("Shared Team");
     expect(html).toContain("Sound Tech");
     expect(html).toContain("Settlement");
+  });
+
+  it("renders Performers section from data.performers", () => {
+    const data = makeEventData({
+      performers: [
+        {
+          id: "c1", name: "Test Gig — Headline", date: "2026-06-15",
+          venue: "Blue Note", artist: "Jazz Headliner", capacity: 200,
+          roomStage: "Main Stage", performerRoleTag: "headliner",
+          eventStatus: "confirmed",
+        } as unknown as EventExportData["event"],
+        {
+          id: "c2", name: "Test Gig — Support", date: "2026-06-15",
+          venue: "Blue Note", artist: "Opening Act", capacity: 200,
+          performerRoleTag: "support", eventStatus: "confirmed",
+        } as unknown as EventExportData["event"],
+      ],
+    });
+    const html = buildPrintHTML(new Set(), new Set(), "all", data);
+    expect(html).toContain("Performers");
+    expect(html).toContain("Jazz Headliner");
+    expect(html).toContain("Opening Act");
+    expect(html).toContain("Headliner");
+    expect(html).toContain("Support");
+  });
+
+  it("renders Notes as its own section (decoupled from event-info)", () => {
+    const data = makeEventData({
+      event: { ...makeEventData().event, notes: "Backstage door is around the back" } as EventExportData["event"],
+    });
+    const html = buildPrintHTML(
+      new Set(["details"]),
+      new Set(["notes"]),
+      "sections",
+      data,
+    );
+    expect(html).toContain("Notes");
+    expect(html).toContain("Backstage door is around the back");
+    expect(html).not.toContain("Event Information");
+  });
+
+  it("renders Amenities as its own section with translated labels and custom strings", () => {
+    const data = makeEventData({
+      event: {
+        ...makeEventData().event,
+        amenities: ["backline", "catering", "WiFi"],
+        cateringNotes: "Vegan menu pre-show",
+        accommodationNotes: "Hotel two blocks east",
+      } as EventExportData["event"],
+    });
+    const html = buildPrintHTML(
+      new Set(["details"]),
+      new Set(["amenities"]),
+      "sections",
+      data,
+    );
+    expect(html).toContain("Amenities");
+    expect(html).toContain("Full Backline"); // translated label
+    expect(html).toContain("Catering"); // standard label
+    expect(html).toContain("WiFi"); // custom verbatim
+    expect(html).toContain("Vegan menu pre-show");
+    expect(html).toContain("Hotel two blocks east");
+    expect(html).not.toContain("Event Information");
+  });
+
+  it("renders Ticket Information stat block with Tickets Sold and Net Revenue", () => {
+    const html = buildPrintHTML(
+      new Set(["details"]),
+      new Set(["ticketing"]),
+      "sections",
+      makeEventData(),
+    );
+    expect(html).toContain("Ticket Information");
+    expect(html).toContain("Tickets Sold");
+    expect(html).toContain("Gross Revenue");
+    expect(html).toContain("Door Sales");
+    expect(html).toContain("Net Revenue");
+    expect(html).toContain("Ticket Types");
+  });
+
+  it("renders Guest List section", () => {
+    const data = makeEventData({
+      eventMeta: {
+        guestList: {
+          totalTicketLimit: 5,
+          perGuestTicketLimit: 1,
+          guests: [
+            { id: "g1", name: "Alice", tickets: 1, invitingParty: "Venue" },
+            { id: "g2", name: "Bob", tickets: 2, invitingParty: "Promoter" },
+          ],
+        },
+      } as unknown as EventExportData["eventMeta"],
+    });
+    const html = buildPrintHTML(
+      new Set(["details"]),
+      new Set(["guest-list"]),
+      "sections",
+      data,
+    );
+    expect(html).toContain("Guest List");
+    expect(html).toContain("Alice");
+    expect(html).toContain("Bob");
+    expect(html).toContain("Inviting Party");
+  });
+
+  it("renders Expenses section with a Total row", () => {
+    const data = makeEventData({
+      eventMeta: {
+        expenses: [
+          { id: "e1", label: "Catering", amount: 500, currency: "SEK" },
+          { id: "e2", label: "Transport", amount: 250, currency: "SEK" },
+        ],
+      } as unknown as EventExportData["eventMeta"],
+    });
+    const html = buildPrintHTML(
+      new Set(["details"]),
+      new Set(["expenses"]),
+      "sections",
+      data,
+    );
+    expect(html).toContain("Expenses");
+    expect(html).toContain("Catering");
+    expect(html).toContain("Transport");
+    expect(html).toContain("Total");
   });
 });

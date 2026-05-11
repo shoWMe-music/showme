@@ -1708,7 +1708,11 @@ export interface PendingDateChange {
 export interface EventMeta {
   // Details tab
   expenses?: { id: string; label: string; amount: number; currency: string }[];
-  guestList?: { enabled: boolean; total: number; names: string[] } | null;
+  guestList?: {
+    totalTicketLimit: number;
+    perGuestTicketLimit: number;
+    guests: { id: string; name: string; tickets: number; invitingParty: string }[];
+  } | null;
   // Agreement tab
   dealDescription?: string;
   agreementConfirmations?: AgreementConfirmation[];

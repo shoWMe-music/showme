@@ -1,6 +1,8 @@
-import { formatCurrency, getCurrencySymbol, type ScheduleItem, type Rider, type Agreement, type CrewMember } from "@/lib/models";
+import { formatCurrency, getCurrencySymbol, amenityLabels, type ScheduleItem, type Rider, type Agreement, type CrewMember, type AmenityKey, type Event as AppEvent } from "@/lib/models";
 import { type SelectionLevel, type EventExportData } from "./types";
 import { type Todo } from "@/lib/db";
+import { partitionAmenities } from "@/components/event-manager/EventDetailsTab";
+import { PERFORMER_ROLE_TAG_LABELS, type PerformerRoleTag } from "@/components/PerformerFormFields";
 
 export function buildCSVContent(
   selectedTabIds: string[],
@@ -47,23 +49,62 @@ export function buildCSVContent(
     lines.push(`"Status","${s(event.eventStatus, "N/A")}"`);
     lines.push(`"Capacity","${s(event.capacity, "N/A")}"`);
     lines.push(`"Ticketing","${s(Array.from(new Set((event.tickets ?? []).map(t => t.provider).filter(Boolean))).join(", "), "N/A")}"`);
-    if (event.notes) lines.push(`"Notes","${s(event.notes)}"`);
+    lines.push("");
+  }
+
+  // Performers — child events for multi-performer parents.
+  const performers: AppEvent[] = data.performers ?? [];
+  if (includeSection("performers", "details") && performers.length > 0) {
+    lines.push(`"--- Performers ---"`);
+    lines.push(`"Name","Role","Venue","Room/Stage","Capacity"`);
+    performers.forEach((p) => {
+      const role = p.performerRoleTag
+        ? PERFORMER_ROLE_TAG_LABELS[p.performerRoleTag as PerformerRoleTag]
+        : "";
+      lines.push(`"${s(p.artist)}","${s(role)}","${s(p.venue)}","${s(p.roomStage)}","${s(p.capacity)}"`);
+    });
+    lines.push("");
+  }
+
+  if (includeSection("notes", "details") && event.notes) {
+    lines.push(`"--- Notes ---"`);
+    lines.push(`"${s(event.notes)}"`);
+    lines.push("");
+  }
+
+  if (includeSection("amenities", "details") && ((event.amenities && event.amenities.length > 0) || event.cateringNotes || event.accommodationNotes)) {
+    lines.push(`"--- Amenities ---"`);
     if (event.amenities && event.amenities.length > 0) {
-      lines.push(`"Amenities","${s(event.amenities.join(", "))}"`);
+      const { standard, custom } = partitionAmenities(event.amenities);
+      const labels = [
+        ...standard.map((a) => amenityLabels[a as AmenityKey]),
+        ...custom,
+      ].filter(Boolean);
+      lines.push(`"Amenities","${s(labels.join(", "))}"`);
     }
     if (event.cateringNotes) lines.push(`"Catering","${s(event.cateringNotes)}"`);
     if (event.accommodationNotes) lines.push(`"Accommodation","${s(event.accommodationNotes)}"`);
     lines.push("");
   }
 
-  if (includeSection("ticketing", "details") && revenue?.ticketTypes?.length) {
+  if (includeSection("ticketing", "details") && revenue) {
     lines.push(`"--- Ticket Information ---"`);
-    lines.push(`"Type","Price (${sym})","Expected Sold"`);
-    revenue.ticketTypes.forEach(t => {
-      lines.push(`"${s(t.name)}","${s(t.price, "0")}","${s(t.sold, "0")}"`);
-    });
-    const totalRev = revenue.ticketTypes.reduce((sum, t) => sum + (t.price ?? 0) * (t.sold ?? 0), 0);
-    lines.push(`"Total Ticket Revenue","${totalRev}",""`);
+    lines.push(`"Metric","Value"`);
+    lines.push(`"Tickets Sold","${revenue.ticketsSold ?? 0}"`);
+    lines.push(`"Gross Revenue","${formatCurrency(revenue.grossRevenue ?? 0, currency)}"`);
+    lines.push(`"Door Sales","${formatCurrency(revenue.doorSales ?? 0, currency)}"`);
+    const netRev = (revenue.grossRevenue ?? 0) + (revenue.doorSales ?? 0)
+      - (revenue.ticketFees ?? 0) - (revenue.tax ?? 0) - (revenue.refunds ?? 0);
+    lines.push(`"Net Revenue","${formatCurrency(netRev, currency)}"`);
+    if (revenue.ticketTypes?.length) {
+      lines.push("");
+      lines.push(`"Ticket Types","Price (${sym})","Expected Sold"`);
+      revenue.ticketTypes.forEach(t => {
+        lines.push(`"${s(t.name)}","${s(t.price, "0")}","${s(t.sold, "0")}"`);
+      });
+      const totalRev = revenue.ticketTypes.reduce((sum, t) => sum + (t.price ?? 0) * (t.sold ?? 0), 0);
+      lines.push(`"Total Ticket Revenue","${totalRev}",""`);
+    }
     lines.push("");
   }
 
@@ -78,10 +119,11 @@ export function buildCSVContent(
     lines.push("");
   }
 
-  // schedule and riders are stored in subcollections — not on eventMeta directly
+  // schedule and riders are stored in subcollections — not on eventMeta directly.
+  // Section id is `production-schedule` for backwards-compat; rendered heading is "Event Schedule".
   const scheduleItems = (eventMeta as unknown as { schedule?: ScheduleItem[] }).schedule;
   if (includeSection("production-schedule", "details") && scheduleItems?.length) {
-    lines.push(`"--- Production Schedule ---"`);
+    lines.push(`"--- Event Schedule ---"`);
     lines.push(`"Time","Activity"`);
     scheduleItems.forEach((it: ScheduleItem) => {
       lines.push(`"${s(it.time)}","${s(it.label)}"`);
@@ -96,6 +138,35 @@ export function buildCSVContent(
     riderItems.forEach((r: Rider) => {
       lines.push(`"${s(r.type)}","${s(r.name)}","${s(r.fileName)}","${s(r.fileUrl)}"`);
     });
+    lines.push("");
+  }
+
+  // Guest List
+  const guestList = (eventMeta as unknown as { guestList?: { totalTicketLimit: number; perGuestTicketLimit: number; guests: { id: string; name: string; tickets: number; invitingParty: string }[] } | null }).guestList;
+  if (includeSection("guest-list", "details") && guestList && guestList.guests.length > 0) {
+    const totalTickets = guestList.guests.reduce((sum, g) => sum + g.tickets, 0);
+    lines.push(`"--- Guest List ---"`);
+    lines.push(`"Guests","${guestList.guests.length}"`);
+    lines.push(`"Total Tickets","${totalTickets}${guestList.totalTicketLimit > 0 ? ` / ${guestList.totalTicketLimit} limit` : ""}"`);
+    lines.push("");
+    lines.push(`"#","Guest Name","Tickets","Inviting Party"`);
+    guestList.guests.forEach((g, i) => {
+      lines.push(`"${i + 1}","${s(g.name)}","${g.tickets}","${s(g.invitingParty)}"`);
+    });
+    lines.push("");
+  }
+
+  // Expenses
+  const expenses = (eventMeta as unknown as { expenses?: { id: string; label: string; amount: number; currency: string }[] }).expenses;
+  if (includeSection("expenses", "details") && expenses && expenses.length > 0) {
+    lines.push(`"--- Expenses ---"`);
+    lines.push(`"Label","Amount"`);
+    let total = 0;
+    expenses.forEach((e) => {
+      total += e.amount ?? 0;
+      lines.push(`"${s(e.label)}","${formatCurrency(e.amount, e.currency || currency)}"`);
+    });
+    lines.push(`"Total","${formatCurrency(total, currency)}"`);
     lines.push("");
   }
 

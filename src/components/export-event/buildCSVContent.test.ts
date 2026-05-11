@@ -77,14 +77,17 @@ describe("buildCSVContent", () => {
     expect(csv).toContain("Financial Deal");
   });
 
-  it("handles empty revenue ticket types gracefully", () => {
+  it("includes Ticket Information stat block (Tickets Sold / Net Revenue) when revenue exists", () => {
+    // Empty ticketTypes no longer suppresses the stat block — sold/gross/net
+    // are useful even with zero ticket types configured.
     const data = makeEventData({
       revenue: { eventId: "EVT-001", ticketsSold: 0, grossRevenue: 0, ticketFees: 0, tax: 0, refunds: 0, doorSales: 0, productionExpenses: 0, additionalCosts: 0 } as EventExportData["revenue"],
     });
     const csv = buildCSVContent([], new Set(), "all", data);
-    // Should not crash, should still contain event info
     expect(csv).toContain("Test Event");
-    expect(csv).not.toContain("Ticket Information");
+    expect(csv).toContain("--- Ticket Information ---");
+    expect(csv).toContain("Tickets Sold");
+    expect(csv).toContain("Net Revenue");
   });
 
   it("includes settlement info", () => {
@@ -93,18 +96,21 @@ describe("buildCSVContent", () => {
     expect(csv).toContain("open");
   });
 
-  it("includes event.notes in the event-info section when set", () => {
+  it("includes event.notes in its own --- Notes --- section when picked", () => {
     const data = makeEventData({
       event: { ...makeEventData().event, notes: "Backstage door is around the back\nCode: 1234" } as EventExportData["event"],
     });
-    const csv = buildCSVContent(["details"], new Set(["event-info"]), "sections", data);
-    expect(csv).toContain(`"Notes","Backstage door is around the back`);
+    const csv = buildCSVContent(["details"], new Set(["notes"]), "sections", data);
+    expect(csv).toContain("--- Notes ---");
+    expect(csv).toContain("Backstage door is around the back");
     expect(csv).toContain("Code: 1234");
+    // event-info heading must NOT appear when only `notes` is picked
+    expect(csv).not.toContain("--- Event Information ---");
   });
 
-  it("omits the Notes row when event.notes is unset", () => {
-    const csv = buildCSVContent(["details"], new Set(["event-info"]), "sections", makeEventData());
-    expect(csv).not.toContain(`"Notes",`);
+  it("omits the Notes section when event.notes is unset", () => {
+    const csv = buildCSVContent(["details"], new Set(["notes"]), "sections", makeEventData());
+    expect(csv).not.toContain("--- Notes ---");
   });
 
   it("renders the Event Summary section under the agreement tab", () => {
@@ -231,6 +237,91 @@ describe("buildCSVContent", () => {
     });
     const csv = buildCSVContent([], new Set(), "all", data);
     expect(csv).not.toContain("undefined");
+  });
+
+  it("renders the Performers section from data.performers", () => {
+    const data = makeEventData({
+      performers: [
+        {
+          id: "c1", name: "Test Event — Headline", date: "2026-05-01",
+          venue: "The Venue", artist: "Headline Act", capacity: 500,
+          roomStage: "Main Stage", performerRoleTag: "headliner",
+          eventStatus: "confirmed",
+        } as unknown as EventExportData["event"],
+        {
+          id: "c2", name: "Test Event — Support", date: "2026-05-01",
+          venue: "The Venue", artist: "Support Act", capacity: 500,
+          performerRoleTag: "support", eventStatus: "confirmed",
+        } as unknown as EventExportData["event"],
+      ],
+    });
+    const csv = buildCSVContent(["details"], new Set(["performers"]), "sections", data);
+    expect(csv).toContain("--- Performers ---");
+    expect(csv).toContain("Headline Act");
+    expect(csv).toContain("Support Act");
+    expect(csv).toContain("Headliner");
+    expect(csv).toContain("Support");
+  });
+
+  it("renders the Amenities section with translated labels and custom strings", () => {
+    const data = makeEventData({
+      event: {
+        ...makeEventData().event,
+        amenities: ["backline", "WiFi"],
+        cateringNotes: "Vegan menu pre-show",
+      } as EventExportData["event"],
+    });
+    const csv = buildCSVContent(["details"], new Set(["amenities"]), "sections", data);
+    expect(csv).toContain("--- Amenities ---");
+    expect(csv).toContain("Full Backline");
+    expect(csv).toContain("WiFi");
+    expect(csv).toContain("Vegan menu pre-show");
+  });
+
+  it("renders the Guest List section", () => {
+    const data = makeEventData({
+      eventMeta: {
+        guestList: {
+          totalTicketLimit: 12,
+          perGuestTicketLimit: 1,
+          guests: [
+            { id: "g1", name: "Ori's Mom", tickets: 1, invitingParty: "Venue" },
+            { id: "g2", name: "Ori's Uncle", tickets: 1, invitingParty: "Venue" },
+          ],
+        },
+      } as unknown as EventExportData["eventMeta"],
+    });
+    const csv = buildCSVContent(["details"], new Set(["guest-list"]), "sections", data);
+    expect(csv).toContain("--- Guest List ---");
+    expect(csv).toContain("Ori's Mom");
+    expect(csv).toContain("Ori's Uncle");
+  });
+
+  it("renders the Expenses section with a Total row", () => {
+    const data = makeEventData({
+      eventMeta: {
+        expenses: [
+          { id: "e1", label: "Catering", amount: 500, currency: "EUR" },
+          { id: "e2", label: "Transport", amount: 120, currency: "EUR" },
+        ],
+      } as unknown as EventExportData["eventMeta"],
+    });
+    const csv = buildCSVContent(["details"], new Set(["expenses"]), "sections", data);
+    expect(csv).toContain("--- Expenses ---");
+    expect(csv).toContain("Catering");
+    expect(csv).toContain("Transport");
+    expect(csv).toContain(`"Total",`);
+  });
+
+  it("uses 'Event Schedule' heading (renamed from Production Schedule)", () => {
+    const data = makeEventData({
+      eventMeta: {
+        schedule: [{ id: "s1", time: "18:00", label: "Doors open" }],
+      } as unknown as EventExportData["eventMeta"],
+    });
+    const csv = buildCSVContent(["details"], new Set(["production-schedule"]), "sections", data);
+    expect(csv).toContain("--- Event Schedule ---");
+    expect(csv).not.toContain("--- Production Schedule ---");
   });
 
   it("renders the PRO estimate when proEstimate is on eventMeta", () => {

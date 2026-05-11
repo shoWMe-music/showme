@@ -8,7 +8,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Share2, AlertTriangle, Globe, Lock } from "lucide-react";
 import { toast, copyToast } from "@/hooks/use-toast";
-import { createPublicEventShare, fetchSchedule, fetchCrew, fetchRiders, fetchAgreements, fetchEventCollaborators, fetchEventBudgetCalculator } from "@/lib/db";
+import { createPublicEventShare, fetchSchedule, fetchCrew, fetchRiders, fetchAgreements, fetchEventCollaborators, fetchEventBudgetCalculator, fetchEventById } from "@/lib/db";
 import { useEvent, useEventEconomics } from "@/lib/queries";
 import { useUser } from "@/lib/user-context";
 import { newShareToken } from "@/lib/shareToken";
@@ -21,7 +21,7 @@ import { RecipientsInput } from "./export-event/RecipientsInput";
 import { ExportActions, type ShareAccess } from "./export-event/ExportActions";
 import { PublicShareWarningModal } from "./export-event/PublicShareWarningModal";
 import { parseRecipientInput } from "./export-event/parseRecipientInput";
-import type { DealStructure, TicketRevenue, Settlement } from "@/lib/models";
+import type { DealStructure, TicketRevenue, Settlement, Event as AppEvent } from "@/lib/models";
 
 interface ShareExportDialogProps {
   open: boolean;
@@ -59,6 +59,25 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
   const agreements = agreementsQ.data;
   const collaborators = collaboratorsQ.data;
 
+  // For multi-performer parent events, hydrate each child event so its data
+  // (artist name, role tag, room/stage, capacity) can travel into the share
+  // snapshot. Without this the share page has no way to render the performers
+  // list — it sees only the parent's `event.artist` string.
+  const childIdsKey = (event?.childEventIds ?? []).join(",");
+  const childEventsQ = useQuery<AppEvent[]>({
+    queryKey: ["export-child-events", eventId, childIdsKey],
+    queryFn: async () => {
+      const ids = event?.childEventIds ?? [];
+      if (ids.length === 0) return [];
+      const fetched = await Promise.all(ids.map((id) => fetchEventById(id)));
+      return fetched.filter((e): e is AppEvent => !!e);
+    },
+    enabled: open && !!event?.isMultiPerformer && (event?.childEventIds?.length ?? 0) > 0,
+  });
+  // Use the query's data reference directly (rather than `?? []`) so the
+  // useMemo below doesn't get a fresh array identity on every render.
+  const performers = childEventsQ.data;
+
   // Budget snapshot lives in events/{id}/budgets/{profileDocId}; we need the
   // profile id from eventMeta to fetch it. The recipient renderer reads
   // eventMeta.budget.{revenue,cost,result}Fields, so without this the budget
@@ -77,6 +96,7 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
   const subcollectionsLoaded = !open || (
     scheduleQ.isSuccess && crewQ.isSuccess && ridersQ.isSuccess && agreementsQ.isSuccess && collaboratorsQ.isSuccess
     && (!budgetProfileId || budgetQ.isSuccess)
+    && (!event?.isMultiPerformer || childEventsQ.isSuccess)
   );
 
   const eventData = useMemo<EventExportData | undefined>(() => {
@@ -85,6 +105,7 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
       return {
         ...eventDataProp,
         eventMeta: { ...eventDataProp.eventMeta, schedule, crew, riders, agreements, collaborators, budget: budget ?? undefined } as EventExportData["eventMeta"],
+        performers: performers ?? [],
       };
     }
     if (!event || !economicsLoaded || !subcollectionsLoaded) return undefined;
@@ -94,9 +115,10 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
       revenue: revenue ?? { eventId: event.id, ticketsSold: 0, grossRevenue: 0, ticketFees: 0, tax: 0, refunds: 0, doorSales: 0, productionExpenses: 0, additionalCosts: 0 } as TicketRevenue,
       settlement: settlement ?? { eventId: event.id, promoterPayout: 0, artistPayout: 0, venuePayout: 0, commissionPayouts: [], status: "open" as const, approvals: [{ party: "Operator", approved: false }, { party: "Performer", approved: false }, { party: "Venue", approved: false }], comments: [], revisions: [] } as Settlement,
       eventMeta: { ...eventMeta, schedule, crew, riders, agreements, collaborators, budget: budget ?? undefined } as EventExportData["eventMeta"],
+      performers: performers ?? [],
       currency: currentUser?.currency || "EUR",
     };
-  }, [eventDataProp, event, economicsLoaded, subcollectionsLoaded, deal, revenue, settlement, eventMeta, schedule, crew, riders, agreements, collaborators, budget, currentUser?.currency]);
+  }, [eventDataProp, event, economicsLoaded, subcollectionsLoaded, deal, revenue, settlement, eventMeta, schedule, crew, riders, agreements, collaborators, budget, performers, currentUser?.currency]);
 
   const [level, setLevel] = useState<SelectionLevel>("sections");
   const [selectedTabs, setSelectedTabs] = useState<Set<string>>(new Set());
@@ -204,9 +226,16 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
           amenities: eventData.event.amenities,
           cateringNotes: eventData.event.cateringNotes,
           accommodationNotes: eventData.event.accommodationNotes,
+          isMultiPerformer: eventData.event.isMultiPerformer,
+          childEventIds: eventData.event.childEventIds,
+          performerProfileId: eventData.event.performerProfileId,
+          performerRoleTag: eventData.event.performerRoleTag,
+          roomStage: eventData.event.roomStage,
+          stageCapacity: eventData.event.stageCapacity,
         },
         deal: eventData.deal, revenue: eventData.revenue, eventMeta: eventData.eventMeta,
         settlement: eventData.settlement, currency: eventData.currency,
+        performers: eventData.performers ?? [],
       } : {};
       // Always mint a fresh random token — share docs are frozen by design,
       // so reusing a token would silently overwrite a previous snapshot.

@@ -14,9 +14,16 @@ export const TAB_SECTIONS: Record<string, { label: string; sections: { id: strin
     label: "Event Details",
     sections: [
       { id: "event-info", label: "Event Information" },
+      { id: "performers", label: "Performers" },
+      { id: "notes", label: "Notes" },
+      { id: "amenities", label: "Amenities" },
       { id: "ticketing", label: "Ticket Information" },
-      { id: "production-schedule", label: "Production Schedule" },
+      // ID kept as `production-schedule` for backwards-compat with existing share URLs;
+      // the label and rendered heading now read "Event Schedule" to match the in-app tab.
+      { id: "production-schedule", label: "Event Schedule" },
       { id: "riders", label: "Riders & Documents" },
+      { id: "guest-list", label: "Guest List" },
+      { id: "expenses", label: "Expenses" },
       { id: "deal-structure", label: "Financial Deal" },
     ],
   },
@@ -53,5 +60,7 @@ export interface EventExportData {
   revenue: TicketRevenue;
   settlement: Settlement;
   eventMeta: EventMeta;
+  /** Full child event docs for multi-performer parents; empty array otherwise. */
+  performers?: AppEvent[];
   currency: string;
 }

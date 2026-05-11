@@ -1,6 +1,8 @@
-import { formatCurrency, getCurrencySymbol, type ScheduleItem, type Rider, type Agreement, type CrewMember } from "@/lib/models";
+import { formatCurrency, getCurrencySymbol, amenityLabels, type ScheduleItem, type Rider, type Agreement, type CrewMember, type AmenityKey, type Event as AppEvent } from "@/lib/models";
 import { type SelectionLevel, type EventExportData } from "./types";
 import { type Todo } from "@/lib/db";
+import { partitionAmenities } from "@/components/event-manager/EventDetailsTab";
+import { PERFORMER_ROLE_TAG_LABELS, type PerformerRoleTag } from "@/components/PerformerFormFields";
 
 export function buildPrintHTML(
   selectedTabs: Set<string>,
@@ -52,31 +54,62 @@ th{background:#f5f5f5;font-weight:600}
       <tr><td>Capacity</td><td>${s(event.capacity)}</td></tr>
       <tr><td>Ticketing</td><td>${s(Array.from(new Set((event.tickets ?? []).map(t => t.provider).filter(Boolean))).join(", "))}</td></tr>
     </table>`;
-    if (event.notes) {
-      html += `<h2>Notes</h2><p style="white-space:pre-wrap;font-size:13px">${s(event.notes)}</p>`;
+  }
+
+  // Performers — child events for multi-performer parents. Empty when single-performer.
+  const performers: AppEvent[] = data.performers ?? [];
+  if (includeSection("performers", "details") && performers.length > 0) {
+    html += `<h2>Performers</h2><table>
+      <tr><th>Name</th><th>Role</th><th>Venue</th><th>Room/Stage</th><th>Capacity</th></tr>`;
+    performers.forEach((p) => {
+      const role = p.performerRoleTag
+        ? s(PERFORMER_ROLE_TAG_LABELS[p.performerRoleTag as PerformerRoleTag])
+        : "";
+      html += `<tr><td>${s(p.artist)}</td><td>${role}</td><td>${s(p.venue)}</td><td>${s(p.roomStage)}</td><td>${s(p.capacity)}</td></tr>`;
+    });
+    html += `</table>`;
+  }
+
+  if (includeSection("notes", "details") && event.notes) {
+    html += `<h2>Notes</h2><p style="white-space:pre-wrap;font-size:13px">${s(event.notes)}</p>`;
+  }
+
+  if (includeSection("amenities", "details") && ((event.amenities && event.amenities.length > 0) || event.cateringNotes || event.accommodationNotes)) {
+    html += `<h2>Amenities</h2>`;
+    if (event.amenities && event.amenities.length > 0) {
+      const { standard, custom } = partitionAmenities(event.amenities);
+      const labels = [
+        ...standard.map((a) => amenityLabels[a as AmenityKey]),
+        ...custom,
+      ].filter(Boolean);
+      html += `<p style="font-size:13px">${labels.map((a) => s(a)).join(", ")}</p>`;
     }
-    if ((event.amenities && event.amenities.length > 0) || event.cateringNotes || event.accommodationNotes) {
-      html += `<h2>Amenities</h2>`;
-      if (event.amenities && event.amenities.length > 0) {
-        html += `<p style="font-size:13px">${event.amenities.map(a => s(a)).join(", ")}</p>`;
-      }
-      if (event.cateringNotes) {
-        html += `<p style="white-space:pre-wrap;font-size:13px"><strong>Catering:</strong> ${s(event.cateringNotes)}</p>`;
-      }
-      if (event.accommodationNotes) {
-        html += `<p style="white-space:pre-wrap;font-size:13px"><strong>Accommodation:</strong> ${s(event.accommodationNotes)}</p>`;
-      }
+    if (event.cateringNotes) {
+      html += `<p style="white-space:pre-wrap;font-size:13px"><strong>Catering:</strong> ${s(event.cateringNotes)}</p>`;
+    }
+    if (event.accommodationNotes) {
+      html += `<p style="white-space:pre-wrap;font-size:13px"><strong>Accommodation:</strong> ${s(event.accommodationNotes)}</p>`;
     }
   }
 
-  if (includeSection("ticketing", "details") && revenue?.ticketTypes?.length) {
+  if (includeSection("ticketing", "details") && revenue) {
     html += `<h2>Ticket Information</h2><table>
-      <tr><th>Type</th><th>Price (${sym})</th><th>Expected Sold</th></tr>`;
-    revenue.ticketTypes.forEach(t => {
-      html += `<tr><td>${t.name}</td><td>${formatCurrency(t.price, currency)}</td><td>${t.sold}</td></tr>`;
-    });
-    const totalRev = revenue.ticketTypes.reduce((s, t) => s + t.price * t.sold, 0);
-    html += `<tr><th>Total</th><th>${formatCurrency(totalRev, currency)}</th><th></th></tr></table>`;
+      <tr><th>Metric</th><th>Value</th></tr>
+      <tr><td>Tickets Sold</td><td>${revenue.ticketsSold ?? 0}</td></tr>
+      <tr><td>Gross Revenue</td><td>${formatCurrency(revenue.grossRevenue ?? 0, currency)}</td></tr>
+      <tr><td>Door Sales</td><td>${formatCurrency(revenue.doorSales ?? 0, currency)}</td></tr>`;
+    const netRev = (revenue.grossRevenue ?? 0) + (revenue.doorSales ?? 0)
+      - (revenue.ticketFees ?? 0) - (revenue.tax ?? 0) - (revenue.refunds ?? 0);
+    html += `<tr><td>Net Revenue</td><td>${formatCurrency(netRev, currency)}</td></tr></table>`;
+    if (revenue.ticketTypes?.length) {
+      html += `<h3 style="font-size:14px;margin-top:16px">Ticket Types</h3><table>
+        <tr><th>Type</th><th>Price (${sym})</th><th>Expected Sold</th></tr>`;
+      revenue.ticketTypes.forEach(t => {
+        html += `<tr><td>${t.name}</td><td>${formatCurrency(t.price, currency)}</td><td>${t.sold}</td></tr>`;
+      });
+      const totalRev = revenue.ticketTypes.reduce((s, t) => s + t.price * t.sold, 0);
+      html += `<tr><th>Total</th><th>${formatCurrency(totalRev, currency)}</th><th></th></tr></table>`;
+    }
   }
 
   if (includeSection("deal-structure", "details")) {
@@ -94,10 +127,12 @@ th{background:#f5f5f5;font-weight:600}
     }
   }
 
-  // schedule and riders are stored in subcollections — merged onto eventMeta in ExportEventDialog
+  // schedule and riders are stored in subcollections — merged onto eventMeta in ExportEventDialog.
+  // Section id is `production-schedule` for backwards-compat with existing share URLs;
+  // the rendered heading reads "Event Schedule" to match the in-app tab.
   const scheduleItems = md ? (md as unknown as { schedule?: ScheduleItem[] }).schedule : undefined;
   if (includeSection("production-schedule", "details") && scheduleItems?.length) {
-    html += `<h2>Production Schedule</h2><table>
+    html += `<h2>Event Schedule</h2><table>
       <tr><th>Time</th><th>Activity</th></tr>`;
     scheduleItems.forEach((item: ScheduleItem) => {
       html += `<tr><td>${item.time || ""}</td><td>${s(item.label)}</td></tr>`;
@@ -116,6 +151,33 @@ th{background:#f5f5f5;font-weight:600}
       html += `<tr><td>${s(r.type)}</td><td>${s(r.name)}</td><td>${fileCell}</td></tr>`;
     });
     html += `</table>`;
+  }
+
+  // Guest List
+  const guestList = md ? (md as unknown as { guestList?: { totalTicketLimit: number; perGuestTicketLimit: number; guests: { id: string; name: string; tickets: number; invitingParty: string }[] } | null }).guestList : null;
+  if (includeSection("guest-list", "details") && guestList && guestList.guests.length > 0) {
+    const totalTickets = guestList.guests.reduce((sum, g) => sum + g.tickets, 0);
+    html += `<h2>Guest List</h2>`;
+    html += `<p style="font-size:13px;color:#666">${guestList.guests.length} guest${guestList.guests.length === 1 ? "" : "s"} · ${totalTickets} ticket${totalTickets === 1 ? "" : "s"}${guestList.totalTicketLimit > 0 ? ` / ${guestList.totalTicketLimit} limit` : ""}</p>`;
+    html += `<table>
+      <tr><th>#</th><th>Guest Name</th><th>Tickets</th><th>Inviting Party</th></tr>`;
+    guestList.guests.forEach((g, i) => {
+      html += `<tr><td>${i + 1}</td><td>${s(g.name)}</td><td>${g.tickets}</td><td>${s(g.invitingParty)}</td></tr>`;
+    });
+    html += `</table>`;
+  }
+
+  // Expenses
+  const expenses = md ? (md as unknown as { expenses?: { id: string; label: string; amount: number; currency: string }[] }).expenses : undefined;
+  if (includeSection("expenses", "details") && expenses && expenses.length > 0) {
+    html += `<h2>Expenses</h2><table>
+      <tr><th>Label</th><th>Amount</th></tr>`;
+    let total = 0;
+    expenses.forEach((e) => {
+      total += e.amount ?? 0;
+      html += `<tr><td>${s(e.label)}</td><td>${formatCurrency(e.amount, e.currency || currency)}</td></tr>`;
+    });
+    html += `<tr><th>Total</th><th>${formatCurrency(total, currency)}</th></tr></table>`;
   }
 
   if (includeSection("event-summary", "agreement")) {
