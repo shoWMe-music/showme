@@ -199,7 +199,7 @@ export default function ExportEventDialog({ open, onOpenChange, eventName, event
           id: eventData.event.id, name: eventData.event.name, date: eventData.event.date,
           venue: eventData.event.venue, artist: eventData.event.artist, operator: eventData.event.operator,
           operatorType: eventData.event.operatorType, capacity: eventData.event.capacity,
-          ticketingProvider: eventData.event.ticketingProvider, eventStatus: eventData.event.eventStatus,
+          tickets: eventData.event.tickets, eventStatus: eventData.event.eventStatus,
           notes: eventData.event.notes,
           amenities: eventData.event.amenities,
           cateringNotes: eventData.event.cateringNotes,

@@ -87,7 +87,7 @@ export default function PublicEventPage() {
   }
 
   const eventDate = new Date(event.date);
-  const ticketUrls: string[] = event.ticketUrls || [];
+  const tickets = (event.tickets ?? []).filter(t => t.url);
   const roomStage: string = event.roomStage || "";
 
   const handleRsvp = () => {
@@ -175,25 +175,26 @@ export default function PublicEventPage() {
         </div>
 
         {/* Tickets section */}
-        {(ticketUrls.length > 0 || event.ticketingProvider) && (
+        {tickets.length > 0 && (
           <div className="rounded-xl border bg-card p-6 shadow-sm">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <Ticket className="h-5 w-5 text-primary" /> Tickets
             </h2>
-            {event.ticketingProvider && (
-              <p className="text-sm text-muted-foreground mb-3">
-                Sold by <span className="font-medium text-foreground">{event.ticketingProvider}</span>
-              </p>
-            )}
             <div className="space-y-2">
-              {ticketUrls.map((url, i) => (
+              {tickets.map((t, i) => (
                 <div key={i} className="flex items-center justify-between rounded-lg bg-muted/50 p-4">
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     <ExternalLink className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span className="text-sm truncate">{url}</span>
+                    <span className="text-sm truncate">{t.url}</span>
                   </div>
                   <Button asChild size="sm" className="ml-3 shrink-0">
-                    <a href={url} target="_blank" rel="noopener noreferrer">Buy Tickets</a>
+                    {t.provider === "platform" ? (
+                      <a href={t.url}>Buy on {t.provider || "tickets"}</a>
+                    ) : (
+                      <a href={t.url} target="_blank" rel="noopener noreferrer">
+                        Buy on {t.provider || "tickets"}
+                      </a>
+                    )}
                   </Button>
                 </div>
               ))}

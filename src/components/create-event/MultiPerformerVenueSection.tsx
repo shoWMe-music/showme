@@ -1,4 +1,6 @@
+import { Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -20,8 +22,8 @@ interface MultiPerformerVenueSectionProps {
   setFestivalName: (v: string) => void;
   venueName: string;
   setVenueName: (v: string) => void;
-  ticketingProvider: string;
-  setTicketingProvider: (v: string) => void;
+  tickets: { provider: string; url: string }[];
+  setTickets: (t: { provider: string; url: string }[]) => void;
   selectedRole: OperatorRole | null;
   allVenueOptions: VenueOption[];
   profiles: Record<string, any>;
@@ -31,7 +33,7 @@ export function MultiPerformerVenueSection({
   multiVenueType, setMultiVenueType,
   festivalName, setFestivalName,
   venueName, setVenueName,
-  ticketingProvider, setTicketingProvider,
+  tickets, setTickets,
   selectedRole, allVenueOptions,
   profiles,
 }: MultiPerformerVenueSectionProps) {
@@ -112,8 +114,33 @@ export function MultiPerformerVenueSection({
       )}
 
       <div className="space-y-2">
-        <Label>Ticketing Provider</Label>
-        <ContactCombobox contactType="ticketing" value={ticketingProvider} onChange={setTicketingProvider} placeholder="Search or type provider" />
+        <Label>Ticket links</Label>
+        <div className="space-y-2">
+          {tickets.map((t, i) => (
+            <div key={i} className="flex gap-2">
+              <div className="flex-1">
+                <ContactCombobox
+                  contactType="ticketing"
+                  value={t.provider}
+                  onChange={(v) => setTickets(tickets.map((row, j) => j === i ? { ...row, provider: v } : row))}
+                  placeholder="Provider"
+                />
+              </div>
+              <Input
+                value={t.url}
+                onChange={(e) => setTickets(tickets.map((row, j) => j === i ? { ...row, url: e.target.value } : row))}
+                placeholder="https://tickets.example.com/..."
+                className="flex-1"
+              />
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setTickets(tickets.filter((_, j) => j !== i))}>
+                <X className="h-3.5 w-3.5 text-destructive" />
+              </Button>
+            </div>
+          ))}
+          <Button variant="outline" size="sm" onClick={() => setTickets([...tickets, { provider: "", url: "" }])}>
+            <Plus className="h-3.5 w-3.5 mr-1" /> Add ticket link
+          </Button>
+        </div>
       </div>
     </>
   );

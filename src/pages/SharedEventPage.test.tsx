@@ -42,7 +42,7 @@ function makeFullSnapshot() {
       operator: "Acme Promotions",
       operatorType: "promoter",
       capacity: 1000,
-      ticketingProvider: "TicketMaster",
+      tickets: [{ provider: "TicketMaster", url: "https://tickets.example.com/shared" }],
       eventStatus: "confirmed",
     },
     deal: {

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MoreVertical, Archive, Ban, Copy, Trash2 } from "lucide-react";
+import { MoreVertical, Archive, Ban, Copy, Link as LinkIcon, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator,
@@ -42,6 +42,17 @@ export function EventActionsMenu({
               <Copy className="h-4 w-4 mr-2" /> Duplicate Event
             </DropdownMenuItem>
           )}
+          <DropdownMenuItem onClick={async () => {
+            const url = `${window.location.origin}/event/${id}`;
+            try {
+              await navigator.clipboard.writeText(url);
+              toast({ title: "Link copied", description: event.published ? url : "Link copied. Event is not yet published — visitors will see a not-found page until you publish it." });
+            } catch {
+              toast({ title: "Copy failed", description: "Could not copy to clipboard.", variant: "destructive" });
+            }
+          }}>
+            <LinkIcon className="h-4 w-4 mr-2" /> Copy publish event link
+          </DropdownMenuItem>
           {event.eventStatus !== "cancelled" && (
             <DropdownMenuItem onClick={() => {
               if (event.eventStatus === "on_hold") promoteHoldsOnDate(event.date, event.venue, event.roomStage || "", event.holdRank || 1);

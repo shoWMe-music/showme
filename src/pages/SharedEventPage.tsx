@@ -271,7 +271,14 @@ export default function SharedEventPage() {
                 <div><span className="text-muted-foreground">Venue:</span> <span className="font-medium ml-2">{event.venue}</span></div>
                 <div><span className="text-muted-foreground">Capacity:</span> <span className="font-medium ml-2">{event.capacity?.toLocaleString()}</span></div>
                 <div><span className="text-muted-foreground">Operator:</span> <span className="font-medium ml-2">{event.operator}</span></div>
-                {event.ticketingProvider && <div><span className="text-muted-foreground">Ticketing:</span> <span className="font-medium ml-2">{event.ticketingProvider}</span></div>}
+                {event.tickets?.length ? (
+                  <div>
+                    <span className="text-muted-foreground">Ticketing:</span>{" "}
+                    <span className="font-medium ml-2">
+                      {Array.from(new Set(event.tickets.map(t => t.provider).filter(Boolean))).join(", ")}
+                    </span>
+                  </div>
+                ) : null}
               </div>
               {event.notes && (
                 <div className="mt-4 pt-4 border-t">

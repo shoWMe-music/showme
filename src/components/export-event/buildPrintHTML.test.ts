@@ -12,7 +12,7 @@ function makeEventData(overrides?: Partial<EventExportData>): EventExportData {
       id: "EVT-001", name: "Test Gig", date: "2026-06-15",
       venue: "Blue Note", artist: "Jazz Trio", operator: "BookerX",
       operatorType: "promoter", capacity: 200, eventStatus: "confirmed",
-      ticketingProvider: "Dice",
+      tickets: [{ provider: "Dice", url: "https://tickets.example.com/test" }],
     } as EventExportData["event"],
     deal: {
       eventId: "EVT-001", dealType: "split",

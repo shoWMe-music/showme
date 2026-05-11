@@ -59,9 +59,9 @@ const TEST_USERS = [
     bio: "A test venue account for local development.",
     capacity: 1200,
     events: [
-      { id: "EVT-TU-V1", name: "Test Venue Showcase", date: "2026-05-10", artist: "Test Artist One", eventStatus: "confirmed" as const, status: "open" as const, published: true, capacity: 1200, ticketingProvider: "DICE" },
-      { id: "EVT-TU-V2", name: "Test Venue Club Night", date: "2026-06-20", artist: "Floating Points", eventStatus: "pending" as const, status: "open" as const, published: false, capacity: 1200, ticketingProvider: "DICE" },
-      { id: "EVT-TU-V3", name: "Test Venue Wrap Party", date: "2026-03-01", artist: "Jamie xx", eventStatus: "concluded" as const, status: "finalized" as const, published: false, capacity: 1200, ticketingProvider: "DICE" },
+      { id: "EVT-TU-V1", name: "Test Venue Showcase", date: "2026-05-10", artist: "Test Artist One", eventStatus: "confirmed" as const, status: "open" as const, published: true, capacity: 1200, tickets: [{ provider: "DICE", url: "https://tickets.example.com/evt-tu-v1" }] },
+      { id: "EVT-TU-V2", name: "Test Venue Club Night", date: "2026-06-20", artist: "Floating Points", eventStatus: "pending" as const, status: "open" as const, published: false, capacity: 1200, tickets: [{ provider: "DICE", url: "https://tickets.example.com/evt-tu-v2" }] },
+      { id: "EVT-TU-V3", name: "Test Venue Wrap Party", date: "2026-03-01", artist: "Jamie xx", eventStatus: "concluded" as const, status: "finalized" as const, published: false, capacity: 1200, tickets: [{ provider: "DICE", url: "https://tickets.example.com/evt-tu-v3" }] },
     ],
   },
   {
@@ -72,9 +72,9 @@ const TEST_USERS = [
     locations: [{ id: "loc-1", label: "Primary", city: "Berlin", country: "DE" }],
     bio: "A test promoter account for local development.",
     events: [
-      { id: "EVT-TU-P1", name: "Test Promoter Presents", date: "2026-05-17", artist: "Four Tet", eventStatus: "confirmed" as const, status: "open" as const, published: true, capacity: 2000, ticketingProvider: "Eventbrite" },
-      { id: "EVT-TU-P2", name: "Test Promoter Festival", date: "2026-07-12", artist: "Bonobo", eventStatus: "suggested" as const, status: "open" as const, published: false, capacity: 5000, ticketingProvider: "Paylogic" },
-      { id: "EVT-TU-P3", name: "Test Promoter Year End", date: "2026-03-05", artist: "BICEP", eventStatus: "concluded" as const, status: "revised" as const, published: false, capacity: 3000, ticketingProvider: "Eventbrite" },
+      { id: "EVT-TU-P1", name: "Test Promoter Presents", date: "2026-05-17", artist: "Four Tet", eventStatus: "confirmed" as const, status: "open" as const, published: true, capacity: 2000, tickets: [{ provider: "Eventbrite", url: "https://tickets.example.com/evt-tu-p1" }] },
+      { id: "EVT-TU-P2", name: "Test Promoter Festival", date: "2026-07-12", artist: "Bonobo", eventStatus: "suggested" as const, status: "open" as const, published: false, capacity: 5000, tickets: [{ provider: "Paylogic", url: "https://tickets.example.com/evt-tu-p2" }] },
+      { id: "EVT-TU-P3", name: "Test Promoter Year End", date: "2026-03-05", artist: "BICEP", eventStatus: "concluded" as const, status: "revised" as const, published: false, capacity: 3000, tickets: [{ provider: "Eventbrite", url: "https://tickets.example.com/evt-tu-p3" }] },
     ],
   },
   {
@@ -85,9 +85,9 @@ const TEST_USERS = [
     locations: [{ id: "loc-1", label: "Primary", city: "Stockholm", country: "SE" }],
     bio: "A test organizer account for local development.",
     events: [
-      { id: "EVT-TU-O1", name: "Test Organizer Conference", date: "2026-06-05", artist: "Nils Frahm", eventStatus: "confirmed" as const, status: "open" as const, published: true, capacity: 800, ticketingProvider: "See Tickets" },
-      { id: "EVT-TU-O2", name: "Test Organizer Showcase", date: "2026-04-22", artist: "Arlo Parks", eventStatus: "on_hold" as const, status: "open" as const, published: false, capacity: 600, ticketingProvider: "See Tickets" },
-      { id: "EVT-TU-O3", name: "Test Organizer Season Finale", date: "2026-03-10", artist: "Yussef Dayes", eventStatus: "concluded" as const, status: "paid" as const, published: false, capacity: 700, ticketingProvider: "See Tickets" },
+      { id: "EVT-TU-O1", name: "Test Organizer Conference", date: "2026-06-05", artist: "Nils Frahm", eventStatus: "confirmed" as const, status: "open" as const, published: true, capacity: 800, tickets: [{ provider: "See Tickets", url: "https://tickets.example.com/evt-tu-o1" }] },
+      { id: "EVT-TU-O2", name: "Test Organizer Showcase", date: "2026-04-22", artist: "Arlo Parks", eventStatus: "on_hold" as const, status: "open" as const, published: false, capacity: 600, tickets: [{ provider: "See Tickets", url: "https://tickets.example.com/evt-tu-o2" }] },
+      { id: "EVT-TU-O3", name: "Test Organizer Season Finale", date: "2026-03-10", artist: "Yussef Dayes", eventStatus: "concluded" as const, status: "paid" as const, published: false, capacity: 700, tickets: [{ provider: "See Tickets", url: "https://tickets.example.com/evt-tu-o3" }] },
     ],
   },
   {
@@ -110,9 +110,9 @@ const TEST_USERS = [
     bio: "A test festival account for local development.",
     capacity: 8000,
     events: [
-      { id: "EVT-TU-F1", name: "Test Festival Main Stage", date: "2026-08-08", artist: "Aurora", eventStatus: "confirmed" as const, status: "open" as const, published: true, capacity: 8000, ticketingProvider: "Ticketmaster" },
-      { id: "EVT-TU-F2", name: "Test Festival Side Stage", date: "2026-08-09", artist: "GoGo Penguin", eventStatus: "confirmed" as const, status: "open" as const, published: true, capacity: 2000, ticketingProvider: "Ticketmaster" },
-      { id: "EVT-TU-F3", name: "Test Festival Preview Night", date: "2026-03-07", artist: "Khruangbin", eventStatus: "concluded" as const, status: "finalized" as const, published: false, capacity: 1500, ticketingProvider: "Ticketmaster" },
+      { id: "EVT-TU-F1", name: "Test Festival Main Stage", date: "2026-08-08", artist: "Aurora", eventStatus: "confirmed" as const, status: "open" as const, published: true, capacity: 8000, tickets: [{ provider: "Ticketmaster", url: "https://tickets.example.com/evt-tu-f1" }] },
+      { id: "EVT-TU-F2", name: "Test Festival Side Stage", date: "2026-08-09", artist: "GoGo Penguin", eventStatus: "confirmed" as const, status: "open" as const, published: true, capacity: 2000, tickets: [{ provider: "Ticketmaster", url: "https://tickets.example.com/evt-tu-f2" }] },
+      { id: "EVT-TU-F3", name: "Test Festival Preview Night", date: "2026-03-07", artist: "Khruangbin", eventStatus: "concluded" as const, status: "finalized" as const, published: false, capacity: 1500, tickets: [{ provider: "Ticketmaster", url: "https://tickets.example.com/evt-tu-f3" }] },
     ],
   },
 ] as const;
@@ -521,7 +521,7 @@ async function seedTestUsers(): Promise<void> {
         venue: u.role === "venue" ? u.profileName : `${u.profileName} Venue`,
         operator: u.profileName,
         operatorType: toOperatorType(u.role),
-        ticketingProvider: ev.ticketingProvider,
+        tickets: ev.tickets,
         capacity: ev.capacity,
         artist: ev.artist,
         eventStatus: ev.eventStatus,

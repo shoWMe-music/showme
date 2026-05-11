@@ -15,7 +15,7 @@ import {
  * excluded — templates here cover venue-operations defaults that recur across
  * events at the same room.
  */
-type OverviewTemplateData = Pick<AppEvent, "capacity" | "ticketingProvider">;
+type OverviewTemplateData = Pick<AppEvent, "capacity" | "tickets">;
 
 export function OverviewTab({ event, deal, revenue, settlement, buildPayoutRows, settlementTotal, currency = "EUR", partyBreakdowns, totalRevenue, totalDeductions, netRevenue, partyNames, viewerIsPerformer = false, actingProfile }: {
   event: AppEvent; deal?: DealStructure; revenue?: TicketRevenue; settlement: Settlement;
@@ -33,7 +33,7 @@ export function OverviewTab({ event, deal, revenue, settlement, buildPayoutRows,
   const updateEventMutation = useUpdateEvent();
   const overviewTemplate: OverviewTemplateData = {
     capacity: event.capacity,
-    ticketingProvider: event.ticketingProvider,
+    tickets: event.tickets,
   };
   return (
     <div className="space-y-6">
@@ -49,7 +49,7 @@ export function OverviewTab({ event, deal, revenue, settlement, buildPayoutRows,
                 const loaded = data as Partial<OverviewTemplateData>;
                 const updates: Partial<AppEvent> = {};
                 if (typeof loaded.capacity === "number") updates.capacity = loaded.capacity;
-                if (typeof loaded.ticketingProvider === "string") updates.ticketingProvider = loaded.ticketingProvider;
+                if (Array.isArray(loaded.tickets)) updates.tickets = loaded.tickets;
                 if (Object.keys(updates).length === 0) {
                   toast({ title: "Template is empty", variant: "destructive" });
                   return;
@@ -71,7 +71,7 @@ export function OverviewTab({ event, deal, revenue, settlement, buildPayoutRows,
             { icon: Music, label: "Performer", value: event.artist },
             { icon: MapPin, label: "Venue", value: event.venue },
             { icon: Users, label: "Operator", value: `${event.operator} (${event.operatorType})` },
-            { icon: Ticket, label: "Ticketing", value: event.ticketingProvider },
+            { icon: Ticket, label: "Ticketing", value: Array.from(new Set((event.tickets ?? []).map(t => t.provider).filter(Boolean))).join(", ") },
             { icon: Users, label: "Capacity", value: event.capacity.toLocaleString() },
           ].map(({ icon: Icon, label, value, isLink }: { icon: React.ElementType; label: string; value: string | number; isLink?: boolean }) => (
             <div key={label} className="flex items-center justify-between">

@@ -40,6 +40,7 @@ import {
   getDateChangeParties,
 } from "@/lib/queries/useEventMutations";
 import { useEvents } from "@/lib/queries";
+import { getMaxHoldRank } from "@/lib/holdMaxRank";
 import ContactCombobox from "@/components/ContactCombobox";
 import { EditableSection, FileUploadButton } from "./EditableSection";
 import { ScheduleTimeInput } from "./ScheduleTimeInput";
@@ -51,7 +52,7 @@ import {
 } from "@/lib/models";
 import {
   fetchRiders, upsertRider, deleteRider,
-  fetchSchedule, upsertScheduleItem, deleteScheduleItem, appendEventActivity, fetchProfileOwnerUid, addEventCollaborator, type EventMeta,
+  fetchSchedule, upsertScheduleItem, deleteScheduleItem, appendEventActivity, fetchProfileOwnerUid, addEventCollaborator, normalizeTicket, type EventMeta,
 } from "@/lib/db";
 import { getAuthClient } from "@/lib/firebaseAuth";
 import { uploadUserBinary } from "@/lib/firebaseStorageUpload";
@@ -479,7 +480,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
   const [editCateringNotes, setEditCateringNotes] = useState<string>("");
   const [editAccommodationNotes, setEditAccommodationNotes] = useState<string>("");
   const [newCustomAmenity, setNewCustomAmenity] = useState<string>("");
-  const [editEvent, setEditEvent] = useState({ name: event.name, date: event.date, venue: event.venue, artist: event.artist, performerProfileId: event.performerProfileId || "", capacity: event.capacity, ticketingProvider: event.ticketingProvider, eventStatus: event.eventStatus, roomStage: event.roomStage || "", ticketUrls: event.ticketUrls || [] as string[], holdRank: event.holdRank || 1 as number, holdAutoPromote: event.holdAutoPromote !== false as boolean, notes: event.notes || "" });
+  const [editEvent, setEditEvent] = useState({ name: event.name, date: event.date, venue: event.venue, artist: event.artist, performerProfileId: event.performerProfileId || "", capacity: event.capacity, eventStatus: event.eventStatus, roomStage: event.roomStage || "", tickets: event.tickets || [], holdRank: event.holdRank || 1 as number, holdAutoPromote: event.holdAutoPromote !== false as boolean, notes: event.notes || "" });
   const [editDatePickerOpen, setEditDatePickerOpen] = useState(false);
   // C5 — Track whether the user has manually edited the capacity field.
   // Once set, room/stage changes no longer auto-overwrite capacity.
@@ -504,12 +505,6 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
     // useEventMutations and produce phantom activity-log/notification entries.
     const updates: Partial<AppEvent> = {};
     const sameStr = (a?: string, b?: string) => (a ?? "") === (b ?? "");
-    const sameArr = (a?: string[], b?: string[]) => {
-      const aa = a ?? [];
-      const bb = b ?? [];
-      if (aa.length !== bb.length) return false;
-      return aa.every((v, i) => v === bb[i]);
-    };
 
     if (!sameStr(ev.name, event.name)) updates.name = ev.name;
     if (!sameStr(ev.date, event.date)) updates.date = ev.date;
@@ -518,12 +513,12 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
     const nextPerformerId = ev.performerProfileId ? ev.performerProfileId : undefined;
     if (nextPerformerId !== (event.performerProfileId || undefined)) updates.performerProfileId = nextPerformerId;
     if (ev.capacity !== event.capacity) updates.capacity = ev.capacity;
-    if (!sameStr(ev.ticketingProvider, event.ticketingProvider)) updates.ticketingProvider = ev.ticketingProvider;
     if (ev.eventStatus !== event.eventStatus) updates.eventStatus = ev.eventStatus;
     if (!sameStr(ev.roomStage, event.roomStage)) updates.roomStage = ev.roomStage;
-    if (!sameArr(ev.ticketUrls, event.ticketUrls)) updates.ticketUrls = ev.ticketUrls;
+    const normalizedTickets = (ev.tickets ?? []).map(normalizeTicket);
+    if (JSON.stringify(normalizedTickets) !== JSON.stringify(event.tickets ?? [])) updates.tickets = normalizedTickets;
     const nextHoldRank = ev.holdRank || 1;
-    if (nextHoldRank !== (event.holdRank || 1)) updates.holdRank = nextHoldRank;
+    const holdRankChanged = nextHoldRank !== (event.holdRank || 1);
     const nextAutoPromote = ev.holdAutoPromote !== false;
     if (nextAutoPromote !== (event.holdAutoPromote !== false)) updates.holdAutoPromote = nextAutoPromote;
     if (!sameStr(ev.notes, event.notes)) updates.notes = ev.notes;
@@ -532,8 +527,13 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
       updateEvent(event.id, updates);
     }
 
-    if (ev.eventStatus === "on_hold") {
-      resolveHoldRankConflicts(event.id, ev.date, ev.venue, ev.roomStage || "", nextHoldRank);
+    // holdRank goes through the server-side callable, NOT the updateEvent
+    // batch above. The callable reads the event's current rank as oldRank,
+    // shifts siblings, and writes both target + siblings in one Firestore
+    // batch. If we pre-stamped holdRank into the updates object we'd corrupt
+    // the callable's view of oldRank and end up with duplicate ranks.
+    if (ev.eventStatus === "on_hold" && holdRankChanged) {
+      resolveHoldRankConflicts(event.id, nextHoldRank);
     }
   };
 
@@ -583,7 +583,6 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
 
     commitEventSave(editEvent);
   };
-  const [newTicketUrl, setNewTicketUrl] = useState("");
   const [editDeal, setEditDeal] = useState<DealStructure | null>(deal ? { ...deal } : null);
   const [editTicketTypes, setEditTicketTypes] = useState<TicketType[]>(revenue?.ticketTypes ? [...revenue.ticketTypes] : []);
 
@@ -608,7 +607,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
         title="Event Information"
         icon={<Calendar className="h-5 w-5 text-primary" />}
         readOnly={readOnly}
-        onEditStart={() => { setEditEvent({ name: event.name, date: event.date, venue: event.venue, artist: event.artist, performerProfileId: event.performerProfileId || "", capacity: event.capacity, ticketingProvider: event.ticketingProvider, eventStatus: event.eventStatus, roomStage: event.roomStage || "", ticketUrls: event.ticketUrls || [], holdRank: event.holdRank || 1, holdAutoPromote: event.holdAutoPromote !== false, notes: event.notes || "" }); setNewTicketUrl(""); capacityManuallyEdited.current = false; }}
+        onEditStart={() => { setEditEvent({ name: event.name, date: event.date, venue: event.venue, artist: event.artist, performerProfileId: event.performerProfileId || "", capacity: event.capacity, eventStatus: event.eventStatus, roomStage: event.roomStage || "", tickets: event.tickets || [], holdRank: event.holdRank || 1, holdAutoPromote: event.holdAutoPromote !== false, notes: event.notes || "" }); capacityManuallyEdited.current = false; }}
         onSave={handleSaveEventInfo}
         editContent={
           <div className="space-y-4">
@@ -712,7 +711,6 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                 })()}
               </div>
               <div><Label>Capacity</Label><NumberInput value={editEvent.capacity} onChange={(e) => { capacityManuallyEdited.current = true; setEditEvent(p => ({...p, capacity: parseInt(e.target.value) || 0})); }} className="mt-1" /></div>
-              <div><Label>Ticketing Provider</Label><Input value={editEvent.ticketingProvider} onChange={(e) => setEditEvent(p => ({...p, ticketingProvider: e.target.value}))} className="mt-1" /></div>
               <div>
                 <Label>Status</Label>
                 <Select value={editEvent.eventStatus} onValueChange={(v) => setEditEvent(p => ({...p, eventStatus: v as EventStatus}))}>
@@ -730,16 +728,30 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <Label className="text-xs">Hold Priority</Label>
-                      <Select value={String(editEvent.holdRank || 1)} onValueChange={v => setEditEvent(p => ({ ...p, holdRank: Number(v) }))}>
-                        <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1">1st Hold</SelectItem>
-                          <SelectItem value="2">2nd Hold</SelectItem>
-                          <SelectItem value="3">3rd Hold</SelectItem>
-                          <SelectItem value="4">4th Hold</SelectItem>
-                          <SelectItem value="5">5th Hold</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      {(() => {
+                        // Edit flow — gate options at the slot's current
+                        // population. excludeId means the event is in the
+                        // pool, so max = N (not N+1).
+                        const max = getMaxHoldRank({
+                          events: allEvents,
+                          date: editEvent.date,
+                          venue: editEvent.venue,
+                          roomStage: editEvent.roomStage || "",
+                          excludeId: event.id,
+                        });
+                        return (
+                          <Select value={String(editEvent.holdRank || 1)} onValueChange={v => setEditEvent(p => ({ ...p, holdRank: Number(v) }))}>
+                            <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {Array.from({ length: max }, (_, i) => i + 1).map(n => (
+                                <SelectItem key={n} value={String(n)}>
+                                  {n === 1 ? "1st" : n === 2 ? "2nd" : n === 3 ? "3rd" : `${n}th`} Hold
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        );
+                      })()}
                     </div>
                     <div className="flex items-end gap-2 pb-0.5">
                       <input type="checkbox" checked={editEvent.holdAutoPromote !== false} onChange={e => setEditEvent(p => ({ ...p, holdAutoPromote: e.target.checked }))} className="accent-primary" />
@@ -749,20 +761,34 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                 </div>
               )}
             </div>
-            {/* Ticket URLs */}
+            {/* Ticket links */}
             <div>
-              <Label>Ticket URLs</Label>
+              <Label>Ticket links</Label>
               <div className="space-y-2 mt-1">
-                {(editEvent.ticketUrls || []).map((url: string, i: number) => (
+                {(editEvent.tickets || []).map((t, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <Input value={url} onChange={(e) => setEditEvent(p => ({ ...p, ticketUrls: p.ticketUrls.map((u: string, j: number) => j === i ? e.target.value : u) }))} className="flex-1" />
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditEvent(p => ({ ...p, ticketUrls: p.ticketUrls.filter((_: string, j: number) => j !== i) }))}><X className="h-3.5 w-3.5 text-destructive" /></Button>
+                    <div className="flex-1">
+                      <ContactCombobox
+                        contactType="ticketing"
+                        value={t.provider}
+                        onChange={(v) => setEditEvent(p => ({ ...p, tickets: p.tickets.map((row, j) => j === i ? { ...row, provider: v } : row) }))}
+                        placeholder="Provider"
+                      />
+                    </div>
+                    <Input
+                      value={t.url}
+                      onChange={(e) => setEditEvent(p => ({ ...p, tickets: p.tickets.map((row, j) => j === i ? { ...row, url: e.target.value } : row) }))}
+                      placeholder="https://tickets.example.com/..."
+                      className="flex-1"
+                    />
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditEvent(p => ({ ...p, tickets: p.tickets.filter((_, j) => j !== i) }))}>
+                      <X className="h-3.5 w-3.5 text-destructive" />
+                    </Button>
                   </div>
                 ))}
-                <div className="flex gap-2">
-                  <Input value={newTicketUrl} onChange={(e) => setNewTicketUrl(e.target.value)} placeholder="https://tickets.example.com/..." className="flex-1" onKeyDown={(e) => { if (e.key === "Enter" && newTicketUrl.trim()) { setEditEvent(p => ({ ...p, ticketUrls: [...(p.ticketUrls || []), newTicketUrl.trim()] })); setNewTicketUrl(""); }}} />
-                  <Button variant="outline" size="sm" onClick={() => { if (newTicketUrl.trim()) { setEditEvent(p => ({ ...p, ticketUrls: [...(p.ticketUrls || []), newTicketUrl.trim()] })); setNewTicketUrl(""); }}}><Plus className="h-3.5 w-3.5 mr-1" /> Add</Button>
-                </div>
+                <Button variant="outline" size="sm" onClick={() => setEditEvent(p => ({ ...p, tickets: [...(p.tickets || []), { provider: "", url: "" }] }))}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add ticket link
+                </Button>
               </div>
             </div>
             {/* Notes */}
@@ -788,7 +814,6 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
               ...(event.roomStage && !event.isMultiPerformer ? [{ label: "Room / Stage", value: event.roomStage }] : []),
               ...(!event.isMultiPerformer ? [{ label: "Performer", value: event.artist ? <ProfilePreviewPopover name={event.artist} profileId={event.performerProfileId} onInvite={!event.performerProfileId && onInvitePerformer ? () => onInvitePerformer(event.artist) : undefined} /> : event.artist }] : []),
               { label: "Capacity", value: (event.capacity ?? 0).toLocaleString() },
-              { label: "Ticketing Provider", value: event.ticketingProvider },
               { label: "Operator", value: `${event.operator} (${event.operatorType})` },
               { label: "Status", value: eventStatusLabels[event.eventStatus] },
               ...(event.eventStatus === "on_hold" ? [
@@ -802,15 +827,27 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
               </div>
             ))}
           </div>
-          {(event.ticketUrls?.length ?? 0) > 0 && (
+          {(event.tickets?.length ?? 0) > 0 && (
             <div className="mt-3 pt-3 border-t">
-              <span className="text-sm text-muted-foreground font-medium">Ticket URLs</span>
+              <span className="text-sm text-muted-foreground font-medium">Ticket links</span>
               <div className="space-y-1 mt-1">
-                {event.ticketUrls!.map((url: string, i: number) => (
-                  <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm text-primary hover:underline">
-                    <Ticket className="h-3.5 w-3.5" /> {url}
-                  </a>
-                ))}
+                {event.tickets!.filter(t => t.url).map((t, i) => {
+                  const isPlatform = t.provider === "platform";
+                  return (
+                    <a
+                      key={i}
+                      href={t.url}
+                      {...(isPlatform ? {} : { target: "_blank", rel: "noopener noreferrer" })}
+                      className="flex items-center gap-1.5 text-sm text-primary hover:underline min-w-0"
+                      title={t.url}
+                    >
+                      <Ticket className="h-3.5 w-3.5 shrink-0" />
+                      {t.provider ? <span className="font-medium shrink-0">{t.provider}</span> : null}
+                      {t.provider ? <span className="text-muted-foreground shrink-0">—</span> : null}
+                      <span className="truncate min-w-0">{t.url}</span>
+                    </a>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -2137,7 +2174,7 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                     operator: event.operator,
                     operatorType: event.operatorType,
                     capacity: parseInt(newPerformerCapacity) || 0,
-                    ticketingProvider: event.ticketingProvider,
+                    tickets: event.tickets,
                     eventStatus: "suggested",
                     status: "open" as SettlementStatus,
                     parentEventId: event.id,

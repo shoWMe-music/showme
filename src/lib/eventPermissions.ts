@@ -11,13 +11,18 @@ export const EVENT_CREATOR_PROFILE_SLOTS: readonly OperatorRole[] = [
   "festival",
 ] as const;
 
+/**
+ * The slotted profiles dict only holds profiles you own — not ones you're
+ * an admin/editor of. Pass the flat `useAllProfiles()` array so a user
+ * who's been invited onto a venue's team can still create events.
+ */
 export function canUserCreateEventsWithProfiles(
-  profiles: Record<string, SharedProfile>,
+  profiles: readonly SharedProfile[],
 ): boolean {
-  return EVENT_CREATOR_PROFILE_SLOTS.some((slot) => {
-    const p = profiles[slot];
-    return Boolean(p?.name?.trim());
-  });
+  const creatorRoles = new Set<string>(EVENT_CREATOR_PROFILE_SLOTS);
+  return profiles.some(
+    (p) => p.role && creatorRoles.has(p.role) && Boolean(p.name?.trim()),
+  );
 }
 
 export function canTogglePublishedTo(

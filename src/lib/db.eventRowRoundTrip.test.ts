@@ -64,7 +64,6 @@ const baseEvent: Event = {
   venue: "Acme Hall",
   operator: "Op",
   operatorType: "promoter",
-  ticketingProvider: "",
   capacity: 0,
   artist: "Headlining Act",
   eventStatus: "draft",
@@ -106,11 +105,67 @@ describe("Event row serialization", () => {
     expect(back.performerRoleTag).toBeUndefined();
   });
 
-  it("preserves ticketUrls through write and read", () => {
-    const evt: Event = { ...baseEvent, ticketUrls: ["https://tix.example.com/a", "https://tix.example.com/b"] };
+  it("preserves tickets through write and read", () => {
+    const evt: Event = { ...baseEvent, tickets: [
+      { provider: "DICE", url: "https://link.dice.fm/a" },
+      { provider: "Eventbrite", url: "https://eventbrite.com/e/b" },
+    ] };
     const row = eventToFirestoreRow(evt);
-    expect(row.ticketUrls).toEqual(["https://tix.example.com/a", "https://tix.example.com/b"]);
+    expect(row.tickets).toEqual([
+      { provider: "DICE", url: "https://link.dice.fm/a" },
+      { provider: "Eventbrite", url: "https://eventbrite.com/e/b" },
+    ]);
     const back = eventRowToEvent(row);
-    expect(back.ticketUrls).toEqual(["https://tix.example.com/a", "https://tix.example.com/b"]);
+    expect(back.tickets).toEqual([
+      { provider: "DICE", url: "https://link.dice.fm/a" },
+      { provider: "Eventbrite", url: "https://eventbrite.com/e/b" },
+    ]);
+  });
+
+  it("migrates legacy ticketingProvider+ticketUrls into tickets on read", () => {
+    const row: Record<string, unknown> = {
+      id: "evt-legacy",
+      name: "Legacy event",
+      date: "2026-05-10",
+      venue: "v",
+      operator: "o",
+      operatorType: "venue",
+      capacity: 100,
+      artist: "a",
+      eventStatus: "confirmed",
+      status: "open",
+      ticketingProvider: "DICE",
+      ticketUrls: ["https://link.dice.fm/a", "https://link.dice.fm/b"],
+    };
+    const back = eventRowToEvent(row);
+    expect(back.tickets).toEqual([
+      { provider: "DICE", url: "https://link.dice.fm/a" },
+      { provider: "DICE", url: "https://link.dice.fm/b" },
+    ]);
+  });
+
+  it("migrates legacy provider-only event into a single ticket entry with empty url", () => {
+    const row: Record<string, unknown> = {
+      id: "evt-legacy2",
+      name: "Legacy provider-only",
+      date: "2026-05-10",
+      venue: "v",
+      operator: "o",
+      operatorType: "venue",
+      capacity: 100,
+      artist: "a",
+      eventStatus: "confirmed",
+      status: "open",
+      ticketingProvider: "Eventbrite",
+    };
+    const back = eventRowToEvent(row);
+    expect(back.tickets).toEqual([{ provider: "Eventbrite", url: "" }]);
+  });
+
+  it("nulls out legacy ticketingProvider and ticketUrls on write", () => {
+    const evt: Event = { ...baseEvent, tickets: [{ provider: "DICE", url: "https://x" }] };
+    const row = eventToFirestoreRow(evt);
+    expect(row.ticketingProvider).toBeNull();
+    expect(row.ticketUrls).toBeNull();
   });
 });

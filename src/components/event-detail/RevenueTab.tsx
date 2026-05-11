@@ -35,6 +35,10 @@ export function RevenueTab({ event, revenue, updateRevenue }: RevenueTabProps) {
 
   const providerEvents: ProviderEvent[] = [];
 
+  const ticketProviders = Array.from(new Set((event.tickets ?? []).map(t => t.provider).filter(Boolean)));
+  const primaryProvider = ticketProviders[0] || "";
+  const providersLabel = ticketProviders.join(", ") || "provider";
+
   const calcGross = ticketTypes.reduce((sum, t) => sum + t.price * t.sold, 0);
   const calcSold = ticketTypes.reduce((sum, t) => sum + t.sold, 0);
 
@@ -84,7 +88,7 @@ export function RevenueTab({ event, revenue, updateRevenue }: RevenueTabProps) {
     <Dialog open={syncOpen} onOpenChange={setSyncOpen}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Sync from {event.ticketingProvider}</DialogTitle>
+          <DialogTitle>Sync from {providersLabel}</DialogTitle>
           <DialogDescription>Match this event with your ticketing provider data</DialogDescription>
         </DialogHeader>
         <div className="flex gap-1 border-b mb-4">
@@ -117,7 +121,7 @@ export function RevenueTab({ event, revenue, updateRevenue }: RevenueTabProps) {
         {syncTab === "search" && (
           <div className="space-y-3">
             <div className="space-y-2">
-              <Label>Event ID from {event.ticketingProvider}</Label>
+              <Label>Event ID from {primaryProvider || "provider"}</Label>
               <Input placeholder="e.g. TM-88421" value={searchEventId} onChange={e => setSearchEventId(e.target.value)} />
             </div>
             {searchEventId && (() => {
@@ -153,7 +157,7 @@ export function RevenueTab({ event, revenue, updateRevenue }: RevenueTabProps) {
         </button>
         <button onClick={() => setSyncOpen(true)} className="rounded-xl border-2 p-6 text-left transition-colors hover:border-primary">
           <RefreshCw className="h-7 w-7 mb-3 text-primary" />
-          <h4 className="font-display font-semibold text-lg">Sync from {event.ticketingProvider}</h4>
+          <h4 className="font-display font-semibold text-lg">Sync from {providersLabel}</h4>
           <p className="mt-1 text-sm text-muted-foreground">Import ticket data from your ticketing provider's API</p>
         </button>
         <SyncDialog />

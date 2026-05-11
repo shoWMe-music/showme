@@ -7,7 +7,7 @@
  * useDeleteEvent.
  */
 
-import { createElement } from "react";
+import { createElement, useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2 } from "lucide-react";
 import { deleteDoc, doc } from "firebase/firestore";
@@ -21,6 +21,7 @@ import {
   upsertRevenue,
   upsertSettlement,
   upsertShareToken,
+  createNewEventInBatch,
   appendEventActivity,
   upsertEventMeta,
   clearPendingDateChange,
@@ -31,8 +32,11 @@ import {
   fetchProfiles,
   fetchRiders,
   upsertRider,
+  setHoldRank as dbSetHoldRank,
+  confirmHold as dbConfirmHold,
+  declineHold as dbDeclineHold,
 } from "@/lib/db";
-import type { PendingDateChange, DateChangeConfirmation } from "@/lib/db";
+import type { PendingDateChange, DateChangeConfirmation, HoldUpdate } from "@/lib/db";
 import type { Event, EventCollaborator, DealStructure, Settlement, SettlementStatus, Rider, RiderType } from "@/lib/models";
 import { eventStatusLabels, collaboratorIsActive } from "@/lib/models";
 import type { ProfileDocument } from "@/lib/user-context";
@@ -489,7 +493,7 @@ export function useUpdateEvent() {
 
       const DETAIL_FIELDS: (keyof Event)[] = [
         "name", "date", "venue", "artist", "notes", "city",
-        "capacity", "ticketingProvider", "roomStage",
+        "capacity", "tickets", "roomStage",
         "startTime", "endTime", "doorTime", "curfew",
       ];
       const changedDetails: Record<string, string> = {};
@@ -1146,16 +1150,18 @@ async function initEventData(
     meta: {},
   });
 
-  // Persist to Firestore sequentially to avoid race conditions
-  await upsertEvent(event);
-  await upsertDeal(event.id, deal);
-  await upsertRevenue(event.id, rev);
-  await upsertSettlement(event.id, settlement);
-  await upsertShareToken(token, event.id, ["Performer", "Agent", "Venue"], {
+  // Persist to Firestore in a single write batch — one HTTP roundtrip
+  // instead of five sequential ones. Long-poll emulator was paying ~1.5s
+  // per await, so create dialogs hung for ~7-10s before this. The new
+  // event id has nothing to merge with, so we skip the read in upsertEvent.
+  await createNewEventInBatch({
     event,
     deal,
     revenue: rev,
     settlement,
+    shareToken: token,
+    shareTokenParties: ["Performer", "Agent", "Venue"],
+    shareTokenSnapshot: { event, deal, revenue: rev, settlement },
   });
 }
 
@@ -1368,7 +1374,7 @@ export function useConvertToMultiPerformer() {
         operator: parent.operator,
         operatorType: parent.operatorType,
         capacity: parent.capacity,
-        ticketingProvider: parent.ticketingProvider,
+        tickets: parent.tickets,
         eventStatus: parent.eventStatus,
         status: "open" as SettlementStatus,
         parentEventId: eventId,
@@ -1458,11 +1464,72 @@ export function useConvertToMultiPerformer() {
  *
  * Returns plain functions (not .mutate() wrappers) to match the call-site API.
  */
+/**
+ * Module-level signal: which event IDs are currently being mutated by an
+ * in-flight hold-rank callable. The calendar renders skeletons for these
+ * cards so the user gets visible feedback during the round-trip.
+ *
+ * Module-level (not React state) so the set survives component remounts
+ * and is shared across every consumer of `useHoldRankMutations`. Subscribers
+ * via `useHoldOperationInFlight` re-render when the set changes.
+ */
+const holdOperationInFlight = new Set<string>();
+const holdOperationListeners = new Set<() => void>();
+function notifyHoldOperationChange() {
+  for (const fn of holdOperationListeners) fn();
+}
+
+/**
+ * Subscribe to the in-flight hold-rank set. Returns a Set<string> of event
+ * IDs whose cards should render as skeletons.
+ */
+export function useHoldOperationInFlight(): Set<string> {
+  // useSyncExternalStore re-renders the subscriber when the set changes.
+  // The snapshot is the set itself; we treat it as immutable by passing a
+  // fresh copy on every change.
+  const [snap, setSnap] = useState<Set<string>>(() => new Set(holdOperationInFlight));
+  useEffect(() => {
+    const listener = () => setSnap(new Set(holdOperationInFlight));
+    holdOperationListeners.add(listener);
+    return () => {
+      holdOperationListeners.delete(listener);
+    };
+  }, []);
+  return snap;
+}
+
 export function useHoldRankMutations() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const uid = user?.uid ?? "";
 
+  /**
+   * Patch the events + calendarEvents query caches with a HoldUpdate[]
+   * returned from a hold-rank callable, then invalidate so any subscriber
+   * that missed the partial-key setQueriesData match converges to server
+   * truth.
+   */
+  const patchEventsCache = (updates: HoldUpdate[]) => {
+    if (updates.length === 0) return;
+    const updatesById = new Map(updates.map((u) => [u.id, u]));
+    const patch = (old: Event[] | undefined) => {
+      if (!old) return old;
+      return old.map((e) => {
+        const u = updatesById.get(e.id);
+        if (!u) return e;
+        const next = { ...e };
+        if (u.holdRank !== undefined) next.holdRank = u.holdRank;
+        if (u.eventStatus !== undefined) next.eventStatus = u.eventStatus as Event["eventStatus"];
+        return next;
+      });
+    };
+    queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, patch);
+    queryClient.setQueriesData<Event[]>({ queryKey: ["calendarEvents", uid] }, patch);
+    void queryClient.invalidateQueries({ queryKey: ["calendarEvents", uid] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.events(uid) });
+  };
+
+  // TODO(hold-rank-callable): retire in favor of declineHold(eventId) — see project_hold_ranking_fix_plan.md.
   /**
    * When an event leaves a hold (status change / cancel), shift every remaining
    * hold on the same date/venue/room that was ranked above the removed rank
@@ -1533,101 +1600,110 @@ export function useHoldRankMutations() {
   };
 
   /**
-   * When an event is placed at a rank, shift other holds on the same
-   * date/venue/room to resolve conflicts and maintain a unique ordering.
+   * Collect every event ID on the same (date, venue, roomStage) on-hold slot
+   * as the target. Used to mark every card the operation could rearrange
+   * as in-flight so they all skeleton together.
+   */
+  const slotMatesOf = (eventId: string): string[] => {
+    const events = getEventsData(queryClient, uid);
+    if (!events) return [eventId];
+    const target = events.find((e) => e.id === eventId);
+    if (!target) return [eventId];
+    const ids: string[] = [eventId];
+    for (const e of events) {
+      if (e.id === eventId) continue;
+      if (e.archived) continue;
+      if (e.eventStatus !== "on_hold") continue;
+      if (e.date !== target.date) continue;
+      if (e.venue !== target.venue) continue;
+      if ((e.roomStage || "") !== (target.roomStage || "")) continue;
+      ids.push(e.id);
+    }
+    return ids;
+  };
+
+  const markInFlight = (ids: string[]) => {
+    for (const id of ids) holdOperationInFlight.add(id);
+    notifyHoldOperationChange();
+  };
+  const clearInFlight = (ids: string[]) => {
+    for (const id of ids) holdOperationInFlight.delete(id);
+    notifyHoldOperationChange();
+  };
+
+  /**
+   * Move an on-hold event to a new rank. Server-side callable does the
+   * sibling-shift arithmetic in a single batch. We patch the cache from the
+   * returned `HoldUpdate[]` so the UI reflects truth without a refetch.
+   *
+   * Every event on the same slot is marked in-flight for the duration of
+   * the round-trip so the calendar can render skeletons — the user sees
+   * the operation is working without us lying about its result.
    */
   const resolveHoldRankConflicts = (
-    targetEventId: string,
-    date: string,
-    venue: string,
-    roomStage: string,
+    eventId: string,
     newRank: number,
   ): void => {
-    const events = getEventsData(queryClient, uid);
-    if (!events) return;
+    const ids = slotMatesOf(eventId);
+    markInFlight(ids);
 
-    const holdsOnDate = events.filter(
-      (e) =>
-        e.date === date &&
-        e.venue === venue &&
-        (e.roomStage || "") === roomStage &&
-        e.eventStatus === "on_hold" &&
-        !e.archived,
-    );
-
-    const holdIds = new Set(holdsOnDate.map((e) => e.id));
-    holdIds.add(targetEventId);
-
-    const localRanks: Record<string, number> = {};
-    holdIds.forEach((eid) => {
-      const ev = events.find((e) => e.id === eid);
-      localRanks[eid] = ev?.holdRank || 1;
-    });
-
-    const oldRank = localRanks[targetEventId] ?? newRank;
-    localRanks[targetEventId] = newRank;
-
-    const otherIds = Object.keys(localRanks).filter((id) => id !== targetEventId);
-    if (oldRank !== newRank) {
-      if (oldRank < newRank) {
-        otherIds.forEach((id) => {
-          const r = localRanks[id];
-          if (r > oldRank && r <= newRank) localRanks[id] = r - 1;
+    void (async () => {
+      try {
+        const updates = await dbSetHoldRank(eventId, newRank);
+        patchEventsCache(updates);
+      } catch (err) {
+        console.error("setHoldRank failed:", err);
+        toast({
+          title: "Couldn't update hold rank",
+          description: err instanceof Error ? err.message : "Try again.",
+          variant: "destructive",
         });
-      } else {
-        otherIds.forEach((id) => {
-          const r = localRanks[id];
-          if (r >= newRank && r < oldRank) localRanks[id] = r + 1;
-        });
+      } finally {
+        clearInFlight(ids);
       }
-    } else {
-      otherIds.sort((a, b) => localRanks[a] - localRanks[b]);
-      let bump = newRank;
-      otherIds.forEach((id) => {
-        if (localRanks[id] === bump) { localRanks[id] = localRanks[id] + 1; bump = localRanks[id]; }
+    })();
+  };
+
+  const confirmHoldMutation = async (eventId: string): Promise<void> => {
+    const ids = slotMatesOf(eventId);
+    markInFlight(ids);
+    try {
+      const updates = await dbConfirmHold(eventId);
+      patchEventsCache(updates);
+      const cancelled = updates.filter((u) => u.eventStatus === "cancelled").length;
+      toast({
+        title: "Date accepted, event is now pending.",
+        description: cancelled > 0 ? `${cancelled} competing hold(s) cancelled.` : undefined,
       });
-    }
-
-    // Uniqueness safety pass
-    let changed = true;
-    let iterations = 0;
-    while (changed && iterations < 50) {
-      changed = false;
-      iterations++;
-      const ids = Object.keys(localRanks);
-      for (let i = 0; i < ids.length; i++) {
-        for (let j = i + 1; j < ids.length; j++) {
-          if (localRanks[ids[i]] === localRanks[ids[j]]) {
-            const bumpId = ids[j] === targetEventId ? ids[i] : ids[j];
-            localRanks[bumpId] += 1;
-            changed = true;
-          }
-        }
-      }
-    }
-
-    // Optimistic cache update — patch both the events query and the calendar
-    // date-range query (different prefixes, so neither implies the other).
-    const patchHoldRanks = (old: Event[] | undefined) => {
-      if (!old) return old;
-      return old.map((e) => {
-        if (!Object.prototype.hasOwnProperty.call(localRanks, e.id)) return e;
-        return { ...e, holdRank: localRanks[e.id] };
+    } catch (err) {
+      console.error("confirmHold failed:", err);
+      toast({
+        title: "Couldn't accept date",
+        description: err instanceof Error ? err.message : "Try again.",
+        variant: "destructive",
       });
-    };
-    queryClient.setQueriesData<Event[]>({ queryKey: queryKeys.events(uid) }, patchHoldRanks);
-    queryClient.setQueriesData<Event[]>({ queryKey: ["calendarEvents", uid] }, patchHoldRanks);
+    } finally {
+      clearInFlight(ids);
+    }
+  };
 
-    // Persist changed events
-    holdIds.forEach((eid) => {
-      const ev = events.find((e) => e.id === eid);
-      if (ev) {
-        const newHoldRank = localRanks[eid];
-        if (newHoldRank !== (ev.holdRank || 1) || eid === targetEventId) {
-          void upsertEvent({ ...ev, holdRank: newHoldRank });
-        }
-      }
-    });
+  const declineHoldMutation = async (eventId: string): Promise<void> => {
+    const ids = slotMatesOf(eventId);
+    markInFlight(ids);
+    try {
+      const updates = await dbDeclineHold(eventId);
+      patchEventsCache(updates);
+      toast({ title: "Hold declined" });
+    } catch (err) {
+      console.error("declineHold failed:", err);
+      toast({
+        title: "Couldn't decline hold",
+        description: err instanceof Error ? err.message : "Try again.",
+        variant: "destructive",
+      });
+    } finally {
+      clearInFlight(ids);
+    }
   };
 
   /**
@@ -1683,5 +1759,11 @@ export function useHoldRankMutations() {
     }
   };
 
-  return { promoteHoldsOnDate, resolveHoldRankConflicts, normalizeAllHoldRanks };
+  return {
+    promoteHoldsOnDate,
+    resolveHoldRankConflicts,
+    normalizeAllHoldRanks,
+    confirmHold: confirmHoldMutation,
+    declineHold: declineHoldMutation,
+  };
 }

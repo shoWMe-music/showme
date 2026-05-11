@@ -16,7 +16,7 @@ import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 
 // ── Item Popup (Google Calendar-style) ──
 
-export function CalendarItemPopup({ item, position, onClose, onDelete, onDuplicate, onEdit, onInvite, onPrint, onPublish, entityColor, holdRank, holdAutoPromote, onHoldRankChange, onHoldAutoPromoteChange, onConfirmHold, onDeclineHold }: {
+export function CalendarItemPopup({ item, position, onClose, onDelete, onDuplicate, onEdit, onInvite, onPrint, onPublish, entityColor, holdRank, holdAutoPromote, maxHoldRank, onHoldRankChange, onHoldAutoPromoteChange, onConfirmHold, onDeclineHold }: {
   item: PopupItemType;
   position: { x: number; y: number };
   onClose: () => void;
@@ -29,6 +29,8 @@ export function CalendarItemPopup({ item, position, onClose, onDelete, onDuplica
   entityColor?: string;
   holdRank?: number;
   holdAutoPromote?: boolean;
+  /** Maximum selectable rank — gated by the current slot's hold population. */
+  maxHoldRank?: number;
   onHoldRankChange?: (rank: number) => void;
   onHoldAutoPromoteChange?: (auto: boolean) => void;
   onConfirmHold?: () => void;
@@ -140,7 +142,7 @@ export function CalendarItemPopup({ item, position, onClose, onDelete, onDuplica
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="z-[200]">
-                {[1, 2, 3, 4, 5].map(n => (
+                {Array.from({ length: Math.max(1, maxHoldRank ?? 5) }, (_, i) => i + 1).map(n => (
                   <SelectItem key={n} value={String(n)}>
                     {n === 1 ? "1st" : n === 2 ? "2nd" : n === 3 ? "3rd" : `${n}th`}
                   </SelectItem>

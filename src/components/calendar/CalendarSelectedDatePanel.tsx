@@ -27,7 +27,19 @@ export function CalendarSelectedDatePanel({
   onDayView,
   onClose,
 }: CalendarSelectedDatePanelProps) {
-  const selEvents = activeEvents.filter(e => { try { return isSameDay(parseISO(e.date), selectedDate); } catch { return false; } });
+  const selEvents = activeEvents
+    .filter(e => { try { return isSameDay(parseISO(e.date), selectedDate); } catch { return false; } })
+    // On-hold events first, sorted by rank ASC (lowest at top, highest at
+    // bottom). Non-hold events fall through and keep their original order
+    // via stable sort. Same comparator used by CalendarPage's eventsByDate.
+    .sort((a, b) => {
+      const aIsHold = a.eventStatus === "on_hold";
+      const bIsHold = b.eventStatus === "on_hold";
+      if (aIsHold && bIsHold) return (a.holdRank ?? 99) - (b.holdRank ?? 99);
+      if (aIsHold) return -1;
+      if (bIsHold) return 1;
+      return 0;
+    });
   const selCalItems = calendarItems.filter(ci => ci.date === format(selectedDate, "yyyy-MM-dd"));
 
   return (

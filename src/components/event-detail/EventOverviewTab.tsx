@@ -47,7 +47,7 @@ export function EventOverviewTab({
               { icon: MapPin, label: "Venue", value: event.venue },
               ...(event.roomStage ? [{ icon: MapPin, label: "Room / Stage", value: event.roomStage }] : []),
               { icon: Users, label: "Operator", value: `${event.operator} (${event.operatorType})` },
-              { icon: Ticket, label: "Ticketing", value: event.ticketingProvider },
+              { icon: Ticket, label: "Ticketing", value: Array.from(new Set((event.tickets ?? []).map(t => t.provider).filter(Boolean))).join(", ") },
               { icon: Users, label: "Capacity", value: event.capacity.toLocaleString() },
             ].map(({ icon: Icon, label, value }) => (
               <div key={label} className="flex items-center justify-between">

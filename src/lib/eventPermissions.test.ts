@@ -68,21 +68,38 @@ describe("canTransitionEventStatus", () => {
 
 describe("canUserCreateEventsWithProfiles", () => {
   it("returns true when a venue profile has a name", () => {
-    const profiles = {
-      venue: makeProfile({ id: "v1", role: "venue", name: "My Venue" }),
-    };
-    expect(canUserCreateEventsWithProfiles(profiles)).toBe(true);
+    expect(
+      canUserCreateEventsWithProfiles([
+        makeProfile({ id: "v1", role: "venue", name: "My Venue" }),
+      ]),
+    ).toBe(true);
+  });
+
+  it("returns true for a venue the user is a member-of (not owner) — flat-array source catches what the slotted dict misses", () => {
+    // owner_uid points to a different user; this profile is only present in
+    // the flat array, never in the slotted dict for the current user.
+    expect(
+      canUserCreateEventsWithProfiles([
+        makeProfile({
+          id: "v1",
+          role: "venue",
+          name: "Shared Venue",
+          owner_uid: "someone-else",
+        }),
+      ]),
+    ).toBe(true);
   });
 
   it("returns false when only a performer profile exists", () => {
-    const profiles = {
-      performer: makeProfile({ id: "p1", role: "performer", name: "Artist" }),
-    };
-    expect(canUserCreateEventsWithProfiles(profiles)).toBe(false);
+    expect(
+      canUserCreateEventsWithProfiles([
+        makeProfile({ id: "p1", role: "performer", name: "Artist" }),
+      ]),
+    ).toBe(false);
   });
 
   it("returns false when profiles are empty", () => {
-    expect(canUserCreateEventsWithProfiles({})).toBe(false);
+    expect(canUserCreateEventsWithProfiles([])).toBe(false);
   });
 });
 

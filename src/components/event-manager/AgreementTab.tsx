@@ -409,7 +409,14 @@ export function AgreementTab({ event, deal, revenue, eventMeta, onSave, currency
           <div><span className="text-muted-foreground">Venue:</span> <span className="font-medium ml-2"><ProfilePreviewPopover name={event.venue} /></span></div>
           {event.capacity > 0 && <div><span className="text-muted-foreground">Capacity:</span> <span className="font-medium ml-2">{event.capacity.toLocaleString()}</span></div>}
           {event.operator && <div><span className="text-muted-foreground">Operator:</span> <span className="font-medium ml-2">{event.operator}</span></div>}
-          {event.ticketingProvider && <div><span className="text-muted-foreground">Ticketing:</span> <span className="font-medium ml-2">{event.ticketingProvider}</span></div>}
+          {event.tickets?.length ? (
+            <div>
+              <span className="text-muted-foreground">Ticketing:</span>{" "}
+              <span className="font-medium ml-2">
+                {Array.from(new Set(event.tickets.map(t => t.provider).filter(Boolean))).join(", ")}
+              </span>
+            </div>
+          ) : null}
           {event.eventStatus && <div><span className="text-muted-foreground">Status:</span> <span className="font-medium ml-2 capitalize">{event.eventStatus.replace(/_/g, " ")}</span></div>}
         </div>
 

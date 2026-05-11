@@ -80,7 +80,7 @@ function makeEvent(overrides: Record<string, unknown> = {}) {
     archived: false,
     eventStatus: "confirmed" as const,
     capacity: 0,
-    ticketUrls: [],
+    tickets: [],
     roomStage: "",
     ...overrides,
   };

@@ -968,7 +968,6 @@ export function eventRowToEvent(r: Record<string, unknown>): Event {
     venue: r.venue as string,
     operator: r.operator as string,
     operatorType: r.operatorType as Event["operatorType"],
-    ticketingProvider: r.ticketingProvider as string,
     capacity: r.capacity as number,
     artist: r.artist as string,
     eventStatus: r.eventStatus as Event["eventStatus"],
@@ -992,12 +991,33 @@ export function eventRowToEvent(r: Record<string, unknown>): Event {
     cateringNotes: typeof r.cateringNotes === "string" ? r.cateringNotes : undefined,
     accommodationNotes: typeof r.accommodationNotes === "string" ? r.accommodationNotes : undefined,
     notes: typeof r.notes === "string" ? r.notes : undefined,
-    ticketUrls: Array.isArray(r.ticketUrls) ? (r.ticketUrls as string[]) : undefined,
+    tickets: Array.isArray(r.tickets)
+      ? (r.tickets as { provider: string; url: string }[])
+      : Array.isArray(r.ticketUrls) && (r.ticketUrls as unknown[]).length
+        ? (r.ticketUrls as string[]).map((url) => ({
+            provider: typeof r.ticketingProvider === "string" ? r.ticketingProvider : "",
+            url,
+          }))
+        : typeof r.ticketingProvider === "string" && r.ticketingProvider
+          ? [{ provider: r.ticketingProvider, url: "" }]
+          : undefined,
     // Legacy fields — kept during transition
     owner_uid: typeof r.owner_uid === "string" ? r.owner_uid : undefined,
     primary_owner_uid: typeof r.primary_owner_uid === "string" ? r.primary_owner_uid : undefined,
     participant_uids: Array.isArray(r.participant_uids) ? (r.participant_uids as string[]) : undefined,
   };
+}
+
+/**
+ * Normalize a ticket entry. Non-platform tickets must have an absolute URL —
+ * if the user typed `tickets.example.com` we prepend `https://` so the link
+ * works externally. Applied at the write boundary AND at the form layer so
+ * optimistic updates render correctly before the round-trip lands.
+ */
+export function normalizeTicket(t: { provider: string; url: string }): { provider: string; url: string } {
+  if (t.provider === "platform" || !t.url) return t;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t.url)) return t;
+  return { ...t, url: `https://${t.url}` };
 }
 
 export function eventToFirestoreRow(event: Event): Record<string, unknown> {
@@ -1012,7 +1032,6 @@ export function eventToFirestoreRow(event: Event): Record<string, unknown> {
     venue: event.venue,
     operator: event.operator,
     operatorType: event.operatorType,
-    ticketingProvider: event.ticketingProvider,
     capacity: event.capacity,
     artist: event.artist,
     eventStatus: event.eventStatus,
@@ -1036,7 +1055,10 @@ export function eventToFirestoreRow(event: Event): Record<string, unknown> {
     cateringNotes: event.cateringNotes ?? null,
     accommodationNotes: event.accommodationNotes ?? null,
     notes: event.notes ?? null,
-    ticketUrls: event.ticketUrls ?? null,
+    tickets: event.tickets ? event.tickets.map(normalizeTicket) : null,
+    // Legacy fields — null-out on every save so old docs migrate to `tickets`
+    ticketingProvider: null,
+    ticketUrls: null,
     sourceRequestId: event.sourceRequestId ?? null,
     sourceRequestDate: event.sourceRequestDate ?? null,
     updatedAt: serverTimestamp(),
@@ -1327,6 +1349,93 @@ export async function upsertEvent(event: Event) {
     },
     { merge: true },
   );
+}
+
+/**
+ * Two-phase create for a brand-new event with its deal/revenue/settlement
+ * and share-token docs.
+ *
+ * Replaces five sequential `await`s in `initEventData`. Against the long-poll
+ * emulator each await was ~1-1.5s, stacking to ~7-10s of pure write latency.
+ *
+ * Two phases (not one) because the subcollection rules — `canAccessEvent` for
+ * deal/revenue/settlement — call `exists(/events/{id})`, and Firestore rules
+ * evaluate the entire batch against pre-batch state. So if event + subdocs are
+ * in one batch, `exists()` returns false on the subdocs and the whole batch
+ * is rejected.
+ *
+ * Phase 1: event doc only. Once committed, the event exists.
+ * Phase 2: everything that depends on the event (deal/revenue/settlement) plus
+ * the share-token docs (independent rules — could go in either phase, parked
+ * here to keep phase 1 minimal).
+ *
+ * Result: 2 HTTP roundtrips instead of 5. Skips `upsertEvent`'s read-merge
+ * step since a brand-new event id has nothing to merge with.
+ */
+export async function createNewEventInBatch(args: {
+  event: Event;
+  deal: DealStructure;
+  revenue: TicketRevenue;
+  settlement: Settlement;
+  shareToken: string;
+  shareTokenParties: string[];
+  shareTokenSnapshot: SettlementShareSnapshot;
+}): Promise<void> {
+  const uid = requireUid();
+  const db = getFirestoreDb();
+
+  const { event, deal, revenue, settlement, shareToken, shareTokenParties, shareTokenSnapshot } = args;
+
+  const accessUids = Array.from(new Set([uid, ...(event.accessUids ?? [])]));
+  const accessProfileIds = Array.from(new Set([
+    ...(event.accessProfileIds ?? []),
+    ...(event.hostProfileId ? [event.hostProfileId] : []),
+  ]));
+
+  // Phase 1: event doc. Must commit before phase 2 so the subdoc rules'
+  // exists() check passes.
+  const phase1 = writeBatch(db);
+  phase1.set(
+    eventDoc(event.id),
+    cleanData({
+      ...eventToFirestoreRow(event),
+      accessUids,
+      accessProfileIds,
+      owner_uid: uid,
+      primary_owner_uid: uid,
+      ...actorWriteStamp(),
+    }),
+    { merge: true },
+  );
+  await phase1.commit();
+
+  // Phase 2: subdocs + share-token docs.
+  const phase2 = writeBatch(db);
+  const subdocStamp = { ...actorWriteStamp(), updatedAt: serverTimestamp() };
+  phase2.set(eventSubDoc(event.id, SUB_DEAL, "main"), cleanData({ ...deal, ...subdocStamp }), { merge: true });
+  phase2.set(eventSubDoc(event.id, SUB_REVENUE, "main"), cleanData({ ...revenue, ...subdocStamp }), { merge: true });
+  phase2.set(eventSubDoc(event.id, SUB_SETTLEMENT, "main"), cleanData({ ...settlement, ...subdocStamp }), { merge: true });
+
+  const createdAt = new Date().toISOString().slice(0, 10);
+  phase2.set(
+    userDataDoc(uid, "share_tokens", shareToken),
+    cleanData({ token: shareToken, eventId: event.id, parties: shareTokenParties, createdAt }),
+    { merge: true },
+  );
+  phase2.set(
+    doc(db, PUBLIC_SHARES, shareToken),
+    cleanData({
+      kind: "settlement_review",
+      ownerUid: uid,
+      eventId: event.id,
+      parties: shareTokenParties,
+      createdAt,
+      snapshot: stripUndefined(shareTokenSnapshot),
+      updatedAt: serverTimestamp(),
+    }),
+    { merge: true },
+  );
+  await phase2.commit();
 }
 
 // ── Deal ──────────────────────────────────────────────────────────────────────
@@ -2492,7 +2601,7 @@ export async function createPublicEventShare(token: string, payload: PublicEvent
   // Deeply strip undefined values from snapshotData and the rest of the payload —
   // Firestore rejects writes containing nested undefined values, which would
   // silently fail the share-link generation for any event with optional fields
-  // unset (e.g. ticketingProvider on a draft).
+  // unset (e.g. tickets on a draft).
   const cleanPayload = stripUndefined(payload);
   await safeSetDoc(doc(getFirestoreDb(), PUBLIC_SHARES, token), {
     kind: "event_snapshot",
@@ -2844,4 +2953,63 @@ export async function deleteNotification(uid: string, notificationId: string): P
   await deleteDoc(
     doc(getFirestoreDb(), USER_COLLECTION, uid, SUB_NOTIFICATIONS, notificationId),
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hold rank callables (Wave: hold-ranking-fix)
+//
+// Three callables run server-side under admin privileges so a single batch can
+// update sibling holds that the caller may not have direct write access to.
+// All three return an `updated[]` that the caller patches into the events
+// query cache to avoid a refetch round-trip.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface HoldUpdate {
+  id: string;
+  holdRank?: number;
+  eventStatus?: string;
+}
+
+/**
+ * Move an on-hold event to a new rank. Sibling holds on the same
+ * (date, venue, roomStage) shift to keep ranks contiguous. Server enforces
+ * that the caller is an operator (not the performer being held for).
+ */
+export async function setHoldRank(
+  eventId: string,
+  rank: number,
+): Promise<HoldUpdate[]> {
+  const fn = httpsCallable<
+    { eventId: string; rank: number },
+    { ok: true; updated: HoldUpdate[] }
+  >(getFirebaseFunctions(), "setHoldRank");
+  const result = await fn({ eventId, rank });
+  return result.data.updated;
+}
+
+/**
+ * Performer-only: accept the held date. Server transitions the target event
+ * to "pending" and cancels every competing hold on the same slot.
+ */
+export async function confirmHold(eventId: string): Promise<HoldUpdate[]> {
+  const fn = httpsCallable<
+    { eventId: string },
+    { ok: true; updated: HoldUpdate[] }
+  >(getFirebaseFunctions(), "confirmHold");
+  const result = await fn({ eventId });
+  return result.data.updated;
+}
+
+/**
+ * Decline / rescind a hold. Server cancels the target and shifts lower holds
+ * up by one rank — but only those whose `holdAutoPromote !== false`. Holds
+ * with auto-promote off keep their rank (gap allowed).
+ */
+export async function declineHold(eventId: string): Promise<HoldUpdate[]> {
+  const fn = httpsCallable<
+    { eventId: string },
+    { ok: true; updated: HoldUpdate[] }
+  >(getFirebaseFunctions(), "declineHold");
+  const result = await fn({ eventId });
+  return result.data.updated;
 }

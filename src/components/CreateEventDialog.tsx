@@ -49,7 +49,7 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
   const [performerProfileId, setPerformerProfileId] = useState("");
   const [venueName, setVenueName] = useState("");
   const [capacity, setCapacity] = useState("");
-  const [ticketingProvider, setTicketingProvider] = useState("");
+  const [tickets, setTickets] = useState<{ provider: string; url: string }[]>([]);
   const [roomStage, setRoomStage] = useState("");
 
   const doubleBookingEvents = date && venueName.trim()
@@ -155,7 +155,7 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
     setStep(0);
     setSelectedRole(currentUser.defaultRole || (currentUser.roles.length === 1 ? currentUser.roles[0] : null));
     setEventName(""); setDate(defaultDate); setArtistName(""); setPerformerProfileId(""); setVenueName("");
-    setCapacity(""); setTicketingProvider(""); setDealType("guarantee");
+    setCapacity(""); setTickets([]); setDealType("guarantee");
     setArtistGuarantee(""); setArtistSplit("70"); setPromoterSplit("20"); setVenueSplit("10");
     setPromoterCostSplit("50"); setVenueCostSplit("30"); setArtistCostSplit("20");
     setVenueRental(""); setVenueRentalPaymentMode("deduct_at_settlement"); setRoomStage(""); setCostResponsibility("none");
@@ -226,7 +226,7 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
     try {
       await handleSubmit({
         selectedRole, eventName, date, venueName, artistName, performerProfileId, capacity,
-        ticketingProvider, roomStage, holdRank, defaultStatus,
+        tickets, roomStage, holdRank, defaultStatus,
         isMultiPerformer, multiVenueType, festivalName, performers,
         promoterCostSplit, venueCostSplit, venueRental, venueRentalPaymentMode,
         dealType, artistGuarantee, artistSplit, promoterSplit, venueSplit, artistCostSplit,
@@ -307,7 +307,7 @@ export default function CreateEventDialog({ trigger, defaultDate, externalOpen, 
             venueName={venueName} setVenueName={setVenueName}
             roomStage={roomStage} setRoomStage={setRoomStage}
             capacity={capacity} setCapacity={setCapacity}
-            ticketingProvider={ticketingProvider} setTicketingProvider={setTicketingProvider}
+            tickets={tickets} setTickets={setTickets}
             selectedRole={selectedRole} allVenueOptions={allVenueOptions}
             defaultStatus={defaultStatus}
             holdRank={holdRank} setHoldRank={setHoldRank}

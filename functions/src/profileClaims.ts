@@ -55,9 +55,20 @@ export async function computeUserProfileIds(
 }
 
 /**
- * Sync this user's `profileIds` custom claim, force-revoke their refresh
- * tokens, and tick the `users/{uid}/_meta/refreshClaims` doc so the client
- * listener triggers an immediate ID-token refresh.
+ * Sync this user's `profileIds` custom claim and tick the
+ * `users/{uid}/_meta/refreshClaims` doc so the client listener pulls a fresh
+ * ID token via `getIdToken(true)` (silent refresh, no re-login).
+ *
+ * Idempotent: skips both the auth claim write AND the refresh-ping if the
+ * claim is already current. Without this guard, every member-doc write fires
+ * the trigger which writes a fresh ping which makes the client refresh its
+ * token. During bulk membership changes (seed, bulk invite) the client
+ * thrashes — every token refresh aborts in-flight Firestore writes, so any
+ * concurrent event create gets stuck behind the storm.
+ *
+ * Do NOT call `revokeRefreshTokens` here — that invalidates the active
+ * session and forces the user back to /login on the next token refresh,
+ * which is exactly what happens immediately after invite-accept signup.
  */
 export async function syncUserClaims(uid: string): Promise<void> {
   if (!uid) return;
@@ -67,8 +78,26 @@ export async function syncUserClaims(uid: string): Promise<void> {
     const claims: Record<string, unknown> = { profileIds };
     if (overflow) claims.overflow = true;
 
+    // Compare against the user's existing claims — if identical, this trigger
+    // run is a no-op and we MUST NOT touch the refresh-ping doc.
+    const userRecord = await admin.auth().getUser(uid);
+    const existing = (userRecord.customClaims ?? {}) as Record<string, unknown>;
+    const existingProfileIds = Array.isArray(existing.profileIds)
+      ? (existing.profileIds as string[])
+      : [];
+    const existingOverflow = existing.overflow === true;
+    const sameProfileIds =
+      existingProfileIds.length === profileIds.length &&
+      existingProfileIds.every((id, i) => id === profileIds[i]);
+    if (sameProfileIds && existingOverflow === overflow) {
+      logger.info("syncUserClaims: no-op (claim unchanged)", {
+        uid,
+        profileIdCount: profileIds.length,
+      });
+      return;
+    }
+
     await admin.auth().setCustomUserClaims(uid, claims);
-    await admin.auth().revokeRefreshTokens(uid);
     await db()
       .collection("users")
       .doc(uid)

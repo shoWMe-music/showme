@@ -68,7 +68,6 @@ export interface Event {
   venue: string;
   operator: string;
   operatorType: "promoter" | "venue" | "organizer";
-  ticketingProvider: string;
   capacity: number;
   artist: string;
   eventStatus: EventStatus;
@@ -94,7 +93,8 @@ export interface Event {
   childEventIds?: string[];
   roomStage?: string;
   stageCapacity?: number;
-  ticketUrls?: string[];
+  /** Where the event sells tickets. Each entry pairs a provider with a purchase URL. */
+  tickets?: { provider: string; url: string }[];
   /** Performer's response to an event invitation: "accepted" → pending, "declined" → host notified. */
   performerResponse?: "accepted" | "declined";
   /** 1st hold, 2nd hold, etc. Only relevant when eventStatus === "on_hold". */

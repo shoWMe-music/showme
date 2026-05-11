@@ -6,7 +6,7 @@ import {
 } from "date-fns";
 import { useSearch } from "@tanstack/react-router";
 import AppLayout from "@/components/AppLayout";
-import { useUpdateEvent, useHoldRankMutations } from "@/lib/queries/useEventMutations";
+import { useUpdateEvent, useHoldRankMutations, useHoldOperationInFlight } from "@/lib/queries/useEventMutations";
 import { useCalendarEvents, useAllProfiles } from "@/lib/queries";
 
 import { useUser } from "@/lib/user-context";
@@ -19,6 +19,7 @@ import ImportCalendarDialog from "@/components/ImportCalendarDialog";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { trySetPublished } from "@/lib/eventPermissions";
+import { getMaxHoldRank } from "@/lib/holdMaxRank";
 import { fetchProfileUnavailability, saveProfileUnavailability, fetchCalendarItems, fetchProfileCalendarItems, upsertCalendarItem, deleteCalendarItemFromDb } from "@/lib/db";
 import InviteCollaboratorDialog from "@/components/InviteCollaboratorDialog";
 import ExportEventDialog from "@/components/ExportEventDialog";
@@ -93,7 +94,10 @@ export default function CalendarPage() {
   const isInitialLoad = eventsData === undefined;
   const updateEventMutation = useUpdateEvent();
   const updateEvent = (id: string, updates: Partial<typeof events[0]>) => updateEventMutation.mutate({ id, updates });
-  const { promoteHoldsOnDate, resolveHoldRankConflicts, normalizeAllHoldRanks } = useHoldRankMutations();
+  const { promoteHoldsOnDate, resolveHoldRankConflicts, normalizeAllHoldRanks, confirmHold, declineHold } = useHoldRankMutations();
+  // Set of event IDs currently being mutated by a hold-rank callable. Cards
+  // render as shimmering skeletons while the round-trip is in flight.
+  const holdOperationInFlight = useHoldOperationInFlight();
 
   // Self-heal duplicate hold ranks. Any (date, venue, room) group where two
   // events share the same holdRank gets renumbered 1..N. Catches data created
@@ -513,11 +517,24 @@ export default function CalendarPage() {
     return expanded;
   }, [events, filterStatus, filterArtist, filterVenue, calendarEntities, eventMatchesVisibleCalendars]);
 
+  // Sort events within a single date: on-hold first (rank ASC — lowest at
+  // top, highest at bottom), non-hold after in original order. Modern JS
+  // sort is stable so the tail keeps its incoming order.
+  const compareEventsForDate = useCallback((a: AppEvent, b: AppEvent) => {
+    const aIsHold = a.eventStatus === "on_hold";
+    const bIsHold = b.eventStatus === "on_hold";
+    if (aIsHold && bIsHold) return (a.holdRank ?? 99) - (b.holdRank ?? 99);
+    if (aIsHold) return -1;
+    if (bIsHold) return 1;
+    return 0;
+  }, []);
+
   const eventsByDate = useMemo(() => {
     const map = new Map<string, typeof events>();
     activeEvents.forEach(e => { if (!map.has(e.date)) map.set(e.date, []); map.get(e.date)!.push(e); });
+    for (const list of map.values()) list.sort(compareEventsForDate);
     return map;
-  }, [activeEvents]);
+  }, [activeEvents, compareEventsForDate]);
 
   const calItemsByDate = useMemo(() => {
     const map = new Map<string, CalendarItem[]>();
@@ -525,7 +542,10 @@ export default function CalendarPage() {
     return map;
   }, [calendarItems]);
 
-  const dayViewEvents = useMemo(() => activeEvents.filter(e => e.date === format(dayViewDate, "yyyy-MM-dd")), [activeEvents, dayViewDate]);
+  const dayViewEvents = useMemo(
+    () => activeEvents.filter(e => e.date === format(dayViewDate, "yyyy-MM-dd")).sort(compareEventsForDate),
+    [activeEvents, dayViewDate, compareEventsForDate],
+  );
   const dayViewCalItems = useMemo(() => calendarItems.filter(ci => ci.date === format(dayViewDate, "yyyy-MM-dd")), [calendarItems, dayViewDate]);
   const weekViewDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStartDate, i)), [weekStartDate]);
   const hours = useMemo(() => Array.from({ length: 18 }, (_, i) => i + 6), []);
@@ -606,6 +626,18 @@ export default function CalendarPage() {
   ), [handleItemClick]);
 
   const renderEventChip = useCallback((event: AppEvent, sizeClass: string, labelOverride?: string) => {
+    // In-flight hold-rank op: skeleton until the server response lands.
+    // Skip the chip entirely so the rank/label can't lie during the round-trip.
+    if (holdOperationInFlight.has(event.id)) {
+      return (
+        <div
+          key={event.id}
+          className={cn(sizeClass, "rounded border w-full bg-muted/60 animate-pulse")}
+          aria-busy="true"
+          aria-label="Updating hold rank"
+        />
+      );
+    }
     const color = getEventEntityColor(event);
     const holdRank = event.eventStatus === "on_hold" && event.holdRank ? event.holdRank : 0;
     const rankLabel = holdRank > 0 ? (holdRank === 1 ? "1st" : holdRank === 2 ? "2nd" : holdRank === 3 ? "3rd" : `${holdRank}th`) : "";
@@ -628,7 +660,7 @@ export default function CalendarPage() {
         <span className="truncate">{chipLabel}</span>
       </button>
     );
-  }, [getEventEntityColor, handleItemClick, titleDisplay]);
+  }, [getEventEntityColor, handleItemClick, titleDisplay, holdOperationInFlight]);
 
   // ── Calendar toggles ──
   const toggleCalendar = (name: string) => setVisibleCalendars(prev => { const next = new Set(prev); if (next.has(name)) next.delete(name); else next.add(name); return next; });
@@ -779,6 +811,13 @@ export default function CalendarPage() {
               const evt = isEvt
                 ? (events.find((e) => e.id === popupItem.data.id) || popupItem.data) as AppEvent
                 : null;
+              // Per memory `feedback_no_artist_role.md`: use the flat
+              // `useAllProfiles()` array, never the slotted dict.
+              const isPerformerForEvent = isEvt && !!evt!.performerProfileId
+                && allProfiles.some((p) => p.id === evt!.performerProfileId);
+              const isOnHold = isEvt && evt!.eventStatus === "on_hold";
+              const showOperatorControls = isOnHold && !isPerformerForEvent;
+              const showPerformerActions = isOnHold && isPerformerForEvent;
               return (
                 <CalendarItemPopup
                   item={popupItem}
@@ -800,24 +839,21 @@ export default function CalendarPage() {
                   } : undefined}
                   holdRank={evt?.holdRank}
                   holdAutoPromote={evt?.holdAutoPromote}
-                  onHoldRankChange={isEvt && evt!.eventStatus === "on_hold" ? (rank) => resolveHoldRankConflicts(evt!.id, evt!.date, evt!.venue, evt!.roomStage || "", rank) : undefined}
-                  onHoldAutoPromoteChange={isEvt && evt!.eventStatus === "on_hold" ? (auto) => updateEvent(evt!.id, { holdAutoPromote: auto }) : undefined}
-                  onConfirmHold={isEvt && evt!.eventStatus === "on_hold" ? () => {
-                    const e = evt!;
-                    updateEvent(e.id, { eventStatus: ACCEPTED_HOLD_STATUS });
-                    const siblings = findCompetingHolds(events, e);
-                    for (const s of siblings) {
-                      updateEvent(s.id, { eventStatus: "cancelled" });
-                    }
-                    toast({
-                      title: "Date accepted, event is now pending.",
-                      description: siblings.length > 0 ? `${siblings.length} competing hold(s) cancelled.` : undefined,
-                    });
-                  } : undefined}
-                  onDeclineHold={isEvt && evt!.eventStatus === "on_hold" ? () => {
-                    updateEvent(evt!.id, { eventStatus: "cancelled" });
-                    toast({ title: "Event declined" });
-                  } : undefined}
+                  maxHoldRank={
+                    isOnHold && evt
+                      ? getMaxHoldRank({
+                          events,
+                          date: evt.date,
+                          venue: evt.venue,
+                          roomStage: evt.roomStage || "",
+                          excludeId: evt.id,
+                        })
+                      : undefined
+                  }
+                  onHoldRankChange={showOperatorControls ? (rank) => resolveHoldRankConflicts(evt!.id, rank) : undefined}
+                  onHoldAutoPromoteChange={showOperatorControls ? (auto) => updateEvent(evt!.id, { holdAutoPromote: auto }) : undefined}
+                  onConfirmHold={showPerformerActions ? () => { void confirmHold(evt!.id); } : undefined}
+                  onDeclineHold={isOnHold ? () => { void declineHold(evt!.id); } : undefined}
                 />
               );
             })()}

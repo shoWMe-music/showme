@@ -9,6 +9,8 @@ import {
 import { EventStatusBadge } from "@/components/StatusBadge";
 import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
 import { cn } from "@/lib/utils";
+import { useEvents } from "@/lib/queries";
+import { getMaxHoldRank } from "@/lib/holdMaxRank";
 import type { Event, EventCollaborator } from "@/lib/models";
 import type { TabId } from "./useEventManager";
 import { EventStatusTimeline } from "./EventStatusTimeline";
@@ -53,6 +55,15 @@ export function EventManagerHeader({
   isPerformer, isPerformerInvitation, onTabChange,
 }: EventManagerHeaderProps) {
   const navigate = useNavigate();
+  const allEvents = useEvents();
+  // Edit flow — event is already in the pool, so max = current population.
+  const maxHoldRank = getMaxHoldRank({
+    events: allEvents,
+    date: event.date,
+    venue: event.venue,
+    roomStage: event.roomStage || "",
+    excludeId: event.id,
+  });
 
   return (
     <>
@@ -66,13 +77,17 @@ export function EventManagerHeader({
               {event.eventStatus === "on_hold" && (
                 <div className="flex items-center gap-2 ml-1">
                   <Select value={String(event.holdRank || 1)} onValueChange={v => {
-                    const newRank = Number(v);
-                    updateEvent(id, { holdRank: newRank });
-                    resolveHoldRankConflicts(id, event.date, event.venue, event.roomStage || "", newRank);
+                    // resolveHoldRankConflicts hits the server-side callable
+                    // which writes the target's new rank AND shifts siblings
+                    // atomically. Do NOT also call updateEvent here — that
+                    // pre-stamps the new rank on the event doc, the callable
+                    // then sees oldRank === newRank and decides nothing needs
+                    // to move, and you end up with two holds at the same rank.
+                    resolveHoldRankConflicts(id, Number(v));
                   }}>
                     <SelectTrigger className="h-7 w-[100px] text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {[1,2,3,4,5].map(n => <SelectItem key={n} value={String(n)}>{n}{["st","nd","rd","th","th"][n-1]} Hold</SelectItem>)}
+                      {Array.from({ length: maxHoldRank }, (_, i) => i + 1).map(n => <SelectItem key={n} value={String(n)}>{n}{["st","nd","rd","th","th"][n-1]} Hold</SelectItem>)}
                     </SelectContent>
                   </Select>
                   <div className="flex items-center gap-1.5">

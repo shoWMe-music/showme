@@ -58,7 +58,7 @@ export default function ContactDetailPage() {
       e.artist.toLowerCase() === name ||
       e.venue.toLowerCase() === name ||
       e.operator.toLowerCase() === name ||
-      e.ticketingProvider.toLowerCase() === name
+      (e.tickets ?? []).some(t => t.provider.toLowerCase() === name)
     );
   }, [contact, events]);
 

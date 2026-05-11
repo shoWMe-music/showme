@@ -81,7 +81,7 @@ function ScheduleTemplatePreview({ payload }: { payload: unknown }) {
 function OverviewTemplatePreview({ payload }: { payload: unknown }) {
   const p = (payload ?? {}) as Record<string, unknown>;
   const capacity = asNumber(p.capacity);
-  const provider = asString(p.ticketingProvider);
+  const provider = asString((p.tickets as { provider: string }[] | undefined)?.[0]?.provider);
   const rows: { icon: ElementType; label: string; value: string | number }[] = [];
   if (provider) rows.push({ icon: Ticket, label: "Ticketing", value: provider });
   if (typeof capacity === "number") rows.push({ icon: Users, label: "Capacity", value: capacity.toLocaleString() });

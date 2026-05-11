@@ -1,7 +1,7 @@
 import { format } from "date-fns";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
-import { upsertRider, fetchProfileOwnerUid, searchArtistProfiles, createUnacquiredProfile } from "@/lib/db";
+import { upsertRider, fetchProfileOwnerUid, searchArtistProfiles, createUnacquiredProfile, normalizeTicket } from "@/lib/db";
 import { toast } from "@/hooks/use-toast";
 import { useUser, type OperatorRole } from "@/lib/user-context";
 import { isOwnProfileName, contactExists } from "@/lib/contacts";
@@ -100,7 +100,7 @@ interface SubmitParams {
   artistName: string;
   performerProfileId: string;
   capacity: string;
-  ticketingProvider: string;
+  tickets: { provider: string; url: string }[];
   roomStage: string;
   holdRank: number;
   defaultStatus?: string;
@@ -165,13 +165,14 @@ export function useCreateEventSubmit() {
   const handleSubmit = async (params: SubmitParams) => {
     const {
       selectedRole, eventName, date, venueName, artistName, performerProfileId, capacity,
-      ticketingProvider, roomStage, holdRank, defaultStatus,
+      tickets: rawTickets, roomStage, holdRank, defaultStatus,
       isMultiPerformer, multiVenueType, festivalName, performers,
       promoterCostSplit, venueCostSplit, venueRental, venueRentalPaymentMode,
       dealType, artistGuarantee, artistSplit, promoterSplit, venueSplit, artistCostSplit,
       parties, prefillData, onEventCreated, setOpen, resetForm,
       inviteCollaborators,
     } = params;
+    const tickets = rawTickets.map(normalizeTicket);
     const willInvite = shouldInviteCollaborators(inviteCollaborators, defaultStatus);
     // No-performer creates always start as a draft regardless of willInvite —
     // there is nobody to suggest the event to yet. The user can promote it to
@@ -195,7 +196,8 @@ export function useCreateEventSubmit() {
     const partyTypeMap: Record<string, ContactType> = { bookerAgent: "agent", promoter: "promoter", management: "manager" };
 
     if (resolvedVenue) ensureContact(resolvedVenue, "venue");
-    if (ticketingProvider) ensureContact(ticketingProvider, "ticketing");
+    const uniqueProviders = Array.from(new Set(tickets.map(t => t.provider.trim()).filter(Boolean)));
+    for (const p of uniqueProviders) ensureContact(p, "ticketing");
     parties.forEach(p => { if (p.name.trim()) ensureContact(p.name, partyTypeMap[p.key] || "agent"); });
 
     const commissions = parties.map(p => ({ key: p.key, label: p.label, name: p.name, percentage: parseFloat(p.percentage) || 0 }));
@@ -257,7 +259,7 @@ export function useCreateEventSubmit() {
             id: childId, name: `${eventName} — ${perf.artistName}`,
             date: date ? format(date, "yyyy-MM-dd") : "",
             venue: perf.performerVenue || resolvedVenue, operator: currentUser.name, operatorType,
-            ticketingProvider, capacity: parseInt(perf.stageCapacity) || 0,
+            tickets: tickets ?? [], capacity: parseInt(perf.stageCapacity) || 0,
             artist: perf.artistName, eventStatus: computedStatus, status: computedStatus,
             parentEventId: parentId, hostProfileId, accessUids: multiAccessUids, accessProfileIds: childProfileIds,
             performerProfileId: perf.performerProfileId || undefined,
@@ -299,7 +301,7 @@ export function useCreateEventSubmit() {
         id: parentId, name: eventName,
         date: date ? format(date, "yyyy-MM-dd") : "",
         venue: resolvedVenue, operator: currentUser.name, operatorType,
-        ticketingProvider, capacity: totalCapacity,
+        tickets: tickets ?? [], capacity: totalCapacity,
         artist: performers.map(p => p.artistName).filter(Boolean).join(", "),
         eventStatus: computedStatus, status: computedStatus,
         isMultiPerformer: true, childEventIds: childEvents.map(c => c.event.id),
@@ -371,7 +373,7 @@ export function useCreateEventSubmit() {
         event: {
           id, name: eventName, date: date ? format(date, "yyyy-MM-dd") : "",
           venue: venueName, operator: currentUser.name, operatorType,
-          ticketingProvider, capacity: parseInt(capacity) || 0,
+          tickets: tickets ?? [], capacity: parseInt(capacity) || 0,
           artist: artistName, eventStatus: computedStatus, status: computedStatus,
           hostProfileId, accessUids: finalAccessUids, accessProfileIds,
           performerProfileId: resolvedPerformerProfileId || undefined,
@@ -424,7 +426,7 @@ export function useCreateEventSubmit() {
       if (profileRiders.length > 0) await upsertRidersMutation.mutateAsync({ eventId: id, riders: profileRiders });
 
       if (defaultStatus === "on_hold") {
-        resolveHoldRankConflicts(id, date ? format(date, "yyyy-MM-dd") : "", venueName, roomStage || "", holdRank);
+        resolveHoldRankConflicts(id, holdRank);
       }
 
       onEventCreated?.(id);

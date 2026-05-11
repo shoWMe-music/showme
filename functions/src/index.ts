@@ -33,6 +33,7 @@ export {
   getProfileMembershipBatch,
 } from "./profileMembership";
 export { lookupUserForInvite, addExistingUserAsCollaborator } from "./userLookup";
+export { setHoldRank, confirmHold, declineHold } from "./holds";
 export { getPublicShare } from "./publicShareApi";
 export { requestShareOtp, verifyShareOtp } from "./shareOtpApi";
 export { confirmShareParty } from "./confirmShareApi";

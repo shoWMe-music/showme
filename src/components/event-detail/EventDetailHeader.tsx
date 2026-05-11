@@ -28,7 +28,7 @@ export function EventDetailHeader({ event, deal, revenue, settlement }: EventDet
       ["Performer", event.artist],
       ["Venue", event.venue],
       ["Operator", `${event.operator} (${event.operatorType})`],
-      ["Ticketing Provider", event.ticketingProvider],
+      ["Ticketing", Array.from(new Set((event.tickets ?? []).map(t => t.provider).filter(Boolean))).join(", ")],
       ["Status", event.status],
       ["", ""],
       ["Deal Structure", ""],

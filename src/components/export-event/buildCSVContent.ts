@@ -46,7 +46,7 @@ export function buildCSVContent(
     lines.push(`"Operator Type","${s(event.operatorType, "N/A")}"`);
     lines.push(`"Status","${s(event.eventStatus, "N/A")}"`);
     lines.push(`"Capacity","${s(event.capacity, "N/A")}"`);
-    lines.push(`"Ticketing Provider","${s(event.ticketingProvider, "N/A")}"`);
+    lines.push(`"Ticketing","${s(Array.from(new Set((event.tickets ?? []).map(t => t.provider).filter(Boolean))).join(", "), "N/A")}"`);
     if (event.notes) lines.push(`"Notes","${s(event.notes)}"`);
     if (event.amenities && event.amenities.length > 0) {
       lines.push(`"Amenities","${s(event.amenities.join(", "))}"`);

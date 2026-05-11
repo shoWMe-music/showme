@@ -1,6 +1,7 @@
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, operatorRoleLabels, operatorRoleDescriptions, type OperatorRole } from "@/lib/user-context";
+import { useAllProfiles } from "@/lib/queries";
 import { canUserCreateEventsWithProfiles } from "@/lib/eventPermissions";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -12,10 +13,11 @@ interface RoleSelectionStepProps {
 }
 
 export function RoleSelectionStep({ selectedRole, onRoleSelect, onNext }: RoleSelectionStepProps) {
-  const { currentUser, profiles } = useUser();
+  const { currentUser } = useUser();
+  const allProfiles = useAllProfiles();
 
   const handleNext = () => {
-    if (!canUserCreateEventsWithProfiles(profiles)) {
+    if (!canUserCreateEventsWithProfiles(allProfiles)) {
       toast({
         title: "Profile required",
         description:

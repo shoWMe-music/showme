@@ -12,7 +12,7 @@ function makeEventData(overrides?: Partial<EventExportData>): EventExportData {
       id: "EVT-001", name: "Test Event", date: "2026-05-01",
       venue: "The Venue", artist: "The Artist", operator: "Operator",
       operatorType: "venue", capacity: 500, eventStatus: "confirmed",
-      ticketingProvider: "Ticketmaster",
+      tickets: [{ provider: "Ticketmaster", url: "https://tickets.example.com/test" }],
     } as EventExportData["event"],
     deal: {
       eventId: "EVT-001", dealType: "guarantee",
@@ -199,7 +199,7 @@ describe("buildCSVContent", () => {
       event: {
         id: "EVT-002", name: "Sparse", date: "", venue: "",
         artist: undefined, operator: undefined, operatorType: undefined,
-        capacity: undefined, eventStatus: undefined, ticketingProvider: undefined,
+        capacity: undefined, eventStatus: undefined, tickets: undefined,
       } as unknown as EventExportData["event"],
       revenue: {
         eventId: "EVT-002", ticketsSold: 0, grossRevenue: 0, ticketFees: 0,

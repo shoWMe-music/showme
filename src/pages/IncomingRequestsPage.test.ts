@@ -10,7 +10,6 @@ function makeEvent(overrides: Partial<Event> & { id: string }): Event {
     venue: overrides.venue ?? "Sunset Hall",
     operator: overrides.operator ?? "Sunset Promotions",
     operatorType: overrides.operatorType ?? "promoter",
-    ticketingProvider: overrides.ticketingProvider ?? "",
     capacity: overrides.capacity ?? 0,
     artist: overrides.artist ?? "Ori",
     eventStatus: overrides.eventStatus ?? "on_hold",
