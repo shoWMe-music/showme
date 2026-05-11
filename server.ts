@@ -17,7 +17,7 @@ const SSR_EXACT = new Set([
   "/about",
   "/product",
   "/solutions",
-  "/pricing",
+  // "/pricing",
   "/login",
   "/signup",
 ]);

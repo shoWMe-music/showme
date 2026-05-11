@@ -53,7 +53,7 @@ export const ssrRender = onRequest(
 
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       // Cache marketing pages aggressively, dynamic pages less so
-      const isMarketing = ["/landing", "/about", "/product", "/solutions", "/pricing"].some(
+      const isMarketing = ["/landing", "/about", "/product", "/solutions" /* , "/pricing" */].some(
         (p) => req.path === p || req.path.startsWith(p + "/"),
       );
       res.setHeader("Cache-Control", isMarketing ? "public, max-age=3600, s-maxage=86400" : "public, max-age=60, s-maxage=300");

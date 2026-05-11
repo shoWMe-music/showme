@@ -35,7 +35,7 @@ import LandingPage from "@/pages/LandingPage";
 import ProductPage from "@/pages/ProductPage";
 import SolutionsPage from "@/pages/SolutionsPage";
 import AboutPage from "@/pages/AboutPage";
-import PricingPage from "@/pages/PricingPage";
+// import PricingPage from "@/pages/PricingPage";
 import LoginPage from "@/pages/LoginPage";
 import SignupPage from "@/pages/SignupPage";
 import PublicProfilePage from "@/pages/PublicProfilePage";
@@ -209,17 +209,17 @@ const solutionsRoute = createRoute({
   },
 });
 
-const pricingRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/pricing",
-  component: PricingPage,
-  staticData: {
-    meta: {
-      title: "Pricing — shoWMe",
-      description: "Simple, transparent pricing for event professionals. Find the shoWMe plan that fits your needs.",
-    },
-  },
-});
+// const pricingRoute = createRoute({
+//   getParentRoute: () => rootRoute,
+//   path: "/pricing",
+//   component: PricingPage,
+//   staticData: {
+//     meta: {
+//       title: "Pricing — shoWMe",
+//       description: "Simple, transparent pricing for event professionals. Find the shoWMe plan that fits your needs.",
+//     },
+//   },
+// });
 
 const eventsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -463,7 +463,7 @@ export const routeTree = rootRoute.addChildren([
   aboutRoute,
   productRoute,
   solutionsRoute,
-  pricingRoute,
+  // pricingRoute,
   eventsRoute,
   eventManagerRoute,
   calendarRoute,

@@ -28,7 +28,6 @@
       { "source": "/about", "function": "ssrRender", "region": "europe-west1" },
       { "source": "/product", "function": "ssrRender", "region": "europe-west1" },
       { "source": "/solutions", "function": "ssrRender", "region": "europe-west1" },
-      { "source": "/pricing", "function": "ssrRender", "region": "europe-west1" },
       { "source": "/login", "function": "ssrRender", "region": "europe-west1" },
       { "source": "/signup", "function": "ssrRender", "region": "europe-west1" },
       { "source": "/p/**", "function": "ssrRender", "region": "europe-west1" },

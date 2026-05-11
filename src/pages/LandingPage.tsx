@@ -34,7 +34,7 @@ export function LandingNav() {
             <Link to="/product" className="text-sm text-muted-foreground transition-colors hover:text-foreground">Product</Link>
             <Link to="/solutions" className="text-sm text-muted-foreground transition-colors hover:text-foreground">Solutions</Link>
             <Link to="/about" className="text-sm text-muted-foreground transition-colors hover:text-foreground">About</Link>
-            <Link to="/pricing" className="text-sm text-muted-foreground transition-colors hover:text-foreground">Pricing</Link>
+            {/* <Link to="/pricing" className="text-sm text-muted-foreground transition-colors hover:text-foreground">Pricing</Link> */}
           </div>
           <Link to="/login" className="hidden md:inline-flex">
             <Button variant="ghost" size="sm">Sign in</Button>
@@ -58,7 +58,7 @@ export function LandingNav() {
           <Link to="/product" className="block text-sm text-muted-foreground transition-colors hover:text-foreground" onClick={() => setMobileOpen(false)}>Product</Link>
           <Link to="/solutions" className="block text-sm text-muted-foreground transition-colors hover:text-foreground" onClick={() => setMobileOpen(false)}>Solutions</Link>
           <Link to="/about" className="block text-sm text-muted-foreground transition-colors hover:text-foreground" onClick={() => setMobileOpen(false)}>About</Link>
-          <Link to="/pricing" className="block text-sm text-muted-foreground transition-colors hover:text-foreground" onClick={() => setMobileOpen(false)}>Pricing</Link>
+          {/* <Link to="/pricing" className="block text-sm text-muted-foreground transition-colors hover:text-foreground" onClick={() => setMobileOpen(false)}>Pricing</Link> */}
           <div className="flex gap-3 pt-2">
             <Link to="/login" onClick={() => setMobileOpen(false)}>
               <Button variant="ghost" size="sm">Sign in</Button>
