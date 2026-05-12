@@ -130,6 +130,19 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         ...(target.search ? { search: target.search } : {}),
         ...(target.hash ? { hash: target.hash } : {}),
       });
+    } else if (target.kind === "settlement") {
+      // Settlement detail page reads the event/economics via the same caches
+      // as the event manager — keep the events list warm so the page doesn't
+      // skeleton against a stale cache.
+      if (uid) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.events(uid) });
+      }
+      void navigate({
+        to: target.to,
+        params: target.params,
+        ...(target.search ? { search: target.search } : {}),
+        ...(target.hash ? { hash: target.hash } : {}),
+      });
     } else if (target.kind === "contact") {
       // Same race as events — kick a refetch so ContactDetailPage doesn't
       // mount against a stale cache.

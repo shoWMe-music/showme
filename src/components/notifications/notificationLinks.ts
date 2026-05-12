@@ -39,6 +39,7 @@ const STATIC_LINK_ALLOWLIST: readonly string[] = [
 
 export type NotificationNavTarget =
   | { kind: "event"; to: "/events/$id"; params: { id: string }; search?: Record<string, string>; hash?: string }
+  | { kind: "settlement"; to: "/settlements/$id"; params: { id: string }; search?: { tab?: string }; hash?: string }
   | { kind: "contact"; to: "/contacts/$id"; params: { id: string } }
   | { kind: "profile-public"; to: "/p/$slug"; params: { slug: string } }
   | { kind: "profile-list"; to: "/profiles" }
@@ -64,6 +65,27 @@ export function resolveNotificationTarget(n: AppNotification): NotificationNavTa
     n.type === "profile_member_role_changed"
   ) {
     return { kind: "static", to: "/settings", hash: "profile-access" };
+  }
+
+  // 0.5. Settlement-scoped: comments and revisions live on /settlements/$id,
+  //      not on the event manager's settlement tab (that one is a dispatcher).
+  //      `eventId` doubles as the settlement id since they share a key. Route
+  //      these three types directly there.
+  if (
+    n.eventId &&
+    (n.type === "settlement_status_changed" ||
+      n.type === "settlement_comment_added" ||
+      n.type === "settlement_revision_added")
+  ) {
+    const search: { tab?: string } = {};
+    if (md.tab) search.tab = md.tab;
+    return {
+      kind: "settlement",
+      to: "/settlements/$id",
+      params: { id: n.eventId },
+      ...(Object.keys(search).length > 0 ? { search } : {}),
+      ...(md.section ? { hash: md.section } : {}),
+    };
   }
 
   // 1. Event-scoped: most common case.

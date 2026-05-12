@@ -71,6 +71,62 @@ describe("resolveNotificationTarget", () => {
     });
   });
 
+  it("routes settlement_status_changed to /settlements/$id (not the event tab)", () => {
+    const target = resolveNotificationTarget(
+      makeNotif({ type: "settlement_status_changed", eventId: "evt-1" }),
+    );
+    expect(target).toEqual({
+      kind: "settlement",
+      to: "/settlements/$id",
+      params: { id: "evt-1" },
+    });
+  });
+
+  it("routes settlement_comment_added to /settlements/$id?tab=settlement#comments", () => {
+    const target = resolveNotificationTarget(
+      makeNotif({
+        type: "settlement_comment_added",
+        eventId: "evt-1",
+        metadata: { tab: "settlement", section: "comments" },
+      }),
+    );
+    expect(target).toEqual({
+      kind: "settlement",
+      to: "/settlements/$id",
+      params: { id: "evt-1" },
+      search: { tab: "settlement" },
+      hash: "comments",
+    });
+  });
+
+  it("routes settlement_revision_added to the changelog tab", () => {
+    const target = resolveNotificationTarget(
+      makeNotif({
+        type: "settlement_revision_added",
+        eventId: "evt-1",
+        metadata: { tab: "changelog" },
+      }),
+    );
+    expect(target).toEqual({
+      kind: "settlement",
+      to: "/settlements/$id",
+      params: { id: "evt-1" },
+      search: { tab: "changelog" },
+    });
+  });
+
+  it("non-settlement event notifications still route to /events/$id", () => {
+    const target = resolveNotificationTarget(
+      makeNotif({ type: "deal_updated", eventId: "evt-1", metadata: { tab: "budget" } }),
+    );
+    expect(target).toEqual({
+      kind: "event",
+      to: "/events/$id",
+      params: { id: "evt-1" },
+      search: { tab: "budget" },
+    });
+  });
+
   it("routes contact-scoped notifications to /contacts/$id", () => {
     const target = resolveNotificationTarget(
       makeNotif({ metadata: { contactId: "c-42" } }),

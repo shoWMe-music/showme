@@ -428,8 +428,9 @@ export const onSettlementUpdated = onDocumentWritten(
         type: "settlement_status_changed",
         title: `Settlement: ${after.status}`,
         body: `Settlement status changed to "${after.status}"`,
-        link: `/events/${eventId}?tab=settlement`,
-        metadata: { tab: "settlement" },
+        // Settlement notifications resolve to /settlements/$id via the
+        // notification-type branch in resolveNotificationTarget.
+        link: `/settlements/${eventId}`,
       });
     }
   },
@@ -458,8 +459,10 @@ export const onSettlementActivity = onDocumentCreated(
         type: "settlement_comment_added",
         title: "New settlement comment",
         body: `${by} commented on the settlement`,
-        link: `/events/${eventId}?tab=settlement#activity`,
-        metadata: { ...details, tab: "settlement", section: "activity" },
+        // SettlementWorkspace has an existing #comments scroll handler that
+        // activates inside the settlement tab — match its expectations.
+        link: `/settlements/${eventId}?tab=settlement#comments`,
+        metadata: { ...details, tab: "settlement", section: "comments" },
       });
     }
 
@@ -468,8 +471,8 @@ export const onSettlementActivity = onDocumentCreated(
         type: "settlement_revision_added",
         title: "Settlement revision",
         body: `${by} submitted a settlement revision`,
-        link: `/events/${eventId}?tab=settlement#activity`,
-        metadata: { tab: "settlement", section: "activity" },
+        link: `/settlements/${eventId}?tab=changelog`,
+        metadata: { tab: "changelog" },
       });
     }
   },
