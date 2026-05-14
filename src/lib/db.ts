@@ -67,6 +67,7 @@ import type {
   Agreement,
   CalendarItem,
   CrewMember,
+  CollaboratorPermission,
   DealStructure,
   Event,
   EventActivity,
@@ -978,6 +979,8 @@ export function eventRowToEvent(r: Record<string, unknown>): Event {
     hostProfileId: typeof r.hostProfileId === "string" ? r.hostProfileId : undefined,
     accessProfileIds: Array.isArray(r.accessProfileIds) ? (r.accessProfileIds as string[]) : undefined,
     accessUids: Array.isArray(r.accessUids) ? (r.accessUids as string[]) : undefined,
+    editorUids: Array.isArray(r.editorUids) ? (r.editorUids as string[]) : undefined,
+    adminUids: Array.isArray(r.adminUids) ? (r.adminUids as string[]) : undefined,
     performerProfileId: typeof r.performerProfileId === "string" ? r.performerProfileId : undefined,
     performerRoleTag: typeof r.performerRoleTag === "string" ? r.performerRoleTag as Event["performerRoleTag"] : undefined,
     isMultiPerformer: Boolean(r.isMultiPerformer),
@@ -1899,6 +1902,18 @@ function eventCollaboratorsCol(eventId: string) {
   return eventSubCol(eventId, SUB_COLLABORATORS);
 }
 
+const VALID_COLLABORATOR_PERMISSIONS: ReadonlySet<CollaboratorPermission> = new Set([
+  "admin",
+  "editor",
+  "view_only",
+]);
+
+function normalizePermission(raw: unknown): CollaboratorPermission | undefined {
+  return VALID_COLLABORATOR_PERMISSIONS.has(raw as CollaboratorPermission)
+    ? (raw as CollaboratorPermission)
+    : undefined;
+}
+
 function collaboratorUiToFirestore(c: EventCollaborator): Record<string, unknown> {
   return {
     clientId: c.id,
@@ -1906,6 +1921,7 @@ function collaboratorUiToFirestore(c: EventCollaborator): Record<string, unknown
     name: c.name,
     eventRole: c.eventRole,
     role: c.role || c.eventRole,
+    permission: c.permission ?? null,
     status: c.status === "accepted" ? "active" : c.status === "invited" ? "pending" : c.status,
     invitedAt: c.invitedAt,
     userUid: c.userUid ?? null,
@@ -1934,6 +1950,7 @@ function collaboratorDocToUi(d: QueryDocumentSnapshot): EventCollaborator {
     profileId: typeof data.profileId === "string" ? data.profileId : undefined,
     inviteProfileSlug:
       typeof data.inviteProfileSlug === "string" ? data.inviteProfileSlug : undefined,
+    permission: normalizePermission(data.permission),
   };
 }
 

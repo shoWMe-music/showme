@@ -8,6 +8,93 @@ import { APP_BASE_URL } from "./appBaseUrl";
 
 const db = () => getFirestore();
 
+type CollaboratorPermission = "admin" | "editor" | "view_only";
+
+const VALID_PERMISSIONS: readonly CollaboratorPermission[] = ["admin", "editor", "view_only"] as const;
+
+function normalizePermission(raw: unknown): CollaboratorPermission {
+  return VALID_PERMISSIONS.includes(raw as CollaboratorPermission)
+    ? (raw as CollaboratorPermission)
+    : "editor";
+}
+
+/**
+ * Look up the permission stored on the original collaborator invite doc when
+ * activating a claim. Falls back to "editor" if the invite is missing the
+ * field (legacy) or the doc isn't present.
+ */
+async function resolveInvitePermission(token: string | undefined): Promise<CollaboratorPermission> {
+  if (!token) return "editor";
+  try {
+    const snap = await db().collection("collaboratorInvites").doc(token).get();
+    if (!snap.exists) return "editor";
+    return normalizePermission(snap.data()?.permission);
+  } catch {
+    return "editor";
+  }
+}
+
+/**
+ * Compute the editorUids update for an event when a new collaborator joins.
+ *
+ * Invariants:
+ *  1. editorUids gates writes via Firestore rules. View-only must stay out.
+ *  2. On first population we bootstrap from the existing accessUids so
+ *     pre-existing legacy collaborators don't lose write access (the rule
+ *     fallback applies only while editorUids is missing entirely).
+ *
+ * Returns undefined when no editorUids update is needed (e.g. view-only on
+ * an event that already has editorUids).
+ */
+export function computeEditorUidsUpdate(
+  eventData: Record<string, unknown> | undefined,
+  newUid: string,
+  permission: CollaboratorPermission,
+): unknown | undefined {
+  const accessUids = Array.isArray(eventData?.accessUids) ? (eventData!.accessUids as string[]) : [];
+  const hasEditorUids = Array.isArray(eventData?.editorUids);
+  if (permission === "view_only") {
+    if (!hasEditorUids) {
+      // Freeze legacy roster so pre-existing accessUids keep editing — new
+      // view-only uid stays out.
+      return Array.from(new Set(accessUids));
+    }
+    return undefined;
+  }
+  if (hasEditorUids) {
+    return FieldValue.arrayUnion(newUid);
+  }
+  return Array.from(new Set([...accessUids, newUid]));
+}
+
+/**
+ * Compute the adminUids update for an event when a collaborator joins or
+ * changes permission. Unlike editorUids, this array holds only non-host
+ * collab-admins — host profile members get admin power via `isHostAdmin` and
+ * are intentionally absent so we never have to recompute host membership
+ * here.
+ *
+ * Returns undefined when no update is needed (e.g. non-admin tier on a doc
+ * that already has the field shape we want).
+ */
+export function computeAdminUidsUpdate(
+  eventData: Record<string, unknown> | undefined,
+  newUid: string,
+  permission: CollaboratorPermission,
+): unknown | undefined {
+  const hasAdminUids = Array.isArray(eventData?.adminUids);
+  if (permission === "admin") {
+    return hasAdminUids ? FieldValue.arrayUnion(newUid) : [newUid];
+  }
+  // Non-admin tier: if the field already exists, remove the uid in case it
+  // was previously admin. If the field doesn't exist, no action — we don't
+  // bootstrap from anything (host members aren't tracked here).
+  if (hasAdminUids) {
+    return FieldValue.arrayRemove(newUid);
+  }
+  return undefined;
+}
+
 // Alphabet without ambiguous characters: 0/O, 1/I/L
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
@@ -265,6 +352,10 @@ export const claimInvitationCode = onCall<ClaimInvitationCodeData, Promise<Claim
     const linkedEventId = codeData.linkedEventId as string | undefined;
     const recipientName = codeData.recipientName as string | undefined;
     const recipientRole = codeData.recipientRole as string | undefined;
+    const inviteToken = typeof codeData.sourceCollaboratorInviteToken === "string"
+      ? codeData.sourceCollaboratorInviteToken
+      : undefined;
+    const permission = await resolveInvitePermission(inviteToken);
 
     // Profile transfer logic (outside transaction)
     if (linkedProfileId) {
@@ -306,6 +397,14 @@ export const claimInvitationCode = onCall<ClaimInvitationCodeData, Promise<Claim
             accessUids: FieldValue.arrayUnion(uid),
             accessProfileIds: FieldValue.arrayUnion(newProfileId),
           };
+          const editorUidsUpdate = computeEditorUidsUpdate(eventData, uid, permission);
+          if (editorUidsUpdate !== undefined) {
+            eventUpdates.editorUids = editorUidsUpdate;
+          }
+          const adminUidsUpdate = computeAdminUidsUpdate(eventData, uid, permission);
+          if (adminUidsUpdate !== undefined) {
+            eventUpdates.adminUids = adminUidsUpdate;
+          }
 
           // Link the new profile as the performer on this event
           if (
@@ -316,6 +415,27 @@ export const claimInvitationCode = onCall<ClaimInvitationCodeData, Promise<Claim
           }
 
           await eventRef.update(eventUpdates);
+
+          // Activate the collaborator row so the host's view reflects the
+          // accepted invite. Best-effort — older codes may lack the token
+          // pointer (e.g. signup flows that pre-date createPerformerInvitation).
+          if (inviteToken) {
+            try {
+              await eventRef.collection("collaborators").doc(inviteToken).update({
+                status: "active",
+                userUid: uid,
+                profileId: newProfileId,
+                permission,
+                updatedAt: FieldValue.serverTimestamp(),
+              });
+            } catch (err) {
+              logger.warn("Failed to activate collaborator row on claim", {
+                err: String(err),
+                eventId: linkedEventId,
+                inviteToken,
+              });
+            }
+          }
 
           // For multi-performer events, also update the child event that
           // references the old stub profile so the performer is properly linked.
@@ -768,6 +888,7 @@ export const claimInviteWithProfile = onCall<
       ? codeData.sourceCollaboratorInviteToken
       : undefined;
     const profileSlug = typeof profileData.slug === "string" ? profileData.slug : null;
+    const permission = await resolveInvitePermission(inviteToken);
 
     // 1. Mark the invitation code used.
     await db().collection("invitationCodes").doc(code).update({
@@ -781,12 +902,22 @@ export const claimInviteWithProfile = onCall<
     //    missing we still complete the claim so the user gets a clean exit.
     if (linkedEventId) {
       const eventRef = db().collection("events").doc(linkedEventId);
+      const eventSnap = await eventRef.get();
+      const existingEventData = eventSnap.exists ? eventSnap.data() : undefined;
 
       const eventUpdates: Record<string, unknown> = {
         accessUids: FieldValue.arrayUnion(callerUid),
         accessProfileIds: FieldValue.arrayUnion(profileId),
         updatedAt: FieldValue.serverTimestamp(),
       };
+      const editorUidsUpdate = computeEditorUidsUpdate(existingEventData, callerUid, permission);
+      if (editorUidsUpdate !== undefined) {
+        eventUpdates.editorUids = editorUidsUpdate;
+      }
+      const adminUidsUpdate = computeAdminUidsUpdate(existingEventData, callerUid, permission);
+      if (adminUidsUpdate !== undefined) {
+        eventUpdates.adminUids = adminUidsUpdate;
+      }
 
       try {
         await eventRef.update(eventUpdates);
@@ -805,6 +936,7 @@ export const claimInviteWithProfile = onCall<
             userUid: callerUid,
             profileId,
             inviteProfileSlug: profileSlug,
+            permission,
             updatedAt: FieldValue.serverTimestamp(),
           });
         } catch (err) {

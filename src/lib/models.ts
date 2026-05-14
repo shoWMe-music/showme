@@ -80,6 +80,28 @@ export interface Event {
   accessProfileIds?: string[];
   /** All uids with access — denormalized for Firestore security rules. Includes host profile members + direct collaborators. */
   accessUids?: string[];
+  /**
+   * Uids permitted to edit the event (admin + editor permission). Denormalized
+   * for Firestore rules — host profile members are NOT listed here (their
+   * write power flows from profile membership). View-only collaborators are
+   * also absent. Maintained by every callable/client that touches the
+   * collaborators subcollection.
+   *
+   * Legacy events lack this field; rules treat its absence as "fall back to
+   * accessUids" so pre-permissions events keep working until a new invite
+   * flows through and populates the array.
+   */
+  editorUids?: string[];
+  /**
+   * Uids of non-host collaborator-admins (permission === "admin"). Denormalized
+   * so Firestore rules can authorize collaborator-management writes without
+   * scanning the subcollection. Host profile members are NOT in this array —
+   * their admin power flows from profile membership via `isHostAdmin`.
+   *
+   * Missing on legacy events; rules fall back to host-only collaborator
+   * management until the first non-host admin is assigned.
+   */
+  adminUids?: string[];
   /** On child (performer) events: the performer's profile ID. */
   performerProfileId?: string;
   /** Role tag for the performer on this event (e.g. Headliner, Support, Special Guest). */
@@ -698,6 +720,33 @@ export const eventCollaboratorRoleLabels: Record<EventCollaboratorRole, string> 
   staff: "Staff",
 };
 
+/**
+ * Edit-power tier for an event collaborator. Independent of eventRole, which
+ * labels what they are (Performer / Venue / Agent). Host profile members are
+ * implicitly admin and don't appear in the collaborators subcollection.
+ *
+ * - admin: edit everything (including financials) + manage collaborators
+ * - editor: edit non-financial event details; settlement/deal/revenue/budget
+ *           are read-only
+ * - view_only: read-only across the board
+ */
+export type CollaboratorPermission = "admin" | "editor" | "view_only";
+
+export const collaboratorPermissionLabels: Record<CollaboratorPermission, string> = {
+  admin: "Admin",
+  editor: "Editor",
+  view_only: "View only",
+};
+
+export const collaboratorPermissionDescriptions: Record<CollaboratorPermission, string> = {
+  admin: "Full access — can edit, invite others, and manage settings",
+  editor: "Can edit event details, but not financial information",
+  view_only: "Can only view event information",
+};
+
+/** Default applied when a collaborator doc is missing the field (legacy rows). */
+export const DEFAULT_COLLABORATOR_PERMISSION: CollaboratorPermission = "editor";
+
 export interface EventCollaborator {
   id: string;
   email: string;
@@ -711,6 +760,8 @@ export interface EventCollaborator {
   userUid?: string;
   profileId?: string;
   inviteProfileSlug?: string;
+  /** Edit-power tier. Missing on legacy rows — read with `DEFAULT_COLLABORATOR_PERMISSION` fallback. */
+  permission?: CollaboratorPermission;
 }
 
 export function normalizeCollaboratorStatus(status: string): CollaboratorStatus {

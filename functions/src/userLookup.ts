@@ -6,6 +6,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { sendMail, BREVO_API_KEY } from "./mail";
 import { eventCollaboratorInviteEmail } from "./emailTemplates";
 import { APP_BASE_URL } from "./appBaseUrl";
+import { computeAdminUidsUpdate } from "./invitations";
 
 const db = () => admin.firestore();
 
@@ -149,6 +150,10 @@ export const lookupUserForInvite = onCall<LookupUserForInviteData, Promise<Looku
 // addExistingUserAsCollaborator
 // ---------------------------------------------------------------------------
 
+type CollaboratorPermission = "admin" | "editor" | "view_only";
+
+const VALID_PERMISSIONS: CollaboratorPermission[] = ["admin", "editor", "view_only"];
+
 interface AddExistingUserAsCollaboratorData {
   eventId: string;
   email: string;
@@ -160,6 +165,8 @@ interface AddExistingUserAsCollaboratorData {
   role?: string;
   /** Event role (e.g. "performer", "staff"). */
   eventRole?: string;
+  /** Edit-power tier. Defaults to "editor" if missing. */
+  permission?: CollaboratorPermission;
   message?: string;
   /**
    * When true, also send a notification email to the recipient. The in-app
@@ -186,7 +193,10 @@ export const addExistingUserAsCollaborator = onCall<
       throw new HttpsError("unauthenticated", "Authentication required.");
     }
 
-    const { eventId, email: rawEmail, profileId, displayName, role, eventRole, message, sendEmail } = request.data || {};
+    const { eventId, email: rawEmail, profileId, displayName, role, eventRole, permission: rawPermission, message, sendEmail } = request.data || {};
+    const permission: CollaboratorPermission = VALID_PERMISSIONS.includes(rawPermission as CollaboratorPermission)
+      ? (rawPermission as CollaboratorPermission)
+      : "editor";
 
     if (!eventId || typeof eventId !== "string") {
       throw new HttpsError("invalid-argument", "eventId is required.");
@@ -203,7 +213,13 @@ export const addExistingUserAsCollaborator = onCall<
 
     const email = rawEmail.toLowerCase().trim();
 
-    // Verify caller has access to the event.
+    // Verify caller is authorized to manage collaborators on this event.
+    // Two paths, mirroring Firestore rules' `canManageEventCollaborators`:
+    //   - host profile admin (owner/admin member of hostProfileId)
+    //   - uid in event.adminUids (non-host collab-admin)
+    // Anything weaker (editor / view-only / no membership) is rejected. This
+    // closes a prior gap where any uid in accessUids could invoke this
+    // callable and bypass the host-only rule on the collaborators subcollection.
     const eventRef = db().collection("events").doc(eventId);
     const eventSnap = await eventRef.get();
     if (!eventSnap.exists) {
@@ -211,9 +227,32 @@ export const addExistingUserAsCollaborator = onCall<
     }
     const eventData = eventSnap.data() ?? {};
     const accessUids = Array.isArray(eventData.accessUids) ? (eventData.accessUids as string[]) : [];
-    const ownerUid = typeof eventData.user_uid === "string" ? eventData.user_uid : null;
-    if (ownerUid !== callerUid && !accessUids.includes(callerUid)) {
-      throw new HttpsError("permission-denied", "You do not have access to this event.");
+    const adminUids = Array.isArray(eventData.adminUids) ? (eventData.adminUids as string[]) : [];
+    const hostProfileId = typeof eventData.hostProfileId === "string" ? eventData.hostProfileId : "";
+
+    let callerIsHostAdmin = false;
+    if (hostProfileId) {
+      try {
+        const memberSnap = await db()
+          .collection("profiles")
+          .doc(hostProfileId)
+          .collection("members")
+          .doc(callerUid)
+          .get();
+        if (memberSnap.exists) {
+          const role = String((memberSnap.data() as Record<string, unknown>)?.role ?? "");
+          callerIsHostAdmin = role === "owner" || role === "admin";
+        }
+      } catch {
+        // ignore — fall through to adminUids check
+      }
+    }
+
+    if (!callerIsHostAdmin && !adminUids.includes(callerUid)) {
+      throw new HttpsError(
+        "permission-denied",
+        "Only event admins can add collaborators.",
+      );
     }
 
     // Verify the (email, profileId) pair maps to a real user that owns that profile.
@@ -247,6 +286,7 @@ export const addExistingUserAsCollaborator = onCall<
       name: displayName,
       eventRole: finalEventRole,
       role: labelRole,
+      permission,
       status: "active",
       invitedAt,
       userUid: found.uid,
@@ -259,11 +299,40 @@ export const addExistingUserAsCollaborator = onCall<
 
     // Grant the new user (and their profile) access to the event so it shows
     // up in their event list immediately.
-    await eventRef.update({
+    //
+    // editorUids gates writes via Firestore rules. Two invariants we have to
+    // maintain on every write:
+    //
+    //  1. Once editorUids is set, view-only users must NOT be in it (or they
+    //     bypass the gate via the array-membership branch).
+    //  2. On first population, we bootstrap from accessUids so pre-existing
+    //     legacy collaborators don't lose their edit access the moment a new
+    //     invite arrives (the rule falls back to accessUids only while the
+    //     field is missing; once it exists, the array is authoritative).
+    const eventUpdates: Record<string, unknown> = {
       accessUids: FieldValue.arrayUnion(found.uid),
       accessProfileIds: FieldValue.arrayUnion(profileId),
       updatedAt: FieldValue.serverTimestamp(),
-    });
+    };
+    const hasEditorUids = Array.isArray(eventData.editorUids);
+    if (permission === "view_only") {
+      // First time editorUids is populated, freeze the legacy roster so
+      // pre-existing accessUids keep writing — the new uid stays out.
+      if (!hasEditorUids) {
+        eventUpdates.editorUids = Array.from(new Set(accessUids));
+      }
+    } else if (hasEditorUids) {
+      eventUpdates.editorUids = FieldValue.arrayUnion(found.uid);
+    } else {
+      eventUpdates.editorUids = Array.from(new Set([...accessUids, found.uid]));
+    }
+    // adminUids only tracks non-host collab-admins. Host members are implicit
+    // via the rule's isHostAdmin check.
+    const adminUidsUpdate = computeAdminUidsUpdate(eventData, found.uid, permission);
+    if (adminUidsUpdate !== undefined) {
+      eventUpdates.adminUids = adminUidsUpdate;
+    }
+    await eventRef.update(eventUpdates);
 
     // Notification — let the recipient know they were added.
     let actorName = "Someone";

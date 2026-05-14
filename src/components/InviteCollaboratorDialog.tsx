@@ -9,7 +9,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Send, Copy, Users, Loader2, Check, CheckCircle2, UserPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast, copyToast } from "@/hooks/use-toast";
-import { legacyRoleToEventRole, type EventCollaboratorRole, type ContactPerson } from "@/lib/models";
+import {
+  legacyRoleToEventRole,
+  collaboratorPermissionLabels,
+  collaboratorPermissionDescriptions,
+  type CollaboratorPermission,
+  type EventCollaboratorRole,
+  type ContactPerson,
+} from "@/lib/models";
 import { useContacts } from "@/lib/queries";
 import { useMyInvitationCodes } from "@/lib/queries/useInvitationCodes";
 import { useAddContact } from "@/lib/queries/useContactMutations";
@@ -18,22 +25,18 @@ import { createPerformerInvitation, sendPerformerInvitationEmail } from "@/lib/c
 import { httpsCallable } from "firebase/functions";
 import { getFirebaseFunctions } from "@/integrations/firebase/app";
 
-type Permission = "admin" | "editor" | "view_only";
+type Permission = CollaboratorPermission;
 
-const permissionLabels: Record<Permission, string> = {
-  admin: "Admin",
-  editor: "Editor",
-  view_only: "View only",
-};
+const permissionLabels = collaboratorPermissionLabels;
+const permissionDescriptions = collaboratorPermissionDescriptions;
 
-const permissionDescriptions: Record<Permission, string> = {
-  admin: "Full access — can edit, invite others, and manage settings",
-  editor: "Can edit event details and financials",
-  view_only: "Can only view event information",
-};
-
-function inviteToEventRole(roleLabel: string, permission: Permission): EventCollaboratorRole {
-  if (permission === "admin") return "admin";
+/**
+ * Resolve the event role tag from the inviter's role pick. We no longer
+ * collapse "Admin permission" into eventRole — permission is its own field
+ * on the collaborator doc, and eventRole stays a label of what the person is
+ * (performer / venue / agent / etc.).
+ */
+function inviteToEventRole(roleLabel: string): EventCollaboratorRole {
   return legacyRoleToEventRole(roleLabel);
 }
 
@@ -155,7 +158,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
   const generateInvite = async (intent: InviteIntent): Promise<InviteResult | null> => {
     if (!eventId || !user) return null;
     const roleLabel = role === "Custom" ? customRoleName || "Custom" : role;
-    const eventRole = inviteToEventRole(roleLabel, effectivePermission);
+    const eventRole = inviteToEventRole(roleLabel);
     const displayName = defaultName || email.trim().split("@")[0];
     const trimmedEmail = email.trim();
 
@@ -193,6 +196,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
             displayName: string;
             role?: string;
             eventRole?: string;
+            permission?: Permission;
             message?: string;
             sendEmail: boolean;
           },
@@ -204,6 +208,7 @@ export default function InviteCollaboratorDialog({ open, onOpenChange, eventName
           displayName: data.matchingProfile.name || displayName,
           role: roleLabel,
           eventRole,
+          permission: effectivePermission,
           message: message.trim() || undefined,
           sendEmail: intent === "send-email",
         });

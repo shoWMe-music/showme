@@ -1,5 +1,12 @@
 import { eventPersonalBudgetDocId } from "@/lib/profiles";
-import type { Event, EventCollaboratorRole, EventStatus } from "@/lib/models";
+import {
+  DEFAULT_COLLABORATOR_PERMISSION,
+  type CollaboratorPermission,
+  type Event,
+  type EventCollaborator,
+  type EventCollaboratorRole,
+  type EventStatus,
+} from "@/lib/models";
 import type { OperatorRole, SharedProfile } from "@/lib/user-context";
 import { operatorRoleLabels } from "@/lib/user-context";
 
@@ -246,4 +253,84 @@ export function resolveActingProfileId(
     }
   }
   return undefined;
+}
+
+// ── Collaborator permission resolution ───────────────────────────────────────
+
+/**
+ * Edit-power tiers, ranked high → low. The order is meaningful: when a user
+ * has multiple collaborator rows on the same event (rare but possible — e.g.
+ * invited under multiple roles), we keep the highest tier.
+ */
+const PERMISSION_RANK: Record<CollaboratorPermission, number> = {
+  admin: 3,
+  editor: 2,
+  view_only: 1,
+};
+
+/** Higher of two permissions (used to merge multi-row matches). */
+function maxPermission(a: CollaboratorPermission, b: CollaboratorPermission): CollaboratorPermission {
+  return PERMISSION_RANK[a] >= PERMISSION_RANK[b] ? a : b;
+}
+
+/**
+ * Resolve the effective edit-power tier for a user on an event.
+ *
+ * Returns:
+ *   - "admin"     — host profile member, OR a collaborator row with permission=admin
+ *   - "editor"    — matching collaborator row with permission=editor (or missing/legacy)
+ *   - "view_only" — matching collaborator row with permission=view_only
+ *   - "none"      — no membership; should not have access at all
+ *
+ * Legacy/missing `permission` field defaults to "editor" so pre-permissions
+ * collaborators don't get silently downgraded. Admins can re-classify them
+ * from the CollaboratorsTab.
+ */
+export function getEventPermission(
+  event: Pick<Event, "hostProfileId"> | undefined | null,
+  userProfiles: readonly SharedProfile[],
+  collaborators: readonly EventCollaborator[],
+  uid: string | undefined,
+): CollaboratorPermission | "none" {
+  if (!event || !uid) return "none";
+
+  const userProfileIds = new Set(
+    userProfiles.map((p) => p.id).filter((id): id is string => Boolean(id)),
+  );
+
+  // Host profile members are implicit admins. This matches the host card's
+  // power in the UI and the rule helper `isHostAdmin`.
+  if (event.hostProfileId && userProfileIds.has(event.hostProfileId)) {
+    return "admin";
+  }
+
+  let best: CollaboratorPermission | undefined;
+  for (const c of collaborators) {
+    const isMatch =
+      (c.userUid && c.userUid === uid) ||
+      (c.profileId && userProfileIds.has(c.profileId));
+    if (!isMatch) continue;
+    const perm = c.permission ?? DEFAULT_COLLABORATOR_PERMISSION;
+    best = best ? maxPermission(best, perm) : perm;
+  }
+
+  return best ?? "none";
+}
+
+/** True when the permission tier allows event edits at all (anything except view_only). */
+export function canEditEvent(perm: CollaboratorPermission | "none"): boolean {
+  return perm === "admin" || perm === "editor";
+}
+
+/**
+ * True when the permission tier may edit financial sections (deal, settlement,
+ * revenue, budget). Only admins can.
+ */
+export function canEditFinancial(perm: CollaboratorPermission | "none"): boolean {
+  return perm === "admin";
+}
+
+/** True when the permission tier may invite/remove/edit other collaborators. */
+export function canManageCollaborators(perm: CollaboratorPermission | "none"): boolean {
+  return perm === "admin";
 }

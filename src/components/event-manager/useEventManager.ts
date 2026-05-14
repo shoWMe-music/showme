@@ -17,7 +17,10 @@ import { upsertShareToken, fetchEventCollaborators, fetchBookingRequestByEventId
 import { useUser } from "@/lib/user-context";
 import { useAuth } from "@/lib/auth-context";
 import { usePublishEventToggle } from "@/hooks/usePublishEventToggle";
-import { budgetProfileDocIdsForEvent, canAccessEventBudget, resolveActingProfileName, resolveActingProfileId, userIsEventPerformer } from "@/lib/eventPermissions";
+import {
+  budgetProfileDocIdsForEvent, canAccessEventBudget, resolveActingProfileName, resolveActingProfileId, userIsEventPerformer,
+  getEventPermission, canEditEvent, canEditFinancial, canManageCollaborators,
+} from "@/lib/eventPermissions";
 import type { EventCollaborator, DealStructure, TicketRevenue, Settlement } from "@/lib/models";
 
 export type TabId = "budget" | "details" | "agreement" | "crew" | "todo" | "settlement" | "messages" | "performers" | "changelog" | "collaborators";
@@ -223,6 +226,18 @@ export function useEventManager() {
   // True when performer is viewing a suggested (invitation) event specifically
   const isPerformerInvitation = isPerformer && event?.eventStatus === "suggested" && event?.performerResponse !== "declined";
 
+  // Effective edit-power tier (admin / editor / view_only / none). Host
+  // profile members are admin; non-host collaborators come from the
+  // collaborator subcollection (defaulting to "editor" when the field is
+  // missing on legacy rows).
+  const permission = useMemo(
+    () => getEventPermission(event, allProfiles, collaborators, user?.uid),
+    [event, allProfiles, collaborators, user?.uid],
+  );
+  const canEdit = canEditEvent(permission);
+  const canEditFinancialSections = canEditFinancial(permission);
+  const canManageCollaboratorsFlag = canManageCollaborators(permission);
+
   const userProfileIds = allProfiles.map((p) => p.id).filter(Boolean) as string[];
   const updateEvent = (eid: string, updates: Partial<typeof allEventsMain[0]>) =>
     updateEventMutation.mutate({
@@ -347,6 +362,7 @@ export function useEventManager() {
 
   return {
     id, navigate, eventsLoaded, eventLoading, event, isParent, isChild, isPerformer, isPerformerInvitation, parentEvent, childEvents, childEconomics,
+    permission, canEdit, canEditFinancial: canEditFinancialSections, canManageCollaborators: canManageCollaboratorsFlag,
     collaborators, setCollaborators, refreshCollaborators, eventCurrency, setEventCurrency,
     economicsLoaded, eventMeta, effectiveDeal, revenue, settlement,
     todoBudgetItems, budgetProfileChoices, resolvedBudgetProfileId, canAccessBudget,

@@ -168,4 +168,35 @@ describe("Event row serialization", () => {
     expect(row.ticketingProvider).toBeNull();
     expect(row.ticketUrls).toBeNull();
   });
+
+  // editorUids and adminUids are server-maintained (cloud functions +
+  // CollaboratorsTab admin writes) — eventToFirestoreRow intentionally doesn't
+  // include them so client event saves can't clobber the authoritative value.
+  // The reader, however, must surface them so anything downstream that reads
+  // event.editorUids / event.adminUids gets a populated value.
+  it("preserves editorUids on read", () => {
+    const row = { ...eventToFirestoreRow(baseEvent), editorUids: ["uid-a", "uid-b"] };
+    const back = eventRowToEvent(row);
+    expect(back.editorUids).toEqual(["uid-a", "uid-b"]);
+  });
+
+  it("preserves adminUids on read", () => {
+    const row = { ...eventToFirestoreRow(baseEvent), adminUids: ["uid-admin"] };
+    const back = eventRowToEvent(row);
+    expect(back.adminUids).toEqual(["uid-admin"]);
+  });
+
+  it("returns undefined for editorUids / adminUids when the fields are absent (legacy events)", () => {
+    const row = eventToFirestoreRow(baseEvent);
+    const back = eventRowToEvent(row);
+    expect(back.editorUids).toBeUndefined();
+    expect(back.adminUids).toBeUndefined();
+  });
+
+  it("does not echo editorUids / adminUids in the writer so client saves can't clobber server state", () => {
+    const evt: Event = { ...baseEvent, editorUids: ["should-not-leak"], adminUids: ["nor-this"] };
+    const row = eventToFirestoreRow(evt);
+    expect(row.editorUids).toBeUndefined();
+    expect(row.adminUids).toBeUndefined();
+  });
 });

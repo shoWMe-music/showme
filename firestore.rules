@@ -58,6 +58,56 @@ service cloud.firestore {
         && isProfileAdmin(ev.hostProfileId);
     }
 
+    /**
+     * Permission-gated write access for event + subcollections.
+     *
+     * Tiers:
+     *   - host profile members are always admin (write everywhere)
+     *   - direct collaborators write when their uid is in editorUids
+     *     (admin + editor permissions write here; view_only stays out)
+     *
+     * Legacy fallback: events that pre-date the permission rollout have no
+     * editorUids field at all. To avoid locking those users out, we treat
+     * missing editorUids as "any access-uid may edit" (the previous rule).
+     * Once a new invite flows through, editorUids is populated and the gate
+     * tightens automatically.
+     */
+    function hasEventEditPermission(ev) {
+      return isAuthed() && (
+        isHostAdmin(ev)
+        || uid() in ev.get('editorUids', [])
+        || (
+          !ev.keys().hasAll(['editorUids'])
+          && hasEventAccess(ev)
+        )
+      );
+    }
+
+    function canEditEvent(eventId) {
+      return exists(/databases/$(database)/documents/events/$(eventId))
+        && hasEventEditPermission(parentEvent(eventId));
+    }
+
+    /**
+     * Authorization for collaborator-management writes (invite, edit
+     * permission, remove). Two paths:
+     *   - host profile members (implicit admin, never listed in adminUids)
+     *   - uids listed in event.adminUids (non-host collab-admins)
+     *
+     * Legacy events that pre-date the permission rollout have no adminUids
+     * field, so they fall through the array branch and only host members can
+     * manage collaborators — matching today's behavior. The field gets
+     * populated as soon as the first non-host admin is assigned.
+     */
+    function canManageEventCollaborators(eventId) {
+      return exists(/databases/$(database)/documents/events/$(eventId))
+        && isAuthed()
+        && (
+          isHostAdmin(parentEvent(eventId))
+          || uid() in parentEvent(eventId).get('adminUids', [])
+        );
+    }
+
     /** Profiles whose role allows event creation. */
     function isEventHostProfileType(profileId) {
       return exists(/databases/$(database)/documents/profiles/$(profileId))
@@ -89,7 +139,7 @@ service cloud.firestore {
       allow update: if
         isAuthed()
         && resource.data is map
-        && hasEventAccess(resource.data);
+        && hasEventEditPermission(resource.data);
 
       allow delete: if
         isAuthed()
@@ -120,34 +170,36 @@ service cloud.firestore {
     // ── Deal ─────────────────────────────────────────────────────────────────
 
     match /events/{eventId}/deal/{docId} {
-      allow read, write: if canAccessEvent(eventId);
+      allow read: if canAccessEvent(eventId);
+      allow write: if canEditEvent(eventId);
     }
 
     // ── Settlement ───────────────────────────────────────────────────────────
 
     match /events/{eventId}/settlement/{docId} {
       allow read: if canAccessEvent(eventId);
-      allow write: if canAccessEvent(eventId);
+      allow write: if canEditEvent(eventId);
     }
 
     // ── Revenue ──────────────────────────────────────────────────────────────
 
     match /events/{eventId}/revenue/{docId} {
-      allow read, write: if canAccessEvent(eventId);
+      allow read: if canAccessEvent(eventId);
+      allow write: if canEditEvent(eventId);
     }
 
     // ── Settlement Activity ───────────────────────────────────────────────────
 
     match /events/{eventId}/activity/{activityId} {
       allow read: if canAccessEvent(eventId);
-      allow create: if canAccessEvent(eventId);
+      allow create: if canEditEvent(eventId);
     }
 
     // ── Event Activity ────────────────────────────────────────────────────────
 
     match /events/{eventId}/event_activity/{activityId} {
       allow read: if canAccessEvent(eventId);
-      allow create: if canAccessEvent(eventId);
+      allow create: if canEditEvent(eventId);
     }
 
     // ── Riders / Agreements / Crew / Schedule ────────────────────────────────
@@ -160,7 +212,7 @@ service cloud.firestore {
     // by the upsert helpers in db.ts) or the event host.
 
     function canDeleteOwnedSubdoc(eventId) {
-      return canAccessEvent(eventId)
+      return canEditEvent(eventId)
         && (
           isEventHost(eventId)
           || resource.data.createdByUid == uid()
@@ -168,22 +220,26 @@ service cloud.firestore {
     }
 
     match /events/{eventId}/riders/{riderId} {
-      allow read, create, update: if canAccessEvent(eventId);
+      allow read: if canAccessEvent(eventId);
+      allow create, update: if canEditEvent(eventId);
       allow delete: if canDeleteOwnedSubdoc(eventId);
     }
 
     match /events/{eventId}/agreements/{agreementId} {
-      allow read, create, update: if canAccessEvent(eventId);
+      allow read: if canAccessEvent(eventId);
+      allow create, update: if canEditEvent(eventId);
       allow delete: if canDeleteOwnedSubdoc(eventId);
     }
 
     match /events/{eventId}/crew/{memberId} {
-      allow read, create, update: if canAccessEvent(eventId);
+      allow read: if canAccessEvent(eventId);
+      allow create, update: if canEditEvent(eventId);
       allow delete: if canDeleteOwnedSubdoc(eventId);
     }
 
     match /events/{eventId}/schedule/{itemId} {
-      allow read, create, update: if canAccessEvent(eventId);
+      allow read: if canAccessEvent(eventId);
+      allow create, update: if canEditEvent(eventId);
       allow delete: if canDeleteOwnedSubdoc(eventId);
     }
 
@@ -200,9 +256,15 @@ service cloud.firestore {
     // members of that profile (or the user if keyed by uid).
 
     match /events/{eventId}/meta/{docId} {
-      allow read, write: if canAccessEvent(eventId)
+      allow read: if canAccessEvent(eventId)
         && (
-          // Non-todo docs: open to all event collaborators
+          !docId.matches('todos_.*')
+          || docId == ('todos_user_' + uid())
+          || isProfileMember(docId[6:docId.size()])
+        );
+      allow write: if canEditEvent(eventId)
+        && (
+          // Non-todo docs: open to event editors
           !docId.matches('todos_.*')
           // todos_user_{uid}: only that user
           || docId == ('todos_user_' + uid())
@@ -214,8 +276,15 @@ service cloud.firestore {
     // ── Budget per profile ────────────────────────────────────────────────────
 
     match /events/{eventId}/budgets/{profileId} {
-      allow read, write: if
+      allow read: if
         canAccessEvent(eventId)
+        && (
+          (exists(/databases/$(database)/documents/profiles/$(profileId))
+            && isProfileMember(profileId))
+          || profileId == uid()
+        );
+      allow write: if
+        canEditEvent(eventId)
         && (
           // Profile budget: only members of that profile
           (exists(/databases/$(database)/documents/profiles/$(profileId))
@@ -230,7 +299,7 @@ service cloud.firestore {
 
     match /events/{eventId}/collaborators/{cid} {
       allow read: if canAccessEvent(eventId);
-      allow create, update, delete: if isEventHost(eventId);
+      allow create, update, delete: if canManageEventCollaborators(eventId);
     }
 
     // ── Messages ──────────────────────────────────────────────────────────────
@@ -241,14 +310,14 @@ service cloud.firestore {
         || canAccessEvent(eventId);
 
       allow create: if
-        canAccessEvent(eventId)
+        canEditEvent(eventId)
         && request.resource.data.sender_uid == uid()
         && request.resource.data.created_at is string
         && request.resource.data.sender_name is string
         && request.resource.data.event_id == eventId;
 
       allow delete: if
-        canAccessEvent(eventId)
+        canEditEvent(eventId)
         && (
           resource.data.sender_uid == uid()
           || isEventHost(eventId)

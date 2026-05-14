@@ -42,6 +42,8 @@ interface EventManagerHeaderProps {
   effectiveSourceRequestDate: string | undefined;
   isPerformer?: boolean;
   isPerformerInvitation?: boolean;
+  /** True when the viewer's permission allows opening the invite dialog (admin or editor). View-only hides the button. */
+  canInviteCollaborators?: boolean;
   onTabChange?: (tabId: TabId) => void;
 }
 
@@ -52,7 +54,7 @@ export function EventManagerHeader({
   updateEvent, promoteHoldsOnDate, resolveHoldRankConflicts, togglePublish,
   onInviteOpen, onMarkPendingOpen, onExportOpen, onArchiveOpen, onDuplicate,
   effectiveSourceRequestId, effectiveSourceRequestDate,
-  isPerformer, isPerformerInvitation, onTabChange,
+  isPerformer, isPerformerInvitation, canInviteCollaborators = true, onTabChange,
 }: EventManagerHeaderProps) {
   const navigate = useNavigate();
   const allEvents = useEvents();
@@ -160,9 +162,11 @@ export function EventManagerHeader({
                   <SelectItem value="SEK">SEK (kr)</SelectItem>
                 </SelectContent>
               </Select>
-              <Button variant="outline" className="gap-2" onClick={onInviteOpen}>
-                <UserPlus className="h-4 w-4" /> Invite Collaborator
-              </Button>
+              {canInviteCollaborators && (
+                <Button variant="outline" className="gap-2" onClick={onInviteOpen}>
+                  <UserPlus className="h-4 w-4" /> Invite Collaborator
+                </Button>
+              )}
               <Button variant="outline" className="gap-2" onClick={onExportOpen}>
                 <Share2 className="h-4 w-4" /> Share & Export
               </Button>

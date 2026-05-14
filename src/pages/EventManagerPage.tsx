@@ -203,6 +203,7 @@ export default function EventManagerPage() {
           effectiveSourceRequestDate={em.effectiveSourceRequestDate}
           isPerformer={em.isPerformer}
           isPerformerInvitation={em.isPerformerInvitation}
+          canInviteCollaborators={em.canEdit}
           onTabChange={(tabId) => { if (tabId === "changelog") em.markChangeLogViewed(); }}
         />
 
@@ -297,10 +298,10 @@ export default function EventManagerPage() {
           <BudgetPlannerTab canAccessBudget={em.canAccessBudget} event={event} revenue={em.revenue} eventMeta={em.eventMeta} currency={em.eventCurrency} budgetProfileChoices={em.budgetProfileChoices} budgetProfileId={em.resolvedBudgetProfileId} onBudgetProfileIdChange={em.handleBudgetProfileChange} onSave={onSaveMeta} todoBudgetItems={em.todoBudgetItems} childArtistFees={singlePerformerFees} />
         )}
         {em.activeTab === "details" && (
-          <EventDetailsTab event={event} deal={em.effectiveDeal} revenue={em.revenue} eventMeta={em.eventMeta} updateEvent={em.updateEvent} updateDeal={em.updateDeal} updateRevenue={em.updateRevenue} currency={em.eventCurrency} onSave={onSaveMeta} childEvents={em.isParent ? em.childEvents : undefined} actingProfile={em.actingProfile} collaborators={em.collaborators} readOnly={em.isPerformer} onInvitePerformer={(name, childEventId) => { setInviteDefaults({ role: "Performer", name, eventId: childEventId }); setInviteOpen(true); }} />
+          <EventDetailsTab event={event} deal={em.effectiveDeal} revenue={em.revenue} eventMeta={em.eventMeta} updateEvent={em.updateEvent} updateDeal={em.updateDeal} updateRevenue={em.updateRevenue} currency={em.eventCurrency} onSave={onSaveMeta} childEvents={em.isParent ? em.childEvents : undefined} actingProfile={em.actingProfile} collaborators={em.collaborators} readOnly={em.isPerformer || !em.canEditFinancial} onInvitePerformer={(name, childEventId) => { setInviteDefaults({ role: "Performer", name, eventId: childEventId }); setInviteOpen(true); }} />
         )}
         {em.activeTab === "agreement" && !em.isParent && (
-          <AgreementTab event={event} deal={em.effectiveDeal} revenue={em.revenue} eventMeta={em.eventMeta} onSave={onSaveMeta} currency={em.eventCurrency} actingProfile={em.actingProfile} collaborators={em.collaborators} readOnly={em.isPerformer} onConfirmed={() => {
+          <AgreementTab event={event} deal={em.effectiveDeal} revenue={em.revenue} eventMeta={em.eventMeta} onSave={onSaveMeta} currency={em.eventCurrency} actingProfile={em.actingProfile} collaborators={em.collaborators} readOnly={em.isPerformer || !em.canEditFinancial} onConfirmed={() => {
             upsertEvent({ ...event, eventStatus: "confirmed" });
             appendEventActivity(id, "status_changed", "System", {
               from: eventStatusLabels[event.eventStatus] ?? event.eventStatus,
@@ -318,7 +319,7 @@ export default function EventManagerPage() {
           }} />
         )}
         {em.activeTab === "collaborators" && (
-          <CollaboratorsTab event={event} collaborators={em.collaborators} profiles={em.profiles} onRefresh={em.refreshCollaborators} />
+          <CollaboratorsTab event={event} collaborators={em.collaborators} profiles={em.profiles} onRefresh={em.refreshCollaborators} canManagePermissions={em.canManageCollaborators} />
         )}
         {em.activeTab === "crew" && !em.economicsLoaded && (
           <div className="space-y-4">
@@ -361,7 +362,7 @@ export default function EventManagerPage() {
         {em.activeTab === "messages" && <EventMessages eventId={id} />}
         {em.activeTab === "changelog" && <EventChangeLogTab eventId={id} isPerformer={em.isPerformer} childEvents={em.isParent ? em.childEvents : undefined} />}
 
-        <InviteCollaboratorDialog open={inviteOpen} onOpenChange={(v) => { setInviteOpen(v); if (!v) { setInviteDefaults({}); setFlipToSuggestedOnInvite(false); } }} eventName={event.name} eventId={inviteDefaults.eventId || id} defaultRole={inviteDefaults.role} defaultName={inviteDefaults.name} restrictToViewOnly={em.isPerformer} onCollaboratorAdded={() => {
+        <InviteCollaboratorDialog open={inviteOpen} onOpenChange={(v) => { setInviteOpen(v); if (!v) { setInviteDefaults({}); setFlipToSuggestedOnInvite(false); } }} eventName={event.name} eventId={inviteDefaults.eventId || id} defaultRole={inviteDefaults.role} defaultName={inviteDefaults.name} restrictToViewOnly={!em.canManageCollaborators} onCollaboratorAdded={() => {
           em.refreshCollaborators();
           const targetId = inviteDefaults.eventId;
           // "Suggest to Performer" routed here because no performer was linked.

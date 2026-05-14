@@ -8,8 +8,24 @@ import {
   roleCanManageEventCore,
   roleCanEditPerformersMaterials,
   userHasEventAccess,
+  getEventPermission,
+  canEditEvent,
+  canEditFinancial,
+  canManageCollaborators,
 } from "./eventPermissions";
+import type { EventCollaborator } from "./models";
 import type { SharedProfile } from "./user-context";
+
+function makeCollab(overrides: Partial<EventCollaborator> & { id: string }): EventCollaborator {
+  return {
+    email: "",
+    eventRole: "performer",
+    name: "",
+    status: "active",
+    invitedAt: "",
+    ...overrides,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -497,5 +513,106 @@ describe("userHasEventAccess", () => {
         ["my-profile"],
       ),
     ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getEventPermission
+// ---------------------------------------------------------------------------
+
+describe("getEventPermission", () => {
+  it("returns admin for a host profile member", () => {
+    const event = { hostProfileId: "host-profile" };
+    const profiles = [makeProfile({ id: "host-profile", role: "venue" })];
+    expect(getEventPermission(event, profiles, [], "uid-1")).toBe("admin");
+  });
+
+  it("returns the collaborator's permission when matched by userUid", () => {
+    const event = { hostProfileId: "other-host" };
+    const collabs = [makeCollab({ id: "c1", userUid: "uid-1", permission: "view_only" })];
+    expect(getEventPermission(event, [], collabs, "uid-1")).toBe("view_only");
+  });
+
+  it("matches by profileId when userUid is absent (pending invite that was claimed without uid)", () => {
+    const event = { hostProfileId: "other-host" };
+    const profiles = [makeProfile({ id: "my-profile", role: "performer" })];
+    const collabs = [makeCollab({ id: "c1", profileId: "my-profile", permission: "editor" })];
+    expect(getEventPermission(event, profiles, collabs, "uid-1")).toBe("editor");
+  });
+
+  it("defaults missing permission field to editor (legacy collaborator rows)", () => {
+    const event = { hostProfileId: "other-host" };
+    const collabs = [makeCollab({ id: "c1", userUid: "uid-1" })];
+    expect(getEventPermission(event, [], collabs, "uid-1")).toBe("editor");
+  });
+
+  it("returns the highest tier when a user has multiple collaborator rows", () => {
+    // Same user invited via two paths — keep the most powerful tier.
+    const event = { hostProfileId: "other-host" };
+    const collabs = [
+      makeCollab({ id: "c1", userUid: "uid-1", permission: "view_only" }),
+      makeCollab({ id: "c2", userUid: "uid-1", permission: "admin" }),
+      makeCollab({ id: "c3", userUid: "uid-1", permission: "editor" }),
+    ];
+    expect(getEventPermission(event, [], collabs, "uid-1")).toBe("admin");
+  });
+
+  it("returns none when the user has no match anywhere", () => {
+    const event = { hostProfileId: "their-host" };
+    const profiles = [makeProfile({ id: "my-profile", role: "performer" })];
+    const collabs = [makeCollab({ id: "c1", userUid: "someone-else", permission: "admin" })];
+    expect(getEventPermission(event, profiles, collabs, "uid-1")).toBe("none");
+  });
+
+  it("returns none when uid is undefined", () => {
+    const event = { hostProfileId: "host" };
+    expect(getEventPermission(event, [], [], undefined)).toBe("none");
+  });
+
+  it("returns none when event is undefined", () => {
+    expect(getEventPermission(undefined, [], [], "uid-1")).toBe("none");
+  });
+
+  it("prefers host membership over a lower-tier collaborator row for the same user", () => {
+    // Edge case: user is both host-profile member and listed as view-only —
+    // host wins.
+    const event = { hostProfileId: "host-profile" };
+    const profiles = [makeProfile({ id: "host-profile", role: "venue" })];
+    const collabs = [makeCollab({ id: "c1", userUid: "uid-1", permission: "view_only" })];
+    expect(getEventPermission(event, profiles, collabs, "uid-1")).toBe("admin");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// canEditEvent / canEditFinancial / canManageCollaborators
+// ---------------------------------------------------------------------------
+
+describe("canEditEvent", () => {
+  it("returns true for admin and editor", () => {
+    expect(canEditEvent("admin")).toBe(true);
+    expect(canEditEvent("editor")).toBe(true);
+  });
+
+  it("returns false for view_only and none", () => {
+    expect(canEditEvent("view_only")).toBe(false);
+    expect(canEditEvent("none")).toBe(false);
+  });
+});
+
+describe("canEditFinancial", () => {
+  it("only admins may edit financial sections", () => {
+    expect(canEditFinancial("admin")).toBe(true);
+    expect(canEditFinancial("editor")).toBe(false);
+    expect(canEditFinancial("view_only")).toBe(false);
+    expect(canEditFinancial("none")).toBe(false);
+  });
+});
+
+describe("canManageCollaborators", () => {
+  it("only admins may invite/remove/edit collaborators", () => {
+    expect(canManageCollaborators("admin")).toBe(true);
+    expect(canManageCollaborators("editor")).toBe(false);
+    expect(canManageCollaborators("view_only")).toBe(false);
+    expect(canManageCollaborators("none")).toBe(false);
   });
 });

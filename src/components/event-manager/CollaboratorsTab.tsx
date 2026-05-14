@@ -1,13 +1,17 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useScrollToHash } from "@/hooks/useScrollToHash";
-import { deleteDoc, doc } from "firebase/firestore";
+import { deleteDoc, doc, getDoc, updateDoc, serverTimestamp, arrayUnion, arrayRemove } from "firebase/firestore";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   type Event as AppEvent,
   type EventCollaborator,
   type EventCollaboratorRole,
+  type CollaboratorPermission,
+  DEFAULT_COLLABORATOR_PERMISSION,
   eventCollaboratorRoleLabels,
+  collaboratorPermissionLabels,
   collaboratorIsActive,
 } from "@/lib/models";
 import { formatLocation, getPrimaryLocation, type SharedProfile } from "@/lib/user-context";
@@ -32,12 +36,102 @@ interface CollaboratorsTabProps {
   collaborators: EventCollaborator[];
   profiles: Record<string, SharedProfile>;
   onRefresh?: () => void;
+  /** When true, render permission editors and allow changing tiers inline. */
+  canManagePermissions?: boolean;
 }
 
-export function CollaboratorsTab({ event, collaborators, profiles, onRefresh }: CollaboratorsTabProps) {
+const permissionBadgeStyles: Record<CollaboratorPermission, string> = {
+  admin: "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-300",
+  editor: "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-300",
+  view_only: "border-muted-foreground/30 bg-muted text-muted-foreground",
+};
+
+export function CollaboratorsTab({ event, collaborators, profiles, onRefresh, canManagePermissions }: CollaboratorsTabProps) {
   const { data: invitationCodes } = useMyInvitationCodes();
   const revokeMutation = useRevokeInvitationCode();
   const childEvents = useChildEvents(event.id);
+  // Disable both selects belonging to a row while its update is in flight, so
+  // a fast second click on the same row doesn't fire a duplicate write before
+  // the cache refresh lands.
+  const [pendingPermissionWrite, setPendingPermissionWrite] = useState<string | null>(null);
+
+  /**
+   * Update a collaborator's permission tier. Writes both the collaborator
+   * subdoc and maintains the denormalized event.editorUids array (the field
+   * Firestore rules consult for edit gating). Only invoked when the caller is
+   * an admin — the rules layer is the real backstop.
+   */
+  const updatePermission = async (c: EventCollaborator, next: CollaboratorPermission) => {
+    const current = c.permission ?? DEFAULT_COLLABORATOR_PERMISSION;
+    if (next === current) return;
+    if (c.id.startsWith("child-performer-") || c.id.startsWith("single-performer-")) {
+      // Synthesized rows (from child event performerProfileId) have no real
+      // collaborator doc — their permission lives on the child event itself.
+      toast({ title: "Cannot change", description: "This collaborator is auto-derived from a performer slot.", variant: "destructive" });
+      return;
+    }
+    setPendingPermissionWrite(c.id);
+    try {
+      const db = getFirestoreDb();
+      await updateDoc(doc(db, "events", event.id, "collaborators", c.id), {
+        permission: next,
+        updatedAt: serverTimestamp(),
+      });
+      // Maintain the denormalized editorUids array on the event so Firestore
+      // rules see the new tier on the next subcollection write.
+      //
+      // First-population bootstrap: legacy events have no editorUids field;
+      // the rule fallback grants edits to anyone in accessUids while the
+      // field is absent. The moment we create editorUids — even with just one
+      // entry — every other accessUids member would lose write access. So if
+      // we're populating for the first time, we seed from accessUids so
+      // existing collaborators keep their edits.
+      if (c.userUid) {
+        const eventRef = doc(db, "events", event.id);
+        const snap = await getDoc(eventRef);
+        const data = snap.data() ?? {};
+        const accessUids: string[] = Array.isArray(data.accessUids) ? data.accessUids : [];
+        const hasEditorUids = Array.isArray(data.editorUids);
+        const hasAdminUids = Array.isArray(data.adminUids);
+        const eventUpdates: Record<string, unknown> = { updatedAt: serverTimestamp() };
+
+        // editorUids — gates non-financial edit writes via Firestore rules.
+        if (next === "view_only") {
+          if (hasEditorUids) {
+            eventUpdates.editorUids = arrayRemove(c.userUid);
+          } else {
+            // Field doesn't exist — bootstrap with current accessUids minus
+            // this collaborator. Pre-existing legacy editors stay; this one
+            // drops out.
+            eventUpdates.editorUids = Array.from(new Set(accessUids.filter((u) => u !== c.userUid)));
+          }
+        } else if (hasEditorUids) {
+          eventUpdates.editorUids = arrayUnion(c.userUid);
+        } else {
+          eventUpdates.editorUids = Array.from(new Set([...accessUids, c.userUid]));
+        }
+
+        // adminUids — gates collaborator-management writes. Host members are
+        // implicit; this array only tracks non-host collab-admins, so we
+        // never bootstrap from accessUids here.
+        if (next === "admin") {
+          eventUpdates.adminUids = hasAdminUids ? arrayUnion(c.userUid) : [c.userUid];
+        } else if (hasAdminUids) {
+          // Demoting from admin (or moving to view_only) — drop from the array.
+          eventUpdates.adminUids = arrayRemove(c.userUid);
+        }
+
+        await updateDoc(eventRef, eventUpdates);
+      }
+      onRefresh?.();
+      toast({ title: "Permission updated", description: `${c.name} is now ${collaboratorPermissionLabels[next]}.` });
+    } catch (err) {
+      console.error("Failed to update collaborator permission:", err);
+      toast({ title: "Could not update permission", description: "Try again in a moment.", variant: "destructive" });
+    } finally {
+      setPendingPermissionWrite(null);
+    }
+  };
 
   // Revoking an invitation code alone leaves the EventCollaborator + stub
   // profile docs in place, which made the row stick around in the UI. Pair the
@@ -161,6 +255,7 @@ export function CollaboratorsTab({ event, collaborators, profiles, onRefresh }: 
                   {hostProfile.role && ` \u00b7 ${hostProfile.role.charAt(0).toUpperCase() + hostProfile.role.slice(1)}`}
                 </p>
               </div>
+              <Badge variant="outline" className={`text-xs ${permissionBadgeStyles.admin}`}>Admin</Badge>
               <Badge variant="secondary" className="text-xs">Host</Badge>
             </div>
           </div>
@@ -190,6 +285,9 @@ export function CollaboratorsTab({ event, collaborators, profiles, onRefresh }: 
                     const status = statusConfig[c.status] || statusConfig.pending;
                     const StatusIcon = status.icon;
 
+                    const permission: CollaboratorPermission = c.permission ?? DEFAULT_COLLABORATOR_PERMISSION;
+                    const isSynthetic = c.id.startsWith("child-performer-") || c.id.startsWith("single-performer-");
+                    const showPermissionEditor = !!canManagePermissions && !isSynthetic;
                     return (
                       <div key={c.id} className="px-5 py-4">
                         <div className="flex items-center gap-4">
@@ -220,6 +318,28 @@ export function CollaboratorsTab({ event, collaborators, profiles, onRefresh }: 
                               )}
                             </div>
                           </div>
+                          {showPermissionEditor ? (
+                            <Select
+                              value={permission}
+                              onValueChange={(v) => void updatePermission(c, v as CollaboratorPermission)}
+                              disabled={pendingPermissionWrite === c.id}
+                            >
+                              <SelectTrigger className="h-7 w-[110px] text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {(Object.keys(collaboratorPermissionLabels) as CollaboratorPermission[]).map((p) => (
+                                  <SelectItem key={p} value={p} className="text-xs">
+                                    {collaboratorPermissionLabels[p]}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Badge variant="outline" className={`text-xs ${permissionBadgeStyles[permission]}`}>
+                              {collaboratorPermissionLabels[permission]}
+                            </Badge>
+                          )}
                           <Badge variant="outline" className={`text-xs gap-1 ${status.color}`}>
                             <StatusIcon className="h-3 w-3" />
                             {status.label}

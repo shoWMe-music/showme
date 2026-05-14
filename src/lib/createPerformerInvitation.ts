@@ -4,7 +4,7 @@ import { getFirestoreDb, getFirebaseFunctions } from "@/integrations/firebase/ap
 import { PROFILE_ROOT_SCHEMA_VERSION } from "@/lib/profiles";
 import { queryKeys } from "@/lib/queries/keys";
 import type { QueryClient } from "@tanstack/react-query";
-import type { EventCollaboratorRole } from "@/lib/models";
+import type { CollaboratorPermission, EventCollaboratorRole } from "@/lib/models";
 
 interface CreatePerformerInvitationParams {
   eventId: string;
@@ -14,7 +14,7 @@ interface CreatePerformerInvitationParams {
   queryClient: QueryClient;
   role?: string;
   eventRole?: EventCollaboratorRole;
-  permission?: string;
+  permission?: CollaboratorPermission;
   message?: string;
   onCollaboratorAdded?: () => void;
 }
@@ -108,6 +108,7 @@ export async function createPerformerInvitation(
     name: displayName,
     eventRole,
     role,
+    permission,
     status: "pending",
     invitedAt,
     userUid: null,
