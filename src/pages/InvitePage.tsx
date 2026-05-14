@@ -122,7 +122,7 @@ export default function InvitePage() {
   const eventLabel = peek?.eventName ? `"${peek.eventName}"` : "an event";
   const senderLabel = peek?.senderName || "Someone";
 
-  function frame(title: string, description: string, body: React.ReactNode) {
+  function frame(title: React.ReactNode, description: string, body: React.ReactNode) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-muted/30">
         <Card className="w-full max-w-sm">
@@ -247,7 +247,7 @@ export default function InvitePage() {
   return (
     <>
       {frame(
-        "Create your profile to accept",
+        <>Create your profile to accept<br />- it takes 5 seconds!</>,
         `${senderLabel} invited you to ${eventLabel} as ${roleLabel}. Set up a ${roleLabel} profile to continue.`,
         <>
           <div className="rounded-lg border bg-muted/40 p-3 text-sm flex items-start gap-2">
