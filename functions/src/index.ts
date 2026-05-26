@@ -11,6 +11,7 @@ import {
   verifyAndChangeEmailTemplate,
 } from "./emailTemplates";
 import { APP_BASE_URL } from "./appBaseUrl";
+import { getProfilePlan, isPaidPlan } from "./plans";
 
 export { exchangeRate, supportedCurrencies } from "./currencyHttp";
 export { ssrRender } from "./ssr";
@@ -36,6 +37,17 @@ export {
 } from "./profileMembership";
 export { lookupUserForInvite, addExistingUserAsCollaborator } from "./userLookup";
 export { setHoldRank, confirmHold, declineHold } from "./holds";
+export { setPlan, listProfilesForAdmin } from "./plans";
+export { getEventCapStatus, onEventWrittenMaintainCap } from "./eventCap";
+export { requestPlanChange } from "./planRequests";
+export {
+  onVenueHandoffInvitationCreated,
+  onVenueHandoffAccepted,
+  cancelVenueHandoff,
+  resendVenueHandoffInvitation,
+  redirectVenueHandoff,
+  cleanupStaleVenueHandoffs,
+} from "./venueHandoff";
 export { getPublicShare } from "./publicShareApi";
 export { requestShareOtp, verifyShareOtp } from "./shareOtpApi";
 export { confirmShareParty } from "./confirmShareApi";
@@ -270,6 +282,30 @@ export const sendTeamMemberEmail = onCall<SendTeamMemberEmailData, Promise<{ ok:
       throw new HttpsError(
         "invalid-argument",
         "recipientEmail, recipientName, subject, and body are required.",
+      );
+    }
+
+    // Plan gate: team-email is a Pro feature. Hidden in the UI for free
+    // accounts, but enforced here so a hand-rolled callable invocation
+    // can't bypass the gate. Caller passes when ANY of their profiles
+    // is on a paid plan.
+    const ownedProfilesSnap = await admin.firestore()
+      .collection("profiles")
+      .where("owner_uid", "==", uid)
+      .get();
+    const ownedIds = ownedProfilesSnap.docs.map((d) => d.id);
+    let allowed = false;
+    for (const pid of ownedIds) {
+      const plan = await getProfilePlan(pid);
+      if (plan && isPaidPlan(plan.type)) {
+        allowed = true;
+        break;
+      }
+    }
+    if (!allowed) {
+      throw new HttpsError(
+        "permission-denied",
+        "Team email is a Pro feature — upgrade to send team messages.",
       );
     }
 

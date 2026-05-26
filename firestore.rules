@@ -119,6 +119,15 @@ service cloud.firestore {
         );
     }
 
+    /** True iff the profile is performer-shaped (role or type == "performer" or legacy "artist"). */
+    function isPerformerProfile(profileId) {
+      return exists(/databases/$(database)/documents/profiles/$(profileId))
+        && (
+          get(/databases/$(database)/documents/profiles/$(profileId)).data.get('role', '') in ['performer', 'artist']
+          || get(/databases/$(database)/documents/profiles/$(profileId)).data.get('type', '') in ['performer', 'artist']
+        );
+    }
+
     // ── Events ───────────────────────────────────────────────────────────────
 
     match /events/{eventId} {
@@ -128,18 +137,52 @@ service cloud.firestore {
         // Authenticated: allow reads of non-existent docs (getDoc before create) or accessible docs
         || (isAuthed() && (resource == null || (resource.data is map && hasEventAccess(resource.data))));
 
+      // Event cap (Free Operator: 60 confirmed events/year + 6 grace).
+      // A blocked profile cannot create a new confirmed/concluded event nor
+      // transition an existing one INTO confirmed/concluded. Once they've
+      // upgraded or cancelled enough events, the trigger flips
+      // `plans/{hostPid}.eventCapBlocked` back to false and the gate opens.
+      function newStatusIsCounted() {
+        return request.resource.data.get('eventStatus', '') in ['confirmed', 'concluded'];
+      }
+      function wouldBumpCapCounter() {
+        return newStatusIsCounted()
+          && (resource == null
+              || !(resource.data.get('eventStatus', '') in ['confirmed', 'concluded']));
+      }
+
       allow create: if
         isAuthed()
         && request.resource.data.keys().hasAll(['hostProfileId'])
         && request.resource.data.hostProfileId is string
         && request.resource.data.hostProfileId != ''
         && isProfileAdmin(request.resource.data.hostProfileId)
-        && isEventHostProfileType(request.resource.data.hostProfileId);
+        && isEventHostProfileType(request.resource.data.hostProfileId)
+        && (!wouldBumpCapCounter()
+            || !profileIsCapBlocked(request.resource.data.hostProfileId));
+
+      // While `pendingHostHandoff == true`, the event must stay in draft.
+      // This closes the loophole where a performer (who owns the unclaimed
+      // venue stub and is therefore host-admin) could push the event into
+      // confirmed/concluded without the venue ever taking over — and without
+      // a real plan doc on the stub, the cap gate wouldn't catch it.
+      //
+      // `claimInvitationCode` clears the flag atomically with the profile
+      // transfer, after which the real venue host can promote the event
+      // through the normal lifecycle.
+      function handoffPendingButLeavingDraft() {
+        return (resource.data.get('pendingHostHandoff', false) == true
+                || request.resource.data.get('pendingHostHandoff', false) == true)
+          && request.resource.data.get('eventStatus', '') != 'draft';
+      }
 
       allow update: if
         isAuthed()
         && resource.data is map
-        && hasEventEditPermission(resource.data);
+        && hasEventEditPermission(resource.data)
+        && !handoffPendingButLeavingDraft()
+        && (!wouldBumpCapCounter()
+            || !profileIsCapBlocked(resource.data.get('hostProfileId', '')));
 
       allow delete: if
         isAuthed()
@@ -296,10 +339,49 @@ service cloud.firestore {
     }
 
     // ── Collaborators ─────────────────────────────────────────────────────────
+    //
+    // Granting the `admin` permission tier is a Pro feature (PDF Gate 3:
+    // "Admin and team management on Pro"). For writes that set permission to
+    // "admin", require the host profile's plan to be paid. Editor / view_only
+    // moves remain free.
+    //
+    // The plan doc is read fresh — we deliberately do NOT use a custom claim
+    // for plan so downgrades take effect immediately with no JWT staleness.
+
+    function hostHasPaidPlan(eventId) {
+      let hostPid = parentEvent(eventId).get('hostProfileId', '');
+      return hostPid is string
+        && hostPid != ''
+        && exists(/databases/$(database)/documents/plans/$(hostPid))
+        && get(/databases/$(database)/documents/plans/$(hostPid)).data.get('type', '') in ['operator_pro', 'artist_pro'];
+    }
+
+    /**
+     * True when the host profile's plan has been flagged as event-cap blocked
+     * by the `onEventWrittenMaintainCap` trigger (Free Operator over the 60+6
+     * limit). The trigger updates `plans/{hostPid}.eventCapBlocked` after every
+     * event status change so this read is always one doc, never an aggregation.
+     */
+    function profileIsCapBlocked(profileId) {
+      return exists(/databases/$(database)/documents/plans/$(profileId))
+        && get(/databases/$(database)/documents/plans/$(profileId)).data.get('eventCapBlocked', false) == true;
+    }
+
+    function permissionWriteIsAllowed(eventId) {
+      // request.resource is the doc being written. delete ops have no
+      // request.resource — skip the plan check then (the manage gate above
+      // already authorizes the deletion).
+      return !('permission' in request.resource.data.keys())
+        || request.resource.data.permission != 'admin'
+        || hostHasPaidPlan(eventId);
+    }
 
     match /events/{eventId}/collaborators/{cid} {
       allow read: if canAccessEvent(eventId);
-      allow create, update, delete: if canManageEventCollaborators(eventId);
+      allow create, update: if
+        canManageEventCollaborators(eventId)
+        && permissionWriteIsAllowed(eventId);
+      allow delete: if canManageEventCollaborators(eventId);
     }
 
     // ── Messages ──────────────────────────────────────────────────────────────
@@ -348,11 +430,16 @@ service cloud.firestore {
         && request.resource.data.keys().hasAll(['owner_uid'])
         && request.resource.data.owner_uid == uid();
 
+      // Admins/editors can edit profile fields but CANNOT change `owner_uid`.
+      // Letting them change owner means they could escalate to owner and
+      // then mutate billing (plans are owner-only via setPlan callable).
+      // Only the current owner can transfer ownership.
       allow update: if
         isAuthed()
         && (
-          resource.data.owner_uid == uid()
-          || profileMemberCanEdit()
+          (resource.data.owner_uid == uid())
+          || (profileMemberCanEdit()
+              && request.resource.data.owner_uid == resource.data.owner_uid)
         );
 
       allow delete: if
@@ -453,10 +540,19 @@ service cloud.firestore {
     }
 
     // ── Profile templates ────────────────────────────────────────────────────
+    //
+    // Templates exist for surfaces tied to event creation (schedules,
+    // settlements, deals, budgets, riders, contract terms). Performer
+    // profiles can't create events at all, so they have no templates by
+    // construction — enforce it here so a Free Artist (or any performer
+    // profile) can't accumulate template docs that would never surface in
+    // the UI.
 
     match /profiles/{profileId}/templates/{category}/items/{templateId} {
-      allow read: if isProfileMember(profileId);
-      allow write, delete: if isProfileAdmin(profileId);
+      allow read: if isProfileMember(profileId)
+        && !isPerformerProfile(profileId);
+      allow write, delete: if isProfileAdmin(profileId)
+        && !isPerformerProfile(profileId);
     }
 
     // ── User notifications ────────────────────────────────────────────────────
@@ -520,18 +616,57 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── Plans ────────────────────────────────────────────────────────────────
+    //
+    // One doc per profile (id = profileId). Source of truth for tier gating
+    // (free_operator | operator_pro | free_artist | artist_pro). Read by any
+    // profile member so they can see "you're on Free Artist" in the billing
+    // portal. Writes are server-only via the `setPlan` callable so plan
+    // changes propagate immediately without a JWT round-trip — no custom
+    // claim, no staleness window on downgrade.
+    //
+    // Other rules `get()` this doc directly when gating Pro-only surfaces.
+    // Firestore caches identical paths within one request, so list queries
+    // pay one read per unique plan referenced regardless of how many docs
+    // evaluate the same rule path.
+
+    match /plans/{profileId} {
+      allow read: if isProfileMember(profileId);
+      allow write: if false;
+    }
+
     // ── OTP codes ─────────────────────────────────────────────────────────────
     match /otpCodes/{id} {
       allow read, write: if false;
     }
 
     // ── Booking requests ──────────────────────────────────────────────────────
+    //
+    // Free Artist constraint (PDF: "Send booking requests to venues already in
+    // the system"): when an authenticated user creates an inbound request, the
+    // `target_profile_id` must point to an existing profile. Out-of-network
+    // outbound is reserved for the Artist Pro AI agent (not yet implemented).
+    // Unauthenticated submissions (public booking widget) keep the looser
+    // legacy validation because they don't have a plan to check against.
+
+    function targetIsInNetwork() {
+      let pid = request.resource.data.get('target_profile_id', '');
+      return pid is string
+        && pid != ''
+        && exists(/databases/$(database)/documents/profiles/$(pid));
+    }
 
     match /inboundBookingRequests/{id} {
       allow create: if
         request.resource.data.owner_uid is string
         && request.resource.data.owner_uid.size() > 0
-        && request.resource.data.created_at is string;
+        && request.resource.data.created_at is string
+        && (
+          // Unauthenticated/public path — legacy permissive validation.
+          !isAuthed()
+          // Authenticated path — must target an in-network profile.
+          || targetIsInNetwork()
+        );
       // Dual-path: owner_uid keeps the legacy fallback live during backfill, and
       // any admin/member of the targeted profile gets access via the `profileIds`
       // token claim. The claim is populated by `onProfileMemberClaimsSync` and

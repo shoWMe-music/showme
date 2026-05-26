@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { Mail, Pencil, Plus, Trash2, Users, X } from "lucide-react";
 import CreateTeamMemberDialog, { PRESET_ROLES } from "@/components/CreateTeamMemberDialog";
 import EmailTeamMemberDialog from "@/components/team/EmailTeamMemberDialog";
+import { useAccountHasPaidPlan } from "@/lib/plans";
 
 function initials(name: string) {
   const parts = name.trim().split(" ");
@@ -115,6 +116,18 @@ export function TeamMembersSection() {
     Object.entries(profiles).filter(
       ([, p]) => p.created && (p.owner_uid === user?.uid || p.id?.startsWith(`${user?.uid}__`)),
     ), [profiles, user?.uid]);
+
+  // Free tier: roster-only Team page — no email-to-team-member action.
+  // Pro tier (Operator Pro or Artist Pro) unlocks the email feature. Tracked
+  // across all owned profiles since the Team page is account-scope.
+  const userProfileIds = useMemo(
+    () =>
+      Object.values(profiles)
+        .map((p) => p.id)
+        .filter((id): id is string => !!id),
+    [profiles],
+  );
+  const { hasPaid: canEmailTeam } = useAccountHasPaidPlan(userProfileIds);
 
   const uniqueMembers = useMemo(() => {
     const map = new Map<string, { member: TeamMember; profileIds: string[] }>();
@@ -335,13 +348,15 @@ export function TeamMembersSection() {
 
                   {/* Actions — hover only */}
                   <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5">
-                    <button
-                      onClick={() => handleEmailClick(member)}
-                      className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                      title="Email member"
-                    >
-                      <Mail className="h-3.5 w-3.5" />
-                    </button>
+                    {canEmailTeam && (
+                      <button
+                        onClick={() => handleEmailClick(member)}
+                        className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                        title="Email member"
+                      >
+                        <Mail className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                     <button
                       onClick={() => setEditEntry({ member: { ...member }, profileIds })}
                       className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"

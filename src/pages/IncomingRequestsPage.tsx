@@ -12,6 +12,7 @@ import { toast, copyToast } from "@/hooks/use-toast";
 import { useUpdateEvent } from "@/lib/queries/useEventMutations";
 import { queryKeys, useEvents } from "@/lib/queries";
 import CreateEventDialog from "@/components/CreateEventDialog";
+import CreateDraftWithVenueHandoffDialog from "@/components/CreateDraftWithVenueHandoffDialog";
 import InviteCollaboratorDialog from "@/components/InviteCollaboratorDialog";
 import { FileText, Send, X, Archive, Ban, Search, Clock, ExternalLink, Copy, Music, Video, ChevronDown, ChevronLeft, ChevronRight, Mail, CalendarCheck, MapPin, Check, XCircle, Loader2, Globe, Link2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -171,6 +172,7 @@ export default function IncomingRequestsPage() {
   const [inviteEventName, setInviteEventName] = useState("");
   const [inviteEventId, setInviteEventId] = useState("");
   const [detailRequest, setDetailRequest] = useState<BookingRequest | null>(null);
+  const [handoffRequest, setHandoffRequest] = useState<BookingRequest | null>(null);
 
   const firestoreFilters = useMemo(() => {
     if (statusFilter === "all") return {};
@@ -409,6 +411,27 @@ export default function IncomingRequestsPage() {
     }
   };
 
+  // True when the request was sent TO a performer profile (i.e. an operator
+  // pinging a performer to ask if they'll play). Free Artists viewing these
+  // can't create regular events (rule blocks performer-as-host), but they
+  // CAN spin up a draft + invite the venue to manage it on shoWMe.
+  const isPerformerRecipient = (req: BookingRequest) => req.target_role === "performer";
+
+  // Resolve the performer profile this request targets, so the handoff dialog
+  // knows which performer to attach as collaborator on the new event.
+  const findPerformerProfileForRequest = (req: BookingRequest): { id: string; name: string } | null => {
+    if (req.target_profile_id) {
+      const match = allProfiles.find((p) => p.id === req.target_profile_id);
+      if (match?.id) return { id: match.id, name: match.name ?? "" };
+    }
+    // Fallback to slug for legacy requests that pre-date the target_profile_id backfill.
+    if (req.target_profile_slug) {
+      const match = allProfiles.find((p) => p.slug === req.target_profile_slug);
+      if (match?.id) return { id: match.id, name: match.name ?? "" };
+    }
+    return null;
+  };
+
   const renderRequestCard = (req: BookingRequest, isSingle: boolean) => (
     <div
       key={req.id}
@@ -501,12 +524,27 @@ export default function IncomingRequestsPage() {
         <div className="flex flex-col gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
           {req.status === "pending" && (
             <>
-              <Button size="sm" variant="default" className="text-xs gap-1" onClick={() => handleOpenDialog(req, "draft")}>
-                <FileText className="h-3 w-3" /> Create Draft
-              </Button>
-              <Button size="sm" variant="outline" className="text-xs gap-1" onClick={() => handleOpenDialog(req, "offer")}>
-                <Send className="h-3 w-3" /> Make Offer
-              </Button>
+              {isPerformerRecipient(req) ? (
+                // Performer recipient: only the handoff flow makes sense.
+                // Performer can't host events; the "Make Offer" path doesn't apply.
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="text-xs gap-1"
+                  onClick={() => setHandoffRequest(req)}
+                >
+                  <FileText className="h-3 w-3" /> Create Draft & Invite Venue
+                </Button>
+              ) : (
+                <>
+                  <Button size="sm" variant="default" className="text-xs gap-1" onClick={() => handleOpenDialog(req, "draft")}>
+                    <FileText className="h-3 w-3" /> Create Draft
+                  </Button>
+                  <Button size="sm" variant="outline" className="text-xs gap-1" onClick={() => handleOpenDialog(req, "offer")}>
+                    <Send className="h-3 w-3" /> Make Offer
+                  </Button>
+                </>
+              )}
               <Button size="sm" variant="outline" className="text-xs gap-1 text-destructive hover:text-destructive" onClick={() => handleDecline(req)}>
                 <X className="h-3 w-3" /> Decline
               </Button>
@@ -809,6 +847,29 @@ export default function IncomingRequestsPage() {
         eventId={inviteEventId}
         defaultEmail={inviteEmail}
       />
+
+      {handoffRequest && (() => {
+        const performer = findPerformerProfileForRequest(handoffRequest);
+        if (!performer) return null;
+        return (
+          <CreateDraftWithVenueHandoffDialog
+            open={true}
+            onOpenChange={(o) => { if (!o) setHandoffRequest(null); }}
+            performerProfileId={performer.id}
+            performerName={performer.name || handoffRequest.artist_name}
+            defaultVenueName={handoffRequest.name}
+            defaultVenueEmail={handoffRequest.email}
+            defaultDate={handoffRequest.wanted_date}
+            defaultFee={handoffRequest.artist_fee}
+            sourceRequestId={handoffRequest.id}
+            onCreated={(eventId) => {
+              updateStatus(handoffRequest.id, "draft_created", eventId);
+              setHandoffRequest(null);
+              navigate({ to: "/events/$id", params: { id: eventId } });
+            }}
+          />
+        );
+      })()}
 
       <Dialog open={!!detailRequest} onOpenChange={open => { if (!open) setDetailRequest(null); }}>
         <DialogContent className="sm:max-w-lg">

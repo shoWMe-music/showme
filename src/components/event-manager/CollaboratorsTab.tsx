@@ -21,6 +21,7 @@ import { useMyInvitationCodes, useRevokeInvitationCode } from "@/lib/queries/use
 import { toast, copyToast } from "@/hooks/use-toast";
 import { useChildEvents } from "@/lib/queries";
 import { getFirestoreDb } from "@/integrations/firebase/app";
+import { useProfilePlan, isPaidPlan } from "@/lib/plans";
 
 const statusConfig: Record<string, { label: string; color: string; icon: typeof Check }> = {
   active: { label: "Connected", color: "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400", icon: Check },
@@ -54,6 +55,12 @@ export function CollaboratorsTab({ event, collaborators, profiles, onRefresh, ca
   // a fast second click on the same row doesn't fire a duplicate write before
   // the cache refresh lands.
   const [pendingPermissionWrite, setPendingPermissionWrite] = useState<string | null>(null);
+
+  // Permission management (granting "admin" tier) is a Pro-only feature
+  // (PDF Gate 3: "Admin and team management on Pro"). Free hosts can still
+  // toggle between view_only and editor for collaborators on their events.
+  const { plan: hostPlan } = useProfilePlan(event.hostProfileId ?? null);
+  const canGrantAdminTier = !!hostPlan && isPaidPlan(hostPlan.type);
 
   /**
    * Update a collaborator's permission tier. Writes both the collaborator
@@ -328,11 +335,22 @@ export function CollaboratorsTab({ event, collaborators, profiles, onRefresh, ca
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                {(Object.keys(collaboratorPermissionLabels) as CollaboratorPermission[]).map((p) => (
-                                  <SelectItem key={p} value={p} className="text-xs">
-                                    {collaboratorPermissionLabels[p]}
-                                  </SelectItem>
-                                ))}
+                                {(Object.keys(collaboratorPermissionLabels) as CollaboratorPermission[]).map((p) => {
+                                  // "admin" tier is Pro-only — Free hosts only see view_only/editor.
+                                  // Already-admin rows still render their badge fine; the select
+                                  // option itself is gated.
+                                  if (p === "admin" && !canGrantAdminTier && permission !== "admin") {
+                                    return null;
+                                  }
+                                  return (
+                                    <SelectItem key={p} value={p} className="text-xs">
+                                      {collaboratorPermissionLabels[p]}
+                                      {p === "admin" && !canGrantAdminTier && (
+                                        <span className="ml-1 text-muted-foreground">(Pro)</span>
+                                      )}
+                                    </SelectItem>
+                                  );
+                                })}
                               </SelectContent>
                             </Select>
                           ) : (

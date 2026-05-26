@@ -371,6 +371,61 @@ export function eventCollaboratorInviteEmail(opts: {
   };
 }
 
+/**
+ * Email sent when a performer creates a draft event and invites a venue to
+ * take over management of it. Distinct from the generic collaborator invite
+ * email because the call-to-action is "take over this event" rather than
+ * "join as a side party". When accepted, the venue becomes host.
+ */
+export function venueEventHandoffEmail(opts: {
+  recipientName: string;
+  performerName: string;
+  eventDate?: string;
+  message?: string;
+  inviteLink: string;
+  invitationCode: string;
+}): { subject: string; html: string } {
+  const subject = `${opts.performerName} wants to play at your venue${opts.eventDate ? ` on ${opts.eventDate}` : ""}`;
+
+  const messageBlock = opts.message
+    ? `<p style="margin:16px 0;padding:12px 16px;background:#f4f4f5;border-radius:8px;font-size:14px;color:#3f3f46;line-height:1.6;font-style:italic">"${opts.message}"</p>`
+    : "";
+
+  const content = `
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b">A performer wants to play at your venue</h2>
+    <p style="margin:0 0 16px;font-size:14px;color:#71717a;line-height:1.6">
+      Hi ${opts.recipientName}, <strong>${opts.performerName}</strong> has drafted an event at your
+      venue${opts.eventDate ? ` for <strong>${opts.eventDate}</strong>` : ""} and would like you
+      to take over and manage the booking on shoWMe.
+    </p>
+    <p style="margin:0 0 16px;font-size:14px;color:#71717a;line-height:1.6">
+      Once you accept, you become the host of the event with full control:
+      confirm the date, manage collaborators, run settlements, and use any of
+      your existing templates.
+    </p>
+    ${messageBlock}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td align="center" style="padding:8px 0 16px">
+          <a href="${opts.inviteLink}" target="_blank" style="display:inline-block;padding:12px 32px;background:#f97316;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;border-radius:8px">
+            Accept and manage event
+          </a>
+        </td>
+      </tr>
+    </table>
+    <p style="margin:0;font-size:12px;color:#a1a1aa;line-height:1.5">
+      Or use invitation code <strong>${opts.invitationCode}</strong> on shoWMe.
+    </p>
+    <p style="margin:8px 0 0;font-size:12px;color:#a1a1aa;line-height:1.5">
+      If the button doesn't work, go to <span style="color:#f97316;word-break:break-all">${opts.inviteLink}</span>
+    </p>`;
+
+  return {
+    subject,
+    html: baseLayout(content),
+  };
+}
+
 export function teamMemberMessageEmail(opts: {
   recipientName: string;
   senderName: string;

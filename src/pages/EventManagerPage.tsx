@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/models";
 import { Check, XCircle, Info, Calendar } from "lucide-react";
+import { VenueHandoffBanner } from "@/components/event-manager/VenueHandoffBanner";
 import { type EventMeta, upsertEvent, appendEventActivity } from "@/lib/db";
 import { useUpdateEvent } from "@/lib/queries/useEventMutations";
 import { eventStatusLabels } from "@/lib/models";
@@ -228,6 +229,13 @@ export default function EventManagerPage() {
               </div>
             </div>
           </div>
+        )}
+
+        {event.pendingHostHandoff && (
+          <VenueHandoffBanner
+            event={event}
+            onCancelled={() => em.navigate({ to: "/events" })}
+          />
         )}
 
         {event.autoCancelledReason === "expired_unconfirmed" && (

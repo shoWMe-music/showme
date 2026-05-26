@@ -125,6 +125,19 @@ export interface Event {
   holdAutoPromote?: boolean;
   /** Set when the system auto-cancelled this event because its date passed without confirmation. */
   autoCancelledReason?: "expired_unconfirmed";
+  /**
+   * Performer-initiated draft handoff: a Free Artist created this draft event
+   * from a booking-request card and invited a venue to take over management.
+   * While true, `hostProfileId` points at an unclaimed venue profile owned by
+   * the performer who created it (see `createdByProfileId`). The event must
+   * stay in `draft` status until the venue accepts the invitation and the
+   * profile transfers to them — `claimInvitationCode` clears these fields.
+   */
+  pendingHostHandoff?: boolean;
+  /** Email address the handoff invitation was sent to. Display-only. */
+  pendingHostHandoffInviteEmail?: string;
+  /** The performer profile that initiated this handoff. Display + cancel gate. */
+  createdByProfileId?: string;
   /** Venue amenities for the event. Seeded from the venue profile on create; editable in Details tab. */
   amenities?: string[];
   /** Catering arrangements / dietary notes for the event. Seeded from the venue profile on create. */
@@ -971,7 +984,11 @@ export type NotificationType =
   | "profile_member_joined"
   | "profile_member_removed"
   | "profile_invite_declined"
-  | "profile_member_role_changed";
+  | "profile_member_role_changed"
+  | "venue_handoff_pending"
+  | "venue_handoff_accepted"
+  | "venue_handoff_expiring"
+  | "venue_handoff_cancelled";
 
 export interface AppNotification {
   id: string;
@@ -1024,4 +1041,8 @@ export const notificationTypeLabels: Record<NotificationType, string> = {
   profile_member_removed: "Profile member removed",
   profile_invite_declined: "Profile invite declined",
   profile_member_role_changed: "Profile role changed",
+  venue_handoff_pending: "Venue management invitation",
+  venue_handoff_accepted: "Venue accepted management",
+  venue_handoff_expiring: "Venue invitation expiring soon",
+  venue_handoff_cancelled: "Venue handoff cancelled",
 };

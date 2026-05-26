@@ -317,6 +317,11 @@ export default function TemplatesPage() {
     () =>
       Object.entries(profiles)
         .filter(([, p]) => (p as SharedProfile).id)
+        // Templates are tied to event creation; performer profiles can't
+        // create events (rules block it via isEventHostProfileType) so they
+        // have no use for them. Per the PDF, performers don't get templates
+        // on any tier — keep the page consistent regardless of plan.
+        .filter(([, p]) => getBaseRole((p as SharedProfile).role) !== "performer")
         .map(([slot, p]) => ({ slot, profile: p as SharedProfile })),
     [profiles],
   );

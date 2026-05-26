@@ -7,6 +7,7 @@ import { sendMail, BREVO_API_KEY } from "./mail";
 import { eventCollaboratorInviteEmail } from "./emailTemplates";
 import { APP_BASE_URL } from "./appBaseUrl";
 import { computeAdminUidsUpdate } from "./invitations";
+import { getProfilePlan, isPaidPlan } from "./plans";
 
 const db = () => admin.firestore();
 
@@ -253,6 +254,20 @@ export const addExistingUserAsCollaborator = onCall<
         "permission-denied",
         "Only event admins can add collaborators.",
       );
+    }
+
+    // Plan gate: granting the "admin" tier on a Free host's event is blocked
+    // (PDF Gate 3 — "Admin and team management on Pro"). The collaborator
+    // subdoc rule enforces the same on direct client writes; this branch
+    // covers callable invocation.
+    if (permission === "admin" && hostProfileId) {
+      const hostPlan = await getProfilePlan(hostProfileId);
+      if (!hostPlan || !isPaidPlan(hostPlan.type)) {
+        throw new HttpsError(
+          "permission-denied",
+          "Granting the admin tier requires a Pro plan on the host profile.",
+        );
+      }
     }
 
     // Verify the (email, profileId) pair maps to a real user that owns that profile.

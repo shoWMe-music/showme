@@ -124,7 +124,7 @@ interface CreateInvitationCodeData {
   recipientRole?: string;
   linkedProfileId?: string;
   linkedEventId?: string;
-  source: "collaborator_invite" | "admin" | "team";
+  source: "collaborator_invite" | "admin" | "team" | "venue_handoff";
   sourceCollaboratorInviteToken?: string;
 }
 
@@ -355,7 +355,11 @@ export const claimInvitationCode = onCall<ClaimInvitationCodeData, Promise<Claim
     const inviteToken = typeof codeData.sourceCollaboratorInviteToken === "string"
       ? codeData.sourceCollaboratorInviteToken
       : undefined;
-    const permission = await resolveInvitePermission(inviteToken);
+    const source = typeof codeData.source === "string" ? codeData.source : "";
+    // Venue-handoff claims grant the accepter host-admin powers on the linked
+    // event — they're taking over management, not joining as a side party.
+    const permission: CollaboratorPermission =
+      source === "venue_handoff" ? "admin" : await resolveInvitePermission(inviteToken);
 
     // Profile transfer logic (outside transaction)
     if (linkedProfileId) {
@@ -368,24 +372,60 @@ export const claimInvitationCode = onCall<ClaimInvitationCodeData, Promise<Claim
         const newProfileId = `${uid}__${role}`;
         const newProfileRef = db().collection("profiles").doc(newProfileId);
 
-        // Create new profile with transferred data. `created: true` makes the
-        // profile visible in the UI (every list/page filters by `p.created`).
-        await newProfileRef.set({
-          ...oldData,
-          owner_uid: uid,
-          unclaimed: false,
-          created: true,
-          updatedAt: FieldValue.serverTimestamp(),
-        });
+        // Merge with existing claimed profile (venue_handoff edge case):
+        // if the accepting user already owns a `{uid}__venue` (or matching
+        // role) profile, DO NOT overwrite it. The stub's data is throwaway;
+        // the existing profile is the canonical one. We still need to repoint
+        // the event's hostProfileId to the existing profile (handled below)
+        // and we still delete the stub.
+        //
+        // Without this, `newProfileRef.set(...)` would wipe out the venue's
+        // real profile data (locations, capacities, bios, etc.) — a silent
+        // data loss bug that's hard to debug after the fact.
+        const existingNewProfileSnap = await newProfileRef.get();
+        const existingClaimedProfile =
+          existingNewProfileSnap.exists &&
+          (existingNewProfileSnap.data()?.created === true) &&
+          (existingNewProfileSnap.data()?.unclaimed !== true);
 
-        // Create owner member doc — shape must match `ensureProfileOwnerMember`
-        // in `src/lib/profiles/members.ts` (schemaVersion + updatedAt).
-        await newProfileRef.collection("members").doc(uid).set({
-          user_uid: uid,
-          role: "owner",
-          schemaVersion: 1,
-          updatedAt: FieldValue.serverTimestamp(),
-        });
+        if (!existingClaimedProfile) {
+          // Normal path: create the profile with transferred stub data.
+          // `created: true` makes the profile visible in the UI (every list/
+          // page filters by `p.created`).
+          await newProfileRef.set({
+            ...oldData,
+            owner_uid: uid,
+            unclaimed: false,
+            created: true,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+
+          // Create owner member doc — shape must match `ensureProfileOwnerMember`
+          // in `src/lib/profiles/members.ts` (schemaVersion + updatedAt).
+          await newProfileRef.collection("members").doc(uid).set({
+            user_uid: uid,
+            role: "owner",
+            schemaVersion: 1,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        } else {
+          logger.info("Merging venue handoff onto existing claimed profile", {
+            uid,
+            existingProfileId: newProfileId,
+            stubProfileId: linkedProfileId,
+          });
+          // Owner-member row may already exist from a previous claim; ensure
+          // it's there without clobbering.
+          await newProfileRef.collection("members").doc(uid).set(
+            {
+              user_uid: uid,
+              role: "owner",
+              schemaVersion: 1,
+              updatedAt: FieldValue.serverTimestamp(),
+            },
+            { merge: true },
+          );
+        }
 
         // Update event access if linked to an event
         if (linkedEventId) {
@@ -406,11 +446,21 @@ export const claimInvitationCode = onCall<ClaimInvitationCodeData, Promise<Claim
             eventUpdates.adminUids = adminUidsUpdate;
           }
 
-          // Link the new profile as the performer on this event
-          if (
+          if (source === "venue_handoff") {
+            // The accepting venue takes over as host. Repoint hostProfileId
+            // and clear the pending-handoff flags so the event leaves draft-
+            // jail and the rule that blocks status transitions during
+            // handoff stops applying.
+            eventUpdates.hostProfileId = newProfileId;
+            eventUpdates.pendingHostHandoff = FieldValue.delete();
+            eventUpdates.pendingHostHandoffInviteEmail = FieldValue.delete();
+            eventUpdates.createdByProfileId = FieldValue.delete();
+          } else if (
             eventData.performerProfileId === linkedProfileId ||
             !eventData.performerProfileId
           ) {
+            // Link the new profile as the performer on this event (legacy
+            // performer-claim path).
             eventUpdates.performerProfileId = newProfileId;
           }
 

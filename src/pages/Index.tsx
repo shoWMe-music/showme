@@ -3,6 +3,7 @@ import { EventStatusBadge } from "@/components/StatusBadge";
 import StatusBadge from "@/components/StatusBadge";
 import { useEvents, useAllEventEconomics, useEventsLoaded, useUpdateAnyEventMeta } from "@/lib/queries";
 import { useUser } from "@/lib/user-context";
+import { useAccountHasPaidPlan } from "@/lib/plans";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -538,6 +539,18 @@ export default function Dashboard() {
   const eventIds = events.map((e) => e.id);
   const allEconomics = useAllEventEconomics(eventIds);
 
+  // Analytics block is a Pro-tier surface (PDF: "Advanced analytics excluded
+  // from Free"). Show only when at least one of the user's profiles is paid.
+  const { profiles } = useUser();
+  const userProfileIds = useMemo(
+    () =>
+      Object.values(profiles)
+        .map((p) => p.id)
+        .filter((id): id is string => !!id),
+    [profiles],
+  );
+  const { hasPaid: showAnalytics } = useAccountHasPaidPlan(userProfileIds);
+
   // Build flat maps from economics data (mirrors previous store shape)
   const settlements: Record<string, Settlement> = {};
   const deals: Record<string, DealStructure> = {};
@@ -922,8 +935,8 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Analytics Section */}
-        <div className="mt-8">
+        {/* Analytics Section — Pro-only (Free Operator + Free Artist see no advanced analytics) */}
+        {showAnalytics && <div className="mt-8">
           <div className="mb-2">
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
               <BarChart3 className="h-4 w-4" /> Analytics
@@ -1006,7 +1019,7 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-        </div>
+        </div>}
       </div>
     </AppLayout>
   );

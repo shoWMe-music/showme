@@ -31,6 +31,7 @@ import IncomingRequestsPage from "@/pages/IncomingRequestsPage";
 import TasksPage from "@/pages/TasksPage";
 import TemplatesPage from "@/pages/TemplatesPage";
 import AdminInvitationsPage from "@/pages/AdminInvitationsPage";
+import AdminPlansPage from "@/pages/AdminPlansPage";
 import LandingPage from "@/pages/LandingPage";
 import ProductPage from "@/pages/ProductPage";
 import SolutionsPage from "@/pages/SolutionsPage";
@@ -440,6 +441,12 @@ const adminInvitationsRoute = createRoute({
   component: AdminInvitationsPage,
 });
 
+const adminPlansRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/plans",
+  component: AdminPlansPage,
+});
+
 const acceptInviteRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/accept-invite",
@@ -506,6 +513,7 @@ export const routeTree = rootRoute.addChildren([
   collaborateViewRoute,
   collaborateAuthRoute,
   adminInvitationsRoute,
+  adminPlansRoute,
   acceptInviteRoute,
   inviteRoute,
 ]);
