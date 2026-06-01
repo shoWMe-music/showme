@@ -28,6 +28,7 @@ import TicketingPage from "@/pages/TicketingPage";
 import TeamPage from "@/pages/TeamPage";
 import BillsInvoicesPage from "@/pages/BillsInvoicesPage";
 import IncomingRequestsPage from "@/pages/IncomingRequestsPage";
+import SentRequestsPage from "@/pages/SentRequestsPage";
 import TasksPage from "@/pages/TasksPage";
 import TemplatesPage from "@/pages/TemplatesPage";
 import AdminInvitationsPage from "@/pages/AdminInvitationsPage";
@@ -257,6 +258,12 @@ const requestsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/requests",
   component: IncomingRequestsPage,
+});
+
+const sentRequestsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/sent-requests",
+  component: SentRequestsPage,
 });
 
 const settlementsRoute = createRoute({
@@ -492,6 +499,7 @@ export const routeTree = rootRoute.addChildren([
   calendarRoute,
   tasksRoute,
   requestsRoute,
+  sentRequestsRoute,
   settlementsRoute,
   settlementDetailRoute,
   ticketingRoute,

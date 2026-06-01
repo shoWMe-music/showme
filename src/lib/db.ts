@@ -86,7 +86,7 @@ import {
   legacyRoleToEventRole,
   normalizeCollaboratorStatus,
 } from "./models";
-import type { AppNotification, NotificationType } from "./models";
+import type { AppNotification, BookingRequest, NotificationType } from "./models";
 import type { BudgetCalculatorPersisted } from "./budget-types";
 import type { OperatorRole, SharedProfile, TeamMember, ProfileLocation } from "./user-context";
 
@@ -2886,6 +2886,44 @@ export async function fetchBookingRequests(profileIds: string[] = []): Promise<a
   );
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+export interface SentBookingRequestPage {
+  requests: BookingRequest[];
+  lastDoc: QueryDocumentSnapshot | null;
+  hasMore: boolean;
+}
+
+/**
+ * Outgoing offers / requests sent BY the current user (performer Flow B,
+ * future agents). The Firestore rule allows reading when uid() matches
+ * sender_user_uid, so a single-disjunct query is sufficient — we don't
+ * need the OR-with-target-profile that the incoming-side path uses.
+ */
+export async function fetchSentBookingRequestPage(
+  pageSize: number,
+  cursor: QueryDocumentSnapshot | null,
+  filters?: BookingRequestPageFilters,
+): Promise<SentBookingRequestPage> {
+  const uid = getAuthClient().currentUser?.uid;
+  if (!uid) return { requests: [], lastDoc: null, hasMore: false };
+  const constraints = [
+    where("sender_user_uid", "==", uid),
+    ...(filters?.status ? [where("status", "==", filters.status)] : []),
+    orderBy("created_at", "desc"),
+    ...(cursor ? [startAfter(cursor)] : []),
+    limit(pageSize + 1),
+  ];
+  const q = query(collection(getFirestoreDb(), INBOUND_BOOKING_REQUESTS), ...constraints);
+  const snap = await getDocs(q);
+  const hasMore = snap.size > pageSize;
+  const docs = hasMore ? snap.docs.slice(0, pageSize) : snap.docs;
+  const lastDoc = docs.length > 0 ? docs[docs.length - 1] : null;
+  return {
+    requests: docs.map((d) => ({ id: d.id, ...(d.data() as object) } as BookingRequest)),
+    lastDoc,
+    hasMore,
+  };
 }
 
 export async function fetchBookingRequestByEventId(

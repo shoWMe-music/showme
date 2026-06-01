@@ -102,7 +102,7 @@ export function WelcomeBanner() {
               </Button>
             </Link>
           ) : (
-            <Link to="/incoming-requests">
+            <Link to="/requests">
               <Button size="sm" className="gap-1.5">
                 See incoming requests
               </Button>

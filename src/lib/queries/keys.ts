@@ -51,6 +51,9 @@ export const queryKeys = {
   /** Sidebar-only pending count. Prefixed by `bookingRequests` so it's caught
    *  by `invalidateQueries({ queryKey: ["bookingRequests"] })` from the page. */
   pendingBookingRequestsForSidebar: () => ["bookingRequests", "sidebar-pending"] as const,
+  /** Performer-initiated offers (Flow B). Separate key from `bookingRequests`
+   *  because the query side reads by sender_user_uid, not target_profile_id. */
+  sentBookingRequests: (filters?: Record<string, unknown>) => ["sentBookingRequests", filters ?? {}] as const,
 
   // Settlement activity log
   settlementActivity: (eventId: string) => ["settlementActivity", eventId] as const,

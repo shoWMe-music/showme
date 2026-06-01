@@ -632,6 +632,18 @@ export interface SocialLink {
   url: string;
 }
 
+/**
+ * Where this booking request came from. Drives sender-side rendering (Sent
+ * Requests page) and gating (rate limits, attestation modal).
+ *
+ * - `public_form`: unauthenticated submission via /request/[slug] widget.
+ * - `performer_offer`: cold pitch sent by a performer through the offer
+ *   composer. Always has sender_profile_id + sender_user_uid populated.
+ * - `venue_handoff`: legacy bridge from Flow A (draft+invite). Not currently
+ *   written but reserved so a future migration can backfill it.
+ */
+export type BookingRequestSource = "public_form" | "performer_offer" | "venue_handoff";
+
 export interface BookingRequest {
   id: string;
   created_at: string;
@@ -652,7 +664,7 @@ export interface BookingRequest {
   target_profile_id: string;
   target_role: string;
   status: string;
-  source: string;
+  source: BookingRequestSource | string;
   event_id: string;
   music_url?: string;
   video_url?: string;
@@ -662,6 +674,33 @@ export interface BookingRequest {
   performer_type?: string;
   website_url?: string;
   social_links?: SocialLink[];
+
+  // ── Performer offer (Flow B) additions ──
+  // Populated when source === "performer_offer". The sender_user_uid path is
+  // also what the Firestore rule honors so the performer can read their own
+  // outgoing requests on the Sent Requests page.
+  /** UID of the performer-user who created the offer. */
+  sender_user_uid?: string;
+  /** Performer profile ID the offer was sent from. */
+  sender_profile_id?: string;
+  /** Denormalized display name (artist) for the Sent Requests list. */
+  sender_profile_name?: string;
+  /** Free-form pitch message written by the performer. */
+  offer_pitch?: string;
+  /** Lower bound of the proposed fee. For a single value, equals offer_fee_max. */
+  offer_fee_min?: number | null;
+  /** Upper bound of the proposed fee. */
+  offer_fee_max?: number | null;
+  /** Other dates the performer is available, ISO strings. */
+  additional_dates?: string[];
+  /** ISO timestamp at which an un-actioned offer auto-archives (30 days from send). */
+  expires_at?: string;
+  /** Which delivery path was used. `in_platform` = venue had a shoWMe account; `mailto` = generated for the performer's own email client. */
+  sent_via?: "in_platform" | "mailto";
+  /** Optional reason captured when the venue declines. */
+  declined_reason?: string;
+  /** Set when the offer was archived (manually by sender, or by the 30-day reaper). */
+  archived?: boolean;
 }
 
 // ── Event Manager extended types ──

@@ -667,15 +667,20 @@ service cloud.firestore {
           // Authenticated path — must target an in-network profile.
           || targetIsInNetwork()
         );
-      // Dual-path: owner_uid keeps the legacy fallback live during backfill, and
-      // any admin/member of the targeted profile gets access via the `profileIds`
-      // token claim. The claim is populated by `onProfileMemberClaimsSync` and
-      // capped at 16 ids — overflow users (rare) keep the owner_uid path.
+      // Triple-path access:
+      //   1. owner_uid — legacy fallback during backfill (target venue's owner).
+      //   2. target_profile_id ∈ profileIds claim — admin/member of the venue
+      //      receiving the request (claim populated by
+      //      `onProfileMemberClaimsSync`, capped at 16 ids).
+      //   3. sender_user_uid — performer who SENT the offer (Flow B). Lets
+      //      them read/cancel their own outgoing requests on the Sent
+      //      Requests page even though they don't own the target profile.
       allow read, update: if
         isAuthed()
         && (
           uid() == resource.data.get('owner_uid', '')
           || resource.data.get('target_profile_id', '') in request.auth.token.get('profileIds', [])
+          || uid() == resource.data.get('sender_user_uid', '')
         );
     }
 
