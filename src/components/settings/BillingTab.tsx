@@ -316,13 +316,22 @@ function PlanActions({
   const onFreePlan = planType === "free_operator" || planType === "free_artist";
   const showSeatChange = planType === "operator_pro";
   const showCancel = isPaidPlan(planType);
+  // Artist Pro isn't publicly offered yet — performers on Free see "coming
+  // soon" instead of an upgrade CTA. Mirrors the public /pricing page.
+  const showUpgrade = onFreePlan && profile.role !== "performer";
+  const showArtistComingSoon = onFreePlan && profile.role === "performer";
 
   return (
     <div className="flex flex-wrap gap-2 pt-1 border-t">
-      {onFreePlan && (
+      {showUpgrade && (
         <Button onClick={() => setAction("upgrade")} className="gap-1.5">
           <Sparkles className="h-3.5 w-3.5" /> Upgrade
         </Button>
+      )}
+      {showArtistComingSoon && (
+        <p className="text-xs text-muted-foreground py-2">
+          A Pro plan for performers is on its way. We&apos;ll be in touch when it&apos;s available.
+        </p>
       )}
       {!onFreePlan && (
         <Button variant="outline" onClick={() => setAction("downgrade")} className="gap-1.5">

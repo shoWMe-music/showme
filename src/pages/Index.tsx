@@ -1,6 +1,7 @@
 import AppLayout from "@/components/AppLayout";
 import { EventStatusBadge } from "@/components/StatusBadge";
 import StatusBadge from "@/components/StatusBadge";
+import { WelcomeBanner } from "@/components/WelcomeBanner";
 import { useEvents, useAllEventEconomics, useEventsLoaded, useUpdateAnyEventMeta } from "@/lib/queries";
 import { useUser } from "@/lib/user-context";
 import { useAccountHasPaidPlan } from "@/lib/plans";
@@ -773,6 +774,8 @@ export default function Dashboard() {
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="mt-1 text-muted-foreground">Overview of your events and settlements</p>
         </div>
+
+        <WelcomeBanner />
 
         {/* To Do (My Tasks + System Recommendations) + Recent Activity side by side */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">

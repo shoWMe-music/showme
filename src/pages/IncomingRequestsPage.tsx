@@ -18,7 +18,7 @@ import { FileText, Send, X, Archive, Ban, Search, Clock, ExternalLink, Copy, Mus
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
-import { useUser } from "@/lib/user-context";
+import { useUser, type SharedProfile } from "@/lib/user-context";
 import { useAllProfiles } from "@/lib/queries/useProfilesQuery";
 import { useAuth } from "@/lib/auth-context";
 import { formatCurrency, type BookingRequest, type Event } from "@/lib/models";
@@ -418,16 +418,17 @@ export default function IncomingRequestsPage() {
   const isPerformerRecipient = (req: BookingRequest) => req.target_role === "performer";
 
   // Resolve the performer profile this request targets, so the handoff dialog
-  // knows which performer to attach as collaborator on the new event.
-  const findPerformerProfileForRequest = (req: BookingRequest): { id: string; name: string } | null => {
+  // knows which performer to attach as collaborator on the new event AND can
+  // run its own profile-completeness gate before sending the invite.
+  const findPerformerProfileForRequest = (req: BookingRequest): SharedProfile | null => {
     if (req.target_profile_id) {
       const match = allProfiles.find((p) => p.id === req.target_profile_id);
-      if (match?.id) return { id: match.id, name: match.name ?? "" };
+      if (match?.id) return match;
     }
     // Fallback to slug for legacy requests that pre-date the target_profile_id backfill.
     if (req.target_profile_slug) {
       const match = allProfiles.find((p) => p.slug === req.target_profile_slug);
-      if (match?.id) return { id: match.id, name: match.name ?? "" };
+      if (match?.id) return match;
     }
     return null;
   };
@@ -855,8 +856,7 @@ export default function IncomingRequestsPage() {
           <CreateDraftWithVenueHandoffDialog
             open={true}
             onOpenChange={(o) => { if (!o) setHandoffRequest(null); }}
-            performerProfileId={performer.id}
-            performerName={performer.name || handoffRequest.artist_name}
+            performerProfile={performer}
             defaultVenueName={handoffRequest.name}
             defaultVenueEmail={handoffRequest.email}
             defaultDate={handoffRequest.wanted_date}

@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Mail, Send } from "lucide-react";
+import { AlertTriangle, Loader2, Mail, Send } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,11 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { createVenueHandoffDraft } from "@/lib/createVenueHandoffDraft";
+import {
+  getMissingPerformerFields,
+  performerFieldLabel,
+} from "@/lib/profileCompleteness";
+import type { SharedProfile } from "@/lib/user-context";
 
 /**
  * Free-Artist-side dialog that converts an incoming booking-request card into
@@ -25,13 +31,16 @@ import { createVenueHandoffDraft } from "@/lib/createVenueHandoffDraft";
  * unclaimed venue stub profile is created — performer owns it transiently —
  * and ownership transfers to the venue when they accept the invitation code.
  * See `createVenueHandoffDraft` for the full data shape.
+ *
+ * Profile gate: send is blocked until the performer profile has all the
+ * fields a venue would expect to see when reviewing a cold invitation. See
+ * `getMissingPerformerFields` for the canonical list.
  */
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  performerProfileId: string;
-  performerName: string;
+  performerProfile: SharedProfile;
   /** Prefill from the booking request. */
   defaultVenueName: string;
   defaultVenueEmail: string;
@@ -44,8 +53,7 @@ interface Props {
 export default function CreateDraftWithVenueHandoffDialog({
   open,
   onOpenChange,
-  performerProfileId,
-  performerName,
+  performerProfile,
   defaultVenueName,
   defaultVenueEmail,
   defaultDate,
@@ -53,6 +61,13 @@ export default function CreateDraftWithVenueHandoffDialog({
   sourceRequestId,
   onCreated,
 }: Props) {
+  const performerProfileId = performerProfile.id ?? "";
+  const performerName = performerProfile.name ?? "";
+  const missingFields = useMemo(
+    () => getMissingPerformerFields(performerProfile),
+    [performerProfile],
+  );
+  const profileIncomplete = missingFields.length > 0;
   const queryClient = useQueryClient();
 
   const [venueName, setVenueName] = useState(defaultVenueName);
@@ -103,6 +118,7 @@ export default function CreateDraftWithVenueHandoffDialog({
   });
 
   const canSubmit =
+    !profileIncomplete &&
     !!venueName.trim() &&
     !!venueEmail.trim() &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(venueEmail.trim()) &&
@@ -118,6 +134,32 @@ export default function CreateDraftWithVenueHandoffDialog({
             invitation to take over and manage the booking on shoWMe.
           </DialogDescription>
         </DialogHeader>
+        {profileIncomplete && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
+            <p className="flex items-start gap-1.5 font-medium">
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              Complete your profile to send
+            </p>
+            <p className="mt-1 leading-snug">
+              Venues see your shoWMe profile when they get this invite. Add the missing pieces so they have what they need to say yes:
+            </p>
+            <ul className="mt-1.5 ml-5 list-disc space-y-0.5">
+              {missingFields.map((f) => (
+                <li key={f}>{performerFieldLabel(f)}</li>
+              ))}
+            </ul>
+            {performerProfileId && (
+              <Link
+                to="/profiles/$profileId/edit"
+                params={{ profileId: performerProfileId }}
+                className="mt-2 inline-block font-medium underline underline-offset-2"
+                onClick={() => onOpenChange(false)}
+              >
+                Edit my profile →
+              </Link>
+            )}
+          </div>
+        )}
         <div className="space-y-3 py-1">
           <div>
             <Label className="text-xs">Venue name *</Label>
@@ -126,6 +168,7 @@ export default function CreateDraftWithVenueHandoffDialog({
               onChange={(e) => setVenueName(e.target.value)}
               placeholder="The venue name"
               className="mt-1"
+              disabled={profileIncomplete}
             />
           </div>
           <div>
@@ -136,6 +179,7 @@ export default function CreateDraftWithVenueHandoffDialog({
               onChange={(e) => setVenueEmail(e.target.value)}
               placeholder="venue@example.com"
               className="mt-1"
+              disabled={profileIncomplete}
             />
             <p className="text-xs text-muted-foreground mt-1">
               The invitation link goes here. If the venue already has a shoWMe account, this
@@ -150,6 +194,7 @@ export default function CreateDraftWithVenueHandoffDialog({
               rows={3}
               placeholder="Tell the venue why you're interested in this date…"
               className="mt-1 text-sm"
+              disabled={profileIncomplete}
             />
           </div>
         </div>

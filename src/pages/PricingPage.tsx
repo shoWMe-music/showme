@@ -14,14 +14,17 @@ import { LandingNav, FinalCTASection, LandingFooter } from "./LandingPage";
 // Source: /docs/showme-pricing-internal.pdf — kept here as primary source
 // of truth for the public page. Free Operator is 60 confirmed events/year +
 // 1 seat. Operator Pro is €99/month billed yearly, 2 seats included, +€15
-// per extra seat. Artist Pro is €9.99/month. All four account types have
-// transaction fees on the Mollie payment rail; this page is subscription-only.
+// per extra seat. All four account types have transaction fees on the Mollie
+// payment rail; this page is subscription-only.
+//
+// Artist Pro is intentionally NOT surfaced publicly — the tier exists in the
+// plan model and admins can assign it manually, but pricing/feature mix is
+// still being decided. Do not re-add the card without a product sign-off.
 
 const FREE_OPERATOR_EVENT_CAP = 60;
 const OPERATOR_PRO_BASE_PRICE = 99;
 const OPERATOR_PRO_BASE_SEATS = 2;
 const OPERATOR_PRO_EXTRA_SEAT = 15;
-const ARTIST_PRO_PRICE = 9.99;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -232,14 +235,6 @@ const FREE_ARTIST_FEATURES = [
   "Receive payments (transaction fees apply)",
 ];
 
-const ARTIST_PRO_FEATURES = [
-  "AI agent to send booking requests to any venue, including outside the network",
-  "AI tour builder with route optimization and venue suggestions",
-  "Full invoicing workflow (outbound invoices, expense tracking, statements)",
-  "Multiple band members on one Artist account",
-  "Analytics on profile views, offer rates, booking conversion",
-];
-
 function FreeArtistCard() {
   return (
     <Card className="border-border/50 flex flex-col h-full">
@@ -265,37 +260,6 @@ function FreeArtistCard() {
   );
 }
 
-function ArtistProCard() {
-  return (
-    <Card className="border-primary shadow-lg ring-2 ring-primary/20 flex flex-col h-full">
-      <CardContent className="p-8 flex flex-col h-full gap-6">
-        <div className="space-y-2">
-          <h3 className="font-display text-lg font-semibold">Artist Pro</h3>
-          <div className="flex items-baseline gap-1">
-            <span className="font-display text-3xl font-bold">€{ARTIST_PRO_PRICE.toFixed(2)}</span>
-            <span className="text-sm text-muted-foreground">/ month</span>
-          </div>
-          <p className="text-xs text-muted-foreground">For working musicians</p>
-        </div>
-        <ul className="space-y-2 flex-1">
-          <Feature>Everything in Free Artist</Feature>
-          {ARTIST_PRO_FEATURES.map((f) => (
-            <Feature key={f}>{f}</Feature>
-          ))}
-        </ul>
-        <p className="text-xs text-muted-foreground">
-          Team Management & CRM (managers, agents, tour managers) available as a separate add-on.
-        </p>
-        <Link to="/signup">
-          <Button className="w-full" size="lg">
-            Get started <ArrowRight className="ml-1 h-4 w-4" />
-          </Button>
-        </Link>
-      </CardContent>
-    </Card>
-  );
-}
-
 function ArtistPricingSection() {
   return (
     <section className="py-16 bg-foreground/[0.03]">
@@ -306,14 +270,16 @@ function ArtistPricingSection() {
             For working musicians. Discovery and respond-to-offers stay free forever.
           </p>
         </RevealSection>
-        <div className="grid md:grid-cols-2 gap-8 max-w-3xl mx-auto">
+        <div className="max-w-md mx-auto">
           <RevealSection>
             <FreeArtistCard />
           </RevealSection>
-          <RevealSection delay={150}>
-            <ArtistProCard />
-          </RevealSection>
         </div>
+        <RevealSection delay={150}>
+          <p className="text-center text-xs text-muted-foreground">
+            A Pro plan for performers is on its way. Want to be notified? <Link to="/signup" className="underline">Create your free account</Link> and we&apos;ll reach out.
+          </p>
+        </RevealSection>
         <RevealSection delay={250}>
           <PaymentRailInfo />
         </RevealSection>
