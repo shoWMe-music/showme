@@ -43,6 +43,11 @@ import {
   getMissingPerformerFields,
   performerFieldLabel,
 } from "@/lib/profileCompleteness";
+import {
+  FREE_ARTIST_OFFER_MONTHLY_CAP,
+  isPaidPlan,
+  useProfilePlan,
+} from "@/lib/plans";
 
 const PITCH_MIN = 20;
 const PITCH_MAX = 2000;
@@ -77,6 +82,19 @@ export default function CreatePerformerOfferDialog({
     [performerProfile],
   );
   const profileIncomplete = missingFields.length > 0;
+
+  // ── Rate limit display ──────────────────────────────────────────────────
+  const { plan } = useProfilePlan(performerProfileId);
+  const planType = plan?.type ?? "free_artist";
+  const offerLimited = !isPaidPlan(planType);
+  const currentMonthKey = (() => {
+    const d = new Date();
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  })();
+  const sentThisMonth =
+    plan?.offerCountMonthKey === currentMonthKey ? plan?.offerCountThisMonth ?? 0 : 0;
+  const remainingOffers = Math.max(0, FREE_ARTIST_OFFER_MONTHLY_CAP - sentThisMonth);
+  const atCap = offerLimited && remainingOffers <= 0;
 
   // ── Form state ───────────────────────────────────────────────────────────
   const [targetMode, setTargetMode] = useState<"search" | "email">("search");
@@ -192,6 +210,7 @@ export default function CreatePerformerOfferDialog({
   const validPitch = pitch.trim().length >= PITCH_MIN && pitch.trim().length <= PITCH_MAX;
   const canSubmit =
     !profileIncomplete &&
+    !atCap &&
     validVenue &&
     validDate &&
     validPitch &&
@@ -232,7 +251,26 @@ export default function CreatePerformerOfferDialog({
           />
         )}
 
-        <fieldset disabled={profileIncomplete || mutation.isPending} className="space-y-4">
+        {offerLimited && !profileIncomplete && (
+          <div
+            className={cn(
+              "rounded-md border px-3 py-2 text-xs flex items-center justify-between gap-3",
+              atCap
+                ? "border-destructive/30 bg-destructive/5 text-destructive"
+                : remainingOffers <= 5
+                  ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200"
+                  : "border-border bg-muted/30 text-muted-foreground",
+            )}
+          >
+            <span>
+              {atCap
+                ? `You've reached the ${FREE_ARTIST_OFFER_MONTHLY_CAP}/month free offer limit. Resets on the 1st.`
+                : `${remainingOffers} of ${FREE_ARTIST_OFFER_MONTHLY_CAP} offers remaining this month`}
+            </span>
+          </div>
+        )}
+
+        <fieldset disabled={profileIncomplete || atCap || mutation.isPending} className="space-y-4">
           {/* Target picker */}
           <div className="space-y-2">
             <Label className="text-xs">Venue *</Label>

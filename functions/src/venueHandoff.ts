@@ -8,6 +8,7 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import { sendMail, BREVO_API_KEY } from "./mail";
 import { venueEventHandoffEmail } from "./emailTemplates";
 import { APP_BASE_URL } from "./appBaseUrl";
+import { refundCollabInviteCredit } from "./plans";
 
 const db = () => admin.firestore();
 
@@ -305,6 +306,14 @@ export const onVenueHandoffAccepted = onDocumentUpdated(
         });
       }),
     );
+
+    // Refund one collab-invite credit to the originating performer profile.
+    // Spec: "+1 per accepted invite". Capped at the plan's max.
+    try {
+      await refundCollabInviteCredit(performerProfileId);
+    } catch (err) {
+      logger.warn("collab credit refund failed", { performerProfileId, err: String(err) });
+    }
   },
 );
 

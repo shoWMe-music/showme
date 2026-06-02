@@ -22,6 +22,12 @@ import {
   performerFieldLabel,
 } from "@/lib/profileCompleteness";
 import type { SharedProfile } from "@/lib/user-context";
+import {
+  FREE_ARTIST_COLLAB_INVITE_CREDITS,
+  isPaidPlan,
+  useProfilePlan,
+} from "@/lib/plans";
+import { cn } from "@/lib/utils";
 
 /**
  * Free-Artist-side dialog that converts an incoming booking-request card into
@@ -69,6 +75,14 @@ export default function CreateDraftWithVenueHandoffDialog({
   );
   const profileIncomplete = missingFields.length > 0;
   const queryClient = useQueryClient();
+
+  const { plan } = useProfilePlan(performerProfileId);
+  const planType = plan?.type ?? "free_artist";
+  const inviteLimited = !isPaidPlan(planType);
+  const credits =
+    plan?.collabInviteCredits ?? FREE_ARTIST_COLLAB_INVITE_CREDITS;
+  const suspended = plan?.collabInviteSuspended === true;
+  const noCredits = inviteLimited && credits <= 0;
 
   const [venueName, setVenueName] = useState(defaultVenueName);
   const [venueEmail, setVenueEmail] = useState(defaultVenueEmail);
@@ -119,6 +133,8 @@ export default function CreateDraftWithVenueHandoffDialog({
 
   const canSubmit =
     !profileIncomplete &&
+    !noCredits &&
+    !suspended &&
     !!venueName.trim() &&
     !!venueEmail.trim() &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(venueEmail.trim()) &&
@@ -134,6 +150,29 @@ export default function CreateDraftWithVenueHandoffDialog({
             invitation to take over and manage the booking on shoWMe.
           </DialogDescription>
         </DialogHeader>
+        {inviteLimited && !profileIncomplete && (
+          <div
+            className={cn(
+              "rounded-md border px-3 py-2 text-xs flex items-center justify-between gap-3",
+              suspended
+                ? "border-destructive/30 bg-destructive/5 text-destructive"
+                : noCredits
+                  ? "border-destructive/30 bg-destructive/5 text-destructive"
+                  : credits <= 3
+                    ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200"
+                    : "border-border bg-muted/30 text-muted-foreground",
+            )}
+          >
+            <span>
+              {suspended
+                ? "Collaborate invites are temporarily disabled following spam reports. The offer flow is still available."
+                : noCredits
+                  ? "You're out of collaborate-invite credits. Credits refill when an invite is accepted."
+                  : `${credits} collaborate-invite ${credits === 1 ? "credit" : "credits"} remaining (refills +1 per acceptance)`}
+            </span>
+          </div>
+        )}
+
         {profileIncomplete && (
           <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
             <p className="flex items-start gap-1.5 font-medium">

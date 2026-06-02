@@ -53,7 +53,27 @@ export interface ProfilePlan {
   eventCapCount?: number;
   /** Mirror of eventCapCount >= 66, kept in sync by the trigger. */
   eventCapBlocked?: boolean;
+
+  // ── Freemium Flow B counters (performer offers / collab invites) ──
+  /** Number of performer offers sent in the current calendar month. Lazy-reset on first send of a new month. */
+  offerCountThisMonth?: number;
+  /** YYYY-MM key the offerCountThisMonth applies to. */
+  offerCountMonthKey?: string;
+  /** Remaining collab-invite credits for Flow A external invites. Decrement on send, +1 on accept (capped at max). */
+  collabInviteCredits?: number;
+  /** Max collab-invite credits this plan can hold (effective ceiling for refunds). */
+  collabInviteCreditsMax?: number;
+
+  // ── Spam reputation (Phase 3) ──
+  /** Distinct venues that flagged this performer in the last 90 days. */
+  spamFlagsLast90d?: number;
+  /** When true, server rejects further venue-handoff invite calls from this profile (offers still allowed). */
+  collabInviteSuspended?: boolean;
 }
+
+export const FREE_ARTIST_OFFER_MONTHLY_CAP = 50;
+export const FREE_ARTIST_COLLAB_INVITE_CREDITS = 20;
+export const SPAM_FLAG_SUSPEND_THRESHOLD = 3;
 
 const OPERATOR_PLAN_TYPES: ReadonlySet<PlanType> = new Set<PlanType>([
   "free_operator",

@@ -5,6 +5,11 @@ import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { sendMail, BREVO_API_KEY } from "./mail";
 import { otpEmail, invitationEmail } from "./emailTemplates";
 import { APP_BASE_URL } from "./appBaseUrl";
+import {
+  assertCanSendExternalCollabInvite,
+  getProfilePlan,
+  recordCollabInviteSent,
+} from "./plans";
 
 const db = () => getFirestore();
 
@@ -158,6 +163,32 @@ export const createInvitationCode = onCall<CreateInvitationCodeData, Promise<{ c
       }
     }
 
+    // ── Venue-handoff (Flow A) credit gate ────────────────────────────────
+    // External collab invites consume a credit on the originating performer
+    // profile. We resolve the performer via the linked event's
+    // `createdByProfileId`. Paid plans bypass; suspended performers throw.
+    // Decrement happens after the code write below (best-effort post-write
+    // so an aborted transaction doesn't burn a credit).
+    let venueHandoffPerformerProfileId: string | null = null;
+    let venueHandoffCreditsAfter: number | null = null;
+    if (source === "venue_handoff" && linkedEventId) {
+      const eventSnap = await db().collection("events").doc(linkedEventId).get();
+      if (eventSnap.exists) {
+        const ev = eventSnap.data() ?? {};
+        const performerProfileId = typeof ev.createdByProfileId === "string" ? ev.createdByProfileId : "";
+        if (performerProfileId) {
+          const perfSnap = await db().collection("profiles").doc(performerProfileId).get();
+          if (perfSnap.exists) {
+            const role = String(perfSnap.data()?.role || perfSnap.data()?.type || "");
+            const plan = await getProfilePlan(performerProfileId);
+            const gate = assertCanSendExternalCollabInvite(plan, role);
+            venueHandoffPerformerProfileId = performerProfileId;
+            venueHandoffCreditsAfter = gate.creditsAfterSend;
+          }
+        }
+      }
+    }
+
     // Generate a unique code (retry on collision)
     let code = generateCode();
     let attempts = 0;
@@ -259,6 +290,20 @@ export const createInvitationCode = onCall<CreateInvitationCodeData, Promise<{ c
         }
       }
     });
+
+    // Persist the venue-handoff credit decrement now that the code is
+    // safely written. Best-effort — log on failure so the invite still
+    // succeeds even if the counter write hits transient contention.
+    if (venueHandoffPerformerProfileId && venueHandoffCreditsAfter !== null) {
+      try {
+        await recordCollabInviteSent(venueHandoffPerformerProfileId, venueHandoffCreditsAfter);
+      } catch (err) {
+        logger.warn("collab invite credit decrement failed", {
+          performerProfileId: venueHandoffPerformerProfileId,
+          err: String(err),
+        });
+      }
+    }
 
     logger.info("Invitation code created", { code, source, createdByUid: uid, linkedContactId });
 

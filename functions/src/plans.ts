@@ -40,8 +40,29 @@ export interface ProfilePlan {
   // `free_operator` — paid plans leave these undefined.
   eventCapCount?: number;
   eventCapBlocked?: boolean;
-  // ISO timestamp not on the type — written via FieldValue.serverTimestamp().
+  // ── Freemium Flow B counters (performer offers / collab invites) ──
+  // Lazy-reset on first offer of a new calendar month; key is YYYY-MM.
+  offerCountThisMonth?: number;
+  offerCountMonthKey?: string;
+  // Collab-invite credits for Flow A external invites (warm-relationship
+  // invites to a venue email). Decrement on send, +1 on accept. Cap at
+  // collabInviteCreditsMax. Paid plans treat these as unlimited.
+  collabInviteCredits?: number;
+  collabInviteCreditsMax?: number;
+  // ── Spam reputation (Phase 3) ──
+  // Count of distinct venues that flagged this performer's collab invites
+  // as spam within a 90-day rolling window. >= 3 triggers
+  // collabInviteSuspended. Each flag entry lives in a subcollection so we
+  // can age out > 90 days entries when checking.
+  spamFlagsLast90d?: number;
+  collabInviteSuspended?: boolean;
 }
+
+// Default credit allotments for free Artist plans on first write of these
+// fields. Kept on the server side so client manipulation cannot widen them.
+export const FREE_ARTIST_OFFER_MONTHLY_CAP = 50;
+export const FREE_ARTIST_COLLAB_INVITE_CREDITS = 20;
+export const SPAM_FLAG_SUSPEND_THRESHOLD = 3;
 
 const VALID_PLAN_TYPES: ReadonlySet<PlanType> = new Set([
   "free_operator",
@@ -153,6 +174,125 @@ export async function requirePlan(
 
 export function isPaidPlan(type: PlanType): boolean {
   return PAID_PLAN_TYPES.has(type);
+}
+
+/** YYYY-MM key derived from a JS Date in UTC. */
+export function monthKey(date: Date = new Date()): string {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
+/**
+ * Gate Flow B (performer offer). Paid plans bypass the cap. Free plans get
+ * a lazy reset when the stored month key falls behind the current month.
+ *
+ * Throws HttpsError("resource-exhausted") when the performer hits the
+ * monthly cap. Otherwise returns the (possibly reset) count that should be
+ * written back atomically by the caller.
+ */
+export function assertCanSendOffer(plan: ProfilePlan | null, role: string): {
+  monthKey: string;
+  countAfterSend: number;
+  isCapped: boolean;
+} {
+  const isPerformer = role === "performer" || role === "artist";
+  if (!isPerformer) {
+    throw new HttpsError("failed-precondition", "Only performer profiles can send offers.");
+  }
+  const planType: PlanType = plan?.type ?? "free_artist";
+  if (isPaidPlan(planType)) {
+    return { monthKey: monthKey(), countAfterSend: 0, isCapped: false };
+  }
+  const nowKey = monthKey();
+  const sameMonth = plan?.offerCountMonthKey === nowKey;
+  const currentCount = sameMonth ? plan?.offerCountThisMonth ?? 0 : 0;
+  if (currentCount >= FREE_ARTIST_OFFER_MONTHLY_CAP) {
+    throw new HttpsError(
+      "resource-exhausted",
+      `You've reached the ${FREE_ARTIST_OFFER_MONTHLY_CAP}/month free offer limit. Reach out to upgrade for unlimited offers.`,
+    );
+  }
+  return { monthKey: nowKey, countAfterSend: currentCount + 1, isCapped: false };
+}
+
+/**
+ * Persist the increment from `assertCanSendOffer`. Called atomically after
+ * the offer write succeeds — better to drift slightly low (rare under
+ * contention) than to debit a non-existent offer.
+ */
+export async function recordOfferSent(profileId: string, nextMonthKey: string, countAfterSend: number): Promise<void> {
+  await db().collection("plans").doc(profileId).set(
+    {
+      offerCountMonthKey: nextMonthKey,
+      offerCountThisMonth: countAfterSend,
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+}
+
+/**
+ * Gate Flow A external collab invite. Paid plans + in-platform invites
+ * skip the gate (handled in the call site — pass `external=true` only for
+ * out-of-network venue emails). Throws when the performer has no credits.
+ *
+ * Returns the new credit count to write atomically on success.
+ */
+export function assertCanSendExternalCollabInvite(
+  plan: ProfilePlan | null,
+  role: string,
+): { creditsAfterSend: number; suspended: boolean } {
+  const isPerformer = role === "performer" || role === "artist";
+  if (!isPerformer) {
+    throw new HttpsError("failed-precondition", "Only performer profiles consume collab-invite credits.");
+  }
+  const planType: PlanType = plan?.type ?? "free_artist";
+  if (isPaidPlan(planType)) {
+    return { creditsAfterSend: plan?.collabInviteCredits ?? FREE_ARTIST_COLLAB_INVITE_CREDITS, suspended: false };
+  }
+  if (plan?.collabInviteSuspended === true) {
+    throw new HttpsError(
+      "permission-denied",
+      "Collaborate invites from this profile are temporarily disabled following spam reports. The offer flow is still available.",
+    );
+  }
+  const credits = plan?.collabInviteCredits ?? FREE_ARTIST_COLLAB_INVITE_CREDITS;
+  if (credits <= 0) {
+    throw new HttpsError(
+      "resource-exhausted",
+      "You're out of collaborate-invite credits. Credits refill when an invite is accepted.",
+    );
+  }
+  return { creditsAfterSend: credits - 1, suspended: false };
+}
+
+export async function recordCollabInviteSent(profileId: string, creditsAfterSend: number): Promise<void> {
+  await db().collection("plans").doc(profileId).set(
+    {
+      collabInviteCredits: creditsAfterSend,
+      collabInviteCreditsMax: FREE_ARTIST_COLLAB_INVITE_CREDITS,
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+}
+
+/** Called by the accept-handler on invitation claim. Caps at the plan max. */
+export async function refundCollabInviteCredit(profileId: string): Promise<void> {
+  if (!profileId) return;
+  await db().runTransaction(async (tx) => {
+    const ref = db().collection("plans").doc(profileId);
+    const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const data = snap.data() as ProfilePlan;
+    if (isPaidPlan(data.type)) return;
+    const max = data.collabInviteCreditsMax ?? FREE_ARTIST_COLLAB_INVITE_CREDITS;
+    const current = data.collabInviteCredits ?? FREE_ARTIST_COLLAB_INVITE_CREDITS;
+    const next = Math.min(current + 1, max);
+    if (next === current) return;
+    tx.set(ref, { collabInviteCredits: next, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  });
 }
 
 export function isOperatorPlan(type: PlanType): boolean {

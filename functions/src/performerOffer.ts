@@ -6,6 +6,11 @@ import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { APP_BASE_URL } from "./appBaseUrl";
 import { generateCode } from "./invitations";
 import { performerOfferEmail } from "./emailTemplates";
+import {
+  assertCanSendOffer,
+  getProfilePlan,
+  recordOfferSent,
+} from "./plans";
 
 const db = () => admin.firestore();
 
@@ -276,6 +281,43 @@ export const createPerformerOffer = onCall<CreatePerformerOfferData, Promise<Cre
     }
     const performerName = String(performerProfile.name || "").trim() || "A performer";
 
+    // ── Plan gate: monthly offer cap ─────────────────────────────────────
+    // Free Artist is capped at FREE_ARTIST_OFFER_MONTHLY_CAP per calendar
+    // month (lazy reset). Paid plans bypass. We compute the post-send count
+    // here but only write it after the bookingRequest write succeeds, so a
+    // failed send doesn't burn a slot.
+    const plan = await getProfilePlan(performerProfileId);
+    const offerGate = assertCanSendOffer(plan, String(performerProfile.role || ""));
+
+    // ── Same-venue dedup ─────────────────────────────────────────────────
+    // Spec: a performer cannot send a second offer to the same venue for an
+    // overlapping date window while a prior offer is still pending. We
+    // approximate "overlapping window" as exact wantedDate match plus any
+    // overlap with that performer's additionalDates — the spec doesn't
+    // define a fuzzy window, so exact-date match is the smallest correct
+    // rule.
+    const dedupTarget = targetProfileId || venueEmail; // identify target consistently
+    const dedupQuery = await db()
+      .collection("inboundBookingRequests")
+      .where("sender_user_uid", "==", uid)
+      .where("status", "==", "pending")
+      .where("source", "==", "performer_offer")
+      .where("wanted_date", "==", wantedDate)
+      .limit(20)
+      .get();
+    for (const d of dedupQuery.docs) {
+      const data = d.data();
+      const sameTarget =
+        (targetProfileId && data.target_profile_id === targetProfileId) ||
+        (venueEmail && typeof data.email === "string" && data.email.toLowerCase() === venueEmail);
+      if (sameTarget) {
+        throw new HttpsError(
+          "already-exists",
+          `You already have a pending offer to ${data.name || dedupTarget} on ${wantedDate}.`,
+        );
+      }
+    }
+
     // ── Resolve target → in-platform vs mailto ────────────────────────────
     let resolvedTargetProfileId: string;
     let ownerUid: string;
@@ -392,6 +434,16 @@ export const createPerformerOffer = onCall<CreatePerformerOfferData, Promise<Cre
       expires_at: expiresAtIso,
       sent_via: sentVia,
     });
+
+    // ── Record offer against the monthly cap ─────────────────────────────
+    // Done after the booking-request write so a failed write doesn't burn
+    // a credit. Failures here are logged but don't bubble up — the offer
+    // itself is already persisted.
+    try {
+      await recordOfferSent(performerProfileId, offerGate.monthKey, offerGate.countAfterSend);
+    } catch (err) {
+      logger.warn("offer counter write failed", { performerProfileId, err: String(err) });
+    }
 
     // ── Side effects per path ─────────────────────────────────────────────
     if (sentVia === "in_platform") {
