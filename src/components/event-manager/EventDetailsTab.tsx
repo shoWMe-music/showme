@@ -2218,12 +2218,14 @@ export function EventDetailsTab({ event, deal, revenue, eventMeta, updateEvent, 
                   };
                   await addChildEvent(event.id, childEvent, childDeal);
 
-                  // Add performer as collaborator on the child event
+                  // Add performer as collaborator on the child event.
+                  // Per spec: performers default to view_only.
                   const performerCollaborator: EventCollaborator = {
                     id: `collab-${childId}-performer`,
                     email: "",
                     name,
                     eventRole: "performer",
+                    permission: "view_only",
                     status: "active",
                     invitedAt: new Date().toISOString(),
                     profileId: newPerformerProfileId || undefined,

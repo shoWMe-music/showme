@@ -34,7 +34,10 @@ export async function createPerformerInvitation(
     queryClient,
     role = "Performer",
     eventRole = "performer",
-    permission = "editor",
+    // Spec: performers default to view_only. Operators elevate explicitly
+    // through the InviteCollaboratorDialog when they want an editor-tier
+    // performer; this default is the safe baseline.
+    permission = "view_only",
     message = "",
     onCollaboratorAdded,
   } = params;

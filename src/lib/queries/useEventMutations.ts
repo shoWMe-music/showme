@@ -1418,13 +1418,16 @@ export function useConvertToMultiPerformer() {
       await initEventData(childEvent, childDeal, queryClient, uid);
       await upsertEvent({ ...parent, isMultiPerformer: true, childEventIds: [childId], eventStatus: "suggested" });
 
-      // Add the existing performer as a collaborator on both child and parent
+      // Add the existing performer as a collaborator on both child and parent.
+      // Per spec, performers default to view_only — operators can elevate from
+      // the Collaborators tab if they want them editing event details.
       if (parent.artist) {
         const childCollaborator: EventCollaborator = {
           id: `collab-${childId}-performer`,
           email: "",
           name: parent.artist,
           eventRole: "performer",
+          permission: "view_only",
           status: "active",
           invitedAt: new Date().toISOString(),
           profileId: parent.performerProfileId || undefined,
