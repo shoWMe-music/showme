@@ -1,4 +1,4 @@
-import { doc, serverTimestamp, writeBatch } from "firebase/firestore";
+import { doc, serverTimestamp, setDoc, writeBatch } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import type { QueryClient } from "@tanstack/react-query";
 
@@ -54,15 +54,63 @@ interface CreateVenueHandoffDraftParams {
   queryClient: QueryClient;
 }
 
-export interface CreateVenueHandoffDraftResult {
-  eventId: string;
-  stubVenueId: string;
-  code: string;
-  inviteUrl: string;
-}
+/**
+ * Discriminated result. The caller decides what to do next based on `kind`:
+ *
+ * - `off_platform`: the venue isn't on shoWMe yet. A stub venue + draft
+ *   event + invitation code were created; the email goes out via Brevo
+ *   from the `onVenueHandoffInvitationCreated` trigger. The caller should
+ *   navigate to the new draft event so the performer can manage it.
+ *
+ * - `in_platform`: the venue is already on shoWMe. NO stub, NO draft event,
+ *   NO email. Just a `bookingRequest` row in the venue's incoming requests.
+ *   The venue uses their existing "Create Draft / Make Offer" buttons to
+ *   convert it into an event. The caller should navigate to the source
+ *   request list (no event to open yet).
+ */
+export type CreateVenueHandoffDraftResult =
+  | {
+      kind: "off_platform";
+      eventId: string;
+      stubVenueId: string;
+      code: string;
+      inviteUrl: string;
+    }
+  | {
+      kind: "in_platform";
+      requestId: string;
+      venueProfileId: string;
+    };
 
 function genId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+interface VenueLookupResult {
+  exists: boolean;
+  hasMatchingProfile?: boolean;
+  uid?: string;
+  matchingProfile?: { id: string; name: string; role: string; slug: string | null };
+}
+
+async function lookupExistingVenue(email: string): Promise<{ profileId: string; ownerUid: string; name: string } | null> {
+  try {
+    const fn = httpsCallable<{ email: string; role: string }, VenueLookupResult>(
+      getFirebaseFunctions(),
+      "lookupUserForInvite",
+    );
+    const res = await fn({ email, role: "venue" });
+    if (!res.data.exists || !res.data.hasMatchingProfile) return null;
+    const profile = res.data.matchingProfile;
+    const uid = res.data.uid;
+    if (!profile?.id || !uid) return null;
+    return { profileId: profile.id, ownerUid: uid, name: profile.name };
+  } catch {
+    // Lookup failure → degrade to the off-platform path. The venue will get
+    // an email; worst case is a redundant email if they're actually on
+    // shoWMe. Better than throwing on a transient lookup error.
+    return null;
+  }
 }
 
 export async function createVenueHandoffDraft(
@@ -93,6 +141,51 @@ export async function createVenueHandoffDraft(
 
   const db = getFirestoreDb();
 
+  // ── In-platform path: venue is already on shoWMe ─────────────────────────
+  // Short-circuits the stub-and-email path. Writes a single inboundBookingRequest
+  // that lands in the venue's incoming requests — they accept (or decline)
+  // via the existing controls and the existing "Create Draft" flow promotes
+  // it to a real event on their side.
+  const existing = await lookupExistingVenue(trimmedVenueEmail);
+  if (existing) {
+    const requestId = genId("handoff-collab");
+    const nowIso = new Date().toISOString();
+    await setDoc(doc(db, "inboundBookingRequests", requestId), {
+      name: existing.name || trimmedVenueName,
+      email: trimmedVenueEmail,
+      phone: "",
+      artist_name: performerName.trim() || "",
+      wanted_date: date,
+      artist_fee: artistFee ?? null,
+      note: message.trim(),
+      target_profile_slug: "",
+      target_profile_id: existing.profileId,
+      target_role: "venue",
+      status: "pending",
+      source: "venue_handoff_collab",
+      event_id: "",
+      owner_uid: existing.ownerUid,
+      created_at: nowIso,
+      sender_user_uid: uid,
+      sender_profile_id: performerProfileId,
+      sender_profile_name: performerName.trim() || "",
+      offer_pitch: message.trim(),
+      offer_fee_min: artistFee ?? null,
+      offer_fee_max: artistFee ?? null,
+      additional_dates: [],
+      sent_via: "in_platform",
+      ...(sourceRequestId ? { source_request_id: sourceRequestId } : {}),
+    });
+    queryClient.invalidateQueries({ queryKey: queryKeys.bookingRequests({}) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.sentBookingRequests({}) });
+    return {
+      kind: "in_platform",
+      requestId,
+      venueProfileId: existing.profileId,
+    };
+  }
+
+  // ── Off-platform path (existing) ─────────────────────────────────────────
   const stubVenueId = genId("stub-venue");
   const eventId = `EVT-${String(Date.now()).slice(-6)}`;
   const collabToken = genId("collab");
@@ -226,6 +319,7 @@ export async function createVenueHandoffDraft(
 
   const inviteUrl = `${window.location.origin}/invite?code=${result.data.code}`;
   return {
+    kind: "off_platform",
     eventId,
     stubVenueId,
     code: result.data.code,

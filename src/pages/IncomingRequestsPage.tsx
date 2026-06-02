@@ -865,7 +865,14 @@ export default function IncomingRequestsPage() {
             onCreated={(eventId) => {
               updateStatus(handoffRequest.id, "draft_created", eventId);
               setHandoffRequest(null);
-              navigate({ to: "/events/$id", params: { id: eventId } });
+              // In-platform path returns an empty eventId (no draft event
+              // exists yet — the venue creates it on accept). Navigate to
+              // /sent-requests so the performer can track the outbound row.
+              if (eventId) {
+                navigate({ to: "/events/$id", params: { id: eventId } });
+              } else {
+                navigate({ to: "/sent-requests" });
+              }
             }}
           />
         );

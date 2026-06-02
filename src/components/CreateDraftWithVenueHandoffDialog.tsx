@@ -117,12 +117,23 @@ export default function CreateDraftWithVenueHandoffDialog({
       });
     },
     onSuccess: (res) => {
-      toast({
-        title: "Draft created, invitation sent",
-        description: `${venueName} has been invited to manage the event.`,
-      });
-      onOpenChange(false);
-      onCreated?.(res.eventId);
+      if (res.kind === "in_platform") {
+        toast({
+          title: "Request sent",
+          description: `${venueName} is already on shoWMe — it'll appear in their incoming requests.`,
+        });
+        onOpenChange(false);
+        // No draft event was created; signal completion with an empty
+        // eventId so existing callers still update the source request.
+        onCreated?.("");
+      } else {
+        toast({
+          title: "Draft created, invitation sent",
+          description: `${venueName} has been invited to manage the event.`,
+        });
+        onOpenChange(false);
+        onCreated?.(res.eventId);
+      }
     },
     onError: (err: Error) => {
       toast({
