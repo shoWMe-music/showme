@@ -28,6 +28,7 @@ import {
   useProfilePlan,
 } from "@/lib/plans";
 import { cn } from "@/lib/utils";
+import { EU_COUNTRIES, parseEuCountryCode } from "@/lib/euCountries";
 
 /**
  * Free-Artist-side dialog that converts an incoming booking-request card into
@@ -88,6 +89,7 @@ export default function CreateDraftWithVenueHandoffDialog({
   const [venueEmail, setVenueEmail] = useState(defaultVenueEmail);
   const [message, setMessage] = useState("");
   const [attested, setAttested] = useState(false);
+  const [venueCountry, setVenueCountry] = useState<string>("");
 
   // Refresh state when a different request opens the dialog.
   useEffect(() => {
@@ -96,8 +98,10 @@ export default function CreateDraftWithVenueHandoffDialog({
       setVenueEmail(defaultVenueEmail);
       setMessage("");
       setAttested(false);
+      const performerCountry = performerProfile.locations?.[0]?.country ?? "";
+      setVenueCountry(parseEuCountryCode(performerCountry) ?? "");
     }
-  }, [open, defaultVenueName, defaultVenueEmail]);
+  }, [open, defaultVenueName, defaultVenueEmail, performerProfile.locations]);
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -109,6 +113,7 @@ export default function CreateDraftWithVenueHandoffDialog({
         performerName,
         venueName,
         venueEmail,
+        venueCountry,
         date: defaultDate,
         artistFee: defaultFee,
         message,
@@ -149,6 +154,7 @@ export default function CreateDraftWithVenueHandoffDialog({
     !noCredits &&
     !suspended &&
     attested &&
+    !!venueCountry &&
     !!venueName.trim() &&
     !!venueEmail.trim() &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(venueEmail.trim()) &&
@@ -237,6 +243,25 @@ export default function CreateDraftWithVenueHandoffDialog({
             <p className="text-xs text-muted-foreground mt-1">
               The invitation link goes here. If the venue already has a shoWMe account, this
               must be the email on file.
+            </p>
+          </div>
+          <div>
+            <Label className="text-xs">Country *</Label>
+            <select
+              value={venueCountry}
+              onChange={(e) => setVenueCountry(e.target.value)}
+              disabled={profileIncomplete}
+              className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">Select a country …</option>
+              {EU_COUNTRIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground mt-1">
+              Only used if the venue isn&apos;t on shoWMe yet, so we can route the invite and track new markets. EU only at launch.
             </p>
           </div>
           <div>

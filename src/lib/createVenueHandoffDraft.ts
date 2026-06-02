@@ -43,6 +43,8 @@ interface CreateVenueHandoffDraftParams {
   venueName: string;
   /** Venue contact email — the handoff invitation is sent here. */
   venueEmail: string;
+  /** ISO 3166-1 alpha-2 country code for the venue (EU-only at launch). Used to tag the stub for the expansion-signal alert. */
+  venueCountry: string;
   /** Wanted date (yyyy-MM-dd) from the booking request. */
   date: string;
   /** Suggested fee from the booking request, if any. */
@@ -121,6 +123,7 @@ export async function createVenueHandoffDraft(
     performerName,
     venueName,
     venueEmail,
+    venueCountry,
     date,
     artistFee,
     message = "",
@@ -197,6 +200,7 @@ export async function createVenueHandoffDraft(
   //    create the event (rule requires isProfileAdmin(hostProfileId)). The
   //    `unclaimed: true` flag marks it as a placeholder; ownership transfers
   //    to the real venue when they accept the invitation code.
+  const stubCountry = (venueCountry || "").toUpperCase();
   batch.set(doc(db, "profiles", stubVenueId), {
     name: trimmedVenueName,
     owner_uid: uid,
@@ -207,7 +211,10 @@ export async function createVenueHandoffDraft(
     acquired: false,
     isPublic: false,
     created: true,
-    locations: [],
+    // EU-only-at-launch country tag for the expansion-signal alert. Stored
+    // at the root for cheap grouping by `where("country", "==", code)`.
+    country: stubCountry,
+    locations: stubCountry ? [{ id: "loc-primary", label: "Primary", city: "", country: stubCountry }] : [],
     bio: "",
     genres: [],
     socialLinks: [],

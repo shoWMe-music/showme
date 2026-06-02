@@ -48,6 +48,7 @@ import {
   isPaidPlan,
   useProfilePlan,
 } from "@/lib/plans";
+import { EU_COUNTRIES, parseEuCountryCode } from "@/lib/euCountries";
 
 const PITCH_MIN = 20;
 const PITCH_MAX = 2000;
@@ -103,6 +104,7 @@ export default function CreatePerformerOfferDialog({
   const [selectedVenue, setSelectedVenue] = useState<VenueProfileResult | null>(null);
   const [venueEmail, setVenueEmail] = useState("");
   const [venueName, setVenueName] = useState("");
+  const [venueCountry, setVenueCountry] = useState<string>("");
 
   const [wantedDate, setWantedDate] = useState("");
   const [additionalDates, setAdditionalDates] = useState<string[]>([]);
@@ -113,7 +115,9 @@ export default function CreatePerformerOfferDialog({
   const [result, setResult] = useState<OfferResult | null>(null);
   const [htmlCopied, setHtmlCopied] = useState(false);
 
-  // Reset everything when the dialog reopens.
+  // Reset everything when the dialog reopens. Pre-fill the country from the
+  // performer's primary location so EU performers don't have to pick the
+  // country every time when pitching home venues.
   useEffect(() => {
     if (!open) return;
     setTargetMode("search");
@@ -121,6 +125,8 @@ export default function CreatePerformerOfferDialog({
     setSelectedVenue(null);
     setVenueEmail("");
     setVenueName("");
+    const performerCountry = performerProfile.locations?.[0]?.country ?? "";
+    setVenueCountry(parseEuCountryCode(performerCountry) ?? "");
     setWantedDate("");
     setAdditionalDates([]);
     setFeeMin("");
@@ -128,7 +134,7 @@ export default function CreatePerformerOfferDialog({
     setPitch("");
     setResult(null);
     setHtmlCopied(false);
-  }, [open]);
+  }, [open, performerProfile.locations]);
 
   // Debounce the venue search.
   useEffect(() => {
@@ -155,6 +161,7 @@ export default function CreatePerformerOfferDialog({
           targetProfileId?: string;
           venueEmail?: string;
           venueName?: string;
+          venueCountry?: string;
           wantedDate: string;
           additionalDates?: string[];
           feeMin?: number | null;
@@ -174,7 +181,11 @@ export default function CreatePerformerOfferDialog({
         pitch: pitch.trim(),
         ...(targetMode === "search" && selectedVenue
           ? { targetProfileId: selectedVenue.id }
-          : { venueEmail: venueEmail.trim().toLowerCase(), venueName: venueName.trim() }),
+          : {
+              venueEmail: venueEmail.trim().toLowerCase(),
+              venueName: venueName.trim(),
+              venueCountry: venueCountry.toUpperCase(),
+            }),
       };
       const res = await fn(payload);
       return res.data;
@@ -205,7 +216,8 @@ export default function CreatePerformerOfferDialog({
     (targetMode === "search" && !!selectedVenue) ||
     (targetMode === "email" &&
       /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(venueEmail.trim()) &&
-      !!venueName.trim());
+      !!venueName.trim() &&
+      !!venueCountry);
   const validDate = /^\d{4}-\d{2}-\d{2}$/.test(wantedDate);
   const validPitch = pitch.trim().length >= PITCH_MIN && pitch.trim().length <= PITCH_MAX;
   const canSubmit =
@@ -320,10 +332,22 @@ export default function CreatePerformerOfferDialog({
                   onChange={(e) => setVenueEmail(e.target.value)}
                   placeholder="contact@venue.com"
                 />
+                <select
+                  value={venueCountry}
+                  onChange={(e) => setVenueCountry(e.target.value)}
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">Country (required) …</option>
+                  {EU_COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
                 <p className="text-[11px] text-muted-foreground">
                   We&apos;ll create a placeholder venue and generate an email template
                   you can send from your own inbox. The venue can claim the placeholder
-                  when they sign up.
+                  when they sign up. EU only at launch.
                 </p>
               </div>
             )}

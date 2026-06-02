@@ -50,6 +50,7 @@ export {
 } from "./venueHandoff";
 export { createPerformerOffer } from "./performerOffer";
 export { flagSenderAsSpam } from "./spamFlag";
+export { onStubProfileCreatedExpansionCheck } from "./expansionAlert";
 export { getPublicShare } from "./publicShareApi";
 export { requestShareOtp, verifyShareOtp } from "./shareOtpApi";
 export { confirmShareParty } from "./confirmShareApi";

@@ -12,6 +12,7 @@ import {
   recordOfferSent,
 } from "./plans";
 import { writeAudit } from "./auditLog";
+import { EU_COUNTRY_CODES } from "./expansionAlert";
 
 const db = () => admin.firestore();
 
@@ -31,6 +32,8 @@ interface CreatePerformerOfferData {
   venueEmail?: string;
   /** Off-platform only — display name for the venue stub. */
   venueName?: string;
+  /** Off-platform only — ISO 3166-1 alpha-2 EU country code. Required when venueEmail is used; tags the stub for expansion-signal alerts. */
+  venueCountry?: string;
   wantedDate: string;
   additionalDates?: string[];
   feeMin?: number | null;
@@ -351,6 +354,13 @@ export const createPerformerOffer = onCall<CreatePerformerOfferData, Promise<Cre
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(venueEmail)) {
         throw new HttpsError("invalid-argument", "venueEmail must be a valid email address.");
       }
+      const venueCountry = (data.venueCountry ?? "").trim().toUpperCase();
+      if (!/^[A-Z]{2}$/.test(venueCountry) || !EU_COUNTRY_CODES.has(venueCountry)) {
+        throw new HttpsError(
+          "invalid-argument",
+          "venueCountry must be an EU country code. Outside-EU venues aren't supported at launch.",
+        );
+      }
       stubProfileId = genId("stub-venue");
       await db().collection("profiles").doc(stubProfileId).set({
         name: venueDisplayName || venueEmail,
@@ -362,7 +372,8 @@ export const createPerformerOffer = onCall<CreatePerformerOfferData, Promise<Cre
         acquired: false,
         isPublic: false,
         created: true,
-        locations: [],
+        country: venueCountry,
+        locations: [{ id: "loc-primary", label: "Primary", city: "", country: venueCountry }],
         bio: "",
         genres: [],
         socialLinks: [],
