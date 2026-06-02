@@ -552,6 +552,15 @@ export default function Dashboard() {
   );
   const { hasPaid: showAnalytics } = useAccountHasPaidPlan(userProfileIds);
 
+  // Performer users see a different analytics block per the freemium spec:
+  // "Top venues by revenue | Events by performer | existing block stays".
+  // The performer block is Free (always shown to performer users); the
+  // operator block stays Pro-gated.
+  const isPerformerUser = useMemo(
+    () => Object.values(profiles).some((p) => p.role === "performer"),
+    [profiles],
+  );
+
   // Build flat maps from economics data (mirrors previous store shape)
   const settlements: Record<string, Settlement> = {};
   const deals: Record<string, DealStructure> = {};
@@ -938,8 +947,105 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Analytics Section — Pro-only (Free Operator + Free Artist see no advanced analytics) */}
-        {showAnalytics && <div className="mt-8">
+        {/* Performer analytics — always shown to performer users (Free tier).
+            Per freemium spec: "Top venues by revenue | Events by performer |
+            existing block stays the same." Replaces the operator analytics
+            block for performers; operators still see their own block below
+            gated by showAnalytics. */}
+        {isPerformerUser && (
+          <div className="mt-8">
+            <div className="mb-2">
+              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
+                <BarChart3 className="h-4 w-4" /> Analytics
+              </h2>
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {/* Top venues by revenue */}
+              <div className="rounded-xl border bg-card p-5 shadow-sm">
+                <h3 className="text-sm font-semibold mb-3">Top Venues by Revenue</h3>
+                <div className="space-y-2">
+                  {(() => {
+                    const venueTotals = new Map<string, number>();
+                    for (const e of events) {
+                      if (e.archived) continue;
+                      if (e.eventStatus !== "concluded") continue;
+                      const s = settlements[e.id];
+                      if (!s) continue;
+                      const total = s.artistPayout + s.promoterPayout + s.venuePayout + s.commissionPayouts.reduce((sum, c) => sum + c.payout, 0);
+                      venueTotals.set(e.venue, (venueTotals.get(e.venue) ?? 0) + total);
+                    }
+                    const ranked = [...venueTotals.entries()].sort(([, a], [, b]) => b - a).slice(0, 5);
+                    if (ranked.length === 0) {
+                      return <p className="text-xs text-muted-foreground">No concluded events yet.</p>;
+                    }
+                    return ranked.map(([venue, total]) => (
+                      <div key={venue} className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground truncate">{venue}</span>
+                        <span className="text-sm font-semibold font-display">{formatCurrency(total)}</span>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </div>
+
+              {/* Events by performer */}
+              <div className="rounded-xl border bg-card p-5 shadow-sm">
+                <h3 className="text-sm font-semibold mb-3">Events by Performer</h3>
+                <div className="space-y-2">
+                  {(() => {
+                    const performerCounts = new Map<string, number>();
+                    for (const e of events) {
+                      if (e.archived) continue;
+                      const key = (e.artist || "").trim() || "(unnamed)";
+                      performerCounts.set(key, (performerCounts.get(key) ?? 0) + 1);
+                    }
+                    const ranked = [...performerCounts.entries()].sort(([, a], [, b]) => b - a).slice(0, 5);
+                    if (ranked.length === 0) {
+                      return <p className="text-xs text-muted-foreground">No events yet.</p>;
+                    }
+                    return ranked.map(([name, count]) => (
+                      <div key={name} className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground truncate">{name}</span>
+                        <Badge variant="secondary" className="text-xs">{count} event{count > 1 ? "s" : ""}</Badge>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </div>
+
+              {/* Event Status Distribution — kept as-is per spec ("existing block stays the same"). */}
+              <div className="rounded-xl border bg-card p-5 shadow-sm">
+                <h3 className="text-sm font-semibold mb-3">Event Status Distribution</h3>
+                <div className="space-y-2">
+                  {(["confirmed", "pending", "suggested", "on_hold", "concluded", "cancelled"] as EventStatus[]).map((status) => {
+                    const count = activeEvents.filter(e => e.eventStatus === status).length;
+                    if (count === 0) return null;
+                    const pct = activeEvents.length > 0 ? (count / activeEvents.length) * 100 : 0;
+                    return (
+                      <div key={status}>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-muted-foreground capitalize">{status.replace(/_/g, " ")}</span>
+                          <span className="font-medium">{count}</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className={`h-full rounded-full bg-[hsl(var(--event-${status.replace(/_/g, "-")}))]`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Analytics Section — Pro-only operator surface. Performers get the
+            block above instead; operators on Pro see this; Free Operators see
+            nothing here (no advanced analytics on Free per the May 2026 PDF). */}
+        {!isPerformerUser && showAnalytics && <div className="mt-8">
           <div className="mb-2">
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
               <BarChart3 className="h-4 w-4" /> Analytics
