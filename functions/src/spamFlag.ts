@@ -15,10 +15,17 @@ const SPAM_FLAG_AGE_DAYS = 90;
 interface FlagSenderAsSpamData {
   /** The performer profile being flagged (sender of the collab invite). */
   performerProfileId: string;
-  /** Identifier of the originating invite or offer — for the audit trail. */
+  /**
+   * Identifier of the originating invite — for the audit trail and the
+   * flagged-state mark on the bookingRequest (when applicable).
+   *
+   * Spec is explicit: spam flag applies to collaborate invites only, NOT
+   * offers. The performer-offer flow is excluded by design — cold B2B
+   * outreach has its own social contract.
+   */
   context: {
-    kind: "venue_handoff" | "performer_offer";
-    /** invitationCode for venue_handoff, requestId for performer_offer. */
+    kind: "venue_handoff" | "venue_handoff_collab";
+    /** invitationCode for venue_handoff (off-platform), bookingRequest id for venue_handoff_collab (in-platform). */
     id: string;
     /** Event the flag relates to, when applicable. */
     eventId?: string;
@@ -69,7 +76,7 @@ export const flagSenderAsSpam = onCall<
       );
     }
     const ctx = data.context ?? null;
-    if (!ctx || (ctx.kind !== "venue_handoff" && ctx.kind !== "performer_offer")) {
+    if (!ctx || (ctx.kind !== "venue_handoff" && ctx.kind !== "venue_handoff_collab")) {
       throw new HttpsError("invalid-argument", "context.kind is required.");
     }
     if (!ctx.id) {
@@ -151,6 +158,28 @@ export const flagSenderAsSpam = onCall<
       { merge: true },
     );
 
+    // For the in-platform collab path, mark the originating bookingRequest
+    // as flagged so the venue's incoming-requests UI shows it that way and
+    // existing status filters surface it. Per spec: not deleted — support
+    // can still review the row.
+    if (ctx.kind === "venue_handoff_collab") {
+      try {
+        await db().collection("inboundBookingRequests").doc(ctx.id).set(
+          {
+            status: "flagged",
+            flagged_by_uid: uid,
+            flagged_at: new Date().toISOString(),
+          },
+          { merge: true },
+        );
+      } catch (err) {
+        logger.warn("bookingRequest status flag write failed", {
+          requestId: ctx.id,
+          err: String(err),
+        });
+      }
+    }
+
     // Notify the sender (best-effort fan-out to their profile members).
     try {
       await notifyPerformerOfFlag(performerProfileId, reporter.name as string, ctx);
@@ -212,7 +241,7 @@ async function notifyPerformerOfFlag(
       db().collection("users").doc(uid).collection("notifications").doc().set({
         type: "venue_handoff_cancelled",
         title: "Your invite was flagged",
-        body: `${safeReporter} flagged a ${ctx.kind === "venue_handoff" ? "collaborate invite" : "performer offer"} from your profile as spam (no prior relationship). Repeated flags suspend the collaborate-invite flow.`,
+        body: `${safeReporter} flagged a collaborate invite from your profile as spam (no prior relationship). Repeated flags suspend the collaborate-invite flow.`,
         actorName: safeReporter,
         actorUid: "",
         read: false,

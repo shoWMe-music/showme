@@ -8,13 +8,15 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchBookingRequestPage, updateBookingRequest } from "@/lib/db";
 import type { BookingRequestPage } from "@/lib/db";
+import { httpsCallable } from "firebase/functions";
+import { getFirebaseFunctions } from "@/integrations/firebase/app";
 import { toast, copyToast } from "@/hooks/use-toast";
 import { useUpdateEvent } from "@/lib/queries/useEventMutations";
 import { queryKeys, useEvents } from "@/lib/queries";
 import CreateEventDialog from "@/components/CreateEventDialog";
 import CreateDraftWithVenueHandoffDialog from "@/components/CreateDraftWithVenueHandoffDialog";
 import InviteCollaboratorDialog from "@/components/InviteCollaboratorDialog";
-import { FileText, Send, X, Archive, Ban, Search, Clock, ExternalLink, Copy, Music, Video, ChevronDown, ChevronLeft, ChevronRight, Mail, CalendarCheck, MapPin, Check, XCircle, Loader2, Globe, Link2 } from "lucide-react";
+import { FileText, Send, X, Archive, Ban, Search, Clock, ExternalLink, Copy, Music, Video, ChevronDown, ChevronLeft, ChevronRight, Mail, CalendarCheck, MapPin, Check, XCircle, Loader2, Globe, Link2, Flag } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { ProfilePreviewPopover } from "@/components/ProfilePreviewPopover";
@@ -55,12 +57,15 @@ const STATUS_COLORS: Record<string, string> = {
   draft_created: "bg-[hsl(var(--info)/0.12)] text-[hsl(var(--info))] border-[hsl(var(--info)/0.3)]",
   archived: "bg-muted text-muted-foreground border-border",
   blocked: "bg-[hsl(var(--destructive)/0.12)] text-[hsl(var(--destructive))] border-[hsl(var(--destructive)/0.3)]",
+  flagged: "bg-[hsl(var(--destructive)/0.12)] text-[hsl(var(--destructive))] border-[hsl(var(--destructive)/0.3)]",
 };
 
 const SOURCE_LABELS: Record<string, string> = {
   profile: "Profile",
   availability: "Availability",
   widget: "Widget",
+  performer_offer: "Performer offer",
+  venue_handoff_collab: "Collaborate invite",
 };
 
 const STATUS_FILTERS = [
@@ -353,6 +358,47 @@ export default function IncomingRequestsPage() {
     toast({ title: "Email blocked", description: `${req.email} will no longer be able to submit requests.` });
   };
 
+  // Flag a collaborate invite as spam (Phase 3 close-out). Server callable
+  // verifies the caller owns/admins the reporter profile, dedups per-reporter
+  // so a second flag is a no-op for the counter, and at 3 distinct flags in
+  // 90 days auto-suspends the performer's collab-invite flow.
+  const flagMutation = useMutation({
+    mutationFn: async (req: BookingRequest) => {
+      if (!req.sender_profile_id || !req.target_profile_id) {
+        throw new Error("This request is missing the routing metadata needed to flag it.");
+      }
+      const fn = httpsCallable<
+        {
+          performerProfileId: string;
+          reporterProfileId: string;
+          context: { kind: "venue_handoff_collab"; id: string };
+        },
+        { ok: true; distinctFlagsLast90d: number; suspended: boolean }
+      >(getFirebaseFunctions(), "flagSenderAsSpam");
+      const res = await fn({
+        performerProfileId: req.sender_profile_id,
+        reporterProfileId: req.target_profile_id,
+        context: { kind: "venue_handoff_collab", id: req.id },
+      });
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["bookingRequests"] });
+      toast({ title: "Flagged as spam", description: "Thanks — we'll review." });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Could not flag",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleFlagSpam = (req: BookingRequest) => {
+    flagMutation.mutate(req);
+  };
+
   // When a specific status is selected, Firestore already filters — only apply client-side
   // filtering for "all" (hide archived/blocked), profile, and text search.
   const filtered = allRequests.filter(r => {
@@ -552,6 +598,18 @@ export default function IncomingRequestsPage() {
               <Button size="sm" variant="ghost" className="text-xs gap-1 text-destructive hover:text-destructive" onClick={() => handleBlock(req)}>
                 <Ban className="h-3 w-3" /> Block
               </Button>
+              {req.source === "venue_handoff_collab" && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-xs gap-1 text-destructive hover:text-destructive"
+                  onClick={() => handleFlagSpam(req)}
+                  disabled={flagMutation.isPending}
+                  title="Flag as spam — sender claims a prior conversation that didn't happen"
+                >
+                  <Flag className="h-3 w-3" /> Flag as spam
+                </Button>
+              )}
             </>
           )}
           {req.status !== "archived" && (
