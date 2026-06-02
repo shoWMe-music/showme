@@ -87,6 +87,7 @@ export default function CreateDraftWithVenueHandoffDialog({
   const [venueName, setVenueName] = useState(defaultVenueName);
   const [venueEmail, setVenueEmail] = useState(defaultVenueEmail);
   const [message, setMessage] = useState("");
+  const [attested, setAttested] = useState(false);
 
   // Refresh state when a different request opens the dialog.
   useEffect(() => {
@@ -94,6 +95,7 @@ export default function CreateDraftWithVenueHandoffDialog({
       setVenueName(defaultVenueName);
       setVenueEmail(defaultVenueEmail);
       setMessage("");
+      setAttested(false);
     }
   }, [open, defaultVenueName, defaultVenueEmail]);
 
@@ -135,6 +137,7 @@ export default function CreateDraftWithVenueHandoffDialog({
     !profileIncomplete &&
     !noCredits &&
     !suspended &&
+    attested &&
     !!venueName.trim() &&
     !!venueEmail.trim() &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(venueEmail.trim()) &&
@@ -237,6 +240,31 @@ export default function CreateDraftWithVenueHandoffDialog({
             />
           </div>
         </div>
+
+        {!profileIncomplete && !noCredits && !suspended && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 dark:border-amber-800/60 dark:bg-amber-950/40">
+            <p className="text-xs font-medium text-amber-900 dark:text-amber-200 mb-1.5">
+              Collaborate invites are for warm relationships only.
+            </p>
+            <p className="text-[11px] text-amber-900/80 dark:text-amber-200/80 leading-snug">
+              Only invite a venue you&apos;ve already been in contact with about this event.
+              If you have not had a prior conversation, send an Offer instead. Abuse will
+              result in account suspension or deletion.
+            </p>
+            <label className="mt-2 flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={attested}
+                onChange={(e) => setAttested(e.target.checked)}
+                className="mt-0.5 accent-amber-700"
+              />
+              <span className="text-[11px] font-medium text-amber-900 dark:text-amber-200">
+                I confirm we&apos;ve already discussed this event.
+              </span>
+            </label>
+          </div>
+        )}
+
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.isPending}>
             Cancel

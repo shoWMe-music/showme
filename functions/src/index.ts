@@ -49,6 +49,7 @@ export {
   cleanupStaleVenueHandoffs,
 } from "./venueHandoff";
 export { createPerformerOffer } from "./performerOffer";
+export { flagSenderAsSpam } from "./spamFlag";
 export { getPublicShare } from "./publicShareApi";
 export { requestShareOtp, verifyShareOtp } from "./shareOtpApi";
 export { confirmShareParty } from "./confirmShareApi";

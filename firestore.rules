@@ -616,6 +616,23 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── Admin alerts (spam review queue, future moderation surfaces) ─────────
+    // Server-only writes (via callable). Reads gated to admins.
+    match /adminAlerts/{alertId} {
+      allow read: if isAuthed()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      allow write: if false;
+    }
+
+    // ── Spam flags (per-performer audit trail) ───────────────────────────────
+    // Server-only — `flagSenderAsSpam` writes through Admin SDK. Reads gated
+    // to admins so an abusive performer can't see their own flag history.
+    match /profiles/{profileId}/spamFlags/{flagId} {
+      allow read: if isAuthed()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      allow write: if false;
+    }
+
     // ── Plans ────────────────────────────────────────────────────────────────
     //
     // One doc per profile (id = profileId). Source of truth for tier gating
