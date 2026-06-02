@@ -624,6 +624,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── GDPR audit log ───────────────────────────────────────────────────────
+    // Server-only writes via writeAudit(). Reads gated to admins so a data-
+    // subject-access-request can be answered by an admin, but the log isn't
+    // exposed to regular users (would itself be a privacy hole).
+    match /auditLog/{logId} {
+      allow read: if isAuthed()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      allow write: if false;
+    }
+
     // ── Spam flags (per-performer audit trail) ───────────────────────────────
     // Server-only — `flagSenderAsSpam` writes through Admin SDK. Reads gated
     // to admins so an abusive performer can't see their own flag history.

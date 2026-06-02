@@ -10,6 +10,7 @@ import {
   getProfilePlan,
   recordCollabInviteSent,
 } from "./plans";
+import { writeAudit } from "./auditLog";
 
 const db = () => getFirestore();
 
@@ -305,6 +306,20 @@ export const createInvitationCode = onCall<CreateInvitationCodeData, Promise<{ c
       }
     }
 
+    // GDPR audit trail — log invite creation for outreach flows. Other
+    // sources (team, admin) are also captured so admins can answer "what
+    // invitations were sent on date X" without enumerating per-source.
+    await writeAudit({
+      actor: { uid, profileId: venueHandoffPerformerProfileId },
+      target: { kind: "invitationCode", id: code },
+      action: "invite_created",
+      context: {
+        kind: source,
+        id: code,
+        ...(linkedEventId ? { eventId: linkedEventId } : {}),
+      },
+    });
+
     logger.info("Invitation code created", { code, source, createdByUid: uid, linkedContactId });
 
     return { code };
@@ -401,6 +416,20 @@ export const claimInvitationCode = onCall<ClaimInvitationCodeData, Promise<Claim
       ? codeData.sourceCollaboratorInviteToken
       : undefined;
     const source = typeof codeData.source === "string" ? codeData.source : "";
+
+    // Audit: code consumed. Both return paths below are claim successes,
+    // so logging once here covers the action regardless of profile-transfer
+    // branching downstream.
+    await writeAudit({
+      actor: { uid, profileId: null },
+      target: { kind: "invitationCode", id: code },
+      action: "invite_claimed",
+      context: {
+        kind: source,
+        id: code,
+        ...(linkedEventId ? { eventId: linkedEventId } : {}),
+      },
+    });
     // Venue-handoff claims grant the accepter host-admin powers on the linked
     // event — they're taking over management, not joining as a side party.
     const permission: CollaboratorPermission =

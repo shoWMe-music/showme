@@ -11,6 +11,7 @@ import {
   getProfilePlan,
   recordOfferSent,
 } from "./plans";
+import { writeAudit } from "./auditLog";
 
 const db = () => admin.firestore();
 
@@ -444,6 +445,15 @@ export const createPerformerOffer = onCall<CreatePerformerOfferData, Promise<Cre
     } catch (err) {
       logger.warn("offer counter write failed", { performerProfileId, err: String(err) });
     }
+
+    // GDPR audit trail — captures who reached out to whom, when. Plain
+    // pointer fields only; the originating bookingRequest has the payload.
+    await writeAudit({
+      actor: { uid, profileId: performerProfileId },
+      target: { kind: "bookingRequest", id: requestId },
+      action: "offer_created",
+      context: { kind: "performer_offer", id: requestId },
+    });
 
     // ── Side effects per path ─────────────────────────────────────────────
     if (sentVia === "in_platform") {

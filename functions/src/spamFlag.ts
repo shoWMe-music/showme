@@ -4,6 +4,7 @@ import * as logger from "firebase-functions/logger";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 
 import { SPAM_FLAG_SUSPEND_THRESHOLD } from "./plans";
+import { writeAudit } from "./auditLog";
 
 const db = () => admin.firestore();
 
@@ -165,6 +166,22 @@ export const flagSenderAsSpam = onCall<
       } catch (err) {
         logger.warn("admin alert write failed", { err: String(err) });
       }
+    }
+
+    // GDPR audit trail — only logged on first-flag-per-reporter so the
+    // counter and the log stay in sync. A repeat flag from the same venue
+    // is a UI-level no-op and shouldn't pollute the audit history.
+    if (!existingFlag.exists) {
+      await writeAudit({
+        actor: { uid, profileId: reporterProfileId },
+        target: { kind: "profile", id: performerProfileId },
+        action: "flag_raised",
+        context: {
+          kind: ctx.kind,
+          id: ctx.id,
+          ...(ctx.eventId ? { eventId: ctx.eventId } : {}),
+        },
+      });
     }
 
     return {
