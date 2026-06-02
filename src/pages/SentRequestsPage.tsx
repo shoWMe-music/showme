@@ -17,15 +17,24 @@ import AppLayout from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
-import { useUser } from "@/lib/user-context";
+import { useUser, type SharedProfile } from "@/lib/user-context";
+import { useAllProfiles } from "@/lib/queries/useProfilesQuery";
 import { queryKeys } from "@/lib/queries";
 import {
   fetchSentBookingRequestPage,
   type SentBookingRequestPage,
 } from "@/lib/db";
 import { formatCurrency, type BookingRequest } from "@/lib/models";
+import CreatePerformerOfferDialog from "@/components/CreatePerformerOfferDialog";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning))] border-[hsl(var(--warning)/0.3)]",
@@ -70,6 +79,28 @@ export default function SentRequestsPage() {
   const { user: firebaseUser } = useAuth();
   const { currentUser } = useUser();
   const currency = currentUser.currency || "EUR";
+
+  // Performer profiles the user can send offers from. Read from the flat
+  // `useAllProfiles` list (owned + member-of) so band-manager use cases work.
+  const allProfiles = useAllProfiles();
+  const performerProfiles = useMemo<SharedProfile[]>(
+    () => allProfiles.filter((p) => p.role === "performer" && !!p.id),
+    [allProfiles],
+  );
+  const canSendOffers = performerProfiles.length > 0;
+
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerProfileId, setComposerProfileId] = useState<string>("");
+
+  useEffect(() => {
+    if (composerProfileId || performerProfiles.length === 0) return;
+    setComposerProfileId(performerProfiles[0].id ?? "");
+  }, [composerProfileId, performerProfiles]);
+
+  const composerProfile = useMemo(
+    () => performerProfiles.find((p) => p.id === composerProfileId) ?? performerProfiles[0],
+    [performerProfiles, composerProfileId],
+  );
 
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [page, setPage] = useState<number>(0);
@@ -137,6 +168,27 @@ export default function SentRequestsPage() {
               Offers and invitations you&apos;ve sent to venues
             </p>
           </div>
+          {canSendOffers && (
+            <div className="flex items-center gap-2">
+              {performerProfiles.length > 1 && (
+                <Select value={composerProfileId} onValueChange={setComposerProfileId}>
+                  <SelectTrigger className="w-44 h-9 text-xs">
+                    <SelectValue placeholder="From profile" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {performerProfiles.map((p) => (
+                      <SelectItem key={p.id} value={p.id ?? ""}>
+                        {p.name || "(unnamed)"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <Button onClick={() => setComposerOpen(true)} className="gap-1.5">
+                <Send className="h-3.5 w-3.5" /> Send an offer
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="mb-5 flex items-center gap-2 flex-wrap">
@@ -163,7 +215,11 @@ export default function SentRequestsPage() {
             ))}
           </div>
         ) : visibleRequests.length === 0 ? (
-          <EmptyState statusFilter={statusFilter} />
+          <EmptyState
+            statusFilter={statusFilter}
+            canSendOffers={canSendOffers}
+            onSendOffer={() => setComposerOpen(true)}
+          />
         ) : (
           <>
             <div className="space-y-3">
@@ -200,6 +256,14 @@ export default function SentRequestsPage() {
           </>
         )}
       </div>
+
+      {composerProfile && (
+        <CreatePerformerOfferDialog
+          open={composerOpen}
+          onOpenChange={setComposerOpen}
+          performerProfile={composerProfile}
+        />
+      )}
     </AppLayout>
   );
 }
@@ -315,7 +379,15 @@ function SentRequestCard({
   );
 }
 
-function EmptyState({ statusFilter }: { statusFilter: string }) {
+function EmptyState({
+  statusFilter,
+  canSendOffers,
+  onSendOffer,
+}: {
+  statusFilter: string;
+  canSendOffers: boolean;
+  onSendOffer: () => void;
+}) {
   if (statusFilter !== "all") {
     return (
       <div className="rounded-xl border border-dashed bg-muted/20 px-6 py-12 text-center">
@@ -335,6 +407,11 @@ function EmptyState({ statusFilter }: { statusFilter: string }) {
         platform, we&apos;ll generate a templated email for you to send from your own
         inbox.
       </p>
+      {canSendOffers && (
+        <Button className="mt-4 gap-1.5" onClick={onSendOffer}>
+          <Send className="h-3.5 w-3.5" /> Send your first offer
+        </Button>
+      )}
     </div>
   );
 }

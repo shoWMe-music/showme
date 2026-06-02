@@ -426,6 +426,101 @@ export function venueEventHandoffEmail(opts: {
   };
 }
 
+/**
+ * Performer-initiated offer (Flow B). Returns subject, plain-text body, and
+ * HTML body. The plain-text version is what gets stuffed into a `mailto:` URL
+ * — the performer's own email client sends it. The HTML version is what the
+ * "Copy formatted version" button writes to the clipboard for users who want
+ * to paste a styled message into Gmail/Outlook web.
+ *
+ * shoWMe never actually sends this email; it just composes the template and
+ * hands it to the performer. That's deliberate — at scale, cold outreach
+ * through *@showme.music would get the domain blacklisted. By having each
+ * offer originate from the performer's own domain, shoWMe carries zero
+ * deliverability risk.
+ */
+function escapeHtmlMin(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function formatOfferFee(min: number | null | undefined, max: number | null | undefined): string {
+  if (!min || min <= 0) return "Open to discussion";
+  if (max && max > min) return `€${min.toLocaleString()}–€${max.toLocaleString()}`;
+  return `€${min.toLocaleString()}`;
+}
+
+export function performerOfferEmail(opts: {
+  performerName: string;
+  performerProfileUrl: string;
+  performerGenres?: string[];
+  performerLocation?: string;
+  venueName: string;
+  wantedDate: string;
+  additionalDates?: string[];
+  feeMin?: number | null;
+  feeMax?: number | null;
+  pitch: string;
+  claimUrl: string;
+}): { subject: string; plainText: string; html: string } {
+  const subject = `${opts.performerName} would like to play ${opts.venueName || "your venue"} on ${opts.wantedDate}`;
+
+  const genres = (opts.performerGenres ?? []).filter((g) => !!g).join(", ");
+  const fee = formatOfferFee(opts.feeMin, opts.feeMax);
+  const additional =
+    opts.additionalDates && opts.additionalDates.length > 0
+      ? opts.additionalDates.join(", ")
+      : "";
+
+  // ── Plain text (mailto: body) ────────────────────────────────────────────
+  const plainLines: string[] = [];
+  plainLines.push(`Hi${opts.venueName ? " " + opts.venueName + " team" : ""},`);
+  plainLines.push("");
+  plainLines.push(opts.pitch.trim());
+  plainLines.push("");
+  plainLines.push(`I'm ${opts.performerName}${genres ? `, a ${genres} act` : ""}${opts.performerLocation ? ` based in ${opts.performerLocation}` : ""}.`);
+  plainLines.push(`Profile, music and rider: ${opts.performerProfileUrl}`);
+  plainLines.push("");
+  plainLines.push(`Proposed date: ${opts.wantedDate}`);
+  plainLines.push(`Fee: ${fee}`);
+  if (additional) {
+    plainLines.push(`Also available: ${additional}`);
+  }
+  plainLines.push("");
+  plainLines.push("If you'd like to take this further, you can accept on shoWMe — it gives you access to my full rider, technical requirements, contracts, settlement and payment in one place:");
+  plainLines.push(opts.claimUrl);
+  plainLines.push("");
+  plainLines.push(`Thanks,`);
+  plainLines.push(opts.performerName);
+
+  const plainText = plainLines.join("\n");
+
+  // ── HTML (clipboard "copy formatted version") ────────────────────────────
+  const additionalHtml = additional
+    ? `<p style="margin:6px 0;font-size:14px;color:#71717a;line-height:1.6"><strong>Also available:</strong> ${escapeHtmlMin(additional)}</p>`
+    : "";
+  const meta = [genres, opts.performerLocation].filter(Boolean).join(" · ");
+  const html = `
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;max-width:580px;color:#18181b;line-height:1.6;font-size:14px">
+  <p style="margin:0 0 12px">Hi${opts.venueName ? " " + escapeHtmlMin(opts.venueName) + " team" : ""},</p>
+  <p style="margin:0 0 16px;white-space:pre-line">${escapeHtmlMin(opts.pitch.trim())}</p>
+  <p style="margin:0 0 6px"><strong>${escapeHtmlMin(opts.performerName)}</strong>${meta ? ` <span style="color:#71717a">— ${escapeHtmlMin(meta)}</span>` : ""}</p>
+  <p style="margin:0 0 16px"><a href="${opts.performerProfileUrl}" style="color:#f97316;text-decoration:underline">View profile, music &amp; rider</a></p>
+  <p style="margin:6px 0"><strong>Proposed date:</strong> ${escapeHtmlMin(opts.wantedDate)}</p>
+  <p style="margin:6px 0"><strong>Fee:</strong> ${escapeHtmlMin(fee)}</p>
+  ${additionalHtml}
+  <p style="margin:16px 0 8px">If you'd like to take this further, you can accept on shoWMe and get the full rider, contracts, settlement and payment in one place:</p>
+  <p style="margin:0 0 16px"><a href="${opts.claimUrl}" style="display:inline-block;padding:10px 20px;background:#f97316;color:#ffffff;font-weight:600;text-decoration:none;border-radius:6px">Accept on shoWMe</a></p>
+  <p style="margin:0">Thanks,<br/>${escapeHtmlMin(opts.performerName)}</p>
+</div>
+  `.trim();
+
+  return { subject, plainText, html };
+}
+
 export function teamMemberMessageEmail(opts: {
   recipientName: string;
   senderName: string;

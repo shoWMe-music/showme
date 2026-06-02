@@ -451,6 +451,74 @@ function docToArtistProfile(d: QueryDocumentSnapshot): ArtistProfileResult {
   };
 }
 
+export interface VenueProfileResult {
+  id: string;
+  name: string;
+  locations?: ProfileLocation[];
+  avatarUrl?: string;
+}
+
+/**
+ * Search public venue profiles by name prefix. Used by the performer offer
+ * composer to pick an in-platform venue. Mirrors searchArtistProfiles —
+ * same case-variant fanout to compensate for Firestore's case-sensitive
+ * range queries.
+ */
+export async function searchVenueProfiles(
+  term: string,
+  pageSize: number,
+): Promise<VenueProfileResult[]> {
+  const db = getFirestoreDb();
+  const trimmed = term.trim();
+
+  const buildVariants = (s: string) =>
+    new Set([
+      s,
+      s.charAt(0).toUpperCase() + s.slice(1),
+      s.replace(/\b\w/g, (c) => c.toUpperCase()),
+      s.toLowerCase(),
+    ]);
+
+  const variants = trimmed ? buildVariants(trimmed) : new Set([""]);
+  const seen = new Set<string>();
+  const results: VenueProfileResult[] = [];
+
+  for (const v of variants) {
+    const constraints = trimmed
+      ? [
+          where("type", "==", "venue"),
+          where("isPublic", "==", true),
+          where("name", ">=", v),
+          where("name", "<=", v + ""),
+          orderBy("name"),
+          limit(pageSize),
+        ]
+      : [
+          where("type", "==", "venue"),
+          where("isPublic", "==", true),
+          orderBy("name"),
+          limit(pageSize),
+        ];
+    const q = query(collection(db, PROFILE_COLLECTION), ...constraints);
+    const snap = await getDocs(q);
+    for (const d of snap.docs) {
+      if (seen.has(d.id)) continue;
+      seen.add(d.id);
+      const data = d.data();
+      results.push({
+        id: d.id,
+        name: typeof data.name === "string" ? data.name : "",
+        locations: Array.isArray(data.locations) ? (data.locations as ProfileLocation[]) : undefined,
+        avatarUrl: typeof data.avatarUrl === "string" ? data.avatarUrl : undefined,
+      });
+      if (results.length >= pageSize) break;
+    }
+    if (results.length >= pageSize) break;
+  }
+  results.sort((a, b) => a.name.localeCompare(b.name));
+  return results;
+}
+
 export async function upsertProfile(role: string, profile: SharedProfile) {
   const uid = requireUid();
   const profileId = profile.id || doc(collection(getFirestoreDb(), PROFILE_COLLECTION)).id;

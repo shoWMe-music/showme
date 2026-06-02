@@ -104,7 +104,7 @@ function randomChar(): string {
 }
 
 /** Generate a SHOW-XXXX-XXXX code. */
-function generateCode(): string {
+export function generateCode(): string {
   let part1 = "";
   let part2 = "";
   for (let i = 0; i < 4; i++) {
@@ -124,7 +124,7 @@ interface CreateInvitationCodeData {
   recipientRole?: string;
   linkedProfileId?: string;
   linkedEventId?: string;
-  source: "collaborator_invite" | "admin" | "team" | "venue_handoff";
+  source: "collaborator_invite" | "admin" | "team" | "venue_handoff" | "performer_offer";
   sourceCollaboratorInviteToken?: string;
 }
 

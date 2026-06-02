@@ -48,6 +48,7 @@ export {
   redirectVenueHandoff,
   cleanupStaleVenueHandoffs,
 } from "./venueHandoff";
+export { createPerformerOffer } from "./performerOffer";
 export { getPublicShare } from "./publicShareApi";
 export { requestShareOtp, verifyShareOtp } from "./shareOtpApi";
 export { confirmShareParty } from "./confirmShareApi";
