@@ -1,0 +1,31 @@
+# Local MCP config contains a secret token — never commit it.
+# When the repo goes to git, either keep this ignore, or switch .mcp.json
+# back to the ${MOLLIE_API_OAUTH_ORG_TOKEN} env-var form and un-ignore it.
+.mcp.json
+
+# Secrets / env
+.env
+.env.local
+*.local
+
+# Dependencies & build output
+node_modules
+dist
+.turbo
+coverage
+*.tsbuildinfo
+
+# OS
+.DS_Store
+
+# design-sync (claude.ai/design) — transient build/verification artifacts.
+# The durable set under .design-sync/ (config.json, NOTES.md, conventions.md, previews/, overrides/) IS committed.
+.design-sync/sb-reference/
+.design-sync/learnings/
+.design-sync/.cache/
+.design-sync/node_modules
+.design-sync/reference-organic/
+.design-sync/*.log
+.design-sync/upload-*.json
+.ds-sync/
+ds-bundle/

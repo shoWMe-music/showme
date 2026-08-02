@@ -1,0 +1,35 @@
+{
+  "projectId": "96aa0fe3-e434-48db-9e8d-f90f68bd6149",
+  "pkg": "@showme/design-system",
+  "globalName": "ShowmeDesignSystem",
+  "shape": "storybook",
+  "storybookConfigDir": "design-system/.storybook",
+  "storybookStatic": ".design-sync/sb-reference",
+  "buildCmd": "pnpm --filter @showme/design-system build",
+  "cssEntry": "dist/design-system.css",
+  "readmeHeader": ".design-sync/conventions.md",
+  "extraEntries": ["../.design-sync/preview-provider.tsx"],
+  "provider": { "component": "PreviewFrame" },
+  "titleMap": {
+    "Introduction": null,
+    "Colors": null,
+    "Radius&Elevation": null,
+    "Typography": null
+  },
+  "overrides": {
+    "Card": { "cardMode": "column" },
+    "Input": { "cardMode": "column" },
+    "KeyValueRow": { "cardMode": "column" },
+    "ListRow": { "cardMode": "column" },
+    "ProgressBar": { "cardMode": "column" },
+    "SelectCard": { "cardMode": "column" },
+    "Skeleton": { "cardMode": "column" },
+    "StatCard": { "cardMode": "column" },
+    "Stepper": { "cardMode": "column" },
+    "Tabs": { "cardMode": "column" },
+    "TextField": { "cardMode": "column" },
+    "TodoItem": { "cardMode": "column" },
+    "Toggle": { "cardMode": "column" },
+    "Toast": { "cardMode": "single", "primaryStory": "Default", "skip": ["molecules-toast--live-toasts"] }
+  }
+}

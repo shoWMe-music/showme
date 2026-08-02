@@ -1,0 +1,87 @@
+/* Exact operator ("All View") sidebar nav item — GSAP-animated.
+   The active fade (.bg) and marker are driven by GSAP (opacity/scaleY); color
+   stays a CSS transition. Initial states are hidden so nothing flashes before
+   GSAP runs on mount. */
+.item {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 9px 11px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  /* themed: matches the prototype's dark values and stays readable in light */
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: color .18s;
+}
+.item.active { color: var(--text); }
+
+/* active red→gold fade — GSAP tweens autoAlpha */
+.background {
+  position: absolute;
+  inset: 0;
+  border-radius: 11px;
+  background: linear-gradient(90deg, rgba(238, 87, 70, .18), rgba(255, 194, 102, .06) 45%, transparent);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* glowing red marker bar in the left gutter — GSAP tweens scaleY + autoAlpha */
+.marker {
+  position: absolute;
+  left: -14px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 999px;
+  background: #EE5746;
+  box-shadow: 0 0 12px rgba(238, 87, 70, .8);
+  transform: scaleY(0);
+  transform-origin: center;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* content row (GSAP shifts x on hover) */
+.content {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+}
+.collapsed .content { justify-content: center; gap: 0; }
+/* collapsed rail: no left-gutter marker (it would break centering); the
+   full-item background fade indicates the active item instead */
+.collapsed .marker { display: none; }
+
+.icon { display: flex; width: 18px; height: 18px; flex-shrink: 0; align-items: center; justify-content: center; }
+.label { flex: 1; min-width: 0; }
+
+.tag {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #EE5746;
+  color: #fff;
+  display: inline-grid;
+  place-items: center;
+  font-weight: 500;
+}

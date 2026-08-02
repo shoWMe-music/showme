@@ -1,0 +1,16 @@
+.spinner {
+  display: inline-block;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border-style: solid;
+  border-color: var(--border-strong);
+  border-top-color: #EE5746;
+  animation: spinner-rotate .7s linear infinite;
+}
+@keyframes spinner-rotate {
+  to { transform: rotate(360deg); }
+}
+/* keep it turning but slower for reduced-motion (it's essential feedback) */
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 1.4s; }
+}

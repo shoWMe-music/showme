@@ -1,0 +1,116 @@
+/* Exact operator list/table: card + mono header + grid rows with hover. */
+.table {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+.header {
+  display: grid;
+  gap: 12px;
+  padding: 13px 22px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.row {
+  display: grid;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 15px 22px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+.row:first-of-type { border-top: 0; }
+
+.clickable {
+  cursor: pointer;
+  transition: background .16s;
+}
+.clickable:hover { background: var(--elevated); }
+
+.right { text-align: right; }
+
+/* ---- pagination footer ---- */
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+}
+.footerCenter { justify-content: center; }
+
+.range {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: .04em;
+  color: var(--dim);
+}
+
+.loadMore {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .2s;
+}
+.loadMore:hover { border-color: #EE5746; }
+.count { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+
+.pager { display: inline-flex; align-items: center; gap: 4px; }
+
+.page {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background .16s, color .16s, border-color .16s;
+}
+.page:hover { color: var(--text); background: var(--elevated); }
+.pageActive {
+  color: var(--accent);
+  background: linear-gradient(135deg, rgba(238, 87, 70, .16), rgba(244, 160, 70, .16));
+}
+
+.pageArrow {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color .2s, color .2s;
+}
+.pageArrow:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
+.pageArrow:disabled { opacity: .4; cursor: not-allowed; }

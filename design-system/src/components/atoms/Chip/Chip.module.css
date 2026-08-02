@@ -1,0 +1,19 @@
+/* Exact catalog filter chip. */
+.chip {
+  padding: 6px 15px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.active {
+  border: 1px solid transparent;
+  background: linear-gradient(135deg, rgba(238, 87, 70, .16), rgba(244, 160, 70, .16));
+  color: var(--accent);
+  font-weight: 600;
+}

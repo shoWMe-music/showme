@@ -1,0 +1,35 @@
+.track {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--elevated);
+  cursor: pointer;
+  padding: 0;
+  transition: background .2s cubic-bezier(.2,.8,.2,1), border-color .2s;
+  flex-shrink: 0;
+}
+.track:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
+.track:disabled { opacity: .5; cursor: not-allowed; }
+
+.knob {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text);
+  transform: translateY(-50%);
+  transition: transform .2s cubic-bezier(.2,.8,.2,1), background .2s;
+}
+
+.on {
+  background: linear-gradient(135deg, #EE5746, #F4A046);
+  border-color: transparent;
+}
+.on .knob {
+  transform: translate(18px, -50%);
+  background: #fff;
+}

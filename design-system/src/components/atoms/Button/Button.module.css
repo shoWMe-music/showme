@@ -1,0 +1,83 @@
+/* EXACT copy of the prototype buttons.
+   Catalog inline buttons (primary 12px / secondary / ghost) + the app's
+   .btn.btn--primary pill CTA. Semantic colors use the same var() tokens the app
+   uses; the brand gradient is the exact literal from the source.
+
+   Shared "action" animation lives on .btn so every variant lifts on hover and
+   presses on :active with the same easing; variants only add their own
+   shadow/border accents. */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform .2s cubic-bezier(.2, .8, .2, 1), box-shadow .2s, filter .2s, border-color .2s, color .2s, background .2s;
+}
+.btn:hover:not(:disabled) { transform: translateY(-1px); }
+.btn:active:not(:disabled) { transform: translateY(0) scale(.98); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+.icon { display: inline-flex; align-items: center; justify-content: center; }
+
+/* --- primary: gradient, white, 12px (the in-app / catalog standard) --- */
+.primary {
+  gap: 7px;
+  padding: 11px 17px;
+  border-radius: 12px;
+  border: 0;
+  background: linear-gradient(135deg, #EE5746, #F4A046);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+.primary:hover:not(:disabled) {
+  box-shadow: 0 10px 26px -12px rgba(238, 87, 70, .7);
+  filter: brightness(1.05);
+}
+.primary:active:not(:disabled) { box-shadow: 0 4px 14px -10px rgba(238, 87, 70, .6); }
+
+/* --- secondary: outline --- */
+.secondary {
+  gap: 7px;
+  padding: 11px 17px;
+  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.secondary:hover:not(:disabled) { border-color: #EE5746; }
+
+/* --- ghost --- */
+.ghost {
+  gap: 7px;
+  padding: 9px 13px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.ghost:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
+
+/* --- cta: the .btn.btn--primary pill (hero / "Propose representation") --- */
+.cta {
+  gap: 10px;
+  padding: 13px 22px;
+  border-radius: 999px;
+  border: 0;
+  background: linear-gradient(135deg, #EE5746, #F4A046);
+  color: #fff;
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  box-shadow: 0 8px 28px -10px rgba(238, 87, 70, .6), inset 0 1px 0 rgba(255, 255, 255, .3);
+}
+.cta:hover:not(:disabled) {
+  box-shadow: 0 14px 38px -10px rgba(238, 87, 70, .8), inset 0 1px 0 rgba(255, 255, 255, .4);
+  filter: brightness(1.03);
+}

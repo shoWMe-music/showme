@@ -1,0 +1,89 @@
+/* ============================================================================
+   shoWMe — design tokens  ·  SINGLE SOURCE OF TRUTH (app + marketing site)
+   Two tiers:
+     1. PRIMITIVES — the raw brand palette (warm ink ramp + brand red/gold/…),
+        type families, easing. These are the values; nothing else invents colors.
+     2. SEMANTIC — role tokens (--bg/--surface/--text/--accent/…) that REFERENCE
+        the primitives. Dark is the default; [data-theme="light"] remaps roles.
+   Semantic values are byte-identical to the original prototype theme (they now
+   resolve through primitives, e.g. --bg → var(--ink-1000) → #0A0604). The
+   marketing site links this file (see apps/marketing/src/styles/tokens.css) so
+   the landing and the app share ONE palette. Status colors (success green, etc.)
+   are intentionally NOT tokens — they stay hardcoded literals in components and
+   canvas scenes. Do not "improve" the values.
+   ========================================================================== */
+
+:root {
+  /* ── Type ── */
+  --font-display: "Clash Display", "Inter Tight", sans-serif;
+  --font-sans: "Inter Tight", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Instrument Serif", serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* ── PRIMITIVES · warm ink ramp (50 = lightest paper → 1000 = darkest ground) ── */
+  --ink-50: #FBF6EF;
+  --ink-100: #F5EDE2;
+  --ink-200: #E6D9CB;
+  --ink-300: #B8A99B;
+  --ink-400: #8C7A6C;
+  --ink-500: #5A483C;
+  --ink-700: #2E2118;
+  --ink-800: #221812;
+  --ink-900: #18100C;
+  --ink-950: #110A07;
+  --ink-1000: #0A0604;
+
+  /* ── PRIMITIVES · brand ── */
+  --brand-red: #EE5746;
+  --brand-red-deep: #D63D2C;
+  --brand-red-glow: #FF7A68;
+  --brand-gold: #FFC266;
+  --brand-amber: #F4A046;
+  --brand-cream: #FFE9B8;
+  --paper: #FAF3E7;
+
+  /* ── PRIMITIVES · easing ── */
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --ease-inout: cubic-bezier(.7, 0, .3, 1);
+
+  /* ── SEMANTIC (dark default) — role tokens derived from primitives ── */
+  --bg: var(--ink-1000);
+  --surface: var(--ink-900);
+  --elevated: var(--ink-800);
+  --text: var(--ink-100);
+  --muted: var(--ink-400);
+  --dim: var(--ink-500);
+  --border: rgba(255, 233, 184, .09);
+  --border-strong: rgba(255, 233, 184, .16);
+  --accent: var(--brand-gold);
+  --focus: rgba(255, 194, 102, .5);
+  --card: linear-gradient(180deg, rgba(34, 24, 18, .66), rgba(17, 10, 7, .66));
+  --shadow: 0 8px 24px -14px rgba(0, 0, 0, .7);
+  --shadow-lg: 0 22px 50px -22px rgba(0, 0, 0, .8);
+  --grid: rgba(255, 233, 184, .028);
+  --glow: radial-gradient(ellipse 60% 50% at 88% -6%, rgba(255, 194, 102, .14), rgba(238, 87, 70, .05) 40%, transparent 72%);
+}
+
+[data-theme="light"] {
+  --bg: #FBF6EE; --surface: #FFFDF9; --elevated: #FFF9EF;
+  --text: var(--ink-900); --muted: var(--ink-500); --dim: var(--ink-400);
+  --border: rgba(90, 72, 60, .14); --border-strong: rgba(90, 72, 60, .26);
+  --accent: #B8791F; --focus: rgba(238, 87, 70, .4);
+  --card: #FFFFFF;
+  --shadow: 0 4px 14px -6px rgba(90, 50, 30, .15);
+  --shadow-lg: 0 18px 40px -16px rgba(90, 50, 30, .2);
+  --grid: rgba(90, 72, 60, .05);
+  --glow: radial-gradient(ellipse 60% 50% at 88% -6%, rgba(244, 160, 70, .2), rgba(238, 87, 70, .06) 42%, transparent 74%);
+}
+
+* { box-sizing: border-box; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgba(140, 122, 108, .3); border-radius: 20px; border: 2px solid transparent; background-clip: padding-box; }
+input, button, select { font-family: inherit; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { opacity: .85; }
+
+@keyframes smPulse { 0% { transform: scale(1); opacity: .6; } 80%, 100% { transform: scale(2.6); opacity: 0; } }
+@keyframes smRise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes smGrow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.sm-screen { animation: smRise .4s cubic-bezier(.2, .8, .2, 1) both; }

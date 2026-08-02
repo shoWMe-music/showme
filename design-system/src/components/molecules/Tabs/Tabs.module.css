@@ -1,0 +1,44 @@
+/* Underline tabs from the event-details view. The active underline is a single
+   GSAP-slid bar; per-tab color is a CSS transition. */
+.tabs {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 0;
+  margin-right: 26px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .2s;
+}
+.tab:last-of-type { margin-right: 0; }
+.tab:hover:not(.active) { color: var(--text); }
+.tab.active { color: #EE5746; }
+.tab:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); border-radius: 4px; }
+
+.icon { display: inline-flex; }
+
+/* the sliding active underline — sits on the container's hairline */
+.indicator {
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: #EE5746;
+  pointer-events: none;
+}

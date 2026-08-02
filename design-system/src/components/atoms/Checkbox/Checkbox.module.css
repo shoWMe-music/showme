@@ -1,0 +1,22 @@
+/* Exact rounded check-box from the prototype's todo items. */
+.wrap { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+
+.box {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+  border: 1.5px solid var(--border-strong);
+  background: transparent;
+  color: #fff;
+  transition: border-color .15s, background .15s;
+}
+.checked { border-color: #6FC97A; background: #6FC97A; }
+.box:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
+.box:disabled { opacity: .5; cursor: not-allowed; }
+
+.label { font-size: 14px; color: var(--text); }

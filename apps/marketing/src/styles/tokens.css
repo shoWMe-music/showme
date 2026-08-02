@@ -1,0 +1,4 @@
+/* Single source of truth for the brand palette + type: the design-system's
+   token file (primitives + semantic tokens, dark default + light theme).
+   The marketing site consumes exactly what the app does — no parallel palette. */
+@import "@showme/design-system/styles/tokens.css";

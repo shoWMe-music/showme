@@ -1,0 +1,41 @@
+.stepper { display: flex; align-items: center; }
+
+.step { display: flex; align-items: center; gap: 9px; flex-shrink: 0; }
+
+.dot {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+  background: var(--elevated);
+  color: var(--dim);
+  border: 1px solid var(--border);
+  transition: background .3s, color .3s, border-color .3s;
+}
+.dotReached {
+  background: linear-gradient(135deg, #EE5746, #F4A046);
+  color: #fff;
+  border-color: transparent;
+}
+
+.label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--dim);
+  transition: color .3s;
+}
+.labelReached { color: var(--text); }
+
+.line {
+  flex: 1;
+  height: 2px;
+  margin: 0 10px;
+  background: var(--border);
+  transition: background .3s;
+}
+.lineFilled { background: #EE5746; }

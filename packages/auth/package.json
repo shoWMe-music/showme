@@ -1,0 +1,22 @@
+{
+  "name": "@showme/auth",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@showme/db": "workspace:*",
+    "@showme/shared": "workspace:*",
+    "drizzle-orm": "^0.38.3"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "^12.0.4",
+    "vitest": "^2.1.9"
+  }
+}

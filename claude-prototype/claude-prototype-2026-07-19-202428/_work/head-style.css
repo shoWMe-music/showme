@@ -1,0 +1,84 @@
+/* Web font sources — @font-face for the brand families (Inter Tight, JetBrains Mono, Clash Display).
+   Replaced automatically once the font files are uploaded via the sidebar.
+   NOTE (snapshot): the original file declares full @font-face blocks pointing at the
+   uploaded woff2 blobs in Prototype/ (Inter Tight 400/450/500/600/700, JetBrains Mono
+   400/500, across latin / latin-ext / greek / cyrillic / vietnamese subsets), then
+   @imports Clash Display from Fontshare. Those binary font files are catalogued in
+   MANIFEST.md and are not duplicated into each dated snapshot (see the versioning note).
+   The design tokens + base below are reproduced verbatim. */
+
+@import url('https://api.fontshare.com/v2/css?f%5B%5D=clash-display@400,500,600&display=swap');
+
+/* ---------- shoWMe Landing — tokens & base ---------- */
+
+:root {
+  /* Brand — pulled from logo */
+  --brand-red: #EE5746;
+  --brand-red-deep: #D63D2C;
+  --brand-red-glow: #FF7A68;
+  --brand-cream: #FFE9B8;
+  --brand-gold: #FFC266;
+  --brand-amber: #F4A046;
+
+  /* Neutrals — warm near-black */
+  --ink-1000: #0A0604;
+  --ink-950: #110A07;
+  --ink-900: #18100C;
+  --ink-800: #221812;
+  --ink-700: #2E2118;
+  --ink-500: #5A483C;
+  --ink-400: #8C7A6C;
+  --ink-300: #B8A99B;
+  --ink-200: #E6D9CB;
+  --ink-100: #F5EDE2;
+  --ink-50:  #FBF6EF;
+  --paper: #FAF3E7;
+
+  /* Accents */
+  --stage-glow: radial-gradient(ellipse at 50% 0%, rgba(255,194,102,.45) 0%, rgba(238,87,70,.18) 35%, transparent 70%); /* @kind color */
+  --spotlight: conic-gradient(from 180deg at 50% 100%, transparent 0deg, rgba(255,233,184,.0) 150deg, rgba(255,233,184,.35) 180deg, rgba(255,233,184,.0) 210deg, transparent 360deg); /* @kind color */
+
+  /* Type */
+  --font-display: "Clash Display", "Inter Tight", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter Tight", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Layout */
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 24px;
+  --radius-xl: 40px;
+  --container: 1320px;
+  --ease-out: cubic-bezier(.2,.8,.2,1); /* @kind other */
+  --ease-inout: cubic-bezier(.7,0,.3,1); /* @kind other */
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--ink-1000);
+  color: var(--ink-100);
+  font-family: var(--font-sans);
+  font-size: 17px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; border: 0; cursor: pointer; background: none; color: inherit; }
+img { display: block; max-width: 100%; }
+
+.container {
+  width: min(100% - 48px, var(--container));
+  margin-inline: auto;
+}
+
+/* NOTE (snapshot): the original head-style.css continues with the full landing-page
+   component styles (.nav, .btn, .hero, .marquee, .section, .features, .ecosystem,
+   .pricing, .traction/.stats, .compare, .cta, .footer, reveal + responsive rules).
+   Those are landing-page specific and not used by the app prototypes; they are
+   omitted from this token snapshot for brevity. The tokens above are the reusable
+   part and match _work/theme.css. */

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@500,600,700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:#0A0604;color:#F5EDE2;font-family:"Inter Tight",ui-sans-serif,system-ui,sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}
+  a{color:#FFC266;text-decoration:none;}
+  a:hover{color:#FF7A68;}
+</style>
+</helmet>
+
+<div data-screen-label="Design System" style="min-height:100vh;background:radial-gradient(ellipse 70% 40% at 80% -4%, rgba(255,194,102,.12), rgba(238,87,70,.04) 42%, transparent 74%), #0A0604;padding:0 24px 120px;">
+  <div style="max-width:1040px;margin:0 auto;">
+
+    <!-- MASTHEAD -->
+    <header style="padding:72px 0 44px;border-bottom:1px solid rgba(255,233,184,.09);">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:30px;">
+        <svg width="38" height="38" viewBox="0 0 100 100" style="display:block;">
+          <path d="M8 48 A42 42 0 0 1 92 48 L92 92 L8 92 Z" fill="#EE5746"></path>
+          <path d="M50 16 L82 74 L18 74 Z" fill="#FFC266"></path>
+        </svg>
+        <span style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:22px;letter-spacing:-.01em;">shoWMe</span>
+      </div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:#8C7A6C;margin-bottom:14px;">Design System · v1.0</div>
+      <h1 style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:52px;line-height:1.02;letter-spacing:-.03em;margin:0;max-width:15ch;">A warm, low-light system for <span style="font-family:'Instrument Serif',serif;font-style:italic;font-weight:400;color:#FFC266;">the events industry</span></h1>
+      <p style="color:#8C7A6C;font-size:16px;line-height:1.6;margin:20px 0 0;max-width:60ch;">The visual language behind shoWMe — a booking, settlement and calendar platform for promoters, venues, performers and agents. Built on warm near-black neutrals, a stage-lit brand palette, and expressive display type.</p>
+    </header>
+
+    <!-- BRAND -->
+    <section style="padding:56px 0 0;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#8C7A6C;margin-bottom:8px;">01 — Foundations</div>
+      <h2 style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:28px;letter-spacing:-.02em;margin:0 0 6px;">Brand palette</h2>
+      <p style="color:#8C7A6C;font-size:14px;margin:0 0 24px;max-width:56ch;">Pulled from the logo — a stage under warm light. Red is the primary action; gold and amber carry energy and status.</p>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;">
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:14px;overflow:hidden;background:#18100C;"><div style="height:90px;background:#EE5746;"></div><div style="padding:13px 15px;"><div style="font-size:13.5px;font-weight:600;">Brand Red</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#8C7A6C;margin-top:4px;">#EE5746</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5A483C;margin-top:2px;">--brand-red</div></div></div>
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:14px;overflow:hidden;background:#18100C;"><div style="height:90px;background:#D63D2C;"></div><div style="padding:13px 15px;"><div style="font-size:13.5px;font-weight:600;">Red Deep</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#8C7A6C;margin-top:4px;">#D63D2C</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5A483C;margin-top:2px;">--brand-red-deep</div></div></div>
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:14px;overflow:hidden;background:#18100C;"><div style="height:90px;background:#FF7A68;"></div><div style="padding:13px 15px;"><div style="font-size:13.5px;font-weight:600;">Red Glow</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#8C7A6C;margin-top:4px;">#FF7A68</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5A483C;margin-top:2px;">--brand-red-glow</div></div></div>
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:14px;overflow:hidden;background:#18100C;"><div style="height:90px;background:#FFC266;"></div><div style="padding:13px 15px;"><div style="font-size:13.5px;font-weight:600;">Gold</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#8C7A6C;margin-top:4px;">#FFC266</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5A483C;margin-top:2px;">--brand-gold</div></div></div>
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:14px;overflow:hidden;background:#18100C;"><div style="height:90px;background:#F4A046;"></div><div style="padding:13px 15px;"><div style="font-size:13.5px;font-weight:600;">Amber</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#8C7A6C;margin-top:4px;">#F4A046</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5A483C;margin-top:2px;">--brand-amber</div></div></div>
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:14px;overflow:hidden;background:#18100C;"><div style="height:90px;background:#FFE9B8;"></div><div style="padding:13px 15px;"><div style="font-size:13.5px;font-weight:600;">Cream</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#8C7A6C;margin-top:4px;">#FFE9B8</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5A483C;margin-top:2px;">--brand-cream</div></div></div>
+      </div>
+    </section>
+
+    <!-- NEUTRALS -->
+    <section style="padding:48px 0 0;">
+      <h2 style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:22px;letter-spacing:-.02em;margin:0 0 6px;">Warm neutrals</h2>
+      <p style="color:#8C7A6C;font-size:14px;margin:0 0 20px;max-width:56ch;">A single near-black ramp, tinted warm rather than grey. Surfaces sit at the dark end; text and paper at the light end.</p>
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;">
+        <div style="border-radius:11px;overflow:hidden;border:1px solid rgba(255,233,184,.09);"><div style="height:58px;background:#0A0604;"></div><div style="padding:8px 9px;background:#18100C;"><div style="font-size:11px;font-weight:600;">1000</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8C7A6C;">#0A0604</div></div></div>
+        <div style="border-radius:11px;overflow:hidden;border:1px solid rgba(255,233,184,.09);"><div style="height:58px;background:#110A07;"></div><div style="padding:8px 9px;background:#18100C;"><div style="font-size:11px;font-weight:600;">950</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8C7A6C;">#110A07</div></div></div>
+        <div style="border-radius:11px;overflow:hidden;border:1px solid rgba(255,233,184,.09);"><div style="height:58px;background:#18100C;"></div><div style="padding:8px 9px;background:#18100C;"><div style="font-size:11px;font-weight:600;">900</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8C7A6C;">#18100C</div></div></div>
+        <div style="border-radius:11px;overflow:hidden;border:1px solid rgba(255,233,184,.09);"><div style="height:58px;background:#221812;"></div><div style="padding:8px 9px;background:#18100C;"><div style="font-size:11px;font-weight:600;">800</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8C7A6C;">#221812</div></div></div>
+        <div style="border-radius:11px;overflow:hidden;border:1px solid rgba(255,233,184,.09);"><div style="height:58px;background:#2E2118;"></div><div style="padding:8px 9px;background:#18100C;"><div style="font-size:11px;font-weight:600;">700</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8C7A6C;">#2E2118</div></div></div>
+        <div style="border-radius:11px;overflow:hidden;border:1px solid rgba(255,233,184,.09);"><div style="height:58px;background:#5A483C;"></div><div style="padding:8px 9px;background:#18100C;"><div style="font-size:11px;font-weight:600;">500</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8C7A6C;">#5A483C</div></div></div>
+        <div style="border-radius:11px;overflow:hidden;border:1px solid rgba(255,233,184,.09);"><div style="height:58px;background:#8C7A6C;"></div><div style="padding:8px 9px;background:#18100C;"><div style="font-size:11px;font-weight:600;">400</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8C7A6C;">#8C7A6C</div></div></div>
+        <div style="border-radius:11px;overflow:hidden;border:1px solid rgba(255,233,184,.09);"><div style="height:58px;background:#B8A99B;"></div><div style="padding:8px 9px;background:#18100C;"><div style="font-size:11px;font-weight:600;">300</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8C7A6C;">#B8A99B</div></div></div>
+        <div style="border-radius:11px;overflow:hidden;border:1px solid rgba(255,233,184,.09);"><div style="height:58px;background:#E6D9CB;"></div><div style="padding:8px 9px;background:#18100C;"><div style="font-size:11px;font-weight:600;">200</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8C7A6C;">#E6D9CB</div></div></div>
+        <div style="border-radius:11px;overflow:hidden;border:1px solid rgba(255,233,184,.09);"><div style="height:58px;background:#F5EDE2;"></div><div style="padding:8px 9px;background:#18100C;"><div style="font-size:11px;font-weight:600;">100</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8C7A6C;">#F5EDE2</div></div></div>
+        <div style="border-radius:11px;overflow:hidden;border:1px solid rgba(255,233,184,.09);"><div style="height:58px;background:#FBF6EF;"></div><div style="padding:8px 9px;background:#18100C;"><div style="font-size:11px;font-weight:600;">50</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8C7A6C;">#FBF6EF</div></div></div>
+        <div style="border-radius:11px;overflow:hidden;border:1px solid rgba(255,233,184,.09);"><div style="height:58px;background:#FAF3E7;"></div><div style="padding:8px 9px;background:#18100C;"><div style="font-size:11px;font-weight:600;">Paper</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8C7A6C;">#FAF3E7</div></div></div>
+      </div>
+    </section>
+
+    <!-- SEMANTIC -->
+    <section style="padding:48px 0 0;">
+      <h2 style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:22px;letter-spacing:-.02em;margin:0 0 6px;">Semantic tokens</h2>
+      <p style="color:#8C7A6C;font-size:14px;margin:0 0 20px;max-width:56ch;">Every surface reads from these. The product ships dark by default and inverts cleanly to light — the same tokens, remapped.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <!-- DARK -->
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:16px;overflow:hidden;">
+          <div style="padding:13px 16px;background:#18100C;border-bottom:1px solid rgba(255,233,184,.09);display:flex;align-items:center;gap:9px;"><span style="width:11px;height:11px;border-radius:50%;background:#0A0604;border:1px solid rgba(255,233,184,.16);"></span><span style="font-size:13px;font-weight:600;">Dark</span><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5A483C;">default</span></div>
+          <div style="padding:16px;background:#0A0604;display:flex;flex-direction:column;gap:9px;">
+            <div style="display:flex;align-items:center;gap:11px;"><span style="width:34px;height:34px;border-radius:9px;background:#0A0604;border:1px solid rgba(255,233,184,.16);"></span><div><div style="font-size:12.5px;font-weight:500;">bg</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#8C7A6C;">#0A0604</div></div></div>
+            <div style="display:flex;align-items:center;gap:11px;"><span style="width:34px;height:34px;border-radius:9px;background:#18100C;border:1px solid rgba(255,233,184,.16);"></span><div><div style="font-size:12.5px;font-weight:500;">surface</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#8C7A6C;">#18100C</div></div></div>
+            <div style="display:flex;align-items:center;gap:11px;"><span style="width:34px;height:34px;border-radius:9px;background:#F5EDE2;"></span><div><div style="font-size:12.5px;font-weight:500;">text</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#8C7A6C;">#F5EDE2</div></div></div>
+            <div style="display:flex;align-items:center;gap:11px;"><span style="width:34px;height:34px;border-radius:9px;background:#8C7A6C;"></span><div><div style="font-size:12.5px;font-weight:500;">muted</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#8C7A6C;">#8C7A6C</div></div></div>
+            <div style="display:flex;align-items:center;gap:11px;"><span style="width:34px;height:34px;border-radius:9px;background:#FFC266;"></span><div><div style="font-size:12.5px;font-weight:500;">accent</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#8C7A6C;">#FFC266</div></div></div>
+            <div style="display:flex;align-items:center;gap:11px;"><span style="width:34px;height:34px;border-radius:9px;background:transparent;border:1px solid rgba(255,233,184,.09);"></span><div><div style="font-size:12.5px;font-weight:500;">border</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#8C7A6C;">rgba(255,233,184,.09)</div></div></div>
+          </div>
+        </div>
+        <!-- LIGHT -->
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:16px;overflow:hidden;">
+          <div style="padding:13px 16px;background:#FFFDF9;border-bottom:1px solid rgba(90,72,60,.14);display:flex;align-items:center;gap:9px;"><span style="width:11px;height:11px;border-radius:50%;background:#FBF6EE;border:1px solid rgba(90,72,60,.26);"></span><span style="font-size:13px;font-weight:600;color:#18100C;">Light</span></div>
+          <div style="padding:16px;background:#FBF6EE;display:flex;flex-direction:column;gap:9px;">
+            <div style="display:flex;align-items:center;gap:11px;"><span style="width:34px;height:34px;border-radius:9px;background:#FBF6EE;border:1px solid rgba(90,72,60,.26);"></span><div><div style="font-size:12.5px;font-weight:500;color:#18100C;">bg</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5A483C;">#FBF6EE</div></div></div>
+            <div style="display:flex;align-items:center;gap:11px;"><span style="width:34px;height:34px;border-radius:9px;background:#FFFDF9;border:1px solid rgba(90,72,60,.26);"></span><div><div style="font-size:12.5px;font-weight:500;color:#18100C;">surface</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5A483C;">#FFFDF9</div></div></div>
+            <div style="display:flex;align-items:center;gap:11px;"><span style="width:34px;height:34px;border-radius:9px;background:#18100C;"></span><div><div style="font-size:12.5px;font-weight:500;color:#18100C;">text</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5A483C;">#18100C</div></div></div>
+            <div style="display:flex;align-items:center;gap:11px;"><span style="width:34px;height:34px;border-radius:9px;background:#5A483C;"></span><div><div style="font-size:12.5px;font-weight:500;color:#18100C;">muted</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5A483C;">#5A483C</div></div></div>
+            <div style="display:flex;align-items:center;gap:11px;"><span style="width:34px;height:34px;border-radius:9px;background:#B8791F;"></span><div><div style="font-size:12.5px;font-weight:500;color:#18100C;">accent</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5A483C;">#B8791F</div></div></div>
+            <div style="display:flex;align-items:center;gap:11px;"><span style="width:34px;height:34px;border-radius:9px;background:#FFFDF9;border:1px solid rgba(90,72,60,.14);"></span><div><div style="font-size:12.5px;font-weight:500;color:#18100C;">border</div><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5A483C;">rgba(90,72,60,.14)</div></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- STATUS -->
+    <section style="padding:48px 0 0;">
+      <h2 style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:22px;letter-spacing:-.02em;margin:0 0 6px;">Status palette</h2>
+      <p style="color:#8C7A6C;font-size:14px;margin:0 0 20px;max-width:56ch;">A fixed set of hues maps to event, request and settlement states across calendar, lists and badges.</p>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+        <div style="display:flex;align-items:center;gap:10px;padding:13px 15px;border:1px solid rgba(255,233,184,.09);border-radius:12px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));"><span style="width:12px;height:12px;border-radius:50%;background:#B58BE0;flex-shrink:0;"></span><div style="min-width:0;"><div style="font-size:12.5px;font-weight:600;">Suggested</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#8C7A6C;">#B58BE0</div></div></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:13px 15px;border:1px solid rgba(255,233,184,.09);border-radius:12px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));"><span style="width:12px;height:12px;border-radius:50%;background:#F4A046;flex-shrink:0;"></span><div style="min-width:0;"><div style="font-size:12.5px;font-weight:600;">Pending</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#8C7A6C;">#F4A046</div></div></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:13px 15px;border:1px solid rgba(255,233,184,.09);border-radius:12px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));"><span style="width:12px;height:12px;border-radius:50%;background:#6FC97A;flex-shrink:0;"></span><div style="min-width:0;"><div style="font-size:12.5px;font-weight:600;">Confirmed</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#8C7A6C;">#6FC97A</div></div></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:13px 15px;border:1px solid rgba(255,233,184,.09);border-radius:12px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));"><span style="width:12px;height:12px;border-radius:50%;background:#FFC266;flex-shrink:0;"></span><div style="min-width:0;"><div style="font-size:12.5px;font-weight:600;">On hold</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#8C7A6C;">#FFC266</div></div></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:13px 15px;border:1px solid rgba(255,233,184,.09);border-radius:12px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));"><span style="width:12px;height:12px;border-radius:50%;background:#B8A99B;flex-shrink:0;"></span><div style="min-width:0;"><div style="font-size:12.5px;font-weight:600;">Concluded</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#8C7A6C;">#B8A99B</div></div></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:13px 15px;border:1px solid rgba(255,233,184,.09);border-radius:12px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));"><span style="width:12px;height:12px;border-radius:50%;background:#EE5746;flex-shrink:0;"></span><div style="min-width:0;"><div style="font-size:12.5px;font-weight:600;">Cancelled</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#8C7A6C;">#EE5746</div></div></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:13px 15px;border:1px solid rgba(255,233,184,.09);border-radius:12px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));"><span style="width:12px;height:12px;border-radius:50%;background:#8C7A6C;flex-shrink:0;"></span><div style="min-width:0;"><div style="font-size:12.5px;font-weight:600;">Draft</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#8C7A6C;">#8C7A6C</div></div></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:13px 15px;border:1px solid rgba(255,233,184,.09);border-radius:12px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));"><span style="width:12px;height:12px;border-radius:50%;background:#6FA8E0;flex-shrink:0;"></span><div style="min-width:0;"><div style="font-size:12.5px;font-weight:600;">Task</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#8C7A6C;">#6FA8E0</div></div></div>
+      </div>
+    </section>
+
+    <!-- TYPOGRAPHY -->
+    <section style="padding:64px 0 0;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#8C7A6C;margin-bottom:8px;">02 — Typography</div>
+      <h2 style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:28px;letter-spacing:-.02em;margin:0 0 24px;">Four voices</h2>
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:16px;padding:24px 26px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:16px;margin-bottom:14px;"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#FFC266;">Clash Display</span><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5A483C;">Display · 500 / 600 · headings</span></div>
+          <div style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:42px;letter-spacing:-.03em;line-height:1.05;">Good evening, Ran</div>
+        </div>
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:16px;padding:24px 26px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:16px;margin-bottom:14px;"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#FFC266;">Instrument Serif</span><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5A483C;">Serif · italic · expressive accent</span></div>
+          <div style="font-family:'Instrument Serif',serif;font-style:italic;font-weight:400;font-size:42px;line-height:1.05;">the events industry</div>
+        </div>
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:16px;padding:24px 26px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:16px;margin-bottom:14px;"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#FFC266;">Inter Tight</span><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5A483C;">Sans · 400 / 500 / 600 · body &amp; UI</span></div>
+          <div style="font-size:19px;line-height:1.5;">Manage booking requests from artists, agents, and venues — with verified payout details and one-tap settlements.</div>
+        </div>
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:16px;padding:24px 26px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:16px;margin-bottom:14px;"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#FFC266;">JetBrains Mono</span><span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5A483C;">Mono · labels, IBANs, figures</span></div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:18px;">DE89 3704 0044 0532 0130 00</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:28px;margin-top:24px;padding:22px 26px;border:1px solid rgba(255,233,184,.09);border-radius:16px;">
+        <div style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:52px;letter-spacing:-.03em;line-height:1;">Aa<span style="font-size:12px;font-family:'JetBrains Mono',monospace;color:#8C7A6C;font-weight:400;letter-spacing:0;"> 52</span></div>
+        <div style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:34px;letter-spacing:-.02em;line-height:1;">Aa<span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:#8C7A6C;font-weight:400;letter-spacing:0;"> 34</span></div>
+        <div style="font-weight:600;font-size:24px;line-height:1;">Aa<span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:#8C7A6C;font-weight:400;"> 24</span></div>
+        <div style="font-weight:500;font-size:17px;line-height:1;">Aa<span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:#8C7A6C;font-weight:400;"> 17</span></div>
+        <div style="font-size:13px;line-height:1;">Aa<span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:#8C7A6C;"> 13</span></div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#8C7A6C;line-height:1;">Label 11</div>
+      </div>
+    </section>
+
+    <!-- RADIUS + ELEVATION -->
+    <section style="padding:64px 0 0;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#8C7A6C;margin-bottom:8px;">03 — Form</div>
+      <h2 style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:28px;letter-spacing:-.02em;margin:0 0 24px;">Radius &amp; elevation</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:16px;padding:24px;">
+          <div style="display:flex;align-items:flex-end;gap:16px;">
+            <div style="text-align:center;"><div style="width:64px;height:64px;background:#221812;border:1px solid rgba(255,233,184,.16);border-radius:8px;"></div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#8C7A6C;margin-top:8px;">sm · 8</div></div>
+            <div style="text-align:center;"><div style="width:64px;height:64px;background:#221812;border:1px solid rgba(255,233,184,.16);border-radius:14px;"></div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#8C7A6C;margin-top:8px;">md · 14</div></div>
+            <div style="text-align:center;"><div style="width:64px;height:64px;background:#221812;border:1px solid rgba(255,233,184,.16);border-radius:24px;"></div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#8C7A6C;margin-top:8px;">lg · 24</div></div>
+            <div style="text-align:center;"><div style="width:64px;height:64px;background:#221812;border:1px solid rgba(255,233,184,.16);border-radius:40px;"></div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#8C7A6C;margin-top:8px;">xl · 40</div></div>
+          </div>
+        </div>
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:16px;padding:24px;display:flex;align-items:center;gap:20px;">
+          <div style="text-align:center;"><div style="width:100px;height:64px;background:#221812;border-radius:14px;box-shadow:0 8px 24px -14px rgba(0,0,0,.7);"></div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#8C7A6C;margin-top:10px;">shadow</div></div>
+          <div style="text-align:center;"><div style="width:100px;height:64px;background:#221812;border-radius:14px;box-shadow:0 22px 50px -22px rgba(0,0,0,.8);"></div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#8C7A6C;margin-top:10px;">shadow-lg</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- COMPONENTS -->
+    <section style="padding:64px 0 0;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#8C7A6C;margin-bottom:8px;">04 — Components</div>
+      <h2 style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:28px;letter-spacing:-.02em;margin:0 0 24px;">Building blocks</h2>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+
+        <!-- Buttons -->
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:16px;padding:22px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));">
+          <div style="font-size:13px;font-weight:600;margin-bottom:16px;color:#B8A99B;">Buttons</div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+            <button style="display:inline-flex;align-items:center;gap:7px;padding:11px 17px;border-radius:12px;border:0;background:linear-gradient(135deg,#EE5746,#F4A046);color:#fff;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"></path></svg>New event</button>
+            <button style="padding:11px 17px;border-radius:12px;border:1px solid rgba(255,233,184,.16);background:transparent;color:#F5EDE2;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;">Secondary</button>
+            <button style="padding:9px 13px;border-radius:10px;border:1px solid rgba(255,233,184,.09);background:transparent;color:#8C7A6C;font-size:12.5px;font-weight:500;font-family:inherit;cursor:pointer;">Ghost</button>
+          </div>
+        </div>
+
+        <!-- Badges -->
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:16px;padding:22px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));">
+          <div style="font-size:13px;font-weight:600;margin-bottom:16px;color:#B8A99B;">Badges &amp; pills</div>
+          <div style="display:flex;flex-wrap:wrap;gap:9px;align-items:center;">
+            <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;background:rgba(111,201,122,.14);color:#6FC97A;font-size:11px;font-weight:600;"><span style="width:6px;height:6px;border-radius:50%;background:#6FC97A;"></span>IBAN verified</span>
+            <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;background:rgba(244,160,70,.14);color:#F4A046;font-size:11px;font-weight:600;"><span style="width:6px;height:6px;border-radius:50%;background:#F4A046;"></span>Unverified</span>
+            <span style="padding:4px 11px;border-radius:999px;background:rgba(181,139,224,.14);color:#B58BE0;font-size:11px;font-weight:600;">Pending</span>
+            <span style="padding:4px 11px;border-radius:999px;background:rgba(111,201,122,.14);color:#6FC97A;font-size:11px;font-weight:600;">Confirmed</span>
+          </div>
+        </div>
+
+        <!-- Chips -->
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:16px;padding:22px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));">
+          <div style="font-size:13px;font-weight:600;margin-bottom:16px;color:#B8A99B;">Filter chips</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+            <button style="padding:6px 15px;border-radius:999px;border:1px solid transparent;background:linear-gradient(135deg,rgba(238,87,70,.16),rgba(244,160,70,.16));color:#FFC266;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;">All</button>
+            <button style="padding:6px 15px;border-radius:999px;border:1px solid rgba(255,233,184,.09);background:transparent;color:#8C7A6C;font-size:12px;font-weight:500;font-family:inherit;cursor:pointer;">Performers</button>
+            <button style="padding:6px 15px;border-radius:999px;border:1px solid rgba(255,233,184,.09);background:transparent;color:#8C7A6C;font-size:12px;font-weight:500;font-family:inherit;cursor:pointer;">Agents</button>
+            <button style="padding:6px 15px;border-radius:999px;border:1px solid rgba(255,233,184,.09);background:transparent;color:#8C7A6C;font-size:12px;font-weight:500;font-family:inherit;cursor:pointer;">Venues</button>
+          </div>
+        </div>
+
+        <!-- Avatars -->
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:16px;padding:22px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));">
+          <div style="font-size:13px;font-weight:600;margin-bottom:16px;color:#B8A99B;">Avatars</div>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
+            <span style="width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-size:14px;font-weight:600;background:rgba(244,160,70,.16);color:#F4A046;">NF</span>
+            <span style="width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-size:14px;font-weight:600;background:rgba(111,201,122,.16);color:#6FC97A;">KI</span>
+            <span style="width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-size:14px;font-weight:600;background:rgba(181,139,224,.16);color:#B58BE0;">PA</span>
+            <span style="width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-size:14px;font-weight:600;background:linear-gradient(135deg,#EE5746,#F4A046);color:#fff;">RK</span>
+          </div>
+        </div>
+
+        <!-- Input -->
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:16px;padding:22px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));">
+          <div style="font-size:13px;font-weight:600;margin-bottom:16px;color:#B8A99B;">Input</div>
+          <div style="display:flex;align-items:center;gap:10px;padding:11px 15px;border-radius:12px;border:1px solid rgba(255,233,184,.16);background:#0A0604;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8C7A6C" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><path d="M21 21l-4.3-4.3"></path></svg>
+            <span style="color:#8C7A6C;font-size:13.5px;">Search events, artists…</span>
+          </div>
+        </div>
+
+        <!-- Nav item -->
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:16px;padding:22px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));">
+          <div style="font-size:13px;font-weight:600;margin-bottom:16px;color:#B8A99B;">Sidebar item</div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 13px;border-radius:11px;background:linear-gradient(135deg,rgba(238,87,70,.18),rgba(244,160,70,.10));border:1px solid rgba(255,233,184,.09);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFC266" stroke-width="1.8"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg><span style="font-size:13.5px;font-weight:600;">Dashboard</span></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 13px;border-radius:11px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8C7A6C" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg><span style="font-size:13.5px;color:#8C7A6C;">Calendar</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Wide component samples -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;">
+        <!-- Contact card w/ profile block -->
+        <div style="background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));border:1px solid rgba(255,233,184,.09);border-radius:14px;padding:18px;box-shadow:0 8px 24px -14px rgba(0,0,0,.7);">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#5A483C;margin-bottom:12px;">Contact card</div>
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;"><span style="width:40px;height:40px;border-radius:11px;display:grid;place-items:center;font-size:13px;font-weight:600;background:rgba(244,160,70,.16);color:#F4A046;">NF</span><div><div style="font-weight:600;font-size:14px;">Nils Frahm</div><div style="color:#8C7A6C;font-size:12px;">Performer · Felix Wiesel (mgmt)</div></div></div>
+          <div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:6px;"><span style="color:#5A483C;font-size:11.5px;">Email</span><span style="font-size:12px;">mgmt@nilsfrahm.com</span></div>
+          <div style="margin-bottom:4px;"><span style="display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;background:rgba(111,201,122,.14);color:#6FC97A;font-size:10px;font-weight:600;"><span style="width:5px;height:5px;border-radius:50%;background:#6FC97A;"></span>IBAN verified</span></div>
+          <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,233,184,.09);display:flex;align-items:center;justify-content:space-between;gap:10px;">
+            <div style="display:flex;align-items:center;gap:9px;min-width:0;"><span style="display:grid;place-items:center;width:24px;height:24px;border-radius:8px;flex-shrink:0;background:linear-gradient(135deg,#EE5746,#F4A046);color:#fff;font-size:12px;font-weight:700;">s</span><div style="min-width:0;"><div style="font-size:12px;font-weight:600;">shoWMe Performer</div><div style="font-size:11px;color:#8C7A6C;">@nilsfrahm · ★ 4.9</div></div></div>
+            <button style="flex-shrink:0;padding:6px 13px;border-radius:9px;border:1px solid rgba(255,233,184,.16);background:transparent;color:#F5EDE2;font-size:11.5px;font-weight:600;font-family:inherit;cursor:pointer;">View profile</button>
+          </div>
+        </div>
+
+        <!-- Toast + attention row -->
+        <div style="border:1px solid rgba(255,233,184,.09);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px;">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#5A483C;">Toast &amp; list row</div>
+          <div style="display:flex;align-items:center;gap:16px;padding:12px 14px 12px 18px;border-radius:14px;background:#18100C;border:1px solid rgba(255,233,184,.09);box-shadow:0 14px 44px rgba(0,0,0,.4);"><span style="font-size:13.5px;font-weight:500;">Archived Nils Frahm</span><button style="margin-left:auto;padding:7px 16px;border-radius:9px;border:0;background:#EE5746;color:#fff;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer;">Undo</button></div>
+          <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;border:1px solid rgba(255,233,184,.09);border-radius:12px;">
+            <span style="width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:rgba(244,160,70,.16);"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F4A046" stroke-width="1.9"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg></span>
+            <div style="flex:1;min-width:0;"><div style="font-size:13.5px;font-weight:600;">Send Nils Frahm settlement</div><div style="color:#8C7A6C;font-size:12px;">Auto-created on conclusion — awaiting your send</div></div>
+            <span style="padding:4px 11px;border-radius:999px;background:rgba(244,160,70,.14);color:#F4A046;font-size:11px;font-weight:600;font-family:'JetBrains Mono',monospace;">Send</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer style="margin-top:72px;padding-top:24px;border-top:1px solid rgba(255,233,184,.09);display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#5A483C;">shoWMe design system · derived from the product</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#5A483C;">Clash Display · Inter Tight · Instrument Serif · JetBrains Mono</span>
+    </footer>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

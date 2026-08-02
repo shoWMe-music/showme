@@ -1,0 +1,19 @@
+/* Fixed portal region that stacks toasts in a corner. Enter/exit motion is
+   GSAP (useToastItemMotion); this just handles placement + spacing. */
+.region {
+  position: fixed;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+  pointer-events: none; /* let clicks through the gaps; items re-enable it */
+  max-width: min(92vw, 400px);
+}
+.region .item { pointer-events: auto; }
+
+.top-right { top: 0; right: 0; }
+.bottom-right { bottom: 0; right: 0; flex-direction: column-reverse; }
+.bottom-center { bottom: 0; left: 50%; transform: translateX(-50%); align-items: center; flex-direction: column-reverse; }
+
+.item { will-change: transform, opacity; }

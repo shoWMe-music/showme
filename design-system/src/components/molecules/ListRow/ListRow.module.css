@@ -1,0 +1,22 @@
+.row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: transparent;
+}
+.interactive {
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+}
+/* hover: primary-red border only, no background change (both themes) */
+.interactive:hover { border-color: #EE5746; }
+.interactive:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
+
+.leading { display: inline-flex; flex-shrink: 0; }
+.body { flex: 1; min-width: 0; }
+.title { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.trailing { display: inline-flex; align-items: center; gap: 10px; flex-shrink: 0; }

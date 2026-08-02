@@ -1,0 +1,33 @@
+/* Exact todo row from the prototype. */
+.item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+}
+.item:first-of-type { border-top: 0; }
+
+.text {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--text);
+  transition: color .15s;
+}
+.done {
+  color: var(--dim);
+  text-decoration: line-through;
+}
+
+.delete {
+  background: transparent;
+  border: 0;
+  color: var(--dim);
+  cursor: pointer;
+  padding: 4px;
+  display: grid;
+  place-items: center;
+  transition: color .15s;
+}
+.delete:hover { color: #EE5746; }

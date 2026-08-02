@@ -1,0 +1,22 @@
+.wrap { width: 100%; }
+.labelRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.label { font-size: 13px; color: var(--muted); }
+.pct { font-family: var(--font-mono); font-size: 12px; color: var(--text); }
+.track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+.fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #EE5746, #F4A046);
+  transform-origin: left;
+  animation: sm-grow .6s cubic-bezier(.2,.8,.2,1) both;
+}

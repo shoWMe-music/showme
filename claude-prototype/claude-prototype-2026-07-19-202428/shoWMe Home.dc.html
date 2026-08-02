@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@500,600,700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:#0A0604;color:#F5EDE2;font-family:"Inter Tight",ui-sans-serif,system-ui,sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}
+  a{color:inherit;text-decoration:none;}
+</style>
+</helmet>
+
+<div data-screen-label="Home" style="min-height:100vh;background:radial-gradient(ellipse 70% 45% at 78% -6%, rgba(255,194,102,.13), rgba(238,87,70,.05) 44%, transparent 76%), #0A0604;display:flex;align-items:center;justify-content:center;padding:48px 24px;">
+  <div style="width:100%;max-width:960px;">
+
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:34px;">
+      <svg width="40" height="40" viewBox="0 0 100 100" style="display:block;">
+        <path d="M8 48 A42 42 0 0 1 92 48 L92 92 L8 92 Z" fill="#EE5746"></path>
+        <path d="M50 16 L82 74 L18 74 Z" fill="#FFC266"></path>
+      </svg>
+      <span style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:23px;letter-spacing:-.01em;">shoWMe</span>
+    </div>
+
+    <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:#8C7A6C;margin-bottom:14px;">Project workspace</div>
+    <h1 style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:44px;line-height:1.04;letter-spacing:-.03em;margin:0 0 12px;max-width:18ch;">Everything for <span style="font-family:'Instrument Serif',serif;font-style:italic;font-weight:400;color:#FFC266;">shoWMe</span>, in one place</h1>
+    <p style="color:#8C7A6C;font-size:15.5px;line-height:1.6;margin:0 0 34px;max-width:58ch;">Explore the prototype from each account's perspective, browse the design system, or open the rebuild blueprint. Each opens in its own view — come back here any time.</p>
+
+    <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#8C7A6C;margin-bottom:14px;">Prototypes by account type</div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:16px;">
+
+      <a href="Prototype/shoWMe All View.dc.html" style="display:flex;flex-direction:column;gap:14px;padding:22px 22px;border:1px solid rgba(255,233,184,.10);border-radius:18px;background:linear-gradient(160deg,rgba(238,87,70,.16),rgba(244,160,70,.06));box-shadow:0 18px 50px -30px rgba(0,0,0,.9);" style-hover="border-color:rgba(255,194,102,.4);">
+        <span style="width:46px;height:46px;border-radius:13px;display:grid;place-items:center;background:linear-gradient(135deg,#EE5746,#F4A046);color:#fff;">
+          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"></path></svg>
+        </span>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#F4A046;margin-bottom:4px;">Operator</div>
+          <div style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:18px;letter-spacing:-.01em;">Blackbird Presents</div>
+          <div style="color:#8C7A6C;font-size:12.5px;margin-top:4px;line-height:1.5;">The full app — events, budgets, all-party settlement, requests, contacts, calendar.</div>
+        </div>
+      </a>
+
+      <a href="Prototype/shoWMe Performer.dc.html" style="display:flex;flex-direction:column;gap:14px;padding:22px 22px;border:1px solid rgba(255,233,184,.10);border-radius:18px;background:linear-gradient(160deg,rgba(244,160,70,.13),rgba(17,10,7,.5));" style-hover="border-color:rgba(255,194,102,.4);">
+        <span style="width:46px;height:46px;border-radius:13px;display:grid;place-items:center;background:rgba(244,160,70,.16);color:#F4A046;">
+          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+        </span>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#F4A046;margin-bottom:4px;">Performer</div>
+          <div style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:18px;letter-spacing:-.01em;">Nils Frahm</div>
+          <div style="color:#8C7A6C;font-size:12.5px;margin-top:4px;line-height:1.5;">Bookings across venues, availability, offers, rider — and only their own settlement.</div>
+        </div>
+      </a>
+
+      <a href="Prototype/shoWMe Crew.dc.html" style="display:flex;flex-direction:column;gap:14px;padding:22px 22px;border:1px solid rgba(255,233,184,.10);border-radius:18px;background:linear-gradient(160deg,rgba(111,168,224,.13),rgba(17,10,7,.5));" style-hover="border-color:rgba(111,168,224,.45);">
+        <span style="width:46px;height:46px;border-radius:13px;display:grid;place-items:center;background:rgba(111,168,224,.16);color:#6FA8E0;">
+          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 20a6 6 0 0 1 12 0M10 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8zM17 11l2 2 4-4"></path></svg>
+        </span>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#6FA8E0;margin-bottom:4px;">Professional / Crew</div>
+          <div style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:18px;letter-spacing:-.01em;">Lena Vogt</div>
+          <div style="color:#8C7A6C;font-size:12.5px;margin-top:4px;line-height:1.5;">Schedule-only call sheets, jobs, own fee, and a marketplace profile.</div>
+        </div>
+      </a>
+
+      <a href="Prototype/shoWMe Agent.dc.html" style="display:flex;flex-direction:column;gap:14px;padding:22px 22px;border:1px solid rgba(255,233,184,.10);border-radius:18px;background:linear-gradient(160deg,rgba(181,139,224,.16),rgba(17,10,7,.5));" style-hover="border-color:rgba(181,139,224,.5);">
+        <span style="width:46px;height:46px;border-radius:13px;display:grid;place-items:center;background:rgba(181,139,224,.16);color:#B58BE0;">
+          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 4h11l5 5v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"></path><path d="M14 4v5h5M8 13h5M8 17h3"></path></svg>
+        </span>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#B58BE0;margin-bottom:4px;">Agent</div>
+          <div style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:18px;letter-spacing:-.01em;">Paradigm Agency</div>
+          <div style="color:#8C7A6C;font-size:12.5px;margin-top:4px;line-height:1.5;">A roster of represented artists, representation agreements, a negotiation pipeline, and private commission.</div>
+        </div>
+      </a>
+    </div>
+
+    <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#8C7A6C;margin:26px 0 14px;">Reference</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
+
+      <a href="Prototype/shoWMe Prototype.dc.html" style="display:flex;flex-direction:column;gap:14px;padding:24px 26px;border:1px dashed rgba(255,233,184,.16);border-radius:18px;background:linear-gradient(180deg,rgba(34,24,18,.4),rgba(17,10,7,.4));" style-hover="border-color:rgba(255,194,102,.4);">
+        <span style="width:46px;height:46px;border-radius:12px;display:grid;place-items:center;background:rgba(140,122,108,.16);color:#8C7A6C;">
+          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-7L9 4H5a2 2 0 0 0-2 2z"></path><path d="M12 11v5M9.5 13.5h5"></path></svg>
+        </span>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#8C7A6C;margin-bottom:4px;">Backup</div>
+          <div style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:18px;letter-spacing:-.01em;">Original Prototype</div>
+          <div style="color:#8C7A6C;font-size:13px;margin-top:4px;line-height:1.5;">The untouched full app, kept as a reference backup.</div>
+        </div>
+      </a>
+
+      <a href="shoWMe Design System.dc.html" style="display:flex;flex-direction:column;gap:14px;padding:24px 26px;border:1px solid rgba(255,233,184,.10);border-radius:18px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));" style-hover="border-color:rgba(255,194,102,.4);">
+        <span style="width:46px;height:46px;border-radius:12px;display:grid;place-items:center;background:rgba(255,194,102,.16);color:#FFC266;">
+          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="13.5" cy="6.5" r="2.5"></circle><circle cx="6.5" cy="12" r="2.5"></circle><circle cx="17" cy="14" r="2.5"></circle><path d="M9 12h5.5M15 8.5 15.5 11.5"></path></svg>
+        </span>
+        <div>
+          <div style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:18px;letter-spacing:-.01em;">Design System</div>
+          <div style="color:#8C7A6C;font-size:13px;margin-top:4px;line-height:1.5;">Tokens, palette, typography and components — derived from the product.</div>
+        </div>
+      </a>
+
+      <a href="CLAUDE.md" style="display:flex;flex-direction:column;gap:14px;padding:24px 26px;border:1px solid rgba(255,233,184,.10);border-radius:18px;background:linear-gradient(180deg,rgba(34,24,18,.66),rgba(17,10,7,.66));" style-hover="border-color:rgba(255,194,102,.4);">
+        <span style="width:46px;height:46px;border-radius:12px;display:grid;place-items:center;background:rgba(111,168,224,.16);color:#6FA8E0;">
+          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 4h11l5 5v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"></path><path d="M14 4v5h5M8 13h8M8 17h5"></path></svg>
+        </span>
+        <div>
+          <div style="font-family:'Clash Display',sans-serif;font-weight:600;font-size:18px;letter-spacing:-.01em;">Rebuild Blueprint</div>
+          <div style="color:#8C7A6C;font-size:13px;margin-top:4px;line-height:1.5;">The Postgres data model, architecture and phased build plan (CLAUDE.md).</div>
+        </div>
+      </a>
+
+    </div>
+
+    <div style="margin-top:36px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#5A483C;">shoWMe · pre-launch live-events booking &amp; settlement</div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

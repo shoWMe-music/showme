@@ -1,0 +1,28 @@
+.field { display: block; }
+
+.label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--elevated);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  outline: none;
+  transition: border-color .2s;
+}
+.input::placeholder { color: var(--muted); }
+.input:focus { border-color: #EE5746; }
+.input:disabled { opacity: .5; cursor: not-allowed; }

@@ -1,0 +1,341 @@
+import { PRESET_PERMISSION_SETS } from "@showme/auth";
+import { schema } from "@showme/db";
+import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
+import { and, eq } from "drizzle-orm";
+import type { FastifyInstance } from "fastify";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { TokenVerifier } from "./auth/token-verifier";
+import { invitationRoutes } from "./routes/invitations";
+import { buildTestApp } from "./testing";
+
+/** Fake verifier: the bearer token IS the uid, so tests just send `Bearer <uid>`. */
+const fakeVerifier: TokenVerifier = {
+  async verify(token: string) {
+    return { uid: token, email: `${token}@example.com`, name: token };
+  },
+};
+
+let harness: TestDatabase;
+let app: FastifyInstance;
+
+beforeAll(async () => {
+  harness = await startTestDatabase();
+  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [invitationRoutes]);
+  await app.ready();
+});
+
+afterAll(async () => {
+  await app?.close();
+  await harness?.stop();
+});
+
+const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
+
+/** A bare provisioned user (no memberships). */
+async function seedUser(id: string, kind: "operator" | "performer") {
+  await harness.db.insert(schema.users).values({ id, email: `${id}@example.com`, kind });
+}
+
+/** Seed an owner + their profile + a permission set. Returns the ids. */
+async function seedOwnerWithProfile(id: string) {
+  const { db } = harness;
+  await seedUser(id, "operator");
+  const [profile] = await db
+    .insert(schema.profiles)
+    .values({ kind: "operator", ownerUserId: id, name: id, slug: id, claimedAt: new Date() })
+    .returning();
+  if (!profile) throw new Error("profile seed failed");
+  await db
+    .insert(schema.profileMembers)
+    .values({ profileId: profile.id, userId: id, role: "owner", status: "active" });
+  const [set] = await db
+    .insert(schema.permissionSets)
+    .values({
+      profileId: profile.id,
+      name: "operator_full",
+      capabilities: [...PRESET_PERMISSION_SETS.operator_full],
+    })
+    .returning();
+  if (!set) throw new Error("permission set seed failed");
+  return { profileId: profile.id, permissionSetId: set.id };
+}
+
+describe("invitations — create, redeem, decline", () => {
+  it("owner creates a SHOW-code profile_member invite; recipient reads + accepts it", async () => {
+    const { db } = harness;
+    const owner = await seedOwnerWithProfile("inv-owner");
+    await seedUser("inv-recipient", "performer");
+
+    // Create — as the profile owner, a code invite granting editor membership.
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("inv-owner"), "x-profile-id": owner.profileId },
+      payload: {
+        type: "code",
+        source: "collaborator",
+        recipientEmail: "inv-recipient@example.com",
+        recipientName: "Rae Recipient",
+        targetProfileId: owner.profileId,
+        role: "editor",
+        permissionSetId: owner.permissionSetId,
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const code = created.json().code as string;
+    expect(code).toMatch(/^SHOW-[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+    expect(created.json().token).toBeNull();
+    expect(created.json().status).toBe("pending");
+
+    const createAudit = await db
+      .select()
+      .from(schema.auditLog)
+      .where(eq(schema.auditLog.action, "invitation.create"));
+    expect(createAudit).toHaveLength(1);
+
+    // Recipient reads the invite by its human code.
+    const summary = await app.inject({
+      method: "GET",
+      url: `/api/v1/invitations/${code}`,
+      headers: auth("inv-recipient"),
+    });
+    expect(summary.statusCode).toBe(200);
+    expect(summary.json()).toMatchObject({
+      type: "code",
+      status: "pending",
+      targetProfileId: owner.profileId,
+      role: "editor",
+    });
+
+    // Recipient accepts → a profile membership now exists + invite is accepted.
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${code}/accept`,
+      headers: auth("inv-recipient"),
+    });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json().status).toBe("accepted");
+
+    const membership = await db
+      .select()
+      .from(schema.profileMembers)
+      .where(
+        and(
+          eq(schema.profileMembers.profileId, owner.profileId),
+          eq(schema.profileMembers.userId, "inv-recipient"),
+        ),
+      );
+    expect(membership).toHaveLength(1);
+    expect(membership[0]?.role).toBe("editor");
+    expect(membership[0]?.status).toBe("active");
+
+    const acceptAudit = await db
+      .select()
+      .from(schema.auditLog)
+      .where(eq(schema.auditLog.action, "invitation.accept"));
+    expect(acceptAudit).toHaveLength(1);
+    expect(acceptAudit[0]?.actorUserId).toBe("inv-recipient");
+
+    // Accepting again → 409 (the invite is no longer pending).
+    const again = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${code}/accept`,
+      headers: auth("inv-recipient"),
+    });
+    expect(again.statusCode).toBe(409);
+  });
+
+  it("409s an accept that would duplicate an existing membership", async () => {
+    const owner = await seedOwnerWithProfile("dup-owner");
+    await seedUser("dup-recipient", "performer");
+    // Already a member of the profile.
+    await harness.db.insert(schema.profileMembers).values({
+      profileId: owner.profileId,
+      userId: "dup-recipient",
+      role: "viewer",
+      status: "active",
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("dup-owner"), "x-profile-id": owner.profileId },
+      payload: {
+        type: "code",
+        source: "collaborator",
+        targetProfileId: owner.profileId,
+        role: "editor",
+      },
+    });
+    const code = created.json().code as string;
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${code}/accept`,
+      headers: auth("dup-recipient"),
+    });
+    expect(accepted.statusCode).toBe(409);
+  });
+
+  it("forbids a non-owner member from creating an invite for the profile (403)", async () => {
+    const owner = await seedOwnerWithProfile("perm-owner");
+    // An editor member — a member, but not owner/admin.
+    await seedUser("perm-editor", "operator");
+    await harness.db.insert(schema.profileMembers).values({
+      profileId: owner.profileId,
+      userId: "perm-editor",
+      role: "editor",
+      status: "active",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("perm-editor"), "x-profile-id": owner.profileId },
+      payload: { type: "code", source: "collaborator", targetProfileId: owner.profileId },
+    });
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("declines an invite (status → declined) + audits", async () => {
+    const { db } = harness;
+    const owner = await seedOwnerWithProfile("dec-owner");
+    await seedUser("dec-recipient", "performer");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("dec-owner"), "x-profile-id": owner.profileId },
+      payload: {
+        type: "code",
+        source: "collaborator",
+        targetProfileId: owner.profileId,
+        role: "editor",
+      },
+    });
+    const code = created.json().code as string;
+
+    const declined = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${code}/decline`,
+      headers: auth("dec-recipient"),
+    });
+    expect(declined.statusCode).toBe(200);
+    expect(declined.json().status).toBe("declined");
+
+    const invite = await db
+      .select()
+      .from(schema.invitations)
+      .where(eq(schema.invitations.code, code));
+    expect(invite[0]?.status).toBe("declined");
+
+    const declineAudit = await db
+      .select()
+      .from(schema.auditLog)
+      .where(eq(schema.auditLog.action, "invitation.decline"));
+    expect(declineAudit).toHaveLength(1);
+
+    // A declined invite cannot then be accepted.
+    const accept = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${code}/accept`,
+      headers: auth("dec-recipient"),
+    });
+    expect(accept.statusCode).toBe(409);
+  });
+
+  it("404s an unknown token and mints an opaque token for non-code invites", async () => {
+    const owner = await seedOwnerWithProfile("tok-owner");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("tok-owner"), "x-profile-id": owner.profileId },
+      payload: {
+        type: "profile_member",
+        source: "team",
+        targetProfileId: owner.profileId,
+        role: "viewer",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().code).toBeNull();
+    expect(created.json().token).toMatch(/^[0-9a-f]{48}$/);
+
+    const missing = await app.inject({
+      method: "GET",
+      url: "/api/v1/invitations/does-not-exist",
+      headers: auth("tok-owner"),
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it("claims an unclaimed stub profile and grants owner membership", async () => {
+    const { db } = harness;
+    // Bootstrap: a real operator who creates the stub + the invite.
+    const host = await seedOwnerWithProfile("claim-host");
+    await seedUser("claim-user", "performer");
+
+    // An unclaimed stub profile (claimedAt NULL), owned for now by the host.
+    const [stub] = await db
+      .insert(schema.profiles)
+      .values({
+        kind: "performer",
+        ownerUserId: "claim-host",
+        name: "Stub Act",
+        slug: "stub-act",
+        claimedAt: null,
+      })
+      .returning();
+    if (!stub) throw new Error("stub seed failed");
+
+    // The invite links the stub. Created directly (its own authorize path is the
+    // host's control of the stub); we exercise the claim endpoint here.
+    const [invite] = await db
+      .insert(schema.invitations)
+      .values({
+        type: "profile_member",
+        source: "performer_offer",
+        status: "pending",
+        token: "claim-token-abc",
+        targetProfileId: stub.id,
+        role: "owner",
+        createdByUser: "claim-host",
+      })
+      .returning();
+    if (!invite) throw new Error("invite seed failed");
+
+    const claimed = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations/claim-token-abc/claim",
+      headers: auth("claim-user"),
+    });
+    expect(claimed.statusCode).toBe(200);
+    expect(claimed.json().status).toBe("used");
+
+    const [after] = await db.select().from(schema.profiles).where(eq(schema.profiles.id, stub.id));
+    expect(after?.ownerUserId).toBe("claim-user");
+    expect(after?.claimedAt).not.toBeNull();
+
+    const ownerMembership = await db
+      .select()
+      .from(schema.profileMembers)
+      .where(
+        and(
+          eq(schema.profileMembers.profileId, stub.id),
+          eq(schema.profileMembers.userId, "claim-user"),
+        ),
+      );
+    expect(ownerMembership).toHaveLength(1);
+    expect(ownerMembership[0]?.role).toBe("owner");
+
+    const claimAudit = await db
+      .select()
+      .from(schema.auditLog)
+      .where(eq(schema.auditLog.action, "invitation.claim"));
+    expect(claimAudit).toHaveLength(1);
+
+    // host is referenced to keep the seed meaningful (silences unused lint).
+    expect(host.profileId).toBeTruthy();
+  });
+});
