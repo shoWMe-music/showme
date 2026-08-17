@@ -25,6 +25,8 @@ const CreateTaskBody = z.object({
   ownerProfileId: z.string().uuid().optional(),
   ownerUserId: z.string().optional(),
   eventId: z.string().uuid().optional(),
+  // Optional named work-group (must be one the caller owns).
+  groupId: z.string().uuid().optional(),
   budgetType: z.string().optional(),
   budgetAmount: z.string().min(1).optional(),
   reminders: z.array(ReminderInput).optional(),
@@ -35,11 +37,15 @@ const UpdateTaskBody = z.object({
   description: z.string().nullable().optional(),
   completed: z.boolean().optional(),
   dueDate: z.string().min(1).nullable().optional(),
+  groupId: z.string().uuid().nullable().optional(),
   budgetAmount: z.string().min(1).nullable().optional(),
 });
 
 const ListQuery = PaginationQuery.extend({
   completed: z.enum(["true", "false"]).optional(),
+  groupId: z.string().uuid().optional(),
+  /** Scope to one event's to-do list (gated by `event.view`, not owner). */
+  eventId: z.string().uuid().optional(),
 });
 
 const TaskResponse = z.object({
@@ -47,6 +53,7 @@ const TaskResponse = z.object({
   eventId: z.string().nullable(),
   ownerProfileId: z.string().nullable(),
   ownerUserId: z.string().nullable(),
+  groupId: z.string().nullable(),
   title: z.string(),
   description: z.string().nullable(),
   completed: z.boolean(),
@@ -79,6 +86,7 @@ function serializeTask(task: TaskRow): z.infer<typeof TaskResponse> {
     eventId: task.eventId,
     ownerProfileId: task.ownerProfileId,
     ownerUserId: task.ownerUserId,
+    groupId: task.groupId,
     title: task.title,
     description: task.description,
     completed: task.completed,
@@ -140,6 +148,17 @@ async function assertMayWriteScope(
   }
 }
 
+/** A task may only reference a work-group the caller owns. Throws 404 otherwise. */
+async function assertMayUseGroup(request: FastifyRequest, groupId: string): Promise<void> {
+  const principal = request.principal;
+  if (!principal) throw new Error("principal missing after authentication");
+  const [group] = await request.server.database
+    .select({ id: schema.groups.id })
+    .from(schema.groups)
+    .where(and(eq(schema.groups.id, groupId), eq(schema.groups.ownerUserId, principal.userId)));
+  if (!group) throw notFound("Work-group not found");
+}
+
 export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -151,14 +170,22 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
       const { database } = request.server;
       const principal = request.principal;
       if (!principal) throw new Error("principal missing after authentication");
-      const { cursor, limit, completed } = request.query;
+      const { cursor, limit, completed, groupId, eventId } = request.query;
 
-      const profileIds = principal.memberships.map((m) => m.profileId);
-      const ownerConditions = [eq(schema.tasks.ownerUserId, principal.userId)];
-      if (profileIds.length > 0) {
-        ownerConditions.push(inArray(schema.tasks.ownerProfileId, profileIds));
+      // Event-scoped list = the event's shared to-do, gated by event.view (the
+      // access predicate IS the filter). Otherwise the caller's own + profile tasks.
+      let scopeFilter: ReturnType<typeof or> | ReturnType<typeof eq> | undefined;
+      if (eventId) {
+        await requireEventCapability(request, eventId, "event.view");
+        scopeFilter = eq(schema.tasks.eventId, eventId);
+      } else {
+        const profileIds = principal.memberships.map((m) => m.profileId);
+        const ownerConditions = [eq(schema.tasks.ownerUserId, principal.userId)];
+        if (profileIds.length > 0) {
+          ownerConditions.push(inArray(schema.tasks.ownerProfileId, profileIds));
+        }
+        scopeFilter = or(...ownerConditions);
       }
-      const ownerFilter = or(...ownerConditions);
 
       // Keyset over (created_at, id), truncated to millisecond so the JS-Date
       // round-trip stays exact (mirrors events-list). Bind cursor values as casts.
@@ -173,8 +200,9 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
         .from(schema.tasks)
         .where(
           and(
-            ownerFilter,
+            scopeFilter,
             completed !== undefined ? eq(schema.tasks.completed, completed === "true") : undefined,
+            groupId ? eq(schema.tasks.groupId, groupId) : undefined,
             afterCursor,
           ),
         )
@@ -206,6 +234,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
         ownerProfileId: body.ownerProfileId,
         eventId: body.eventId,
       });
+      if (body.groupId) await assertMayUseGroup(request, body.groupId);
 
       const created = await database.transaction(async (tx) => {
         const [task] = await tx
@@ -214,6 +243,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
             eventId: body.eventId ?? null,
             ownerProfileId: body.ownerProfileId ?? null,
             ownerUserId,
+            groupId: body.groupId ?? null,
             title: body.title,
             description: body.description ?? null,
             dueDate: body.dueDate ?? null,
@@ -271,6 +301,10 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
       if (body.completed !== undefined) {
         fields.completed = body.completed;
         fields.completedAt = body.completed ? new Date() : null;
+      }
+      if (body.groupId !== undefined) {
+        if (body.groupId) await assertMayUseGroup(request, body.groupId);
+        fields.groupId = body.groupId;
       }
 
       const updated = await database.transaction(async (tx) => {

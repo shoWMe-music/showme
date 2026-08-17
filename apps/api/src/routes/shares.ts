@@ -270,6 +270,18 @@ export async function shareRoutes(fastify: FastifyInstance): Promise<void> {
           .values({ shareId: share.id, emailHash: hash, ...values });
       }
 
+      // Deliver the code by email. A send failure is logged, not surfaced — the
+      // OTP is stored, so the recipient can still request a resend.
+      try {
+        await request.server.emailSink.sendEmail({
+          to: email,
+          subject: "Your shoWMe verification code",
+          text: `Your verification code is ${code}. It expires in 10 minutes.`,
+        });
+      } catch (error) {
+        request.log.error({ error }, "share OTP email failed");
+      }
+
       const testHook = request.headers["x-test-otp"];
       const exposeCode = (Array.isArray(testHook) ? testHook[0] : testHook) === "1";
       return exposeCode ? { sent: true as const, code } : { sent: true as const };

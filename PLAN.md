@@ -39,7 +39,7 @@ modules (profiles/identity, permissions, settlement, content, invitations, notif
   **GitHub Actions** → Cloud Run (Turbo remote cache), **Secret Manager** for creds/keys.
 - **Auth:** keep **Firebase Auth**; the Postgres `users` row is keyed by the Firebase `uid`; the API verifies the ID token.
 - **Authorization:** ReBAC (relationship-based) — permissions derived by traversing `user → profile_member → profile → event_participant → event → resource`, enforced by a single server-side policy module (replaces `firestore.rules` + scattered client checks).
-- **Product layer = account kind:** a user account has a **kind** (operator | performer | professional | agent) chosen at signup; it gates profile creation, dashboard, features, and pricing. Kept **separate** from authorization (entitlement ≠ permission). (`agent` = booking agent who represents performers — decisions #14.)
+- **Product layer = account kind:** a user account has a **kind** (operator | performer | team_and_crew | agent) chosen at signup; it gates profile creation, dashboard, features, and pricing. Kept **separate** from authorization (entitlement ≠ permission). (`agent` = booking agent who represents performers — decisions #14.)
 - **Events are containers; parties are participants.** No parent/child "child events" for multi-performer.
 - **Deals are party-scoped agreements** (see below). No global "host sees all."
 
@@ -163,7 +163,7 @@ Nothing else — no global host-sees-all. Consequences:
 - Future crew pay → a `crew` deal; same table.
 - New arrangements → new `type` + `jsonb` terms, **no schema change**.
 - **Crew get deals *and* agreements later = trivial (no migration):** because `deal_parties`, `agreements`, and
-  `agreement_confirmations` all key off kind-agnostic `event_participants`, a crew/professional participant becomes a
+  `agreement_confirmations` all key off kind-agnostic `event_participants`, a crew/team_and_crew participant becomes a
   deal payee or agreement party by inserting rows. Only additive work: a permission-set entry so they see their own
   deal/agreement, and linking their budget cost-line (`budget_lines.deal_id`) to the crew deal to avoid double-counting.
   The deferred "deal ↔ crew separation" is a **UI/product** choice, not a schema one — the model supports either.
@@ -174,7 +174,7 @@ Rentals use `payment_timing=before_event` + low `priority` (paid first); other d
 
 **Why `deal_parties` is a table, not embedded in the deal:** the app's core reads query *by party* — party-scoped
 visibility ("which deals is participant X on?" on every access check), settlement reconciliation ("who owes whom"),
-and the professional's own-deals list / marketplace. Indexes on `deal_parties(deal_id)` and `deal_parties(participant_id)`
+and the team_and_crew's own-deals list / marketplace. Indexes on `deal_parties(deal_id)` and `deal_parties(participant_id)`
 make both directions a single fast indexed lookup, and Postgres returns `deal` + parties in one round-trip (Drizzle
 hydrates a nested `deal.parties[]`, so it *reads* like a document). Embedding parties in a `jsonb` column would be
 cheaper *only* for "load one deal by id" — but it cannot answer the by-party queries above without the denormalized
@@ -185,7 +185,7 @@ for any genuinely embed-only deal fields.)
 **Transparency model (from the 2026-07 product meeting):**
 - **Operator** (the event-manager party) sees **all** financials.
 - **Co-operators / co-promoters** get **full transparency** — they share a budget and see the whole financial picture.
-- **Every other party** (performer, venue-as-rental, professional/crew) sees **only their own deal + settlement**, never the pool.
+- **Every other party** (performer, venue-as-rental, team_and_crew) sees **only their own deal + settlement**, never the pool.
 - The privacy line is drawn by *relationship*: co-promoters share; arm's-length parties (rental, guarantee) see just their slice.
 
 **Product decisions locked in the 2026-07 meeting:**
@@ -302,12 +302,12 @@ The blocks below still show the normalized form for clarity; these fold the read
 - **`contact_persons` → `contacts.persons jsonb`**. (`share_recipients` STAYS a table — carries OTP/claim/party-link state; 2026-07.)
 - **`admins` → `users.is_admin`** · **`plan_history` → `audit_log`** · **`fx_rates_cache` → app cache**. (`pro_reports` → renamed **`performance_reports`** table, derived from `setlists`; 2026-07.)
 - **Borderline:** `task_reminders` — keep a table only if reminder-notification jobs query by date; else `tasks.reminders jsonb`.
-- **Kept normalized (queried across — do NOT fold):** `event_participants`, `deal_parties`, `budget_lines`, `settlements`/`settlement_transfers`, `profile_members`, `profile_locations`, `venue/performer/professional_details`, `spam_flags`.
+- **Kept normalized (queried across — do NOT fold):** `event_participants`, `deal_parties`, `budget_lines`, `settlements`/`settlement_transfers`, `profile_members`, `profile_locations`, `venue/performer/team_and_crew_details`, `spam_flags`.
 
 ### A. Identity & accounts
 ```
 users(id = firebase uid, email, name, initials, avatar_url, currency, date_format,
-      time_format, timezone, company_name, country, kind[operator|performer|professional|agent],
+      time_format, timezone, company_name, country, kind[operator|performer|team_and_crew|agent],
       anonymized_at nullable, created_at)   -- timezone (IANA) = display + user-local reminders; anonymized_at = GDPR erasure tombstone (anonymize-not-delete)
 profiles(id, kind, type, owner_user_id → users, name, slug uniq, is_public,
          bio, avatar_url, banner_url, details jsonb, claimed_at nullable, created_by, timestamps)
@@ -344,7 +344,7 @@ representations(id, agent_profile_id → profiles, performer_profile_id → prof
   only profiles of your kind), dashboard, features, pricing. A cross-kind person (e.g. promoter + DJ) creates a
   second account. Profiles inherit their owner's kind.
 - Venue-heavy queryable fields (capacity, amenities, sub-venues/rooms, setups) → a `venue_details` extension table; performer fields (genres, spotify, deal prefs, bonuses) → `performer_details`. Rare fields stay in `profiles.details` jsonb.
-- **Professional** profiles (`kind=professional`) get `professional_details(specialties[] e.g. sound|lighting|catering|security|stage, rates, service_area, availability)` — the marketable identity behind a future **professionals marketplace** (operators & performers post jobs; professionals apply). On an event, a professional participates with `role=crew`. "Crew" is the event-role; "professional" is the account kind.
+- **Team and Crew** profiles (`kind=team_and_crew`) get `team_and_crew_details(specialties[] e.g. sound|lighting|catering|security|stage, rates, service_area, availability)` — the marketable identity behind a future **team-and-crew marketplace** (operators & performers post jobs; team-and-crew members apply). On an event, a team_and_crew profile participates with `role=crew`. "Crew" is the event-role; "team_and_crew" is the account kind.
 
 **Feature surfaces by account kind** (product/entitlement gating — coarse, on `user.kind`; distinct from the per-event serializer):
 - **Operator-only:** create/host & publish events · budget planner (shared/private, Collected-By/Paid-By) · full all-party settlement ("who owes whom") · deal authoring · hold ranking · incoming booking-requests inbox · participant management · crew assignment + call sheets + info emails · venue/production setup (capacity, rooms/stages, amenities, ticketing) · audience RSVPs · spam flagging · operator plan/billing.
@@ -399,9 +399,9 @@ riders(id, owner_profile_id → profiles NULLABLE,       -- LIBRARY: performer/v
        source_rider_id → riders NULLABLE,              -- which library rider this instance was COPIED from (snapshot on attach)
        is_default bool, created_by, timestamps)        -- is_default = auto-attach when the owner joins an event
        -- profile-level library (reusable, kind-agnostic) + event instances; attaching COPIES (master stays theirs; edits don't touch past events)
--- crew = event_participants(role=crew) → a PROFESSIONAL profile (real account; unclaimed stub if off-platform, invitable to claim)
+-- crew = event_participants(role=crew) → a TEAM_AND_CREW profile (real account; unclaimed stub if off-platform, invitable to claim)
 crew_details(participant_id → event_participants pk, specialty, call_time, task, pay_note)   -- per-event crew info
--- crew pay/settlement (later) = a deal(type=crew) with the professional as payee — zero schema change
+-- crew pay/settlement (later) = a deal(type=crew) with the team_and_crew as payee — zero schema change
 -- AGREEMENTS ARE FOLDED INTO deals + deal_parties (decision 2026-07): agreements / agreement_confirmations /
 --   agreement_reopen_* are GONE. The deal holds agreement_body_text/status/confirmed_snapshot/reopen; deal_parties
 --   holds confirmed_at/signature_hash. A paper-only agreement = a deal with NULL `structure`.
@@ -410,7 +410,7 @@ schedule_items(id, event_id, stage_id nullable, start_time, duration nullable, l
 event_messages(id, event_id, sender_user_id, sender_participant_id, body, attachments jsonb,
        visibility[all|operators|party], created_at)   -- real schema + visibility
 setlists(id, event_id, participant_id → event_participants, items jsonb, updated_at)   -- PERFORMER authors; crew see only if shared (observer). Party-scoped.
-performance_reports(id, event_id, pro_code[stim|gema|prs|none], event_type, confidence, estimate)  -- operator's PRO filing DERIVED from the setlist (renamed from pro_reports — dodges the `professional` collision)
+performance_reports(id, event_id, pro_code[stim|gema|prs|none], event_type, confidence, estimate)  -- operator's PRO filing DERIVED from the setlist (renamed from pro_reports — dodges the `team_and_crew` collision)
 ```
 - Access: all gated by event participation + permission set; `owner_participant_id` + `visibility` refine (e.g. crew permission set = `schedule.view` only).
 
@@ -532,9 +532,9 @@ Each phase: **tables (Drizzle) → access predicate → Zod-validated API routes
 ## Open decisions (resolve before the noted phase)
 
 1. ~~Backend platform~~ **DECIDED:** Cloud SQL + Cloud Run + own **Fastify / Zod / Drizzle** API (not SQL Connect).
-2. ~~Crew~~ **DECIDED:** crew = real **professional** accounts (`kind=professional`). On an event → `event_participants`
-   with `role=crew` + a scoped permission set (e.g. schedule-only); off-platform crew = an unclaimed professional stub.
-   Foundation for a future **professionals marketplace** (operators/performers post jobs; professionals apply). Crew pay later via `deal.type=crew`.
+2. ~~Crew~~ **DECIDED:** crew = real **team_and_crew** accounts (`kind=team_and_crew`). On an event → `event_participants`
+   with `role=crew` + a scoped permission set (e.g. schedule-only); off-platform crew = an unclaimed team_and_crew stub.
+   Foundation for a future **team-and-crew marketplace** (operators/performers post jobs; team-and-crew members apply). Crew pay later via `deal.type=crew`.
 3. ~~One kind per account?~~ **DECIDED (A):** account locked to exactly one kind, fixed at signup; cross-kind = a second account.
 4. ~~Settlement orchestration~~ **DEFINED (2026-07 meeting):** individual settlement per participant profile;
    collected-by/paid-by reconciliation → "who owes whom"; shared + private budgets; manual override + paid/handled flags; no escrow.
@@ -758,7 +758,7 @@ The **data model is complete**; these layers on top of it are named but not yet 
   (ephemeral Postgres) for integration + per-phase access-predicate tests; **Playwright** for the Phase 1–2 e2e slice.
 
 **Deferred features (foundation only):**
-- Marketplace search & matching (professionals ↔ jobs) + Postgres FTS · ticketing-provider sync · event-outcomes/AI data. *(Multi-currency moved into v1 — see Currency & public surfaces.)*
+- Marketplace search & matching (team and crew ↔ jobs) + Postgres FTS · ticketing-provider sync · event-outcomes/AI data. *(Multi-currency moved into v1 — see Currency & public surfaces.)*
 
 **Open product threads:**
 - "Shared Team" vs "In-house Management" public/private roster split (currently both fold into `profile_members`).

@@ -2,14 +2,9 @@
 <html lang="en"><head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>shoWMe — Product</title>
-  <meta name="description" content="Incoming requests, availability and holds, one shared calendar, budget planner, deals that are the agreement, party-scoped settlement — every side of a live event in one shared system.">
+  <title>shoWMe Product</title>
+  <meta name="description" content="Incoming requests, availability and holds, one shared calendar, budget planner, deals that are the agreement, party-scoped settlement. Every side of a live event in one shared system.">
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
-  <link rel="preconnect" href="https://api.fontshare.com" crossorigin="">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f%5B%5D=clash-display@400,500,600&display=swap">
   <link rel="stylesheet" href="/src/styles/tokens.css">
   <style>/* latin-ext */
 
@@ -114,7 +109,6 @@
 /* latin */
 
 </style>
-  <link href="https://api.fontshare.com/v2/css?f[]=clash-display@500,600&amp;display=swap" rel="stylesheet">
 
   <style>/* Web font sources — @font-face for the brand families (Inter Tight, JetBrains Mono, Clash Display).
    Replaced automatically once the font files are uploaded via the sidebar. */
@@ -213,7 +207,6 @@
 /* latin */
 
 
-@import url('https://api.fontshare.com/v2/css?f%5B%5D=clash-display@400,500,600&display=swap');
 
 /* ---------- shoWMe Landing — tokens & base ---------- */
 
@@ -318,6 +311,7 @@ body::before {
   font-weight: 600;
   font-size: 22px;
   letter-spacing: -0.01em;
+  color: #fff;
 }
 .brand__mark {
   width: 34px; height: 34px;
@@ -338,41 +332,6 @@ body::before {
 .nav__cta {
   display: flex; gap: 12px; align-items: center;
 }
-
-/* ---------- Buttons ---------- */
-.btn {
-  display: inline-flex; align-items: center; gap: 10px;
-  padding: 13px 22px;
-  border-radius: 999px;
-  font-size: 14.5px;
-  font-weight: 500;
-  letter-spacing: -0.005em;
-  transition: transform .2s var(--ease-out), background .2s, box-shadow .2s, color .2s;
-  white-space: nowrap;
-}
-.btn--ghost { color: var(--ink-100); }
-.btn--ghost:hover { color: var(--brand-gold); }
-.btn--outline {
-  border: 1px solid rgba(255,233,184,.22);
-  color: var(--ink-100);
-}
-.btn--outline:hover {
-  border-color: var(--brand-gold);
-  color: var(--brand-gold);
-}
-.btn--primary {
-  background: linear-gradient(135deg, var(--brand-red) 0%, var(--brand-amber) 100%);
-  color: #120903;
-  font-weight: 600;
-  box-shadow: 0 8px 28px -10px rgba(238,87,70,.6), inset 0 1px 0 rgba(255,255,255,.3);
-}
-.btn--primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 14px 38px -10px rgba(238,87,70,.8), inset 0 1px 0 rgba(255,255,255,.4);
-}
-.btn--lg { padding: 17px 28px; font-size: 15.5px; }
-.btn__arrow { transition: transform .25s var(--ease-out); }
-.btn:hover .btn__arrow { transform: translateX(3px); }
 
 /* ---------- Hero ---------- */
 .hero {
@@ -1175,6 +1134,106 @@ section { position: relative; }
   .cta__actions .btn { width: 100%; justify-content: center; }
   .footer__bottom { flex-direction: column; gap: 8px; }
 }
+
+/* ---------- Mobile hamburger menu (mobile-only, ≤760px) ---------- */
+.nav-burger { display: none; }
+.mobile-menu { display: none; }
+/* Lock background scroll while the menu is open (paired with lenis.stop() in JS) */
+html.menu-open, html.menu-open body { overflow: hidden; }
+
+@media (max-width: 760px) {
+  /* Header collapses to brand + burger — the inline actions/links are hidden */
+  .hero__header-actions > .btn,
+  .site-header__actions > .btn,
+  .nav__cta > .btn { display: none; }
+  .nav__links { display: none; }
+
+  .nav-burger {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    width: 44px; height: 44px;
+    position: relative;
+    z-index: 150;
+    border-radius: 10px;
+    transition: opacity .2s var(--ease-out);
+  }
+  .nav-burger span {
+    display: block;
+    width: 22px; height: 2px;
+    background: var(--ink-100);
+    border-radius: 2px;
+  }
+  html.menu-open .nav-burger { opacity: 0; pointer-events: none; }
+
+  .mobile-menu {
+    display: block;
+    position: fixed; inset: 0;
+    z-index: 200;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .mobile-menu.open { visibility: visible; pointer-events: auto; }
+
+  .mobile-menu__backdrop {
+    position: absolute; inset: 0;
+    background: rgba(10,6,4,.62);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    opacity: 0;
+    transition: opacity .25s var(--ease-out);
+  }
+  .mobile-menu.open .mobile-menu__backdrop { opacity: 1; }
+
+  .mobile-menu__panel {
+    position: absolute; top: 0; left: 0; right: 0;
+    display: flex; flex-direction: column;
+    padding: 78px 24px 32px;
+    background: linear-gradient(180deg, var(--ink-950) 0%, var(--ink-1000) 100%);
+    border-bottom: 1px solid rgba(255,233,184,.1);
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,.7);
+    transform: translateY(-101%);
+    transition: transform .28s var(--ease-out);
+  }
+  .mobile-menu.open .mobile-menu__panel { transform: translateY(0); }
+
+  .mobile-menu__close {
+    position: absolute; top: 16px; right: 18px;
+    width: 44px; height: 44px;
+    display: grid; place-items: center;
+    color: var(--ink-100);
+    border-radius: 10px;
+    transition: color .2s var(--ease-out);
+  }
+  .mobile-menu__close:hover { color: var(--brand-gold); }
+
+  .mobile-menu__nav { display: flex; flex-direction: column; }
+  .mobile-menu__nav a {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 22px;
+    letter-spacing: -0.02em;
+    color: var(--ink-100);
+    padding: 15px 4px;
+    border-bottom: 1px solid rgba(255,233,184,.08);
+    transition: color .2s var(--ease-out);
+  }
+  .mobile-menu__nav a:hover { color: var(--brand-gold); }
+
+  .mobile-menu__cta {
+    margin-top: 24px;
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-menu__panel,
+  .mobile-menu__backdrop,
+  .nav-burger { transition: none; }
+}
 </style>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 
@@ -1254,18 +1313,36 @@ section { position: relative; }
   <meta name="theme-color" content="#18100C">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="shoWMe">
-  <meta property="og:title" content="shoWMe — Product">
-  <meta property="og:description" content="Incoming requests, availability and holds, one shared calendar, budget planner, deals that are the agreement, party-scoped settlement — every side of a live event in one shared system.">
+  <meta property="og:title" content="shoWMe Product">
+  <meta property="og:description" content="Incoming requests, availability and holds, one shared calendar, budget planner, deals that are the agreement, party-scoped settlement. Every side of a live event in one shared system.">
   <meta property="og:url" content="https://showme.example/product.html">
   <meta property="og:image" content="https://showme.example/assets/photo.jpg">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="shoWMe — Product">
-  <meta name="twitter:description" content="Incoming requests, availability and holds, one shared calendar, budget planner, deals that are the agreement, party-scoped settlement — every side of a live event in one shared system.">
+  <meta name="twitter:title" content="shoWMe Product">
+  <meta name="twitter:description" content="Incoming requests, availability and holds, one shared calendar, budget planner, deals that are the agreement, party-scoped settlement. Every side of a live event in one shared system.">
   <meta name="twitter:image" content="https://showme.example/assets/photo.jpg">
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"shoWMe","url":"https://showme.example","logo":"https://showme.example/favicon.svg","description":"Booking + settlement for live events — one shared system for operators, performers, agents and crew."}</script>
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"shoWMe","applicationCategory":"BusinessApplication","operatingSystem":"Web","description":"Incoming requests, availability and holds, one shared calendar, budget planner, deals that are the agreement, party-scoped settlement — every side of a live event in one shared system.","offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"}}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"shoWMe","url":"https://showme.example","logo":"https://showme.example/favicon.svg","description":"Booking + settlement for live events, one shared system for operators, performers, agents and crew."}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"shoWMe","applicationCategory":"BusinessApplication","operatingSystem":"Web","description":"Incoming requests, availability and holds, one shared calendar, budget planner, deals that are the agreement, party-scoped settlement. Every side of a live event in one shared system.","offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"}}</script>
 </head>
 <body>
+
+  <!-- ===== MOBILE MENU (≤760px) ===== -->
+  <div class="mobile-menu" id="mobile-menu" aria-hidden="true">
+    <div class="mobile-menu__backdrop" data-menu-close></div>
+    <div class="mobile-menu__panel" role="dialog" aria-modal="true" aria-label="Menu">
+      <button class="mobile-menu__close" type="button" aria-label="Close menu" data-menu-close>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+      </button>
+      <nav class="mobile-menu__nav">
+        <a href="product.html">Product</a>
+        <a href="index.html#ecosystem">Ecosystem</a>
+        <a href="index.html#pricing">Pricing</a>
+        <a href="index.html#why">Why shoWMe</a>
+        <a href="about.html">About</a>
+      </nav>
+      <a href="index.html#cta" class="btn btn--primary mobile-menu__cta">Get early access</a>
+    </div>
+  </div>
 
   <nav class="nav scrolled" id="nav">
     <div class="container nav__row">
@@ -1289,20 +1366,51 @@ section { position: relative; }
         </span>
         <span>shoWMe</span>
       </a>
-      <div class="nav__links">
-        <a href="product.html">Product</a>
-        <a href="index.html#ecosystem">Ecosystem</a>
-        <a href="index.html#pricing">Pricing</a>
-        <a href="index.html#why">Why shoWMe</a>
-        <a href="about.html">About</a>
-      </div>
-      <div class="nav__cta">
-        <a href="index.html" class="btn btn--ghost">Sign in</a>
-        <a href="index.html#cta" class="btn btn--primary">
-          Get early access
-          <svg class="btn__arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
-        </a>
-      </div>
+      <nav class="topnav" aria-label="Primary">
+        <ul class="topnav__menus">
+          <li class="topnav__item">
+            <button type="button" class="topnav__trigger" aria-haspopup="true" aria-expanded="false">
+              Product
+              <svg class="topnav__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+            </button>
+            <div class="topnav__panel" role="menu">
+              <a role="menuitem" href="product.html#calendar">Calendar</a>
+              <a role="menuitem" href="product.html#agreements">Agreements</a>
+              <a role="menuitem" href="product.html#settlements">Settlement</a>
+              <a role="menuitem" href="index.html#pricing">Pricing</a>
+            </div>
+          </li>
+          <li class="topnav__item">
+            <button type="button" class="topnav__trigger" aria-haspopup="true" aria-expanded="false">
+              Company
+              <svg class="topnav__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+            </button>
+            <div class="topnav__panel" role="menu">
+              <a role="menuitem" href="about.html">About</a>
+              <a role="menuitem" href="terms.html">Terms &amp; Conditions</a>
+              <a role="menuitem" href="privacy.html">Privacy Policy</a>
+              <a role="menuitem" href="cookies.html">Cookie Policy</a>
+            </div>
+          </li>
+          <li class="topnav__item">
+            <button type="button" class="topnav__trigger" aria-haspopup="true" aria-expanded="false">
+              Contact
+              <svg class="topnav__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+            </button>
+            <div class="topnav__panel" role="menu">
+              <a role="menuitem" href="contact.html">Contact form</a>
+              <a role="menuitem" href="https://showme.music/">showme.music</a>
+            </div>
+          </li>
+        </ul>
+        <div class="topnav__actions">
+          <a href="/login" class="btn btn--ghost">Log in</a>
+          <a href="contact.html" class="btn btn--primary">Get early access</a>
+        </div>
+        <button class="nav-burger" type="button" aria-label="Menu" aria-expanded="false" aria-controls="mobile-menu">
+          <span></span><span></span><span></span>
+        </button>
+      </nav>
     </div>
   </nav>
 
@@ -1311,7 +1419,7 @@ section { position: relative; }
     <div class="container">
       <span class="eyebrow pf-hero__eyebrow reveal">The product</span>
       <h1 class="pf-title reveal reveal--d1">One event.<br><span class="emph">Every side of it.</span></h1>
-      <p class="pf-lede reveal reveal--d2">From the first booking request to the final settlement, shoWMe runs the whole event in one shared, multi-role system. Every side works on the same event — and sees exactly their own slice of it: the dates they're on, the deal they signed, the settlement that pays them.</p>
+      <p class="pf-lede reveal reveal--d2">From the first booking request to the final settlement, shoWMe runs the whole event in one shared, multi-role system. Every side works on the same event, and sees exactly their own slice of it: the dates they're on, the deal they signed, the settlement that pays them.</p>
       <div class="pf-index reveal reveal--d3"><a href="#incoming" class="pf-chip"><b>01</b> Incoming requests</a><a href="#availability" class="pf-chip"><b>02</b> Availability &amp; holds</a><a href="#calendar" class="pf-chip"><b>03</b> Calendar</a><a href="#budget" class="pf-chip"><b>04</b> Budget planner</a><a href="#agreements" class="pf-chip"><b>05</b> Deals &amp; agreements</a><a href="#team" class="pf-chip"><b>06</b> Team &amp; tasks</a><a href="#collaborators" class="pf-chip"><b>07</b> Collaborators</a><a href="#settlements" class="pf-chip"><b>08</b> Settlement</a><a href="#audience" class="pf-chip"><b>09</b> Audience</a><a href="#analytics" class="pf-chip"><b>10</b> Reports</a></div>
     </div>
   </header>
@@ -1320,15 +1428,15 @@ section { position: relative; }
     <div class="container">
 
       <div class="pf-row" id="incoming">
-        <div class="pf-copy reveal"><div class="pf-num">01 — Incoming requests</div>
+        <div class="pf-copy reveal"><div class="pf-num">01 · Incoming requests</div>
           <h2 class="pf-h">Every booking request in one inbox.</h2>
-          <p class="pf-b">Offers and booking requests land in a single, structured inbox — no more digging through email and DMs. See the act, the date, the fee and the room at a glance, then make an offer, save a draft, decline, archive or flag it. Duplicate requests for the same date collapse into one, and offers nobody answers expire on their own.</p>
+          <p class="pf-b">Offers and booking requests land in a single, structured inbox, no more digging through email and DMs. See the act, the date, the fee and the room at a glance, then make an offer, save a draft, decline, archive or flag it. Duplicate requests for the same date collapse into one, and offers nobody answers expire on their own.</p>
           <ul class="pf-list"><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Structured requests with date, fee, venue &amp; capacity</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Offer, draft, decline, archive or flag as spam</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Both sides notified the moment you respond</li></ul></div>
         <div class="pf-visual">
           <div class="lap reveal reveal--lap reveal--d1">
             <div class="lap__lid">
               <span class="lap__cam"></span>
-              <div class="lap__screen"><img src="/assets/shots/light-01-requests.webp" width="1760" height="1100" loading="eager" fetchpriority="high" decoding="async" decoding="async" alt="shoWMe — Every booking request in one inbox."></div>
+              <div class="lap__screen"><img src="/assets/shots/light-01-requests.webp" width="1760" height="1100" loading="eager" fetchpriority="high" decoding="async" decoding="async" alt="shoWMe: Every booking request in one inbox."></div>
             </div>
             <div class="lap__base"></div>
             <div class="lap__cap">Incoming Requests</div>
@@ -1337,15 +1445,15 @@ section { position: relative; }
       </div>
 
       <div class="pf-row pf-row--rev" id="availability">
-        <div class="pf-copy reveal"><div class="pf-num">02 — Availability &amp; holds</div>
+        <div class="pf-copy reveal"><div class="pf-num">02 · Availability &amp; holds</div>
           <h2 class="pf-h">Publish when you're open. Hold what you're deciding.</h2>
-          <p class="pf-b">Mark yourself unavailable, then share your open dates with the collaborators you choose — down to which days of the week count and whether holds block a date. Holds are ranked, so a first and second hold on the same night is explicit: the operator sets the rank, the performer confirms, and when a hold drops the next one is promoted automatically.</p>
+          <p class="pf-b">Mark yourself unavailable, then share your open dates with the collaborators you choose, down to which days of the week count and whether holds block a date. Holds are ranked, so a first and second hold on the same night is explicit: the operator sets the rank, the performer confirms, and when a hold drops the next one is promoted automatically.</p>
           <ul class="pf-list"><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Range, calendar &amp; days of the week</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Choose whether held dates read as unavailable</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Ranked holds, promoted automatically when a date frees up</li></ul></div>
         <div class="pf-visual">
           <div class="lap reveal reveal--lap reveal--d1">
             <div class="lap__lid">
               <span class="lap__cam"></span>
-              <div class="lap__screen"><img src="/assets/shots/light-02-availability.webp" width="1760" height="1100" loading="eager" decoding="async" alt="shoWMe — Publish when you're open. Hold what you're deciding."></div>
+              <div class="lap__screen"><img src="/assets/shots/light-02-availability.webp" width="1760" height="1100" loading="eager" decoding="async" alt="shoWMe: Publish when you're open. Hold what you're deciding."></div>
             </div>
             <div class="lap__base"></div>
             <div class="lap__cap">Check &amp; Share Availability</div>
@@ -1354,15 +1462,15 @@ section { position: relative; }
       </div>
 
       <div class="pf-row" id="calendar">
-        <div class="pf-copy reveal"><div class="pf-num">03 — Calendar</div>
+        <div class="pf-copy reveal"><div class="pf-num">03 · Calendar</div>
           <h2 class="pf-h">One shared calendar for the whole event.</h2>
-          <p class="pf-b">A single calendar that every side of the event reads from — venues, performers, promoters and crew. Switch between month, week and day, filter by performer or venue, and watch suggested, pending, held and confirmed dates update across everyone's calendars. Door, set and curfew times are stored as local wall-clock time against the venue's timezone, so nothing shifts when a date moves.</p>
+          <p class="pf-b">A single calendar that every side of the event reads from: venues, performers, promoters and crew. Switch between month, week and day, filter by performer or venue, and watch suggested, pending, held and confirmed dates update across everyone's calendars. Door, set and curfew times are stored as local wall-clock time against the venue's timezone, so nothing shifts when a date moves.</p>
           <ul class="pf-list"><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Month, week &amp; day views</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Colour-coded status across every party</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Local door &amp; set times, anchored to the venue timezone</li></ul></div>
         <div class="pf-visual">
           <div class="lap reveal reveal--lap reveal--d1">
             <div class="lap__lid">
               <span class="lap__cam"></span>
-              <div class="lap__screen"><img src="/assets/shots/light-03-calendar.webp" width="1760" height="1100" loading="eager" decoding="async" alt="shoWMe — One shared calendar for the whole event."></div>
+              <div class="lap__screen"><img src="/assets/shots/light-03-calendar.webp" width="1760" height="1100" loading="eager" decoding="async" alt="shoWMe: One shared calendar for the whole event."></div>
             </div>
             <div class="lap__base"></div>
             <div class="lap__cap">Calendar · month view</div>
@@ -1371,15 +1479,15 @@ section { position: relative; }
       </div>
 
       <div class="pf-row pf-row--rev" id="budget">
-        <div class="pf-copy reveal"><div class="pf-num">04 — Budget planner</div>
-          <h2 class="pf-h">Know the numbers — and who's holding them.</h2>
-          <p class="pf-b">Model the whole event before it happens: ticket tiers, itemised costs, revenue, profit and break-even updating live. Every revenue line records who collects the cash and every cost records who fronts it and who it's for — which is exactly what makes settlement automatic later. Co-promoters share one budget; keep a private one beside it, or save the whole thing as a template.</p>
+        <div class="pf-copy reveal"><div class="pf-num">04 · Budget planner</div>
+          <h2 class="pf-h">Know the numbers, and who's holding them.</h2>
+          <p class="pf-b">Model the whole event before it happens: ticket tiers, itemised costs, revenue, profit and break-even updating live. Every revenue line records who collects the cash and every cost records who fronts it and who it's for, which is exactly what makes settlement automatic later. Co-promoters share one budget; keep a private one beside it, or save the whole thing as a template.</p>
           <ul class="pf-list"><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Live revenue, costs, profit &amp; break-even</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>“Collected by” and “Paid by” on every line</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Shared budget for co-promoters, private one for you</li></ul></div>
         <div class="pf-visual">
           <div class="lap reveal reveal--lap reveal--d1">
             <div class="lap__lid">
               <span class="lap__cam"></span>
-              <div class="lap__screen"><img src="/assets/shots/light-04-budget.webp" width="1760" height="1100" loading="eager" decoding="async" alt="shoWMe — Know the numbers — and who's holding them."></div>
+              <div class="lap__screen"><img src="/assets/shots/light-04-budget.webp" width="1760" height="1100" loading="eager" decoding="async" alt="shoWMe: Know the numbers, and who's holding them."></div>
             </div>
             <div class="lap__base"></div>
             <div class="lap__cap">Event · Budget Planner</div>
@@ -1388,15 +1496,15 @@ section { position: relative; }
       </div>
 
       <div class="pf-row" id="agreements">
-        <div class="pf-copy reveal"><div class="pf-num">05 — Deals &amp; agreements</div>
+        <div class="pf-copy reveal"><div class="pf-num">05 · Deals &amp; agreements</div>
           <h2 class="pf-h">The deal is the agreement.</h2>
-          <p class="pf-b">The terms you agreed become the contract — fee, split, escalators, date, room — filled straight from the deal, with nothing retyped. Each party confirms their own side; the moment the last one does, the terms freeze as the record. Reopening takes an approval and leaves a trace, and a PDF is always one click away.</p>
-          <ul class="pf-list"><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Guarantee, door split, guarantee-vs-door or rental</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Each party confirms their side; terms freeze on confirmation</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>PDF any time — e-signature on the roadmap</li></ul></div>
+          <p class="pf-b">The terms you agreed become the contract (fee, split, escalators, date, room) filled straight from the deal, with nothing retyped. Each party confirms their own side; the moment the last one does, the terms freeze as the record. Reopening takes an approval and leaves a trace, and a PDF is always one click away.</p>
+          <ul class="pf-list"><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Guarantee, door split, guarantee-vs-door or rental</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Each party confirms their side; terms freeze on confirmation</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>PDF any time, e-signature on the roadmap</li></ul></div>
         <div class="pf-visual">
           <div class="lap reveal reveal--lap reveal--d1">
             <div class="lap__lid">
               <span class="lap__cam"></span>
-              <div class="lap__screen"><img src="/assets/shots/light-05-agreement.webp" width="1760" height="1100" loading="eager" decoding="async" alt="shoWMe — The deal is the agreement."></div>
+              <div class="lap__screen"><img src="/assets/shots/light-05-agreement.webp" width="1760" height="1100" loading="eager" decoding="async" alt="shoWMe: The deal is the agreement."></div>
             </div>
             <div class="lap__base"></div>
             <div class="lap__cap">Event · Agreement</div>
@@ -1405,15 +1513,15 @@ section { position: relative; }
       </div>
 
       <div class="pf-row pf-row--rev" id="team">
-        <div class="pf-copy reveal"><div class="pf-num">06 — Team &amp; tasks</div>
+        <div class="pf-copy reveal"><div class="pf-num">06 · Team &amp; tasks</div>
           <h2 class="pf-h">Your team, your crew, and everything to do.</h2>
-          <p class="pf-b">Bring your own people into shoWMe — booking, production, sound, door, box office — each with access to exactly what they need. Roles are per profile, so someone can be an admin on one and a viewer on another. Reusable groups drop a whole crew onto an event in one action, and only admins take a seat: viewers and crew are free.</p>
-          <ul class="pf-list"><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Per-profile roles: owner, admin, editor, viewer, crew</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Reusable groups — add the whole crew in one action</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Tasks by group or person, with due dates and reminders</li></ul></div>
+          <p class="pf-b">Bring your own people into shoWMe (booking, production, sound, door, box office) each with access to exactly what they need. Roles are per profile, so someone can be an admin on one and a viewer on another. Reusable groups drop a whole crew onto an event in one action, and only admins take a seat: viewers and crew are free.</p>
+          <ul class="pf-list"><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Per-profile roles: owner, admin, editor, viewer, crew</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Reusable groups: add the whole crew in one action</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Tasks by group or person, with due dates and reminders</li></ul></div>
         <div class="pf-visual">
           <div class="lap reveal reveal--lap reveal--d1">
             <div class="lap__lid">
               <span class="lap__cam"></span>
-              <div class="lap__screen"><img src="/assets/shots/light-06-team.webp" width="1760" height="1100" loading="eager" decoding="async" alt="shoWMe — Your team, your crew, and everything to do."></div>
+              <div class="lap__screen"><img src="/assets/shots/light-06-team.webp" width="1760" height="1100" loading="eager" decoding="async" alt="shoWMe: Your team, your crew, and everything to do."></div>
             </div>
             <div class="lap__base"></div>
             <div class="lap__cap">Team &amp; groups</div>
@@ -1422,15 +1530,15 @@ section { position: relative; }
       </div>
 
       <div class="pf-row" id="collaborators">
-        <div class="pf-copy reveal"><div class="pf-num">07 — Collaborators</div>
-          <h2 class="pf-h">Every side of the event — and only their side.</h2>
-          <p class="pf-b">This is the heart of shoWMe. Instead of a system built for one role — venue only, agent only, promoter only — the venue, the performer, the agent and the promoter all work on one event. Visibility follows the relationship: the operator running the event sees the whole picture, co-promoters sharing a budget see it with them, and every arm's-length party sees their own deal and their own settlement. A performer never sees another performer's split, and a rental venue never sees the acts' fees.</p>
-          <ul class="pf-list"><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Venues, performers, agents, promoters &amp; crew on one event</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Party-scoped by default — each side sees only their own deal</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Off-platform parties held in place until they claim their profile</li></ul></div>
+        <div class="pf-copy reveal"><div class="pf-num">07 · Collaborators</div>
+          <h2 class="pf-h">Every side of the event, and only their side.</h2>
+          <p class="pf-b">This is the heart of shoWMe. Instead of a system built for one role (venue only, agent only, promoter only) the venue, the performer, the agent and the promoter all work on one event. Visibility follows the relationship: the operator running the event sees the whole picture, co-promoters sharing a budget see it with them, and every arm's-length party sees their own deal and their own settlement. A performer never sees another performer's split, and a rental venue never sees the acts' fees.</p>
+          <ul class="pf-list"><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Venues, performers, agents, promoters &amp; crew on one event</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Party-scoped by default: each side sees only their own deal</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Off-platform parties held in place until they claim their profile</li></ul></div>
         <div class="pf-visual">
           <div class="lap reveal reveal--lap reveal--d1">
             <div class="lap__lid">
               <span class="lap__cam"></span>
-              <div class="lap__screen"><img src="/assets/shots/light-07-collaborators.webp" width="1760" height="1100" loading="eager" decoding="async" alt="shoWMe — Every side of the event — and only their side."></div>
+              <div class="lap__screen"><img src="/assets/shots/light-07-collaborators.webp" width="1760" height="1100" loading="eager" decoding="async" alt="shoWMe: Every side of the event, and only their side."></div>
             </div>
             <div class="lap__base"></div>
             <div class="lap__cap">Event · Collaborators</div>
@@ -1439,15 +1547,15 @@ section { position: relative; }
       </div>
 
       <div class="pf-row pf-row--rev" id="settlements">
-        <div class="pf-copy reveal"><div class="pf-num">08 — Settlement</div>
+        <div class="pf-copy reveal"><div class="pf-num">08 · Settlement</div>
           <h2 class="pf-h">Everyone settles from the same numbers.</h2>
-          <p class="pf-b">shoWMe works out who owes whom: what each party earned under their deal, minus the cash they already collected or fronted on someone else's behalf. The nets always cancel out, so the math can't quietly drift. Comment, revise and approve in one thread; on finalise the figures are frozen as a record and invoices come off the same lines. shoWMe tracks the money — it never holds it.</p>
-          <ul class="pf-list"><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>One settlement per party — each sees their own</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>“Who owes whom”, recomputed live from the budget</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Mark paid or already handled; invoices from the same lines</li></ul></div>
+          <p class="pf-b">shoWMe works out who owes whom: what each party earned under their deal, minus the cash they already collected or fronted on someone else's behalf. The nets always cancel out, so the math can't quietly drift. Comment, revise and approve in one thread; on finalise the figures are frozen as a record and invoices come off the same lines. shoWMe tracks the money; it never holds it.</p>
+          <ul class="pf-list"><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>One settlement per party: each sees their own</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>“Who owes whom”, recomputed live from the budget</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Mark paid or already handled; invoices from the same lines</li></ul></div>
         <div class="pf-visual">
           <div class="lap reveal reveal--lap reveal--d1">
             <div class="lap__lid">
               <span class="lap__cam"></span>
-              <div class="lap__screen"><img src="/assets/shots/light-08-settlement.webp" width="1760" height="1100" loading="eager" decoding="async" alt="shoWMe — Everyone settles from the same numbers."></div>
+              <div class="lap__screen"><img src="/assets/shots/light-08-settlement.webp" width="1760" height="1100" loading="eager" decoding="async" alt="shoWMe: Everyone settles from the same numbers."></div>
             </div>
             <div class="lap__base"></div>
             <div class="lap__cap">Settlement · Marlo Vance</div>
@@ -1456,15 +1564,15 @@ section { position: relative; }
       </div>
 
       <div class="pf-row" id="audience">
-        <div class="pf-copy reveal"><div class="pf-num">09 — Audience</div>
+        <div class="pf-copy reveal"><div class="pf-num">09 · Audience</div>
           <h2 class="pf-h">Keep the crowd you earned.</h2>
-          <p class="pf-b">Every published event collects RSVPs — name, email, city — into a list that belongs to your profile, not to a ticketing company. See who keeps turning up across your events, where they're based, and export the whole thing whenever you want.</p>
-          <ul class="pf-list"><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>RSVPs captured on your public event pages</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>One list per profile, deduplicated by email</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Yours to export — no lock-in</li></ul></div>
+          <p class="pf-b">Every published event collects RSVPs (name, email, city) into a list that belongs to your profile, not to a ticketing company. See who keeps turning up across your events, where they're based, and export the whole thing whenever you want.</p>
+          <ul class="pf-list"><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>RSVPs captured on your public event pages</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>One list per profile, deduplicated by email</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Yours to export, no lock-in</li></ul></div>
         <div class="pf-visual">
           <div class="lap reveal reveal--lap reveal--d1">
             <div class="lap__lid">
               <span class="lap__cam"></span>
-              <div class="lap__screen"><img src="/assets/shots/light-09-audience.webp" width="1760" height="1100" loading="eager" decoding="async" alt="shoWMe — Keep the crowd you earned."></div>
+              <div class="lap__screen"><img src="/assets/shots/light-09-audience.webp" width="1760" height="1100" loading="eager" decoding="async" alt="shoWMe: Keep the crowd you earned."></div>
             </div>
             <div class="lap__base"></div>
             <div class="lap__cap">Audience</div>
@@ -1473,7 +1581,7 @@ section { position: relative; }
       </div>
 
       <div class="pf-row pf-row--rev" id="analytics">
-        <div class="pf-copy reveal"><div class="pf-num">10 — Reports</div>
+        <div class="pf-copy reveal"><div class="pf-num">10 · Reports</div>
           <h2 class="pf-h">Every event makes you smarter.</h2>
           <p class="pf-b">Because the whole event already lives in one place, reporting is a by-product rather than a chore: revenue, costs, profit and margin per event, and a projection across your confirmed pipeline. Setlists your performers file turn into the PRO report you have to submit anyway.</p>
           <ul class="pf-list"><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Revenue, costs, profit &amp; margin per event</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Projections across your confirmed pipeline</li><li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg>Setlists → PRO reports for STIM, GEMA &amp; PRS</li></ul></div>
@@ -1481,7 +1589,7 @@ section { position: relative; }
           <div class="lap reveal reveal--lap reveal--d1">
             <div class="lap__lid">
               <span class="lap__cam"></span>
-              <div class="lap__screen"><img src="/assets/shots/light-10-projections.webp" width="1760" height="1100" loading="eager" decoding="async" alt="shoWMe — Every event makes you smarter."></div>
+              <div class="lap__screen"><img src="/assets/shots/light-10-projections.webp" width="1760" height="1100" loading="eager" decoding="async" alt="shoWMe: Every event makes you smarter."></div>
             </div>
             <div class="lap__base"></div>
             <div class="lap__cap">Financial Projections</div>
@@ -1503,7 +1611,7 @@ section { position: relative; }
         Join the new ecosystem for the live industry and start saving time and money now.
       </p>
       <div class="cta__actions reveal reveal--d2">
-        <a href="mailto:ran@showme.music" class="btn btn--primary btn--lg">
+        <a href="contact.html" class="btn btn--primary btn--lg">
           Request early access
           <svg class="btn__arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
         </a>
@@ -1529,7 +1637,7 @@ section { position: relative; }
             </span>
             <span>shoWMe</span>
           </a>
-          <p class="footer__tag">Built for events. Benefits everyone. Early access for venues, promoters &amp; booking agents across Scandinavia and Germany — early access for performers worldwide.</p>
+          <p class="footer__tag">Built for events. Benefits everyone. Early access available now.</p>
         </div>
         <div>
           <h4>Product</h4>
@@ -1544,8 +1652,9 @@ section { position: relative; }
           <h4>Company</h4>
           <ul>
             <li><a href="about.html">About</a></li>
-            <li><a href="#">Terms &amp; Conditions</a></li>
-            <li><a href="#">Privacy Policy</a></li>
+            <li><a href="terms.html">Terms &amp; Conditions</a></li>
+            <li><a href="privacy.html">Privacy Policy</a></li>
+            <li><a href="cookies.html">Cookie Policy</a></li>
           </ul>
         </div>
         <div>

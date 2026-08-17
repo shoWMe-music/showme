@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>shoWMe Terms of Service</title>
+  <meta name="description" content="The shoWMe Terms of Service. The terms governing your use of the shoWMe platform for planning, managing and settling live events.">
+
+  <link rel="stylesheet" href="/src/styles/tokens.css">
+
+  <style>
+
+/* ---------- shoWMe Landing — tokens & base ---------- */
+
+:root {
+  --stage-glow: radial-gradient(ellipse at 50% 0%, rgba(255,194,102,.45) 0%, rgba(238,87,70,.18) 35%, transparent 70%); /* @kind color */
+  --spotlight: conic-gradient(from 180deg at 50% 100%, transparent 0deg, rgba(255,233,184,.0) 150deg, rgba(255,233,184,.35) 180deg, rgba(255,233,184,.0) 210deg, transparent 360deg); /* @kind color */
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 24px;
+  --radius-xl: 40px;
+  --container: 1320px;
+  --ease-out: cubic-bezier(.2,.8,.2,1); /* @kind other */
+  --ease-inout: cubic-bezier(.7,0,.3,1); /* @kind other */
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--ink-1000);
+  color: var(--ink-100);
+  font-family: var(--font-sans);
+  font-size: 17px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; border: 0; cursor: pointer; background: none; color: inherit; }
+img { display: block; max-width: 100%; }
+
+.container {
+  width: min(100% - 48px, var(--container));
+  margin-inline: auto;
+}
+
+/* ---------- Type ---------- */
+.display {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 0.95;
+}
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--brand-gold);
+  font-weight: 500;
+}
+
+/* ---------- Noise overlay ---------- */
+body::before {
+  content: "";
+  position: fixed; inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: .045;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+/* ---------- Header ---------- */
+.site-header {
+  padding: 22px 0;
+  position: relative;
+  z-index: 5;
+}
+.site-header__row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 24px;
+}
+.site-header__actions {
+  display: flex; align-items: center; gap: 8px;
+}
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  color: #fff;
+}
+.brand__mark {
+  width: 34px; height: 34px;
+  display: grid; place-items: center;
+}
+.brand__mark svg { width: 100%; height: 100%; }
+
+/* ---------- Section base ---------- */
+section { position: relative; }
+
+/* ---------- Footer ---------- */
+.footer {
+  padding: 80px 0 40px;
+  border-top: 1px solid rgba(255,233,184,.08);
+  background: var(--ink-950);
+}
+.footer__grid {
+  display: grid;
+  grid-template-columns: 2fr repeat(3, 1fr);
+  gap: 60px;
+  margin-bottom: 60px;
+}
+.footer__brand { max-width: 320px; }
+.footer__tag {
+  color: var(--ink-400);
+  font-size: 14px;
+  margin-top: 16px;
+}
+.footer h4 {
+  font-size: 12px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-400);
+  margin: 0 0 16px;
+  font-weight: 500;
+}
+.footer ul { list-style: none; padding: 0; margin: 0; }
+.footer li { margin-bottom: 10px; }
+.footer li a {
+  color: var(--ink-200);
+  font-size: 14.5px;
+  transition: color .2s;
+}
+.footer li a:hover { color: var(--brand-gold); }
+.footer__bottom {
+  display: flex; justify-content: space-between;
+  padding-top: 32px;
+  border-top: 1px solid rgba(255,233,184,.06);
+  font-size: 13px;
+  color: var(--ink-400);
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1060px) {
+  .footer__grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 600px) {
+  .footer__grid { grid-template-columns: 1fr; }
+}
+
+/* ---------- Layering: keep all real UI above the grain overlay ---------- */
+.site-header, .legal, .footer { position: relative; z-index: 2; }
+.site-header { z-index: 5; }
+
+/* ---------- Mobile polish ---------- */
+@media (max-width: 760px) {
+  .brand { font-size: 19px; }
+  .brand__mark { width: 28px; height: 28px; }
+  .site-header__actions .btn { padding: 10px 16px; font-size: 13.5px; }
+  .footer__bottom { flex-direction: column; gap: 8px; }
+}
+
+/* ---------- Mobile hamburger menu (mobile-only, ≤760px) ---------- */
+.nav-burger { display: none; }
+.mobile-menu { display: none; }
+/* Lock background scroll while the menu is open (paired with lenis.stop() in JS) */
+html.menu-open, html.menu-open body { overflow: hidden; }
+
+@media (max-width: 760px) {
+  /* Header collapses to brand + burger — the inline actions/links are hidden */
+  .hero__header-actions > .btn,
+  .site-header__actions > .btn,
+  .nav__cta > .btn { display: none; }
+  .nav__links { display: none; }
+
+  .nav-burger {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    width: 44px; height: 44px;
+    position: relative;
+    z-index: 150;
+    border-radius: 10px;
+    transition: opacity .2s var(--ease-out);
+  }
+  .nav-burger span {
+    display: block;
+    width: 22px; height: 2px;
+    background: var(--ink-100);
+    border-radius: 2px;
+  }
+  html.menu-open .nav-burger { opacity: 0; pointer-events: none; }
+
+  .mobile-menu {
+    display: block;
+    position: fixed; inset: 0;
+    z-index: 200;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .mobile-menu.open { visibility: visible; pointer-events: auto; }
+
+  .mobile-menu__backdrop {
+    position: absolute; inset: 0;
+    background: rgba(10,6,4,.62);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    opacity: 0;
+    transition: opacity .25s var(--ease-out);
+  }
+  .mobile-menu.open .mobile-menu__backdrop { opacity: 1; }
+
+  .mobile-menu__panel {
+    position: absolute; top: 0; left: 0; right: 0;
+    display: flex; flex-direction: column;
+    padding: 78px 24px 32px;
+    background: linear-gradient(180deg, var(--ink-950) 0%, var(--ink-1000) 100%);
+    border-bottom: 1px solid rgba(255,233,184,.1);
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,.7);
+    transform: translateY(-101%);
+    transition: transform .28s var(--ease-out);
+  }
+  .mobile-menu.open .mobile-menu__panel { transform: translateY(0); }
+
+  .mobile-menu__close {
+    position: absolute; top: 16px; right: 18px;
+    width: 44px; height: 44px;
+    display: grid; place-items: center;
+    color: var(--ink-100);
+    border-radius: 10px;
+    transition: color .2s var(--ease-out);
+  }
+  .mobile-menu__close:hover { color: var(--brand-gold); }
+
+  .mobile-menu__nav { display: flex; flex-direction: column; }
+  .mobile-menu__nav a {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 22px;
+    letter-spacing: -0.02em;
+    color: var(--ink-100);
+    padding: 15px 4px;
+    border-bottom: 1px solid rgba(255,233,184,.08);
+    transition: color .2s var(--ease-out);
+  }
+  .mobile-menu__nav a:hover { color: var(--brand-gold); }
+
+  .mobile-menu__cta {
+    margin-top: 24px;
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-menu__panel,
+  .mobile-menu__backdrop,
+  .nav-burger { transition: none; }
+}
+</style>
+
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+
+  <style>
+    /* ---------- Legal document ---------- */
+    .legal {
+      padding: 56px 0 96px;
+      position: relative;
+      overflow: hidden;
+    }
+    .legal__glow {
+      position: absolute; inset: 0;
+      background: var(--stage-glow);
+      pointer-events: none;
+      z-index: -1;
+      opacity: .4;
+    }
+    .legal__doc {
+      max-width: 760px;
+      margin-inline: auto;
+    }
+    .legal__eyebrow {
+      display: inline-flex; align-items: center; gap: 10px;
+      margin-bottom: 22px;
+    }
+    .legal__eyebrow::before {
+      content: "";
+      width: 28px; height: 1px;
+      background: var(--brand-gold);
+    }
+    .legal__title {
+      font-family: var(--font-display);
+      font-weight: 500;
+      font-size: clamp(36px, 5vw, 60px);
+      line-height: 1.02;
+      letter-spacing: -0.03em;
+      margin: 0 0 14px;
+    }
+    .legal__sub {
+      font-size: 18px;
+      color: var(--ink-200);
+      margin: 0 0 6px;
+    }
+    .legal__updated {
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--ink-400);
+      margin: 0 0 40px;
+    }
+
+    .legal__body { color: var(--ink-200); }
+    .legal__body h2 {
+      font-family: var(--font-display);
+      font-weight: 500;
+      font-size: clamp(22px, 2.6vw, 28px);
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+      color: var(--ink-100);
+      margin: 52px 0 16px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid rgba(255,233,184,.09);
+    }
+    .legal__body h2:first-of-type { margin-top: 0; }
+    .legal__body h3 {
+      font-family: var(--font-display);
+      font-weight: 500;
+      font-size: 18.5px;
+      letter-spacing: -0.01em;
+      color: var(--brand-cream);
+      margin: 32px 0 12px;
+    }
+    .legal__body p {
+      font-size: 16.5px;
+      line-height: 1.7;
+      color: var(--ink-300);
+      margin: 0 0 18px;
+    }
+    .legal__body ul {
+      margin: 0 0 18px;
+      padding-left: 22px;
+    }
+    .legal__body li {
+      font-size: 16.5px;
+      line-height: 1.7;
+      color: var(--ink-300);
+      margin-bottom: 8px;
+    }
+    .legal__body li::marker { color: var(--brand-gold); }
+    .legal__body a {
+      color: var(--brand-gold);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .legal__body a:hover { color: var(--brand-red-glow); }
+
+    /* Company info definition block (§1) */
+    .legal__company {
+      margin: 22px 0 6px;
+      padding: 22px 26px;
+      background: linear-gradient(180deg, var(--ink-900), var(--ink-950));
+      border: 1px solid rgba(255,233,184,.1);
+      border-radius: var(--radius-lg);
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 6px 22px;
+    }
+    .legal__company dt {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--ink-400);
+      align-self: baseline;
+      padding-top: 3px;
+    }
+    .legal__company dd {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.6;
+      color: var(--ink-100);
+    }
+
+    @media (max-width: 600px) {
+      .legal { padding: 40px 0 72px; }
+      .legal__company { grid-template-columns: 1fr; gap: 2px 0; padding: 20px 22px; }
+      .legal__company dt { padding-top: 12px; }
+      .legal__company dt:first-child { padding-top: 0; }
+    }
+  </style>
+  <link rel="canonical" href="https://showme.example/terms">
+  <meta name="theme-color" content="#18100C">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="shoWMe">
+  <meta property="og:title" content="shoWMe Terms of Service">
+  <meta property="og:description" content="The shoWMe Terms of Service. The terms governing your use of the shoWMe platform for planning, managing and settling live events.">
+  <meta property="og:url" content="https://showme.example/terms">
+  <meta property="og:image" content="https://showme.example/assets/photo.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="shoWMe Terms of Service">
+  <meta name="twitter:description" content="The shoWMe Terms of Service. The terms governing your use of the shoWMe platform for planning, managing and settling live events.">
+  <meta name="twitter:image" content="https://showme.example/assets/photo.jpg">
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"shoWMe","url":"https://showme.example","logo":"https://showme.example/favicon.svg","description":"Booking + settlement for live events: one shared system for operators, performers, agents and crew."}</script>
+</head>
+<body>
+
+  <!-- ===== MOBILE MENU (≤760px) ===== -->
+  <div class="mobile-menu" id="mobile-menu" aria-hidden="true">
+    <div class="mobile-menu__backdrop" data-menu-close></div>
+    <div class="mobile-menu__panel" role="dialog" aria-modal="true" aria-label="Menu">
+      <button class="mobile-menu__close" type="button" aria-label="Close menu" data-menu-close>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+      </button>
+      <nav class="mobile-menu__nav">
+        <a href="product.html">Product</a>
+        <a href="index.html#ecosystem">Ecosystem</a>
+        <a href="index.html#pricing">Pricing</a>
+        <a href="index.html#why">Why shoWMe</a>
+        <a href="about.html">About</a>
+      </nav>
+      <a href="contact.html" class="btn btn--primary mobile-menu__cta">Get early access</a>
+    </div>
+  </div>
+
+  <!-- ===== NAV ===== -->
+  <header class="site-header">
+    <div class="container site-header__row">
+      <a href="index.html" class="brand">
+        <span class="brand__mark" aria-hidden="true">
+          <svg viewBox="0 0 100 100" fill="none">
+            <defs>
+              <linearGradient id="triG" x1="50%" y1="0%" x2="50%" y2="100%">
+                <stop offset="0%" stop-color="#FFF0C7"></stop>
+                <stop offset="100%" stop-color="#FFC266"></stop>
+              </linearGradient>
+            </defs>
+            <path d="M8 48 A42 42 0 0 1 92 48 L92 92 L8 92 Z" fill="#EE5746"></path>
+            <path d="M50 14 L82 76 L18 76 Z" fill="url(#triG)"></path>
+            <circle cx="50" cy="76" r="6" fill="#EE5746"></circle>
+            <circle cx="34" cy="76" r="5" fill="#EE5746"></circle>
+            <circle cx="66" cy="76" r="5" fill="#EE5746"></circle>
+            <circle cx="22" cy="76" r="4" fill="#EE5746"></circle>
+            <circle cx="78" cy="76" r="4" fill="#EE5746"></circle>
+          </svg>
+        </span>
+        <span>shoWMe</span>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <ul class="topnav__menus">
+          <li class="topnav__item">
+            <button type="button" class="topnav__trigger" aria-haspopup="true" aria-expanded="false">
+              Product
+              <svg class="topnav__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+            </button>
+            <div class="topnav__panel" role="menu">
+              <a role="menuitem" href="product.html#calendar">Calendar</a>
+              <a role="menuitem" href="product.html#agreements">Agreements</a>
+              <a role="menuitem" href="product.html#settlements">Settlement</a>
+              <a role="menuitem" href="index.html#pricing">Pricing</a>
+            </div>
+          </li>
+          <li class="topnav__item">
+            <button type="button" class="topnav__trigger" aria-haspopup="true" aria-expanded="false">
+              Company
+              <svg class="topnav__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+            </button>
+            <div class="topnav__panel" role="menu">
+              <a role="menuitem" href="about.html">About</a>
+              <a role="menuitem" href="terms.html">Terms &amp; Conditions</a>
+              <a role="menuitem" href="privacy.html">Privacy Policy</a>
+              <a role="menuitem" href="cookies.html">Cookie Policy</a>
+            </div>
+          </li>
+          <li class="topnav__item">
+            <button type="button" class="topnav__trigger" aria-haspopup="true" aria-expanded="false">
+              Contact
+              <svg class="topnav__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+            </button>
+            <div class="topnav__panel" role="menu">
+              <a role="menuitem" href="contact.html">Contact form</a>
+              <a role="menuitem" href="https://showme.music/">showme.music</a>
+            </div>
+          </li>
+        </ul>
+        <div class="topnav__actions">
+          <a href="/login" class="btn btn--ghost">Log in</a>
+          <a href="contact.html" class="btn btn--primary">Get early access</a>
+        </div>
+        <button class="nav-burger" type="button" aria-label="Menu" aria-expanded="false" aria-controls="mobile-menu">
+          <span></span><span></span><span></span>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ===== LEGAL DOCUMENT ===== -->
+  <main class="legal">
+    <div class="legal__glow"></div>
+    <div class="container">
+      <div class="legal__doc">
+        <span class="eyebrow legal__eyebrow">Legal</span>
+        <h1 class="legal__title">Terms of Service</h1>
+        <p class="legal__sub">shoWMe (showme.music)</p>
+        <p class="legal__updated">Last updated: 02 April 2026</p>
+
+        <div class="legal__body">
+          <h2>1. Acceptance of Terms</h2>
+          <p>By creating an account, accessing, or using shoWMe, you agree to these Terms of Service and the <a href="privacy.html">Privacy Policy</a>. If you do not agree, you must not use the platform.</p>
+          <p>shoWMe is operated by:</p>
+          <dl class="legal__company">
+            <dt>Company Name</dt>
+            <dd>Showme AB</dd>
+            <dt>Organization Number</dt>
+            <dd>559577-1402</dd>
+            <dt>Registered Address</dt>
+            <dd>HETCH, Redaregatan 48, 252 36 Helsingborg, Sweden (C/O Showme AB)</dd>
+            <dt>Jurisdiction</dt>
+            <dd>Skåne län, Helsingborg kommun, Sweden</dd>
+          </dl>
+
+          <h2>2. Description of Service</h2>
+          <p>shoWMe is a platform for planning, managing, and collaborating on live events. It includes tools for communication, scheduling, financial planning, analytics, and AI-driven services.</p>
+          <p>shoWMe may modify, update, or discontinue features at any time.</p>
+
+          <h2>3. User Accounts</h2>
+          <p>You agree to provide accurate and complete information when creating an account.</p>
+          <p>You are responsible for:</p>
+          <ul>
+            <li>Maintaining account security</li>
+            <li>All activity under your account</li>
+          </ul>
+          <p>shoWMe may suspend or terminate accounts that violate these Terms.</p>
+
+          <h2>4. Data Use, Platform Intelligence, and Consent</h2>
+
+          <h3>4.1 Platform Intelligence and System Improvement</h3>
+          <p>shoWMe operates as a data-driven platform. To provide and improve services, we process user-generated data, including behavioral, operational, and interaction data.</p>
+          <p>This includes use of data to:</p>
+          <ul>
+            <li>Develop and improve algorithms, AI systems, and platform functionality</li>
+            <li>Generate analytics, benchmarks, and insights</li>
+            <li>Improve matching, planning, and event outcomes</li>
+          </ul>
+          <p>Where possible, data is aggregated, pseudonymized, or anonymized.</p>
+
+          <h3>4.2 Data Participation Model</h3>
+          <p>shoWMe provides features powered by aggregated platform data.</p>
+          <p>By using the platform, you acknowledge that:</p>
+          <ul>
+            <li>Non-personal and non-financial data may be used to generate insights and analytics</li>
+            <li>You benefit from analytics, recommendations, and services derived from shared data</li>
+            <li>This model is a core part of the service.</li>
+          </ul>
+
+          <h3>4.3 Consent-Based Processing</h3>
+          <p>Certain data processing activities, including AI training, enhanced analytics, and data-sharing features, are based on your consent where required by law.</p>
+          <p>By agreeing to these Terms and using the platform, you acknowledge and consent to such processing as described in these Terms and the Privacy Policy.</p>
+
+          <h3>4.4 Opt-Out and Withdrawal</h3>
+          <p>You may withdraw from specific data processing activities at any time by:</p>
+          <ul>
+            <li>Contacting <a href="mailto:info@showme.music">info@showme.music</a></li>
+            <li>Using available account settings (if provided)</li>
+          </ul>
+          <p>Upon withdrawal:</p>
+          <ul>
+            <li>Your data will no longer be used for those specific purposes</li>
+            <li>Certain features may be limited or unavailable</li>
+          </ul>
+          <p>Withdrawal does not affect prior lawful processing.</p>
+
+          <h3>4.5 AI and Automated Systems</h3>
+          <p>shoWMe may use AI and automated systems to:</p>
+          <ul>
+            <li>Analyze data</li>
+            <li>Provide recommendations and forecasts</li>
+            <li>Assist with communication and planning</li>
+          </ul>
+          <p>These systems are assistive tools. shoWMe does not guarantee accuracy or outcomes.</p>
+
+          <h3>4.6 CRM and Contact Data</h3>
+          <p>If you upload contact or CRM data:</p>
+          <ul>
+            <li>It may be processed to identify and improve relationships and communication flows</li>
+            <li>It may be compared with other user data to enhance system functionality</li>
+          </ul>
+          <p>shoWMe does not share your contact lists directly with other users.</p>
+          <p>You are responsible for ensuring you have the legal right to upload such data.</p>
+          <p>You may opt out of this functionality.</p>
+
+          <h2>5. Profiles and Public Information</h2>
+          <p>User profiles are public by default and may be accessible to other users and the public.</p>
+          <p>Public information may include:</p>
+          <ul>
+            <li>Professional details</li>
+            <li>Event-related activity</li>
+          </ul>
+          <p>Personal and financial data are not publicly displayed.</p>
+
+          <h2>6. Data Protection Commitments</h2>
+          <p>shoWMe commits that:</p>
+          <ul>
+            <li>Personal and financial data will not be sold to third parties</li>
+            <li>Data will be processed only as described in these Terms and the Privacy Policy</li>
+            <li>Appropriate security measures are in place</li>
+          </ul>
+
+          <h2>7. Payments and Financial Features</h2>
+          <p>shoWMe may provide tools related to financial planning, settlements, or payments.</p>
+          <ul>
+            <li>shoWMe is not a financial institution</li>
+            <li>Third-party providers may be used</li>
+            <li>Users are responsible for agreements and transactions</li>
+          </ul>
+          <p>shoWMe is not liable for disputes between users.</p>
+
+          <h2>8. User Responsibilities</h2>
+          <p>You agree not to:</p>
+          <ul>
+            <li>Provide false or misleading information</li>
+            <li>Use the platform unlawfully</li>
+            <li>Interfere with system functionality</li>
+            <li>Abuse communication tools</li>
+          </ul>
+
+          <h2>9. Intellectual Property</h2>
+          <p>shoWMe owns all platform technology, systems, and content.</p>
+          <p>You retain ownership of your content but grant shoWMe a license to use it for operating and improving the platform.</p>
+
+          <h2>10. Limitation of Liability</h2>
+          <p>shoWMe is provided "as is."</p>
+          <p>To the maximum extent permitted by law, shoWMe is not liable for:</p>
+          <ul>
+            <li>Loss of revenue or business</li>
+            <li>Errors in analytics or AI outputs</li>
+            <li>User disputes</li>
+            <li>Service interruptions</li>
+          </ul>
+
+          <h2>11. Termination</h2>
+          <p>shoWMe may suspend or terminate access at any time for violation of these Terms.</p>
+          <p>You may stop using the service at any time.</p>
+
+          <h2>12. Changes to Terms</h2>
+          <p>shoWMe may update these Terms. Continued use means acceptance of updated Terms.</p>
+
+          <h2>13. Governing Law</h2>
+          <p>These Terms are governed by Swedish law, with jurisdiction in Skåne län, Helsingborg kommun.</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer__grid">
+        <div class="footer__brand">
+          <a href="index.html" class="brand">
+            <span class="brand__mark" aria-hidden="true">
+              <svg viewBox="0 0 100 100" fill="none">
+                <path d="M8 48 A42 42 0 0 1 92 48 L92 92 L8 92 Z" fill="#EE5746"></path>
+                <path d="M50 14 L82 76 L18 76 Z" fill="#FFE1A0"></path>
+                <circle cx="50" cy="76" r="6" fill="#EE5746"></circle>
+                <circle cx="34" cy="76" r="5" fill="#EE5746"></circle>
+                <circle cx="66" cy="76" r="5" fill="#EE5746"></circle>
+                <circle cx="22" cy="76" r="4" fill="#EE5746"></circle>
+                <circle cx="78" cy="76" r="4" fill="#EE5746"></circle>
+              </svg>
+            </span>
+            <span>shoWMe</span>
+          </a>
+          <p class="footer__tag">Built for events. Benefits everyone. Early access available now.</p>
+        </div>
+        <div>
+          <h4>Product</h4>
+          <ul>
+            <li><a href="product.html#calendar">Calendar</a></li>
+            <li><a href="product.html#agreements">Agreements</a></li>
+            <li><a href="product.html#settlements">Settlement</a></li>
+            <li><a href="index.html#pricing">Pricing</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Company</h4>
+          <ul>
+            <li><a href="about.html">About</a></li>
+            <li><a href="terms.html">Terms &amp; Conditions</a></li>
+            <li><a href="privacy.html">Privacy Policy</a></li>
+            <li><a href="cookies.html">Cookie Policy</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Contact</h4>
+          <ul>
+            <li><a href="contact.html">Contact form</a></li>
+            <li><a href="https://showme.music">showme.music</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer__bottom">
+        <span>© 2026 shoWMe. All rights reserved.</span>
+      </div>
+    </div>
+  </footer>
+
+
+
+<script type="module" src="/src/main.ts"></script>
+</body></html>

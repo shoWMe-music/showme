@@ -15,7 +15,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { adminAlertKind, calendarItemType, templateCategory } from "./enums";
 import { events, eventParticipants } from "./events";
-import { profiles, users } from "./identity";
+import { groups, profiles, users } from "./identity";
 
 /**
  * Module 10 — Communications & miscellany. The cross-cutting tables: the
@@ -84,6 +84,9 @@ export const tasks = pgTable("tasks", {
   eventId: uuid("event_id").references(() => events.id, { onDelete: "cascade" }),
   ownerProfileId: uuid("owner_profile_id").references(() => profiles.id),
   ownerUserId: text("owner_user_id").references(() => users.id),
+  // Optional named work-group (reusable roster) this task belongs to — drives
+  // the Tasks screen's group-by-work-group view. Null = ungrouped/scope-only.
+  groupId: uuid("group_id").references(() => groups.id, { onDelete: "set null" }),
   title: text("title").notNull(),
   description: text("description"),
   completed: boolean("completed").notNull().default(false),

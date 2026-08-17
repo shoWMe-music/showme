@@ -13,7 +13,7 @@ const MeResponse = z.object({
   memberships: z.array(
     z.object({
       profileId: z.string(),
-      kind: z.enum(["operator", "performer", "professional", "agent"]),
+      kind: z.enum(["operator", "performer", "team_and_crew", "agent"]),
       role: z.enum(["owner", "admin", "editor", "viewer", "crew"]),
     }),
   ),

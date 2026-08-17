@@ -1,0 +1,58 @@
+/* ============================================================================
+   shoWMe — button system  ·  global (non-module) stylesheet
+   The `.btn` pill + modifiers used by the static marketing site and any other
+   non-React surface. Values mirror the React <Button> component's `cta` / `ghost`
+   variants (see components/atoms/Button/Button.module.css) — ONE visual spec,
+   two bindings: this global sheet for plain HTML, the CSS-module component for
+   the app. Colors + easing come from tokens.css, which must be loaded first.
+   ========================================================================== */
+
+.btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 13px 22px;
+  border-radius: 999px;
+  font-size: 14.5px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  transition: transform .2s var(--ease-out), background .2s, box-shadow .2s, color .2s;
+  white-space: nowrap;
+}
+
+/* --- ghost: text-only, gold on hover --- */
+.btn--ghost { color: var(--ink-100); }
+.btn--ghost:hover { color: var(--brand-gold); }
+
+/* --- outline: hairline border, gold on hover --- */
+.btn--outline {
+  border: 1px solid rgba(255, 233, 184, .22);
+  color: var(--ink-100);
+}
+.btn--outline:hover {
+  border-color: var(--brand-gold);
+  color: var(--brand-gold);
+}
+
+/* --- primary: the brand pill CTA (mirrors <Button variant="cta">) --- */
+.btn--primary {
+  background: linear-gradient(135deg, var(--brand-red) 0%, var(--brand-amber) 100%);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 8px 28px -10px rgba(238, 87, 70, .6), inset 0 1px 0 rgba(255, 255, 255, .3);
+}
+.btn--primary:hover {
+  box-shadow: 0 14px 38px -10px rgba(238, 87, 70, .8), inset 0 1px 0 rgba(255, 255, 255, .4);
+}
+
+/* --- large --- */
+.btn--lg { padding: 17px 28px; font-size: 15.5px; }
+
+/* --- trailing arrow slides on hover --- */
+.btn__arrow { transition: transform .25s var(--ease-out); }
+.btn:hover .btn__arrow { transform: translateX(3px); }
+
+/* Shared tactile feedback on every variant: gentle hover lift, quick press. */
+.btn:hover { transform: translateY(-1px); }
+.btn:active { transform: translateY(0) scale(.985); transition-duration: .09s; }
+@media (prefers-reduced-motion: reduce) {
+  .btn:hover, .btn:active { transform: none; }
+}

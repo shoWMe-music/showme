@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>shoWMe Cookie Policy</title>
+  <meta name="description" content="The shoWMe Cookie Policy: how shoWMe uses cookies and similar technologies, the cookie categories we set, and how to manage your consent and preferences.">
+
+  <link rel="stylesheet" href="/src/styles/tokens.css">
+
+  <style>
+
+/* ---------- shoWMe Landing — tokens & base ---------- */
+
+:root {
+  --stage-glow: radial-gradient(ellipse at 50% 0%, rgba(255,194,102,.45) 0%, rgba(238,87,70,.18) 35%, transparent 70%); /* @kind color */
+  --spotlight: conic-gradient(from 180deg at 50% 100%, transparent 0deg, rgba(255,233,184,.0) 150deg, rgba(255,233,184,.35) 180deg, rgba(255,233,184,.0) 210deg, transparent 360deg); /* @kind color */
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 24px;
+  --radius-xl: 40px;
+  --container: 1320px;
+  --ease-out: cubic-bezier(.2,.8,.2,1); /* @kind other */
+  --ease-inout: cubic-bezier(.7,0,.3,1); /* @kind other */
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--ink-1000);
+  color: var(--ink-100);
+  font-family: var(--font-sans);
+  font-size: 17px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; border: 0; cursor: pointer; background: none; color: inherit; }
+img { display: block; max-width: 100%; }
+
+.container {
+  width: min(100% - 48px, var(--container));
+  margin-inline: auto;
+}
+
+/* ---------- Type ---------- */
+.display {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 0.95;
+}
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--brand-gold);
+  font-weight: 500;
+}
+
+/* ---------- Noise overlay ---------- */
+body::before {
+  content: "";
+  position: fixed; inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: .045;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+/* ---------- Header ---------- */
+.site-header {
+  padding: 22px 0;
+  position: relative;
+  z-index: 5;
+}
+.site-header__row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 24px;
+}
+.site-header__actions {
+  display: flex; align-items: center; gap: 8px;
+}
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  color: #fff;
+}
+.brand__mark {
+  width: 34px; height: 34px;
+  display: grid; place-items: center;
+}
+.brand__mark svg { width: 100%; height: 100%; }
+
+/* ---------- Section base ---------- */
+section { position: relative; }
+
+/* ---------- Footer ---------- */
+.footer {
+  padding: 80px 0 40px;
+  border-top: 1px solid rgba(255,233,184,.08);
+  background: var(--ink-950);
+}
+.footer__grid {
+  display: grid;
+  grid-template-columns: 2fr repeat(3, 1fr);
+  gap: 60px;
+  margin-bottom: 60px;
+}
+.footer__brand { max-width: 320px; }
+.footer__tag {
+  color: var(--ink-400);
+  font-size: 14px;
+  margin-top: 16px;
+}
+.footer h4 {
+  font-size: 12px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-400);
+  margin: 0 0 16px;
+  font-weight: 500;
+}
+.footer ul { list-style: none; padding: 0; margin: 0; }
+.footer li { margin-bottom: 10px; }
+.footer li a {
+  color: var(--ink-200);
+  font-size: 14.5px;
+  transition: color .2s;
+}
+.footer li a:hover { color: var(--brand-gold); }
+.footer__bottom {
+  display: flex; justify-content: space-between;
+  padding-top: 32px;
+  border-top: 1px solid rgba(255,233,184,.06);
+  font-size: 13px;
+  color: var(--ink-400);
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1060px) {
+  .footer__grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 600px) {
+  .footer__grid { grid-template-columns: 1fr; }
+}
+
+/* ---------- Layering: keep all real UI above the grain overlay ---------- */
+.site-header, .legal, .footer { position: relative; z-index: 2; }
+.site-header { z-index: 5; }
+
+/* ---------- Mobile polish ---------- */
+@media (max-width: 760px) {
+  .brand { font-size: 19px; }
+  .brand__mark { width: 28px; height: 28px; }
+  .site-header__actions .btn { padding: 10px 16px; font-size: 13.5px; }
+  .footer__bottom { flex-direction: column; gap: 8px; }
+}
+
+/* ---------- Mobile hamburger menu (mobile-only, ≤760px) ---------- */
+.nav-burger { display: none; }
+.mobile-menu { display: none; }
+/* Lock background scroll while the menu is open (paired with lenis.stop() in JS) */
+html.menu-open, html.menu-open body { overflow: hidden; }
+
+@media (max-width: 760px) {
+  /* Header collapses to brand + burger — the inline actions/links are hidden */
+  .hero__header-actions > .btn,
+  .site-header__actions > .btn,
+  .nav__cta > .btn { display: none; }
+  .nav__links { display: none; }
+
+  .nav-burger {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    width: 44px; height: 44px;
+    position: relative;
+    z-index: 150;
+    border-radius: 10px;
+    transition: opacity .2s var(--ease-out);
+  }
+  .nav-burger span {
+    display: block;
+    width: 22px; height: 2px;
+    background: var(--ink-100);
+    border-radius: 2px;
+  }
+  html.menu-open .nav-burger { opacity: 0; pointer-events: none; }
+
+  .mobile-menu {
+    display: block;
+    position: fixed; inset: 0;
+    z-index: 200;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .mobile-menu.open { visibility: visible; pointer-events: auto; }
+
+  .mobile-menu__backdrop {
+    position: absolute; inset: 0;
+    background: rgba(10,6,4,.62);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    opacity: 0;
+    transition: opacity .25s var(--ease-out);
+  }
+  .mobile-menu.open .mobile-menu__backdrop { opacity: 1; }
+
+  .mobile-menu__panel {
+    position: absolute; top: 0; left: 0; right: 0;
+    display: flex; flex-direction: column;
+    padding: 78px 24px 32px;
+    background: linear-gradient(180deg, var(--ink-950) 0%, var(--ink-1000) 100%);
+    border-bottom: 1px solid rgba(255,233,184,.1);
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,.7);
+    transform: translateY(-101%);
+    transition: transform .28s var(--ease-out);
+  }
+  .mobile-menu.open .mobile-menu__panel { transform: translateY(0); }
+
+  .mobile-menu__close {
+    position: absolute; top: 16px; right: 18px;
+    width: 44px; height: 44px;
+    display: grid; place-items: center;
+    color: var(--ink-100);
+    border-radius: 10px;
+    transition: color .2s var(--ease-out);
+  }
+  .mobile-menu__close:hover { color: var(--brand-gold); }
+
+  .mobile-menu__nav { display: flex; flex-direction: column; }
+  .mobile-menu__nav a {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 22px;
+    letter-spacing: -0.02em;
+    color: var(--ink-100);
+    padding: 15px 4px;
+    border-bottom: 1px solid rgba(255,233,184,.08);
+    transition: color .2s var(--ease-out);
+  }
+  .mobile-menu__nav a:hover { color: var(--brand-gold); }
+
+  .mobile-menu__cta {
+    margin-top: 24px;
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-menu__panel,
+  .mobile-menu__backdrop,
+  .nav-burger { transition: none; }
+}
+</style>
+
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+
+  <style>
+    /* ---------- Legal document ---------- */
+    .legal {
+      padding: 56px 0 96px;
+      position: relative;
+      overflow: hidden;
+    }
+    .legal__glow {
+      position: absolute; inset: 0;
+      background: var(--stage-glow);
+      pointer-events: none;
+      z-index: -1;
+      opacity: .4;
+    }
+    .legal__doc {
+      max-width: 760px;
+      margin-inline: auto;
+    }
+    .legal__eyebrow {
+      display: inline-flex; align-items: center; gap: 10px;
+      margin-bottom: 22px;
+    }
+    .legal__eyebrow::before {
+      content: "";
+      width: 28px; height: 1px;
+      background: var(--brand-gold);
+    }
+    .legal__title {
+      font-family: var(--font-display);
+      font-weight: 500;
+      font-size: clamp(36px, 5vw, 60px);
+      line-height: 1.02;
+      letter-spacing: -0.03em;
+      margin: 0 0 14px;
+    }
+    .legal__sub {
+      font-size: 18px;
+      color: var(--ink-200);
+      margin: 0 0 6px;
+    }
+    .legal__updated {
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--ink-400);
+      margin: 0 0 40px;
+    }
+
+    .legal__body { color: var(--ink-200); }
+    .legal__body h2 {
+      font-family: var(--font-display);
+      font-weight: 500;
+      font-size: clamp(22px, 2.6vw, 28px);
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+      color: var(--ink-100);
+      margin: 52px 0 16px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid rgba(255,233,184,.09);
+    }
+    .legal__body h2:first-of-type { margin-top: 0; }
+    .legal__body h3 {
+      font-family: var(--font-display);
+      font-weight: 500;
+      font-size: 18.5px;
+      letter-spacing: -0.01em;
+      color: var(--brand-cream);
+      margin: 32px 0 12px;
+    }
+    .legal__body p {
+      font-size: 16.5px;
+      line-height: 1.7;
+      color: var(--ink-300);
+      margin: 0 0 18px;
+    }
+    .legal__body ul {
+      margin: 0 0 18px;
+      padding-left: 22px;
+    }
+    .legal__body li {
+      font-size: 16.5px;
+      line-height: 1.7;
+      color: var(--ink-300);
+      margin-bottom: 8px;
+    }
+    .legal__body li::marker { color: var(--brand-gold); }
+    .legal__body a {
+      color: var(--brand-gold);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .legal__body a:hover { color: var(--brand-red-glow); }
+
+    /* Company info definition block (§1) */
+    .legal__company {
+      margin: 22px 0 6px;
+      padding: 22px 26px;
+      background: linear-gradient(180deg, var(--ink-900), var(--ink-950));
+      border: 1px solid rgba(255,233,184,.1);
+      border-radius: var(--radius-lg);
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 6px 22px;
+    }
+    .legal__company dt {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--ink-400);
+      align-self: baseline;
+      padding-top: 3px;
+    }
+    .legal__company dd {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.6;
+      color: var(--ink-100);
+    }
+
+    @media (max-width: 600px) {
+      .legal { padding: 40px 0 72px; }
+      .legal__company { grid-template-columns: 1fr; gap: 2px 0; padding: 20px 22px; }
+      .legal__company dt { padding-top: 12px; }
+      .legal__company dt:first-child { padding-top: 0; }
+    }
+
+    /* Data tables (cookie inventory / sub-processors) */
+    .legal__tablewrap {
+      margin: 22px 0 8px;
+      overflow-x: auto;                    /* never let a wide table break the page */
+      border: 1px solid rgba(255,233,184,.1);
+      border-radius: var(--radius-md, 14px);
+      background: rgba(255,255,255,.02);
+    }
+    .legal__table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14.5px;
+      min-width: 520px;                    /* forces horizontal scroll instead of squashing */
+    }
+    .legal__table th, .legal__table td {
+      text-align: left;
+      padding: 12px 16px;
+      vertical-align: top;
+      border-bottom: 1px solid rgba(255,233,184,.08);
+    }
+    .legal__table thead th {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--brand-gold);
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .legal__table tbody tr:last-child td { border-bottom: 0; }
+    .legal__table td { color: var(--ink-200); }
+    .legal__table code {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--ink-100);
+      white-space: nowrap;
+    }
+    .legal__table a { color: var(--brand-gold); }
+    .legal__table a:hover { color: var(--brand-red-glow); }
+  </style>
+  <link rel="canonical" href="https://showme.example/cookies">
+  <meta name="theme-color" content="#18100C">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="shoWMe">
+  <meta property="og:title" content="shoWMe Cookie Policy">
+  <meta property="og:description" content="How shoWMe uses cookies and similar technologies, the cookie categories we set, and how to manage your consent and preferences.">
+  <meta property="og:url" content="https://showme.example/cookies">
+  <meta property="og:image" content="https://showme.example/assets/photo.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="shoWMe Cookie Policy">
+  <meta name="twitter:description" content="How shoWMe uses cookies and similar technologies, the cookie categories we set, and how to manage your consent and preferences.">
+  <meta name="twitter:image" content="https://showme.example/assets/photo.jpg">
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"shoWMe","url":"https://showme.example","logo":"https://showme.example/favicon.svg","description":"Booking + settlement for live events, one shared system for operators, performers, agents and crew."}</script>
+</head>
+<body>
+
+  <!-- ===== MOBILE MENU (≤760px) ===== -->
+  <div class="mobile-menu" id="mobile-menu" aria-hidden="true">
+    <div class="mobile-menu__backdrop" data-menu-close></div>
+    <div class="mobile-menu__panel" role="dialog" aria-modal="true" aria-label="Menu">
+      <button class="mobile-menu__close" type="button" aria-label="Close menu" data-menu-close>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+      </button>
+      <nav class="mobile-menu__nav">
+        <a href="product.html">Product</a>
+        <a href="index.html#ecosystem">Ecosystem</a>
+        <a href="index.html#pricing">Pricing</a>
+        <a href="index.html#why">Why shoWMe</a>
+        <a href="about.html">About</a>
+      </nav>
+      <a href="index.html#cta" class="btn btn--primary mobile-menu__cta">Get early access</a>
+    </div>
+  </div>
+
+  <!-- ===== NAV ===== -->
+  <header class="site-header">
+    <div class="container site-header__row">
+      <a href="index.html" class="brand">
+        <span class="brand__mark" aria-hidden="true">
+          <svg viewBox="0 0 100 100" fill="none">
+            <defs>
+              <linearGradient id="triG" x1="50%" y1="0%" x2="50%" y2="100%">
+                <stop offset="0%" stop-color="#FFF0C7"></stop>
+                <stop offset="100%" stop-color="#FFC266"></stop>
+              </linearGradient>
+            </defs>
+            <path d="M8 48 A42 42 0 0 1 92 48 L92 92 L8 92 Z" fill="#EE5746"></path>
+            <path d="M50 14 L82 76 L18 76 Z" fill="url(#triG)"></path>
+            <circle cx="50" cy="76" r="6" fill="#EE5746"></circle>
+            <circle cx="34" cy="76" r="5" fill="#EE5746"></circle>
+            <circle cx="66" cy="76" r="5" fill="#EE5746"></circle>
+            <circle cx="22" cy="76" r="4" fill="#EE5746"></circle>
+            <circle cx="78" cy="76" r="4" fill="#EE5746"></circle>
+          </svg>
+        </span>
+        <span>shoWMe</span>
+      </a>
+      <nav class="topnav" aria-label="Primary">
+        <ul class="topnav__menus">
+          <li class="topnav__item">
+            <button type="button" class="topnav__trigger" aria-haspopup="true" aria-expanded="false">
+              Product
+              <svg class="topnav__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+            </button>
+            <div class="topnav__panel" role="menu">
+              <a role="menuitem" href="product.html#calendar">Calendar</a>
+              <a role="menuitem" href="product.html#agreements">Agreements</a>
+              <a role="menuitem" href="product.html#settlements">Settlement</a>
+              <a role="menuitem" href="index.html#pricing">Pricing</a>
+            </div>
+          </li>
+          <li class="topnav__item">
+            <button type="button" class="topnav__trigger" aria-haspopup="true" aria-expanded="false">
+              Company
+              <svg class="topnav__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+            </button>
+            <div class="topnav__panel" role="menu">
+              <a role="menuitem" href="about.html">About</a>
+              <a role="menuitem" href="terms.html">Terms &amp; Conditions</a>
+              <a role="menuitem" href="privacy.html">Privacy Policy</a>
+              <a role="menuitem" href="cookies.html">Cookie Policy</a>
+            </div>
+          </li>
+          <li class="topnav__item">
+            <button type="button" class="topnav__trigger" aria-haspopup="true" aria-expanded="false">
+              Contact
+              <svg class="topnav__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+            </button>
+            <div class="topnav__panel" role="menu">
+              <a role="menuitem" href="contact.html">Contact form</a>
+              <a role="menuitem" href="https://showme.music/">showme.music</a>
+            </div>
+          </li>
+        </ul>
+        <div class="topnav__actions">
+          <a href="/login" class="btn btn--ghost">Log in</a>
+          <a href="contact.html" class="btn btn--primary">Get early access</a>
+        </div>
+        <button class="nav-burger" type="button" aria-label="Menu" aria-expanded="false" aria-controls="mobile-menu">
+          <span></span><span></span><span></span>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ===== LEGAL DOCUMENT ===== -->
+  <main class="legal">
+    <div class="legal__glow"></div>
+    <div class="container">
+      <div class="legal__doc">
+        <span class="eyebrow legal__eyebrow">Legal</span>
+        <h1 class="legal__title">Cookie Policy</h1>
+        <p class="legal__sub">shoWMe (showme.music)</p>
+        <p class="legal__updated">Last updated: 02 April 2026</p>
+
+        <div class="legal__body">
+          <h2>1. Overview</h2>
+          <p>This Cookie Policy explains how shoWMe uses cookies and similar technologies when you visit or use our platform.</p>
+          <p>We use strictly necessary cookies to operate the platform. Non-essential cookies (such as analytics) are set only after you give consent through our cookie banner, and you can change or withdraw that consent at any time.</p>
+
+          <h2>2. Who We Are</h2>
+          <dl class="legal__company">
+            <dt>Company Name</dt>
+            <dd>Showme AB</dd>
+            <dt>Organization Number</dt>
+            <dd>559577-1402</dd>
+            <dt>Address</dt>
+            <dd>HETCH, Redaregatan 48, 252 36 Helsingborg, Sweden (C/O Showme AB)</dd>
+            <dt>Contact</dt>
+            <dd><a href="mailto:info@showme.music">info@showme.music</a></dd>
+          </dl>
+
+          <h2>3. What Are Cookies</h2>
+          <p>Cookies are small text files stored on your device when you visit a website or use an online service. They are widely used to:</p>
+          <ul>
+            <li>Enable functionality</li>
+            <li>Improve performance</li>
+            <li>Analyze usage</li>
+            <li>Personalize content</li>
+          </ul>
+          <p>We may also use similar technologies such as local storage, pixels, and tracking scripts.</p>
+
+          <h2>4. Types of Cookies We Use</h2>
+
+          <h3>4.1 Strictly Necessary Cookies</h3>
+          <p>These cookies are required for the platform to function. They enable:</p>
+          <ul>
+            <li>Account login and authentication</li>
+            <li>Security and fraud prevention</li>
+            <li>Core platform functionality</li>
+          </ul>
+          <p>These cookies cannot be disabled.</p>
+
+          <h3>4.2 Functional Cookies</h3>
+          <p>These cookies improve usability and user experience. They may store:</p>
+          <ul>
+            <li>Preferences and settings</li>
+            <li>Interface configurations</li>
+            <li>Session information</li>
+          </ul>
+
+          <h3>4.3 Analytics and Performance Cookies</h3>
+          <p>These cookies help us understand how users interact with the platform. They are used to:</p>
+          <ul>
+            <li>Measure usage and performance</li>
+            <li>Identify issues and improve functionality</li>
+            <li>Analyze workflows and user behavior</li>
+          </ul>
+          <p>Data collected may be aggregated and pseudonymized. shoWMe uses <strong>Google Analytics</strong> for this purpose; these cookies are only set after you provide consent.</p>
+
+          <h3>4.4 Product Intelligence and Data-Driven Features</h3>
+          <p>shoWMe uses cookies and similar technologies to support its data-driven platform. This includes:</p>
+          <ul>
+            <li>Understanding user behavior across features</li>
+            <li>Improving matching, analytics, and recommendations</li>
+            <li>Supporting AI and algorithm development</li>
+          </ul>
+          <p>Where required by law, these cookies are only used with your consent.</p>
+
+          <h3>4.5 Third-Party Cookies</h3>
+          <p>We may use third-party services that set cookies or process data, each under their own privacy and cookie policies:</p>
+          <ul>
+            <li><strong>Google Analytics</strong> for analytics (consent-based). <a href="https://policies.google.com/privacy" rel="noopener" target="_blank">Policy</a></li>
+            <li><strong>Google Cloud &amp; Firebase</strong> for hosting, authentication, and file storage (strictly necessary). <a href="https://firebase.google.com/support/privacy" rel="noopener" target="_blank">Policy</a></li>
+            <li><strong>Stripe / Mollie</strong> for payment processing and fraud prevention. <a href="https://stripe.com/privacy" rel="noopener" target="_blank">Stripe</a> · <a href="https://www.mollie.com/privacy" rel="noopener" target="_blank">Mollie</a></li>
+          </ul>
+          <p>Some of these providers (including Google) are based in the United States, so accepting analytics cookies may involve a transfer of data outside the EU/EEA, safeguarded by the EU–US Data Privacy Framework and/or Standard Contractual Clauses. See our <a href="privacy.html">Privacy Policy</a> for details.</p>
+
+          <h3>4.6 Cookies We Set</h3>
+          <p>The main cookies and similar technologies used on our website are listed below. Exact names may change as providers update their products.</p>
+          <div class="legal__tablewrap">
+            <table class="legal__table">
+              <thead>
+                <tr><th>Name</th><th>Provider</th><th>Type</th><th>Purpose</th><th>Duration</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>showme.cookie-consent</code></td>
+                  <td>shoWMe</td>
+                  <td>Strictly necessary</td>
+                  <td>Remembers your cookie choice (local storage)</td>
+                  <td>Until cleared</td>
+                </tr>
+                <tr>
+                  <td>Firebase Auth tokens</td>
+                  <td>Google (Firebase)</td>
+                  <td>Strictly necessary</td>
+                  <td>Keeps you signed in (local storage)</td>
+                  <td>Session / until sign-out</td>
+                </tr>
+                <tr>
+                  <td><code>_ga</code></td>
+                  <td>Google Analytics</td>
+                  <td>Analytics (consent)</td>
+                  <td>Distinguishes users</td>
+                  <td>2 years</td>
+                </tr>
+                <tr>
+                  <td><code>_ga_&lt;id&gt;</code></td>
+                  <td>Google Analytics</td>
+                  <td>Analytics (consent)</td>
+                  <td>Maintains session state</td>
+                  <td>2 years</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2>5. Legal Basis for Cookie Use</h2>
+          <p>We use cookies based on:</p>
+          <ul>
+            <li>Strict necessity for essential platform functionality</li>
+            <li>Legitimate interest for basic performance and security</li>
+            <li>Consent for analytics, product intelligence, and non-essential tracking</li>
+          </ul>
+          <p>Where consent is required, cookies will only be activated after you provide it.</p>
+
+          <h2>6. Managing Your Cookie Preferences</h2>
+          <p>You can manage your cookie preferences by:</p>
+          <ul>
+            <li><a href="#" data-cookie-preferences>Opening your cookie settings on this site</a></li>
+            <li>Adjusting your browser settings to block or delete cookies</li>
+          </ul>
+          <p>You may withdraw consent at any time.</p>
+
+          <h2>7. Consequences of Disabling Cookies</h2>
+          <p>If you disable certain cookies:</p>
+          <ul>
+            <li>Some features may not function properly</li>
+            <li>Analytics and personalized features may be limited</li>
+            <li>Data-driven services and recommendations may be reduced</li>
+          </ul>
+
+          <h2>8. Data Protection</h2>
+          <p>Cookie data is processed in accordance with our <a href="privacy.html">Privacy Policy</a>. We do not:</p>
+          <ul>
+            <li>Sell your personal data</li>
+            <li>Use cookies to directly identify you beyond necessary functionality</li>
+          </ul>
+
+          <h2>9. Updates to This Policy</h2>
+          <p>We may update this Cookie Policy from time to time. We will post the updated version here with a new "last updated" date. Your consent to non-essential cookies is based on your choice in the cookie banner (not on your continued use of the site) and you can change or withdraw it at any time.</p>
+
+          <h2>10. Contact</h2>
+          <dl class="legal__company">
+            <dt>Email</dt>
+            <dd><a href="mailto:info@showme.music">info@showme.music</a></dd>
+            <dt>Address</dt>
+            <dd>HETCH, Redaregatan 48, 252 36 Helsingborg, Sweden</dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer__grid">
+        <div class="footer__brand">
+          <a href="index.html" class="brand">
+            <span class="brand__mark" aria-hidden="true">
+              <svg viewBox="0 0 100 100" fill="none">
+                <path d="M8 48 A42 42 0 0 1 92 48 L92 92 L8 92 Z" fill="#EE5746"></path>
+                <path d="M50 14 L82 76 L18 76 Z" fill="#FFE1A0"></path>
+                <circle cx="50" cy="76" r="6" fill="#EE5746"></circle>
+                <circle cx="34" cy="76" r="5" fill="#EE5746"></circle>
+                <circle cx="66" cy="76" r="5" fill="#EE5746"></circle>
+                <circle cx="22" cy="76" r="4" fill="#EE5746"></circle>
+                <circle cx="78" cy="76" r="4" fill="#EE5746"></circle>
+              </svg>
+            </span>
+            <span>shoWMe</span>
+          </a>
+          <p class="footer__tag">Built for events. Benefits everyone. Early access available now.</p>
+        </div>
+        <div>
+          <h4>Product</h4>
+          <ul>
+            <li><a href="product.html#calendar">Calendar</a></li>
+            <li><a href="product.html#agreements">Agreements</a></li>
+            <li><a href="product.html#settlements">Settlement</a></li>
+            <li><a href="index.html#pricing">Pricing</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Company</h4>
+          <ul>
+            <li><a href="about.html">About</a></li>
+            <li><a href="terms.html">Terms &amp; Conditions</a></li>
+            <li><a href="privacy.html">Privacy Policy</a></li>
+            <li><a href="cookies.html">Cookie Policy</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Contact</h4>
+          <ul>
+            <li><a href="contact.html">Contact form</a></li>
+            <li><a href="https://showme.music">showme.music</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer__bottom">
+        <span>© 2026 shoWMe. All rights reserved.</span>
+      </div>
+    </div>
+  </footer>
+
+
+
+<script type="module" src="/src/main.ts"></script>
+</body></html>

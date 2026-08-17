@@ -12,7 +12,11 @@
       "**/.turbo/**",
       "**/coverage/**",
       "**/*.gen.ts",
+      "**/generated/**",
       "**/migrations/**",
+      "**/test-results/**",
+      ".design-sync/**",
+      "apps/marketing/public/**",
       "design-system/**",
       "claude-prototype/**",
       "docs/**"

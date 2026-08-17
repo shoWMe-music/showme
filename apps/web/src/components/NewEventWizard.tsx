@@ -1,0 +1,1035 @@
+import { type getApiV1Profiles, useGetApiV1Profiles, usePostApiV1Events } from "@showme/api-client";
+import { Icon, type IconName, Select, useToast } from "@showme/design-system";
+import { useState } from "react";
+import { createPortal } from "react-dom";
+import { setActiveProfileId } from "../lib/activeProfile";
+import { errorMessage } from "../lib/errors";
+import { PerformerSearch, type PerformerSelection } from "./PerformerSearch";
+import { GlyphButton, GradientButton, XIcon, fieldStyle } from "./eventUi";
+
+/** A performer chosen in the wizard — an existing profile, a contact, or a plain
+ * draft name. Persisted to `extras.performers`; materialized into participants
+ * (profile → real; contact/draft → off-platform stub) after the event exists. */
+interface WizardPerformer {
+  id: string;
+  name: string;
+  source: "profile" | "contact" | "draft";
+  profileId?: string;
+  slug?: string;
+  contactId?: string;
+  email?: string;
+}
+
+const SOURCE_LABEL: Record<WizardPerformer["source"], string> = {
+  profile: "Performer",
+  contact: "Contact",
+  draft: "Draft",
+};
+
+/**
+ * The Create-Event wizard (Your Role → Event Details → Deal Structure), matching
+ * the design export. The "Your Role" step lists the operator profiles the user
+ * actually owns — one card each; with a single profile the step is skipped
+ * entirely and we open on Event Details. Everything captured persists to the
+ * real event: step fields map to columns, and role / ticketing / deal-draft to
+ * `events.extras` (a passthrough jsonb). Creates the event as the chosen profile
+ * (sets `X-Profile-Id`) and hands the new id back so the screen navigates in.
+ */
+export interface NewEventWizardProps {
+  open: boolean;
+  onClose: () => void;
+  onCreated: (id: string) => void;
+}
+
+type Profile = Awaited<ReturnType<typeof getApiV1Profiles>>[number];
+
+/** Icon + human label per operator profile type (drives the role cards). */
+const TYPE_META: Record<string, { label: string; icon: IconName }> = {
+  venue: { label: "Venue", icon: "building" },
+  promoter: { label: "Promoter", icon: "grid" },
+  festival: { label: "Festival", icon: "star" },
+  agent: { label: "Agent", icon: "users" },
+  performer: { label: "Performer", icon: "music" },
+};
+function typeMeta(type: string | null): { label: string; icon: IconName } {
+  const meta = type ? TYPE_META[type] : undefined;
+  if (meta) return meta;
+  const label = type ? type.charAt(0).toUpperCase() + type.slice(1) : "Operator";
+  return { label, icon: "building" };
+}
+
+const DEAL_TYPES = [
+  { value: "guarantee", label: "Guarantee" },
+  { value: "door_split", label: "Door Split" },
+  { value: "guarantee_vs_door", label: "Guarantee vs Door" },
+  { value: "rental", label: "Rental" },
+];
+const CURRENCIES = ["EUR", "USD", "GBP", "SEK"];
+const RENTAL_PAID_BY = [
+  { value: "promoter", label: "Promoter" },
+  { value: "venue", label: "Venue" },
+  { value: "performer", label: "Performer" },
+];
+
+type StepKey = "role" | "details" | "deal";
+const STEP_LABEL: Record<StepKey, string> = {
+  role: "Your Role",
+  details: "Event Details",
+  deal: "Deal Structure",
+};
+
+const labelStyle = {
+  display: "block",
+  fontFamily: "var(--font-mono)",
+  fontSize: 10,
+  letterSpacing: ".12em",
+  textTransform: "uppercase",
+  color: "var(--muted)",
+  marginBottom: 6,
+} as const;
+const bigField = {
+  ...fieldStyle,
+  width: "100%",
+  padding: "11px 14px",
+  borderRadius: 11,
+  fontSize: 14,
+};
+
+export function NewEventWizard({ open, onClose, onCreated }: NewEventWizardProps) {
+  const toast = useToast();
+  const profilesQuery = useGetApiV1Profiles();
+  // Only operator profiles can host events, so those are the "roles" on offer.
+  const operatorProfiles = (profilesQuery.data ?? []).filter(
+    (profile) => profile.kind === "operator",
+  );
+  // A single profile means there's nothing to choose — skip the role step.
+  const showRoleStep = operatorProfiles.length > 1;
+  const stepKeys: readonly StepKey[] = showRoleStep
+    ? ["role", "details", "deal"]
+    : ["details", "deal"];
+
+  const [stepIndex, setStepIndex] = useState(0);
+  const [selectedProfileId, setSelectedProfileId] = useState("");
+  const [multiPerformer, setMultiPerformer] = useState(false);
+  const [performers, setPerformers] = useState<WizardPerformer[]>([]);
+  const [artist, setArtist] = useState("");
+  const [venue, setVenue] = useState("");
+  const [city, setCity] = useState("");
+  const [date, setDate] = useState("");
+  const [cap, setCap] = useState("");
+  const [ticketing, setTicketing] = useState("");
+  const [currency, setCurrency] = useState("EUR");
+  const [dealType, setDealType] = useState("guarantee_vs_door");
+  const [guarantee, setGuarantee] = useState("");
+  const [artistSplit, setArtistSplit] = useState("70");
+  const [promoterSplit, setPromoterSplit] = useState("20");
+  const [venueSplit, setVenueSplit] = useState("10");
+  const [venueRental, setVenueRental] = useState("");
+  const [rentalPaidBy, setRentalPaidBy] = useState("promoter");
+
+  const create = usePostApiV1Events({
+    mutation: {
+      onSuccess: (event) => {
+        toast.success(`"${event.title}" created`);
+        reset();
+        onCreated(event.id);
+      },
+      onError: (mutationError) =>
+        toast.error(errorMessage(mutationError, "Couldn't create the event.")),
+    },
+  });
+
+  const reset = () => {
+    setStepIndex(0);
+    setSelectedProfileId("");
+    setMultiPerformer(false);
+    setPerformers([]);
+    setArtist("");
+    setVenue("");
+    setCity("");
+    setDate("");
+    setCap("");
+    setTicketing("");
+    setCurrency("EUR");
+    setDealType("guarantee_vs_door");
+    setGuarantee("");
+    setArtistSplit("70");
+    setPromoterSplit("20");
+    setVenueSplit("10");
+    setVenueRental("");
+    setRentalPaidBy("promoter");
+  };
+
+  if (!open) return null;
+  // Rendered through a portal to <body>: the app's `.content__page` sets
+  // `will-change: transform`, which makes it a containing block for
+  // position:fixed — so an in-tree overlay would clip to the content column.
+
+  const selectedProfile =
+    operatorProfiles.find((profile) => profile.id === selectedProfileId) ?? operatorProfiles[0];
+  const clampedIndex = Math.min(stepIndex, stepKeys.length - 1);
+  const currentKey = stepKeys[clampedIndex];
+  const isLast = clampedIndex === stepKeys.length - 1;
+
+  const dealIsGuarantee = dealType === "guarantee";
+  const splitTotal = Number(artistSplit) + Number(promoterSplit) + Number(venueSplit);
+  const artistLabel = multiPerformer ? "Festival / event name" : "Artist / performer";
+  const stepValid =
+    currentKey === "role"
+      ? Boolean(selectedProfile)
+      : currentKey === "details"
+        ? artist.trim() !== "" && venue.trim() !== "" && (!multiPerformer || performers.length > 0)
+        : true;
+
+  const addSelection = (selection: PerformerSelection) => {
+    setPerformers((list) => {
+      const duplicate = list.some((performer) =>
+        selection.source === "profile"
+          ? performer.profileId === selection.profileId
+          : selection.source === "contact"
+            ? performer.contactId === selection.contactId
+            : performer.source === "draft" &&
+              performer.name.toLowerCase() === selection.name.toLowerCase(),
+      );
+      if (duplicate) return list;
+      const id = `${selection.source}-${list.length}-${Date.now()}`;
+      const entry: WizardPerformer =
+        selection.source === "profile"
+          ? {
+              id,
+              name: selection.name,
+              source: "profile",
+              profileId: selection.profileId,
+              slug: selection.slug,
+            }
+          : selection.source === "contact"
+            ? {
+                id,
+                name: selection.name,
+                source: "contact",
+                contactId: selection.contactId,
+                email: selection.email,
+              }
+            : { id, name: selection.name, source: "draft" };
+      return [...list, entry];
+    });
+  };
+  const removePerformer = (id: string) =>
+    setPerformers((list) => list.filter((performer) => performer.id !== id));
+
+  const close = () => {
+    reset();
+    onClose();
+  };
+
+  const advance = () => {
+    if (!stepValid) return;
+    if (isLast) submit();
+    else setStepIndex((index) => index + 1);
+  };
+
+  const submit = () => {
+    // Create AS the chosen profile — the api-client sends the active profile id
+    // as `X-Profile-Id`, so point it at the selection before firing.
+    if (selectedProfile) setActiveProfileId(selectedProfile.id);
+    create.mutate({
+      data: {
+        title: artist.trim(),
+        baseCurrency: currency,
+        ...(date ? { eventDate: date } : {}),
+        ...(venue.trim() ? { venueName: venue.trim() } : {}),
+        ...(cap && Number.isFinite(Number(cap)) ? { capacity: Number(cap) } : {}),
+        extras: {
+          createdAsRole: selectedProfile?.type ?? "operator",
+          createdAsProfileId: selectedProfile?.id,
+          multiPerformer,
+          ...(multiPerformer
+            ? {
+                performers: performers.map((performer) => ({
+                  name: performer.name,
+                  source: performer.source,
+                  ...(performer.profileId ? { profileId: performer.profileId } : {}),
+                  ...(performer.slug ? { slug: performer.slug } : {}),
+                  ...(performer.contactId ? { contactId: performer.contactId } : {}),
+                  ...(performer.email ? { email: performer.email } : {}),
+                })),
+              }
+            : {}),
+          ...(city.trim() ? { city: city.trim() } : {}),
+          ...(ticketing.trim() ? { ticketing: { provider: ticketing.trim() } } : {}),
+          dealDraft: {
+            dealType,
+            guarantee: guarantee ? Number(guarantee) : null,
+            artistSplit: Number(artistSplit),
+            promoterSplit: Number(promoterSplit),
+            venueSplit: Number(venueSplit),
+            venueRental: venueRental ? Number(venueRental) : null,
+            venueRentalPaidBy: rentalPaidBy,
+          },
+        },
+      },
+    });
+  };
+
+  const overlay = (
+    // biome-ignore lint/a11y/useSemanticElements: overlay modal needs a positioned backdrop div, not <dialog>
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Create new event"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 100,
+        background: "rgba(10,6,4,.55)",
+        backdropFilter: "blur(3px)",
+        display: "flex",
+        alignItems: "flex-start",
+        justifyContent: "center",
+        padding: "48px 20px",
+        overflowY: "auto",
+      }}
+      onMouseDown={(clickEvent) => clickEvent.target === clickEvent.currentTarget && close()}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 620,
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: 22,
+          boxShadow: "0 30px 80px rgba(0,0,0,.4)",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "22px 26px 0",
+          }}
+        >
+          <div>
+            <h2
+              style={{
+                fontFamily: "var(--font-display)",
+                fontWeight: 600,
+                fontSize: 21,
+                margin: 0,
+                color: "var(--text)",
+                letterSpacing: "-.02em",
+              }}
+            >
+              Create New Event
+            </h2>
+            <p style={{ color: "var(--muted)", fontSize: 13, margin: "4px 0 0" }}>
+              Set up an event in three quick steps.
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={close}
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: 9,
+              border: "1px solid var(--border)",
+              background: "var(--card)",
+              color: "var(--muted)",
+              cursor: "pointer",
+              display: "grid",
+              placeItems: "center",
+            }}
+          >
+            <Icon name="x" size={17} />
+          </button>
+        </div>
+
+        <WizardStepper steps={stepKeys} current={clampedIndex} />
+
+        <div style={{ padding: "20px 26px 4px", minHeight: 230 }}>
+          {profilesQuery.isPending ? (
+            <div
+              style={{
+                color: "var(--muted)",
+                fontSize: 13,
+                padding: "40px 0",
+                textAlign: "center",
+              }}
+            >
+              Loading your profiles…
+            </div>
+          ) : operatorProfiles.length === 0 ? (
+            <div
+              style={{
+                color: "var(--muted)",
+                fontSize: 13,
+                padding: "40px 0",
+                textAlign: "center",
+              }}
+            >
+              You need an operator profile to create events.
+            </div>
+          ) : (
+            <>
+              {currentKey === "role" && (
+                <RoleStep
+                  profiles={operatorProfiles}
+                  selectedId={selectedProfile?.id ?? ""}
+                  onPick={setSelectedProfileId}
+                />
+              )}
+              {currentKey === "details" && (
+                <DetailsStep
+                  multiPerformer={multiPerformer}
+                  onToggleMulti={() => setMultiPerformer((value) => !value)}
+                  artistLabel={artistLabel}
+                  artist={artist}
+                  setArtist={setArtist}
+                  performers={performers}
+                  contactsProfileId={selectedProfile?.id}
+                  onAddPerformer={addSelection}
+                  onRemovePerformer={removePerformer}
+                  venue={venue}
+                  setVenue={setVenue}
+                  city={city}
+                  setCity={setCity}
+                  date={date}
+                  setDate={setDate}
+                  cap={cap}
+                  setCap={setCap}
+                  ticketing={ticketing}
+                  setTicketing={setTicketing}
+                  currency={currency}
+                  setCurrency={setCurrency}
+                />
+              )}
+              {currentKey === "deal" && (
+                <DealStep
+                  dealType={dealType}
+                  setDealType={setDealType}
+                  dealIsGuarantee={dealIsGuarantee}
+                  guarantee={guarantee}
+                  setGuarantee={setGuarantee}
+                  artistSplit={artistSplit}
+                  setArtistSplit={setArtistSplit}
+                  promoterSplit={promoterSplit}
+                  setPromoterSplit={setPromoterSplit}
+                  venueSplit={venueSplit}
+                  setVenueSplit={setVenueSplit}
+                  splitTotal={splitTotal}
+                  venueRental={venueRental}
+                  setVenueRental={setVenueRental}
+                  rentalPaidBy={rentalPaidBy}
+                  setRentalPaidBy={setRentalPaidBy}
+                />
+              )}
+            </>
+          )}
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            padding: "18px 26px 24px",
+            borderTop: "1px solid var(--border)",
+            marginTop: 8,
+          }}
+        >
+          {clampedIndex > 0 ? (
+            <button
+              type="button"
+              onClick={() => setStepIndex((index) => Math.max(0, index - 1))}
+              style={footerGhost}
+            >
+              Back
+            </button>
+          ) : (
+            <span />
+          )}
+          <div style={{ display: "flex", gap: 10 }}>
+            <button type="button" onClick={close} style={footerGhost}>
+              Cancel
+            </button>
+            <GradientButton
+              onClick={advance}
+              disabled={!stepValid || create.isPending || operatorProfiles.length === 0}
+              style={{ padding: "11px 20px", borderRadius: 11, fontSize: 13.5 }}
+            >
+              {isLast ? (create.isPending ? "Creating…" : "Create Event") : "Continue"}
+            </GradientButton>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+  return createPortal(overlay, document.body);
+}
+
+const footerGhost = {
+  padding: "11px 18px",
+  borderRadius: 11,
+  border: "1px solid var(--border)",
+  background: "transparent",
+  color: "var(--muted)",
+  fontSize: 13.5,
+  fontWeight: 500,
+  cursor: "pointer",
+} as const;
+
+function WizardStepper({ steps, current }: { steps: readonly StepKey[]; current: number }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", padding: "22px 26px 4px" }}>
+      {steps.map((key, index) => {
+        const active = index === current;
+        const done = index < current;
+        return (
+          <div
+            key={key}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              flex: index === steps.length - 1 ? "0 0 auto" : 1,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 9, flexShrink: 0 }}>
+              <span
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: "50%",
+                  display: "grid",
+                  placeItems: "center",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: active || done ? "#fff" : "var(--dim)",
+                  background:
+                    active || done ? "linear-gradient(135deg,#EE5746,#F4A046)" : "var(--elevated)",
+                  border: active || done ? "none" : "1px solid var(--border)",
+                }}
+              >
+                {index + 1}
+              </span>
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: active ? 600 : 500,
+                  color: active ? "var(--text)" : "var(--muted)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {STEP_LABEL[key]}
+              </span>
+            </div>
+            {index < steps.length - 1 && (
+              <span style={{ flex: 1, height: 1, margin: "0 14px", background: "var(--border)" }} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function RoleStep({
+  profiles,
+  selectedId,
+  onPick,
+}: {
+  profiles: Profile[];
+  selectedId: string;
+  onPick: (id: string) => void;
+}) {
+  return (
+    <>
+      <div
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          letterSpacing: ".12em",
+          textTransform: "uppercase",
+          color: "var(--dim)",
+          marginBottom: 14,
+        }}
+      >
+        Which profile are you creating this event as?
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {profiles.map((profile) => {
+          const active = selectedId === profile.id;
+          const meta = typeMeta(profile.type);
+          return (
+            <button
+              key={profile.id}
+              type="button"
+              onClick={() => onPick(profile.id)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                textAlign: "left",
+                padding: 14,
+                borderRadius: 13,
+                cursor: "pointer",
+                border: active ? "1px solid #EE5746" : "1px solid var(--border)",
+                background: active ? "color-mix(in srgb,#EE5746 8%,transparent)" : "var(--card)",
+              }}
+            >
+              <span
+                style={{
+                  width: 44,
+                  height: 44,
+                  flexShrink: 0,
+                  borderRadius: 11,
+                  display: "grid",
+                  placeItems: "center",
+                  background: active
+                    ? "color-mix(in srgb,#EE5746 16%,transparent)"
+                    : "var(--elevated)",
+                  color: active ? "#EE5746" : "var(--muted)",
+                }}
+              >
+                <Icon name={meta.icon} size={20} />
+              </span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span
+                  style={{ display: "block", fontWeight: 600, fontSize: 14, color: "var(--text)" }}
+                >
+                  {profile.name}
+                </span>
+                <span
+                  style={{
+                    display: "block",
+                    color: "var(--muted)",
+                    fontSize: 11.5,
+                    marginTop: 2,
+                    lineHeight: 1.35,
+                  }}
+                >
+                  {meta.label}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function DetailsStep(props: {
+  multiPerformer: boolean;
+  onToggleMulti: () => void;
+  artistLabel: string;
+  artist: string;
+  setArtist: (v: string) => void;
+  performers: WizardPerformer[];
+  contactsProfileId?: string;
+  onAddPerformer: (selection: PerformerSelection) => void;
+  onRemovePerformer: (id: string) => void;
+  venue: string;
+  setVenue: (v: string) => void;
+  city: string;
+  setCity: (v: string) => void;
+  date: string;
+  setDate: (v: string) => void;
+  cap: string;
+  setCap: (v: string) => void;
+  ticketing: string;
+  setTicketing: (v: string) => void;
+  currency: string;
+  setCurrency: (v: string) => void;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 15 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          padding: "12px 14px",
+          border: "1px solid var(--border)",
+          borderRadius: 11,
+          background: "var(--elevated)",
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
+            Multi-performer event
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
+            Festival or event with multiple artists
+          </div>
+        </div>
+        <MiniToggle checked={props.multiPerformer} onChange={props.onToggleMulti} />
+      </div>
+
+      <label>
+        <span style={labelStyle}>{props.artistLabel} *</span>
+        <input
+          value={props.artist}
+          onChange={(e) => props.setArtist(e.target.value)}
+          placeholder={props.multiPerformer ? "e.g. Nordic Synth Festival" : "e.g. Nils Frahm"}
+          style={bigField}
+        />
+      </label>
+
+      {props.multiPerformer && (
+        <div>
+          <span style={labelStyle}>Performers *</span>
+          <PerformerSearch
+            contactsProfileId={props.contactsProfileId}
+            onSelect={props.onAddPerformer}
+          />
+          {props.performers.length === 0 ? (
+            <div style={{ color: "var(--dim)", fontSize: 12, marginTop: 10 }}>
+              Add at least one performer.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+              {props.performers.map((performer) => (
+                <div
+                  key={performer.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    background: "var(--elevated)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 11,
+                    padding: "10px 14px",
+                  }}
+                >
+                  <span style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 14 }}>
+                    {performer.name}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 9.5,
+                      letterSpacing: ".06em",
+                      textTransform: "uppercase",
+                      color: "var(--muted)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 999,
+                      padding: "2px 8px",
+                    }}
+                  >
+                    {SOURCE_LABEL[performer.source]}
+                  </span>
+                  <GlyphButton
+                    ariaLabel={`Remove ${performer.name}`}
+                    onClick={() => props.onRemovePerformer(performer.id)}
+                  >
+                    <XIcon size={15} />
+                  </GlyphButton>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <label>
+          <span style={labelStyle}>Venue *</span>
+          <input
+            value={props.venue}
+            onChange={(e) => props.setVenue(e.target.value)}
+            placeholder="e.g. Funkhaus"
+            style={bigField}
+          />
+        </label>
+        <label>
+          <span style={labelStyle}>City</span>
+          <input
+            value={props.city}
+            onChange={(e) => props.setCity(e.target.value)}
+            placeholder="e.g. Berlin"
+            style={bigField}
+          />
+        </label>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <label>
+          <span style={labelStyle}>Date</span>
+          <input
+            type="date"
+            value={props.date}
+            onChange={(e) => props.setDate(e.target.value)}
+            style={bigField}
+          />
+        </label>
+        <label>
+          <span style={labelStyle}>Capacity</span>
+          <input
+            type="number"
+            value={props.cap}
+            onChange={(e) => props.setCap(e.target.value)}
+            placeholder="1500"
+            style={{ ...bigField, fontFamily: "var(--font-mono)" }}
+          />
+        </label>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <label>
+          <span style={labelStyle}>Ticketing provider</span>
+          <input
+            value={props.ticketing}
+            onChange={(e) => props.setTicketing(e.target.value)}
+            placeholder="e.g. DICE, Eventbrite"
+            style={bigField}
+          />
+        </label>
+        <div>
+          <span style={labelStyle}>Currency</span>
+          <Select value={props.currency} onChange={props.setCurrency} options={CURRENCIES} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DealStep(props: {
+  dealType: string;
+  setDealType: (v: string) => void;
+  dealIsGuarantee: boolean;
+  guarantee: string;
+  setGuarantee: (v: string) => void;
+  artistSplit: string;
+  setArtistSplit: (v: string) => void;
+  promoterSplit: string;
+  setPromoterSplit: (v: string) => void;
+  venueSplit: string;
+  setVenueSplit: (v: string) => void;
+  splitTotal: number;
+  venueRental: string;
+  setVenueRental: (v: string) => void;
+  rentalPaidBy: string;
+  setRentalPaidBy: (v: string) => void;
+}) {
+  const splitField = {
+    ...fieldStyle,
+    width: "100%",
+    textAlign: "center" as const,
+    fontFamily: "var(--font-mono)",
+    opacity: props.dealIsGuarantee ? 0.5 : 1,
+  };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 15 }}>
+      <div>
+        <span style={labelStyle}>Deal type</span>
+        <Select value={props.dealType} onChange={props.setDealType} options={DEAL_TYPES} />
+      </div>
+
+      <label>
+        <span style={labelStyle}>Performer guarantee</span>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            border: "1px solid var(--border)",
+            background: "var(--elevated)",
+            borderRadius: 11,
+            padding: "0 14px",
+          }}
+        >
+          <span style={{ color: "var(--muted)", fontFamily: "var(--font-mono)" }}>€</span>
+          <input
+            type="number"
+            value={props.guarantee}
+            onChange={(e) => props.setGuarantee(e.target.value)}
+            placeholder="0"
+            style={{
+              flex: 1,
+              border: 0,
+              background: "transparent",
+              color: "var(--text)",
+              fontSize: 14,
+              padding: "11px 8px",
+              outline: "none",
+              fontFamily: "var(--font-mono)",
+            }}
+          />
+        </div>
+      </label>
+
+      <div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 8,
+          }}
+        >
+          <span style={{ ...labelStyle, marginBottom: 0 }}>Revenue split %</span>
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              color: props.splitTotal === 100 ? "#6FC97A" : "#F4A046",
+            }}
+          >
+            Total {props.splitTotal}%
+          </span>
+        </div>
+        {props.dealIsGuarantee && (
+          <div
+            style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 8, fontStyle: "italic" }}
+          >
+            Revenue split is not applicable for Guarantee deals.
+          </div>
+        )}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+          <label>
+            <span
+              style={{ display: "block", fontSize: 11.5, color: "var(--muted)", marginBottom: 5 }}
+            >
+              Performer
+            </span>
+            <input
+              type="number"
+              value={props.artistSplit}
+              disabled={props.dealIsGuarantee}
+              onChange={(e) => props.setArtistSplit(e.target.value)}
+              style={splitField}
+            />
+          </label>
+          <label>
+            <span
+              style={{ display: "block", fontSize: 11.5, color: "var(--muted)", marginBottom: 5 }}
+            >
+              Promoter
+            </span>
+            <input
+              type="number"
+              value={props.promoterSplit}
+              disabled={props.dealIsGuarantee}
+              onChange={(e) => props.setPromoterSplit(e.target.value)}
+              style={splitField}
+            />
+          </label>
+          <label>
+            <span
+              style={{ display: "block", fontSize: 11.5, color: "var(--muted)", marginBottom: 5 }}
+            >
+              Venue
+            </span>
+            <input
+              type="number"
+              value={props.venueSplit}
+              disabled={props.dealIsGuarantee}
+              onChange={(e) => props.setVenueSplit(e.target.value)}
+              style={splitField}
+            />
+          </label>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <label>
+          <span style={labelStyle}>Venue rental</span>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              border: "1px solid var(--border)",
+              background: "var(--elevated)",
+              borderRadius: 11,
+              padding: "0 14px",
+            }}
+          >
+            <span style={{ color: "var(--muted)", fontFamily: "var(--font-mono)" }}>€</span>
+            <input
+              type="number"
+              value={props.venueRental}
+              onChange={(e) => props.setVenueRental(e.target.value)}
+              placeholder="0"
+              style={{
+                flex: 1,
+                minWidth: 0,
+                border: 0,
+                background: "transparent",
+                color: "var(--text)",
+                fontSize: 14,
+                padding: "11px 8px",
+                outline: "none",
+                fontFamily: "var(--font-mono)",
+              }}
+            />
+          </div>
+        </label>
+        <div>
+          <span style={labelStyle}>Rental paid by</span>
+          <Select
+            value={props.rentalPaidBy}
+            onChange={props.setRentalPaidBy}
+            options={RENTAL_PAID_BY}
+          />
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 9,
+          background: "color-mix(in srgb,#6FC97A 10%,transparent)",
+          border: "1px solid color-mix(in srgb,#6FC97A 26%,transparent)",
+          borderRadius: 11,
+          padding: "11px 14px",
+          color: "#5aa568",
+          fontSize: 12.5,
+        }}
+      >
+        <Icon name="check" size={15} />
+        Creating this event also sets up its settlement once the deal is confirmed.
+      </div>
+    </div>
+  );
+}
+
+function MiniToggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={onChange}
+      style={{
+        width: 42,
+        height: 24,
+        borderRadius: 999,
+        border: 0,
+        cursor: "pointer",
+        padding: 0,
+        position: "relative",
+        background: checked ? "linear-gradient(135deg,#EE5746,#F4A046)" : "var(--border-strong)",
+        transition: "background .15s",
+      }}
+    >
+      <span
+        style={{
+          position: "absolute",
+          top: 3,
+          left: checked ? 21 : 3,
+          width: 18,
+          height: 18,
+          borderRadius: "50%",
+          background: "#fff",
+          transition: "left .15s",
+        }}
+      />
+    </button>
+  );
+}

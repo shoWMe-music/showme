@@ -2,14 +2,9 @@
 <html lang="en"><head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>shoWMe — Contact</title>
+  <title>Contact shoWMe</title>
   <meta name="description" content="Get in touch with the shoWMe team.">
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
-  <link rel="preconnect" href="https://api.fontshare.com" crossorigin="">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f%5B%5D=clash-display@400,500,600&display=swap">
   <link rel="stylesheet" href="/src/styles/tokens.css">
   <style>/* latin-ext */
 
@@ -114,7 +109,6 @@
 /* latin */
 
 </style>
-  <link href="https://api.fontshare.com/v2/css?f[]=clash-display@500,600&amp;display=swap" rel="stylesheet">
 
   <style>/* Web font sources — @font-face for the brand families (Inter Tight, JetBrains Mono, Clash Display).
    Replaced automatically once the font files are uploaded via the sidebar. */
@@ -213,7 +207,6 @@
 /* latin */
 
 
-@import url('https://api.fontshare.com/v2/css?f%5B%5D=clash-display@400,500,600&display=swap');
 
 /* ---------- shoWMe Landing — tokens & base ---------- */
 
@@ -318,6 +311,7 @@ body::before {
   font-weight: 600;
   font-size: 22px;
   letter-spacing: -0.01em;
+  color: #fff;
 }
 .brand__mark {
   width: 34px; height: 34px;
@@ -338,41 +332,6 @@ body::before {
 .nav__cta {
   display: flex; gap: 12px; align-items: center;
 }
-
-/* ---------- Buttons ---------- */
-.btn {
-  display: inline-flex; align-items: center; gap: 10px;
-  padding: 13px 22px;
-  border-radius: 999px;
-  font-size: 14.5px;
-  font-weight: 500;
-  letter-spacing: -0.005em;
-  transition: transform .2s var(--ease-out), background .2s, box-shadow .2s, color .2s;
-  white-space: nowrap;
-}
-.btn--ghost { color: var(--ink-100); }
-.btn--ghost:hover { color: var(--brand-gold); }
-.btn--outline {
-  border: 1px solid rgba(255,233,184,.22);
-  color: var(--ink-100);
-}
-.btn--outline:hover {
-  border-color: var(--brand-gold);
-  color: var(--brand-gold);
-}
-.btn--primary {
-  background: linear-gradient(135deg, var(--brand-red) 0%, var(--brand-amber) 100%);
-  color: #120903;
-  font-weight: 600;
-  box-shadow: 0 8px 28px -10px rgba(238,87,70,.6), inset 0 1px 0 rgba(255,255,255,.3);
-}
-.btn--primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 14px 38px -10px rgba(238,87,70,.8), inset 0 1px 0 rgba(255,255,255,.4);
-}
-.btn--lg { padding: 17px 28px; font-size: 15.5px; }
-.btn__arrow { transition: transform .25s var(--ease-out); }
-.btn:hover .btn__arrow { transform: translateX(3px); }
 
 /* ---------- Hero ---------- */
 .hero {
@@ -1175,9 +1134,109 @@ section { position: relative; }
   .cta__actions .btn { width: 100%; justify-content: center; }
   .footer__bottom { flex-direction: column; gap: 8px; }
 }
+
+/* ---------- Mobile hamburger menu (mobile-only, ≤760px) ---------- */
+.nav-burger { display: none; }
+.mobile-menu { display: none; }
+/* Lock background scroll while the menu is open (paired with lenis.stop() in JS) */
+html.menu-open, html.menu-open body { overflow: hidden; }
+
+@media (max-width: 760px) {
+  /* Header collapses to brand + burger — the inline actions/links are hidden */
+  .hero__header-actions > .btn,
+  .site-header__actions > .btn,
+  .nav__cta > .btn { display: none; }
+  .nav__links { display: none; }
+
+  .nav-burger {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    width: 44px; height: 44px;
+    position: relative;
+    z-index: 150;
+    border-radius: 10px;
+    transition: opacity .2s var(--ease-out);
+  }
+  .nav-burger span {
+    display: block;
+    width: 22px; height: 2px;
+    background: var(--ink-100);
+    border-radius: 2px;
+  }
+  html.menu-open .nav-burger { opacity: 0; pointer-events: none; }
+
+  .mobile-menu {
+    display: block;
+    position: fixed; inset: 0;
+    z-index: 200;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .mobile-menu.open { visibility: visible; pointer-events: auto; }
+
+  .mobile-menu__backdrop {
+    position: absolute; inset: 0;
+    background: rgba(10,6,4,.62);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    opacity: 0;
+    transition: opacity .25s var(--ease-out);
+  }
+  .mobile-menu.open .mobile-menu__backdrop { opacity: 1; }
+
+  .mobile-menu__panel {
+    position: absolute; top: 0; left: 0; right: 0;
+    display: flex; flex-direction: column;
+    padding: 78px 24px 32px;
+    background: linear-gradient(180deg, var(--ink-950) 0%, var(--ink-1000) 100%);
+    border-bottom: 1px solid rgba(255,233,184,.1);
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,.7);
+    transform: translateY(-101%);
+    transition: transform .28s var(--ease-out);
+  }
+  .mobile-menu.open .mobile-menu__panel { transform: translateY(0); }
+
+  .mobile-menu__close {
+    position: absolute; top: 16px; right: 18px;
+    width: 44px; height: 44px;
+    display: grid; place-items: center;
+    color: var(--ink-100);
+    border-radius: 10px;
+    transition: color .2s var(--ease-out);
+  }
+  .mobile-menu__close:hover { color: var(--brand-gold); }
+
+  .mobile-menu__nav { display: flex; flex-direction: column; }
+  .mobile-menu__nav a {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 22px;
+    letter-spacing: -0.02em;
+    color: var(--ink-100);
+    padding: 15px 4px;
+    border-bottom: 1px solid rgba(255,233,184,.08);
+    transition: color .2s var(--ease-out);
+  }
+  .mobile-menu__nav a:hover { color: var(--brand-gold); }
+
+  .mobile-menu__cta {
+    margin-top: 24px;
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-menu__panel,
+  .mobile-menu__backdrop,
+  .nav-burger { transition: none; }
+}
 </style>
 
-  
+
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 
   <style>
@@ -1219,17 +1278,35 @@ section { position: relative; }
   <meta name="theme-color" content="#18100C">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="shoWMe">
-  <meta property="og:title" content="shoWMe — Contact">
+  <meta property="og:title" content="Contact shoWMe">
   <meta property="og:description" content="Get in touch with the shoWMe team.">
   <meta property="og:url" content="https://showme.example/contact.html">
   <meta property="og:image" content="https://showme.example/assets/photo.jpg">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="shoWMe — Contact">
+  <meta name="twitter:title" content="Contact shoWMe">
   <meta name="twitter:description" content="Get in touch with the shoWMe team.">
   <meta name="twitter:image" content="https://showme.example/assets/photo.jpg">
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"shoWMe","url":"https://showme.example","logo":"https://showme.example/favicon.svg","description":"Booking + settlement for live events — one shared system for operators, performers, agents and crew."}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"shoWMe","url":"https://showme.example","logo":"https://showme.example/favicon.svg","description":"Booking + settlement for live events. One shared system for operators, performers, agents and crew."}</script>
 </head>
 <body>
+
+  <!-- ===== MOBILE MENU (≤760px) ===== -->
+  <div class="mobile-menu" id="mobile-menu" aria-hidden="true">
+    <div class="mobile-menu__backdrop" data-menu-close></div>
+    <div class="mobile-menu__panel" role="dialog" aria-modal="true" aria-label="Menu">
+      <button class="mobile-menu__close" type="button" aria-label="Close menu" data-menu-close>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+      </button>
+      <nav class="mobile-menu__nav">
+        <a href="product.html">Product</a>
+        <a href="index.html#ecosystem">Ecosystem</a>
+        <a href="index.html#pricing">Pricing</a>
+        <a href="index.html#why">Why shoWMe</a>
+        <a href="about.html">About</a>
+      </nav>
+      <a href="contact.html" class="btn btn--primary mobile-menu__cta">Get early access</a>
+    </div>
+  </div>
 
   <!-- ===== NAV ===== -->
   <nav class="nav scrolled" id="nav">
@@ -1254,20 +1331,51 @@ section { position: relative; }
         </span>
         <span>shoWMe</span>
       </a>
-      <div class="nav__links">
-        <a href="product.html">Product</a>
-        <a href="index.html#features">Features</a>
-        <a href="index.html#ecosystem">Ecosystem</a>
-        <a href="index.html#pricing">Pricing</a>
-        <a href="about.html">About</a>
-      </div>
-      <div class="nav__cta">
-        <a href="index.html" class="btn btn--ghost">Sign in</a>
-        <a href="index.html#cta" class="btn btn--primary">
-          Get early access
-          <svg class="btn__arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
-        </a>
-      </div>
+      <nav class="topnav" aria-label="Primary">
+        <ul class="topnav__menus">
+          <li class="topnav__item">
+            <button type="button" class="topnav__trigger" aria-haspopup="true" aria-expanded="false">
+              Product
+              <svg class="topnav__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+            </button>
+            <div class="topnav__panel" role="menu">
+              <a role="menuitem" href="product.html#calendar">Calendar</a>
+              <a role="menuitem" href="product.html#agreements">Agreements</a>
+              <a role="menuitem" href="product.html#settlements">Settlement</a>
+              <a role="menuitem" href="index.html#pricing">Pricing</a>
+            </div>
+          </li>
+          <li class="topnav__item">
+            <button type="button" class="topnav__trigger" aria-haspopup="true" aria-expanded="false">
+              Company
+              <svg class="topnav__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+            </button>
+            <div class="topnav__panel" role="menu">
+              <a role="menuitem" href="about.html">About</a>
+              <a role="menuitem" href="terms.html">Terms &amp; Conditions</a>
+              <a role="menuitem" href="privacy.html">Privacy Policy</a>
+              <a role="menuitem" href="cookies.html">Cookie Policy</a>
+            </div>
+          </li>
+          <li class="topnav__item">
+            <button type="button" class="topnav__trigger" aria-haspopup="true" aria-expanded="false">
+              Contact
+              <svg class="topnav__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+            </button>
+            <div class="topnav__panel" role="menu">
+              <a role="menuitem" href="contact.html">Contact form</a>
+              <a role="menuitem" href="https://showme.music/">showme.music</a>
+            </div>
+          </li>
+        </ul>
+        <div class="topnav__actions">
+          <a href="/login" class="btn btn--ghost">Log in</a>
+          <a href="contact.html" class="btn btn--primary">Get early access</a>
+        </div>
+        <button class="nav-burger" type="button" aria-label="Menu" aria-expanded="false" aria-controls="mobile-menu">
+          <span></span><span></span><span></span>
+        </button>
+      </nav>
     </div>
   </nav>
 
@@ -1292,11 +1400,16 @@ section { position: relative; }
         <form class="cform" id="contactForm" novalidate="">
           <div class="cok" id="cok">
             <div class="cok__icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"></path></svg></div>
-            <h3 class="cok__h">Thanks — message sent.</h3>
+            <h3 class="cok__h">Thanks, message sent.</h3>
             <p class="cok__b">We'll be in touch shortly at the email you provided.</p>
           </div>
 
           <div id="cfields">
+            <!-- Honeypot: hidden from humans; bots fill it and are silently dropped server-side. -->
+            <div class="chp" aria-hidden="true" style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden">
+              <label for="website">Website</label>
+              <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
+            </div>
             <div class="crow">
               <div class="cfield">
                 <label for="name">Name <span class="req">*</span></label>
@@ -1353,7 +1466,7 @@ section { position: relative; }
             </span>
             <span>shoWMe</span>
           </a>
-          <p class="footer__tag">Built for events. Benefits everyone. Early access for venues, promoters &amp; booking agents across Scandinavia and Germany — early access for performers worldwide.</p>
+          <p class="footer__tag">Built for events. Benefits everyone. Early access available now.</p>
         </div>
         <div>
           <h4>Product</h4>
@@ -1368,8 +1481,9 @@ section { position: relative; }
           <h4>Company</h4>
           <ul>
             <li><a href="about.html">About</a></li>
-            <li><a href="#">Terms &amp; Conditions</a></li>
-            <li><a href="#">Privacy Policy</a></li>
+            <li><a href="terms.html">Terms &amp; Conditions</a></li>
+            <li><a href="privacy.html">Privacy Policy</a></li>
+            <li><a href="cookies.html">Cookie Policy</a></li>
           </ul>
         </div>
         <div>

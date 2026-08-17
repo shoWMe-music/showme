@@ -2,6 +2,8 @@ import { createDatabase } from "@showme/db";
 import { buildApp } from "./app";
 import { createFirebaseTokenVerifier } from "./auth/token-verifier";
 import { loadEnv } from "./config";
+import { createLeadSink } from "./lib/clickup";
+import { createEmailSink } from "./lib/email";
 
 /**
  * Production entry point — wires real dependencies from the environment and
@@ -14,7 +16,33 @@ const tokenVerifier = createFirebaseTokenVerifier({
   serviceAccount: env.FIREBASE_SERVICE_ACCOUNT,
 });
 
-const app = buildApp({ database, tokenVerifier });
+const leadSink = createLeadSink({
+  clickUpApiToken: env.CLICKUP_API_TOKEN,
+  clickUpLeadsListId: env.CLICKUP_LEADS_LIST_ID,
+});
+
+const emailSink = createEmailSink({
+  brevoApiKey: env.BREVO_API_KEY,
+  brevoSender: env.BREVO_SENDER,
+});
+
+const splitOrigins = (value: string | undefined) =>
+  value
+    ?.split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+const leadsAllowedOrigins = splitOrigins(env.LEADS_ALLOWED_ORIGINS);
+const corsAllowedOrigins = splitOrigins(env.CORS_ALLOWED_ORIGINS);
+
+const app = buildApp({
+  database,
+  tokenVerifier,
+  leadSink,
+  emailSink,
+  leadsAllowedOrigins,
+  corsAllowedOrigins,
+});
 
 app
   .listen({ port: env.PORT, host: env.HOST })

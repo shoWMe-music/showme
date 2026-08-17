@@ -29,3 +29,11 @@ coverage
 .design-sync/upload-*.json
 .ds-sync/
 ds-bundle/
+
+# Firebase emulator artifacts
+firebase-debug.log
+firebase-*-debug.log
+.firebase/
+
+# Extracted Claude Design export (served by pnpm design:ref)
+.design-reference/

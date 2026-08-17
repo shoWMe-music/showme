@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { classNames } from "@/lib/classNames";
 import { Icon } from "@/icons";
 import { useModalMotion } from "./useModalMotion";
@@ -28,8 +29,11 @@ export function Modal({ open, onClose, title, children, footer, width = 520, cla
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!rendered) return null;
-  return (
+  if (!rendered || typeof document === "undefined") return null;
+  // Portal to <body> so the fixed scrim covers the WHOLE viewport (sidebar + top
+  // bar included). Rendered inline, a transformed ancestor (the page-transition
+  // wrapper) becomes the containing block and clips the scrim to the main region.
+  return createPortal(
     <div ref={scrim} className={styles.scrim} onClick={onClose} role="presentation">
       <div
         ref={panel}
@@ -50,6 +54,7 @@ export function Modal({ open, onClose, title, children, footer, width = 520, cla
         <div className={styles.body}>{children}</div>
         {footer && <div className={styles.footer}>{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

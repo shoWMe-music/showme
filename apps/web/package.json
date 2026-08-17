@@ -11,9 +11,13 @@
     "test": "playwright test"
   },
   "dependencies": {
+    "@showme/api-client": "workspace:*",
     "@showme/design-system": "workspace:*",
+    "@showme/shared": "workspace:*",
     "@tanstack/react-query": "^5.62.7",
     "@tanstack/react-router": "^1.87.0",
+    "firebase": "^12.17.0",
+    "gsap": "^3.15.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

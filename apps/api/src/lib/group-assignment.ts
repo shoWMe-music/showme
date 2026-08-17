@@ -15,7 +15,7 @@ export interface AssignResult {
 /**
  * Resolve a group member (a user/contact) to their OWN profile — crew reference
  * their own identity, never a copy (decisions #12). A crew person is a
- * `professional`, so prefer that profile when the user owns several.
+ * `team_and_crew` account, so prefer that profile when the user owns several.
  */
 async function resolveMemberProfileId(tx: Transaction, userId: string): Promise<string | null> {
   const owned = await tx
@@ -23,8 +23,8 @@ async function resolveMemberProfileId(tx: Transaction, userId: string): Promise<
     .from(schema.profiles)
     .where(eq(schema.profiles.ownerUserId, userId));
   if (owned.length === 0) return null;
-  const professional = owned.find((profile) => profile.kind === "professional");
-  return (professional ?? owned[0])?.id ?? null;
+  const teamAndCrew = owned.find((profile) => profile.kind === "team_and_crew");
+  return (teamAndCrew ?? owned[0])?.id ?? null;
 }
 
 /**

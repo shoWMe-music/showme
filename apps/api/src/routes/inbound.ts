@@ -31,6 +31,9 @@ const CreatePublicRequestBody = z.object({
 
 const ListQuery = PaginationQuery.extend({
   status: z.enum(["pending", "accepted", "declined", "flagged", "archived", "expired"]).optional(),
+  // "incoming" (default) = requests targeting a profile I am a member of.
+  // "outgoing" = offers/requests I have SENT from one of my profiles (fix-list #6).
+  direction: z.enum(["incoming", "outgoing"]).optional().default("incoming"),
 });
 
 const UpdateStatusBody = z.object({ status: bookingRequestStatus });
@@ -150,9 +153,11 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // List the caller's incoming requests — those targeting any profile they are a
-  // member of. The membership set IS the authorization; keyset paginated by
-  // `(created_at, id)`, optionally filtered by status.
+  // List the caller's booking requests. "incoming" (default) = requests targeting
+  // any profile they are a member of; "outgoing" = requests/offers they have sent
+  // from one of those profiles (fix-list #6). The membership set IS the
+  // authorization either way; keyset paginated by `(created_at, id)`, optionally
+  // filtered by status.
   app.get(
     "/booking-requests",
     { schema: { querystring: ListQuery, response: { 200: ListResponse } } },
@@ -160,12 +165,18 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
       const { database } = request.server;
       const principal = request.principal;
       if (!principal) throw new Error("principal missing after authentication");
-      const { cursor, limit, status } = request.query;
+      const { cursor, limit, status, direction } = request.query;
 
       const profileIds = principal.memberships.map((membership) => membership.profileId);
       if (profileIds.length === 0) {
         return { items: [], nextCursor: null };
       }
+
+      // Incoming scopes on the target; outgoing scopes on the sender profile.
+      const scope =
+        direction === "outgoing"
+          ? inArray(schema.bookingRequests.senderProfileId, profileIds)
+          : inArray(schema.bookingRequests.targetProfileId, profileIds);
 
       // Truncate to milliseconds so the JS-Date-round-tripped cursor stays exact
       // (same approach as events-list) and never re-emits the boundary row.
@@ -179,11 +190,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
         .select()
         .from(schema.bookingRequests)
         .where(
-          and(
-            inArray(schema.bookingRequests.targetProfileId, profileIds),
-            status ? eq(schema.bookingRequests.status, status) : undefined,
-            afterCursor,
-          ),
+          and(scope, status ? eq(schema.bookingRequests.status, status) : undefined, afterCursor),
         )
         .orderBy(asc(createdAtMillis), asc(schema.bookingRequests.id))
         .limit(limit + 1);

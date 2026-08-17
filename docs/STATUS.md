@@ -13,8 +13,8 @@ when picking the project back up; the *why* still lives in `decisions.md` / `sto
 - **Backend (`apps/api`)** is broad: 33 route modules, an `authorize` + `serialize` layer, and a settlement engine. Has an extensive Vitest suite (Testcontainers/Postgres) — **not run this session** (needs Docker).
 - **Design-system** — ~40 Storybook components on the real shoWMe brand tokens (dark, red/gold/cream). Ships a Vite **library build** (`dist/`) consumed by the app.
 - **Marketing site (`apps/marketing`)** — 4 static SEO pages, GSAP + canvas scenes. ✅ **27 Playwright tests green.**
-- **App (`apps/web`)** — React 19 + TanStack shell + 3 screens, on design-system components. ✅ **5 Playwright tests green.** **Uses mock data — not wired to the API yet.**
-- **Biggest open seam:** `apps/web` ↔ `apps/api` are not connected. No generated api-client, no auth wiring in the app.
+- **App (`apps/web`)** — React 19 + TanStack shell + screens, **fully wired to the live API**. Real Firebase Auth (Email/Password + Google), `packages/api-client` (orval hooks), all mocks removed. ✅ **4 Playwright e2e green** (login → real seeded data). **Biggest former seam (web ↔ api) is closed.**
+- **Wiring epic done (2026-08-02):** api-client + auth + all screens on real data + Storage (keyless signing) + SSE publish + Brevo email + FX cache — all connected & verified. Local dev needs Docker Postgres up + `pnpm --filter @showme/db seed`. Deferred: Stripe, Spotify, CI/CD + deploy.
 
 ---
 
@@ -49,13 +49,13 @@ Workspace globs (`pnpm-workspace.yaml`): `apps/*`, `packages/*`, `design-system`
 | Monorepo tooling | ✅ Built | Turbo tasks: build / typecheck / test / lint / **dev** (new). Biome. tsconfig.base strict. |
 | `packages/db` schema | ✅ Built | 14 Drizzle schema files (identity, events, deals, settlement, authorization, monetization, comms, sharing, inbound, invitations, content, infra, enums). |
 | `packages/settlement` | ✅ Built | Pure TS math with its own unit tests (`reconcile.test.ts`, `representation.test.ts`). |
-| `apps/api` | ✅ Broad | 33 routes + `lib/authorize.ts` + `serialize/*` + settlement/commission. Has full `.test.ts` suite. **Tests not run this session (needs Docker/Testcontainers).** |
-| `apps/stream` | ✅ Scaffolded | SSE app + pubsub + token-verifier, with tests. |
-| `apps/jobs` | ✅ Scaffolded | exchange-rate + reapers, with tests. |
+| `apps/api` | ✅ Broad + verified | 34 routes + authorize/serialize/settlement + CORS + email/publish/storage. **Full Vitest suite green: 235 tests (Docker/Testcontainers).** |
+| `apps/stream` | ✅ Scaffolded | SSE app + pubsub + token-verifier. The API now publishes (`lib/publish.ts` → `pg_notify`), verified round-trip. |
+| `apps/jobs` | ✅ Verified | exchange-rate refresh run → 56 rate pairs cached; reapers. Cron trigger is deploy-phase. |
 | `design-system` | ✅ Built | Storybook + Vite lib build. Brand tokens unified (primitives + semantic, dark default). |
-| `apps/marketing` | ✅ Built + verified | 4 pages, SEO (OG/JSON-LD/sitemap/robots), GSAP reveals, canvas scenes. 27 e2e green. |
-| `apps/web` | ✅ Shell + 3 screens | AppShell + Dashboard/Events/EventDetail. Theme toggle. 5 e2e green. **Mock data.** |
-| web ↔ api wiring | ❌ Not started | No `packages/api-client` (orval), no fetch layer, no Firebase Auth in the app. |
+| `apps/marketing` | ✅ Built + verified | 4 pages, SEO, GSAP reveals, canvas scenes. 27 e2e green. Contact form → ClickUp leads. |
+| `apps/web` | ✅ Wired + verified | Firebase Auth + `@showme/api-client`; Dashboard/Events/EventDetail on **real data**, sign-out, mocks deleted. 4 e2e green. |
+| web ↔ api wiring | ✅ Done | `packages/api-client` (orval hooks + fetch mutator), Firebase Auth token flow, global CORS. |
 | CI (GitHub Actions) | ❌ Not started | No `.github/workflows`. |
 | Deploy (Cloud Run / Firebase Hosting) | ❌ Not started | Infra not provisioned. |
 
@@ -99,14 +99,15 @@ pnpm --filter @showme/web test          # :4174
 
 ## Known gaps & TODOs
 
-1. **Wire `apps/web` to `apps/api`.** Currently `apps/web/src/data/mock.ts`. Plan (PLAN.md): drizzle-zod → Fastify OpenAPI → orval → `packages/api-client` TanStack Query hooks. Add Firebase Auth token flow in the app shell.
-2. **Marketing lead form** posts to a stub — set `VITE_LEAD_ENDPOINT` + a server handler (ClickUp forwarding is server-side).
+1. ✅ **DONE — `apps/web` wired to `apps/api`.** `packages/api-client` (orval hooks + fetch mutator), Firebase Auth token flow, all screens on real data, `mock.ts` deleted. Local dev: `docker compose up -d` → `pnpm --filter @showme/db migrate` → `pnpm --filter @showme/db seed`, then run the API (`pnpm --filter @showme/api dev`) + web (`pnpm --filter @showme/web dev`). Uses the `music-showme` Firebase project. Backend integrations connected: Storage (keyless IAM signing), SSE publish, Brevo email, FX cache.
+2. **Marketing lead form** is wired: `POST /api/v1/public/leads` forwards to the ClickUp "Website Leads" list via an injected `leadSink` (`apps/api/src/lib/clickup.ts`). Hardened: origin allow-list (`LEADS_ALLOWED_ORIGINS`, reflected in CORS — never `*`), per-IP rate limit (5/min, in-memory), a form honeypot, and sanitizing Zod input validation. To go live, set `CLICKUP_API_TOKEN` (+ `CLICKUP_LEADS_LIST_ID`, defaulted in `.env.example`) and `LEADS_ALLOWED_ORIGINS`=marketing domain on the API, and point the marketing `VITE_LEAD_ENDPOINT` at the deployed API. Unconfigured, leads are logged (no-op sink). NOTE: the rate limit is per-instance (Cloud Run scales out) — global DoS protection still belongs at the edge (Cloud Armor) once deploy infra exists.
 3. **Placeholder domain** `showme.example` in `apps/marketing` canonical/sitemap/robots — swap for the real domain.
 4. **Founder photo** in `apps/marketing/about.html` reuses the Organic reference image; needs a real one.
 5. **Fonts** are CDN (Google + Fontshare) — fine for SEO; self-host later if desired.
 6. **CI/CD** — no GitHub Actions or Cloud Run/Firebase Hosting deploy yet.
 7. **design-system in dev** is consumed as built `dist/` — editing a component during `pnpm dev` needs `pnpm --filter @showme/design-system build` to propagate (or add a src alias in web's dev config for HMR).
-8. **Run the backend test suite** once Docker is available to confirm the API/settlement status.
+8. ✅ **DONE — backend suite green:** API 235 tests + packages (settlement/db/stream/jobs/shared/auth/gdpr/time) all pass, typecheck 14/14, Biome clean, web e2e 4/4.
+9. **Deferred (next phase, needs credentials/infra):** Stripe Connect (#12), Spotify performer verification (#13), and CI/CD + Cloud Run/Firebase Hosting deploy.
 
 ---
 

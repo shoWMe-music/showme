@@ -145,6 +145,36 @@ describe("participants — authorize + serialize + audit", () => {
     expect(operator.profileId).toBeDefined();
   });
 
+  it("writes a notification to the added profile's member on participant-add", async () => {
+    const { db } = harness;
+    const { performer, event } = await seedEventWithHost("notify");
+
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("notify-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    expect(added.statusCode).toBe(201);
+
+    // The performer's active member ("notify-perf") gets a feed row; the acting
+    // operator ("notify-op") does not (you never notify yourself).
+    const forPerformer = await db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, "notify-perf"));
+    expect(forPerformer).toHaveLength(1);
+    expect(forPerformer[0]?.type).toBe("event.participant_added");
+    expect(forPerformer[0]?.eventId).toBe(event.id);
+    expect(forPerformer[0]?.title).toBe('Added to "Roster Night"');
+
+    const forOperator = await db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, "notify-op"));
+    expect(forOperator).toHaveLength(0);
+  });
+
   it("shows a performer only the public fields of other participants", async () => {
     const { db } = harness;
     const { performer, event } = await seedEventWithHost("pub");

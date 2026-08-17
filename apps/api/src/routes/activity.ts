@@ -25,6 +25,9 @@ const ActivityFeedResponse = z.object({
   nextCursor: z.string().nullable(),
 });
 
+/** Optional per-event scope for an event's own history tab. */
+const ActivityQuery = PaginationQuery.extend({ eventId: z.string().uuid().optional() });
+
 interface Cursor {
   createdAt: string;
   id: string;
@@ -42,12 +45,12 @@ export async function activityRoutes(fastify: FastifyInstance): Promise<void> {
     .withTypeProvider<ZodTypeProvider>()
     .get(
       "/activity",
-      { schema: { querystring: PaginationQuery, response: { 200: ActivityFeedResponse } } },
+      { schema: { querystring: ActivityQuery, response: { 200: ActivityFeedResponse } } },
       async (request) => {
         const principal = request.principal;
         if (!principal) throw new Error("principal missing after authentication");
         const { database } = request.server;
-        const { cursor, limit } = request.query;
+        const { cursor, limit, eventId } = request.query;
 
         const viewerProfileIds = principal.memberships.map((m) => m.profileId);
         if (viewerProfileIds.length === 0) return { items: [], nextCursor: null };
@@ -67,7 +70,13 @@ export async function activityRoutes(fastify: FastifyInstance): Promise<void> {
             ),
           );
 
-        const reachableEvents = [...new Set(participants.map((p) => p.eventId))];
+        let reachableEvents = [...new Set(participants.map((p) => p.eventId))];
+        // Per-event history: narrow to the one event, but only if the viewer can
+        // actually reach it — an unreachable id yields an empty feed, not a leak.
+        if (eventId) {
+          if (!reachableEvents.includes(eventId)) return { items: [], nextCursor: null };
+          reachableEvents = [eventId];
+        }
         if (reachableEvents.length === 0) return { items: [], nextCursor: null };
         const operatorEvents = [
           ...new Set(

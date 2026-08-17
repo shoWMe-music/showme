@@ -8,7 +8,7 @@ description: The Postgres relational schema for the shoWMe rebuild — the ~42 t
 Full schema in [PLAN.md](../../../PLAN.md) → "Full relational data model" + "Table consolidations". This is the map.
 
 ## The spine (memorize this)
-Two hubs — **`profiles`** (every actor: operator / performer / professional) and **`events`** (the container) — joined by:
+Two hubs — **`profiles`** (every actor: operator / performer / team_and_crew) and **`events`** (the container) — joined by:
 - **`profile_members`** — users ↔ profiles (role: owner/admin/editor). Also absorbs the old non-user "team" directory (nullable `user_id`).
 - **`event_participants`** — profiles ↔ events (event-role + `permission_set_id`). **This replaces the entire Firestore `accessUids` fan-out.**
 
@@ -22,7 +22,7 @@ Money is three pairs:
 ## The one rule for adding tables
 > **Normalize what you filter / join / aggregate *by*; embed (`jsonb`/columns) what's always read *with* its parent and never queried across.**
 
-Kept normalized (queried across): `event_participants`, `deal_parties`, `budget_lines`, `settlements`/`transfers`, `profile_members`, `profile_locations`, `venue/performer/professional_details`, `spam_flags`.
+Kept normalized (queried across): `event_participants`, `deal_parties`, `budget_lines`, `settlements`/`transfers`, `profile_members`, `profile_locations`, `venue/performer/team_and_crew_details`, `spam_flags`.
 Folded into parents as `jsonb`: profile social links / media / custom roles, `crew_details`, agreement reopen, `share_recipients`, `contact_persons`, etc.
 
 ## Modules (~42 tables, build in this order)
@@ -39,5 +39,5 @@ Folded into parents as `jsonb`: profile social links / media / custom roles, `cr
 
 ## Watch-outs
 - **Currency lives on the money:** `events.base_currency`, `deals.currency` (payout), `budget_lines.currency`. Settlement reconciles in base with a **locked FX** rate; display FX is separate/cosmetic.
-- **Crew forward-compat:** crew are `event_participants` (role=crew) → a `professional` profile; giving them deals/agreements later is additive (kind-agnostic FKs), no migration.
+- **Crew forward-compat:** crew are `event_participants` (role=crew) → a `team_and_crew` profile; giving them deals/agreements later is additive (kind-agnostic FKs), no migration.
 - **Files:** bytes in Firebase Storage; metadata in a `files` table (path, not URL); access via API signed URLs.

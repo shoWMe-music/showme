@@ -176,7 +176,7 @@
   s.textContent = `
     .appwin {
       position: absolute;
-      top: 60px; left: 0; width: 460px; height: 420px;
+      top: 60px; left: 0; width: 540px; height: 420px;
       display: grid; grid-template-columns: 150px 1fr;
       background: #14100C;
       border: 1px solid rgba(255,233,184,.14);
@@ -201,8 +201,8 @@
       background-size: 34px 34px, 34px 34px, auto; }
     .aw-eyebrow { font-family:var(--font-mono); font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--brand-gold); }
     .aw-h1 { font-family:var(--font-display); font-size:26px; font-weight:600; color:var(--ink-100); margin: 4px 0 14px; letter-spacing:-.02em; }
-    .aw-tabs { display:flex; gap:6px; margin-bottom:14px; }
-    .aw-tab { font-size:10.5px; padding:5px 11px; border-radius:999px; color:var(--ink-400); background:rgba(255,233,184,.05); }
+    .aw-tabs { display:flex; flex-wrap:nowrap; gap:6px; margin-bottom:14px; }
+    .aw-tab { font-size:10.5px; padding:5px 11px; border-radius:999px; color:var(--ink-400); background:rgba(255,233,184,.05); white-space:nowrap; }
     .aw-tab.on { background:var(--brand-red); color:#150a05; font-weight:600; }
     .aw-table { background:var(--paper); border-radius:12px 12px 0 0; padding: 4px 14px; box-shadow:0 20px 40px -20px rgba(0,0,0,.5); }
     .aw-thead { display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:8.5px; letter-spacing:.12em; text-transform:uppercase; color:#9a8574; padding:12px 0 8px; border-bottom:1px solid rgba(24,16,12,.08); }

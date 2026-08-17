@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# TODO: replace host with the production domain before launch
+Sitemap: https://showme.example/sitemap.xml

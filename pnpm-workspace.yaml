@@ -2,3 +2,11 @@ packages:
   - "apps/*"
   - "packages/*"
   - "design-system"
+
+# Dedupe TanStack Start's @tanstack/* graph onto single versions — apps/site
+# pulled duplicate router-core/react-router copies, which broke SSR/prerender
+# (getMatchedRoutes returned a mismatched shape across the two core instances).
+overrides:
+  "@tanstack/router-core": "1.171.20"
+  "@tanstack/react-router": "1.170.24"
+  "@tanstack/history": "1.162.1"

@@ -17,7 +17,8 @@
     },
     "./styles.css": "./dist/design-system.css",
     "./styles/tokens.css": "./src/styles/tokens.css",
-    "./styles/global.css": "./src/styles/global.css"
+    "./styles/global.css": "./src/styles/global.css",
+    "./styles/buttons.css": "./src/styles/buttons.css"
   },
   "scripts": {
     "storybook": "storybook dev -p 6006",

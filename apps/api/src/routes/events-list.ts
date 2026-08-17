@@ -203,9 +203,9 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // Notify: authorize `event.send_info_email` and audit. v1 STUB — no email sent.
-  // TODO(brevo): send the participant info email once Brevo is wired
-  // (packages: transactional email). For now this only records intent.
+  // Notify: authorize `event.send_info_email`, audit, and email the event's
+  // reachable users (participants' active members) the info notice via the Brevo
+  // sink. A mail failure is logged, never surfaced — the audited intent still holds.
   app.post(
     "/events/:id/notify",
     { schema: { params: EventParams, response: { 200: NotifyResponse } } },
@@ -214,6 +214,9 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
       const { id } = request.params;
 
       await requireEventCapability(request, id, "event.send_info_email");
+
+      const [event] = await database.select().from(schema.events).where(eq(schema.events.id, id));
+      if (!event) throw notFound("Event not found");
 
       await database.transaction(async (tx) => {
         await writeAudit(tx, request, {
@@ -224,6 +227,34 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
           eventId: id,
         });
       });
+
+      // Resolve the reachable recipients: every active member of a profile that
+      // participates in the event. Distinct emails so no user is mailed twice.
+      const recipients = await database
+        .selectDistinct({ email: schema.users.email })
+        .from(schema.eventParticipants)
+        .innerJoin(
+          schema.profileMembers,
+          eq(schema.profileMembers.profileId, schema.eventParticipants.profileId),
+        )
+        .innerJoin(schema.users, eq(schema.users.id, schema.profileMembers.userId))
+        .where(
+          and(
+            eq(schema.eventParticipants.eventId, id),
+            eq(schema.profileMembers.status, "active"),
+            ne(schema.eventParticipants.status, "removed"),
+          ),
+        );
+
+      const subject = `Event update: ${event.title}`;
+      const text = `There is an update to the event "${event.title}". Sign in to shoWMe to view the details.`;
+      for (const recipient of recipients) {
+        try {
+          await request.server.emailSink.sendEmail({ to: recipient.email, subject, text });
+        } catch (error) {
+          request.log.error({ error }, "event notify email failed");
+        }
+      }
 
       return { queued: true };
     },

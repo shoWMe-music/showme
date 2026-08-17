@@ -33,7 +33,7 @@ const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 /** Seed a user + owned profile + owner membership + a permission set. */
 async function seedMember(
   id: string,
-  kind: "operator" | "performer" | "professional" | "agent",
+  kind: "operator" | "performer" | "team_and_crew" | "agent",
   capabilities: readonly string[],
 ) {
   const { db } = harness;
@@ -129,10 +129,10 @@ describe("groups — assign to event (crew per member)", () => {
   it("operator assign creates crew per member, sponsored by the host; skips off-platform", async () => {
     const { db } = harness;
     const operator = await seedMember("ga-op", "operator", PRESET_PERMISSION_SETS.operator_full);
-    // An on-platform professional with a technical permission set as their default.
+    // An on-platform team_and_crew member with a technical permission set as their default.
     const soundEng = await seedMember(
       "ga-sound",
-      "professional",
+      "team_and_crew",
       PRESET_PERMISSION_SETS.crew_technical,
     );
 
@@ -188,7 +188,7 @@ describe("groups — assign to event (crew per member)", () => {
     const { db } = harness;
     const operator = await seedMember("gp-op", "operator", PRESET_PERMISSION_SETS.operator_full);
     const performer = await seedMember("gp-pf", "performer", PRESET_PERMISSION_SETS.performer);
-    const tech = await seedMember("gp-tech", "professional", PRESET_PERMISSION_SETS.crew_technical);
+    const tech = await seedMember("gp-tech", "team_and_crew", PRESET_PERMISSION_SETS.crew_technical);
 
     const [group] = await db
       .insert(schema.groups)
@@ -238,7 +238,7 @@ describe("groups — assign to event (crew per member)", () => {
   it("unassign soft-removes the group's crew", async () => {
     const { db } = harness;
     const operator = await seedMember("gu-op", "operator", PRESET_PERMISSION_SETS.operator_full);
-    const tech = await seedMember("gu-tech", "professional", PRESET_PERMISSION_SETS.crew_technical);
+    const tech = await seedMember("gu-tech", "team_and_crew", PRESET_PERMISSION_SETS.crew_technical);
     const [group] = await db
       .insert(schema.groups)
       .values({ ownerUserId: operator.userId, name: "Crew" })
@@ -281,7 +281,7 @@ describe("groups — assign to event (crew per member)", () => {
     const agent = await seedMember("gag-agent", "agent", PRESET_PERMISSION_SETS.agent);
     const tech = await seedMember(
       "gag-tech",
-      "professional",
+      "team_and_crew",
       PRESET_PERMISSION_SETS.crew_technical,
     );
 
@@ -325,7 +325,7 @@ describe("groups — assign to event (crew per member)", () => {
     const operator = await seedMember("gf-op", "operator", PRESET_PERMISSION_SETS.operator_full);
     const crewPerson = await seedMember(
       "gf-crew",
-      "professional",
+      "team_and_crew",
       PRESET_PERMISSION_SETS.crew_schedule_only,
     );
     const [group] = await db

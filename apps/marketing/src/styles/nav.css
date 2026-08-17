@@ -1,0 +1,130 @@
+/* Top navigation, hover/focus dropdown menus (Product / Company / Contact).
+   Replaces the lone "About" header link (fix-list #17). Desktop only; at <=760px
+   the existing burger + slide-down #mobile-menu takes over (these hide). The active
+   label + chevron highlight in coral on hover/open. Opens on hover AND on
+   click/keyboard (aria-expanded), so it works for touch and keyboard too. */
+
+.topnav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topnav__menus {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.topnav__item {
+  position: relative;
+}
+
+.topnav__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink-200);
+  border-radius: 8px;
+  transition: color 0.15s ease;
+}
+
+.topnav__chev {
+  width: 11px;
+  height: 11px;
+  opacity: 0.7;
+  transition: transform 0.2s ease, color 0.15s ease;
+}
+
+/* Coral highlight on hover, keyboard focus, or open. */
+.topnav__item:hover .topnav__trigger,
+.topnav__item:focus-within .topnav__trigger,
+.topnav__trigger[aria-expanded="true"] {
+  color: var(--brand-red);
+}
+.topnav__item:hover .topnav__chev,
+.topnav__item:focus-within .topnav__chev,
+.topnav__trigger[aria-expanded="true"] .topnav__chev {
+  transform: rotate(180deg);
+  color: var(--brand-red);
+}
+
+.topnav__panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  background: rgba(18, 10, 7, 0.97);
+  border: 1px solid rgba(255, 233, 184, 0.14);
+  border-radius: 12px;
+  box-shadow: 0 24px 50px -20px rgba(0, 0, 0, 0.85);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
+  z-index: 20;
+}
+
+/* A small hover bridge so moving from trigger to panel doesn't drop the hover. */
+.topnav__panel::before {
+  content: "";
+  position: absolute;
+  top: -10px;
+  left: 0;
+  right: 0;
+  height: 10px;
+}
+
+.topnav__item:hover .topnav__panel,
+.topnav__item:focus-within .topnav__panel,
+.topnav__trigger[aria-expanded="true"] + .topnav__panel {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.topnav__panel a {
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--ink-200);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.topnav__panel a:hover,
+.topnav__panel a:focus-visible {
+  background: rgba(255, 233, 184, 0.08);
+  color: var(--ink-100);
+  outline: none;
+}
+
+.topnav__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 8px;
+}
+
+/* On phones the dropdown nav is replaced by the burger + slide-down menu. */
+@media (max-width: 760px) {
+  .topnav__menus,
+  .topnav__actions {
+    display: none;
+  }
+}

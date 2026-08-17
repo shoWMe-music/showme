@@ -24,7 +24,7 @@ afterAll(async () => {
 /** Seed a user that owns a profile and is an active member of it. */
 async function seedMember(
   id: string,
-  kind: "operator" | "performer" | "professional" | "agent",
+  kind: "operator" | "performer" | "team_and_crew" | "agent",
   role: "owner" | "admin" | "editor" | "viewer" | "crew" = "owner",
 ) {
   const { db } = harness;

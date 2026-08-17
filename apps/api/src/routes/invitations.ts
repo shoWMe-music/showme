@@ -173,6 +173,24 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
         },
       );
 
+      // Email the invitee their invite (code or link token). Optional recipient,
+      // so only when we have an address; a mail failure is logged, never surfaced —
+      // the invitation is already persisted and redeemable.
+      if (result.recipientEmail) {
+        const redeemHint = result.code
+          ? `Your invitation code is ${result.code}.`
+          : `Open your invitation link with this token: ${result.token}.`;
+        try {
+          await request.server.emailSink.sendEmail({
+            to: result.recipientEmail,
+            subject: "You have been invited to shoWMe",
+            text: `${result.recipientName ? `Hi ${result.recipientName}, ` : ""}you have been invited to collaborate on shoWMe. ${redeemHint}`,
+          });
+        } catch (error) {
+          request.log.error({ error }, "invitation email failed");
+        }
+      }
+
       return reply.status(statusCode as 201).send(result);
     },
   );

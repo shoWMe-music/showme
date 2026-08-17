@@ -252,7 +252,7 @@ account (outside the DB service).
 **Implemented (2026-07-21) — groups, per-member crew authorization + sponsor-scoped visibility:**
 - **Groups CRUD** (`apps/api/src/routes/groups.ts`, owner-scoped) + `POST /events/:id/groups` **assign** (verb: *assign*,
   not "fan out") → `assignGroupToEvent` expands each member into `event_participants(role=crew)` referencing the
-  member's **own profile** (resolved from `user_id`, preferring a `professional` profile). Off-platform (email-only)
+  member's **own profile** (resolved from `user_id`, preferring a `team_and_crew` profile). Off-platform (email-only)
   members are **skipped** (they need an invite first); already-present profiles are skipped via the unique constraint.
   Inverse `DELETE /events/:id/groups/:gid` soft-removes by the `details.sourceGroupId` provenance stamp.
 - **Per-member authorization is the participant's permission set** (`event_participants.permission_set_id`), seeded from
@@ -279,7 +279,7 @@ account (outside the DB service).
 - **Event instances** (`event_id` + `owner_participant_id`) are **copied** from a library rider (`source_rider_id`
   back-pointer) — snapshot on attach, so master edits don't retroactively change past/locked events.
 - **Auto-populate:** `is_default` library riders one-click-add (or auto-attach) when the owner becomes an
-  `event_participant`. **Kind-agnostic** (venues/professionals too).
+  `event_participant`. **Kind-agnostic** (venues/team-and-crew too).
 - Uses `file_id → files` (the canonical registry) instead of inline `file_url`/`file_name`. (The file-storage
   section already anticipated "rider templates" under `profiles/{id}/documents/`.)
 
@@ -289,7 +289,7 @@ A booking **agent** is a first-class role, not a variant of the existing three. 
 live work and **negotiates on behalf of** a performer, for a **commission on gross live/deal income** (never
 merch/publishing).
 
-- **New `kind = agent`** alongside `operator | performer | professional`. Distinct dashboard (roster, negotiation
+- **New `kind = agent`** alongside `operator | performer | team_and_crew`. Distinct dashboard (roster, negotiation
   pipeline, commission owed/collected) and pricing. **Arm's-length** — the performer keeps their **own** account
   (NOT the agency-owns-the-profiles case, which `profile_members`/`groups` (#12) already covers).
 
@@ -452,8 +452,8 @@ Source: the 2026-07-24 Daniel↔Ran design + ClickUp-grooming session (full tran
 PLAN.md** where they conflict and refine earlier decisions. Most ClickUp items that session were grooming of dead
 Lovable-era tasks — only genuine product/model decisions are recorded here.
 
-- **16.1 Account kinds — confirmed 4.** `operator · performer · agent · professional/crew`. Locks the 4-kind model
-  (agent per #14). A **professional/crew** account is deliberately thin — it "basically only sees events + tasks"
+- **16.1 Account kinds — confirmed 4.** `operator · performer · agent · team_and_crew`. Locks the 4-kind model
+  (agent per #14). A **team_and_crew** account is deliberately thin — it "basically only sees events + tasks"
   (its own slice), never the pool.
 - **16.2 Remove the `custom` (free-text) deal type.** Free text breaks the settlement engine + DB integrity (users
   default to it and dump anything in). **`deals.type` drops `custom`** → `performance | rental | fee | split`. An
@@ -586,6 +586,16 @@ granularity re-drawable later (country → region → city) **without a data mig
   countries *within* a market; a market carries a `default_currency` but **per-object currency stays authoritative**
   (the display/locked-FX layer, #P/#7, is untouched).
 
+## 18. Ran landing review (2026-08-17) — product items surfaced
+
+Ran's 2026-08-17 landing-page feedback (tracked in ClickUp "Ran's Feedback 2026-08-17", parent `86cb62zv4`) was mostly copy/CSS, but three items are **product/build decisions**, not landing tweaks. The landing copy for each was updated to *represent* the intended behaviour; the app build is tracked separately.
+
+- **#6 — Outgoing Requests / offers are first-class (send, not just receive).** Performers and agents must be able to **send** offers/invitations, not only receive them. Landing "Offers" copy now reads "in and out" (send your own request; outgoing offers on an act's behalf). **Build:** an Outgoing Requests surface in `apps/web` for performer + agent, on the existing invitations/offers spine (`event_participants` + the requests/invitations model). This is additive to the current incoming inbox, not a new concept.
+
+- **#7 — "Professional" → "Team and Crew" is a FULL internal rename (RESOLVED: full rename).** The account kind formerly named `professional` is renamed to **`team_and_crew`** everywhere: the user-facing label is **"Team and Crew"** and the internal account-kind slug/enum value, type unions, detail table (`professional_details` → `team_and_crew_details`), seeds and auth layer all move to **`team_and_crew`**. The slug is **`team_and_crew`** (not plain `crew`) deliberately, to avoid collision with the **`crew` event-role** (`event_participants.role=crew`). This **supersedes** the earlier "label-only" default: the internal vocabulary is changed too (schema + auth + seeds + `docs/story.md`'s account-kind vocabulary), applied consistently across PLAN.md, story.md, the skills, and the design docs.
+
+- **#8 — Crew availability feeds event staffing (auto-surface + assign).** Availability is **not** a standalone calendar: when a Team/Crew member marks themselves available on a date that has an event, the operator who owns that crew is **notified the person is free and can click to assign** them to the event. Landing "Availability" copy for Team and Crew now conveys this. **Build:** wire the crew-availability model to the operator's event staffing (surface free crew against event dates → one-click assign into `event_participants(role=crew)`). Intersects availability + `event_participants`; design before building.
+
 ## Still-open product calls (not yet decided)
 
 - ~~**Event start/end mechanism (#16.4)**~~ **RESOLVED 2026-08-02 (see #16.4):** explicit required
@@ -617,7 +627,7 @@ granularity re-drawable later (country → region → city) **without a data mig
 - ~~**Setlists**~~ **RESOLVED:** it's a **workflow module**, not just royalty jsonb. Core consumers are
   **performer** (authors) + **operator** (report). **"Setlist"** (performer authors) = `setlists` table.
   **"Setlist Report"** (operator) = the filing *derived from* the setlist, sent to a PRO — `setlist_reports` table
-  (replaces `pro_reports`; dodges the `professional`/"pro" collision; keeps `pro_code[stim|gema|prs|…]` recipient +
+  (replaces `pro_reports`; dodges the `team_and_crew`/"pro" collision; keeps `pro_code[stim|gema|prs|…]` recipient +
   royalty estimate fields). **Crew are NOT a core consumer** — only a lighting op on a cued show occasionally wants
   it, handled by *optionally sharing* the setlist to that crew participant (observer/party-scoping). Crew's real
   run-of-show is the **schedule + tech docs** (input list, stage plot, rider), not the setlist.

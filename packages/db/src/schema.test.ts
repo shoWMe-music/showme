@@ -19,7 +19,7 @@ afterAll(async () => {
 });
 
 /** Small helpers so each test starts from a known-good spine without repetition. */
-async function createUser(id: string, kind: "operator" | "performer" | "professional" | "agent") {
+async function createUser(id: string, kind: "operator" | "performer" | "team_and_crew" | "agent") {
   const [user] = await harness.db
     .insert(schema.users)
     .values({ id, email: `${id}@example.com`, kind })
@@ -30,7 +30,7 @@ async function createUser(id: string, kind: "operator" | "performer" | "professi
 
 async function createProfile(
   ownerUserId: string,
-  kind: "operator" | "performer" | "professional" | "agent",
+  kind: "operator" | "performer" | "team_and_crew" | "agent",
   slug: string,
 ) {
   const [profile] = await harness.db

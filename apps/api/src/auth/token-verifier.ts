@@ -8,6 +8,9 @@
 export interface FirebaseUser {
   uid: string;
   email?: string;
+  /** Firebase `email_verified` — gates claim-on-signup (only a verified email
+   * may inherit a stub's events; an unverified one could be anyone's). */
+  emailVerified?: boolean;
   name?: string;
 }
 
@@ -40,14 +43,23 @@ export function createFirebaseTokenVerifier(config: {
           "firebase-admin/app"
         );
         const { getAuth } = await import("firebase-admin/auth");
+        // When the Auth emulator is targeted (FIREBASE_AUTH_EMULATOR_HOST, read
+        // automatically by firebase-admin), tokens are emulator-signed and need
+        // no real credential — initialize with the project id only. Otherwise use
+        // the service account / application-default credential as in production.
+        const usingEmulator = !!process.env.FIREBASE_AUTH_EMULATOR_HOST;
         const app =
           getApps()[0] ??
-          initializeApp({
-            credential: config.serviceAccount
-              ? cert(decodeServiceAccount(config.serviceAccount))
-              : applicationDefault(),
-            projectId: config.projectId,
-          });
+          initializeApp(
+            usingEmulator
+              ? { projectId: config.projectId ?? "demo-showme" }
+              : {
+                  credential: config.serviceAccount
+                    ? cert(decodeServiceAccount(config.serviceAccount))
+                    : applicationDefault(),
+                  projectId: config.projectId,
+                },
+          );
         return getAuth(app);
       })();
     }
@@ -61,6 +73,7 @@ export function createFirebaseTokenVerifier(config: {
       return {
         uid: decoded.uid,
         email: decoded.email,
+        emailVerified: decoded.email_verified,
         name: typeof decoded.name === "string" ? decoded.name : undefined,
       };
     },

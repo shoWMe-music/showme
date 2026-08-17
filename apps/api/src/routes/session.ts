@@ -4,8 +4,9 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { badRequest } from "../errors";
+import { claimStubsForEmail } from "../lib/off-platform";
 
-const AccountKind = z.enum(["operator", "performer", "professional", "agent"]);
+const AccountKind = z.enum(["operator", "performer", "team_and_crew", "agent"]);
 
 const SessionBody = z
   .object({
@@ -70,6 +71,23 @@ export async function sessionRoutes(fastify: FastifyInstance): Promise<void> {
       }
       if (!user) {
         throw badRequest("Failed to provision user");
+      }
+
+      // Claim-on-signup (docs/off-platform-access.md): if this verified email
+      // matches any unclaimed performer stub an operator created, take ownership
+      // of them now — the performer inherits every event they were added to. Only
+      // with a verified email (an unverified one could be anyone's) and once the
+      // account has a kind. Idempotent: a no-op when nothing is waiting.
+      if (user.kind && user.email && firebaseUser.emailVerified === true) {
+        try {
+          await claimStubsForEmail(database, {
+            userId: user.id,
+            email: user.email,
+            kind: user.kind,
+          });
+        } catch (error) {
+          request.log.error({ error, userId: user.id }, "claim-on-signup failed");
+        }
       }
 
       const memberships = await database

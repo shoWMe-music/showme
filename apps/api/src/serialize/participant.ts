@@ -6,6 +6,9 @@ type ParticipantRow = typeof schema.eventParticipants.$inferSelect;
 export interface SerializedParticipant {
   id: string;
   profileId: string;
+  /** The participant profile's display name — the public face (who's on the bill). */
+  name: string | null;
+  avatarUrl: string | null;
   role: string;
   status: string;
   performerTag: string | null;
@@ -33,10 +36,13 @@ export function canManageParticipants(capabilities: Set<Capability>): boolean {
 export function serializeParticipant(
   participant: ParticipantRow,
   capabilities: Set<Capability>,
+  profile?: { name: string | null; avatarUrl: string | null } | null,
 ): SerializedParticipant {
   const base: SerializedParticipant = {
     id: participant.id,
     profileId: participant.profileId,
+    name: profile?.name ?? null,
+    avatarUrl: profile?.avatarUrl ?? null,
     role: participant.role,
     status: participant.status,
     performerTag: participant.performerTag,

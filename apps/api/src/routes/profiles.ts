@@ -1,5 +1,5 @@
 import { schema } from "@showme/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, ilike, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -14,7 +14,7 @@ const ProfileParams = z.object({ id: z.string().uuid() });
 const MemberParams = z.object({ id: z.string().uuid(), mid: z.string().uuid() });
 const TemplateParams = z.object({ id: z.string().uuid(), tid: z.string().uuid() });
 
-const accountKind = z.enum(["operator", "performer", "professional", "agent"]);
+const accountKind = z.enum(["operator", "performer", "team_and_crew", "agent"]);
 const memberRole = z.enum(["owner", "admin", "editor", "viewer", "crew"]);
 const templateCategory = z.enum([
   "budget",
@@ -165,8 +165,111 @@ const ANY_ROLE = ["owner", "admin", "editor", "viewer", "crew"] as const;
 const WRITE_ROLES = ["owner", "admin", "editor"] as const;
 const MANAGE_ROLES = ["owner", "admin"] as const;
 
+const ProfileSearchQuery = z.object({
+  // Optional — empty `q` lists performers to browse (not just search-on-type).
+  q: z.string().optional(),
+  kind: accountKind.default("performer"),
+  // The picker grows the limit by 5 per "load more" (default first page = 5).
+  limit: z.coerce.number().int().min(1).max(100).default(5),
+  offset: z.coerce.number().int().min(0).default(0),
+  // A per-session seed → STABLE pseudo-random order (so growing the limit / paging
+  // never reshuffles). Absent → alphabetical.
+  seed: z.coerce.number().int().optional(),
+});
+
+/** A discovery card projection — the public face of a searchable profile plus
+ * the fields the picker needs (slug to open /p/:slug, city, claimed state). */
+const ProfileSearchResult = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  kind: z.string(),
+  type: z.string().nullable(),
+  avatarUrl: z.string().nullable(),
+  bio: z.string().nullable(),
+  city: z.string().nullable(),
+  country: z.string().nullable(),
+  claimed: z.boolean(),
+});
+
+const ProfileSearchResponse = z.object({
+  items: z.array(ProfileSearchResult),
+  hasMore: z.boolean(),
+});
+
 export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+
+  // Discovery search over PUBLIC profiles by name — the performer picker's source.
+  // Any authenticated user may search; only `is_public` profiles are returned, so
+  // unclaimed stubs (private) never leak. Static path wins over `/profiles/:id`.
+  app.get(
+    "/profiles/search",
+    {
+      schema: { querystring: ProfileSearchQuery, response: { 200: ProfileSearchResponse } },
+    },
+    async (request) => {
+      const { database } = request.server;
+      const { q, kind, limit, offset, seed } = request.query;
+      const term = q?.trim();
+
+      // Stable pseudo-random order keyed by the session seed (so paging/growing
+      // never reshuffles); alphabetical when no seed is given.
+      const order =
+        seed !== undefined
+          ? sql`md5(${schema.profiles.id}::text || ${String(seed)})`
+          : asc(schema.profiles.name);
+
+      // Fetch one extra row to know whether a "load more" is worthwhile.
+      const rows = await database
+        .select({
+          id: schema.profiles.id,
+          name: schema.profiles.name,
+          slug: schema.profiles.slug,
+          kind: schema.profiles.kind,
+          type: schema.profiles.type,
+          avatarUrl: schema.profiles.avatarUrl,
+          bio: schema.profiles.bio,
+          claimedAt: schema.profiles.claimedAt,
+          city: schema.profileLocations.city,
+          country: schema.profileLocations.country,
+        })
+        .from(schema.profiles)
+        // Primary location (if any) for the card's city line — a queryable field.
+        .leftJoin(
+          schema.profileLocations,
+          and(
+            eq(schema.profileLocations.profileId, schema.profiles.id),
+            eq(schema.profileLocations.isPrimary, true),
+          ),
+        )
+        .where(
+          and(
+            eq(schema.profiles.isPublic, true),
+            eq(schema.profiles.kind, kind),
+            term ? ilike(schema.profiles.name, `%${term}%`) : undefined,
+          ),
+        )
+        .orderBy(order)
+        .limit(limit + 1)
+        .offset(offset);
+
+      const hasMore = rows.length > limit;
+      const items = rows.slice(0, limit).map((row) => ({
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        kind: row.kind,
+        type: row.type,
+        avatarUrl: row.avatarUrl,
+        bio: row.bio,
+        city: row.city,
+        country: row.country,
+        claimed: row.claimedAt != null,
+      }));
+      return { items, hasMore };
+    },
+  );
 
   // List the caller's profiles — resolved from their memberships, no scan.
   app.get(

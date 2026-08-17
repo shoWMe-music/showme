@@ -13,7 +13,7 @@ import { pgEnum } from "drizzle-orm/pg-core";
 export const accountKind = pgEnum("account_kind", [
   "operator",
   "performer",
-  "professional",
+  "team_and_crew",
   "agent",
 ]);
 

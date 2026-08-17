@@ -14,7 +14,7 @@ Each account is exactly one kind. The kind decides the entire app the user sees.
 |---|---|---|
 | **Operator** | Venue · promoter · organizer · festival | Their events, budgets, settlements, booking inbox, crew |
 | **Performer** | Band · DJ · solo artist | "My bookings," availability calendar + public link, offers, riders |
-| **Professional** | Freelance crew (sound, lighting, catering, security, stage) | Their gigs, schedule, marketable profile (future marketplace) |
+| **Team and Crew** | Freelance crew (sound, lighting, catering, security, stage) | Their gigs, schedule, marketable profile (future marketplace) |
 | **Agent** | Booking agent representing performers | Roster of represented artists, negotiation pipeline, commission owed/collected, the **Agents & Performers** page |
 
 A person who is two kinds (promoter *and* DJ) keeps two accounts. Design each kind's shell as a
@@ -55,7 +55,7 @@ Authorization is three tiers. Design to all three:
 
 ### What each role sees on a shared event (design matrix)
 
-| Surface | Operator / Co-promoter | Performer | Crew (professional) |
+| Surface | Operator / Co-promoter | Performer | Crew (Team and Crew) |
 |---|---|---|---|
 | Event title, date, venue | ✅ | ✅ | ✅ |
 | Full participant list | ✅ | Own + public | Limited |

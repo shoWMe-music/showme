@@ -16,6 +16,7 @@
   transition: border-color .15s, background .15s;
 }
 .checked { border-color: #6FC97A; background: #6FC97A; }
+.checkedBrand { border-color: #EE5746; background: #EE5746; }
 .box:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
 .box:disabled { opacity: .5; cursor: not-allowed; }
 

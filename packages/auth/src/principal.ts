@@ -6,7 +6,7 @@ import type { ProfileRole } from "./presets";
 /** One profile a user belongs to, with the account kind and their role on it. */
 export interface Membership {
   profileId: string;
-  kind: "operator" | "performer" | "professional" | "agent";
+  kind: "operator" | "performer" | "team_and_crew" | "agent";
   role: ProfileRole;
 }
 

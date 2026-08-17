@@ -48,15 +48,15 @@ different roles in different events.
   agent's.
 - **Why.** The whole product is "you see your slice"; the performer is the canonical slice-holder.
 
-### Professional — the crew / service
+### Team and Crew — the crew / service
 - **Purpose.** Freelance crew and services that make the event happen — **sound, lighting, catering, security,
-  stage**. Paid a **fee for labor**. Also a marketable service identity (the future professionals marketplace, where
-  operators/performers post jobs and professionals apply).
-- **Boundary.** A professional is **not** an employee of the operator and **not** talent. They're an arm's-length
+  stage**. Paid a **fee for labor**. Also a marketable service identity (the future team-and-crew marketplace, where
+  operators/performers post jobs and team-and-crew members apply).
+- **Boundary.** A team-and-crew member is **not** an employee of the operator and **not** talent. They're an arm's-length
   service provider paid a **fixed fee** — contrast the **agent**, who takes a *percentage of someone else's income*.
-  "Crew" is the event-role; "professional" is the account kind. They see the schedule and their own deal, never the
+  "Crew" is the event-role; "team_and_crew" is the account kind. They see the schedule and their own deal, never the
   budget.
-- **Why.** Labor-for-fee, not entitlement-to-the-pool — which is why a professional's pay is a simple deal, not a
+- **Why.** Labor-for-fee, not entitlement-to-the-pool — which is why a team-and-crew member's pay is a simple deal, not a
   share of the reconciliation.
 
 ### Agent — represents the talent
@@ -80,7 +80,7 @@ different roles in different events.
 ## How they meet: the event
 
 An **operator** runs an event and books a **performer** — directly, or through that performer's **agent**.
-**Professionals** are brought on as crew to deliver it. Terms are captured as **deals**; the money is reconciled as
+**Team and Crew** are brought on as crew to deliver it. Terms are captured as **deals**; the money is reconciled as
 **settlements**; each party sees only their slice of both. The same person can be different kinds across accounts (a
 promoter who also DJs keeps two accounts), and the same profile can play different roles across events (a venue that
 operates one show and rents to a promoter in the next). **Roles are per-event; kinds are per-account; identity is

@@ -66,6 +66,8 @@ export type { CheckboxProps } from "@/components/atoms/Checkbox/Checkbox";
 
 export { TextField } from "@/components/atoms/TextField/TextField";
 export type { TextFieldProps } from "@/components/atoms/TextField/TextField";
+export { Select } from "@/components/atoms/Select/Select";
+export type { SelectProps, SelectOption } from "@/components/atoms/Select/Select";
 
 export { Stepper } from "@/components/molecules/Stepper/Stepper";
 export type { StepperProps } from "@/components/molecules/Stepper/Stepper";
@@ -91,5 +93,5 @@ export type { SpinnerProps } from "@/components/atoms/Spinner/Spinner";
 export { Icon } from "@/icons";
 export type { IconName, IconProps } from "@/icons";
 
-export { STATUSES, STATUS_LABEL } from "@/lib/status";
+export { STATUSES, STATUS_LABEL, STATUS_COLOR } from "@/lib/status";
 export type { Status } from "@/lib/status";

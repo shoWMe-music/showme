@@ -1,5 +1,13 @@
 export { CAPABILITIES, isCapability, type Capability } from "./capabilities";
 export {
+  type E2eAccount,
+  type E2eAccountKind,
+  type E2eAccountName,
+  E2E_ACCOUNTS,
+  E2E_ACCOUNT_LIST,
+  E2E_PASSWORD,
+} from "./e2e-accounts";
+export {
   competingHoldIds,
   computeDeclinePromotion,
   computeRankShift,

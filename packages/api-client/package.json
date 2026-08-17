@@ -1,0 +1,20 @@
+{
+  "name": "@showme/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "sync-spec": "curl -sS http://localhost:8080/openapi.json -o openapi.json",
+    "generate": "orval",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5.62.7"
+  },
+  "devDependencies": {
+    "orval": "^7.3.0"
+  }
+}

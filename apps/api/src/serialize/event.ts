@@ -1,5 +1,6 @@
 import type { schema } from "@showme/db";
 import type { Capability } from "@showme/shared";
+import type { EventExtras } from "./event-extras";
 
 type EventRow = typeof schema.events.$inferSelect;
 
@@ -10,21 +11,33 @@ export interface SerializedEvent {
   published: boolean;
   baseCurrency: string;
   eventDate: string | null;
+  /** LOCAL wall-clock times (no offset), anchored by `timezone` (decisions #10). */
+  doorTime: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  curfew: string | null;
   /** IANA zone snapshotted from the venue (decisions #10) — anchors all local times. */
   timezone: string | null;
   venueProfileId: string | null;
+  venueName: string | null;
+  capacity: number | null;
   stageId: string | null;
+  notes: string | null;
   version: number;
   holdRank?: number | null;
   holdAutoPromote?: boolean;
+  /** Read-with-parent leaves (amenities / ticket tiers / guest list); operator-only. */
+  extras?: EventExtras | null;
 }
 
 /**
  * Shape an event by the caller's capabilities — the field-level serializer,
- * server-side (not UI hiding). `hold_rank` / `hold_auto_promote` are operator-only:
- * a performer authorized to VIEW the event still never sees where they rank
- * (see the holds discussion — the rank is the operator's private competitive
- * info). Widening this later is a one-branch change; the raw data is untouched.
+ * server-side (not UI hiding). Operational details (times, venue, capacity,
+ * notes) go to anyone with `event.view`. `hold_rank` / `hold_auto_promote` and
+ * `extras` (the operator's guest list / ticket tiers) are operator-only: a
+ * performer authorized to VIEW the event still never sees where they rank (the
+ * rank is the operator's private competitive info) nor the operator's guest
+ * list. Widening this later is a one-branch change; the raw data is untouched.
  */
 export function serializeEvent(event: EventRow, capabilities: Set<Capability>): SerializedEvent {
   const base: SerializedEvent = {
@@ -34,9 +47,16 @@ export function serializeEvent(event: EventRow, capabilities: Set<Capability>): 
     published: event.published,
     baseCurrency: event.baseCurrency,
     eventDate: event.eventDate,
+    doorTime: event.doorTime,
+    startTime: event.startTime,
+    endTime: event.endTime,
+    curfew: event.curfew,
     timezone: event.timezone,
     venueProfileId: event.venueProfileId,
+    venueName: event.venueName,
+    capacity: event.capacity,
     stageId: event.stageId,
+    notes: event.notes,
     version: event.version,
   };
 
@@ -44,6 +64,7 @@ export function serializeEvent(event: EventRow, capabilities: Set<Capability>): 
   if (capabilities.has("event.edit")) {
     base.holdRank = event.holdRank;
     base.holdAutoPromote = event.holdAutoPromote;
+    base.extras = (event.extras as EventExtras | null) ?? null;
   }
   return base;
 }

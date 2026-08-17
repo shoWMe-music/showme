@@ -1,13 +1,16 @@
+import { randomBytes } from "node:crypto";
 import { schema } from "@showme/db";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { conflict, forbidden, notFound } from "../errors";
+import { badRequest, conflict, forbidden, notFound } from "../errors";
 import { writeActivity } from "../lib/activity";
 import { autoAssignAgentOnPerformerJoin } from "../lib/agent-assignment";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
+import { notifyProfileMembers } from "../lib/notify";
+import { createPerformerStub } from "../lib/off-platform";
 import { withIdempotency } from "../plugins/idempotency";
 import { serializeParticipant } from "../serialize/participant";
 
@@ -33,6 +36,17 @@ const CreateParticipantBody = z.object({
   performerTag: performerTag.optional(),
 });
 
+/** Add a performer not yet on the platform. A name + email (given directly or
+ * read from a linked contact) mints an unclaimed stub profile they later claim.
+ * Name-only performers are drafts on the client and never hit this route. */
+const OffPlatformParticipantBody = z.object({
+  name: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  contactId: z.string().uuid().optional(),
+  role: participantRole.default("performer"),
+  performerTag: performerTag.optional(),
+});
+
 const UpdateParticipantBody = z.object({
   role: participantRole.optional(),
   permissionSetId: z.string().uuid().optional(),
@@ -43,6 +57,8 @@ const UpdateParticipantBody = z.object({
 const ParticipantResponse = z.object({
   id: z.string(),
   profileId: z.string(),
+  name: z.string().nullable(),
+  avatarUrl: z.string().nullable(),
   role: z.string(),
   status: z.string(),
   performerTag: z.string().nullable(),
@@ -72,12 +88,24 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
       const { id } = request.params;
 
       const capabilities = await requireEventCapability(request, id, "event.view");
-      const participants = await database
-        .select()
+      // Join the profile so each row carries its display name/avatar — the public
+      // face of who is on the bill (names, not just ids, drive the roster UI).
+      const rows = await database
+        .select({
+          participant: schema.eventParticipants,
+          name: schema.profiles.name,
+          avatarUrl: schema.profiles.avatarUrl,
+        })
         .from(schema.eventParticipants)
+        .leftJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
         .where(eq(schema.eventParticipants.eventId, id));
 
-      return participants.map((participant) => serializeParticipant(participant, capabilities));
+      return rows.map((row) =>
+        serializeParticipant(row.participant, capabilities, {
+          name: row.name,
+          avatarUrl: row.avatarUrl,
+        }),
+      );
     },
   );
 
@@ -180,11 +208,163 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
             }
             throw error;
           }
+          // Realtime + feed: tell the newly-added profile's members they're on the
+          // event. Best-effort — a delivery failure must never undo the add above,
+          // so it runs after the commit, off the transaction, wrapped in try/catch.
+          try {
+            const [event] = await database
+              .select({ title: schema.events.title })
+              .from(schema.events)
+              .where(eq(schema.events.id, id));
+            await notifyProfileMembers(database, created.profileId, principal.userId, {
+              type: "event.participant_added",
+              title: `Added to "${event?.title ?? "an event"}"`,
+              body: `You were added as ${created.role} to "${event?.title ?? "an event"}".`,
+              eventId: id,
+              actorDisplay: request.firebaseUser?.name ?? undefined,
+              link: `/events/${id}`,
+              metadata: { participantId: created.id, role: created.role },
+            });
+          } catch (error) {
+            request.log.error(
+              { error, eventId: id, profileId: created.profileId },
+              "participant-add notification failed",
+            );
+          }
+
           return { statusCode: 201, body: serializeParticipant(created, capabilities) };
         },
       );
 
       return reply.status(statusCode as 201).send(body);
+    },
+  );
+
+  // Add an OFF-PLATFORM performer: mint an unclaimed stub profile (keyed by
+  // email) + participant + a pending invitation, in one transaction. The
+  // performer claims the stub — and inherits this event — when they sign up with
+  // the matching verified email (see lib/off-platform + session claim-on-signup).
+  app.post(
+    "/events/:id/participants/off-platform",
+    {
+      schema: {
+        params: EventParams,
+        body: OffPlatformParticipantBody,
+        response: { 201: ParticipantResponse },
+      },
+    },
+    async (request, reply) => {
+      const { database } = request.server;
+      const { id } = request.params;
+
+      const capabilities = await requireEventCapability(request, id, "participants.manage");
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+
+      // Resolve name + email — from a linked contact card, or supplied directly.
+      let name = request.body.name;
+      let email = request.body.email;
+      const contactId = request.body.contactId;
+      if (contactId) {
+        const [contact] = await database
+          .select()
+          .from(schema.contacts)
+          .where(
+            and(
+              eq(schema.contacts.id, contactId),
+              eq(schema.contacts.ownerProfileId, principal.actingProfileId ?? ""),
+            ),
+          );
+        if (!contact) throw notFound("Contact not found");
+        name = name ?? contact.name;
+        if (!email) {
+          const persons = (contact.persons as { email?: string }[] | null) ?? [];
+          email = persons.find((person) => person.email)?.email;
+        }
+      }
+      if (!name || !email) {
+        throw badRequest("An off-platform performer needs a name and an email.");
+      }
+      const performerName = name;
+      const performerEmail = email;
+
+      const created = await database.transaction(async (tx) => {
+        const { profileId } = await createPerformerStub(tx, {
+          name: performerName,
+          email: performerEmail,
+          operatorUserId: principal.userId,
+        });
+        const [participant] = await tx
+          .insert(schema.eventParticipants)
+          .values({
+            eventId: id,
+            profileId,
+            role: request.body.role,
+            performerTag: request.body.performerTag,
+            status: "invited",
+            addedBy: principal.userId,
+          })
+          .returning();
+        if (!participant) throw new Error("participant create failed");
+
+        const [invitation] = await tx
+          .insert(schema.invitations)
+          .values({
+            type: "profile_member",
+            source: "performer_offer",
+            status: "pending",
+            token: randomBytes(24).toString("hex"),
+            recipientEmail: performerEmail.toLowerCase(),
+            recipientName: performerName,
+            targetProfileId: profileId,
+            targetEventId: id,
+            linkedContactId: contactId ?? null,
+            role: "owner",
+            createdByUser: principal.userId,
+            createdByProfile: principal.actingProfileId,
+          })
+          .returning();
+        if (contactId && invitation) {
+          await tx
+            .update(schema.contacts)
+            .set({ invitationId: invitation.id })
+            .where(eq(schema.contacts.id, contactId));
+        }
+
+        await writeAudit(tx, request, {
+          capability: "participants.manage",
+          action: "participant.add_off_platform",
+          targetKind: "event_participant",
+          targetId: participant.id,
+          eventId: id,
+          after: { participant, stubProfileId: profileId },
+        });
+        await writeActivity(tx, request, {
+          eventId: id,
+          type: "participant.added",
+          targetKind: "event",
+          targetId: id,
+          summary: { profileId, role: participant.role, offPlatform: true },
+        });
+        return participant;
+      });
+
+      // Best-effort "you were added — sign up to claim your events" email.
+      try {
+        await request.server.emailSink.sendEmail({
+          to: performerEmail,
+          subject: "You've been added to a shoWMe event",
+          text: `Hi ${performerName}, you've been added to an event on shoWMe. Create an account with this email address to claim your profile and see all of your events.`,
+        });
+      } catch (error) {
+        request.log.error({ error }, "off-platform performer email failed");
+      }
+
+      return reply
+        .status(201)
+        .send(
+          serializeParticipant(created, capabilities, { name: performerName, avatarUrl: null }),
+        );
     },
   );
 

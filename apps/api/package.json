@@ -4,18 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --experimental-strip-types --watch src/server.ts",
+    "dev": "tsx watch --env-file=.env src/server.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
+    "@fastify/cors": "^11.3.0",
     "@fastify/swagger": "^9.4.0",
     "@showme/auth": "workspace:*",
     "@showme/db": "workspace:*",
     "@showme/gdpr": "workspace:*",
-    "@showme/time": "workspace:*",
     "@showme/settlement": "workspace:*",
     "@showme/shared": "workspace:*",
+    "@showme/time": "workspace:*",
     "drizzle-orm": "^0.38.3",
     "fastify": "^5.2.0",
     "fastify-type-provider-zod": "^4.0.2",
@@ -25,6 +26,7 @@
   "devDependencies": {
     "@testcontainers/postgresql": "^12.0.4",
     "@types/node": "^22.10.0",
+    "tsx": "^4.23.4",
     "vitest": "^2.1.9"
   }
 }

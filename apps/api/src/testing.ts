@@ -1,6 +1,15 @@
+import fastifyCors from "@fastify/cors";
 import Fastify, { type FastifyInstance } from "fastify";
 import { serializerCompiler, validatorCompiler } from "fastify-type-provider-zod";
-import { type AppDependencies, apiErrorHandler } from "./app";
+import {
+  type AppDependencies,
+  DEFAULT_CORS_ALLOWED_ORIGINS,
+  DEFAULT_LEADS_ALLOWED_ORIGINS,
+  apiErrorHandler,
+  corsOptions,
+} from "./app";
+import { createNoopLeadSink } from "./lib/clickup";
+import { createNoopEmailSink } from "./lib/email";
 import { authenticate } from "./plugins/authenticate";
 import "./types";
 
@@ -19,9 +28,19 @@ export function buildTestApp(
   const app = Fastify({ logger: false });
   app.decorate("database", dependencies.database);
   app.decorate("tokenVerifier", dependencies.tokenVerifier);
+  app.decorate("leadSink", dependencies.leadSink ?? createNoopLeadSink());
+  app.decorate("emailSink", dependencies.emailSink ?? createNoopEmailSink());
+  app.decorate(
+    "leadsAllowedOrigins",
+    dependencies.leadsAllowedOrigins ?? DEFAULT_LEADS_ALLOWED_ORIGINS,
+  );
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   app.setErrorHandler(apiErrorHandler);
+  app.register(
+    fastifyCors,
+    corsOptions(dependencies.corsAllowedOrigins ?? DEFAULT_CORS_ALLOWED_ORIGINS),
+  );
   app.addHook("preHandler", authenticate);
   app.register(
     async (api) => {

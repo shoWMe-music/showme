@@ -1,0 +1,5 @@
+
+# Playwright saved auth sessions (E2E) + artifacts
+tests/.auth/
+test-results/
+playwright-report/

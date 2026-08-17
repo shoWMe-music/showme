@@ -30,7 +30,7 @@ afterAll(async () => {
 
 const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 
-type Kind = "operator" | "performer" | "professional" | "agent";
+type Kind = "operator" | "performer" | "team_and_crew" | "agent";
 
 /** Seed a bare provisioned user (no memberships). */
 async function seedUser(id: string, kind: Kind) {

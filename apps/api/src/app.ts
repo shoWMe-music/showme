@@ -1,3 +1,4 @@
+import fastifyCors, { type FastifyCorsOptions } from "@fastify/cors";
 import fastifySwagger from "@fastify/swagger";
 import type { Database } from "@showme/db";
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
@@ -9,6 +10,8 @@ import {
 } from "fastify-type-provider-zod";
 import type { TokenVerifier } from "./auth/token-verifier";
 import { HttpError } from "./errors";
+import { type LeadSink, createNoopLeadSink } from "./lib/clickup";
+import { type EmailSink, createNoopEmailSink } from "./lib/email";
 import { authenticate } from "./plugins/authenticate";
 import { activityRoutes } from "./routes/activity";
 import { adminRoutes } from "./routes/admin";
@@ -45,9 +48,56 @@ import { shareRoutes } from "./routes/shares";
 import { taskRoutes } from "./routes/tasks";
 import "./types";
 
+/** Origins allowed to POST the public lead form when none are configured (local dev). */
+export const DEFAULT_LEADS_ALLOWED_ORIGINS = ["http://localhost:5173", "http://localhost:4173"];
+
+/** Browser origins allowed to call the API (CORS) in local dev: web + marketing, dev + preview. */
+export const DEFAULT_CORS_ALLOWED_ORIGINS = [
+  "http://localhost:5174", // web dev
+  "http://localhost:4174", // web preview
+  "http://localhost:5173", // marketing dev
+  "http://localhost:4173", // marketing preview
+];
+
+/**
+ * The single CORS policy, shared by the app and the test harness so they never
+ * diverge. Design notes:
+ *
+ * - **origin**: an explicit allow-list (never `*`). @fastify/cors reflects the
+ *   caller's Origin only when it matches, and adds `Vary: Origin`.
+ * - **credentials: false** — deliberate, not an oversight. Auth is a Firebase ID
+ *   token in the `Authorization` header (a custom header, covered by
+ *   `allowedHeaders`), NOT cookies or browser HTTP-auth. CORS "credentials" only
+ *   governs cookies/TLS-certs/native auth, which we don't use; enabling it would
+ *   be misleading and needlessly loosen the response-read policy.
+ * - **allowedHeaders**: the request headers the browser may send us.
+ * - **exposedHeaders**: response headers the browser JS is allowed to READ — the
+ *   CORS default hides everything outside a tiny safelist, so `retry-after` (the
+ *   429 rate-limit backoff) must be listed or the client can't read it.
+ * - **maxAge**: cache the preflight so the browser doesn't re-OPTIONS every call.
+ */
+export function corsOptions(origins: string[]): FastifyCorsOptions {
+  return {
+    origin: origins,
+    credentials: false,
+    methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["content-type", "authorization", "x-profile-id"],
+    exposedHeaders: ["retry-after"],
+    maxAge: 3600,
+  };
+}
+
 export interface AppDependencies {
   database: Database;
   tokenVerifier: TokenVerifier;
+  /** Optional — defaults to the no-op sink (logs leads) when not provided. */
+  leadSink?: LeadSink;
+  /** Optional — defaults to the no-op email sink (logs) when not provided. */
+  emailSink?: EmailSink;
+  /** Optional — defaults to DEFAULT_LEADS_ALLOWED_ORIGINS (local dev) when not provided. */
+  leadsAllowedOrigins?: string[];
+  /** Optional — browser origins allowed to call the API (CORS). Defaults to local dev. */
+  corsAllowedOrigins?: string[];
 }
 
 /** Typed error envelope (decisions #15): { error: { code, message, details? } }. */
@@ -66,6 +116,13 @@ export function apiErrorHandler(
       error: { code: "validation", message: error.message, details: error.validation },
     });
   }
+  // Fastify's own errors (415 unsupported media type, 400 malformed body, …) carry
+  // an accurate statusCode + code — surface it rather than masking it as a 500.
+  if (typeof error.statusCode === "number" && error.statusCode >= 400 && error.statusCode < 500) {
+    return reply.status(error.statusCode).send({
+      error: { code: error.code ?? "bad_request", message: error.message },
+    });
+  }
   request.log.error(error);
   return reply.status(500).send({ error: { code: "internal", message: "Internal Server Error" } });
 }
@@ -80,6 +137,12 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
   const app = Fastify({ logger: false });
   app.decorate("database", dependencies.database);
   app.decorate("tokenVerifier", dependencies.tokenVerifier);
+  app.decorate("leadSink", dependencies.leadSink ?? createNoopLeadSink());
+  app.decorate("emailSink", dependencies.emailSink ?? createNoopEmailSink());
+  app.decorate(
+    "leadsAllowedOrigins",
+    dependencies.leadsAllowedOrigins ?? DEFAULT_LEADS_ALLOWED_ORIGINS,
+  );
 
   // Zod is the single source of truth for validation AND serialization → OpenAPI.
   app.setValidatorCompiler(validatorCompiler);
@@ -91,6 +154,13 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
   });
 
   app.setErrorHandler(apiErrorHandler);
+
+  // CORS for the browser clients (web app + marketing). Single shared policy — see
+  // corsOptions above for the per-field rationale.
+  app.register(
+    fastifyCors,
+    corsOptions(dependencies.corsAllowedOrigins ?? DEFAULT_CORS_ALLOWED_ORIGINS),
+  );
 
   // The pipeline's front door — runs for every route unless it opts out.
   app.addHook("preHandler", authenticate);

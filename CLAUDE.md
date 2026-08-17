@@ -36,7 +36,7 @@ product rule isn't written down, **infer it from story.md's purpose/boundary**, 
 4. **Keep Firebase Auth; Postgres is the brain.**
 
 ## Key decisions (detail in PLAN.md)
-- **Account kinds** (one per account, fixed at signup): `operator` (venue/promoter/organizer/festival), `performer`, `professional` (crew now; marketplace later), `agent` (booking agent who represents performers — see `docs/decisions.md` #14). Kind gates dashboard / features / pricing.
+- **Account kinds** (one per account, fixed at signup): `operator` (venue/promoter/organizer/festival), `performer`, `team_and_crew` (crew now; marketplace later), `agent` (booking agent who represents performers — see `docs/decisions.md` #14). Kind gates dashboard / features / pricing.
 - **Events** are containers; profiles join as **`event_participants`** (event-role + permission set). No parent/child multi-performer.
 - **Deals** are **party-scoped agreements** (`deals` + `deal_parties`, 1..N parties, kind-agnostic). Visibility scoped per `deal_party` (a shared split shows each performer only their own line).
 - **Settlement** = reconciliation: budget lines (external cash, `collected_by`/`paid_by`/`payee`) + deals (entitlements) → `entitlement − cash-held → transfers`, with `Σ net = 0`. **One settlement per participant.** Manual overrides, **no escrow**.

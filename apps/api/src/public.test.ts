@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
+import type { Lead, LeadSink } from "./lib/clickup";
 import { publicRoutes } from "./routes/public";
 import { buildTestApp } from "./testing";
 
@@ -195,5 +196,150 @@ describe("public RSVP", () => {
       payload: { email: "ada@example.com" },
     });
     expect(duplicate.statusCode).toBe(409);
+  });
+});
+
+describe("public leads", () => {
+  // In DEFAULT_LEADS_ALLOWED_ORIGINS, so buildTestApp's default allows it.
+  const ORIGIN = "http://localhost:5173";
+
+  /** A fresh app (fresh rate limiter) with a spy sink recording into `captured`. */
+  function buildLeadApp(captured: Lead[]): FastifyInstance {
+    const sink: LeadSink = {
+      async captureLead(lead) {
+        captured.push(lead);
+      },
+    };
+    return buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier, leadSink: sink }, [
+      publicRoutes,
+    ]);
+  }
+
+  it("forwards a sanitized lead from an allowed origin, reflecting that origin", async () => {
+    const captured: Lead[] = [];
+    const leadApp = buildLeadApp(captured);
+    await leadApp.ready();
+
+    const response = await leadApp.inject({
+      method: "POST",
+      url: "/api/v1/public/leads",
+      headers: { origin: ORIGIN },
+      payload: {
+        name: "Ada\u0000\u0009 Lovelace ", // null + tab collapse to one space; ends trimmed
+        email: " ADA@Example.com ",
+        message: "Line 1\r\nLine 2\u0000!", // CRLF normalized; embedded null stripped; newline kept
+        role: "Venue",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
+    expect(response.headers["access-control-allow-origin"]).toBe(ORIGIN);
+    // Sanitized: collapsed whitespace, lowercased/trimmed email, CRLF → LF.
+    expect(captured).toEqual([
+      { name: "Ada Lovelace", email: "ada@example.com", message: "Line 1\nLine 2!", role: "Venue" },
+    ]);
+
+    await leadApp.close();
+  });
+
+  it("403s a POST from a disallowed or missing origin, forwarding nothing", async () => {
+    const captured: Lead[] = [];
+    const leadApp = buildLeadApp(captured);
+    await leadApp.ready();
+    const payload = { name: "Ada", email: "ada@example.com", message: "hi there" };
+
+    const evil = await leadApp.inject({
+      method: "POST",
+      url: "/api/v1/public/leads",
+      headers: { origin: "https://evil.example" },
+      payload,
+    });
+    expect(evil.statusCode).toBe(403);
+
+    const noOrigin = await leadApp.inject({
+      method: "POST",
+      url: "/api/v1/public/leads",
+      payload,
+    });
+    expect(noOrigin.statusCode).toBe(403);
+
+    expect(captured).toEqual([]);
+    await leadApp.close();
+  });
+
+  it("silently drops a honeypot submission without forwarding", async () => {
+    const captured: Lead[] = [];
+    const leadApp = buildLeadApp(captured);
+    await leadApp.ready();
+
+    const response = await leadApp.inject({
+      method: "POST",
+      url: "/api/v1/public/leads",
+      headers: { origin: ORIGIN },
+      payload: { name: "Bot", email: "bot@spam.com", message: "buy now", website: "http://spam" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
+    expect(captured).toEqual([]);
+    await leadApp.close();
+  });
+
+  it("400s an invalid email", async () => {
+    const leadApp = buildLeadApp([]);
+    await leadApp.ready();
+    const response = await leadApp.inject({
+      method: "POST",
+      url: "/api/v1/public/leads",
+      headers: { origin: ORIGIN },
+      payload: { name: "Ada", email: "not-an-email", message: "hi" },
+    });
+    expect(response.statusCode).toBe(400);
+    await leadApp.close();
+  });
+
+  it("rate-limits after 5 submissions from the same IP", async () => {
+    const captured: Lead[] = [];
+    const leadApp = buildLeadApp(captured);
+    await leadApp.ready();
+    const send = () =>
+      leadApp.inject({
+        method: "POST",
+        url: "/api/v1/public/leads",
+        headers: { origin: ORIGIN, "x-forwarded-for": "203.0.113.7" },
+        payload: { name: "Ada", email: "ada@example.com", message: "hello there" },
+      });
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      expect((await send()).statusCode).toBe(200);
+    }
+    const sixth = await send();
+    expect(sixth.statusCode).toBe(429);
+    expect(sixth.headers["retry-after"]).toBe("60");
+    expect(captured).toHaveLength(5);
+    await leadApp.close();
+  });
+
+  it("handles CORS preflight (global @fastify/cors): reflects allowed origin, omits otherwise", async () => {
+    const leadApp = buildLeadApp([]);
+    await leadApp.ready();
+
+    const allowed = await leadApp.inject({
+      method: "OPTIONS",
+      url: "/api/v1/public/leads",
+      headers: { origin: ORIGIN, "access-control-request-method": "POST" },
+    });
+    expect(allowed.statusCode).toBe(204);
+    expect(allowed.headers["access-control-allow-origin"]).toBe(ORIGIN);
+
+    const denied = await leadApp.inject({
+      method: "OPTIONS",
+      url: "/api/v1/public/leads",
+      headers: { origin: "https://evil.example", "access-control-request-method": "POST" },
+    });
+    expect(denied.headers["access-control-allow-origin"]).toBeUndefined();
+
+    await leadApp.close();
   });
 });

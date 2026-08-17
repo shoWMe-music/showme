@@ -1,0 +1,3 @@
+/* Shared button system: the marketing pages render the same `.btn` pill as the
+   app, from the design-system's global button stylesheet — no per-page copy. */
+@import "@showme/design-system/styles/buttons.css";

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { type Page, expect, test } from "@playwright/test";
 
 /** Collect uncaught JS errors + real console errors (ignoring external font/CDN noise). */
 function trackErrors(page: Page) {
@@ -41,14 +41,12 @@ test.describe("every page", () => {
       const desc = page.locator('head meta[name="description"]');
       expect(await desc.getAttribute("content")).toBeTruthy();
 
-      // brand + nav present on every page
-      await expect(page.locator("nav#nav")).toBeVisible();
+      // brand + nav present on every page (dropdown nav is .topnav after fix-list #17)
+      await expect(page.locator(".topnav")).toBeVisible();
       await expect(page.locator(".brand").first()).toBeVisible();
 
       // design tokens applied: the warm near-black ground, not an unstyled white page
-      const bg = await page.evaluate(
-        () => getComputedStyle(document.body).backgroundColor,
-      );
+      const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
       expect(bg).not.toBe("rgba(0, 0, 0, 0)");
 
       expect(errors, errors.join("\n")).toHaveLength(0);
@@ -69,26 +67,57 @@ test("home: hero + ecosystem + feature visuals render", async ({ page }) => {
   // ecosystem galaxy builds its canvas inside #orbit
   await expect(page.locator("#orbit canvas#galaxy-canvas")).toBeAttached();
 
-  // feature visuals get populated by JS (not empty)
-  await expect
-    .poll(async () =>
-      page.locator("#calendar-visual .cal-wrap").count(),
-    )
-    .toBeGreaterThan(0);
+  // feature section role tabs get populated by feature-scroll.js (not empty)
+  await expect.poll(async () => page.locator("#feat-tabs button").count()).toBeGreaterThan(0);
 
   expect(errors, errors.join("\n")).toHaveLength(0);
 });
 
-test("home: chaos → order shows the real event-manager panel", async ({ page }) => {
+test("home: problem section is two beats, no 'one place' middle (fix-list #2)", async ({
+  page,
+}) => {
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  const stage = page.locator("#chaos-stage");
-  await stage.scrollIntoViewIfNeeded();
-  // toggle to the "with shoWMe" state
-  const orderBtn = page.locator('#chaos-stage .chaos__toggle button[data-state="order"]');
-  if (await orderBtn.count()) await orderBtn.click();
-  await expect(page.locator("#chaos-stage .evm.on")).toBeVisible({ timeout: 6000 });
-  // it renders the settlement pane by default
-  await expect(page.locator("#chaos-stage .evm__title")).toContainText(/Vance/);
+  // Middle "All of it, in one place" beat removed → 3 beats remain (was 4).
+  await expect(page.locator(".chaos .chaos__beat")).toHaveCount(3);
+  await expect(page.locator(".chaos")).not.toContainText("All of it, in one place");
+});
+
+test("home: ecosystem globe spins on press-drag (fix-list #9)", async ({ page }, testInfo) => {
+  // #9 is a desktop grab-and-spin; the mobile orbit is covered by M1/M2. Touch-drag
+  // emulation doesn't reliably fire pointer events here, so assert on desktop.
+  test.skip(testInfo.project.name === "mobile", "desktop grab-and-spin interaction");
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  const orbit = page.locator("#orbit");
+  await orbit.scrollIntoViewIfNeeded();
+  const box = await orbit.boundingBox();
+  if (!box) throw new Error("no #orbit box");
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 220, cy, { steps: 12 });
+  await page.mouse.up();
+  // data-yaw is written synchronously on each pointermove → off zero after a drag.
+  expect(Number(await orbit.getAttribute("data-yaw"))).not.toBe(0);
+});
+
+test("home: ecosystem fits the phone viewport, no overflow (fix-list M2)", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile", "mobile-only responsive check");
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  const orbit = page.locator("#orbit canvas#galaxy-canvas");
+  await orbit.scrollIntoViewIfNeeded();
+  await expect(orbit).toBeAttached();
+  const vw = page.viewportSize()?.width ?? 393;
+  const box = await orbit.boundingBox();
+  expect(box, "canvas has a box").not.toBeNull();
+  if (box) {
+    expect(box.width, "canvas width fits").toBeGreaterThan(0);
+    expect(box.x + box.width, "canvas does not overflow right edge").toBeLessThanOrEqual(vw + 1);
+  }
+  const scrollW = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(scrollW, "no horizontal page overflow").toBeLessThanOrEqual(vw + 1);
 });
 
 test("product: real product screenshots actually load", async ({ page }) => {
@@ -101,11 +130,13 @@ test("product: real product screenshots actually load", async ({ page }) => {
   expect(w).toBeGreaterThan(0);
 });
 
-test("nav: product link navigates", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name === "mobile", "nav links collapse on phone widths by design");
+test("nav: Product dropdown link navigates (fix-list #17)", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "mobile", "dropdowns collapse into the burger on phones");
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  await page.locator('nav#nav a[href="product.html"]').first().click();
-  await expect(page).toHaveURL(/product\.html$/);
+  // Open the Product dropdown, then follow a product link.
+  await page.getByRole("button", { name: "Product" }).click();
+  await page.locator('.topnav__panel a[href*="product.html"]').first().click();
+  await expect(page).toHaveURL(/product\.html/);
   await expect(page.locator("h1, .display, .hero").first()).toBeVisible();
 });
 
@@ -125,6 +156,72 @@ test("contact: form submit shows success state", async ({ page }) => {
   await expect(page.locator("#contactForm")).toHaveAttribute("data-submitted", "true");
 });
 
+test.describe("privacy: no third-party CDN calls (GDPR)", () => {
+  // Fonts are self-hosted; nothing should reach out to Google Fonts / gstatic /
+  // Fontshare on load — that would transfer the visitor's IP pre-consent.
+  for (const path of ["/", "/cookies.html", "/privacy.html"]) {
+    test(`${path}: loads no external font/CDN hosts`, async ({ page }) => {
+      const offenders: string[] = [];
+      page.on("request", (r) => {
+        if (/googleapis\.com|gstatic\.com|fontshare\.com/.test(r.url())) offenders.push(r.url());
+      });
+      await page.goto(path, { waitUntil: "networkidle" });
+      expect(offenders, offenders.join("\n")).toHaveLength(0);
+      // and the self-hosted font actually loaded
+      expect(await page.evaluate(() => document.fonts.check("16px 'Inter Tight'"))).toBe(true);
+    });
+  }
+});
+
+test.describe("cookie policy + consent", () => {
+  test("cookies page loads with SEO basics", async ({ page }) => {
+    const resp = await page.goto("/cookies.html", { waitUntil: "domcontentloaded" });
+    expect(resp?.status(), "HTTP status").toBeLessThan(400);
+    await expect(page).toHaveTitle(/Cookie Policy/);
+    await expect(page.locator("h1")).toContainText(/Cookie Policy/);
+    const canonical = page.locator('link[rel="canonical"]');
+    expect(await canonical.getAttribute("href")).toMatch(/cookies$/);
+  });
+
+  test("privacy page loads with SEO basics", async ({ page }) => {
+    const resp = await page.goto("/privacy.html", { waitUntil: "domcontentloaded" });
+    expect(resp?.status(), "HTTP status").toBeLessThan(400);
+    await expect(page).toHaveTitle(/Privacy Policy/);
+    await expect(page.locator("h1")).toContainText(/Privacy Policy/);
+    const canonical = page.locator('link[rel="canonical"]');
+    expect(await canonical.getAttribute("href")).toMatch(/privacy$/);
+    // the footer + cross-links to the privacy page resolve (no dead reference)
+    await expect(page.locator('footer a[href="privacy.html"]')).toHaveCount(1);
+  });
+
+  test("consent banner shows on first visit, Accept hides it and persists", async ({ page }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    const banner = page.locator(".cookie-consent");
+    await expect(banner).toBeVisible();
+
+    await banner.locator('[data-consent="granted"]').click();
+    await expect(banner).toBeHidden();
+
+    // choice is remembered — no banner on the next page load
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator(".cookie-consent")).toBeHidden();
+    expect(await page.evaluate(() => localStorage.getItem("showme.cookie-consent"))).toBe(
+      "granted",
+    );
+  });
+
+  test("cookie policy page can re-open the preferences chooser", async ({ page }) => {
+    // Land pre-decided so the banner doesn't auto-open.
+    await page.goto("/cookies.html", { waitUntil: "domcontentloaded" });
+    await page.evaluate(() => localStorage.setItem("showme.cookie-consent", "denied"));
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator(".cookie-consent")).toBeHidden();
+
+    await page.locator("[data-cookie-preferences]").first().click();
+    await expect(page.locator(".cookie-consent")).toBeVisible();
+  });
+});
+
 test.describe("SEO", () => {
   for (const p of PAGES) {
     test(`${p.slug}: canonical + OpenGraph + JSON-LD`, async ({ page }) => {
@@ -134,8 +231,12 @@ test.describe("SEO", () => {
       expect(await canonical.getAttribute("href")).toMatch(/^https?:\/\//);
 
       expect(await page.locator('meta[property="og:title"]').getAttribute("content")).toBeTruthy();
-      expect(await page.locator('meta[property="og:image"]').getAttribute("content")).toMatch(/^https?:\/\//);
-      expect(await page.locator('meta[name="twitter:card"]').getAttribute("content")).toBe("summary_large_image");
+      expect(await page.locator('meta[property="og:image"]').getAttribute("content")).toMatch(
+        /^https?:\/\//,
+      );
+      expect(await page.locator('meta[name="twitter:card"]').getAttribute("content")).toBe(
+        "summary_large_image",
+      );
 
       // every JSON-LD block is valid JSON with a schema.org @type
       const blocks = await page.locator('script[type="application/ld+json"]').allTextContents();

@@ -2,6 +2,8 @@ import type { Principal } from "@showme/auth";
 import type { Database } from "@showme/db";
 import type { Capability } from "@showme/shared";
 import type { FirebaseUser, TokenVerifier } from "./auth/token-verifier";
+import type { LeadSink } from "./lib/clickup";
+import type { EmailSink } from "./lib/email";
 
 /**
  * Fastify augmentations: the injected dependencies on the instance, the resolved
@@ -11,6 +13,12 @@ declare module "fastify" {
   interface FastifyInstance {
     database: Database;
     tokenVerifier: TokenVerifier;
+    /** Forwards marketing contact-form leads to ClickUp (no-op when unconfigured). */
+    leadSink: LeadSink;
+    /** Sends transactional email via Brevo (no-op that logs when unconfigured). */
+    emailSink: EmailSink;
+    /** Origins allowed to POST the public lead form (the marketing site). */
+    leadsAllowedOrigins: string[];
   }
 
   interface FastifyRequest {

@@ -29,6 +29,9 @@ export const shares = pgTable("shares", {
   eventId: uuid("event_id").references(() => events.id, { onDelete: "cascade" }),
   targetKind: text("target_kind"),
   targetId: uuid("target_id"),
+  // Optional snapshot for non-event shares (e.g. a profile-availability share
+  // stores the generated date range + available dates "as of" creation).
+  payload: jsonb("payload"),
   capabilities: text("capabilities").array().notNull().default([]),
   access: shareAccess("access").notNull().default("public"),
   ownerUserId: text("owner_user_id")

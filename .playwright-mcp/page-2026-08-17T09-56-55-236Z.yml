@@ -1,0 +1,637 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e4]:
+      - link "shoWMe" [ref=e5] [cursor=pointer]:
+        - /url: "#"
+      - navigation "Primary" [ref=e16]:
+        - list [ref=e17]:
+          - listitem [ref=e18]:
+            - button "Product" [ref=e19] [cursor=pointer]
+          - listitem [ref=e22]:
+            - button "Company" [ref=e23] [cursor=pointer]
+          - listitem [ref=e26]:
+            - button "Contact" [ref=e27] [cursor=pointer]
+        - generic [ref=e30]:
+          - link "Log in" [ref=e31] [cursor=pointer]:
+            - /url: /login
+          - link "Get early access" [ref=e32] [cursor=pointer]:
+            - /url: contact.html
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - heading "Run your events, not your inbox." [level=1] [ref=e35]:
+          - generic [ref=e36]:
+            - generic [ref=e37]: Run
+            - generic [ref=e38]: your
+            - generic [ref=e39]: events,
+          - generic [ref=e40]:
+            - generic [ref=e41]: not
+            - generic [ref=e42]: your
+            - generic [ref=e43]: inbox.
+        - paragraph [ref=e44]: Book, manage and settle events, all in one place.
+        - paragraph [ref=e45]: shoWMe connects venues, performers, promoters, and crews in a single collaborative platform. Shared financial data, automated permissions, and zero back-and-forth miscommunication.
+        - link "Book a demo" [ref=e47] [cursor=pointer]:
+          - /url: contact.html
+      - generic [ref=e51]:
+        - generic [ref=e52]:
+          - generic [ref=e53]:
+            - generic [ref=e54]: shoWMe
+            - generic [ref=e62]:
+              - generic [ref=e63]: ▦
+              - text: Dashboard
+            - generic [ref=e64]:
+              - generic [ref=e65]: ▤
+              - text: Calendar
+            - generic [ref=e66]:
+              - generic [ref=e67]: ▥
+              - text: Events
+            - generic [ref=e68]:
+              - generic [ref=e69]: ☑
+              - text: Tasks
+            - generic [ref=e70]:
+              - generic [ref=e71]: ♫
+              - text: Setlists
+            - generic [ref=e72]:
+              - generic [ref=e73]: ▤
+              - text: Settlements
+            - generic [ref=e74]:
+              - generic [ref=e75]: ↧
+              - text: Incoming Requests
+              - generic [ref=e76]: "4"
+          - generic [ref=e77]:
+            - generic [ref=e78]: All events
+            - generic [ref=e79]: Events
+            - generic [ref=e80]:
+              - generic [ref=e81]: All
+              - generic [ref=e82]: Pending
+              - generic [ref=e83]: On hold
+              - generic [ref=e84]: Concluded
+              - generic [ref=e85]: Draft
+            - generic [ref=e86]:
+              - generic [ref=e87]:
+                - generic [ref=e88]: Event / Artist
+                - generic [ref=e89]: Venue
+              - generic [ref=e90]:
+                - generic [ref=e93]:
+                  - generic [ref=e94]: Marlo Vance
+                  - text: The Lantern Hall
+                - generic [ref=e95]: The Lantern Hall · Berlin
+              - generic [ref=e96]:
+                - generic [ref=e99]:
+                  - generic [ref=e100]: Velvet Coast
+                  - text: Warehouse 9
+                - generic [ref=e101]: Warehouse 9 · London
+              - generic [ref=e102]:
+                - generic [ref=e105]:
+                  - generic [ref=e106]: Neon Harbor
+                  - text: Meridian Club
+                - generic [ref=e107]: Meridian Club · Brixton
+              - generic [ref=e108]:
+                - generic [ref=e111]:
+                  - generic [ref=e112]: June Delacroix
+                  - text: Ironworks
+                - generic [ref=e113]: Ironworks · Bristol
+        - generic [ref=e114]:
+          - generic [ref=e115]:
+            - generic [ref=e116]: Velvet Coast · Warehouse 9
+            - generic [ref=e117]: Contract
+          - generic [ref=e118]:
+            - generic [ref=e120]: Match
+            - generic [ref=e123]: Offer
+            - generic [ref=e126]: Contract
+            - generic [ref=e129]: Advance
+            - generic [ref=e132]: Settle
+        - generic [ref=e135]: New request · The Tidal Room
+        - generic [ref=e137]: Settlement approved
+  - generic [ref=e140]:
+    - generic [ref=e141]: Venues
+    - generic [ref=e143]: Promoters
+    - generic [ref=e145]: Performers
+    - generic [ref=e147]: Booking agents
+    - generic [ref=e149]: Tour managers
+    - generic [ref=e151]: Festivals
+    - generic [ref=e153]: Clubs
+    - generic [ref=e155]: Producers
+    - generic [ref=e157]: Venues
+    - generic [ref=e159]: Promoters
+    - generic [ref=e161]: Performers
+    - generic [ref=e163]: Booking agents
+    - generic [ref=e165]: Tour managers
+    - generic [ref=e167]: Festivals
+    - generic [ref=e169]: Clubs
+    - generic [ref=e171]: Producers
+  - generic [ref=e177]:
+    - generic [ref=e178]:
+      - generic [ref=e179]:
+        - generic [ref=e180]: 09:12
+        - generic [ref=e181]: Email
+        - generic [ref=e182]: "RE: re: re: holding date"
+      - generic [ref=e183]:
+        - generic [ref=e184]: 09:00
+        - generic [ref=e185]: Calendar
+        - generic [ref=e186]: DOUBLE BOOKED ⚠
+      - generic [ref=e187]:
+        - generic [ref=e188]: 10:30
+        - generic [ref=e189]: PDF v7
+        - generic [ref=e190]: Contract_FINAL_v7.pdf
+      - generic [ref=e191]:
+        - generic [ref=e192]: 15:20
+        - generic [ref=e193]: Sheet
+        - generic [ref=e194]: Settlement_Q1.xlsx
+      - generic [ref=e195]:
+        - generic [ref=e196]: 11:47
+        - generic [ref=e197]: WhatsApp
+        - generic [ref=e198]: is the 12th still free?
+      - generic [ref=e199]:
+        - generic [ref=e200]: 16:30
+        - generic [ref=e201]: Note
+        - generic [ref=e202]: Soundcheck 16:00?
+      - generic [ref=e203]:
+        - generic [ref=e204]: 10:31
+        - generic [ref=e205]: PDF
+        - generic [ref=e206]: Rider_Vance.pdf
+      - generic [ref=e207]:
+        - generic [ref=e208]: 02:14
+        - generic [ref=e209]: WhatsApp
+        - generic [ref=e210]: “12k + hotel?”
+      - generic [ref=e211]:
+        - generic [ref=e212]: 15:02
+        - generic [ref=e213]: Slack
+        - generic [ref=e214]: "@channel deal update?"
+      - generic [ref=e215]:
+        - generic [ref=e216]: 18:05
+        - generic [ref=e217]: DM
+        - generic [ref=e218]: capacity for the 12th?
+      - generic [ref=e219]:
+        - generic [ref=e220]: 12:14
+        - generic [ref=e221]: Email
+        - generic [ref=e222]: Terms attached, sign?
+      - generic [ref=e223]:
+        - generic [ref=e224]: 16:41
+        - generic [ref=e225]: Invoice
+        - generic [ref=e226]: "Invoice #0412 · overdue"
+      - generic [ref=e227]: Requests
+      - generic [ref=e228]: Events
+      - generic [ref=e229]: Agreements
+      - generic [ref=e230]: Settlements
+    - generic [ref=e231]:
+      - generic [ref=e232]: The problem
+      - heading "Buried in the back-and-forth?" [level=2] [ref=e233]:
+        - generic [ref=e234]: Buried
+        - generic [ref=e235]: in
+        - generic [ref=e236]: the
+        - generic [ref=e237]: back-and-forth?
+      - paragraph [ref=e238]:
+        - generic [ref=e239]: Emails,
+        - generic [ref=e240]: WhatsApp
+        - generic [ref=e241]: threads,
+        - generic [ref=e242]: spreadsheets,
+        - generic [ref=e243]: PDFs,
+        - generic [ref=e244]: calendar
+        - generic [ref=e245]: invites,
+        - generic [ref=e246]: follow-ups,
+        - generic [ref=e247]: every
+        - generic [ref=e248]: party
+        - generic [ref=e249]: working
+        - generic [ref=e250]: from
+        - generic [ref=e251]: a
+        - generic [ref=e252]: different
+        - generic [ref=e253]: version
+        - generic [ref=e254]: of
+        - generic [ref=e255]: the
+        - generic [ref=e256]: truth.
+    - generic [ref=e257]:
+      - generic [ref=e258]: Start to finish
+      - heading "Structured, start to finish." [level=2] [ref=e259]:
+        - generic [ref=e260]: Structured,
+        - generic [ref=e261]: start
+        - generic [ref=e262]: to
+        - generic [ref=e263]: finish.
+      - paragraph [ref=e264]:
+        - generic [ref=e265]: Every
+        - generic [ref=e266]: party
+        - generic [ref=e267]: (venue,
+        - generic [ref=e268]: artist,
+        - generic [ref=e269]: agent
+        - generic [ref=e270]: and
+        - generic [ref=e271]: crew)
+        - generic [ref=e272]: collaborating
+        - generic [ref=e273]: in
+        - generic [ref=e274]: order,
+        - generic [ref=e275]: from
+        - generic [ref=e276]: first
+        - generic [ref=e277]: enquiry
+        - generic [ref=e278]: to
+        - generic [ref=e279]: final
+        - generic [ref=e280]: settlement.
+    - generic [ref=e281]:
+      - generic [ref=e282]: The solution
+      - heading "Smart, seamless, and synchronized." [level=2] [ref=e283]:
+        - generic [ref=e284]: Smart,
+        - generic [ref=e285]: seamless,
+        - generic [ref=e286]: and
+        - generic [ref=e287]: synchronized.
+      - paragraph [ref=e288]:
+        - generic [ref=e289]: One
+        - generic [ref=e290]: operating
+        - generic [ref=e291]: system
+        - generic [ref=e292]: for
+        - generic [ref=e293]: live
+        - generic [ref=e294]: events.
+        - generic [ref=e295]: From
+        - generic [ref=e296]: first
+        - generic [ref=e297]: match
+        - generic [ref=e298]: to
+        - generic [ref=e299]: final
+        - generic [ref=e300]: settlement,
+        - generic [ref=e301]: every
+        - generic [ref=e302]: party,
+        - generic [ref=e303]: every
+        - generic [ref=e304]: deal,
+        - generic [ref=e305]: every
+        - generic [ref=e306]: payment
+        - generic [ref=e307]: in
+        - generic [ref=e308]: one
+        - generic [ref=e309]: shared
+        - generic [ref=e310]: place.
+  - generic [ref=e313]:
+    - generic [ref=e314]:
+      - generic [ref=e315]: Everything you get
+      - tablist "Choose your role" [ref=e316]:
+        - tab "Operator" [selected] [ref=e317] [cursor=pointer]
+        - tab "Performer" [ref=e318] [cursor=pointer]
+        - tab "Agent" [ref=e319] [cursor=pointer]
+        - tab "Team and Crew" [ref=e320] [cursor=pointer]
+      - paragraph [ref=e321]: Venues, promoters, organizers and festivals, the party that books the talent, runs the event and settles it.
+    - generic [ref=e322]:
+      - generic [ref=e323]:
+        - generic [ref=e324]:
+          - generic [ref=e325]: Calendar
+          - heading "One shared calendar for the whole event." [level=3] [ref=e327]:
+            - generic [ref=e328]: One
+            - generic [ref=e329]: shared
+            - generic [ref=e330]: calendar
+            - generic [ref=e331]: for
+            - generic [ref=e332]: the
+            - generic [ref=e333]: whole
+            - generic [ref=e334]: event.
+          - paragraph [ref=e335]:
+            - generic [ref=e336]: A
+            - generic [ref=e337]: single
+            - generic [ref=e338]: calendar
+            - generic [ref=e339]: every
+            - generic [ref=e340]: side
+            - generic [ref=e341]: reads
+            - generic [ref=e342]: from,
+            - generic [ref=e343]: month,
+            - generic [ref=e344]: week
+            - generic [ref=e345]: or
+            - generic [ref=e346]: day.
+            - generic [ref=e347]: Times
+            - generic [ref=e348]: live
+            - generic [ref=e349]: in
+            - generic [ref=e350]: the
+            - generic [ref=e351]: venue’s
+            - generic [ref=e352]: local
+            - generic [ref=e353]: wall-clock,
+            - generic [ref=e354]: so
+            - generic [ref=e355]: nothing
+            - generic [ref=e356]: shifts
+            - generic [ref=e357]: when
+            - generic [ref=e358]: a
+            - generic [ref=e359]: date
+            - generic [ref=e360]: moves.
+        - generic:
+          - generic: Availability
+          - heading "Share your available dates with your partners." [level=3]:
+            - generic: Share
+            - generic: your
+            - generic: available
+            - generic: dates
+            - generic: with
+            - generic: your
+            - generic: partners.
+          - paragraph:
+            - generic: Hold
+            - generic: dates
+            - generic: while
+            - generic: deciding,
+            - generic: and
+            - generic: ranked
+            - generic: holds
+            - generic: promote
+            - generic: automatically
+            - generic: when
+            - generic: one
+            - generic: drops.
+        - generic:
+          - generic: Budget
+          - heading "Know the numbers, and who’s holding them." [level=3]:
+            - generic: Know
+            - generic: the
+            - generic: numbers,
+            - generic: and
+            - generic: who’s
+            - generic: holding
+            - generic: them.
+          - paragraph:
+            - generic: Model
+            - generic: the
+            - generic: event
+            - generic: "live:"
+            - generic: tiers,
+            - generic: costs,
+            - generic: revenue
+            - generic: and
+            - generic: break-even.
+            - generic: Every
+            - generic: line
+            - generic: records
+            - generic: who
+            - generic: collects
+            - generic: the
+            - generic: cash
+            - generic: and
+            - generic: who
+            - generic: fronts
+            - generic: it.
+        - generic:
+          - generic: Agreement
+          - heading "The deal is the agreement." [level=3]:
+            - generic: The
+            - generic: deal
+            - generic: is
+            - generic: the
+            - generic: agreement.
+          - paragraph:
+            - generic: The
+            - generic: terms
+            - generic: you
+            - generic: agreed
+            - generic: become
+            - generic: the
+            - generic: contract,
+            - generic: filled
+            - generic: from
+            - generic: the
+            - generic: deal.
+            - generic: Each
+            - generic: party
+            - generic: confirms;
+            - generic: the
+            - generic: moment
+            - generic: the
+            - generic: last
+            - generic: one
+            - generic: does,
+            - generic: it
+            - generic: freezes.
+        - generic:
+          - generic: Collaborators
+          - heading "Every side of the event, and only their side." [level=3]:
+            - generic: Every
+            - generic: side
+            - generic: of
+            - generic: the
+            - generic: event,
+            - generic: and
+            - generic: only
+            - generic: their
+            - generic: side.
+          - paragraph:
+            - generic: Venue,
+            - generic: performer,
+            - generic: agent
+            - generic: and
+            - generic: promoter
+            - generic: "on"
+            - generic: one
+            - generic: event,
+            - generic: with
+            - generic: visibility
+            - generic: that
+            - generic: follows
+            - generic: the
+            - generic: relationship.
+        - generic:
+          - generic: Reports
+          - heading "Every event makes you smarter." [level=3]:
+            - generic: Every
+            - generic: event
+            - generic: makes
+            - generic: you
+            - generic: smarter.
+          - paragraph:
+            - generic: Revenue,
+            - generic: profit
+            - generic: and
+            - generic: margin
+            - generic: per
+            - generic: event,
+            - generic: plus
+            - generic: a
+            - generic: projection
+            - generic: across
+            - generic: your
+            - generic: confirmed
+            - generic: pipeline.
+            - generic: Setlists
+            - generic: become
+            - generic: the
+            - generic: PRO
+            - generic: report.
+        - generic:
+          - generic: Settlements
+          - heading "Everyone settles from the same numbers." [level=3]:
+            - generic: Everyone
+            - generic: settles
+            - generic: from
+            - generic: the
+            - generic: same
+            - generic: numbers.
+          - paragraph:
+            - generic: shoWMe
+            - generic: works
+            - generic: out
+            - generic: who
+            - generic: owes
+            - generic: whom,
+            - generic: earned
+            - generic: under
+            - generic: the
+            - generic: deal,
+            - generic: minus
+            - generic: cash
+            - generic: already
+            - generic: collected
+            - generic: or
+            - generic: fronted.
+            - generic: The
+            - generic: nets
+            - generic: always
+            - generic: cancel.
+        - generic:
+          - generic:
+            - generic: Incoming
+            - generic: Requests
+          - heading "Every booking request in one inbox." [level=3]:
+            - generic: Every
+            - generic: booking
+            - generic: request
+            - generic: in
+            - generic: one
+            - generic: inbox.
+          - paragraph:
+            - generic: Offers
+            - generic: and
+            - generic: requests
+            - generic: land
+            - generic: in
+            - generic: one
+            - generic: structured
+            - generic: inbox.
+            - generic: Duplicates
+            - generic: collapse;
+            - generic: offers
+            - generic: nobody
+            - generic: answers
+            - generic: expire
+            - generic: "on"
+            - generic: their
+            - generic: own.
+        - generic:
+          - generic: Team
+          - heading "Your team, your crew, and everything to do." [level=3]:
+            - generic: Your
+            - generic: team,
+            - generic: your
+            - generic: crew,
+            - generic: and
+            - generic: everything
+            - generic: to
+            - generic: do.
+          - paragraph:
+            - generic: Bring
+            - generic: your
+            - generic: people,
+            - generic: each
+            - generic: with
+            - generic: access
+            - generic: to
+            - generic: exactly
+            - generic: what
+            - generic: they
+            - generic: need.
+            - generic: Reusable
+            - generic: groups
+            - generic: assign
+            - generic: a
+            - generic: whole
+            - generic: crew
+            - generic: in
+            - generic: one
+            - generic: action.
+        - generic:
+          - generic: Audience
+          - heading "Keep the crowd you earned." [level=3]:
+            - generic: Keep
+            - generic: the
+            - generic: crowd
+            - generic: you
+            - generic: earned.
+          - paragraph:
+            - generic: Every
+            - generic: published
+            - generic: event
+            - generic: collects
+            - generic: RSVPs
+            - generic: into
+            - generic: a
+            - generic: list
+            - generic: that
+            - generic: belongs
+            - generic: to
+            - generic: your
+            - generic: profile,
+            - generic: not
+            - generic: a
+            - generic: ticketing
+            - generic: company.
+      - generic [ref=e365]:
+        - img "shoWMe, One shared calendar for the whole event." [ref=e366]
+        - img "shoWMe, Share your available dates with your partners." [ref=e367]
+        - img "shoWMe, Know the numbers, and who’s holding them." [ref=e368]
+        - img "shoWMe, The deal is the agreement." [ref=e369]
+        - img "shoWMe, Every side of the event, and only their side." [ref=e370]
+        - img "shoWMe, Every event makes you smarter." [ref=e371]
+        - img "shoWMe, Everyone settles from the same numbers." [ref=e372]
+        - img "shoWMe, Every booking request in one inbox." [ref=e373]
+        - img "shoWMe, Your team, your crew, and everything to do." [ref=e374]
+        - img "shoWMe, Keep the crowd you earned." [ref=e375]
+  - generic [ref=e382]:
+    - generic [ref=e383]: Beyond the booking tool
+    - heading "An Ecosystem is formed" [level=2] [ref=e384]
+    - paragraph [ref=e385]: shoWMe brings venues, performers, agents, and promoters, around one shared event. When everyone works on the same tool, it stops being a tool and an ecosystem is formed.
+    - paragraph [ref=e386]: That data lowers risk, predicts profitability, engages the right audience, and puts an end to disputes. One agreed record. No conflicting spreadsheets. No blind bets.
+  - generic [ref=e392]:
+    - heading "Built for events. Benefits everyone." [level=2] [ref=e393]
+    - paragraph [ref=e394]: Join the new ecosystem for the live industry and start saving time and money now.
+    - link "Request early access" [ref=e396] [cursor=pointer]:
+      - /url: contact.html
+  - contentinfo [ref=e399]:
+    - generic [ref=e400]:
+      - generic [ref=e401]:
+        - generic [ref=e402]:
+          - link "shoWMe" [ref=e403] [cursor=pointer]:
+            - /url: "#"
+          - paragraph [ref=e414]: Built for events. Benefits everyone. Early access available now.
+        - generic [ref=e415]:
+          - heading "Product" [level=4] [ref=e416]
+          - list [ref=e417]:
+            - listitem [ref=e418]:
+              - link "Calendar" [ref=e419] [cursor=pointer]:
+                - /url: product.html#calendar
+            - listitem [ref=e420]:
+              - link "Agreements" [ref=e421] [cursor=pointer]:
+                - /url: product.html#agreements
+            - listitem [ref=e422]:
+              - link "Settlement" [ref=e423] [cursor=pointer]:
+                - /url: product.html#settlements
+            - listitem [ref=e424]:
+              - link "Pricing" [ref=e425] [cursor=pointer]:
+                - /url: "#pricing"
+        - generic [ref=e426]:
+          - heading "Company" [level=4] [ref=e427]
+          - list [ref=e428]:
+            - listitem [ref=e429]:
+              - link "About" [ref=e430] [cursor=pointer]:
+                - /url: about.html
+            - listitem [ref=e431]:
+              - link "Terms & Conditions" [ref=e432] [cursor=pointer]:
+                - /url: terms.html
+            - listitem [ref=e433]:
+              - link "Privacy Policy" [ref=e434] [cursor=pointer]:
+                - /url: privacy.html
+            - listitem [ref=e435]:
+              - link "Cookie Policy" [ref=e436] [cursor=pointer]:
+                - /url: cookies.html
+        - generic [ref=e437]:
+          - heading "Contact" [level=4] [ref=e438]
+          - list [ref=e439]:
+            - listitem [ref=e440]:
+              - link "Contact form" [ref=e441] [cursor=pointer]:
+                - /url: contact.html
+            - listitem [ref=e442]:
+              - link "showme.music" [ref=e443] [cursor=pointer]:
+                - /url: https://showme.music
+      - generic [ref=e444]: © 2026 shoWMe. All rights reserved.
+  - dialog "Cookie consent" [ref=e446]:
+    - generic [ref=e447]:
+      - paragraph [ref=e448]:
+        - strong [ref=e449]: We use cookies.
+        - text: Strictly necessary cookies keep shoWMe working. With your consent we also use analytics cookies to understand usage and improve the platform. See our
+        - link "Cookie Policy" [ref=e450] [cursor=pointer]:
+          - /url: cookies.html
+        - text: .
+      - generic [ref=e451]:
+        - button "Decline" [ref=e452] [cursor=pointer]
+        - button "Accept" [ref=e453] [cursor=pointer]

@@ -8,6 +8,20 @@
       "when": 1785256416348,
       "tag": "0000_robust_zeigeist",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786289718648,
+      "tag": "0001_parallel_sue_storm",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786989170071,
+      "tag": "0002_rename_professional_to_team_and_crew",
+      "breakpoints": true
     }
   ]
 }
