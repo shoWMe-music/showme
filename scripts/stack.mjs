@@ -171,7 +171,7 @@ export async function bringUpStack({ corsOrigins }) {
       "POSTGRES_DB=showme",
       "-p",
       "55432:5432",
-      "postgres:17-alpine",
+      "postgres:18-alpine",
     ]);
     startedDockerDb = true;
     databaseUrl = "postgres://postgres:postgres@127.0.0.1:55432/showme";

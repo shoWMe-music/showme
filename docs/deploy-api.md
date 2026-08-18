@@ -17,8 +17,16 @@ manual sequence to actually provision + deploy. **Nothing here has been run.**
 
 ## Prerequisites (provision once)
 1. **Pick the project** — `prod-showme` (680839076083) is the intended prod target.
-2. **Cloud SQL for PostgreSQL** (europe-north2 / Stockholm per PLAN.md). Create the
-   instance + database + user; note the connection name `PROJECT:REGION:INSTANCE`.
+2. **Cloud SQL for PostgreSQL** — instance `showme-production-db`, chosen config:
+   - **Edition** Enterprise · **PostgreSQL 18** (matches the test/dev image `postgres:18-alpine`)
+   - **Region** `europe-north2` (Stockholm) — put Cloud Run in the SAME region (fall
+     back to `europe-north1` for both if Cloud Run isn't offered in Stockholm)
+   - **Machine** `db-custom-1-3840` (1 vCPU / 3.75 GB) — scale up at launch
+   - **Storage** 10 GB SSD, **auto-increase ON** (storage only grows, so start small)
+   - **Single zone** (enable HA at launch) · automated backup + PITR on
+   - **Public IP on, no authorized networks** — Cloud Run reaches it via the connector
+   - Then create a dedicated **`showme` database** + an app user (don't run the app as
+     the `postgres` superuser). Connection name: `prod-showme:europe-north2:showme-production-db`.
 3. **Secrets** (Secret Manager): `DATABASE_URL`, `CLICKUP_API_TOKEN`, and any of
    `FIREBASE_SERVICE_ACCOUNT`, `SHARE_JWT_SECRET`, `BREVO_API_KEY` you want live.
 4. **Run migrations** against the Cloud SQL DB: `DATABASE_URL=... pnpm --filter @showme/db migrate`.

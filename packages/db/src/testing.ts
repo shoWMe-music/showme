@@ -19,7 +19,7 @@ export interface TestDatabase {
 
 export async function startTestDatabase(): Promise<TestDatabase> {
   const container: StartedPostgreSqlContainer = await new PostgreSqlContainer(
-    "postgres:17-alpine",
+    "postgres:18-alpine",
   ).start();
 
   const client = postgres(container.getConnectionUri(), { max: 1 });
