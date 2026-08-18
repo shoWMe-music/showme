@@ -73,13 +73,14 @@ test("home: hero + ecosystem + feature visuals render", async ({ page }) => {
   expect(errors, errors.join("\n")).toHaveLength(0);
 });
 
-test("home: problem section is two beats, no 'one place' middle (fix-list #2)", async ({
+test("home: problem section goes straight mess -> smart/synced (fix-list #2)", async ({
   page,
 }) => {
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  // Middle "All of it, in one place" beat removed → 3 beats remain (was 4).
-  await expect(page.locator(".chaos .chaos__beat")).toHaveCount(3);
+  // Both intermediate steps removed → 2 beats: the messy problem and the synced end.
+  await expect(page.locator(".chaos .chaos__beat")).toHaveCount(2);
   await expect(page.locator(".chaos")).not.toContainText("All of it, in one place");
+  await expect(page.locator(".chaos")).not.toContainText("Structured, start to finish");
 });
 
 test("home: ecosystem globe spins on press-drag (fix-list #9)", async ({ page }, testInfo) => {

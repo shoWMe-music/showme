@@ -34,12 +34,16 @@
     return chip;
   });
 
-  const pulses = parties.map((party) => {
+  // Two pulses per party: one flowing IN (party -> Event) and one flowing OUT
+  // (Event -> party), so the exchange reads both ways.
+  function makePulse(tone) {
     const pulse = document.createElement('div');
-    pulse.className = 'pulse pulse--' + party.tone;
+    pulse.className = 'pulse pulse--' + tone;
     stage.appendChild(pulse);
     return pulse;
-  });
+  }
+  const inwardPulses = parties.map((party) => makePulse(party.tone));
+  const outwardPulses = parties.map((party) => makePulse(party.tone));
 
   host.appendChild(stage);
 
@@ -194,26 +198,29 @@
 
   // Pulses travel inward from each chip to the Event node, staggered so the
   // four parties feed the center in a gentle round.
-  const DURATION = 2600; // ms per inward trip
+  const DURATION = 2600; // ms per trip
   const start = performance.now();
+
+  // Move one pulse from `from` to `to` at eased `progress`; fade in at the ends of
+  // the trip and out in the middle so it reads as a travelling spark.
+  function positionPulse(pulse, from, to, progress, raw) {
+    pulse.style.left = from.x + (to.x - from.x) * progress + 'px';
+    pulse.style.top = from.y + (to.y - from.y) * progress + 'px';
+    pulse.style.opacity = (Math.sin(raw * Math.PI) * 0.9).toFixed(3);
+  }
 
   function frame(now) {
     const elapsed = now - start;
-    for (let index = 0; index < pulses.length; index++) {
-      const stagger = (index / pulses.length) * DURATION;
-      const raw = ((elapsed + stagger) % DURATION) / DURATION; // 0 -> 1
-      // Ease-in so the pulse accelerates toward the orb.
-      const progress = raw * raw;
-      const from = chipCenters[index];
-      const to = nodeCenter;
-      const x = from.x + (to.x - from.x) * progress;
-      const y = from.y + (to.y - from.y) * progress;
-      // Fade in near the chip, fade out as it merges into the orb.
-      const opacity = Math.sin(raw * Math.PI) * 0.9;
-      const pulse = pulses[index];
-      pulse.style.left = x + 'px';
-      pulse.style.top = y + 'px';
-      pulse.style.opacity = opacity.toFixed(3);
+    for (let index = 0; index < parties.length; index++) {
+      const stagger = (index / parties.length) * DURATION;
+      // Inward: party -> Event, ease-in so it accelerates toward the orb.
+      const rawIn = ((elapsed + stagger) % DURATION) / DURATION;
+      positionPulse(inwardPulses[index], chipCenters[index], nodeCenter, rawIn * rawIn, rawIn);
+      // Outward: Event -> party, offset half a cycle so the two directions
+      // interleave; ease-out so it settles gently into the chip.
+      const rawOut = ((elapsed + stagger + DURATION / 2) % DURATION) / DURATION;
+      const easeOut = 1 - (1 - rawOut) * (1 - rawOut);
+      positionPulse(outwardPulses[index], nodeCenter, chipCenters[index], easeOut, rawOut);
     }
     requestAnimationFrame(frame);
   }

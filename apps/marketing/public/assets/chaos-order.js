@@ -174,9 +174,8 @@
   // Story windows, timed WITH the card transitions, holds between. Each beat:
   // op = [fadeInStart, fadeInEnd, fadeOutStart, fadeOutEnd], wr = write-in [start, end].
   const STORY = [
-    { op: [-1, -0.5, 0.16, 0.26], wr: [0.00, 0.11] },   // chaos: writes in on scroll, holds, fades as cards rise
-    { op: [0.46, 0.54, 0.60, 0.68], wr: [0.47, 0.58] }, // columns: appears as columns form, holds, then clears
-    { op: [0.62, 0.70, 2, 3], wr: [0.63, 0.70] },       // the solution: rises, then a LONG hold (t .70 to 1), stays full while the features scroll up and cover it
+    { op: [-1, -0.5, 0.16, 0.26], wr: [0.00, 0.11] },  // chaos: writes in on scroll, holds, fades as cards rise
+    { op: [0.44, 0.56, 2, 3], wr: [0.46, 0.60] },      // smart/synced: rises AS the cards organize into columns (no intermediate step), then a LONG hold (to t 1) while the features scroll up and cover it
   ];
   function beatOp(t, w) {
     const inp = w[1] > w[0] ? clamp((t - w[0]) / (w[1] - w[0]), 0, 1) : 1;

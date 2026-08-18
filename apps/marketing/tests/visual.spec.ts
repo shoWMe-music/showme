@@ -91,7 +91,8 @@ test("Why section is the event-center animation (fix-list #18)", async ({ page }
   const stage = page.locator("#why-center .stage");
   await expect(stage.locator(".node")).toHaveText("Event");
   await expect(stage.locator(".chip")).toHaveCount(4);
-  await expect(stage.locator(".pulse")).toHaveCount(4);
+  // 8 pulses: one inward + one outward per party (bidirectional flow).
+  await expect(stage.locator(".pulse")).toHaveCount(8);
   expect(await why.innerText(), "no em dash in Why copy").not.toContain("—");
 });
 
