@@ -39,9 +39,11 @@ export interface ClickUpConfig {
 
 /**
  * Real sink — creates a task in the given ClickUp list. The task title carries
- * the lead's name + email so it is scannable in the list; the description holds
- * the full message. A non-2xx response throws so the caller never silently drops
- * a lead.
+ * the lead's name + email so it is scannable in the list; the self-selected role
+ * becomes a tag so the list can be filtered by account type (the tags must already
+ * exist in the space — the account-type set is seeded there once); the description
+ * holds the full message. A non-2xx response throws so the caller never silently
+ * drops a lead.
  */
 export function createClickUpLeadSink(config: ClickUpConfig): LeadSink {
   const doFetch = config.fetchImplementation ?? fetch;
@@ -55,15 +57,15 @@ export function createClickUpLeadSink(config: ClickUpConfig): LeadSink {
         },
         body: JSON.stringify({
           name: `${lead.name} — ${lead.email}`,
+          // Tag names are matched case-insensitively by ClickUp; lowercase to match
+          // the seeded lowercase tags exactly. Omitted entirely when no role given.
+          tags: lead.role ? [lead.role.toLowerCase()] : undefined,
           description: [
             lead.message,
             "",
             "— via shoWMe marketing contact form",
-            lead.role ? `Role: ${lead.role}` : undefined,
             `Reply to: ${lead.email}`,
-          ]
-            .filter((line) => line !== undefined)
-            .join("\n"),
+          ].join("\n"),
         }),
       });
       if (!response.ok) {
