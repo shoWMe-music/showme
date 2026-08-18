@@ -39,6 +39,26 @@
   transition: color 0.15s ease;
 }
 
+/* Single-destination item — a plain link (no dropdown/chevron), matching the
+   trigger typography so it sits flush alongside the dropdowns. */
+.topnav__link {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink-200);
+  text-decoration: none;
+  border-radius: 8px;
+  transition: color 0.15s ease;
+}
+.topnav__link:hover,
+.topnav__link:focus-visible {
+  color: var(--brand-red);
+  outline: none;
+}
+
 .topnav__chev {
   width: 11px;
   height: 11px;
