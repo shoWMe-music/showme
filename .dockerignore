@@ -1,0 +1,16 @@
+# Keep the Docker build context lean and secret-free. node_modules are reinstalled
+# in the build stage; builds/artifacts and any local .env (secrets) never ship.
+**/node_modules
+**/dist
+**/.turbo
+**/.vite
+.git
+.github
+**/.env
+**/.env.*
+!**/.env.example
+**/test-results
+**/playwright-report
+**/.playwright-mcp
+**/*.log
+ran-2026-08-17
