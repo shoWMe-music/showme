@@ -1,0 +1,17 @@
+# What Cloud Build should NOT upload for `gcloud run deploy --source .`.
+# Keep the Dockerfile, all source, package.jsons and the lockfile — node_modules
+# are reinstalled inside the build. Never upload secrets or local junk.
+.git
+.github
+**/node_modules
+**/dist
+**/.turbo
+**/.vite
+**/.env
+**/.env.*
+!**/.env.example
+**/test-results
+**/playwright-report
+**/.playwright-mcp
+**/*.log
+ran-2026-08-17
