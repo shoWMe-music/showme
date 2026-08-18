@@ -1,0 +1,23 @@
+terraform {
+  required_version = ">= 1.5"
+
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 6.0"
+    }
+  }
+
+  # Remote state in GCS. Bootstrap the bucket once with gcloud (see infra/README.md)
+  # before `terraform init` — the state bucket is the one piece that can't be
+  # Terraform-managed from empty (chicken-and-egg).
+  backend "gcs" {
+    bucket = "prod-showme-tfstate"
+    prefix = "prod/api-load-balancer"
+  }
+}
+
+provider "google" {
+  project = var.project_id
+  region  = var.cloud_run_region
+}
