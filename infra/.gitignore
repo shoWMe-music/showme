@@ -1,0 +1,6 @@
+# Terraform local cache + state (state lives in the GCS backend, never in git)
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars.local
