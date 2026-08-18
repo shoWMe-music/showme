@@ -1,8 +1,8 @@
-# API container for Cloud Run. Build CONTEXT is the repo ROOT (the esbuild bundle
-# pulls in the @showme/* workspace TS source), so build with:
-#   docker build -f apps/api/Dockerfile -t showme-api .
-# The build stage bundles everything into one self-contained dist/server.mjs; the
-# runtime stage is just Node + that file — no node_modules, tiny and fast to start.
+# API container for Cloud Run. Lives at the repo ROOT so the build context is the
+# whole workspace (the esbuild bundle pulls in the @showme/* TS source). Deploy with:
+#   gcloud run deploy showme-api --source .            (Cloud Build uses this Dockerfile)
+# or build locally:  docker build -t showme-api .
+# One self-contained dist/server.mjs; runtime is just Node + that file.
 # syntax=docker/dockerfile:1
 
 FROM node:22-slim AS build

@@ -42,28 +42,27 @@ manual sequence to actually provision + deploy. **Nothing here has been run.**
 | `FIREBASE_PROJECT_ID` / `FIREBASE_SERVICE_ACCOUNT` / `FIREBASE_STORAGE_BUCKET` | authed routes + storage | from the Firebase project (optional for leads-only) |
 | `PORT` / `HOST` | — | leave unset; Cloud Run sets `PORT`, `HOST` defaults to `0.0.0.0` |
 
-## Build + deploy
+## Build + deploy — one command (Cloud Build from source)
+The `Dockerfile` is at the repo root, so `--source .` builds + deploys in one step
+(Cloud Build uses it; no manual image build/push or Artifact Registry setup):
 ```bash
-PROJECT=prod-showme
-REGION=europe-north2
-INSTANCE="$PROJECT:$REGION:showme-db"   # your Cloud SQL connection name
-
-# Build + push the image (context = repo root; note the -f path)
-IMAGE="$REGION-docker.pkg.dev/$PROJECT/showme/api:$(git rev-parse --short HEAD)"
-docker build -f apps/api/Dockerfile -t "$IMAGE" .
-docker push "$IMAGE"
-# (or one-shot: gcloud builds submit --tag "$IMAGE" -f apps/api/Dockerfile .)
-
 gcloud run deploy showme-api \
-  --project "$PROJECT" --region "$REGION" \
-  --image "$IMAGE" \
+  --project prod-showme --region europe-north2 \
+  --source . \
   --allow-unauthenticated \
-  --add-cloudsql-instances "$INSTANCE" \
+  --add-cloudsql-instances prod-showme:europe-north2:showme-production-db \
   --set-secrets "DATABASE_URL=DATABASE_URL:latest,CLICKUP_API_TOKEN=CLICKUP_API_TOKEN:latest" \
-  --set-env-vars "CLICKUP_LEADS_LIST_ID=901524890050,LEADS_ALLOWED_ORIGINS=https://showme.music\,https://www.showme.music,CORS_ALLOWED_ORIGINS=https://showme.music\,https://www.showme.music"
+  --set-env-vars "^@@^CLICKUP_LEADS_LIST_ID=901524890050@@LEADS_ALLOWED_ORIGINS=https://showme.music,https://www.showme.music@@CORS_ALLOWED_ORIGINS=https://showme.music,https://www.showme.music"
 ```
-`--allow-unauthenticated` is correct: the API is publicly reachable and enforces auth
-*per route* via the Firebase token (the leads route is intentionally `public`).
+- `^@@^` sets `@` as the env-var delimiter so the comma-separated origin lists aren't split.
+- `--allow-unauthenticated` is correct: the API is publicly reachable and enforces auth
+  *per route* via the Firebase token (the leads route is intentionally `public`).
+- First run will prompt to enable Cloud Build / Artifact Registry APIs — say yes.
+- If Cloud Run isn't offered in `europe-north2`, use `europe-north1` (the connector still
+  reaches the Stockholm DB; add `--region europe-north1`).
+
+**Alternative (build the image yourself):** `docker build -t IMAGE .` → push to Artifact
+Registry → `gcloud run deploy showme-api --image IMAGE …` with the same flags.
 
 ## Map the domain + point the form at it
 1. **Custom domain**: map `api.showme.music` to the `showme-api` Cloud Run service
