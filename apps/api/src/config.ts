@@ -7,7 +7,10 @@ import { z } from "zod";
  * real token verifier only needs them when it first verifies a token.
  */
 const EnvSchema = z.object({
-  DATABASE_URL: z.string().url(),
+  // Not `.url()`: the Cloud SQL unix-socket form (`postgres://u:p@/db?host=/cloudsql/…`)
+  // is a valid postgres connection string but NOT a WHATWG URL (empty host), and
+  // `.url()` would reject it and crash boot on Cloud Run. Just require non-empty.
+  DATABASE_URL: z.string().min(1),
   PORT: z.coerce.number().default(8080),
   HOST: z.string().default("0.0.0.0"),
   FIREBASE_PROJECT_ID: z.string().optional(),
