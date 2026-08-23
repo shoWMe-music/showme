@@ -23,7 +23,7 @@ import { dayKey } from "../components/calendarGrid";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
 import { errorMessage } from "../lib/errors";
-import { formatDate, formatMoney } from "../lib/format";
+import { formatAmount, formatDate, formatMoney } from "../lib/format";
 
 type RequestItem = Awaited<ReturnType<typeof getApiV1BookingRequests>>["items"][number];
 
@@ -73,6 +73,24 @@ function requesterName(request: RequestItem): string {
   return request.artistName ?? request.contactName ?? "Unknown requester";
 }
 
+/**
+ * A request's fee, in the currency stamped on the row — the target venue's, since
+ * currency follows venue location (decisions.md #17). Public-form senders state a
+ * single `artistFee`; performers and agents offer an `offerFeeMin`/`Max` range, so
+ * reading only one of the two shows "Fee TBD" for half the inbox. When no currency
+ * was stamped (venue country unknown) the amount is shown bare rather than under a
+ * guessed symbol.
+ */
+function formatFee(request: RequestItem): string {
+  const asMoney = (value: string) =>
+    request.currency ? formatMoney(value, request.currency) : formatAmount(value);
+  if (request.offerFeeMin && request.offerFeeMax && request.offerFeeMax !== request.offerFeeMin) {
+    return `${asMoney(request.offerFeeMin)} – ${asMoney(request.offerFeeMax)}`;
+  }
+  const single = request.offerFeeMin ?? request.artistFee;
+  return single ? asMoney(single) : "Fee TBD";
+}
+
 function toCardData(request: RequestItem): RequestCardData {
   const requester = requesterName(request);
   const meta = REQUEST_STATUS[request.status] ?? {
@@ -92,7 +110,7 @@ function toCardData(request: RequestItem): RequestCardData {
     source: request.source
       ? request.source.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase())
       : "—",
-    fee: request.offerFeeMin ? formatMoney(request.offerFeeMin, "EUR") : "Fee TBD",
+    fee: formatFee(request),
     email: request.email ?? undefined,
     message: request.pitch ?? undefined,
   };

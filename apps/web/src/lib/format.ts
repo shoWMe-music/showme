@@ -16,6 +16,18 @@ export function formatMoney(
   }).format(major);
 }
 
+/**
+ * Format a minor-unit amount with NO currency symbol — for the case where the
+ * denomination genuinely isn't known. Showing a number under the wrong symbol is
+ * worse than showing it under none, so callers must use this instead of letting
+ * `formatMoney` fall back to a default currency.
+ */
+export function formatAmount(amountMinor: string | number | null | undefined): string {
+  const minor = typeof amountMinor === "string" ? Number(amountMinor) : (amountMinor ?? 0);
+  const major = Number.isFinite(minor) ? minor / 100 : 0;
+  return new Intl.NumberFormat("en-IE", { maximumFractionDigits: 0 }).format(major);
+}
+
 /** Format an ISO date string. Returns a placeholder for null/invalid dates. */
 export function formatDate(
   iso: string | null | undefined,
