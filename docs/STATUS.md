@@ -64,14 +64,28 @@ Workspace globs (`pnpm-workspace.yaml`): `apps/*`, `packages/*`, `design-system`
 ## Commands
 
 ```bash
-# Frontends together (marketing :5173, web :5174). Builds design-system dist first.
+# The whole local app stack (scripts/dev-emulator.mjs → scripts/stack.mjs):
+# Docker Postgres :55432 → migrate → seed → Firebase Auth emulator :9099 →
+# API :8080 → SSE stream service :8081 → web :5180. Prints the seeded logins.
+# Ctrl-C stops every child and removes the Docker database.
 pnpm dev
-pnpm dev:all                      # + apps/api, apps/stream (need DB/env)
+
+pnpm dev:landing                  # marketing/landing site only (:5173)
+pnpm dev:all                      # every workspace's own dev script (you supply DB/env)
 
 # Single target
 pnpm --filter @showme/web dev
 pnpm --filter @showme/marketing dev
 pnpm --filter @showme/design-system storybook   # :6006
+
+# Scheduled jobs (apps/jobs) — ONE run of the reapers (expired offers, handoffs and
+# shares, plus agreed-future representation terminations) and the exchange-rate
+# refresh, printing a JSON summary of the rows each one changed. Defaults to the
+# `pnpm dev` database; set DATABASE_URL to point it elsewhere.
+# In production Cloud Scheduler drives these. There is no scheduler locally, and
+# `pnpm dev` deliberately does NOT run them: a sweep firing at boot would move the
+# state a verification run is about to quote (.claude/skills/verify-e2e).
+pnpm jobs:run
 
 # Quality gates (Turbo, all workspaces)
 pnpm build
@@ -79,9 +93,9 @@ pnpm typecheck
 pnpm test
 pnpm lint                          # biome
 
-# E2E (Playwright, self-serves via build && preview)
-pnpm --filter @showme/marketing test    # :4173
-pnpm --filter @showme/web test          # :4174
+# E2E
+pnpm test:e2e                      # full stack + the web Playwright suite (scripts/e2e.mjs)
+pnpm --filter @showme/marketing test    # marketing site, self-serving preview (:4173)
 ```
 
 ---

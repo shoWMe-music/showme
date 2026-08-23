@@ -16,6 +16,7 @@
     "dev:landing": "turbo run dev --filter=@showme/marketing",
     "dev:all": "turbo run dev",
     "test:e2e": "node scripts/e2e.mjs",
+    "jobs:run": "node scripts/jobs-run.mjs",
     "design:ref": "node scripts/design-ref.mjs"
   },
   "devDependencies": {

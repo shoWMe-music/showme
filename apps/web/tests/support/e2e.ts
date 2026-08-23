@@ -16,7 +16,11 @@ import { authFile } from "./accounts";
 /** Fill in and submit the sign-in form, then wait for the app shell to render. */
 export async function loginViaUi(page: Page, name: E2eAccountName): Promise<void> {
   const account = E2E_ACCOUNTS[name];
-  await page.goto("/", { waitUntil: "networkidle" });
+  // NOT `waitUntil: "networkidle"`: once the shell mounts it opens a long-lived SSE
+  // connection to the stream service, which the dev stack now runs — so there is
+  // always a request in flight and "network idle" never arrives. The explicit
+  // element wait below is the real readiness signal anyway.
+  await page.goto("/");
   await page.getByPlaceholder("you@email.com").fill(account.email);
   await page.getByPlaceholder("Password").fill(account.password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
@@ -38,7 +42,11 @@ export async function openAs(
 ): Promise<{ context: Awaited<ReturnType<Browser["newContext"]>>; page: Page }> {
   const context = await browser.newContext({ storageState: authFile(name) });
   const page = await context.newPage();
-  await page.goto("/", { waitUntil: "networkidle" });
+  // NOT `waitUntil: "networkidle"`: once the shell mounts it opens a long-lived SSE
+  // connection to the stream service, which the dev stack now runs — so there is
+  // always a request in flight and "network idle" never arrives. The explicit
+  // element wait below is the real readiness signal anyway.
+  await page.goto("/");
   await page
     .getByRole("button", { name: /Dashboard/i })
     .first()

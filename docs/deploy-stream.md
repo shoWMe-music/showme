@@ -105,7 +105,12 @@ curl -sN -H "Authorization: Bearer $ID_TOKEN" https://<service-url>/stream
 
 ## Running it locally
 
-The dev stack (`pnpm dev`) does **not** start this service. Run it alongside:
+`pnpm dev` starts it — `scripts/stack.mjs` brings it up on **:8081** right after the API,
+with `DATABASE_URL`, `FIREBASE_AUTH_EMULATOR_HOST`, `FIREBASE_PROJECT_ID` and
+`CORS_ALLOWED_ORIGINS` all set, and points the web app at it via `VITE_STREAM_URL`.
+Ctrl-C stops it with everything else. `pnpm test:e2e` gets the same service.
+
+To run it by hand instead (against a dev stack already up), the env it needs is:
 
 ```bash
 DATABASE_URL="postgres://postgres:postgres@127.0.0.1:55432/showme" \
@@ -115,6 +120,17 @@ FIREBASE_PROJECT_ID="demo-showme" \
 CORS_ALLOWED_ORIGINS="http://127.0.0.1:5180,http://localhost:5180" \
 pnpm --filter @showme/stream dev
 ```
+
+**`FIREBASE_AUTH_EMULATOR_HOST` is the one you cannot omit locally.** Without it the
+verifier takes the production branch and tries Application Default Credentials, so a
+perfectly valid emulator token comes back as
+`401 {"code":"unauthorized","message":"Invalid token"}` — which reads like a broken
+feature rather than a missing variable.
+
+That hand-run form uses `tsx watch`, which **respawns its child**: killing the process
+holding :8081 is not enough to free the port, and a leaked one will collide with the
+next `pnpm dev`. `scripts/stack.mjs` now kills the holder's whole process group and
+waits for the port before starting its own, but stopping the watcher itself is cleaner.
 
 Get a seeded user's token from the Auth emulator, then connect:
 

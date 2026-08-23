@@ -15,11 +15,23 @@ pnpm dev        # scripts/dev-emulator.mjs
 
 Brings up, all seeded and cross-wired, staying up until Ctrl-C:
 - **web** → **http://127.0.0.1:5180** (note: 5180, not Vite's 5173, so it coexists with the landing site)
-- **API** + **Firebase Auth emulator** + a **Docker Postgres** seeded with the accounts below and their data.
+- **API** (:8080) + the **SSE stream service** (:8081, `apps/stream` — the realtime path, wired to the web app via `VITE_STREAM_URL`) + **Firebase Auth emulator** (:9099) + a **Docker Postgres** (:55432) seeded with the accounts below and their data.
 
 Requires **Docker running**. It prints the seeded accounts + shared password on start. Ctrl-C stops everything and removes the Docker DB.
 
 (That's the interactive stack. `pnpm test:e2e` runs the headless Playwright suite over the same stack — see `apps/web/tests` and the `ui-testing` skill.)
+
+## Scheduled jobs are NOT on a timer here
+
+```bash
+pnpm jobs:run     # one sweep against the dev database; prints a JSON summary
+```
+
+`apps/jobs` (expired offers / venue handoffs / shares, due representation terminations,
+the exchange-rate refresh) runs from Cloud Scheduler in production. Locally nothing
+triggers it, and `pnpm dev` deliberately leaves it that way — a sweep firing at boot
+would move state under a walkthrough. So anything time-based you expect to have
+converged, you converge yourself: age the row in Postgres, then run the command.
 
 ## Seeded accounts
 
