@@ -1,7 +1,16 @@
+import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { canUseFeature, creditBalance, getPlanTier } from "./lib/entitlements";
+import {
+  assertEventCapAllows,
+  assertGrantAdminAllows,
+  canUseFeature,
+  confersAdminAuthority,
+  countsTowardEventCap,
+  creditBalance,
+  getPlanTier,
+} from "./lib/entitlements";
 
 let harness: TestDatabase;
 
@@ -111,16 +120,37 @@ describe("canUseFeature — create_event", () => {
 });
 
 describe("canUseFeature — send_offer", () => {
-  async function seedOffer(senderUserId: string, targetProfileId: string, createdAt?: Date) {
+  /** `wantedDate` keeps two pending offers to the same venue distinct — the
+   * `booking_requests_pending_dedup` index treats one night as one offer. A
+   * dateless offer ("I'd love to play sometime") is outside that rule: Postgres
+   * counts NULLs as distinct, so two of them are two offers, and the index the
+   * agent-on-behalf-of work added (A-24) deliberately kept it that way. */
+  async function seedOffer(
+    senderUserId: string,
+    targetProfileId: string,
+    wantedDate?: string,
+    createdAt?: Date,
+  ) {
     await harness.db.insert(schema.bookingRequests).values({
       source: "performer_offer",
       senderUserId,
       targetProfileId,
+      wantedDate,
       ...(createdAt ? { createdAt } : {}),
     });
   }
 
   it("meters a free_artist by offers sent this calendar month", async () => {
+    const performer = await seedProfile("performer");
+    const target = await seedProfile("operator");
+    await seedOffer(performer.ownerUserId, target.profileId, "2026-09-10");
+    await seedOffer(performer.ownerUserId, target.profileId, "2026-09-11");
+
+    const check = await canUseFeature(harness.db, performer.profileId, "send_offer");
+    expect(check).toMatchObject({ allowed: true, used: 2, limit: 50 });
+  });
+
+  it("counts two DATELESS offers to the same venue as two", async () => {
     const performer = await seedProfile("performer");
     const target = await seedProfile("operator");
     await seedOffer(performer.ownerUserId, target.profileId);
@@ -190,5 +220,198 @@ describe("creditBalance", () => {
       { profileId: profile.profileId, delta: 3, reason: "grant" },
     ]);
     expect(await creditBalance(harness.db, profile.profileId)).toBe(6);
+  });
+});
+
+describe("countsTowardEventCap", () => {
+  it("counts exactly the live statuses the meter COUNTs — confirmed and concluded", () => {
+    expect(countsTowardEventCap("confirmed")).toBe(true);
+    expect(countsTowardEventCap("concluded")).toBe(true);
+    for (const status of ["draft", "suggested", "pending", "on_hold", "cancelled", null]) {
+      expect(countsTowardEventCap(status)).toBe(false);
+    }
+  });
+});
+
+describe("assertEventCapAllows", () => {
+  /** A free_operator sitting exactly ON the cap (3 counted events in the window). */
+  async function seedOperatorAtCap() {
+    const operator = await seedProfile("operator");
+    await seedEvent(operator.profileId, operator.ownerUserId, "confirmed");
+    await seedEvent(operator.profileId, operator.ownerUserId, "confirmed");
+    await seedEvent(operator.profileId, operator.ownerUserId, "concluded");
+    return operator;
+  }
+
+  it("blocks EVERY entry into the counted set at the cap — concluded, not just confirmed", async () => {
+    const operator = await seedOperatorAtCap();
+    const draft = { hostProfileId: operator.profileId, status: "draft" };
+
+    await expect(assertEventCapAllows(harness.db, draft, "confirmed")).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    // The A-20 hole: `concluded` walked straight past the same cap.
+    await expect(assertEventCapAllows(harness.db, draft, "concluded")).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    // And from a hold, the path the hold-confirm route takes.
+    await expect(
+      assertEventCapAllows(
+        harness.db,
+        { hostProfileId: operator.profileId, status: "on_hold" },
+        "confirmed",
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it("never gates a move INSIDE the counted set — a confirmed event may always conclude", async () => {
+    const operator = await seedOperatorAtCap();
+    await expect(
+      assertEventCapAllows(
+        harness.db,
+        { hostProfileId: operator.profileId, status: "confirmed" },
+        "concluded",
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("never gates a move OUT of the counted set, or an edit that leaves status alone", async () => {
+    const operator = await seedOperatorAtCap();
+    const draft = { hostProfileId: operator.profileId, status: "draft" };
+    await expect(assertEventCapAllows(harness.db, draft, "cancelled")).resolves.toBeUndefined();
+    await expect(assertEventCapAllows(harness.db, draft, undefined)).resolves.toBeUndefined();
+    await expect(
+      assertEventCapAllows(
+        harness.db,
+        { hostProfileId: operator.profileId, status: "confirmed" },
+        "cancelled",
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("lets a host under the cap — and any paid host — go live", async () => {
+    const under = await seedProfile("operator");
+    await seedEvent(under.profileId, under.ownerUserId, "confirmed");
+    await expect(
+      assertEventCapAllows(
+        harness.db,
+        { hostProfileId: under.profileId, status: "draft" },
+        "concluded",
+      ),
+    ).resolves.toBeUndefined();
+
+    const paid = await seedProfile("operator");
+    await setTier(paid.profileId, "operator_pro");
+    for (let index = 0; index < 4; index++) {
+      await seedEvent(paid.profileId, paid.ownerUserId, "confirmed");
+    }
+    await expect(
+      assertEventCapAllows(
+        harness.db,
+        { hostProfileId: paid.profileId, status: "draft" },
+        "concluded",
+      ),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("confersAdminAuthority", () => {
+  it("is true for an admin-grade bundle and false for the ordinary participant tiers", () => {
+    expect(confersAdminAuthority(PRESET_PERMISSION_SETS.operator_full)).toBe(true);
+    expect(confersAdminAuthority(["event.view", "event.delete"])).toBe(true);
+    expect(confersAdminAuthority(["permission.grant_admin"])).toBe(true);
+
+    expect(confersAdminAuthority(PRESET_PERMISSION_SETS.performer)).toBe(false);
+    expect(confersAdminAuthority(PRESET_PERMISSION_SETS.crew_technical)).toBe(false);
+    expect(confersAdminAuthority(PRESET_PERMISSION_SETS.view_only)).toBe(false);
+    // An agent's routine management grants are NOT admin-grade — gating those would
+    // paywall ordinary booking rather than the act of making someone an admin.
+    expect(confersAdminAuthority(PRESET_PERMISSION_SETS.agent)).toBe(false);
+    expect(confersAdminAuthority(null)).toBe(false);
+  });
+});
+
+describe("assertGrantAdminAllows", () => {
+  /** A permission set owned by `profileId`, carrying `capabilities`. */
+  async function seedPermissionSet(profileId: string, capabilities: readonly string[]) {
+    const [set] = await harness.db
+      .insert(schema.permissionSets)
+      .values({ profileId, name: `set-${seq++}`, capabilities: [...capabilities] })
+      .returning();
+    if (!set) throw new Error("permission set seed failed");
+    return set.id;
+  }
+
+  it("blocks a free host from handing out an admin-grade set, and lets a paid host", async () => {
+    const free = await seedProfile("operator");
+    const adminSet = await seedPermissionSet(free.profileId, PRESET_PERMISSION_SETS.operator_full);
+    await expect(
+      assertGrantAdminAllows(harness.db, {
+        hostProfileId: free.profileId,
+        nextPermissionSetId: adminSet,
+      }),
+    ).rejects.toMatchObject({ statusCode: 403, message: "Granting admin requires a paid plan" });
+
+    const paid = await seedProfile("operator");
+    await setTier(paid.profileId, "operator_pro");
+    const paidAdminSet = await seedPermissionSet(
+      paid.profileId,
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    await expect(
+      assertGrantAdminAllows(harness.db, {
+        hostProfileId: paid.profileId,
+        nextPermissionSetId: paidAdminSet,
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("never charges a plain performer/crew set, or a no-op re-grant", async () => {
+    const free = await seedProfile("operator");
+    const performerSet = await seedPermissionSet(free.profileId, PRESET_PERMISSION_SETS.performer);
+    const adminSet = await seedPermissionSet(free.profileId, PRESET_PERMISSION_SETS.operator_full);
+
+    await expect(
+      assertGrantAdminAllows(harness.db, {
+        hostProfileId: free.profileId,
+        nextPermissionSetId: performerSet,
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      assertGrantAdminAllows(harness.db, {
+        hostProfileId: free.profileId,
+        nextPermissionSetId: undefined,
+      }),
+    ).resolves.toBeUndefined();
+    // Re-saving the set they already hold adds no authority → nothing to charge.
+    await expect(
+      assertGrantAdminAllows(harness.db, {
+        hostProfileId: free.profileId,
+        nextPermissionSetId: adminSet,
+        currentPermissionSetId: adminSet,
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("charges only the promotion — plain → admin, never admin → other admin", async () => {
+    const free = await seedProfile("operator");
+    const performerSet = await seedPermissionSet(free.profileId, PRESET_PERMISSION_SETS.performer);
+    const adminSet = await seedPermissionSet(free.profileId, PRESET_PERMISSION_SETS.operator_full);
+    const otherAdminSet = await seedPermissionSet(free.profileId, ["event.view", "event.delete"]);
+
+    await expect(
+      assertGrantAdminAllows(harness.db, {
+        hostProfileId: free.profileId,
+        nextPermissionSetId: adminSet,
+        currentPermissionSetId: performerSet,
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      assertGrantAdminAllows(harness.db, {
+        hostProfileId: free.profileId,
+        nextPermissionSetId: otherAdminSet,
+        currentPermissionSetId: adminSet,
+      }),
+    ).resolves.toBeUndefined();
   });
 });

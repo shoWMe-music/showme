@@ -9,6 +9,7 @@ import { writeActivity } from "../lib/activity";
 import { autoAssignAgentOnPerformerJoin } from "../lib/agent-assignment";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
+import { assertGrantAdminAllows } from "../lib/entitlements";
 import { notifyProfileMembers } from "../lib/notify";
 import { createPerformerStub } from "../lib/off-platform";
 import { withIdempotency } from "../plugins/idempotency";
@@ -127,6 +128,22 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
       const capabilities = await requireEventCapability(request, id, "participants.manage");
       const principal = request.principal;
       if (!principal) throw new Error("principal missing after authentication");
+
+      const [event] = await database
+        .select({ hostProfileId: schema.events.hostProfileId })
+        .from(schema.events)
+        .where(eq(schema.events.id, id));
+      if (!event) throw notFound("Event not found");
+
+      // Entitlement gate (decisions #4/§C, PLAN.md:615/656): handing a collaborator a
+      // permission set with ADMIN-GRADE authority over the event is a paid-plan
+      // feature — the same `grant_admin` rule and 403 shape the profile-member
+      // promotion uses in routes/profiles.ts (audit A-21). Charged to the EVENT
+      // HOST's plan. Composed AFTER authorization, never conflated with it.
+      await assertGrantAdminAllows(database, {
+        hostProfileId: event.hostProfileId,
+        nextPermissionSetId: request.body.permissionSetId,
+      });
 
       // A crew member added directly is SPONSORED by whoever adds them (their own
       // participant), so rider visibility scopes to that sponsor's reach (decisions
@@ -389,13 +406,30 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
         .where(and(eq(schema.eventParticipants.id, pid), eq(schema.eventParticipants.eventId, id)));
       if (!before) throw notFound("Participant not found");
 
+      const [event] = await database
+        .select({ hostProfileId: schema.events.hostProfileId })
+        .from(schema.events)
+        .where(eq(schema.events.id, id));
+
       // The host is the event's anchor — its role is immutable (the host is both
       // `events.host_profile_id` and a `host` row; changing it would orphan access).
       if (request.body.role !== undefined && request.body.role !== before.role) {
-        const [event] = await database.select().from(schema.events).where(eq(schema.events.id, id));
         if (event && event.hostProfileId === before.profileId) {
           throw forbidden("The host's role cannot be changed");
         }
+      }
+
+      // Entitlement gate (decisions #4/§C, PLAN.md:615/656): PROMOTING a participant
+      // to an admin-grade permission set is the same paid-plan `grant_admin` grant as
+      // adding them with one (audit A-21) — a free plan must not reach event admin
+      // through the back door of an update. Only a set that ADDS admin authority is
+      // charged. Composed AFTER authorization, never conflated with it.
+      if (event) {
+        await assertGrantAdminAllows(database, {
+          hostProfileId: event.hostProfileId,
+          nextPermissionSetId: request.body.permissionSetId,
+          currentPermissionSetId: before.permissionSetId,
+        });
       }
 
       const updated = await database.transaction(async (tx) => {

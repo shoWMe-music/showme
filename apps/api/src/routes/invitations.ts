@@ -7,6 +7,7 @@ import { z } from "zod";
 import { badRequest, conflict, notFound } from "../errors";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
+import { assertGrantAdminAllows } from "../lib/entitlements";
 import { notifyUsers } from "../lib/notify";
 import { withIdempotency } from "../plugins/idempotency";
 
@@ -136,6 +137,27 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
         throw badRequest("An invitation needs a target profile or event");
       }
 
+      // Entitlement gate (decisions #4/§C, PLAN.md:614): an invitation is a DEFERRED
+      // grant — if redeeming it would hand the invitee an admin-grade permission set
+      // on the event, it is the same paid-plan `grant_admin` grant as writing the
+      // participant row directly (routes/participants.ts). Charged to the EVENT
+      // HOST's plan. Gated HERE, at create, because that is where the answer is
+      // useful: the inviting host gets an immediate, honest 403 instead of an
+      // invitation that dies silently in the recipient's hands. Accept re-checks it
+      // as the correctness backstop (a plan can lapse in between). Composed AFTER
+      // the authorization block above, never conflated with it.
+      if (body.targetEventId) {
+        const [event] = await database
+          .select({ hostProfileId: schema.events.hostProfileId })
+          .from(schema.events)
+          .where(eq(schema.events.id, body.targetEventId));
+        if (!event) throw notFound("Event not found");
+        await assertGrantAdminAllows(database, {
+          hostProfileId: event.hostProfileId,
+          nextPermissionSetId: body.permissionSetId,
+        });
+      }
+
       const { statusCode, body: result } = await withIdempotency(
         request,
         "POST /invitations",
@@ -229,6 +251,23 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
       const grantsEventParticipant =
         invitation.targetEventId != null &&
         (invitation.type === "event_participant" || invitation.type === "code");
+
+      // Entitlement BACKSTOP (decisions #4/§C, PLAN.md:614): create already refused an
+      // admin-grade event invitation, but a host's plan can LAPSE between the invite
+      // and its redemption — re-check at the moment the grant actually lands, since
+      // this is the write that confers the authority. Same rule, same 403, still
+      // charged to the EVENT HOST's plan (the invitee never pays for it).
+      if (grantsEventParticipant && invitation.targetEventId) {
+        const [event] = await database
+          .select({ hostProfileId: schema.events.hostProfileId })
+          .from(schema.events)
+          .where(eq(schema.events.id, invitation.targetEventId));
+        if (!event) throw notFound("Event not found");
+        await assertGrantAdminAllows(database, {
+          hostProfileId: event.hostProfileId,
+          nextPermissionSetId: invitation.permissionSetId,
+        });
+      }
 
       let updated: InvitationRow;
       try {

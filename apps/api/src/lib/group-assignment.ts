@@ -36,6 +36,11 @@ async function resolveMemberProfileId(tx: Transaction, userId: string): Promise<
  * least-privilege default. The SPONSOR is recorded so rider (and future) visibility
  * scopes to the grantor's own reach — an operator sponsor exposes all, a performer
  * sponsor only their own. Off-platform members are skipped (they need an invite).
+ *
+ * ENTITLEMENTS ARE THE CALLER'S JOB: whether the host's plan may hand out an
+ * admin-grade permission set (override or member default) is checked at the route,
+ * AFTER `authorize` — `assertGrantAdminAllows` in `routes/groups.ts`, per PLAN.md:614
+ * and decisions #4. This function applies the sets it is given; it never bills them.
  */
 export async function assignGroupToEvent(
   tx: Transaction,

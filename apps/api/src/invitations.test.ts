@@ -339,3 +339,198 @@ describe("invitations — create, redeem, decline", () => {
     expect(host.profileId).toBeTruthy();
   });
 });
+
+describe("invitations — the grant_admin entitlement gate (paid plans only)", () => {
+  /** An operator host with an event they may manage participants on. */
+  async function seedEventHost(prefix: string) {
+    const { db } = harness;
+    const host = await seedOwnerWithProfile(`${prefix}-host`);
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: host.profileId,
+        title: "Invited Night",
+        baseCurrency: "SEK",
+        createdBy: `${prefix}-host`,
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: host.profileId,
+      role: "host",
+      permissionSetId: host.permissionSetId,
+      status: "confirmed",
+    });
+    return { host, event };
+  }
+
+  /** A performer who can accept an invitation as their own profile. */
+  async function seedRecipient(id: string) {
+    const { db } = harness;
+    await seedUser(id, "performer");
+    const [profile] = await db
+      .insert(schema.profiles)
+      .values({ kind: "performer", ownerUserId: id, name: id, slug: id })
+      .returning();
+    if (!profile) throw new Error("profile seed failed");
+    await db
+      .insert(schema.profileMembers)
+      .values({ profileId: profile.id, userId: id, role: "owner", status: "active" });
+    return { userId: id, profileId: profile.id };
+  }
+
+  it("403s a FREE host inviting a collaborator INTO an admin-grade set, and stores no invitation", async () => {
+    const { host, event } = await seedEventHost("inv-ga-free");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("inv-ga-free-host"), "x-profile-id": host.profileId },
+      payload: {
+        type: "event_participant",
+        source: "collaborator",
+        recipientEmail: "co@example.com",
+        targetEventId: event.id,
+        role: "co_host",
+        // `seedOwnerWithProfile` mints the operator_full bundle — admin-grade.
+        permissionSetId: host.permissionSetId,
+      },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe("Granting admin requires a paid plan");
+
+    const rows = await harness.db
+      .select()
+      .from(schema.invitations)
+      .where(eq(schema.invitations.targetEventId, event.id));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("lets a PAID host send the same invitation, and the recipient redeems it", async () => {
+    const { host, event } = await seedEventHost("inv-ga-paid");
+    const recipient = await seedRecipient("inv-ga-paid-rec");
+    await harness.db
+      .insert(schema.plans)
+      .values({ profileId: host.profileId, tier: "operator_pro" });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("inv-ga-paid-host"), "x-profile-id": host.profileId },
+      payload: {
+        type: "event_participant",
+        source: "collaborator",
+        recipientEmail: "co@example.com",
+        targetEventId: event.id,
+        role: "co_host",
+        permissionSetId: host.permissionSetId,
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${created.json().token}/accept`,
+      headers: { ...auth(recipient.userId), "x-profile-id": recipient.profileId },
+    });
+    expect(accepted.statusCode).toBe(200);
+
+    const [participant] = await harness.db
+      .select()
+      .from(schema.eventParticipants)
+      .where(
+        and(
+          eq(schema.eventParticipants.eventId, event.id),
+          eq(schema.eventParticipants.profileId, recipient.profileId),
+        ),
+      );
+    expect(participant?.permissionSetId).toBe(host.permissionSetId);
+  });
+
+  it("403s the ACCEPT when the host's plan lapsed after the invitation was sent", async () => {
+    const { db } = harness;
+    const { host, event } = await seedEventHost("inv-ga-lapse");
+    const recipient = await seedRecipient("inv-ga-lapse-rec");
+
+    // The invitation was minted while the host was paid — write it straight to the
+    // table, which is exactly the state a since-lapsed plan leaves behind.
+    const [invitation] = await db
+      .insert(schema.invitations)
+      .values({
+        type: "event_participant",
+        source: "collaborator",
+        status: "pending",
+        token: "inv-ga-lapse-token",
+        recipientEmail: "co@example.com",
+        targetEventId: event.id,
+        role: "co_host",
+        permissionSetId: host.permissionSetId,
+        createdByUser: "inv-ga-lapse-host",
+      })
+      .returning();
+    if (!invitation) throw new Error("invitation seed failed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${invitation.token}/accept`,
+      headers: { ...auth(recipient.userId), "x-profile-id": recipient.profileId },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe("Granting admin requires a paid plan");
+
+    // Nothing landed: no participant, and the invitation is still redeemable.
+    const participants = await db
+      .select()
+      .from(schema.eventParticipants)
+      .where(
+        and(
+          eq(schema.eventParticipants.eventId, event.id),
+          eq(schema.eventParticipants.profileId, recipient.profileId),
+        ),
+      );
+    expect(participants).toHaveLength(0);
+    const [after] = await db
+      .select()
+      .from(schema.invitations)
+      .where(eq(schema.invitations.id, invitation.id));
+    expect(after?.status).toBe("pending");
+  });
+
+  it("never charges an ordinary performer invitation on a free plan", async () => {
+    const { db } = harness;
+    const { host, event } = await seedEventHost("inv-ga-plain");
+    const recipient = await seedRecipient("inv-ga-plain-rec");
+    const [performerSet] = await db
+      .insert(schema.permissionSets)
+      .values({
+        profileId: host.profileId,
+        name: "performer",
+        capabilities: [...PRESET_PERMISSION_SETS.performer],
+      })
+      .returning();
+    if (!performerSet) throw new Error("permission set seed failed");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("inv-ga-plain-host"), "x-profile-id": host.profileId },
+      payload: {
+        type: "event_participant",
+        source: "collaborator",
+        recipientEmail: "act@example.com",
+        targetEventId: event.id,
+        role: "performer",
+        permissionSetId: performerSet.id,
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${created.json().token}/accept`,
+      headers: { ...auth(recipient.userId), "x-profile-id": recipient.profileId },
+    });
+    expect(accepted.statusCode).toBe(200);
+  });
+});

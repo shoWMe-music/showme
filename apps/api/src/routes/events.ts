@@ -8,7 +8,7 @@ import { z } from "zod";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
-import { canUseFeature } from "../lib/entitlements";
+import { assertEventCapAllows } from "../lib/entitlements";
 import { resolveEventTimezone } from "../lib/event-timezone";
 import { withIdempotency } from "../plugins/idempotency";
 import { serializeEvent } from "../serialize/event";
@@ -89,7 +89,10 @@ const OPERATOR_CAPABILITIES = new Set(PRESET_PERMISSION_SETS.operator_full as Ca
 export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
-  // Create: operator-kind gate + idempotency (decisions #8) + audit.
+  // Create: operator-kind gate + idempotency (decisions #8) + audit. No event-cap
+  // gate here BY CONSTRUCTION: `CreateEventBody` carries no `status`, so a new event
+  // always lands on the column default (`draft`) — outside the counted set. The cap
+  // is charged where an event actually goes live (PATCH below / the hold paths).
   app.post(
     "/events",
     { schema: { body: CreateEventBody, response: { 201: EventResponse } } },
@@ -197,14 +200,12 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
 
       const { expectedVersion, timezone: bodyTimezone, ...fields } = request.body;
 
-      // Entitlement gate (decisions #4/§C): confirming an event counts against the
-      // free-tier event cap. Composed AFTER authorization, never conflated with it.
-      if (fields.status === "confirmed" && before.status !== "confirmed") {
-        const gate = await canUseFeature(database, before.hostProfileId, "create_event");
-        if (!gate.allowed) {
-          throw forbidden(gate.reason ?? "Event cap reached — upgrade to confirm more events");
-        }
-      }
+      // Entitlement gate (decisions #4/§C, PLAN.md:613): moving an event INTO the
+      // counted set (confirmed|concluded) consumes the free-tier event cap — every
+      // such transition, not just `confirmed` (audit A-20). One shared helper, so
+      // this path and the hold paths can never drift. Composed AFTER authorization,
+      // never conflated with it.
+      await assertEventCapAllows(database, before, fields.status);
 
       const where =
         expectedVersion != null

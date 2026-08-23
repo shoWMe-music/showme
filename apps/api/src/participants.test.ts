@@ -318,3 +318,157 @@ describe("participants — crew sponsor stamp (decisions #12)", () => {
     expect(row?.details ?? null).toBeNull();
   });
 });
+
+describe("participants — the grant_admin entitlement gate (paid plans only)", () => {
+  /** A permission set owned by `profileId`, carrying `capabilities`. */
+  async function seedPermissionSet(
+    profileId: string,
+    name: string,
+    capabilities: readonly string[],
+  ) {
+    const [set] = await harness.db
+      .insert(schema.permissionSets)
+      .values({ profileId, name, capabilities: [...capabilities] })
+      .returning();
+    if (!set) throw new Error("permission set seed failed");
+    return set.id;
+  }
+
+  it("403s a FREE host handing a performer an admin-grade set, and writes no participant", async () => {
+    const { operator, performer, event } = await seedEventWithHost("ga-free");
+    const adminSetId = await seedPermissionSet(
+      operator.profileId,
+      "operator_full",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("ga-free-op"),
+      payload: {
+        profileId: performer.profileId,
+        role: "co_host",
+        permissionSetId: adminSetId,
+      },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe("Granting admin requires a paid plan");
+
+    const rows = await harness.db
+      .select()
+      .from(schema.eventParticipants)
+      .where(
+        and(
+          eq(schema.eventParticipants.eventId, event.id),
+          eq(schema.eventParticipants.profileId, performer.profileId),
+        ),
+      );
+    expect(rows).toHaveLength(0);
+  });
+
+  it("lets a PAID host hand out the same admin-grade set", async () => {
+    const { operator, performer, event } = await seedEventWithHost("ga-paid");
+    await harness.db
+      .insert(schema.plans)
+      .values({ profileId: operator.profileId, tier: "operator_pro" });
+    const adminSetId = await seedPermissionSet(
+      operator.profileId,
+      "operator_full",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("ga-paid-op"),
+      payload: {
+        profileId: performer.profileId,
+        role: "co_host",
+        permissionSetId: adminSetId,
+      },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(response.json().permissionSetId).toBe(adminSetId);
+  });
+
+  it("403s the same grant made by UPDATE — the back door into event admin", async () => {
+    const { db } = harness;
+    const { operator, performer, event } = await seedEventWithHost("ga-patch");
+    const [participant] = await db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: performer.profileId,
+        role: "performer",
+        permissionSetId: performer.permissionSetId,
+        status: "confirmed",
+      })
+      .returning();
+    if (!participant) throw new Error("participant seed failed");
+    const adminSetId = await seedPermissionSet(
+      operator.profileId,
+      "operator_full",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}/participants/${participant.id}`,
+      headers: auth("ga-patch-op"),
+      payload: { permissionSetId: adminSetId },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe("Granting admin requires a paid plan");
+
+    const [after] = await db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.id, participant.id));
+    expect(after?.permissionSetId).toBe(performer.permissionSetId);
+  });
+
+  it("never charges a free host for an ordinary performer / crew / agent set", async () => {
+    const { operator, performer, event } = await seedEventWithHost("ga-plain");
+    const crewSetId = await seedPermissionSet(
+      operator.profileId,
+      "crew_technical",
+      PRESET_PERMISSION_SETS.crew_technical,
+    );
+    const agentSetId = await seedPermissionSet(
+      operator.profileId,
+      "agent",
+      PRESET_PERMISSION_SETS.agent,
+    );
+
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("ga-plain-op"),
+      payload: {
+        profileId: performer.profileId,
+        role: "performer",
+        permissionSetId: performer.permissionSetId,
+      },
+    });
+    expect(added.statusCode).toBe(201);
+
+    // Swapping between non-admin sets stays free, on both write paths.
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}/participants/${added.json().id}`,
+      headers: auth("ga-plain-op"),
+      payload: { permissionSetId: crewSetId },
+    });
+    expect(patched.statusCode).toBe(200);
+
+    const crew = await seedMemberWithSet("ga-plain-agent", "performer", ["event.view"]);
+    const addedAgent = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("ga-plain-op"),
+      payload: { profileId: crew.profileId, role: "agent", permissionSetId: agentSetId },
+    });
+    expect(addedAgent.statusCode).toBe(201);
+  });
+});

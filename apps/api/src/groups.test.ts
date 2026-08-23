@@ -57,7 +57,13 @@ async function seedMember(
 async function seedEvent(
   hostProfileId: string,
   createdBy: string,
-  participants: { profileId: string; permissionSetId: string; role: string }[],
+  participants: {
+    profileId: string;
+    permissionSetId: string;
+    role: string;
+    /** e.g. `{ delegatedToAgentProfileId }` — a performer handed to their agent. */
+    details?: Record<string, unknown>;
+  }[],
 ) {
   const { db } = harness;
   const [event] = await db
@@ -74,6 +80,7 @@ async function seedEvent(
         role: p.role as "host",
         permissionSetId: p.permissionSetId,
         status: "confirmed" as const,
+        ...(p.details ? { details: p.details } : {}),
       })),
     )
     .returning();
@@ -188,7 +195,11 @@ describe("groups — assign to event (crew per member)", () => {
     const { db } = harness;
     const operator = await seedMember("gp-op", "operator", PRESET_PERMISSION_SETS.operator_full);
     const performer = await seedMember("gp-pf", "performer", PRESET_PERMISSION_SETS.performer);
-    const tech = await seedMember("gp-tech", "team_and_crew", PRESET_PERMISSION_SETS.crew_technical);
+    const tech = await seedMember(
+      "gp-tech",
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_technical,
+    );
 
     const [group] = await db
       .insert(schema.groups)
@@ -238,7 +249,11 @@ describe("groups — assign to event (crew per member)", () => {
   it("unassign soft-removes the group's crew", async () => {
     const { db } = harness;
     const operator = await seedMember("gu-op", "operator", PRESET_PERMISSION_SETS.operator_full);
-    const tech = await seedMember("gu-tech", "team_and_crew", PRESET_PERMISSION_SETS.crew_technical);
+    const tech = await seedMember(
+      "gu-tech",
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_technical,
+    );
     const [group] = await db
       .insert(schema.groups)
       .values({ ownerUserId: operator.userId, name: "Crew" })
@@ -292,10 +307,31 @@ describe("groups — assign to event (crew per member)", () => {
     if (!group) throw new Error("group seed failed");
     await db.insert(schema.groupMembers).values({ groupId: group.id, userId: tech.userId });
 
+    // An agent only ever stands on an event as the projection of a LIVE
+    // representation (decisions #14) — the participant row alone grants nothing
+    // (audit A-19), so the fixture seeds the client it is here for.
+    const client = await seedMember("gag-act", "performer", PRESET_PERMISSION_SETS.performer);
     const { event, participants } = await seedEvent(operator.profileId, operator.userId, [
       { profileId: operator.profileId, permissionSetId: operator.permissionSetId, role: "host" },
       { profileId: agent.profileId, permissionSetId: agent.permissionSetId, role: "agent" },
+      {
+        profileId: client.profileId,
+        permissionSetId: client.permissionSetId,
+        role: "performer",
+        details: { delegatedToAgentProfileId: agent.profileId },
+      },
     ]);
+    await db.insert(schema.representations).values({
+      agentProfileId: agent.profileId,
+      performerProfileId: client.profileId,
+      isWorldwide: true,
+      commissionRate: 1000,
+      commissionableBasis: "deal_income",
+      proposedBy: "agent",
+      status: "active",
+      confirmedByAgent: true,
+      confirmedByPerformer: true,
+    });
     const agentPart = participants.find((p) => p.profileId === agent.profileId)?.id as string;
 
     const assigned = await app.inject({
@@ -348,5 +384,143 @@ describe("groups — assign to event (crew per member)", () => {
       payload: { groupId: group?.id },
     });
     expect(response.statusCode).toBe(403);
+  });
+});
+
+describe("groups — the grant_admin entitlement gate (paid plans only)", () => {
+  /** An operator + their event + a group holding one on-platform crew member. */
+  async function seedAssignable(prefix: string, crewDefaultPermissionSetId?: string) {
+    const { db } = harness;
+    const operator = await seedMember(
+      `${prefix}-op`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const crew = await seedMember(
+      `${prefix}-crew`,
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_technical,
+    );
+    const [group] = await db
+      .insert(schema.groups)
+      .values({ ownerUserId: operator.userId, name: `${prefix} crew` })
+      .returning();
+    if (!group) throw new Error("group seed failed");
+    await db.insert(schema.groupMembers).values({
+      groupId: group.id,
+      userId: crew.userId,
+      roleLabel: "Sound",
+      defaultPermissionSetId: crewDefaultPermissionSetId ?? crew.permissionSetId,
+    });
+    const { event } = await seedEvent(operator.profileId, operator.userId, [
+      { profileId: operator.profileId, permissionSetId: operator.permissionSetId, role: "host" },
+    ]);
+    return { operator, crew, group, event };
+  }
+
+  /** Assert the assignment wrote no crew participant for `profileId`. */
+  async function expectNoParticipant(eventId: string, profileId: string) {
+    const rows = await harness.db
+      .select()
+      .from(schema.eventParticipants)
+      .where(
+        and(
+          eq(schema.eventParticipants.eventId, eventId),
+          eq(schema.eventParticipants.profileId, profileId),
+        ),
+      );
+    expect(rows).toHaveLength(0);
+  }
+
+  it("403s an OVERRIDE permission set that confers admin authority on a free host", async () => {
+    const { operator, crew, group, event } = await seedAssignable("gga-override");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/groups`,
+      headers: auth("gga-override-op"),
+      // The operator's own operator_full bundle, applied to every crew member.
+      payload: { groupId: group.id, permissionSetId: operator.permissionSetId },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe("Granting admin requires a paid plan");
+    await expectNoParticipant(event.id, crew.profileId);
+  });
+
+  it("403s a member DEFAULT that confers admin authority on a free host", async () => {
+    const { db } = harness;
+    const holder = await seedMember(
+      "gga-default-holder",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    // The crew member's stored default IS an admin-grade bundle — no override needed.
+    const { crew, group, event } = await seedAssignable("gga-default", holder.permissionSetId);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/groups`,
+      headers: auth("gga-default-op"),
+      payload: { groupId: group.id },
+    });
+    expect(response.statusCode).toBe(403);
+    await expectNoParticipant(event.id, crew.profileId);
+
+    // Nothing about the group itself was touched by the refusal.
+    const members = await db
+      .select()
+      .from(schema.groupMembers)
+      .where(eq(schema.groupMembers.groupId, group.id));
+    expect(members).toHaveLength(1);
+  });
+
+  it("lets a PAID host apply the same admin-grade override", async () => {
+    const { operator, crew, group, event } = await seedAssignable("gga-paid");
+    await harness.db
+      .insert(schema.plans)
+      .values({ profileId: operator.profileId, tier: "operator_pro" });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/groups`,
+      headers: auth("gga-paid-op"),
+      payload: { groupId: group.id, permissionSetId: operator.permissionSetId },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().assigned).toHaveLength(1);
+
+    const [participant] = await harness.db
+      .select()
+      .from(schema.eventParticipants)
+      .where(
+        and(
+          eq(schema.eventParticipants.eventId, event.id),
+          eq(schema.eventParticipants.profileId, crew.profileId),
+        ),
+      );
+    expect(participant?.permissionSetId).toBe(operator.permissionSetId);
+  });
+
+  it("never charges a free host for ordinary crew tiers (override or default)", async () => {
+    const { db } = harness;
+    const { operator, group, event } = await seedAssignable("gga-plain");
+    const [scheduleOnly] = await db
+      .insert(schema.permissionSets)
+      .values({
+        profileId: operator.profileId,
+        name: "crew_schedule_only",
+        capabilities: [...PRESET_PERMISSION_SETS.crew_schedule_only],
+      })
+      .returning();
+    if (!scheduleOnly) throw new Error("permission set seed failed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/groups`,
+      headers: auth("gga-plain-op"),
+      payload: { groupId: group.id, permissionSetId: scheduleOnly.id },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().assigned).toHaveLength(1);
   });
 });

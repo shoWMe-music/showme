@@ -7,6 +7,7 @@ import { forbidden, notFound } from "../errors";
 import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
+import { assertGrantAdminAllows } from "../lib/entitlements";
 import { assignGroupToEvent, unassignGroupFromEvent } from "../lib/group-assignment";
 
 const GroupParams = z.object({ gid: z.string().uuid() });
@@ -356,6 +357,45 @@ export async function groupRoutes(fastify: FastifyInstance): Promise<void> {
         : ["performer", "support", "agent", "crew_lead"];
       const sponsor = await resolveSponsorParticipant(request, eventId, preferRoles);
       if (!sponsor) throw forbidden("You are not a participant on this event");
+
+      // Entitlement gate (decisions #4/§C, PLAN.md:614): this assignment writes
+      // `event_participants` rows carrying a permission set — the caller's override,
+      // or (absent one) each member's stored default, exactly as `assignGroupToEvent`
+      // resolves it. A set that confers ADMIN-GRADE authority is the same paid-plan
+      // `grant_admin` grant as adding that participant by hand
+      // (routes/participants.ts), so it runs through the same helper.
+      //
+      // Charged to the EVENT HOST's plan — never the crew-bringer's, who may be a
+      // performer bringing their own crew and does not pay for this event. Composed
+      // AFTER the authorization checks above, never conflated with them.
+      const [event] = await database
+        .select({ hostProfileId: schema.events.hostProfileId })
+        .from(schema.events)
+        .where(eq(schema.events.id, eventId));
+      if (!event) throw notFound("Event not found");
+      const overridePermissionSetId = request.body.permissionSetId ?? null;
+      let grantedPermissionSetIds: string[];
+      if (overridePermissionSetId) {
+        grantedPermissionSetIds = [overridePermissionSetId];
+      } else {
+        const defaults = await database
+          .select({ permissionSetId: schema.groupMembers.defaultPermissionSetId })
+          .from(schema.groupMembers)
+          .where(eq(schema.groupMembers.groupId, group.id));
+        grantedPermissionSetIds = [
+          ...new Set(
+            defaults
+              .map((member) => member.permissionSetId)
+              .filter((permissionSetId): permissionSetId is string => permissionSetId != null),
+          ),
+        ];
+      }
+      for (const permissionSetId of grantedPermissionSetIds) {
+        await assertGrantAdminAllows(database, {
+          hostProfileId: event.hostProfileId,
+          nextPermissionSetId: permissionSetId,
+        });
+      }
 
       const result = await database.transaction(async (tx) => {
         const assigned = await assignGroupToEvent(tx, group, eventId, {
