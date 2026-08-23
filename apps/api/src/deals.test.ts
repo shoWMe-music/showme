@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
+import { dealPartyRecipients } from "./lib/notify";
 import { dealRoutes } from "./routes/deals";
 import { buildTestApp } from "./testing";
 
@@ -667,5 +668,50 @@ describe("deals — advance marker (decisions #1)", () => {
       payload: { advanceAmount: null },
     });
     expect(cleared.json().advanceAmount).toBeNull();
+  });
+});
+
+describe("deals — realtime recipients are party-scoped", () => {
+  // The reference app notified the WHOLE EVENT on any deal change. That predates
+  // `deal.view.own`; here a shared split shows each performer only their own line,
+  // so an event-wide notification would tell a performer that another party's terms
+  // moved. Recipients must come from deal_parties, never from the event.
+  it("reaches every party on the deal, minus the actor", async () => {
+    const { dealId, opUid, aUid, bUid } = await seedSplitDeal("deal-rt");
+
+    const recipients = await dealPartyRecipients(harness.db, dealId, opUid);
+
+    expect(recipients).toEqual([aUid, bUid].sort());
+    expect(recipients).not.toContain(opUid);
+  });
+
+  it("excludes whichever party is acting", async () => {
+    const { dealId, opUid, aUid, bUid } = await seedSplitDeal("deal-rt-actor");
+
+    const recipients = await dealPartyRecipients(harness.db, dealId, aUid);
+
+    expect(recipients).toEqual([bUid, opUid].sort());
+    expect(recipients).not.toContain(aUid);
+  });
+
+  it("does not reach an event participant who holds no party line", async () => {
+    const { event, dealId, opUid } = await seedSplitDeal("deal-rt-bystander");
+    // A crew member on the same event, with no line in the deal.
+    const crew = await seedMemberWithSet(
+      "deal-rt-bystander-crew",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: crew.profileId,
+      role: "crew",
+      permissionSetId: crew.permissionSetId,
+      status: "confirmed",
+    });
+
+    const recipients = await dealPartyRecipients(harness.db, dealId, opUid);
+
+    expect(recipients).not.toContain("deal-rt-bystander-crew");
   });
 });
