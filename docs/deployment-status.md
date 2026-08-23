@@ -10,7 +10,7 @@ Account/project map and the domain history live in
 |---|---|---|
 | **Marketing** | `www.showme.music` — Firebase Hosting, **gmail** `showme-production` | Current as of 2026-08-23 (`main-9dPoRdKk.js`). Deploys need the **gmail** account — `daniel@showme.music` gets 403 |
 | **Marketing mirror** | `music-showme.web.app` — `music-showme` | Preview of the 2026-08-23 fixes. Do **not** overwrite; the web app has its own site |
-| **Web app** | `showme-app.web.app` — `music-showme`, site `showme-app` | Bundle `index-Df9biiAk.js` (2026-08-24). Carries the P3 fixes, the per-kind sidebar and server-side list filtering. Auth on `music-showme` |
+| **Web app** | `showme-app.web.app` — `music-showme`, site `showme-app` | Bundle `index-BKe_O5Ya.js` (2026-08-24, second deploy: the create-event hardening). Carries the P3 fixes, the per-kind sidebar and server-side list filtering. Auth on `music-showme` |
 | **API** | Cloud Run `showme-api`, europe-north2, `prod-showme` | Revision `00007-b4k` (2026-08-24) from `683001c`. Verifies tokens against **`music-showme`** — see 1c |
 | **Cloud SQL** | `showme-production-db`, europe-north2, `prod-showme` | `db-custom-1-3840`. Schema at migration **`0006`**; **1 user / 1 profile / 1 draft event** (0 deals, 0 booking requests) |
 | **HTTPS load balancer** | `prod-showme` | Provisioned, **no DNS record** — carrying zero traffic and still billing |
