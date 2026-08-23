@@ -60,6 +60,95 @@ if (!reduceMotion) {
   (window as unknown as { __lenis?: Lenis }).__lenis = lenis;
 }
 
+// ── Touch: finish a flick onto the nearest section ──────────────────────────
+// On iPhone a fast flick is native momentum (Lenis runs smoothWheel only,
+// syncTouch off), so it drops wherever physics runs out — often ~2/3 into the
+// next section, forcing a second swipe. We never touch the gesture itself; we
+// wait for the momentum to fully stop, then ease to the nearest section start.
+// One flick lands one section, and native scrolling still feels native.
+// Forward pulls in from up to half a screen out (the undershoot the reporter
+// hit); a stop mid-section only gets a tiny tidy-up, so a deliberate read is
+// never yanked back. Pointer-coarse only (desktop wheel/Lenis untouched), never
+// under reduced motion or while the mobile menu is open.
+if (lenis && !reduceMotion && window.matchMedia("(pointer: coarse)").matches) {
+  const snapLenis = lenis;
+  // Section starts to rest on. The full-bleed pinned scenes (chaos / features /
+  // ecosystem) run under the transparent nav → offset 0; reading sections clear
+  // the fixed header → −76 (matches the in-page anchor offset above).
+  const targets = [
+    { selector: ".hero", offset: -76 },
+    { selector: "#why", offset: -76 },
+    { selector: "#product", offset: 0 },
+    { selector: "#features", offset: 0 },
+    { selector: "#ecosystem", offset: 0 },
+    { selector: "#pricing", offset: -76 },
+    { selector: "#cta", offset: -76 },
+  ];
+  const snapPoints = () => {
+    const points: number[] = [];
+    for (const { selector, offset } of targets) {
+      const el = document.querySelector(selector);
+      if (el) points.push(el.getBoundingClientRect().top + window.scrollY + offset);
+    }
+    return points;
+  };
+
+  let previousScroll = window.scrollY;
+  let burstStart = window.scrollY; // scroll position when this flick/drag began
+  let idle = true;
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
+  let snapping = false;
+
+  const settle = () => {
+    idle = true;
+    if (snapping || document.documentElement.classList.contains("menu-open")) return;
+    const viewport = window.innerHeight;
+    const current = window.scrollY;
+    let nearest: number | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (const point of snapPoints()) {
+      const distance = Math.abs(point - current);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearest = point;
+      }
+    }
+    if (nearest === null || nearestDistance < 4) return;
+    // Direction from the NET travel of the whole flick (start → rest), so a
+    // tiny reverse jitter at the end of iOS momentum can't flip it. Pull in
+    // generously when the target is ahead (finish the flick); only a small
+    // correction when it's behind (never fight a deliberate stop mid-section).
+    const netDirection = Math.sign(current - burstStart);
+    const ahead = netDirection !== 0 && Math.sign(nearest - current) === netDirection;
+    const limit = ahead ? viewport * 0.5 : viewport * 0.2;
+    if (nearestDistance > limit) return;
+    snapping = true;
+    snapLenis.scrollTo(nearest, {
+      duration: 0.5,
+      force: true,
+      onComplete: () => {
+        snapping = false;
+        previousScroll = window.scrollY;
+      },
+    });
+  };
+
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (snapping) return; // ignore our own programmatic snap
+      if (idle) {
+        burstStart = previousScroll; // remember where this burst started
+        idle = false;
+      }
+      previousScroll = window.scrollY;
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(settle, 150); // fire once momentum has stopped
+    },
+    { passive: true },
+  );
+}
+
 // Nav "scrolled" state — driven by Lenis when active, else raw window scroll.
 const nav = document.getElementById("nav");
 if (nav) {
