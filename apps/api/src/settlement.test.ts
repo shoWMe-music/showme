@@ -1,7 +1,8 @@
 import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
-import { eq } from "drizzle-orm";
+import { convertMinorUnits } from "@showme/shared";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
@@ -149,8 +150,13 @@ async function seedWorkedExample(prefix: string) {
     })
     .returning();
   if (!rental || !guarantee) throw new Error("deal seed failed");
+  // The operator is the PAYER on both deals — which is the only reason it sees the
+  // venue's and the band's settlement lines (decisions #4: the operator's breadth is
+  // emergent from party membership, never from a capability).
   await db.insert(schema.dealParties).values([
+    { dealId: rental.id, participantId: pPart, roleInDeal: "payer" },
     { dealId: rental.id, participantId: vPart, roleInDeal: "payee" },
+    { dealId: guarantee.id, participantId: pPart, roleInDeal: "payer" },
     { dealId: guarantee.id, participantId: bPart, roleInDeal: "payee" },
   ]);
 
@@ -220,7 +226,7 @@ describe("settlement — compute", () => {
 });
 
 describe("settlement — visibility (decisions #4)", () => {
-  it("shows an operator every settlement but a performer only their own", async () => {
+  it("shows the paying operator every line it funds but a performer only their own", async () => {
     const seed = await seedWorkedExample("vis");
     await app.inject({
       method: "POST",
@@ -249,6 +255,63 @@ describe("settlement — visibility (decisions #4)", () => {
     // Only the transfer the band is a party to (P→B).
     expect(bandBody.transfers).toHaveLength(1);
     expect(bandBody.transfers[0].toParticipantId).toBe(seed.bPart);
+    // And never the operator's own line, which IS the event's margin.
+    expect(
+      bandBody.settlements.some(
+        (row: { participantId: string }) => row.participantId === seed.pPart,
+      ),
+    ).toBe(false);
+  });
+
+  /**
+   * A-07. `budget.view` used to be the whole access rule, so a co-operator with the
+   * operator preset read every figure on the event. Visibility is membership of the
+   * resource's party set — being an operator on the event is not itself the grant.
+   */
+  it("shows an operator that is a party to nothing only its own line", async () => {
+    const seed = await seedWorkedExample("vis-outside");
+    const coHost = await seedMemberWithSet(
+      "vis-outside-cohost",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const [coHostPart] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: seed.event.id,
+        profileId: coHost.profileId,
+        role: "co_host",
+        permissionSetId: coHost.permissionSetId,
+        status: "confirmed",
+      })
+      .returning();
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlements`,
+      headers: auth(coHost.userId),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    // Its own line and nothing else — not the band's entitlement, not the venue's.
+    expect(body.settlements).toHaveLength(1);
+    expect(body.settlements[0].participantId).toBe(coHostPart?.id);
+    // Only transfers it is itself an end of (its own share of the residual).
+    expect(body.transfers.length).toBeGreaterThan(0);
+    for (const transfer of body.transfers as {
+      fromParticipantId: string;
+      toParticipantId: string;
+    }[]) {
+      expect([transfer.fromParticipantId, transfer.toParticipantId]).toContain(coHostPart?.id);
+    }
+    // It holds `budget.view` — which is now no part of the answer.
+    expect(PRESET_PERMISSION_SETS.operator_full).toContain("budget.view");
   });
 });
 
@@ -372,9 +435,11 @@ describe("settlement — representation commission (decisions #14)", () => {
     });
     const operatorBody = asOperator.json();
     expect(operatorBody.commissions).toEqual([]);
-    // Participant settlements only (P, V, B, + the agent's harmless net-0 line) —
-    // the operator sees the agent as negotiator but never the commission.
-    expect(operatorBody.settlements).toHaveLength(4);
+    // The lines the operator funds — its own, the venue's and the band's. The agent
+    // is a participant it can see on the event, but it is a party to no deal
+    // (decisions #14: "never a separate entitled party"), so it has no line here and
+    // the operator never sees the commission.
+    expect(operatorBody.settlements).toHaveLength(3);
     expect(operatorBody.transfers).toHaveLength(2); // event transfers only
     expect(
       operatorBody.transfers.every((t: { representationId?: string }) => !t.representationId),
@@ -406,7 +471,15 @@ describe("settlement — representation commission (decisions #14)", () => {
     expect(agentBody.commissions[0].agentParticipantId).toBe(rep.agentPart);
   });
 
-  it("settles the commission manually via the normal transfer flow", async () => {
+  /**
+   * A-10. The commission "is settled manually like any transfer" and the private rows
+   * go "only to the performer/agent … and never to the operator" (decisions #14) — but
+   * the route required `settlement.edit`, which is in neither the `performer` nor the
+   * `agent` preset. So the ONLY account that could settle it was the one account that
+   * must never learn it exists, and the 200 handed back the amount, the representation
+   * id and the performer→agent direction.
+   */
+  it("lets the performer settle its own commission transfer", async () => {
     const seed = await seedWorkedExample("commsettle");
     const rep = await seedAgentRepresentation("commsettle", seed);
     await app.inject({
@@ -420,15 +493,113 @@ describe("settlement — representation commission (decisions #14)", () => {
       .where(eq(schema.settlementTransfers.representationId, rep.representation.id));
     if (!transfer) throw new Error("no commission transfer");
 
-    // The same owed→paid endpoint the event transfers use.
+    // Neither preset holds `settlement.edit`; being an end of the transfer is the grant.
+    expect(PRESET_PERMISSION_SETS.performer).not.toContain("settlement.edit");
     const paid = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.event.id}/transfers/${transfer.id}`,
+      headers: auth(seed.band.userId),
+      payload: { state: "paid", expectedVersion: 1 },
+    });
+    expect(paid.statusCode).toBe(200);
+    expect(paid.json().state).toBe("paid");
+  });
+
+  it("lets the agent settle the same commission transfer", async () => {
+    const seed = await seedWorkedExample("commsettle-agent");
+    const rep = await seedAgentRepresentation("commsettle-agent", seed);
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const [transfer] = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.representationId, rep.representation.id));
+    if (!transfer) throw new Error("no commission transfer");
+
+    expect(PRESET_PERMISSION_SETS.agent).not.toContain("settlement.edit");
+    const handled = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.event.id}/transfers/${transfer.id}`,
+      headers: auth(rep.agentUserId),
+      payload: { state: "handled", expectedVersion: 1 },
+    });
+    expect(handled.statusCode).toBe(200);
+    expect(handled.json().state).toBe("handled");
+  });
+
+  it("refuses the operator the commission transfer without disclosing it", async () => {
+    const seed = await seedWorkedExample("commsettle-op");
+    const rep = await seedAgentRepresentation("commsettle-op", seed);
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const [transfer] = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.representationId, rep.representation.id));
+    if (!transfer) throw new Error("no commission transfer");
+
+    const response = await app.inject({
       method: "PATCH",
       url: `/api/v1/events/${seed.event.id}/transfers/${transfer.id}`,
       headers: auth(seed.operator.userId),
       payload: { state: "paid", expectedVersion: 1 },
     });
-    expect(paid.statusCode).toBe(200);
-    expect(paid.json().state).toBe("paid");
+
+    // 404, not 403: a 403 would confirm the commission exists on this event.
+    expect(response.statusCode).toBe(404);
+    const raw = response.payload;
+    expect(raw).not.toContain("60000"); // the amount
+    expect(raw).not.toContain(rep.representation.id); // the representation
+    expect(raw).not.toContain(rep.agentPart); // the performer→agent direction
+    // And the row is untouched.
+    const [after] = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.id, transfer.id));
+    expect(after?.state).toBe("owed");
+    expect(after?.version).toBe(1);
+  });
+
+  it("keeps a commission the performer already paid across a recompute", async () => {
+    const seed = await seedWorkedExample("commpaid");
+    const rep = await seedAgentRepresentation("commpaid", seed);
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const [transfer] = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.representationId, rep.representation.id));
+    if (!transfer) throw new Error("no commission transfer");
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.event.id}/transfers/${transfer.id}`,
+      headers: auth(seed.band.userId),
+      payload: { state: "paid", expectedVersion: 1 },
+    });
+
+    const recompute = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(recompute.statusCode).toBe(200);
+
+    const [after] = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.representationId, rep.representation.id));
+    expect(after?.id).toBe(transfer.id);
+    expect(after?.state).toBe("paid");
+    expect(after?.version).toBe(2);
   });
 
   it("recompute is idempotent — no duplicate commission rows", async () => {
@@ -478,6 +649,303 @@ describe("settlement — finalize & transfer state", () => {
       .where(eq(schema.settlementSnapshots.eventId, seed.event.id));
     expect(snapshots).toHaveLength(1);
     expect(snapshots[0]?.version).toBe(1);
+  });
+
+  /**
+   * A-09. Finalize returned a snapshot version and never wrote `settlements.status`,
+   * so the `finalized` value in the enum was unreachable through the API — and the
+   * figures behind the "immutable legal record" stayed as editable as before it.
+   */
+  it("finalize actually moves every settlement to `finalized`", async () => {
+    const seed = await seedWorkedExample("final-status");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const before = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    expect(before.every((row) => row.status === "open")).toBe(true);
+
+    const finalize = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(finalize.statusCode).toBe(200);
+
+    const after = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    expect(after).toHaveLength(3);
+    expect(after.every((row) => row.status === "finalized")).toBe(true);
+    // And the snapshot records the frozen state, not the pre-finalize one.
+    const [snapshot] = await harness.db
+      .select()
+      .from(schema.settlementSnapshots)
+      .where(eq(schema.settlementSnapshots.eventId, seed.event.id));
+    const stored = (snapshot?.data as { settlements: { status: string }[] }).settlements;
+    expect(stored.every((row) => row.status === "finalized")).toBe(true);
+  });
+
+  it("refuses a recompute after finalize and leaves every figure untouched", async () => {
+    const seed = await seedWorkedExample("final-lock");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+    const frozen = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+
+    // The audit's reproduction: a new budget line lands, then a recompute silently
+    // replaces every figure with no new snapshot. Now the recompute is rejected.
+    const [budget] = await harness.db
+      .select()
+      .from(schema.budgets)
+      .where(eq(schema.budgets.eventId, seed.event.id));
+    await harness.db.insert(schema.budgetLines).values({
+      budgetId: budget?.id as string,
+      kind: "revenue",
+      label: "Late bar",
+      amount: 50000n,
+      collectedBy: seed.pPart,
+    });
+
+    const recompute = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    expect(recompute.statusCode).toBe(409);
+    const after = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    const byRow = (rows: typeof after) =>
+      rows.map((row) => `${row.id}|${row.version}|${JSON.stringify(row.computed)}`).sort();
+    expect(byRow(after)).toEqual(byRow(frozen));
+    // Exactly one snapshot — no figure moved behind the legal record.
+    const snapshots = await harness.db
+      .select()
+      .from(schema.settlementSnapshots)
+      .where(eq(schema.settlementSnapshots.eventId, seed.event.id));
+    expect(snapshots).toHaveLength(1);
+  });
+
+  it("still lets a finalized settlement's transfers be marked paid", async () => {
+    const seed = await seedWorkedExample("final-pay");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+    const [transfer] = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.eventId, seed.event.id));
+
+    const paid = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.event.id}/transfers/${transfer?.id}`,
+      headers: auth(seed.operator.userId),
+      payload: { state: "paid", expectedVersion: 1 },
+    });
+
+    expect(paid.statusCode).toBe(200);
+    expect(paid.json().state).toBe("paid");
+  });
+
+  it("refuses to finalize the same settlement twice", async () => {
+    const seed = await seedWorkedExample("final-twice");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(409);
+    const snapshots = await harness.db
+      .select()
+      .from(schema.settlementSnapshots)
+      .where(eq(schema.settlementSnapshots.eventId, seed.event.id));
+    expect(snapshots).toHaveLength(1);
+  });
+
+  it("refuses to finalize a settlement that was never computed", async () => {
+    const seed = await seedWorkedExample("final-uncomputed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  /**
+   * A-08. Compute used to `DELETE` every transfer for the event and re-`INSERT`, so a
+   * transfer somebody had marked `paid` (version 2) came back `owed` (version 1) on
+   * IDENTICAL inputs — the lost update decisions.md #8 says the optimistic lock exists
+   * to make impossible ("never a silent overwrite").
+   */
+  it("keeps a transfer marked paid across a recompute on identical inputs", async () => {
+    const seed = await seedWorkedExample("keep-paid");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const [transfer] = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.eventId, seed.event.id));
+    if (!transfer) throw new Error("no transfer to mark paid");
+    const paid = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.event.id}/transfers/${transfer.id}`,
+      headers: auth(seed.operator.userId),
+      payload: { state: "paid", expectedVersion: 1 },
+    });
+    expect(paid.json().version).toBe(2);
+
+    const recompute = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(recompute.statusCode).toBe(200);
+
+    const [after] = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.id, transfer.id));
+    // Same row, same id, same recorded payment — not deleted and re-inserted.
+    expect(after?.state).toBe("paid");
+    expect(after?.version).toBe(2);
+    expect(after?.amount).toBe(transfer.amount);
+    const all = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.eventId, seed.event.id));
+    expect(all).toHaveLength(2); // no duplicate rows either
+  });
+
+  it("rejects a recompute that would rewrite a transfer already marked paid", async () => {
+    const seed = await seedWorkedExample("rewrite-paid");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const transfers = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.eventId, seed.event.id));
+    const toBand = transfers.find((row) => row.toParticipant === seed.bPart);
+    if (!toBand) throw new Error("no band transfer");
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.event.id}/transfers/${toBand.id}`,
+      headers: auth(seed.operator.userId),
+      payload: { state: "paid", expectedVersion: 1 },
+    });
+
+    // The band's guarantee is renegotiated downwards AFTER the payment was recorded.
+    await harness.db
+      .update(schema.deals)
+      .set({ guaranteeAmount: 250000n })
+      .where(and(eq(schema.deals.eventId, seed.event.id), eq(schema.deals.structure, "guarantee")));
+
+    const recompute = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    expect(recompute.statusCode).toBe(409);
+    const [after] = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.id, toBand.id));
+    expect(after?.state).toBe("paid");
+    expect(after?.amount).toBe(300000n);
+
+    // The escape hatch is explicit and audited: put it back to `owed`, then recompute.
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.event.id}/transfers/${toBand.id}`,
+      headers: auth(seed.operator.userId),
+      payload: { state: "owed", expectedVersion: 2 },
+    });
+    const retry = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(retry.statusCode).toBe(200);
+  });
+
+  it("keeps a manual override and the row's version across a recompute", async () => {
+    const seed = await seedWorkedExample("keep-override");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const rows = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    const bandSettlement = rows.find((row) => row.participantId === seed.bPart);
+    if (!bandSettlement) throw new Error("no band settlement");
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.event.id}/settlements/${bandSettlement.id}`,
+      headers: auth(seed.operator.userId),
+      payload: { manualOverrides: { note: "cash at door" }, expectedVersion: 1 },
+    });
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const [after] = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.id, bandSettlement.id));
+    expect(after?.manualOverrides).toEqual({ note: "cash at door" });
+    expect(after?.version).toBe(2);
   });
 
   it("marks a transfer paid and rejects a stale version with 409", async () => {
@@ -558,6 +1026,38 @@ describe("settlement — finalize & transfer state", () => {
       .from(schema.settlementApprovals)
       .where(eq(schema.settlementApprovals.partyParticipantId, seed.bPart));
     expect(approvals).toHaveLength(1);
+  });
+
+  /**
+   * An approval is a signature. The route accepted any settlement id on the event, so
+   * the operator — who holds `settlement.confirm` for its OWN line — could record the
+   * band's approval of the band's money. Same party-scoping rule as the read (A-07).
+   */
+  it("refuses to let the operator confirm the band's settlement for them", async () => {
+    const seed = await seedWorkedExample("confirm-forge");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const rows = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    const bandSettlement = rows.find((row) => row.participantId === seed.bPart);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlements/${bandSettlement?.id}/confirm`,
+      headers: auth(seed.operator.userId),
+    });
+
+    expect(response.statusCode).toBe(403);
+    const approvals = await harness.db
+      .select()
+      .from(schema.settlementApprovals)
+      .where(eq(schema.settlementApprovals.partyParticipantId, seed.bPart));
+    expect(approvals).toHaveLength(0);
   });
 });
 
@@ -696,6 +1196,96 @@ describe("settlement — multi-currency + locked FX (money.md, #7)", () => {
     ).lockedRates;
     expect(locked.baseCurrency).toBe("SEK");
     expect(locked.rates.EUR).toBe("11.5000000000");
+  });
+
+  /**
+   * A-05. Conversion happened at COMPUTE with the live rate, while finalize re-read the
+   * cache and wrote TODAY's rate into `data.lockedRates` without recomputing. An
+   * entitlement produced at 11.0 was filed under a locked 5.0 — replay the locked rate
+   * and you get 500 000, not 1 100 000. The audit record refuted itself.
+   *
+   * money.md:30 stores the locked rate "for reproducibility/audit", which only means
+   * anything if the stored rate is the rate the stored figures came from. So finalize
+   * re-derives the settlement with the rates it is about to lock and refuses to freeze
+   * anything they no longer reproduce.
+   */
+  it("refuses to finalize figures the rates it would lock no longer reproduce", async () => {
+    const seed = await seedFxExample("fxdrift");
+    await cacheRate("EUR", "SEK", "11.0000000000");
+    const compute = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    // 100.00 EUR × 11.0 = 1 100.00 SEK.
+    expect(
+      compute
+        .json()
+        .breakdowns.find((row: { participantId: string }) => row.participantId === seed.bPart)
+        .entitlement,
+    ).toBe("110000");
+
+    // The rate moves before anyone finalizes.
+    await cacheRate("EUR", "SEK", "5.0000000000");
+    const finalize = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+
+    expect(finalize.statusCode).toBe(409);
+    const snapshots = await harness.db
+      .select()
+      .from(schema.settlementSnapshots)
+      .where(eq(schema.settlementSnapshots.eventId, seed.event.id));
+    expect(snapshots).toHaveLength(0);
+  });
+
+  it("locks rates that reproduce the snapshot's own figures, arithmetically", async () => {
+    const seed = await seedFxExample("fxrepro");
+    await cacheRate("EUR", "SEK", "11.0000000000");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    // The rate moves; the operator recomputes on it and only then finalizes.
+    await cacheRate("EUR", "SEK", "5.0000000000");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const finalize = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(finalize.statusCode).toBe(200);
+
+    const [snapshot] = await harness.db
+      .select()
+      .from(schema.settlementSnapshots)
+      .where(eq(schema.settlementSnapshots.eventId, seed.event.id));
+    const data = snapshot?.data as {
+      settlements: { participantId: string | null; computed: { entitlement: string } | null }[];
+      lockedRates: { baseCurrency: string; rates: Record<string, string> };
+    };
+    const bandLine = data.settlements.find((row) => row.participantId === seed.bPart);
+    if (!bandLine?.computed) throw new Error("no band line in the snapshot");
+
+    // Replay the snapshot's OWN locked rate over the deal's native 100.00 EUR and it
+    // must land exactly on the snapshot's own entitlement. This is the whole finding:
+    // pre-fix the locked rate was 5.0 against a figure produced at 11.0.
+    const replayed = convertMinorUnits(
+      10_000n,
+      "EUR",
+      data.lockedRates.baseCurrency,
+      data.lockedRates.rates.EUR as string,
+    );
+    expect(replayed.toString()).toBe(bandLine.computed.entitlement);
+    expect(bandLine.computed.entitlement).toBe("50000");
+    expect(data.lockedRates.rates.EUR).toBe("5.0000000000");
   });
 
   it("400s a compute when a required rate is not cached", async () => {

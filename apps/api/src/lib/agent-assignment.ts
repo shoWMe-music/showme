@@ -33,6 +33,21 @@ async function agentPermissionSetId(tx: Transaction, agentProfileId: string): Pr
   return created.id;
 }
 
+/**
+ * Is a country inside the representation's territory (∈ `region`, or worldwide)?
+ * The territory test with the database read lifted out, so a read path that already
+ * knows the venue's country (deal authority resolution) applies the same rule.
+ */
+export function countryInRegion(
+  country: string | null | undefined,
+  representation: RepresentationRow,
+): boolean {
+  if (representation.isWorldwide) return true;
+  const region = representation.region ?? [];
+  if (region.length === 0 || country == null) return false;
+  return region.includes(country);
+}
+
 /** Is a venue within the representation's territory (venue country ∈ region, or worldwide)? */
 async function venueInRegion(
   tx: Transaction,
@@ -40,13 +55,12 @@ async function venueInRegion(
   representation: RepresentationRow,
 ): Promise<boolean> {
   if (representation.isWorldwide) return true;
-  const region = representation.region ?? [];
-  if (region.length === 0 || !venueProfileId) return false;
+  if (!venueProfileId) return false;
   const [location] = await tx
     .select({ country: schema.profileLocations.country })
     .from(schema.profileLocations)
     .where(eq(schema.profileLocations.profileId, venueProfileId));
-  return location?.country != null && region.includes(location.country);
+  return countryInRegion(location?.country, representation);
 }
 
 /**

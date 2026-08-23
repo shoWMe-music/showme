@@ -1,23 +1,28 @@
+import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
 import {
   type SettlementBudgetLine,
   type SettlementDeal,
   type SettlementInput,
   type SettlementParticipant,
+  type SettlementResult,
   assertBalanced,
   reconcile,
 } from "@showme/settlement";
 import { convertMinorUnits } from "@showme/shared";
 import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { badRequest, conflict, notFound } from "../errors";
+import { badRequest, conflict, forbidden, notFound } from "../errors";
+import type { Transaction } from "../lib/audit";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import { syncCommissionSettlements } from "../lib/commission-settlement";
 import { loadRatesToBase } from "../lib/exchange-rate";
 import { notifyUsers, settlementRecipients } from "../lib/notify";
+import { type DesiredTransfer, reconcileTransfers } from "../lib/settlement-transfers";
 import { withIdempotency } from "../plugins/idempotency";
 import {
   type SerializedBreakdown,
@@ -120,6 +125,19 @@ const TransferStateBody = z.object({
 const OPERATOR_EVENT_ROLES = new Set(["host", "co_host"]);
 
 /**
+ * Settlement statuses at which the figures are FROZEN (audit A-09). `finalized`
+ * writes an immutable snapshot — the legal record — so from there on the figures
+ * behind it may not move: no recompute, no manual override. Only the *payment*
+ * state of the individual transfers keeps moving (owed → paid → handled), which is
+ * what `partly_paid` / `paid` record, and those are downstream of `finalized`.
+ */
+const LOCKED_SETTLEMENT_STATUSES: ReadonlySet<string> = new Set([
+  "finalized",
+  "partly_paid",
+  "paid",
+]);
+
+/**
  * A payee's basis points out of a deal party's `share` jsonb.
  *
  * The key is `splitBasisPoints`, matching `deals.split_basis_points` and
@@ -156,6 +174,226 @@ function weightFromShare(share: unknown, participantId: string): number | null {
   );
 }
 
+/** The engine result plus the exact FX rates it was produced with (audit A-05). */
+interface ReconciledEvent {
+  result: SettlementResult;
+  baseCurrency: string;
+  /** source currency → "base per 1 source", the map every non-base figure went through. */
+  rates: Map<string, string>;
+}
+
+/**
+ * Read the event's spine (participants, deals, budget lines), convert every
+ * non-base amount to base, and reconcile.
+ *
+ * Shared by compute and finalize on purpose: finalize captures the FX rates
+ * (PLAN.md:258 — "locked FX rate captured at finalize") and must be able to prove
+ * they are the rates the stored figures were produced with, which it can only do
+ * by re-deriving the figures through the very same code path.
+ */
+async function reconcileEvent(
+  database: Database | Transaction,
+  eventId: string,
+): Promise<ReconciledEvent> {
+  const participantRows = await database
+    .select()
+    .from(schema.eventParticipants)
+    .where(eq(schema.eventParticipants.eventId, eventId));
+
+  const participants: SettlementParticipant[] = participantRows.map((row) => ({
+    participantId: row.id,
+    isOperator: OPERATOR_EVENT_ROLES.has(row.role),
+  }));
+
+  const dealRows = await database
+    .select()
+    .from(schema.deals)
+    .where(eq(schema.deals.eventId, eventId));
+  const dealIds = dealRows.map((deal) => deal.id);
+  const partyRows =
+    dealIds.length > 0
+      ? await database
+          .select()
+          .from(schema.dealParties)
+          .where(inArray(schema.dealParties.dealId, dealIds))
+      : [];
+
+  const lineRows = await database
+    .select({
+      kind: schema.budgetLines.kind,
+      amount: schema.budgetLines.amount,
+      currency: schema.budgetLines.currency,
+      collectedBy: schema.budgetLines.collectedBy,
+      paidBy: schema.budgetLines.paidBy,
+      payeeParticipantId: schema.budgetLines.payeeParticipantId,
+    })
+    .from(schema.budgetLines)
+    .innerJoin(schema.budgets, eq(schema.budgets.id, schema.budgetLines.budgetId))
+    .where(eq(schema.budgets.eventId, eventId));
+
+  const [event] = await database
+    .select({ baseCurrency: schema.events.baseCurrency })
+    .from(schema.events)
+    .where(eq(schema.events.id, eventId));
+  if (!event) throw notFound("Event not found");
+  const baseCurrency = event.baseCurrency;
+
+  // Multi-currency: convert every non-base deal/line to base BEFORE reconciling —
+  // the engine's Σnet=0 runs purely in base (money.md). The rate map returned
+  // alongside the result IS the map these figures were produced with; finalize
+  // freezes it, so the snapshot's `lockedRates` reproduce the snapshot's figures.
+  const rates = await loadRatesToBase(database, baseCurrency, [
+    ...dealRows.map((deal) => deal.currency ?? baseCurrency),
+    ...lineRows.map((line) => line.currency ?? baseCurrency),
+  ]);
+  const toBase = (amount: bigint, currency: string | null): bigint => {
+    const from = currency ?? baseCurrency;
+    if (from === baseCurrency) return amount;
+    const rate = rates.get(from);
+    if (!rate) throw badRequest(`No exchange rate cached for ${from}→${baseCurrency}`);
+    return convertMinorUnits(amount, from, baseCurrency, rate);
+  };
+
+  const deals: SettlementDeal[] = dealRows.map((deal) => {
+    const parties = partyRows.filter((party) => party.dealId === deal.id);
+    const payees = parties.filter(
+      (party) => party.roleInDeal === "payee" || party.roleInDeal === "split_member",
+    );
+    const partyShares: Record<string, number> = {};
+    let hasShares = false;
+    for (const payee of payees) {
+      const weight = weightFromShare(payee.share, payee.participantId);
+      if (weight != null) {
+        partyShares[payee.participantId] = weight;
+        hasShares = true;
+      }
+    }
+    return {
+      dealId: deal.id,
+      structure: deal.structure,
+      payeeParticipantIds: payees.map((payee) => payee.participantId),
+      guaranteeAmount:
+        deal.guaranteeAmount != null ? toBase(deal.guaranteeAmount, deal.currency) : undefined,
+      splitBasisPoints: deal.splitBasisPoints ?? undefined,
+      partyShares: hasShares ? partyShares : undefined,
+    };
+  });
+
+  const budgetLines: SettlementBudgetLine[] = lineRows.map((line) => ({
+    kind: line.kind,
+    amount: toBase(line.amount, line.currency),
+    collectedBy: line.collectedBy ?? undefined,
+    paidBy: line.paidBy ?? undefined,
+    payeeParticipantId: line.payeeParticipantId ?? undefined,
+  }));
+
+  const input: SettlementInput = { baseCurrency, participants, deals, budgetLines };
+  const result = reconcile(input);
+  assertBalanced(result);
+
+  return { result, baseCurrency, rates };
+}
+
+/** The participant ids the caller's profiles hold on one event. */
+async function participantIdsOf(
+  database: Database,
+  eventId: string,
+  profileIds: string[],
+): Promise<Set<string>> {
+  if (profileIds.length === 0) return new Set();
+  const rows = await database
+    .select({ id: schema.eventParticipants.id })
+    .from(schema.eventParticipants)
+    .where(
+      and(
+        eq(schema.eventParticipants.eventId, eventId),
+        inArray(schema.eventParticipants.profileId, profileIds),
+      ),
+    );
+  return new Set(rows.map((row) => row.id));
+}
+
+/**
+ * The roles on a deal that see the whole of it. A payer funds the deal (and is the
+ * economic hub of the event); an `observer` is decisions #4's explicit read-only
+ * way to share a deal — *"they can see it because they are now a party"*.
+ */
+const DEAL_ROLES_THAT_SEE_THE_DEAL = ["payer", "observer"] as const;
+
+/**
+ * The other parties on the deals the caller FUNDS or observes — the party set that
+ * settlement visibility is membership of (audit A-07).
+ *
+ * Settlement visibility is PURE party-scoping (decisions.md #4): *"if you are not a
+ * `deal_party`, you cannot see the deal or its settlement"*, and the operator's
+ * breadth is **emergent** — *"they're a party (payer / economic hub) on the event's
+ * main deals, not a see-everything capability"*. This route used to hand everything
+ * to any caller holding `budget.view`, which IS the `settlement.view.all` override
+ * that decision dropped: it showed the venue a performer's private sub-hire. Being
+ * the host is not itself the grant — an operator who is a party to nothing sees
+ * nothing but its own line.
+ *
+ * The relation is deliberately DIRECTIONAL, because party membership on a deal does
+ * not make the parties equals: the payer sees what it is paying out, while a payee
+ * seeing the payer's line would be reading the operator's whole margin (the
+ * operator's per-participant line is the pool residual). For the same reason two
+ * `split_member`s on one deal do not see each other — decisions #4: *"a shared split
+ * shows each performer only their own line"*.
+ */
+async function partiesVisibleTo(
+  database: Database,
+  eventId: string,
+  myParticipantIds: Set<string>,
+): Promise<Set<string>> {
+  if (myParticipantIds.size === 0) return new Set();
+  const mine = alias(schema.dealParties, "my_party");
+  const theirs = alias(schema.dealParties, "their_party");
+  const rows = await database
+    .select({ participantId: theirs.participantId })
+    .from(mine)
+    .innerJoin(theirs, eq(theirs.dealId, mine.dealId))
+    .innerJoin(schema.deals, eq(schema.deals.id, mine.dealId))
+    .where(
+      and(
+        eq(schema.deals.eventId, eventId),
+        inArray(mine.participantId, [...myParticipantIds]),
+        inArray(mine.roleInDeal, [...DEAL_ROLES_THAT_SEE_THE_DEAL]),
+      ),
+    );
+  return new Set(rows.map((row) => row.participantId));
+}
+
+/** Every settlement row of an event, whichever subject it hangs off. */
+async function settlementRowsOf(database: Database | Transaction, eventId: string) {
+  return database.select().from(schema.settlements).where(eq(schema.settlements.eventId, eventId));
+}
+
+/**
+ * Refuse to move the figures once they are frozen (audit A-09). Finalize writes an
+ * immutable snapshot; a later recompute used to silently replace every figure
+ * underneath it without producing a new one.
+ */
+function assertNotFinalized(rows: { status: string }[]): void {
+  if (rows.some((row) => LOCKED_SETTLEMENT_STATUSES.has(row.status))) {
+    throw conflict(
+      "This settlement is finalized — its figures are locked to the snapshot. Transfers can still be marked paid; the figures cannot be recomputed.",
+    );
+  }
+}
+
+/** Compare two serialized breakdowns field by field (all six are string money). */
+function sameBreakdown(left: SerializedBreakdown | null, right: SerializedBreakdown): boolean {
+  return (
+    left != null &&
+    left.participantId === right.participantId &&
+    left.entitlement === right.entitlement &&
+    left.collected === right.collected &&
+    left.paid === right.paid &&
+    left.held === right.held &&
+    left.net === right.net
+  );
+}
+
 export async function settlementRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -170,138 +408,65 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
 
       await requireEventCapability(request, id, "settlement.edit");
 
-      const participantRows = await database
-        .select()
-        .from(schema.eventParticipants)
-        .where(eq(schema.eventParticipants.eventId, id));
+      assertNotFinalized(await settlementRowsOf(database, id));
 
-      const participants: SettlementParticipant[] = participantRows.map((row) => ({
-        participantId: row.id,
-        isOperator: OPERATOR_EVENT_ROLES.has(row.role),
-      }));
-
-      const dealRows = await database
-        .select()
-        .from(schema.deals)
-        .where(eq(schema.deals.eventId, id));
-      const dealIds = dealRows.map((deal) => deal.id);
-      const partyRows =
-        dealIds.length > 0
-          ? await database
-              .select()
-              .from(schema.dealParties)
-              .where(inArray(schema.dealParties.dealId, dealIds))
-          : [];
-
-      const lineRows = await database
-        .select({
-          kind: schema.budgetLines.kind,
-          amount: schema.budgetLines.amount,
-          currency: schema.budgetLines.currency,
-          collectedBy: schema.budgetLines.collectedBy,
-          paidBy: schema.budgetLines.paidBy,
-          payeeParticipantId: schema.budgetLines.payeeParticipantId,
-        })
-        .from(schema.budgetLines)
-        .innerJoin(schema.budgets, eq(schema.budgets.id, schema.budgetLines.budgetId))
-        .where(eq(schema.budgets.eventId, id));
-
-      const [event] = await database
-        .select({ baseCurrency: schema.events.baseCurrency })
-        .from(schema.events)
-        .where(eq(schema.events.id, id));
-      if (!event) throw notFound("Event not found");
-      const baseCurrency = event.baseCurrency;
-
-      // Multi-currency: convert every non-base deal/line to base at the CURRENT cached
-      // rate BEFORE reconciling — the engine's Σnet=0 runs purely in base (money.md).
-      // Rates are live here and frozen into the snapshot at finalize.
-      const rates = await loadRatesToBase(database, baseCurrency, [
-        ...dealRows.map((deal) => deal.currency ?? baseCurrency),
-        ...lineRows.map((line) => line.currency ?? baseCurrency),
-      ]);
-      const toBase = (amount: bigint, currency: string | null): bigint => {
-        const from = currency ?? baseCurrency;
-        if (from === baseCurrency) return amount;
-        const rate = rates.get(from);
-        if (!rate) throw badRequest(`No exchange rate cached for ${from}→${baseCurrency}`);
-        return convertMinorUnits(amount, from, baseCurrency, rate);
-      };
-
-      const deals: SettlementDeal[] = dealRows.map((deal) => {
-        const parties = partyRows.filter((party) => party.dealId === deal.id);
-        const payees = parties.filter(
-          (party) => party.roleInDeal === "payee" || party.roleInDeal === "split_member",
-        );
-        const partyShares: Record<string, number> = {};
-        let hasShares = false;
-        for (const payee of payees) {
-          const weight = weightFromShare(payee.share, payee.participantId);
-          if (weight != null) {
-            partyShares[payee.participantId] = weight;
-            hasShares = true;
-          }
-        }
-        return {
-          dealId: deal.id,
-          structure: deal.structure,
-          payeeParticipantIds: payees.map((payee) => payee.participantId),
-          guaranteeAmount:
-            deal.guaranteeAmount != null ? toBase(deal.guaranteeAmount, deal.currency) : undefined,
-          splitBasisPoints: deal.splitBasisPoints ?? undefined,
-          partyShares: hasShares ? partyShares : undefined,
-        };
-      });
-
-      const budgetLines: SettlementBudgetLine[] = lineRows.map((line) => ({
-        kind: line.kind,
-        amount: toBase(line.amount, line.currency),
-        collectedBy: line.collectedBy ?? undefined,
-        paidBy: line.paidBy ?? undefined,
-        payeeParticipantId: line.payeeParticipantId ?? undefined,
-      }));
-
-      const input: SettlementInput = { baseCurrency, participants, deals, budgetLines };
-
-      const result = reconcile(input);
-      assertBalanced(result);
+      const { result, baseCurrency } = await reconcileEvent(database, id);
 
       const { statusCode, body } = await withIdempotency<SerializedSummary>(
         request,
         "POST /events/:id/settlement/compute",
         async () => {
           const summary = await database.transaction(async (tx) => {
-            // Recompute is idempotent per participant: clear the prior derived rows.
-            await tx
-              .delete(schema.settlementTransfers)
-              .where(eq(schema.settlementTransfers.eventId, id));
-            await tx
-              .delete(schema.settlements)
+            // Re-read inside the transaction: a concurrent finalize must not be
+            // overtaken by a compute that checked before it committed.
+            assertNotFinalized(await settlementRowsOf(tx, id));
+
+            // Per-participant settlements are UPDATED in place, not dropped and
+            // re-inserted: the row carries `version`, `manual_overrides` and
+            // `status`, and delete-then-insert silently threw all three away.
+            const priorRows = await tx
+              .select()
+              .from(schema.settlements)
               .where(
                 and(
                   eq(schema.settlements.eventId, id),
                   isNotNull(schema.settlements.participantId),
                 ),
               );
+            const unmatched = new Map(priorRows.map((row) => [row.participantId as string, row]));
 
             for (const breakdown of result.breakdowns) {
-              await tx.insert(schema.settlements).values({
-                eventId: id,
-                participantId: breakdown.participantId,
-                computed: serializeBreakdown(breakdown),
-              });
-            }
-            if (result.transfers.length > 0) {
-              await tx.insert(schema.settlementTransfers).values(
-                result.transfers.map((transfer) => ({
+              const computed = serializeBreakdown(breakdown);
+              const prior = unmatched.get(breakdown.participantId);
+              if (!prior) {
+                await tx.insert(schema.settlements).values({
                   eventId: id,
-                  fromParticipant: transfer.fromParticipantId,
-                  toParticipant: transfer.toParticipantId,
-                  amount: transfer.amount,
-                  currency: result.baseCurrency,
-                })),
-              );
+                  participantId: breakdown.participantId,
+                  computed,
+                });
+                continue;
+              }
+              unmatched.delete(breakdown.participantId);
+              if (sameBreakdown(prior.computed as SerializedBreakdown | null, computed)) continue;
+              await tx
+                .update(schema.settlements)
+                .set({ computed, version: prior.version + 1, updatedAt: new Date() })
+                .where(eq(schema.settlements.id, prior.id));
             }
+            for (const stale of unmatched.values()) {
+              await tx.delete(schema.settlements).where(eq(schema.settlements.id, stale.id));
+            }
+
+            // Transfers are reconciled, never wholesale deleted: a transfer someone
+            // marked `paid` must survive an identical recompute (audit A-08).
+            const desired: DesiredTransfer[] = result.transfers.map((transfer) => ({
+              fromParticipant: transfer.fromParticipantId,
+              toParticipant: transfer.toParticipantId,
+              amount: transfer.amount,
+              currency: result.baseCurrency,
+              representationId: null,
+            }));
+            await reconcileTransfers(tx, id, desired, "event");
 
             // Private agent↔performer commission (decisions #14) — settles separately,
             // outside the event's Σnet=0, on every event the agent is present.
@@ -317,7 +482,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
             });
 
             return {
-              baseCurrency: result.baseCurrency,
+              baseCurrency,
               pool: result.pool.toString(),
               breakdowns: result.breakdowns.map(serializeBreakdown),
               transfers: result.transfers.map((transfer) => ({
@@ -335,8 +500,6 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
     },
   );
 
-  // Read: an operator (budget.view) sees every settlement/transfer; anyone else
-  // sees only their own lines (participant-scoped, per decisions #4).
   // The caller's OWN settlements across every event — what the Settlements screen is a
   // list of. Everything else here is event-scoped, so that screen had nothing to read and
   // fell back to listing events with an empty payout column (audit A-35).
@@ -408,6 +571,13 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
     },
   );
 
+  // Read: PURE party-scoping (decisions #4, audit A-07). The caller sees their own
+  // settlement line plus the lines of the parties on the deals they fund or observe
+  // (`partiesVisibleTo`); the transfers they are an end of, or whose two ends are
+  // both inside that set; and a private agent↔performer commission only if they are
+  // one of its two parties. No capability grants a wider view — the operator's
+  // breadth is emergent from being a party on the event's deals, and an operator
+  // that is a party to nothing sees nothing but its own line.
   app.get(
     "/events/:id/settlements",
     { schema: { params: EventParams, response: { 200: SettlementsResponse } } },
@@ -417,47 +587,23 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       const principal = request.principal;
       if (!principal) throw new Error("principal missing after authentication");
 
-      const capabilities = await requireEventCapability(request, id, "settlement.view.own");
+      await requireEventCapability(request, id, "settlement.view.own");
 
-      const settlementRows = await database
-        .select()
-        .from(schema.settlements)
-        .where(eq(schema.settlements.eventId, id));
+      const profileIds = principal.memberships.map((membership) => membership.profileId);
+      const mine = await participantIdsOf(database, id, profileIds);
+      const visible = new Set<string>([...mine, ...(await partiesVisibleTo(database, id, mine))]);
+
+      const settlementRows = await settlementRowsOf(database, id);
       const transferRows = await database
         .select()
         .from(schema.settlementTransfers)
         .where(eq(schema.settlementTransfers.eventId, id));
 
-      // The operator sees the whole event settlement, but NEVER the private agent↔
-      // performer commission (decisions #14): representation-scoped settlements and
-      // their transfers are filtered out entirely.
-      if (capabilities.has("budget.view")) {
-        return {
-          settlements: settlementRows
-            .filter((row) => !row.representationId)
-            .map(serializeSettlement),
-          transfers: transferRows.filter((row) => !row.representationId).map(serializeTransfer),
-          commissions: [],
-        };
-      }
+      const isMyEnd = (row: { fromParticipant: string; toParticipant: string }) =>
+        mine.has(row.fromParticipant) || mine.has(row.toParticipant);
 
-      // Non-operator: narrow to the participant ids the caller's profiles hold.
-      const profileIds = principal.memberships.map((membership) => membership.profileId);
-      const mine =
-        profileIds.length > 0
-          ? await database
-              .select({ id: schema.eventParticipants.id })
-              .from(schema.eventParticipants)
-              .where(
-                and(
-                  eq(schema.eventParticipants.eventId, id),
-                  inArray(schema.eventParticipants.profileId, profileIds),
-                ),
-              )
-          : [];
-      const myParticipantIds = new Set(mine.map((row) => row.id));
-
-      // A commission settlement is visible only to its two parties (performer/agent).
+      // A commission settlement/transfer is visible ONLY to its two parties — never
+      // to the operator, whatever else they are a party to (decisions #14).
       const isMyCommission = (row: (typeof settlementRows)[number]) => {
         if (!row.representationId) return false;
         const computed = row.computed as {
@@ -465,21 +611,21 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           agentParticipantId?: string;
         } | null;
         return (
-          (computed?.performerParticipantId != null &&
-            myParticipantIds.has(computed.performerParticipantId)) ||
-          (computed?.agentParticipantId != null &&
-            myParticipantIds.has(computed.agentParticipantId))
+          (computed?.performerParticipantId != null && mine.has(computed.performerParticipantId)) ||
+          (computed?.agentParticipantId != null && mine.has(computed.agentParticipantId))
         );
       };
 
       return {
         settlements: settlementRows
-          .filter((row) => row.participantId && myParticipantIds.has(row.participantId))
+          .filter((row) => row.participantId != null && visible.has(row.participantId))
           .map(serializeSettlement),
         transfers: transferRows
-          .filter(
-            (row) =>
-              myParticipantIds.has(row.fromParticipant) || myParticipantIds.has(row.toParticipant),
+          .filter((row) =>
+            row.representationId
+              ? isMyEnd(row)
+              : isMyEnd(row) ||
+                (visible.has(row.fromParticipant) && visible.has(row.toParticipant)),
           )
           .map(serializeTransfer),
         commissions: settlementRows.filter(isMyCommission).map(serializeCommission),
@@ -508,6 +654,10 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         .from(schema.settlements)
         .where(and(eq(schema.settlements.id, sid), eq(schema.settlements.eventId, id)));
       if (!before) throw notFound("Settlement not found");
+      // The private commission is not the operator's to correct, and its existence
+      // is not theirs to learn (decisions #14) — 404, not 403.
+      if (before.representationId) throw notFound("Settlement not found");
+      assertNotFinalized([before]);
 
       const { expectedVersion, manualOverrides } = request.body;
       const where =
@@ -552,6 +702,8 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
     async (request) => {
       const { database } = request.server;
       const { id, sid } = request.params;
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
 
       await requireEventCapability(request, id, "settlement.confirm");
 
@@ -562,6 +714,14 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       if (!settlement) throw notFound("Settlement not found");
       if (!settlement.participantId) {
         throw badRequest("Only a participant settlement can be confirmed");
+      }
+      // An approval is a signature: it may only be given for one's own line. The
+      // route used to accept any settlement id on the event, so an operator could
+      // record the performer's approval of the performer's own money.
+      const profileIds = principal.memberships.map((membership) => membership.profileId);
+      const mine = await participantIdsOf(database, id, profileIds);
+      if (!mine.has(settlement.participantId)) {
+        throw forbidden("You can only confirm your own settlement");
       }
 
       const approval = await database.transaction(async (tx) => {
@@ -590,7 +750,9 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
     },
   );
 
-  // Finalize: freeze an immutable snapshot of the full computed state. Idempotent.
+  // Finalize: freeze an immutable snapshot of the full computed state, LOCK the FX
+  // rates that produced it, and move every settlement of the event to `finalized`.
+  // Idempotent.
   app.post(
     "/events/:id/settlement/finalize",
     {
@@ -610,42 +772,91 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         "POST /events/:id/settlement/finalize",
         async () => {
           const snapshot = await database.transaction(async (tx) => {
-            const settlementRows = await tx
-              .select()
-              .from(schema.settlements)
-              .where(eq(schema.settlements.eventId, id));
+            const settlementRows = await settlementRowsOf(tx, id);
+            const participantRows = settlementRows.filter((row) => row.participantId != null);
+            if (participantRows.length === 0) {
+              throw badRequest("Compute the settlement before finalizing it");
+            }
+            if (settlementRows.some((row) => LOCKED_SETTLEMENT_STATUSES.has(row.status))) {
+              throw conflict("This settlement is already finalized");
+            }
+
             const transferRows = await tx
               .select()
               .from(schema.settlementTransfers)
               .where(eq(schema.settlementTransfers.eventId, id));
 
-            // LOCK the FX (money.md): freeze the rate for every non-base currency in
-            // play at finalize time into the snapshot, so the settlement is exactly
-            // reproducible even after the live cache moves.
-            const [event] = await tx
-              .select({ baseCurrency: schema.events.baseCurrency })
-              .from(schema.events)
-              .where(eq(schema.events.id, id));
-            const baseCurrency = event?.baseCurrency ?? "";
-            const dealCurrencies = await tx
-              .select({ currency: schema.deals.currency })
-              .from(schema.deals)
-              .where(eq(schema.deals.eventId, id));
-            const lineCurrencies = await tx
-              .select({ currency: schema.budgetLines.currency })
-              .from(schema.budgetLines)
-              .innerJoin(schema.budgets, eq(schema.budgets.id, schema.budgetLines.budgetId))
-              .where(eq(schema.budgets.eventId, id));
-            const lockedRatesMap = await loadRatesToBase(tx, baseCurrency, [
-              ...dealCurrencies.map((row) => row.currency ?? baseCurrency),
-              ...lineCurrencies.map((row) => row.currency ?? baseCurrency),
-            ]);
+            // LOCK the FX (PLAN.md:258, money.md:30): the snapshot must be
+            // internally consistent — the rates it stores have to be the rates its
+            // figures were produced with, or the audit record refutes itself
+            // (A-05: an entitlement produced at 11.0 filed under a locked 5.0).
+            //
+            // Finalize used to re-read the live cache and write TODAY's rate next to
+            // YESTERDAY's figures. Instead it re-derives the settlement through the
+            // same code path with the rates it is about to lock, and refuses to
+            // freeze anything that no longer matches what is stored. So either the
+            // snapshot reproduces arithmetically, or the operator is told to
+            // recompute and re-confirm — never a silent rewrite (decisions #8).
+            const { result, baseCurrency, rates } = await reconcileEvent(tx, id);
+
+            const freshByParticipant = new Map(
+              result.breakdowns.map((breakdown) => [
+                breakdown.participantId,
+                serializeBreakdown(breakdown),
+              ]),
+            );
+            const figuresMatch =
+              participantRows.length === freshByParticipant.size &&
+              participantRows.every((row) => {
+                const fresh = freshByParticipant.get(row.participantId as string);
+                return (
+                  fresh != null && sameBreakdown(row.computed as SerializedBreakdown | null, fresh)
+                );
+              });
+
+            const storedEventTransfers = transferRows.filter((row) => !row.representationId);
+            const transferKey = (from: string, to: string, amount: bigint) =>
+              `${from}:${to}:${amount}`;
+            const freshTransferKeys = new Set(
+              result.transfers.map((transfer) =>
+                transferKey(transfer.fromParticipantId, transfer.toParticipantId, transfer.amount),
+              ),
+            );
+            const transfersMatch =
+              storedEventTransfers.length === freshTransferKeys.size &&
+              storedEventTransfers.every((row) =>
+                freshTransferKeys.has(
+                  transferKey(row.fromParticipant, row.toParticipant, row.amount),
+                ),
+              );
+
+            if (!figuresMatch || !transfersMatch) {
+              throw conflict(
+                "The settlement figures no longer match the event (a budget line, a deal or an exchange rate moved since the last compute). Recompute and re-confirm before finalizing, so the locked rates and the frozen figures agree.",
+              );
+            }
+
             const lockedRates = {
               baseCurrency,
               lockedAt: new Date().toISOString(),
               source: "exchangerate-api",
-              rates: Object.fromEntries(lockedRatesMap),
+              rates: Object.fromEntries(rates),
             };
+
+            // `finalized` is now reachable: the whole point of finalizing is that
+            // the figures stop moving (audit A-09).
+            const finalizedAtRow = new Date();
+            for (const row of settlementRows) {
+              await tx
+                .update(schema.settlements)
+                .set({
+                  status: "finalized",
+                  version: row.version + 1,
+                  updatedAt: finalizedAtRow,
+                })
+                .where(eq(schema.settlements.id, row.id));
+            }
+            const finalizedRows = await settlementRowsOf(tx, id);
 
             const [latest] = await tx
               .select({ version: schema.settlementSnapshots.version })
@@ -661,7 +872,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
                 eventId: id,
                 version: nextVersion,
                 data: {
-                  settlements: settlementRows.map(serializeSettlement),
+                  settlements: finalizedRows.map(serializeSettlement),
                   transfers: transferRows.map(serializeTransfer),
                   lockedRates,
                 },
@@ -674,7 +885,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
               targetKind: "event",
               targetId: id,
               eventId: id,
-              after: { version: nextVersion },
+              after: { version: nextVersion, status: "finalized", lockedRates },
             });
             return row;
           });
@@ -712,6 +923,15 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
   );
 
   // Transfer state: mark a "who owes whom" line owed/paid/handled, version-locked.
+  //
+  // Who may: a participant on EITHER END of the transfer — settling your own money
+  // is party membership, not an operator capability. `settlement.edit` additionally
+  // covers the event's own transfers, so the operator keeps administering the
+  // event's cash; it does NOT reach a private agent↔performer commission, which is
+  // its two parties' business alone and 404s for everybody else so that neither its
+  // amount nor its direction leaks (decisions #14, audit A-10). This is also the
+  // one write that stays open after finalize — freezing the figures is exactly what
+  // makes the payments recordable.
   app.patch(
     "/events/:id/transfers/:tid",
     {
@@ -724,8 +944,10 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
     async (request) => {
       const { database } = request.server;
       const { id, tid } = request.params;
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
 
-      await requireEventCapability(request, id, "settlement.edit");
+      const capabilities = await requireEventCapability(request, id, "settlement.view.own");
 
       const [before] = await database
         .select()
@@ -734,6 +956,19 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           and(eq(schema.settlementTransfers.id, tid), eq(schema.settlementTransfers.eventId, id)),
         );
       if (!before) throw notFound("Transfer not found");
+
+      const profileIds = principal.memberships.map((membership) => membership.profileId);
+      const mine = await participantIdsOf(database, id, profileIds);
+      const isParty = mine.has(before.fromParticipant) || mine.has(before.toParticipant);
+
+      if (before.representationId) {
+        if (!isParty) throw notFound("Transfer not found");
+      } else if (!isParty && !capabilities.has("settlement.edit")) {
+        throw forbidden("You are not a party to this transfer");
+      }
+      const capability = capabilities.has("settlement.edit")
+        ? "settlement.edit"
+        : "settlement.view.own";
 
       const { expectedVersion, state } = request.body;
       const where =
@@ -754,7 +989,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           throw conflict("Transfer was changed by someone else; reload and retry");
         }
         await writeAudit(tx, request, {
-          capability: "settlement.edit",
+          capability,
           action: "transfer.update",
           targetKind: "transfer",
           targetId: tid,

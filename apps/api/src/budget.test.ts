@@ -101,7 +101,34 @@ async function seedEvent(prefix: string) {
       status: "confirmed",
     },
   ]);
-  return { eventId: event.id, operatorUid: `${prefix}-op`, performerUid: `${prefix}-perf` };
+  return {
+    eventId: event.id,
+    operatorUid: `${prefix}-op`,
+    operatorProfileId: operator.profileId,
+    performerUid: `${prefix}-perf`,
+  };
+}
+
+/**
+ * Add a SECOND operator to the event as `co_host` holding the full operator set —
+ * the co-promoter from PLAN.md:215 who shares the event's budget but must never
+ * see the other promoter's private one.
+ */
+async function seedCoHost(prefix: string, eventId: string) {
+  const { db } = harness;
+  const coHost = await seedMemberWithSet(
+    `${prefix}-co`,
+    "operator",
+    PRESET_PERMISSION_SETS.operator_full,
+  );
+  await db.insert(schema.eventParticipants).values({
+    eventId,
+    profileId: coHost.profileId,
+    role: "co_host",
+    permissionSetId: coHost.permissionSetId,
+    status: "confirmed",
+  });
+  return { coHostUid: `${prefix}-co`, coHostProfileId: coHost.profileId };
 }
 
 describe("budgets — authorize + money-as-string + audit", () => {
@@ -315,5 +342,213 @@ describe("budgets — authorize + money-as-string + audit", () => {
     });
     expect(manual.json().source).toBe("manual");
     expect(manual.json().providerRef).toBeNull();
+  });
+});
+/**
+ * A-06 — a private budget is ONE operator's margin line (PLAN.md:207,
+ * "private = one operator"). A co-promoter holding `budget.view` + `budget.edit`
+ * on the same event shares the SHARED budget and must not see, edit or delete the
+ * other promoter's private one. Denials are 404, not 403: a 403 would itself
+ * disclose that the co-promoter keeps a private budget.
+ */
+describe("budgets — private scope is confidential to its owner (A-06)", () => {
+  /** Seed one event with two operators, a shared budget and the host's private budget. */
+  async function seedTwoOperatorEvent(prefix: string) {
+    const { eventId, operatorUid, operatorProfileId } = await seedEvent(prefix);
+    const { coHostUid, coHostProfileId } = await seedCoHost(prefix, eventId);
+
+    const shared = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/budgets`,
+      headers: auth(operatorUid),
+      payload: { scope: "shared" },
+    });
+    expect(shared.statusCode).toBe(201);
+
+    const priv = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/budgets`,
+      headers: auth(operatorUid),
+      payload: { scope: "private", ownerProfileId: operatorProfileId },
+    });
+    expect(priv.statusCode).toBe(201);
+    expect(priv.json().scope).toBe("private");
+
+    const privateLine = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/budgets/${priv.json().id}/lines`,
+      headers: auth(operatorUid),
+      payload: { kind: "revenue", label: "Promoter margin", amount: "400000" },
+    });
+    expect(privateLine.statusCode).toBe(201);
+
+    return {
+      eventId,
+      operatorUid,
+      operatorProfileId,
+      coHostUid,
+      coHostProfileId,
+      sharedBudgetId: shared.json().id as string,
+      privateBudgetId: priv.json().id as string,
+      privateLineId: privateLine.json().id as string,
+    };
+  }
+
+  it("shows the owner their own private budget and lets them edit its lines", async () => {
+    const { eventId, operatorUid, operatorProfileId, privateBudgetId, privateLineId } =
+      await seedTwoOperatorEvent("priv-own");
+
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${eventId}/budgets`,
+      headers: auth(operatorUid),
+    });
+    expect(list.statusCode).toBe(200);
+    const own = list.json().find((budget: { id: string }) => budget.id === privateBudgetId);
+    expect(own).toBeDefined();
+    expect(own.ownerProfileId).toBe(operatorProfileId);
+    expect(own.lines).toHaveLength(1);
+    expect(own.lines[0].label).toBe("Promoter margin");
+    expect(own.lines[0].amount).toBe("400000");
+
+    const lines = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${eventId}/budgets/${privateBudgetId}/lines`,
+      headers: auth(operatorUid),
+    });
+    expect(lines.statusCode).toBe(200);
+    expect(lines.json()).toHaveLength(1);
+
+    const edited = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${eventId}/budgets/${privateBudgetId}/lines/${privateLineId}`,
+      headers: auth(operatorUid),
+      payload: { amount: "450000", expectedVersion: 1 },
+    });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.json().amount).toBe("450000");
+  });
+
+  it("hides another operator's private budget from the co-host's list", async () => {
+    const { eventId, coHostUid, sharedBudgetId, privateBudgetId } =
+      await seedTwoOperatorEvent("priv-list");
+
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${eventId}/budgets`,
+      headers: auth(coHostUid),
+    });
+    expect(list.statusCode).toBe(200); // the co-host DOES hold budget.view
+    const ids = list.json().map((budget: { id: string }) => budget.id);
+    expect(ids).toEqual([sharedBudgetId]);
+    // Not even the private line's label or amount leaks through the shared budget.
+    expect(JSON.stringify(list.json())).not.toContain("Promoter margin");
+    expect(JSON.stringify(list.json())).not.toContain(privateBudgetId);
+  });
+
+  it("404s the co-host reading another operator's private budget lines by id", async () => {
+    const { eventId, coHostUid, privateBudgetId } = await seedTwoOperatorEvent("priv-read");
+
+    const lines = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${eventId}/budgets/${privateBudgetId}/lines`,
+      headers: auth(coHostUid),
+    });
+    expect(lines.statusCode).toBe(404);
+  });
+
+  it("404s the co-host editing, adding to or deleting another operator's private lines", async () => {
+    const { db } = harness;
+    const { eventId, coHostUid, privateBudgetId, privateLineId } =
+      await seedTwoOperatorEvent("priv-write");
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${eventId}/budgets/${privateBudgetId}/lines/${privateLineId}`,
+      headers: auth(coHostUid),
+      payload: { amount: "1", expectedVersion: 1 },
+    });
+    expect(patched.statusCode).toBe(404);
+
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/budgets/${privateBudgetId}/lines`,
+      headers: auth(coHostUid),
+      payload: { kind: "cost", label: "Injected", amount: "1" },
+    });
+    expect(added.statusCode).toBe(404);
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${eventId}/budgets/${privateBudgetId}/lines/${privateLineId}`,
+      headers: auth(coHostUid),
+      payload: { expectedVersion: 1 },
+    });
+    expect(deleted.statusCode).toBe(404);
+
+    // The row is untouched: original amount, original version, no injected line.
+    const rows = await db
+      .select()
+      .from(schema.budgetLines)
+      .where(eq(schema.budgetLines.budgetId, privateBudgetId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(privateLineId);
+    expect(rows[0]?.amount).toBe(400000n);
+    expect(rows[0]?.version).toBe(1);
+  });
+
+  it("keeps the shared budget visible and editable to both co-operators", async () => {
+    const { eventId, operatorUid, coHostUid, sharedBudgetId } =
+      await seedTwoOperatorEvent("priv-shared");
+
+    const byCoHost = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/budgets/${sharedBudgetId}/lines`,
+      headers: auth(coHostUid),
+      payload: { kind: "cost", label: "PA hire", amount: "80000" },
+    });
+    expect(byCoHost.statusCode).toBe(201);
+
+    const byHost = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${eventId}/budgets/${sharedBudgetId}/lines/${byCoHost.json().id}`,
+      headers: auth(operatorUid),
+      payload: { amount: "90000", expectedVersion: 1 },
+    });
+    expect(byHost.statusCode).toBe(200);
+    expect(byHost.json().amount).toBe("90000");
+
+    for (const uid of [operatorUid, coHostUid]) {
+      const list = await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${eventId}/budgets`,
+        headers: auth(uid),
+      });
+      const shared = list.json().find((budget: { id: string }) => budget.id === sharedBudgetId);
+      expect(shared.lines).toHaveLength(1);
+      expect(shared.lines[0].amount).toBe("90000");
+    }
+  });
+
+  it("refuses to open a private budget owned by a profile the caller is not a member of", async () => {
+    const { eventId, operatorUid } = await seedEvent("priv-forge");
+    const { coHostProfileId } = await seedCoHost("priv-forge", eventId);
+
+    // Opening a private budget in the co-host's name would be a readable back door.
+    const forged = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/budgets`,
+      headers: auth(operatorUid),
+      payload: { scope: "private", ownerProfileId: coHostProfileId },
+    });
+    expect(forged.statusCode).toBe(403);
+
+    const missingOwner = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/budgets`,
+      headers: auth(operatorUid),
+      payload: { scope: "private" },
+    });
+    expect(missingOwner.statusCode).toBe(400);
   });
 });

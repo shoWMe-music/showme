@@ -1,9 +1,9 @@
 import { schema } from "@showme/db";
-import { and, eq } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
+import { type SQL, and, eq, inArray, or } from "drizzle-orm";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { badRequest, conflict, notFound } from "../errors";
+import { badRequest, conflict, forbidden, notFound } from "../errors";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import {
@@ -86,16 +86,55 @@ const BudgetResponse = z.object({
   lines: z.array(BudgetLineResponse),
 });
 
-/** Fetch a budget that belongs to this event, or 404 (no cross-event leak). */
-async function loadBudget(
-  database: FastifyInstance["database"],
+/** The profile ids the caller acts for — the owners whose private budgets are theirs. */
+function callerProfileIds(request: FastifyRequest): string[] {
+  const principal = request.principal;
+  if (!principal) throw new Error("principal missing after authentication");
+  return principal.memberships.map((membership) => membership.profileId);
+}
+
+/**
+ * The WHERE clause that IS the confidentiality rule (PLAN.md:207, PLAN.md:661):
+ * a `shared` budget is the co-promoters' common ledger — visible to everyone
+ * holding `budget.view` on the event; a `private` budget is one operator's own
+ * margin line — visible ONLY to the profile that owns it. A `private` budget
+ * with no `owner_profile_id` belongs to nobody and is therefore visible to
+ * nobody (fail closed rather than leak an unattributed row).
+ */
+function visibleBudgetFilter(profileIds: string[]): SQL {
+  const shared = eq(schema.budgets.scope, "shared");
+  if (profileIds.length === 0) return shared;
+  const ownPrivate = and(
+    eq(schema.budgets.scope, "private"),
+    inArray(schema.budgets.ownerProfileId, profileIds),
+  );
+  const filter = or(shared, ownPrivate);
+  if (!filter) throw new Error("budget visibility filter failed to build");
+  return filter;
+}
+
+/**
+ * Fetch a budget that belongs to this event AND that the caller may see, or 404.
+ * Scoping is folded into the same WHERE as the lookup, so another operator's
+ * private budget is indistinguishable from one that does not exist — a 403 would
+ * itself disclose that the co-promoter keeps a private budget. Every read AND
+ * write path on a budget's lines goes through here.
+ */
+async function loadVisibleBudget(
+  request: FastifyRequest,
   eventId: string,
   budgetId: string,
 ): Promise<typeof schema.budgets.$inferSelect> {
-  const [budget] = await database
+  const [budget] = await request.server.database
     .select()
     .from(schema.budgets)
-    .where(and(eq(schema.budgets.id, budgetId), eq(schema.budgets.eventId, eventId)));
+    .where(
+      and(
+        eq(schema.budgets.id, budgetId),
+        eq(schema.budgets.eventId, eventId),
+        visibleBudgetFilter(callerProfileIds(request)),
+      ),
+    );
   if (!budget) throw notFound("Budget not found");
   return budget;
 }
@@ -114,19 +153,34 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
 
       await requireEventCapability(request, id, "budget.view");
 
+      // The access predicate lives in the WHERE: shared budgets for every
+      // co-operator, private ones only for their owner.
       const budgets = await database
         .select()
         .from(schema.budgets)
-        .where(eq(schema.budgets.eventId, id));
+        .where(and(eq(schema.budgets.eventId, id), visibleBudgetFilter(callerProfileIds(request))));
 
-      const result: SerializedBudget[] = [];
-      for (const budget of budgets) {
-        const lines = await database
-          .select()
-          .from(schema.budgetLines)
-          .where(eq(schema.budgetLines.budgetId, budget.id));
-        result.push(serializeBudget(budget, lines));
+      if (budgets.length === 0) return [];
+
+      const lines = await database
+        .select()
+        .from(schema.budgetLines)
+        .where(
+          inArray(
+            schema.budgetLines.budgetId,
+            budgets.map((budget) => budget.id),
+          ),
+        );
+      const linesByBudget = new Map<string, (typeof lines)[number][]>();
+      for (const line of lines) {
+        const bucket = linesByBudget.get(line.budgetId);
+        if (bucket) bucket.push(line);
+        else linesByBudget.set(line.budgetId, [line]);
       }
+
+      const result: SerializedBudget[] = budgets.map((budget) =>
+        serializeBudget(budget, linesByBudget.get(budget.id) ?? []),
+      );
       return result;
     },
   );
@@ -144,6 +198,14 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       const { scope, ownerProfileId } = request.body;
       if (scope === "private" && !ownerProfileId) {
         throw badRequest("A private budget requires ownerProfileId");
+      }
+      if (scope === "shared" && ownerProfileId) {
+        throw badRequest("A shared budget cannot have an ownerProfileId");
+      }
+      // A private budget is that operator's own — nobody may open one in a
+      // profile they are not a member of (and then read it back).
+      if (ownerProfileId && !callerProfileIds(request).includes(ownerProfileId)) {
+        throw forbidden("You are not a member of that profile");
       }
 
       const created = await database.transaction(async (tx) => {
@@ -177,7 +239,7 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       const { id, bid } = request.params;
 
       await requireEventCapability(request, id, "budget.view");
-      await loadBudget(database, id, bid);
+      await loadVisibleBudget(request, id, bid);
 
       const lines = await database
         .select()
@@ -198,7 +260,7 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       const { id, bid } = request.params;
 
       await requireEventCapability(request, id, "budget.edit");
-      await loadBudget(database, id, bid);
+      await loadVisibleBudget(request, id, bid);
 
       const body = request.body;
       const created = await database.transaction(async (tx) => {
@@ -244,7 +306,7 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       const { id, bid, lid } = request.params;
 
       await requireEventCapability(request, id, "budget.edit");
-      await loadBudget(database, id, bid);
+      await loadVisibleBudget(request, id, bid);
 
       const [before] = await database
         .select()
@@ -305,7 +367,7 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       const { id, bid, lid } = request.params;
 
       await requireEventCapability(request, id, "budget.edit");
-      await loadBudget(database, id, bid);
+      await loadVisibleBudget(request, id, bid);
 
       const [before] = await database
         .select()

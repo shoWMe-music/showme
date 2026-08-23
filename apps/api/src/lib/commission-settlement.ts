@@ -2,6 +2,7 @@ import { schema } from "@showme/db";
 import { settleRepresentation } from "@showme/settlement";
 import { and, eq, isNotNull } from "drizzle-orm";
 import type { Transaction } from "./audit";
+import { type DesiredTransfer, reconcileTransfers } from "./settlement-transfers";
 
 /** The per-participant entitlement the event settlement produced (gross, minor units). */
 interface Breakdown {
@@ -20,7 +21,9 @@ interface Breakdown {
  * (owed → paid → handled); auto-pay is a later, opt-in layer.
  *
  * Idempotent: called inside the event settlement compute, after the participant
- * rows are written, so it re-derives cleanly on every recompute.
+ * rows are written, so it re-derives cleanly on every recompute — and the commission
+ * TRANSFERS go through `reconcileTransfers`, so a commission the performer already
+ * marked `paid` survives a recompute instead of reverting to `owed` (audit A-08).
  */
 export async function syncCommissionSettlements(
   tx: Transaction,
@@ -28,8 +31,9 @@ export async function syncCommissionSettlements(
   breakdowns: Breakdown[],
   baseCurrency: string,
 ): Promise<void> {
-  // Recompute-safe: drop the prior representation-scoped settlements. (The compute
-  // already cleared every transfer for the event, commission transfers included.)
+  // Recompute-safe: drop the prior representation-scoped settlements. Their
+  // transfers are NOT dropped — they are reconciled at the end of this function, so
+  // a recorded payment is never silently discarded.
   await tx
     .delete(schema.settlements)
     .where(
@@ -37,6 +41,7 @@ export async function syncCommissionSettlements(
     );
 
   const entitlementByParticipant = new Map(breakdowns.map((b) => [b.participantId, b.entitlement]));
+  const desiredTransfers: DesiredTransfer[] = [];
 
   const participants = await tx
     .select()
@@ -92,8 +97,7 @@ export async function syncCommissionSettlements(
     if (transfer) {
       const participantOf = (party: "performer" | "agent") =>
         party === "performer" ? performer.id : agentParticipantId;
-      await tx.insert(schema.settlementTransfers).values({
-        eventId,
+      desiredTransfers.push({
         representationId: representation.id,
         fromParticipant: participantOf(transfer.from),
         toParticipant: participantOf(transfer.to),
@@ -102,4 +106,6 @@ export async function syncCommissionSettlements(
       });
     }
   }
+
+  await reconcileTransfers(tx, eventId, desiredTransfers, "representation");
 }

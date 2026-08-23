@@ -77,29 +77,56 @@ function toHoldSiblings(rows: EventRow[]): HoldSibling[] {
 }
 
 /**
- * Assert the caller is the BOOKED performer on this event — one of their profiles
- * joins it as a `performer`/`support` participant (PLAN §G: only the booked
- * performer confirms/declines a date). Wrong relationship is a 403.
+ * Assert the caller may ACCEPT OR DECLINE this date. Two conditions, both required:
+ *
+ * 1. `agreement.confirm` — decided by the capability engine, never by a role string
+ *    (`.claude/skills/authorization`: one module, never split across layers). A
+ *    performer whose participation is DELEGATED to their agent (decisions #14) has
+ *    handed this capability over and is read-only here; crew never held it.
+ * 2. The caller stands on this event as the BOOKED act — a `performer` participant
+ *    (the act the date is held for), or the AGENT that act delegated to on this very
+ *    event, whose job this is: *"the agent negotiates and confirms while the
+ *    performer's own screens go read-only"* (`docs/story.md`). Resolved per-event
+ *    from the delegation stamp — never a blanket event-level grant.
+ *
+ * A `support` act holds `agreement.confirm` for its OWN agreement but is not the
+ * booked act: confirming here would confirm — or cancel — the headliner's show. The
+ * operator holds the date open; they never accept it on the act's behalf.
  */
-async function requireBookedPerformer(request: FastifyRequest, eventId: string): Promise<void> {
+async function requireBookingDecision(request: FastifyRequest, eventId: string): Promise<void> {
+  // The one authorization module decides the capability. 404 without `event.view`.
+  await requireEventCapability(request, eventId, "agreement.confirm");
+
   const principal = request.principal;
   if (!principal) throw new Error("principal missing after authentication");
-  const profileIds = principal.memberships.map((membership) => membership.profileId);
-  if (profileIds.length === 0) {
-    throw forbidden("Only the booked performer can confirm or decline this hold");
-  }
-  const rows = await request.server.database
-    .select({ id: schema.eventParticipants.id })
+  const profileIds = new Set(principal.memberships.map((membership) => membership.profileId));
+
+  const participants = await request.server.database
+    .select({
+      profileId: schema.eventParticipants.profileId,
+      role: schema.eventParticipants.role,
+      details: schema.eventParticipants.details,
+    })
     .from(schema.eventParticipants)
     .where(
       and(
         eq(schema.eventParticipants.eventId, eventId),
-        inArray(schema.eventParticipants.profileId, profileIds),
-        inArray(schema.eventParticipants.role, ["performer", "support"]),
+        ne(schema.eventParticipants.status, "removed"),
       ),
     );
-  if (rows.length === 0) {
-    throw forbidden("Only the booked performer can confirm or decline this hold");
+
+  const bookedActs = participants.filter((row) => row.role === "performer");
+  const isBookedAct = bookedActs.some((row) => profileIds.has(row.profileId));
+  const representsBookedAct =
+    participants.some((row) => row.role === "agent" && profileIds.has(row.profileId)) &&
+    bookedActs.some((row) => {
+      const delegatedTo = (row.details as { delegatedToAgentProfileId?: string } | null)
+        ?.delegatedToAgentProfileId;
+      return delegatedTo != null && profileIds.has(delegatedTo);
+    });
+
+  if (!isBookedAct && !representsBookedAct) {
+    throw forbidden("Only the booked performer, or their agent, can confirm or decline this hold");
   }
 }
 
@@ -158,8 +185,8 @@ export async function holdRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // Confirm: the booked performer accepts the date. The event becomes
-  // `confirmed`; every competing sibling hold is `cancelled`.
+  // Confirm: the booked performer — or the agent they delegated to — accepts the
+  // date. The event becomes `confirmed`; every competing sibling hold is `cancelled`.
   app.post(
     "/events/:id/hold/confirm",
     { schema: { params: EventParams, response: { 200: ConfirmResponse } } },
@@ -167,8 +194,7 @@ export async function holdRoutes(fastify: FastifyInstance): Promise<void> {
       const { database } = request.server;
       const { id } = request.params;
 
-      await requireEventCapability(request, id, "event.view");
-      await requireBookedPerformer(request, id);
+      await requireBookingDecision(request, id);
 
       const [event] = await database.select().from(schema.events).where(eq(schema.events.id, id));
       if (!event) throw notFound("Event not found");
@@ -196,7 +222,7 @@ export async function holdRoutes(fastify: FastifyInstance): Promise<void> {
             .where(inArray(schema.events.id, cancelledIds));
         }
         await writeAudit(tx, request, {
-          capability: "event.view",
+          capability: "agreement.confirm",
           action: "hold.confirm",
           targetKind: "event",
           targetId: event.id,
@@ -238,8 +264,8 @@ export async function holdRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // Decline: the booked performer rejects the date. The event is `cancelled`;
-  // the surviving auto-promote holds compact down to fill the vacated rank.
+  // Decline: the booked performer — or their agent — rejects the date. The event is
+  // `cancelled`; the surviving auto-promote holds compact down to fill the vacated rank.
   app.post(
     "/events/:id/hold/decline",
     { schema: { params: EventParams, response: { 200: DeclineResponse } } },
@@ -247,8 +273,7 @@ export async function holdRoutes(fastify: FastifyInstance): Promise<void> {
       const { database } = request.server;
       const { id } = request.params;
 
-      await requireEventCapability(request, id, "event.view");
-      await requireBookedPerformer(request, id);
+      await requireBookingDecision(request, id);
 
       const [event] = await database.select().from(schema.events).where(eq(schema.events.id, id));
       if (!event) throw notFound("Event not found");
@@ -279,7 +304,7 @@ export async function holdRoutes(fastify: FastifyInstance): Promise<void> {
             .where(eq(schema.events.id, promotion.id));
         }
         await writeAudit(tx, request, {
-          capability: "event.view",
+          capability: "agreement.confirm",
           action: "hold.decline",
           targetKind: "event",
           targetId: event.id,

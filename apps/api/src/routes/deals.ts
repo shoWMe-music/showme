@@ -3,13 +3,19 @@ import { and, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { badRequest, conflict, notFound } from "../errors";
+import { badRequest, conflict, forbidden, notFound } from "../errors";
 import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
+import {
+  type DealAuthority,
+  loadDealParties,
+  requireDealAccess,
+  resolveDealAuthority,
+} from "../lib/deal-authority";
 import { dealPartyRecipients, notifyUsers } from "../lib/notify";
 import { withIdempotency } from "../plugins/idempotency";
-import { type DealViewer, isDealVisible, serializeDeal } from "../serialize/deal";
+import { isDealVisible, serializeDeal, serializeDealUnredacted } from "../serialize/deal";
 
 const EventParams = z.object({ id: z.string().uuid() });
 const DealParams = z.object({ did: z.string().uuid() });
@@ -130,52 +136,68 @@ type DealRow = typeof schema.deals.$inferSelect;
 type DealPartyRow = typeof schema.dealParties.$inferSelect;
 
 /**
- * The caller's viewing relationship to an event's deals. `isOperator` is the
- * `budget.view` signal — the ceiling grants it only to managing operators
- * (host/co_host), so it cleanly separates "sees all party lines" from
- * "sees only my own". `viewerParticipantIds` are the event participants the
- * caller stands behind (their active profile memberships joined to the event).
+ * Every party line on a deal must belong to a participant on THIS event, and an
+ * `agent` participant may never hold an entitled line.
+ *
+ * decisions #14: the agent "is **never a separate entitled party**, so it never
+ * enters the event Σ net = 0" — it acts FOR the performer, whose own `deal_party`
+ * stays the entitled one (agent-as-payee is a payout *destination* on the
+ * representation, not a line here). `observer` is the one role that carries no
+ * entitlement, so it is the only one an agent participant may take.
  */
-async function resolveDealViewer(
+async function assertPartiesAreEntitled(
   request: FastifyRequest,
   eventId: string,
-  capabilities: Set<string>,
-): Promise<DealViewer> {
-  const principal = request.principal;
-  if (!principal) throw new Error("principal missing after authentication");
+  parties: { participantId: string; roleInDeal: string }[],
+): Promise<void> {
+  const wanted = [...new Set(parties.map((party) => party.participantId))];
   const rows = await request.server.database
-    .select({ id: schema.eventParticipants.id })
+    .select({ id: schema.eventParticipants.id, role: schema.eventParticipants.role })
     .from(schema.eventParticipants)
-    .innerJoin(
-      schema.profileMembers,
-      eq(schema.profileMembers.profileId, schema.eventParticipants.profileId),
-    )
     .where(
       and(
         eq(schema.eventParticipants.eventId, eventId),
-        eq(schema.profileMembers.userId, principal.userId),
-        eq(schema.profileMembers.status, "active"),
+        inArray(schema.eventParticipants.id, wanted),
       ),
     );
-  return {
-    viewerParticipantIds: rows.map((row) => row.id),
-    isOperator: capabilities.has("budget.view"),
-  };
+  if (rows.length !== wanted.length) {
+    throw badRequest("Every deal party must be a participant on this event");
+  }
+  const roleByParticipant = new Map(rows.map((row) => [row.id, row.role]));
+  for (const party of parties) {
+    if (roleByParticipant.get(party.participantId) === "agent" && party.roleInDeal !== "observer") {
+      throw badRequest(
+        "An agent is never an entitled party on a deal — it acts for the performer it represents",
+      );
+    }
+  }
 }
 
-/** Load a deal's party lines (unscoped — the serializer applies party-scoping). */
-async function loadParties(request: FastifyRequest, dealId: string): Promise<DealPartyRow[]> {
-  return request.server.database
-    .select()
-    .from(schema.dealParties)
-    .where(eq(schema.dealParties.dealId, dealId));
+/**
+ * An agent's `deal.edit` is a per-deal authority, not an event-level one (A-02).
+ * When the caller reaches this event ONLY through an `agent` participant row, the
+ * deal it writes must carry a party line for a performer it actually represents
+ * here — the representation, resolved per performer, IS the authority.
+ */
+function requireRepresentedParty(
+  authority: DealAuthority,
+  parties: { participantId: string }[],
+): void {
+  if (!authority.actsOnlyAsAgent) return;
+  const forAClient = parties.some((party) =>
+    authority.representedParticipantIds.includes(party.participantId),
+  );
+  if (!forAClient) {
+    throw forbidden("An agent may only write deals for a performer it represents on this event");
+  }
 }
 
 export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
-  // List an event's deals — authorize `deal.view.own`, return only VISIBLE deals
-  // (party or operator), each party-scoped.
+  // List an event's deals — authorize `deal.view.own`, then return only the deals
+  // the caller is a PARTY to (their own lines plus the lines of performers they
+  // represent as agent), each party-scoped. No operator see-all (decisions #4).
   app.get(
     "/events/:id/deals",
     { schema: { params: EventParams, response: { 200: z.array(DealResponse) } } },
@@ -184,7 +206,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
       const eventId = request.params.id;
 
       const capabilities = await requireEventCapability(request, eventId, "deal.view.own");
-      const viewer = await resolveDealViewer(request, eventId, capabilities);
+      const viewer = await resolveDealAuthority(request, eventId, capabilities);
 
       const deals = await database
         .select()
@@ -226,8 +248,14 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
       if (!principal) throw new Error("principal missing after authentication");
 
       const capabilities = await requireEventCapability(request, eventId, "deal.edit");
-      const viewer = await resolveDealViewer(request, eventId, capabilities);
+      const viewer = await resolveDealAuthority(request, eventId, capabilities);
       const body = request.body;
+
+      await assertPartiesAreEntitled(request, eventId, body.parties);
+      // A-02's create half: an agent's `deal.edit` is scoped to the performers it
+      // represents on this event — never a licence to author deals it has no
+      // standing on (and never one that makes the agent itself a party).
+      requireRepresentedParty(viewer, body.parties);
 
       const { statusCode, body: result } = await withIdempotency(
         request,
@@ -271,7 +299,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
               targetKind: "deal",
               targetId: deal.id,
               eventId,
-              after: serializeDeal(deal, parties, { viewerParticipantIds: [], isOperator: true }),
+              after: serializeDealUnredacted(deal, parties),
             });
             // Party-scoped activity — only the deal's parties (and operators) see it.
             await writeActivity(tx, request, {
@@ -292,18 +320,16 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // Read one deal — authorize via its event, then party-scope. Non-party,
-  // non-operator callers get a 404 (visibility is not an existence leak).
+  // Read one deal — authorize via its event, then party-scope. A caller who is not
+  // a party (directly or through a representation) gets a 404: visibility is not an
+  // existence leak, and being the host is not itself the grant (decisions #4).
   app.get(
     "/deals/:did",
     { schema: { params: DealParams, response: { 200: DealResponse } } },
     async (request) => {
       const deal = await loadDeal(request, request.params.did);
-      const capabilities = await requireEventCapability(request, deal.eventId, "deal.view.own");
-      const viewer = await resolveDealViewer(request, deal.eventId, capabilities);
-      const parties = await loadParties(request, deal.id);
-      if (!isDealVisible(parties, viewer)) throw notFound("Deal not found");
-      return serializeDeal(deal, parties, viewer);
+      const { authority, parties } = await requireDealAccess(request, deal, "deal.view.own");
+      return serializeDeal(deal, parties, authority);
     },
   );
 
@@ -314,8 +340,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
     async (request) => {
       const { database } = request.server;
       const before = await loadDeal(request, request.params.did);
-      const capabilities = await requireEventCapability(request, before.eventId, "deal.edit");
-      const viewer = await resolveDealViewer(request, before.eventId, capabilities);
+      const { authority: viewer } = await requireDealAccess(request, before, "deal.edit");
 
       const { expectedVersion, guaranteeAmount, advanceAmount, ...rest } = request.body;
       const fields = {
@@ -351,7 +376,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
         return after;
       });
 
-      const parties = await loadParties(request, updated.id);
+      const parties = await loadDealParties(request, updated.id);
       return serializeDeal(updated, parties, viewer);
     },
   );
@@ -365,8 +390,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
     async (request) => {
       const { database } = request.server;
       const deal = await loadDeal(request, request.params.did);
-      const capabilities = await requireEventCapability(request, deal.eventId, "agreement.manage");
-      const viewer = await resolveDealViewer(request, deal.eventId, capabilities);
+      const { authority: viewer } = await requireDealAccess(request, deal, "agreement.manage");
       if (deal.agreementStatus !== "draft") {
         throw conflict("Only a draft agreement can be sent");
       }
@@ -437,7 +461,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
 
       const deal = await loadDeal(request, request.params.did);
       const capabilities = await requireEventCapability(request, deal.eventId, "agreement.confirm");
-      const viewer = await resolveDealViewer(request, deal.eventId, capabilities);
+      const viewer = await resolveDealAuthority(request, deal.eventId, capabilities);
 
       const result = await database.transaction(async (tx) => {
         const parties = await tx
@@ -447,6 +471,11 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
         const mine = parties.filter((party) =>
           viewer.viewerParticipantIds.includes(party.participantId),
         );
+        // `mine` includes the lines of performers the caller represents as agent —
+        // A-03's fix: a delegated performer hands their `agreement.confirm` to their
+        // agent, so the agent signing the performer's OWN line is what unblocks the
+        // deal (docs/agent-representation.md: "the agent confirms the performer's own
+        // `deal_party` line"). It stamps that line and no other.
         if (mine.length === 0) throw badRequest("You are not a party to this deal");
 
         const now = new Date();
@@ -540,8 +569,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
       if (!principal) throw new Error("principal missing after authentication");
 
       const deal = await loadDeal(request, request.params.did);
-      const capabilities = await requireEventCapability(request, deal.eventId, "agreement.manage");
-      const viewer = await resolveDealViewer(request, deal.eventId, capabilities);
+      const { authority: viewer } = await requireDealAccess(request, deal, "agreement.manage");
       if (deal.agreementStatus !== "confirmed" && deal.agreementStatus !== "signed") {
         throw conflict("Only a confirmed agreement can be reopened");
       }
@@ -615,7 +643,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { database } = request.server;
       const before = await loadDeal(request, request.params.did);
-      await requireEventCapability(request, before.eventId, "deal.edit");
+      await requireDealAccess(request, before, "deal.edit");
 
       const expectedVersion = request.body?.expectedVersion;
       const where =

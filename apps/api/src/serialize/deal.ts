@@ -33,10 +33,19 @@ export interface SerializedDeal {
 }
 
 export interface DealViewer {
-  /** Participant ids the caller stands behind (their own deal-party lines). */
+  /**
+   * Participant ids the caller stands behind: their own participant rows PLUS the
+   * rows of performers they represent as an agent on this event (decisions #14 —
+   * resolved per deal via the representation, never an event-level grant).
+   */
   viewerParticipantIds: string[];
-  /** True only for managing operators (host/co_host) — they hold `budget.view`. */
-  isOperator: boolean;
+  /**
+   * True only for managing operators (host/co_host) — they hold `budget.view`.
+   * NOT a grant on its own: it widens the view to every party line, but only on a
+   * deal the operator is ITSELF a party to. Being the host is not visibility
+   * (decisions #4: "if you are not a `deal_party`, you cannot see the deal").
+   */
+  isManagingOperator: boolean;
 }
 
 function serializeParty(party: DealPartyRow): SerializedDealParty {
@@ -53,20 +62,35 @@ function serializeParty(party: DealPartyRow): SerializedDealParty {
 /**
  * Shape a deal by the caller's relationship to it — the field-level serializer,
  * server-side (PLAN "Deals model" + decisions #4). Party-scoping is the core rule:
- * an operator sees every party line; every other caller sees only the lines whose
- * `participantId` they stand behind (a performer sees only their own split, never a
- * co-performer's). Money is emitted as a decimal STRING (minor units), never a JS
- * number — the raw `bigint` is stringified at the boundary.
+ * every caller sees only the lines whose `participantId` they stand behind (a
+ * performer sees only their own split, never a co-performer's). The managing
+ * operator sees every line — but only on a deal it is a party to (payer / economic
+ * hub); that breadth is EMERGENT from party membership, never a `*.view.all`
+ * override. Money is emitted as a decimal STRING (minor units), never a JS number —
+ * the raw `bigint` is stringified at the boundary.
  */
 export function serializeDeal(
   deal: DealRow,
   parties: DealPartyRow[],
   viewer: DealViewer,
 ): SerializedDeal {
-  const visibleParties = viewer.isOperator
+  const seesEveryLine = viewer.isManagingOperator && isParty(parties, viewer);
+  const visibleParties = seesEveryLine
     ? parties
     : parties.filter((party) => viewer.viewerParticipantIds.includes(party.participantId));
 
+  return build(deal, visibleParties);
+}
+
+/**
+ * The FULL, unredacted shape — for the AUDIT LOG only, never a response body. The
+ * audit records what actually changed, which is not a party-scoped question.
+ */
+export function serializeDealUnredacted(deal: DealRow, parties: DealPartyRow[]): SerializedDeal {
+  return build(deal, parties);
+}
+
+function build(deal: DealRow, visibleParties: DealPartyRow[]): SerializedDeal {
   return {
     id: deal.id,
     eventId: deal.eventId,
@@ -86,8 +110,16 @@ export function serializeDeal(
   };
 }
 
-/** Is the deal visible to the caller at all? Visible iff operator OR a party on it. */
+/**
+ * Is the deal visible to the caller at all? PURE party-scoping (decisions #4): visible
+ * iff the caller stands behind one of its party lines. There is deliberately no
+ * operator override — a performer's private sub-hire (performer↔crew) has no operator
+ * party line, so the venue cannot see it.
+ */
 export function isDealVisible(parties: DealPartyRow[], viewer: DealViewer): boolean {
-  if (viewer.isOperator) return true;
+  return isParty(parties, viewer);
+}
+
+function isParty(parties: DealPartyRow[], viewer: DealViewer): boolean {
   return parties.some((party) => viewer.viewerParticipantIds.includes(party.participantId));
 }

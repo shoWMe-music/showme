@@ -1,7 +1,7 @@
 import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
@@ -34,7 +34,7 @@ const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 /** Seed a user + profile + active membership + a permission set, return the ids. */
 async function seedMemberWithSet(
   id: string,
-  kind: "operator" | "performer",
+  kind: "operator" | "performer" | "agent" | "team_and_crew",
   capabilities: readonly string[],
 ) {
   const { db } = harness;
@@ -262,5 +262,238 @@ describe("holds — confirm / decline (booked performer)", () => {
     expect(secondRow.holdRank).toBe(1);
     expect(thirdRow.status).toBe("on_hold");
     expect(thirdRow.holdRank).toBe(2);
+  });
+});
+
+/** Join an extra profile to an already-seeded event, with optional participant details. */
+async function addParticipant(
+  eventId: string,
+  member: { profileId: string; permissionSetId: string },
+  role: "performer" | "support" | "crew" | "agent",
+  details?: Record<string, unknown>,
+) {
+  await harness.db.insert(schema.eventParticipants).values({
+    eventId,
+    profileId: member.profileId,
+    role,
+    permissionSetId: member.permissionSetId,
+    status: "confirmed",
+    ...(details ? { details } : {}),
+  });
+}
+
+/** Stamp the booked performer's participation as delegated to `agentProfileId` (decisions #14). */
+async function delegateToAgent(
+  eventId: string,
+  performerProfileId: string,
+  agentProfileId: string,
+) {
+  await harness.db
+    .update(schema.eventParticipants)
+    .set({ details: { delegatedToAgentProfileId: agentProfileId } })
+    .where(
+      and(
+        eq(schema.eventParticipants.eventId, eventId),
+        eq(schema.eventParticipants.profileId, performerProfileId),
+      ),
+    );
+}
+
+/**
+ * A-04 — the date decision goes through the capability engine (`agreement.confirm`)
+ * PLUS the booked-act relationship, not a bare `role ∈ {performer, support}` string.
+ * Confirming writes `events.status` for the WHOLE event and cascade-cancels the
+ * competing holds, so only the act the date is held for — or the agent it delegated
+ * to — may take it.
+ */
+describe("holds — who may accept the date (A-04)", () => {
+  it("lets the booked performer confirm, but forbids a support act on the same event", async () => {
+    const operator = await seedMemberWithSet(
+      "a4-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "a4-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const support = await seedMemberWithSet(
+      "a4-support",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const [first, second] = await seedHoldPool("a4-support", "a4-op", operator, performer, 2);
+    if (!first || !second) throw new Error("seed failed");
+    await addParticipant(first, support, "support");
+
+    // The support act holds `agreement.confirm` for its OWN agreement — but the
+    // headliner's date is not theirs to take.
+    const supportConfirm = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/confirm`,
+      headers: auth("a4-support"),
+    });
+    expect(supportConfirm.statusCode).toBe(403);
+
+    // …nor to cancel: decline would cancel the show out from under the headliner.
+    const supportDecline = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/decline`,
+      headers: auth("a4-support"),
+    });
+    expect(supportDecline.statusCode).toBe(403);
+
+    // Nothing moved — the event and its competing sibling are untouched.
+    expect((await readEvent(first)).status).toBe("on_hold");
+    expect((await readEvent(second)).status).toBe("on_hold");
+
+    // The booked performer still can.
+    const booked = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/confirm`,
+      headers: auth("a4-perf"),
+    });
+    expect(booked.statusCode).toBe(200);
+    expect((await readEvent(first)).status).toBe("confirmed");
+    expect((await readEvent(second)).status).toBe("cancelled");
+  });
+
+  it("forbids a DELEGATED performer and lets their agent confirm instead", async () => {
+    const operator = await seedMemberWithSet(
+      "a4-op2",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "a4-perf2",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const agent = await seedMemberWithSet("a4-agent", "agent", PRESET_PERMISSION_SETS.agent);
+    const [first, second] = await seedHoldPool("a4-agent", "a4-op2", operator, performer, 2);
+    if (!first || !second) throw new Error("seed failed");
+    await delegateToAgent(first, performer.profileId, agent.profileId);
+    await addParticipant(first, agent, "agent");
+
+    // Delegation, not revocation: the performer keeps the view floor, and the
+    // action capability moved to the agent (decisions #14).
+    const delegatedPerformer = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/confirm`,
+      headers: auth("a4-perf2"),
+    });
+    expect(delegatedPerformer.statusCode).toBe(403);
+    expect(delegatedPerformer.json().error.message).toContain("agreement.confirm");
+    expect((await readEvent(first)).status).toBe("on_hold");
+
+    // The agent — whose job this is (story.md) — confirms for the act they represent.
+    const agentConfirm = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/confirm`,
+      headers: auth("a4-agent"),
+    });
+    expect(agentConfirm.statusCode).toBe(200);
+    expect((await readEvent(first)).status).toBe("confirmed");
+    expect((await readEvent(second)).status).toBe("cancelled");
+  });
+
+  it("forbids an agent who represents nobody booked on this event", async () => {
+    const operator = await seedMemberWithSet(
+      "a4-op3",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "a4-perf3",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const support = await seedMemberWithSet(
+      "a4-support3",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const agent = await seedMemberWithSet("a4-agent3", "agent", PRESET_PERMISSION_SETS.agent);
+    const [first] = await seedHoldPool("a4-agent3", "a4-op3", operator, performer, 2);
+    if (!first) throw new Error("seed failed");
+    // The agent represents the SUPPORT act only — not the act the date is held for.
+    await addParticipant(first, support, "support", {
+      delegatedToAgentProfileId: agent.profileId,
+    });
+    await addParticipant(first, agent, "agent");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/confirm`,
+      headers: auth("a4-agent3"),
+    });
+    expect(response.statusCode).toBe(403);
+    expect((await readEvent(first)).status).toBe("on_hold");
+  });
+
+  it("forbids crew — no `agreement.confirm` at all", async () => {
+    const operator = await seedMemberWithSet(
+      "a4-op4",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "a4-perf4",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const crew = await seedMemberWithSet(
+      "a4-crew",
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_technical,
+    );
+    const [first] = await seedHoldPool("a4-crew", "a4-op4", operator, performer, 2);
+    if (!first) throw new Error("seed failed");
+    await addParticipant(first, crew, "crew");
+
+    const confirm = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/confirm`,
+      headers: auth("a4-crew"),
+    });
+    expect(confirm.statusCode).toBe(403);
+
+    const decline = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/decline`,
+      headers: auth("a4-crew"),
+    });
+    expect(decline.statusCode).toBe(403);
+    expect((await readEvent(first)).status).toBe("on_hold");
+  });
+
+  it("hides the routes entirely from a stranger (404, no existence leak)", async () => {
+    const operator = await seedMemberWithSet(
+      "a4-op5",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "a4-perf5",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const stranger = await seedMemberWithSet(
+      "a4-stranger",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    expect(stranger.profileId).toBeTruthy();
+    const [first] = await seedHoldPool("a4-stranger", "a4-op5", operator, performer, 2);
+    if (!first) throw new Error("seed failed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/confirm`,
+      headers: auth("a4-stranger"),
+    });
+    expect(response.statusCode).toBe(404);
+    expect((await readEvent(first)).status).toBe("on_hold");
   });
 });
