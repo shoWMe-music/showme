@@ -1,5 +1,24 @@
 {
   "projects": {
-    "default": "demo-showme"
+    "default": "music-showme",
+    "app": "music-showme",
+    "marketing": "showme-production",
+    "emulator": "demo-showme"
+  },
+  "targets": {
+    "music-showme": {
+      "hosting": {
+        "web": [
+          "showme-app"
+        ]
+      }
+    },
+    "showme-production": {
+      "hosting": {
+        "marketing": [
+          "showme-production"
+        ]
+      }
+    }
   }
 }

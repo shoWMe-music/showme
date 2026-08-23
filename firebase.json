@@ -1,23 +1,82 @@
 {
   "emulators": {
-    "auth": { "port": 9099 },
-    "ui": { "enabled": false },
+    "auth": {
+      "port": 9099
+    },
+    "ui": {
+      "enabled": false
+    },
     "singleProjectMode": true
   },
-  "hosting": {
-    "public": "apps/marketing/dist",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "headers": [
-      {
-        "//": "HTML pages always revalidate — never serve a stale shell that points at old assets. All marketing pages are at the root, so *.html (not **/*.html, whose **/ wants a directory and skips root index.html).",
-        "source": "*.html",
-        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
-      },
-      {
-        "//": "Vanilla scene scripts have STABLE (unhashed) URLs, so they must revalidate on every load or a bug fix can sit behind a day-old cache. Vite's own bundle (main-<hash>.js / *.css) is content-hashed and safe to cache long.",
-        "source": "**/assets/@(hero-scene|chaos-order|feature-scroll|feature-visuals|ecosystem-galaxy|why-center).js",
-        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
-      }
-    ]
-  }
+  "hosting": [
+    {
+      "public": "apps/marketing/dist",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "headers": [
+        {
+          "//": "HTML pages always revalidate \u2014 never serve a stale shell that points at old assets. All marketing pages are at the root, so *.html (not **/*.html, whose **/ wants a directory and skips root index.html).",
+          "source": "*.html",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        },
+        {
+          "//": "Vanilla scene scripts have STABLE (unhashed) URLs, so they must revalidate on every load or a bug fix can sit behind a day-old cache. Vite's own bundle (main-<hash>.js / *.css) is content-hashed and safe to cache long.",
+          "source": "**/assets/@(hero-scene|chaos-order|feature-scroll|feature-visuals|ecosystem-galaxy|why-center).js",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        }
+      ],
+      "target": "marketing"
+    },
+    {
+      "//": "The React SPA. Every path must serve index.html so TanStack Router owns routing; the hashed Vite bundle is immutable, so it caches hard while the shell revalidates.",
+      "target": "web",
+      "public": "apps/web/dist",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "rewrites": [
+        {
+          "source": "**",
+          "destination": "/index.html"
+        }
+      ],
+      "headers": [
+        {
+          "//": "Catch-all: every non-asset path serves the SPA shell (via the rewrite), and a cached shell points at asset hashes that no longer exist after a deploy.",
+          "source": "**",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        },
+        {
+          "//": "Re-asserted AFTER the catch-all so it wins for the content-hashed bundle, whose filename changes whenever its content does.",
+          "source": "/assets/**",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "public, max-age=31536000, immutable"
+            }
+          ]
+        }
+      ]
+    }
+  ]
 }
