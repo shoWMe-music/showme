@@ -96,6 +96,7 @@ import type {
   GetApiV1PublicProfilesSlugAvailability200,
   GetApiV1Representations200Item,
   GetApiV1RepresentationsIdDelegatableEvents200,
+  GetApiV1Settlements200,
   GetApiV1SharesToken200,
   GetApiV1Tasks200,
   GetApiV1TasksParams,
@@ -2455,7 +2456,93 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    export const getApiV1EventsIdSettlements = (
+    export const getApiV1Settlements = (
+    
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1Settlements200>(
+      {url: `/api/v1/settlements`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1SettlementsQueryKey = () => {
+    return [
+    `/api/v1/settlements`
+    ] as const;
+    }
+
+    
+export const getGetApiV1SettlementsQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1Settlements>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1Settlements>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1SettlementsQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1Settlements>>> = ({ signal }) => getApiV1Settlements(signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1Settlements>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1SettlementsQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1Settlements>>>
+export type GetApiV1SettlementsQueryError = unknown
+
+
+export function useGetApiV1Settlements<TData = Awaited<ReturnType<typeof getApiV1Settlements>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1Settlements>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1Settlements>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1Settlements>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1Settlements<TData = Awaited<ReturnType<typeof getApiV1Settlements>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1Settlements>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1Settlements>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1Settlements>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1Settlements<TData = Awaited<ReturnType<typeof getApiV1Settlements>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1Settlements>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1Settlements<TData = Awaited<ReturnType<typeof getApiV1Settlements>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1Settlements>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1SettlementsQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const getApiV1EventsIdSettlements = (
     id: string,
  signal?: AbortSignal
 ) => {

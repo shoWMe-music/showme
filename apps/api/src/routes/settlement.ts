@@ -8,7 +8,7 @@ import {
   reconcile,
 } from "@showme/settlement";
 import { convertMinorUnits } from "@showme/shared";
-import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -20,6 +20,7 @@ import { loadRatesToBase } from "../lib/exchange-rate";
 import { notifyUsers, settlementRecipients } from "../lib/notify";
 import { withIdempotency } from "../plugins/idempotency";
 import {
+  type SerializedBreakdown,
   type SerializedSummary,
   serializeBreakdown,
   serializeCommission,
@@ -75,6 +76,28 @@ const SettlementResponse = z.object({
   status: z.string(),
   computed: BreakdownResponse.nullable(),
   version: z.number(),
+});
+
+/** One of the caller's own settlements, with just enough event context to list it. */
+const MySettlementsResponse = z.object({
+  items: z.array(
+    z.object({
+      id: z.string(),
+      status: z.string(),
+      version: z.number(),
+      participantId: z.string().nullable(),
+      /** The viewer's own figures; null until the event has been computed. */
+      entitlement: z.string().nullable(),
+      net: z.string().nullable(),
+      currency: z.string(),
+      event: z.object({
+        id: z.string(),
+        title: z.string(),
+        eventDate: z.string().nullable(),
+        status: z.string(),
+      }),
+    }),
+  ),
 });
 
 const SettlementsResponse = z.object({
@@ -314,6 +337,77 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
 
   // Read: an operator (budget.view) sees every settlement/transfer; anyone else
   // sees only their own lines (participant-scoped, per decisions #4).
+  // The caller's OWN settlements across every event — what the Settlements screen is a
+  // list of. Everything else here is event-scoped, so that screen had nothing to read and
+  // fell back to listing events with an empty payout column (audit A-35).
+  //
+  // Party-scoped like the event-scoped read, but folded into the SQL rather than fetched
+  // and filtered: the joins from the caller's memberships through their participant rows
+  // ARE the access rule, so a settlement that is not theirs never leaves Postgres.
+  // Representation-scoped rows (the private agent commission) are excluded — they are
+  // surfaced separately, per event, to the two parties only (decisions #14).
+  app.get(
+    "/settlements",
+    { schema: { response: { 200: MySettlementsResponse } } },
+    async (request) => {
+      const { database } = request.server;
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+
+      const profileIds = principal.memberships.map((membership) => membership.profileId);
+      if (profileIds.length === 0) return { items: [] };
+
+      const rows = await database
+        .select({
+          id: schema.settlements.id,
+          status: schema.settlements.status,
+          computed: schema.settlements.computed,
+          version: schema.settlements.version,
+          participantId: schema.settlements.participantId,
+          eventId: schema.events.id,
+          eventTitle: schema.events.title,
+          eventDate: schema.events.eventDate,
+          eventStatus: schema.events.status,
+          baseCurrency: schema.events.baseCurrency,
+        })
+        .from(schema.settlements)
+        .innerJoin(
+          schema.eventParticipants,
+          eq(schema.eventParticipants.id, schema.settlements.participantId),
+        )
+        .innerJoin(schema.events, eq(schema.events.id, schema.settlements.eventId))
+        .where(
+          and(
+            inArray(schema.eventParticipants.profileId, profileIds),
+            isNull(schema.settlements.representationId),
+          ),
+        )
+        .orderBy(desc(schema.events.eventDate));
+
+      return {
+        items: rows.map((row) => {
+          const computed = (row.computed as SerializedBreakdown | null) ?? null;
+          return {
+            id: row.id,
+            status: row.status,
+            version: row.version,
+            participantId: row.participantId,
+            // The viewer's own figures — this row is theirs by construction above.
+            entitlement: computed?.entitlement ?? null,
+            net: computed?.net ?? null,
+            currency: row.baseCurrency,
+            event: {
+              id: row.eventId,
+              title: row.eventTitle,
+              eventDate: row.eventDate,
+              status: row.eventStatus,
+            },
+          };
+        }),
+      };
+    },
+  );
+
   app.get(
     "/events/:id/settlements",
     { schema: { params: EventParams, response: { 200: SettlementsResponse } } },

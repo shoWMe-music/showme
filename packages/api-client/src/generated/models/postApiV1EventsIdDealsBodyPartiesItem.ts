@@ -5,9 +5,10 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { PostApiV1EventsIdDealsBodyPartiesItemRoleInDeal } from './postApiV1EventsIdDealsBodyPartiesItemRoleInDeal';
+import type { PostApiV1EventsIdDealsBodyPartiesItemShare } from './postApiV1EventsIdDealsBodyPartiesItemShare';
 
 export type PostApiV1EventsIdDealsBodyPartiesItem = {
   participantId: string;
   roleInDeal: PostApiV1EventsIdDealsBodyPartiesItemRoleInDeal;
-  share?: unknown;
+  share?: PostApiV1EventsIdDealsBodyPartiesItemShare;
 };

@@ -1,0 +1,17 @@
+[   48219ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:5180/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5180/@vite/client:1034
+[   49224ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:5180/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5180/@vite/client:1034
+[   50229ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:5180/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5180/@vite/client:1034
+[   51234ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:5180/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5180/@vite/client:1034
+[   52240ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:5180/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5180/@vite/client:1034
+[   53247ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:5180/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5180/@vite/client:1034
+[   54257ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:5180/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5180/@vite/client:1034
+[   55279ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:5180/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5180/@vite/client:1034
+[   56306ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:5180/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5180/@vite/client:1034
+[   57339ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:5180/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5180/@vite/client:1034
+[   58438ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:5180/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5180/@vite/client:1034
+[   59534ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:5180/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5180/@vite/client:1034
+[   60754ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:5180/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5180/@vite/client:1034
+[   61272ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8081/stream:0
+[   61272ms] [WARNING] realtime stream dropped TypeError: Failed to fetch
+    at connect (http://127.0.0.1:5180/src/hooks/useRealtimeStream.ts?t=1787507640659:50:32) @ http://127.0.0.1:5180/src/hooks/useRealtimeStream.ts?t=1787507640659:73
+[   62689ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:5180/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5180/@vite/client:1034

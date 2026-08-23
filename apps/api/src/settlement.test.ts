@@ -767,10 +767,7 @@ describe("settlement — per-party split shares (A-01 regression)", () => {
     const bPart = parts.find((row) => row.profileId === actB.profileId)?.id as string;
 
     // Pool = 1 000 000 revenue − 150 000 cost = 850 000, all of it to the split.
-    const [budget] = await db
-      .insert(schema.budgets)
-      .values({ eventId: event.id })
-      .returning();
+    const [budget] = await db.insert(schema.budgets).values({ eventId: event.id }).returning();
     if (!budget) throw new Error("budget seed failed");
     await db.insert(schema.budgetLines).values([
       {
@@ -871,5 +868,77 @@ describe("settlement — per-party split shares (A-01 regression)", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().error.message).toContain("splitBasisPoints");
+  });
+});
+
+describe("settlement — GET /settlements (the caller's own, across events)", () => {
+  /**
+   * The Settlements screen lists settlements, not events (audit A-35). This endpoint is
+   * what it reads, so its scoping is the thing standing between a performer and someone
+   * else's money — asserted here rather than trusted to the caller.
+   */
+  it("returns only the caller's own rows, with their own figures", async () => {
+    const seed = await seedWorkedExample("mine");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const asBand = await app.inject({
+      method: "GET",
+      url: "/api/v1/settlements",
+      headers: auth("mine-band"),
+    });
+
+    expect(asBand.statusCode).toBe(200);
+    const items = asBand.json().items;
+    expect(items).toHaveLength(1);
+    expect(items[0].participantId).toBe(seed.bPart);
+    expect(items[0].entitlement).toBe("300000");
+    expect(items[0].event.id).toBe(seed.event.id);
+    expect(items[0].currency).toBe("SEK");
+  });
+
+  it("gives each party a different row for the same event", async () => {
+    const seed = await seedWorkedExample("mine-two");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const band = await app.inject({
+      method: "GET",
+      url: "/api/v1/settlements",
+      headers: auth("mine-two-band"),
+    });
+    const venue = await app.inject({
+      method: "GET",
+      url: "/api/v1/settlements",
+      headers: auth("mine-two-venue"),
+    });
+
+    expect(band.json().items[0].participantId).toBe(seed.bPart);
+    expect(venue.json().items[0].participantId).toBe(seed.vPart);
+    expect(band.json().items[0].entitlement).not.toBe(venue.json().items[0].entitlement);
+  });
+
+  it("is empty for someone with no settlements rather than erroring", async () => {
+    const outsider = await seedMemberWithSet(
+      "mine-outsider",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    expect(outsider.profileId).toBeTruthy();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/settlements",
+      headers: auth("mine-outsider"),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().items).toEqual([]);
   });
 });
