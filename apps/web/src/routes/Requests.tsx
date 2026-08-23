@@ -23,7 +23,7 @@ import { dayKey } from "../components/calendarGrid";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
 import { errorMessage } from "../lib/errors";
-import { formatAmount, formatDate, formatMoney } from "../lib/format";
+import { formatAmount, formatDate, formatMoney, relativeTime } from "../lib/format";
 
 type RequestItem = Awaited<ReturnType<typeof getApiV1BookingRequests>>["items"][number];
 
@@ -55,18 +55,6 @@ function initials(label: string): string {
   const last = parts[parts.length - 1];
   if (parts.length === 1 || !last) return first.slice(0, 2).toUpperCase();
   return ((first[0] ?? "") + (last[0] ?? "")).toUpperCase();
-}
-
-function relativeTime(iso: string): string {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return "";
-  const seconds = Math.round((Date.now() - then) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
 }
 
 function requesterName(request: RequestItem): string {

@@ -3,6 +3,8 @@ import { Avatar, Button, Icon, type IconName, Input, SidebarItem } from "@showme
 import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
+import { NotificationBell } from "../components/NotificationBell";
+import { useRealtimeStream } from "../hooks/useRealtimeStream";
 import { NewEventProvider, TopbarNewEventButton } from "./NewEventProvider";
 import { usePageTransition } from "./usePageTransition";
 
@@ -117,6 +119,11 @@ export function AppShell() {
   const [collapsed, setCollapsed] = useState(false);
   const [userMenu, setUserMenu] = useState(false);
   const pageRef = usePageTransition(pathname);
+
+  // One SSE subscription for the whole session, mounted here because the shell is
+  // the only component alive for all of it. Frames invalidate queries; no component
+  // reads the stream directly.
+  useRealtimeStream(import.meta.env.VITE_STREAM_URL);
 
   // The Requests badge is the count of pending INCOMING booking requests (the
   // default direction), i.e. what is waiting on this user to triage.
@@ -240,7 +247,7 @@ export function AppShell() {
             >
               <Icon name={light ? "moon" : "sun"} size={18} />
             </button>
-            <Button variant="ghost" leftIcon={<Icon name="bell" />} aria-label="Notifications" />
+            <NotificationBell />
             <TopbarNewEventButton />
           </header>
           <main className="content">

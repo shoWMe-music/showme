@@ -38,3 +38,20 @@ export function formatDate(
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleDateString("en-GB", options);
 }
+
+/**
+ * Human-friendly age of an ISO timestamp ("just now", "5m ago", "3d ago").
+ * Returns "" for an unparseable value so a bad timestamp renders as nothing
+ * rather than "NaN ago".
+ */
+export function relativeTime(iso: string): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "";
+  const seconds = Math.round((Date.now() - then) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}

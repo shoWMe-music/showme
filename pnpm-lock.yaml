@@ -185,6 +185,9 @@ importers:
 
   apps/stream:
     dependencies:
+      '@fastify/cors':
+        specifier: ^11.3.0
+        version: 11.3.0
       '@showme/auth':
         specifier: workspace:*
         version: link:../../packages/auth

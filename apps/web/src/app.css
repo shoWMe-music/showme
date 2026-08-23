@@ -279,3 +279,104 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Notification bell ─────────────────────────────────────────────────────
+   Anchors the unread badge and the panel; mirrors .sidebar__usermenu's
+   scrim-plus-floating-card pattern so both dropdowns behave the same. */
+.notifications {
+  position: relative;
+  display: inline-flex;
+}
+.notifications__count {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--danger, #ee5746);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
+}
+.notifications__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+.notifications__panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 21;
+  width: min(340px, calc(100vw - 32px));
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+.notifications__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px 8px;
+}
+.notifications__title {
+  font-weight: 600;
+  font-size: 14px;
+}
+.notifications__empty {
+  margin: 0;
+  padding: 16px 8px;
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+}
+.notifications__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.notifications__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  border-radius: 10px;
+}
+.notifications__item + .notifications__item {
+  border-top: 1px solid var(--border);
+}
+/* Unread carries a tint AND the dot, so the state never relies on colour alone. */
+.notifications__item--unread {
+  background: var(--elevated);
+}
+.notifications__item--unread .notifications__itemtitle::before {
+  content: "•";
+  margin-right: 6px;
+  color: var(--danger, #ee5746);
+}
+.notifications__itemtitle {
+  font-size: 14px;
+  font-weight: 500;
+}
+.notifications__itembody {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.notifications__itemtime {
+  color: var(--text-muted);
+  font-size: 12px;
+}
