@@ -14,6 +14,14 @@ describe("capability catalog", () => {
     expect(isCapability("settlement.destroy")).toBe(false);
   });
 
+  it("carries `setlist.author` — authorship is its own capability, not `schedule.*` (A-23)", () => {
+    // The run-of-show is the operator's/crew's; the setlist is the act's artistic
+    // content (decisions.md "Setlists"). Gating authorship on `schedule.view` let
+    // every participant on the event write one.
+    expect(isCapability("setlist.author")).toBe(true);
+    expect(isCapability("setlist.edit")).toBe(false);
+  });
+
   it("omits the *.view.all overrides dropped in decisions #4 (pure party-scoping)", () => {
     // Deal/settlement visibility is *only* party membership — there is no
     // see-everything capability. If these ever reappear, it's a regression.

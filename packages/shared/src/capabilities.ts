@@ -35,6 +35,11 @@ export const CAPABILITIES = [
   "rider.view",
   "schedule.view",
   "schedule.edit",
+  // Authoring the ACT's setlist. Deliberately its own capability, not
+  // `schedule.*`: the run-of-show is the operator's and the crew's, the setlist
+  // is the performer's artistic content (decisions.md "Setlists" — performer
+  // authors, operator only *reports* on it, crew see it only when shared).
+  "setlist.author",
   "crew.manage",
   "crew.submit",
   "agreement.manage",

@@ -46,6 +46,10 @@ export const PRESET_PERMISSION_SETS = {
     "settlement.confirm",
     "rider.submit",
     "schedule.view",
+    // The setlist is the act's own artistic content — the performer authors it,
+    // the operator only files the PRO report derived from it (decisions.md
+    // "Setlists"). Deliberately absent from the operator, agent and crew presets.
+    "setlist.author",
     "message.post",
   ],
   // Crew tiers — the transparency dial per crew person (decisions #12). Schedule-only
@@ -149,6 +153,7 @@ const PERFORMER_FLOOR: readonly Capability[] = [
   "settlement.view.own",
   "schedule.view",
   "rider.submit",
+  "setlist.author",
   "settlement.confirm",
   "agreement.confirm",
   // Bring their own (sub-hire) crew — sponsored by the performer, scoped to the
@@ -169,14 +174,22 @@ const CREW_LEAD_FLOOR: readonly Capability[] = [...CREW_FLOOR, "crew.submit"];
 
 /**
  * When a performer's participation is DELEGATED to their agent (decisions #14),
- * they keep only their VIEW floor — the action capabilities (confirm/approve) move
- * to the agent. Delegation, not revocation: they still see their own slice.
+ * they keep their VIEW floor plus artistic authorship — the BUSINESS action
+ * capabilities (confirm/approve) move to the agent. Delegation, not revocation:
+ * they still see their own slice, and they still write their own setlist.
  */
 const DELEGATED_PERFORMER_FLOOR: readonly Capability[] = [
   "event.view",
   "deal.view.own",
   "settlement.view.own",
   "schedule.view",
+  // Authoring the setlist stays with the ACT even under full delegation. What a
+  // performer hands an agent is BUSINESS authority (negotiate, confirm, approve),
+  // never artistic content — story.md's boundary between the two kinds. Dropping
+  // it here would leave nobody able to author: the agent preset does not carry it
+  // (and the ceiling refuses it to an `agent` event role anyway), so the setlist
+  // would be unwritable for exactly the acts that have representation.
+  "setlist.author",
 ];
 
 /**
@@ -184,7 +197,7 @@ const DELEGATED_PERFORMER_FLOOR: readonly Capability[] = [
  * operator can never strip. Unioned into `effective` regardless of the
  * permission set. Operators/agents get their real authority from the band. When
  * `delegated` (a performer represented by an agent on this event), the floor
- * drops to view-only.
+ * drops to view-only plus `setlist.author` (business moves, artistry does not).
  */
 export function baselineCapabilities(role: EventRole, delegated = false): readonly Capability[] {
   if (delegated && (role === "performer" || role === "support")) {
@@ -211,11 +224,27 @@ const POOL_CAPABILITIES: ReadonlySet<Capability> = new Set([
 ]);
 
 /**
+ * The ACT's own artistic content — authorable only by the act itself. Not even a
+ * managing operator may be granted it: the operator *consumes* the setlist (the
+ * PRO report) and the agent carries business authority, neither writes the songs
+ * (decisions.md "Setlists"; story.md's operator/agent boundary).
+ */
+const PERFORMER_AUTHORED_CAPABILITIES: ReadonlySet<Capability> = new Set(["setlist.author"]);
+
+/** The event roles that ARE the act — the only ones who may author its content. */
+const PERFORMING_EVENT_ROLES: ReadonlySet<EventRole> = new Set(["performer", "support"]);
+
+/**
  * The CEILING (decisions #4): what a relationship may be granted at all. Only the
  * managing operators (host/co_host) may ever hold pool/budget visibility — an
  * arm's-length party can never be granted it, even if a permission set lists it.
  */
 export function isGrantable(capability: Capability, role: EventRole): boolean {
+  // Checked BEFORE the operator short-circuit — host/co_host are not exempt from
+  // the artistic boundary the way they are exempt from the pool ceiling.
+  if (PERFORMER_AUTHORED_CAPABILITIES.has(capability)) {
+    return PERFORMING_EVENT_ROLES.has(role);
+  }
   if (OPERATOR_EVENT_ROLES.has(role)) {
     return true;
   }
