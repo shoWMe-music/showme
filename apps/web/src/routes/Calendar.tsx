@@ -1,9 +1,4 @@
-import {
-  type getApiV1Calendar,
-  type getApiV1Events,
-  useGetApiV1Calendar,
-  useGetApiV1Events,
-} from "@showme/api-client";
+import { type getApiV1Calendar, useGetApiV1Calendar } from "@showme/api-client";
 import { Card, Icon, type Status, useToast } from "@showme/design-system";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
@@ -13,11 +8,11 @@ import { CalendarCreatePopover } from "../components/CalendarCreatePopover";
 import { buildMonthGrid, dayKey, monthTitle } from "../components/calendarGrid";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
+import { type EventItem, useAllEvents } from "../hooks/useEventList";
 import { apiStatusToDisplay } from "../lib/status";
 import { useNewEvent } from "../shell/NewEventProvider";
 
 type CalendarItem = Awaited<ReturnType<typeof getApiV1Calendar>>[number];
-type EventItem = Awaited<ReturnType<typeof getApiV1Events>>["items"][number];
 
 type CalendarView = "month" | "week" | "day";
 
@@ -220,7 +215,8 @@ export function Calendar() {
   const to = dayKey(new Date(month.getFullYear(), month.getMonth() + 1, 0));
 
   const calendar = useGetApiV1Calendar({ from, to });
-  const events = useGetApiV1Events();
+  // Every event: the grid is a month of the whole schedule, not of page one.
+  const events = useAllEvents();
 
   const calendarEvents = useMemo<CalendarEvent[]>(() => {
     const items: CalendarItem[] = calendar.data ?? [];
@@ -235,7 +231,7 @@ export function Calendar() {
     }
     // Fallback: map dated events onto the grid when the calendar is sparse.
     // These are real events, so tag them with eventId to click through.
-    const evented: EventItem[] = events.data?.items ?? [];
+    const evented: EventItem[] = events.items;
     return evented
       .filter((event) => event.eventDate)
       .map((event) => ({
@@ -245,7 +241,7 @@ export function Calendar() {
         eventName: event.title,
         status: apiStatusToDisplay(event.status).status,
       }));
-  }, [calendar.data, events.data]);
+  }, [calendar.data, events.items]);
 
   // Client-only text filters over the real events (no server filter endpoint).
   const visibleEvents = useMemo<CalendarEvent[]>(() => {

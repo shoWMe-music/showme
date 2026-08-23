@@ -4,7 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
-import type { GetApiV1EventsStatus } from './getApiV1EventsStatus';
+import type { GetApiV1EventsStatusItem } from './getApiV1EventsStatusItem';
 
 export type GetApiV1EventsParams = {
 cursor?: string;
@@ -13,5 +13,8 @@ cursor?: string;
  * @maximum 100
  */
 limit?: number;
-status?: GetApiV1EventsStatus;
+/**
+ * @minItems 1
+ */
+status?: GetApiV1EventsStatusItem[];
 };

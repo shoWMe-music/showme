@@ -1,5 +1,5 @@
 import { schema } from "@showme/db";
-import { and, asc, eq, exists, ne, sql } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, ne, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -17,10 +17,36 @@ interface EventCursor {
   id: string;
 }
 
+const EventStatus = z.enum([
+  "draft",
+  "suggested",
+  "pending",
+  "confirmed",
+  "on_hold",
+  "concluded",
+  "cancelled",
+]);
+
+/**
+ * `?status=pending` or `?status=pending,suggested` — one status or a list.
+ *
+ * The list is not a convenience: a status CHIP in the UI does not always map to
+ * one row value. "Pending" means an event awaiting a response, which is
+ * `pending` OR `suggested` (an offer someone else has yet to answer). With only
+ * a single-value filter that chip could be honest only by filtering in the
+ * browser, i.e. over the current page — so the answer would depend on how far
+ * the reader had scrolled. One query, one complete answer.
+ *
+ * A comma-separated value is split here; repeated params (`?status=a&status=b`)
+ * already arrive as an array and pass straight through.
+ */
+const StatusFilter = z.preprocess(
+  (value) => (typeof value === "string" ? value.split(",").filter(Boolean) : value),
+  z.array(EventStatus).min(1),
+);
+
 const ListQuery = PaginationQuery.extend({
-  status: z
-    .enum(["draft", "suggested", "pending", "confirmed", "on_hold", "concluded", "cancelled"])
-    .optional(),
+  status: StatusFilter.optional(),
 });
 
 const EventResponse = z.object({
@@ -99,7 +125,9 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
       const rows = await database
         .select()
         .from(schema.events)
-        .where(and(reachable, status ? eq(schema.events.status, status) : undefined, afterCursor))
+        .where(
+          and(reachable, status ? inArray(schema.events.status, status) : undefined, afterCursor),
+        )
         .orderBy(asc(createdAtMillis), asc(schema.events.id))
         .limit(limit + 1);
 

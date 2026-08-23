@@ -1,8 +1,4 @@
-import {
-  type getApiV1BookingRequests,
-  useGetApiV1BookingRequests,
-  usePostApiV1BookingRequestsIdFlagSpam,
-} from "@showme/api-client";
+import { usePostApiV1BookingRequestsIdFlagSpam } from "@showme/api-client";
 import {
   Badge,
   Card,
@@ -12,7 +8,6 @@ import {
   type Status,
   useToast,
 } from "@showme/design-system";
-import { useMemo, useState } from "react";
 import {
   MiniMonthCalendar,
   RequestCard,
@@ -22,10 +17,9 @@ import {
 import { dayKey } from "../components/calendarGrid";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
+import { type RequestItem, useRequestInbox } from "../hooks/useRequestInbox";
 import { errorMessage } from "../lib/errors";
 import { formatAmount, formatDate, formatMoney, relativeTime } from "../lib/format";
-
-type RequestItem = Awaited<ReturnType<typeof getApiV1BookingRequests>>["items"][number];
 
 /** Booking-request status → design-system status vocabulary + a display label. */
 const REQUEST_STATUS: Record<string, { status: Status; label: string }> = {
@@ -37,7 +31,9 @@ const REQUEST_STATUS: Record<string, { status: Status; label: string }> = {
   expired: { status: "draft", label: "Expired" },
 };
 
-/** The status filter chips (main column), in shot order. */
+/** The status filter chips (main column), in shot order. They narrow the right
+ * column only — the calendar, the date rail and the "N pending" badge always
+ * describe the whole inbox, which is why `useRequestInbox` holds all of it. */
 const FILTERS: { key: string; label: string }[] = [
   { key: "all", label: "All" },
   { key: "pending", label: "Pending" },
@@ -125,13 +121,27 @@ function toCardData(request: RequestItem): RequestCardData {
 
 export function Requests() {
   const toast = useToast();
-  const [selectedDay, setSelectedDay] = useState<string | undefined>(undefined);
-  const [month, setMonth] = useState(() => new Date());
-  const [filter, setFilter] = useState("all");
-  // Incoming = requests targeting me; Outgoing = offers/requests I have sent (fix-list #6).
-  const [direction, setDirection] = useState<"incoming" | "outgoing">("incoming");
-
-  const { data, isPending, isError, error, refetch } = useGetApiV1BookingRequests({ direction });
+  // Incoming = requests targeting me; Outgoing = offers/requests I have sent
+  // (fix-list #6) — answered by the server, over every page of the inbox.
+  const {
+    direction,
+    setDirection,
+    filter,
+    setFilter,
+    selectedDay,
+    toggleDay,
+    selectDay,
+    month,
+    moveMonth,
+    requests,
+    visible,
+    pendingCount,
+    markedDates,
+    isPending,
+    isError,
+    error,
+    refetch,
+  } = useRequestInbox();
   const flagSpam = usePostApiV1BookingRequestsIdFlagSpam({
     mutation: {
       onSuccess: () => {
@@ -157,27 +167,6 @@ export function Requests() {
           onArchive: () => toast.info("Archive flow coming soon"),
         }
       : {};
-
-  const requests = data?.items ?? [];
-  const pendingCount = requests.filter((request) => request.status === "pending").length;
-
-  const markedDates = useMemo(
-    () =>
-      requests
-        .filter((request) => request.wantedDate)
-        .map((request) => dayKey(new Date(request.wantedDate as string))),
-    [requests],
-  );
-
-  const visible = requests.filter((request) => {
-    if (filter !== "all" && request.status !== filter) return false;
-    if (
-      selectedDay &&
-      (!request.wantedDate || dayKey(new Date(request.wantedDate)) !== selectedDay)
-    )
-      return false;
-    return true;
-  });
 
   return (
     <>
@@ -227,18 +216,10 @@ export function Requests() {
               month={month}
               markedDates={markedDates}
               selected={selectedDay}
-              onSelect={(day) => setSelectedDay((current) => (current === day ? undefined : day))}
-              onNavigate={(offset) =>
-                setMonth(
-                  (current) => new Date(current.getFullYear(), current.getMonth() + offset, 1),
-                )
-              }
+              onSelect={toggleDay}
+              onNavigate={moveMonth}
             />
-            <RequestsByDate
-              requests={requests}
-              selectedDay={selectedDay}
-              onSelectDay={setSelectedDay}
-            />
+            <RequestsByDate requests={requests} selectedDay={selectedDay} onSelectDay={selectDay} />
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>

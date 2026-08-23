@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.0.0
  */
 
-export type GetApiV1EventsStatus = typeof GetApiV1EventsStatus[keyof typeof GetApiV1EventsStatus];
+export type GetApiV1EventsStatusItem = typeof GetApiV1EventsStatusItem[keyof typeof GetApiV1EventsStatusItem];
 
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const GetApiV1EventsStatus = {
+export const GetApiV1EventsStatusItem = {
   draft: 'draft',
   suggested: 'suggested',
   pending: 'pending',

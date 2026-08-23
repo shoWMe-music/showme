@@ -143,6 +143,105 @@ describe("GET /events — access-scoped list", () => {
     expect(second.json().items[0].id).not.toBe(first.json().items[0].id);
   });
 
+  it("filters by a single status, server-side", async () => {
+    const caller = await seedMemberWithSet(
+      "st-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const draft = await seedHostedEvent("Shelved", caller, "st-op", { status: "draft" });
+    await seedHostedEvent("Locked in", caller, "st-op", { status: "confirmed" });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/events?status=draft",
+      headers: auth("st-op"),
+    });
+    expect(response.statusCode).toBe(200);
+    const items = response.json().items as { id: string; status: string }[];
+    expect(items.map((event) => event.id)).toEqual([draft.id]);
+  });
+
+  // The UI's "Pending" chip means pending OR suggested. Before the list-valued
+  // `status` the only honest way to answer it was to filter in the browser —
+  // over page one. `?status=pending,suggested` used to be a 400 (not in the enum).
+  it("accepts a comma-separated status list, so one chip is one query", async () => {
+    const caller = await seedMemberWithSet(
+      "stl-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const pending = await seedHostedEvent("Awaiting reply", caller, "stl-op", {
+      status: "pending",
+    });
+    const suggested = await seedHostedEvent("Offered", caller, "stl-op", { status: "suggested" });
+    await seedHostedEvent("Locked in", caller, "stl-op", { status: "confirmed" });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/events?status=pending,suggested",
+      headers: auth("stl-op"),
+    });
+    expect(response.statusCode).toBe(200);
+    const ids = (response.json().items as { id: string }[]).map((event) => event.id);
+    expect(new Set(ids)).toEqual(new Set([pending.id, suggested.id]));
+
+    // The browser sends it percent-encoded (`URLSearchParams` escapes the comma),
+    // so the same query has to survive that spelling too.
+    const encoded = await app.inject({
+      method: "GET",
+      url: "/api/v1/events?status=pending%2Csuggested",
+      headers: auth("stl-op"),
+    });
+    expect(encoded.statusCode).toBe(200);
+    expect((encoded.json().items as { id: string }[]).map((event) => event.id).sort()).toEqual(
+      ids.sort(),
+    );
+  });
+
+  it("keeps the status filter across pages, so page two is still filtered", async () => {
+    const caller = await seedMemberWithSet(
+      "stp-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const first = await seedHostedEvent("Offer one", caller, "stp-op", { status: "suggested" });
+    const second = await seedHostedEvent("Offer two", caller, "stp-op", { status: "pending" });
+    await seedHostedEvent("Not in this filter", caller, "stp-op", { status: "confirmed" });
+
+    const page1 = await app.inject({
+      method: "GET",
+      url: "/api/v1/events?status=pending,suggested&limit=1",
+      headers: auth("stp-op"),
+    });
+    expect(page1.statusCode).toBe(200);
+    expect(page1.json().items).toHaveLength(1);
+    expect(page1.json().nextCursor).toBeTypeOf("string");
+
+    const page2 = await app.inject({
+      method: "GET",
+      url: `/api/v1/events?status=pending,suggested&limit=1&cursor=${encodeURIComponent(page1.json().nextCursor)}`,
+      headers: auth("stp-op"),
+    });
+    expect(page2.statusCode).toBe(200);
+    const seen = [page1.json().items[0].id, page2.json().items[0].id];
+    expect(new Set(seen)).toEqual(new Set([first.id, second.id]));
+    // The confirmed event never appears, on either page.
+    expect(page2.json().nextCursor).toBeNull();
+  });
+
+  it("rejects a status that is not an event status", async () => {
+    await seedMemberWithSet("stx-op", "operator", PRESET_PERMISSION_SETS.operator_full);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/events?status=pending,not_a_status",
+      headers: auth("stx-op"),
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toContain("not_a_status");
+  });
+
   it("serializes operator-only fields for the caller", async () => {
     const caller = await seedMemberWithSet(
       "sr-op",

@@ -84,6 +84,8 @@ export function Invoices() {
     query: { enabled: Boolean(profileId) },
   });
 
+  // `GET /profiles/:id/invoices` returns the profile's whole ledger — no cursor,
+  // no query parameters — so the tabs and the KPIs below are over all of it.
   const invoices = data ?? [];
   const visible =
     tab === "recurring"

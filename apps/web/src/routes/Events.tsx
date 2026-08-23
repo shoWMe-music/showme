@@ -1,12 +1,10 @@
-import { type getApiV1Events, useGetApiV1Events } from "@showme/api-client";
 import { Button, EmptyState, Icon } from "@showme/design-system";
 import { useNavigate } from "@tanstack/react-router";
-import { type CSSProperties, useState } from "react";
+import type { CSSProperties } from "react";
 import { GradientButton } from "../components/eventUi";
-import { ErrorState, LoadingState } from "../components/states";
+import { ErrorState, LoadMore, LoadingState } from "../components/states";
+import { type EventFilterKey, type EventItem, useEventList } from "../hooks/useEventList";
 import { useNewEvent } from "../shell/NewEventProvider";
-
-type EventItem = Awaited<ReturnType<typeof getApiV1Events>>["items"][number];
 
 /** Status colour + label map — ported verbatim from the prototype's EVMETA so
  * the pills overlay the design exactly. */
@@ -20,9 +18,11 @@ const EV_META: Record<string, { color: string; label: string }> = {
   cancelled: { color: "#EE5746", label: "Cancelled" },
 };
 
-/** The filter pill row (left of the view toggle). Values match the API status
- * enum; "Pending" folds in offers awaiting a response (suggested). */
-const FILTER_CHIPS: [value: string, label: string][] = [
+/** The filter pill row (left of the view toggle). Each chip is answered by the
+ * server (`useEventList` maps it to the status list `GET /events` filters on), so
+ * a chip filters every event the caller has — not the page that happens to be
+ * loaded. "Pending" still folds in offers awaiting a response (suggested). */
+const FILTER_CHIPS: [value: EventFilterKey, label: string][] = [
   ["all", "All"],
   ["pending", "Pending"],
   ["on_hold", "On hold"],
@@ -82,23 +82,25 @@ function shortDate(iso: string | null | undefined): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "2-digit" });
 }
 
-/** The "Pending" filter folds in offers awaiting a response (suggested). */
-function matchesFilter(event: EventItem, filter: string): boolean {
-  if (filter === "all") return true;
-  if (filter === "pending") return event.status === "pending" || event.status === "suggested";
-  return event.status === filter;
-}
-
 const GRID_COLUMNS = "2.4fr 1.5fr 1fr .8fr 1.2fr 1fr";
 
 export function Events() {
   const navigate = useNavigate();
   const { openNewEvent, canCreateEvent } = useNewEvent();
-  const [filter, setFilter] = useState("all");
-  const [view, setView] = useState<"list" | "board">("list");
-  const { data, isPending, isError, error } = useGetApiV1Events();
+  const {
+    filter,
+    setFilter,
+    view,
+    setView,
+    items: rows,
+    isPending,
+    isError,
+    error,
+    hasMore,
+    isLoadingMore,
+    loadMore,
+  } = useEventList();
 
-  const rows = (data?.items ?? []).filter((event) => matchesFilter(event, filter));
   const openEvent = (eventId: string) => navigate({ to: "/events/$eventId", params: { eventId } });
 
   return (
@@ -152,22 +154,42 @@ export function Events() {
       ) : isError ? (
         <ErrorState error={error} title="Couldn't load events" />
       ) : rows.length === 0 ? (
-        <EmptyState
-          icon={<Icon name="calendar" />}
-          title="No events yet"
-          description="Events you create or join will show up here."
-          action={
-            canCreateEvent ? (
-              <Button variant="primary" leftIcon={<Icon name="plus" />} onClick={openNewEvent}>
-                New event
+        // The filter is the server's answer now, so an empty result under a chip
+        // means "you have none of these", not "you have no events".
+        filter === "all" ? (
+          <EmptyState
+            icon={<Icon name="calendar" />}
+            title="No events yet"
+            description="Events you create or join will show up here."
+            action={
+              canCreateEvent ? (
+                <Button variant="primary" leftIcon={<Icon name="plus" />} onClick={openNewEvent}>
+                  New event
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={<Icon name="calendar" />}
+            title="No events match this filter"
+            description="Nothing of yours is in this state right now."
+            action={
+              <Button variant="secondary" onClick={() => setFilter("all")}>
+                Show all events
               </Button>
-            ) : undefined
-          }
-        />
-      ) : view === "board" ? (
-        <EventBoard rows={rows} onOpen={openEvent} />
+            }
+          />
+        )
       ) : (
-        <EventList rows={rows} onOpen={openEvent} />
+        <>
+          {view === "board" ? (
+            <EventBoard rows={rows} onOpen={openEvent} />
+          ) : (
+            <EventList rows={rows} onOpen={openEvent} />
+          )}
+          <LoadMore hasMore={hasMore} isLoading={isLoadingMore} onLoadMore={loadMore} />
+        </>
       )}
     </div>
   );
@@ -339,7 +361,10 @@ function EventList({ rows, onOpen }: { rows: EventItem[]; onOpen: (eventId: stri
 /** The Board view — the four fixed status columns, each holding the events in
  * that status. Cards carry only the title + date honestly ("— cap" since the
  * list payload has no capacity). Draft/suggested/cancelled events fall outside
- * the four columns, exactly as in the prototype. */
+ * the four columns, exactly as in the prototype.
+ *
+ * The per-column count is a real count: `useEventList` drains the keyset cursor
+ * in board view, so `rows` is every event the chip selects. */
 function EventBoard({ rows, onOpen }: { rows: EventItem[]; onOpen: (eventId: string) => void }) {
   return (
     <div

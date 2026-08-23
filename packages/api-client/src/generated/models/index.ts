@@ -71,7 +71,7 @@ export * from './getApiV1EventsIdSettlements200SettlementsItem';
 export * from './getApiV1EventsIdSettlements200SettlementsItemComputed';
 export * from './getApiV1EventsIdSettlements200TransfersItem';
 export * from './getApiV1EventsParams';
-export * from './getApiV1EventsStatus';
+export * from './getApiV1EventsStatusItem';
 export * from './getApiV1ExchangeRate200';
 export * from './getApiV1ExchangeRateCurrencies200';
 export * from './getApiV1ExchangeRateCurrencies200CurrenciesItem';

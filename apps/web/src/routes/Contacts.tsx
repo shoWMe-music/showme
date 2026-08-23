@@ -142,6 +142,9 @@ export function Contacts() {
     query: { enabled: Boolean(profileId) },
   });
 
+  // The address book comes back whole — `GET /profiles/:id/contacts` is an
+  // unpaginated array with no query parameters — so the search box and the
+  // category chips below narrow every contact, not a page of them.
   const contacts = data ?? [];
 
   const categories = useMemo(() => {

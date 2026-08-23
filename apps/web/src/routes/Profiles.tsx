@@ -1,7 +1,6 @@
 import {
   type getApiV1Profiles,
   type getApiV1ProfilesId,
-  useGetApiV1Events,
   useGetApiV1Profiles,
   useGetApiV1ProfilesId,
   usePatchApiV1ProfilesId,
@@ -22,6 +21,7 @@ import {
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { SegmentedToggle } from "../components";
 import { ErrorState, LoadingState } from "../components/states";
+import { useAllEvents } from "../hooks/useEventList";
 import { getActiveProfileId, setActiveProfileId } from "../lib/activeProfile";
 import { errorMessage } from "../lib/errors";
 import { apiStatusToDisplay } from "../lib/status";
@@ -77,7 +77,9 @@ function formatEventDate(iso: string): string {
 
 export function Profiles() {
   const profiles = useGetApiV1Profiles();
-  const events = useGetApiV1Events();
+  // Every event — the panel lists a profile's upcoming shows, and the ones on
+  // page one are not "the upcoming shows".
+  const events = useAllEvents();
   const [creating, setCreating] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("public");
   const [selectedId, setSelectedId] = useState<string | null>(getActiveProfileId());
@@ -100,13 +102,13 @@ export function Profiles() {
     setActiveProfileId(profileId);
     setSelectedId(profileId);
     // Events are scoped by the acting-profile header — re-pull for the new one.
-    void events.refetch();
+    events.refetch();
   };
 
   const comingEvents = useMemo(() => {
     if (!selectedId) return [];
     const now = Date.now();
-    return (events.data?.items ?? [])
+    return events.items
       .filter(
         (event) =>
           event.venueProfileId === selectedId &&
@@ -115,7 +117,7 @@ export function Profiles() {
           Date.parse(event.eventDate) >= now,
       )
       .sort((left, right) => Date.parse(left.eventDate ?? "") - Date.parse(right.eventDate ?? ""));
-  }, [events.data, selectedId]);
+  }, [events.items, selectedId]);
 
   const selectedIndex = Math.max(
     0,

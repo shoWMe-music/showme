@@ -137,6 +137,10 @@ export function Settlements() {
   const isSingleProfile = (session?.memberships.length ?? 0) === 1;
   const columns = useMemo(() => buildColumns(isSingleProfile), [isSingleProfile]);
 
+  // `GET /settlements` takes no query and no cursor: it answers with every
+  // settlement the caller is a party to, in one response. So this chip really
+  // does filter the whole list (and the tiles below really do sum it) — there is
+  // no server-side filter to push to, and nothing is hidden behind a page.
   const settlements = data?.items ?? [];
   const rows = settlements.filter((row) => filter === "all" || row.status === filter);
 

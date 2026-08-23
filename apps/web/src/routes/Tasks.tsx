@@ -1,9 +1,5 @@
 import {
-  type getApiV1Groups,
-  type getApiV1Tasks,
   useDeleteApiV1GroupsGid,
-  useGetApiV1Groups,
-  useGetApiV1Tasks,
   usePatchApiV1TasksId,
   usePostApiV1Groups,
   usePostApiV1Tasks,
@@ -25,10 +21,15 @@ import {
 import { type FormEvent, useEffect, useState } from "react";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
+import {
+  type Group,
+  type Task,
+  type TaskFilterKey,
+  type TaskScope,
+  scopeOf,
+  useTaskBoard,
+} from "../hooks/useTaskBoard";
 import { errorMessage } from "../lib/errors";
-
-type Task = Awaited<ReturnType<typeof getApiV1Tasks>>["items"][number];
-type Group = Awaited<ReturnType<typeof getApiV1Groups>>[number];
 
 /**
  * Tasks are grouped by **named work-group** — the reusable rosters (Door,
@@ -36,22 +37,11 @@ type Group = Awaited<ReturnType<typeof getApiV1Groups>>[number];
  * group fall into "Ungrouped". The task's scope (event / profile / personal)
  * stays as a filter chip, not the primary grouping.
  */
-type Scope = "event" | "profile" | "personal";
-
-const UNGROUPED = "__ungrouped";
-
-const SCOPE_META: Record<Scope, { label: string; status: Status }> = {
+const SCOPE_META: Record<TaskScope, { label: string; status: Status }> = {
   event: { label: "Event", status: "task" },
   profile: { label: "Profile", status: "suggested" },
   personal: { label: "Personal", status: "pending" },
 };
-
-/** Bucket a task by the tightest scope it carries (event > profile > personal). */
-function scopeOf(task: Task): Scope {
-  if (task.eventId) return "event";
-  if (task.ownerProfileId) return "profile";
-  return "personal";
-}
 
 /** "Jul 18, 2026 12:00" when the due date carries a time, else "Jul 18, 2026". */
 function formatDueDateTime(iso: string): string {
@@ -64,9 +54,7 @@ function formatDueDateTime(iso: string): string {
   return `${day} ${time}`;
 }
 
-type FilterKey = "all" | "mine" | "open" | "done" | Scope;
-
-const FILTERS: { key: FilterKey; label: string; disabled?: boolean }[] = [
+const FILTERS: { key: TaskFilterKey; label: string; disabled?: boolean }[] = [
   { key: "all", label: "All" },
   { key: "mine", label: "My Tasks", disabled: true },
   { key: "open", label: "Open" },
@@ -76,40 +64,35 @@ const FILTERS: { key: FilterKey; label: string; disabled?: boolean }[] = [
   { key: "personal", label: "Personal" },
 ];
 
-function matchesFilter(task: Task, filter: FilterKey): boolean {
-  switch (filter) {
-    case "all":
-    case "mine":
-      return true;
-    case "open":
-      return !task.completed;
-    case "done":
-      return task.completed;
-    default:
-      return scopeOf(task) === filter;
-  }
-}
-
-/** The group id a task is filed under, or the "ungrouped" sentinel. */
-function bucketOf(task: Task): string {
-  return task.groupId ?? UNGROUPED;
-}
-
 export function Tasks() {
   const toast = useToast();
-  const [filter, setFilter] = useState<FilterKey>("all");
-  const [groupFilter, setGroupFilter] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [groupFormOpen, setGroupFormOpen] = useState(false);
   const [editing, setEditing] = useState<Task | null>(null);
 
-  const { data, isPending, isError, error, refetch } = useGetApiV1Tasks();
-  const groupsQuery = useGetApiV1Groups();
-  const groups = groupsQuery.data ?? [];
+  const {
+    filter,
+    setFilter,
+    groupFilter,
+    toggleGroupFilter,
+    tasks,
+    groups,
+    buckets,
+    doneTasks,
+    openVisibleCount,
+    openTasksIn,
+    openCountFor,
+    openCount,
+    isPending,
+    isError,
+    error,
+    refetch,
+    refetchGroups,
+  } = useTaskBoard();
 
   const patch = usePatchApiV1TasksId({
     mutation: {
-      onSuccess: () => void refetch(),
+      onSuccess: () => refetch(),
       onError: (mutationError) =>
         toast.error(errorMessage(mutationError, "Couldn't update the task.")),
     },
@@ -118,31 +101,13 @@ export function Tasks() {
     mutation: {
       onSuccess: () => {
         toast.success("Work-group removed.");
-        void groupsQuery.refetch();
-        void refetch();
+        refetchGroups();
+        refetch();
       },
       onError: (mutationError) =>
         toast.error(errorMessage(mutationError, "Couldn't remove the work-group.")),
     },
   });
-
-  const tasks = data?.items ?? [];
-  const openCount = tasks.filter((task) => !task.completed).length;
-
-  // The list buckets: one per named group (+ Ungrouped if any task lacks a group).
-  const hasUngrouped = tasks.some((task) => !task.groupId);
-  const buckets: { id: string; name: string }[] = [
-    ...groups.map((group) => ({ id: group.id, name: group.name })),
-    ...(hasUngrouped ? [{ id: UNGROUPED, name: "Ungrouped" }] : []),
-  ];
-
-  const visible = tasks
-    .filter((task) => matchesFilter(task, filter))
-    .filter((task) => (groupFilter ? bucketOf(task) === groupFilter : true));
-  const doneTasks = visible.filter((task) => task.completed);
-
-  const openCountFor = (bucketId: string) =>
-    tasks.filter((task) => bucketOf(task) === bucketId && !task.completed).length;
 
   const toggle = (task: Task, next: boolean) =>
     patch.mutate({ id: task.id, data: { completed: next } });
@@ -264,8 +229,13 @@ export function Tasks() {
                   <button
                     key={bucket.id}
                     type="button"
-                    onClick={() => setGroupFilter(active ? null : bucket.id)}
-                    style={{ textAlign: "left", border: "none", background: "transparent", padding: 0 }}
+                    onClick={() => toggleGroupFilter(bucket.id)}
+                    style={{
+                      textAlign: "left",
+                      border: "none",
+                      background: "transparent",
+                      padding: 0,
+                    }}
                   >
                     <Card
                       padding="md"
@@ -329,9 +299,7 @@ export function Tasks() {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
               {buckets.map((bucket) => {
-                const group = visible.filter(
-                  (task) => bucketOf(task) === bucket.id && !task.completed,
-                );
+                const group = openTasksIn(bucket.id);
                 if (group.length === 0) return null;
                 return (
                   <section
@@ -354,7 +322,7 @@ export function Tasks() {
                 );
               })}
 
-              {visible.filter((task) => !task.completed).length === 0 && (
+              {openVisibleCount === 0 && (
                 <EmptyState
                   icon={<Icon name="check" />}
                   title="No open tasks"
@@ -394,7 +362,7 @@ export function Tasks() {
         onClose={() => setFormOpen(false)}
         onSaved={() => {
           setFormOpen(false);
-          void refetch();
+          refetch();
         }}
       />
 
@@ -403,7 +371,7 @@ export function Tasks() {
         onClose={() => setGroupFormOpen(false)}
         onCreated={() => {
           setGroupFormOpen(false);
-          void groupsQuery.refetch();
+          refetchGroups();
         }}
       />
     </>
