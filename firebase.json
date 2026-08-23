@@ -6,6 +6,18 @@
   },
   "hosting": {
     "public": "apps/marketing/dist",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"]
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "headers": [
+      {
+        "//": "HTML pages always revalidate — never serve a stale shell that points at old assets. All marketing pages are at the root, so *.html (not **/*.html, whose **/ wants a directory and skips root index.html).",
+        "source": "*.html",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      },
+      {
+        "//": "Vanilla scene scripts have STABLE (unhashed) URLs, so they must revalidate on every load or a bug fix can sit behind a day-old cache. Vite's own bundle (main-<hash>.js / *.css) is content-hashed and safe to cache long.",
+        "source": "**/assets/@(hero-scene|chaos-order|feature-scroll|feature-visuals|ecosystem-galaxy|why-center).js",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      }
+    ]
   }
 }
