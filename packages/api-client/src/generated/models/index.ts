@@ -35,6 +35,7 @@ export * from './getApiV1AdminProfiles200ItemsItem';
 export * from './getApiV1AdminProfilesParams';
 export * from './getApiV1BookingRequests200';
 export * from './getApiV1BookingRequests200ItemsItem';
+export * from './getApiV1BookingRequestsDirection';
 export * from './getApiV1BookingRequestsParams';
 export * from './getApiV1BookingRequestsStatus';
 export * from './getApiV1Calendar200Item';

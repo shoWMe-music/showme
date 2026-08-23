@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { schema } from "@showme/db";
+import { currencyForCountry } from "@showme/shared";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -61,8 +62,15 @@ const BookingRequestResponse = z.object({
   artistName: z.string().nullable(),
   wantedDate: z.string().nullable(),
   pitch: z.string().nullable(),
+  // `artistFee` is what a public-form sender asks for; `offerFeeMin/Max` is the
+  // range a performer/agent offers. A row carries one shape or the other, so a
+  // client that reads only the offer range shows nothing for public-form requests.
+  artistFee: z.string().nullable(),
   offerFeeMin: z.string().nullable(),
   offerFeeMax: z.string().nullable(),
+  // Denomination of the three amounts above; null when the venue's country is
+  // unknown, and then the amount must be rendered without a currency symbol.
+  currency: z.string().nullable(),
   createdAt: z.string(),
 });
 
@@ -95,8 +103,10 @@ function serializeBookingRequest(row: BookingRequestRow): z.infer<typeof Booking
     artistName: row.artistName,
     wantedDate: row.wantedDate,
     pitch: row.pitch,
+    artistFee: row.artistFee?.toString() ?? null,
     offerFeeMin: row.offerFeeMin?.toString() ?? null,
     offerFeeMax: row.offerFeeMax?.toString() ?? null,
+    currency: row.currency,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -109,6 +119,30 @@ function isUniqueViolation(error: unknown): boolean {
     "code" in error &&
     (error as { code?: unknown }).code === "23505"
   );
+}
+
+/**
+ * The currency a request's fees are denominated in: the target VENUE's currency,
+ * derived from its primary location's country (currency is a per-country fact —
+ * decisions.md #17). Stamped once at creation so a later correction to the venue's
+ * country cannot silently reprice requests already sent. Returns null when the
+ * venue has no primary-location country, and the amount then renders bare.
+ */
+async function venueCurrency(
+  database: FastifyInstance["database"],
+  targetProfileId: string,
+): Promise<string | null> {
+  const [location] = await database
+    .select({ country: schema.profileLocations.country })
+    .from(schema.profileLocations)
+    .where(
+      and(
+        eq(schema.profileLocations.profileId, targetProfileId),
+        eq(schema.profileLocations.isPrimary, true),
+      ),
+    )
+    .limit(1);
+  return currencyForCountry(location?.country);
 }
 
 /** An opaque link token for the handoff invitation — never guessable, never typed. */
@@ -145,6 +179,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
           pitch: body.pitch,
           offerFeeMin: body.offerFeeMin != null ? BigInt(body.offerFeeMin) : undefined,
           offerFeeMax: body.offerFeeMax != null ? BigInt(body.offerFeeMax) : undefined,
+          currency: await venueCurrency(database, body.targetProfileId),
         })
         .returning();
       if (!created) throw new Error("booking request create failed");
@@ -273,6 +308,9 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       let created: BookingRequestRow;
+      // Resolved before the transaction: it is a read of the target venue, not part
+      // of the write, and the offer's currency must be settled before the insert.
+      const currency = await venueCurrency(database, body.targetProfileId);
       try {
         created = await database.transaction(async (tx) => {
           const [offer] = await tx
@@ -286,6 +324,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
               wantedDate: body.wantedDate,
               offerFeeMin: body.offerFeeMin != null ? BigInt(body.offerFeeMin) : undefined,
               offerFeeMax: body.offerFeeMax != null ? BigInt(body.offerFeeMax) : undefined,
+              currency,
             })
             .returning();
           if (!offer) throw new Error("offer create failed");

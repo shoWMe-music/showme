@@ -21,8 +21,12 @@ export type PostApiV1Offers201 = {
   /** @nullable */
   pitch: string | null;
   /** @nullable */
+  artistFee: string | null;
+  /** @nullable */
   offerFeeMin: string | null;
   /** @nullable */
   offerFeeMax: string | null;
+  /** @nullable */
+  currency: string | null;
   createdAt: string;
 };

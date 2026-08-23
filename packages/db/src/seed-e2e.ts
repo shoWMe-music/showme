@@ -933,6 +933,7 @@ async function main() {
           source: "public_form",
           status: "pending",
           targetProfileId: PROFILE_IDS.operator,
+          currency: SEK, // what the API stamps: the operator's primary location is SE
           contactName: "Anders Berg",
           email: "anders@midnightecho.example",
           phone: "+46 70 123 45 67",
@@ -960,6 +961,7 @@ async function main() {
           source: "performer_offer",
           status: "pending",
           targetProfileId: PROFILE_IDS.operator,
+          currency: SEK, // what the API stamps: the operator's primary location is SE
           senderUserId: performerAUserId,
           senderProfileId: PROFILE_IDS.performerA,
           contactName: E2E_ACCOUNTS.performerA.displayName,
@@ -983,6 +985,7 @@ async function main() {
           source: "performer_offer",
           status: "pending",
           targetProfileId: PROFILE_IDS.operator,
+          currency: SEK, // what the API stamps: the operator's primary location is SE
           senderUserId: agentUserId,
           senderProfileId: PROFILE_IDS.agent,
           contactName: E2E_ACCOUNTS.agent.displayName,
@@ -1006,6 +1009,7 @@ async function main() {
           source: "performer_offer",
           status: "accepted",
           targetProfileId: PROFILE_IDS.operator,
+          currency: SEK, // what the API stamps: the operator's primary location is SE
           senderUserId: performerBUserId,
           senderProfileId: PROFILE_IDS.performerB,
           contactName: E2E_ACCOUNTS.performerB.displayName,
@@ -1024,6 +1028,7 @@ async function main() {
           source: "venue_handoff",
           status: "declined",
           targetProfileId: PROFILE_IDS.operator,
+          currency: SEK, // what the API stamps: the operator's primary location is SE
           contactName: "DJ Frostbite",
           email: "frostbite@coldwax.example",
           artistName: "DJ Frostbite",
@@ -1041,6 +1046,7 @@ async function main() {
           source: "public_form",
           status: "flagged",
           targetProfileId: PROFILE_IDS.operator,
+          currency: SEK, // what the API stamps: the operator's primary location is SE
           contactName: "MegaPromo Bookings",
           email: "deals@megapromo.example",
           artistName: "Various Artists",

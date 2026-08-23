@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { GetApiV1BookingRequestsStatus } from './getApiV1BookingRequestsStatus';
+import type { GetApiV1BookingRequestsDirection } from './getApiV1BookingRequestsDirection';
 
 export type GetApiV1BookingRequestsParams = {
 cursor?: string;
@@ -14,5 +15,5 @@ cursor?: string;
  */
 limit?: number;
 status?: GetApiV1BookingRequestsStatus;
-direction?: 'incoming' | 'outgoing';
+direction?: GetApiV1BookingRequestsDirection;
 };

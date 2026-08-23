@@ -39,6 +39,12 @@ export const bookingRequests = pgTable(
     artistFee: bigint("artist_fee", { mode: "bigint" }), // minor units (money.md)
     offerFeeMin: bigint("offer_fee_min", { mode: "bigint" }),
     offerFeeMax: bigint("offer_fee_max", { mode: "bigint" }),
+    // The currency the fees above are denominated in. Stamped at creation from the
+    // TARGET (venue) profile's country — currency is a per-country fact (#17) — and
+    // authoritative thereafter, so re-stating the venue's country never reprices an
+    // existing request. NULL only when the venue's country is unknown, in which case
+    // the amount is shown without a symbol rather than guessed.
+    currency: text("currency"),
     pitch: text("pitch"),
     note: text("note"),
     musicUrl: text("music_url"),
