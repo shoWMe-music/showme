@@ -63,6 +63,13 @@ export const activityLog = pgTable("activity_log", {
 /**
  * Forensic audit — EVERY mutation, written in the same txn as the change,
  * append-only, admin-only. `changes` is the before/after diff.
+ *
+ * `event_id` is deliberately a BARE uuid with **no foreign key**: the audit log is
+ * history, and history outlives the row it describes. A foreign key would either
+ * block `DELETE /events/:id` outright or (with `ON DELETE SET NULL`) silently blank
+ * the column that groups a deleted event's whole trail together — losing exactly the
+ * record an audit exists to keep. The same reasoning applies to `target_id`, which
+ * has never had one.
  */
 export const auditLog = pgTable("audit_log", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -73,7 +80,7 @@ export const auditLog = pgTable("audit_log", {
   action: text("action").notNull(),
   targetKind: text("target_kind"),
   targetId: uuid("target_id"),
-  eventId: uuid("event_id").references(() => events.id),
+  eventId: uuid("event_id"), // no FK — see the note above; the trail survives the event
   changes: jsonb("changes"),
   requestId: text("request_id"),
 });
@@ -174,7 +181,9 @@ export const spamFlags = pgTable(
     kind: text("kind").notNull(),
     contextKind: text("context_kind"),
     contextId: uuid("context_id"),
-    eventId: uuid("event_id").references(() => events.id),
+    // Context only. A deleted event must not take the report (and the suspension
+    // count it feeds) with it, so the pointer clears and the flag stands.
+    eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [unique().on(table.targetProfileId, table.reporterProfileId, table.kind)],

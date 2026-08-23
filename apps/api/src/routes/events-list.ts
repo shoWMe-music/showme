@@ -146,12 +146,14 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
           // Row exists (checked above) but the version moved → conflict.
           throw conflict("Event was changed by someone else; reload and retry");
         }
-        // Omit `eventId` — the row is gone, and `audit_log.event_id` FKs to it.
+        // `eventId` is recorded even though the row is gone: `audit_log.event_id`
+        // carries no foreign key precisely so the trail survives the deletion.
         await writeAudit(tx, request, {
           capability: "event.delete",
           action: "event.delete",
           targetKind: "event",
           targetId: id,
+          eventId: id,
           before,
         });
       });

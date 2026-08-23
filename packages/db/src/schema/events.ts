@@ -81,6 +81,16 @@ export const stages = pgTable("stages", {
  * The host is both `events.host_profile_id` and a `host` row here, so access is
  * one uniform join. `details` folds in the former `crew_details` (call time,
  * task, pay note) for crew participants. Unique per (event, profile).
+ *
+ * **INVARIANT — a participant row is never hard-deleted.** Removing someone (an
+ * operator dropping a participant, a group unassigned, a representation
+ * terminated) sets `status = 'removed'`; `authorize()` excludes those rows, so
+ * access ends immediately while the record stays. This is not tidiness: money
+ * history points here — `settlements.participant_id`, `settlement_transfers`,
+ * `settlement_approvals`, `budget_lines.collected_by/paid_by/payee`,
+ * `deal_parties.participant_id` — and those references carry NO `ON DELETE` on
+ * purpose. They are the backstop: an accidental hard delete fails loudly instead
+ * of orphaning or erasing a settled figure.
  */
 export const eventParticipants = pgTable(
   "event_participants",

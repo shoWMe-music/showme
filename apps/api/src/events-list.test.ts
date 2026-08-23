@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
+import { eventRoutes } from "./routes/events";
 import { eventListRoutes } from "./routes/events-list";
 import { buildTestApp } from "./testing";
 
@@ -20,7 +21,10 @@ let app: FastifyInstance;
 
 beforeAll(async () => {
   harness = await startTestDatabase();
-  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [eventListRoutes]);
+  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [
+    eventListRoutes,
+    eventRoutes,
+  ]);
   await app.ready();
 });
 
@@ -184,6 +188,62 @@ describe("DELETE /events/:id", () => {
       .where(eq(schema.auditLog.targetId, event.id));
     expect(audit).toHaveLength(1);
     expect(audit[0]?.action).toBe("event.delete");
+  });
+
+  // A-11: `POST /events` writes an audit row pinning the event it created, and
+  // `audit_log.event_id` used to carry a foreign key — so every event created
+  // through the API was undeletable (500) from the moment it existed. Seeding an
+  // event straight into the table (as the test above does) never produced that
+  // audit row, which is why nothing caught it.
+  it("deletes an event created through the API, and the audit trail survives it", async () => {
+    const { db } = harness;
+    await db.insert(schema.users).values({
+      id: "api-del-op",
+      email: "api-del-op@example.com",
+      kind: "operator",
+    });
+    const [profile] = await db
+      .insert(schema.profiles)
+      .values({
+        kind: "operator",
+        ownerUserId: "api-del-op",
+        name: "api-del-op",
+        slug: "api-del-op",
+      })
+      .returning();
+    if (!profile) throw new Error("profile seed failed");
+    await db
+      .insert(schema.profileMembers)
+      .values({ profileId: profile.id, userId: "api-del-op", role: "owner", status: "active" });
+
+    const headers = { authorization: "Bearer api-del-op", "x-profile-id": profile.id };
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers,
+      payload: { title: "Created then deleted", baseCurrency: "SEK" },
+    });
+    expect(created.statusCode).toBe(201);
+    const eventId = created.json().id;
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${eventId}`,
+      headers,
+      payload: { expectedVersion: 1 },
+    });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.json().deleted).toBe(true);
+    expect(await db.select().from(schema.events).where(eq(schema.events.id, eventId))).toHaveLength(
+      0,
+    );
+
+    // Both rows are still there, and both still name the event they describe.
+    const trail = await db
+      .select()
+      .from(schema.auditLog)
+      .where(eq(schema.auditLog.eventId, eventId));
+    expect(trail.map((row) => row.action).sort()).toEqual(["event.create", "event.delete"]);
   });
 
   it("forbids a caller without event.delete (403)", async () => {

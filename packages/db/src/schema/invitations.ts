@@ -26,7 +26,8 @@ export const invitations = pgTable("invitations", {
   recipientEmail: text("recipient_email"),
   recipientName: text("recipient_name"),
   targetProfileId: uuid("target_profile_id").references(() => profiles.id),
-  targetEventId: uuid("target_event_id").references(() => events.id),
+  // An invitation to a deleted event is unusable, so it goes with the event.
+  targetEventId: uuid("target_event_id").references(() => events.id, { onDelete: "cascade" }),
   linkedContactId: uuid("linked_contact_id").references((): AnyPgColumn => contacts.id),
   role: text("role"), // profile-member or event-participant role, resolved per type
   permissionSetId: uuid("permission_set_id").references(() => permissionSets.id),

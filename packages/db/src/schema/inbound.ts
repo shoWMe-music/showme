@@ -55,7 +55,9 @@ export const bookingRequests = pgTable(
     websiteUrl: text("website_url"),
     socialLinks: jsonb("social_links"),
     sentVia: bookingSentVia("sent_via").notNull().default("in_platform"),
-    eventId: uuid("event_id").references(() => events.id),
+    // The request predates the event and outlives it — the conversation stands,
+    // only the link to the (deleted) event clears.
+    eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
