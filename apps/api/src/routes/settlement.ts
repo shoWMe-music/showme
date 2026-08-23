@@ -96,15 +96,41 @@ const TransferStateBody = z.object({
 
 const OPERATOR_EVENT_ROLES = new Set(["host", "co_host"]);
 
-/** Pull a weight (basis points) out of a deal party's `share` jsonb, if it carries one. */
-function weightFromShare(share: unknown): number | null {
+/**
+ * A payee's basis points out of a deal party's `share` jsonb.
+ *
+ * The key is `splitBasisPoints`, matching `deals.split_basis_points` and
+ * `SettlementDeal.splitBasisPoints` — one name for the concept across the column, the
+ * engine and the stored jsonb.
+ *
+ * Three outcomes, and the difference between the last two is the whole point:
+ *   - no share at all      → null, meaning "no stated weight", and the engine splits equally
+ *   - a usable share       → the basis points
+ *   - a share we can't read → THROWS
+ *
+ * That last case used to return null too, which silently equal-split a deal whose parties
+ * had agreed something else. It hid a live mis-payment: the writer stored
+ * `splitBasisPoints` while this function read `basisPoints`, so a signed 60/40 deal paid
+ * 50/50 and `Σ net = 0` still held, because balancing validates the total and never the
+ * distribution. Refusing to guess is what makes that class of bug loud instead of silent.
+ */
+function weightFromShare(share: unknown, participantId: string): number | null {
+  if (share == null) return null;
   if (typeof share === "number") return share;
-  if (share && typeof share === "object") {
+  if (typeof share === "object") {
     const record = share as Record<string, unknown>;
-    if (typeof record.basisPoints === "number") return record.basisPoints;
-    if (typeof record.share === "number") return record.share;
+    if (typeof record.splitBasisPoints === "number" && Number.isFinite(record.splitBasisPoints)) {
+      return record.splitBasisPoints;
+    }
+    // A share may legitimately state terms without a split weight (a flat guarantee, say).
+    // What must never pass silently is a share carrying ONLY keys we do not understand —
+    // that is the drift that produced the equal-split bug.
+    const known = ["splitBasisPoints", "guaranteeAmount", "currency", "terms"];
+    if (Object.keys(record).some((key) => known.includes(key))) return null;
   }
-  return null;
+  throw badRequest(
+    `Deal party ${participantId} has a share that carries no readable splitBasisPoints; refusing to settle rather than split equally.`,
+  );
 }
 
 export async function settlementRoutes(fastify: FastifyInstance): Promise<void> {
@@ -187,7 +213,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         const partyShares: Record<string, number> = {};
         let hasShares = false;
         for (const payee of payees) {
-          const weight = weightFromShare(payee.share);
+          const weight = weightFromShare(payee.share, payee.participantId);
           if (weight != null) {
             partyShares[payee.participantId] = weight;
             hasShares = true;

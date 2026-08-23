@@ -708,3 +708,168 @@ describe("settlement — multi-currency + locked FX (money.md, #7)", () => {
     expect(response.statusCode).toBe(400);
   });
 });
+
+describe("settlement — per-party split shares (A-01 regression)", () => {
+  /**
+   * The bug this guards: the engine read `share.basisPoints` while every real writer stored
+   * `share.splitBasisPoints`, so a signed 60/40 deal paid out 50/50. It survived because
+   * `Σ net = 0` validates the TOTAL, not the DISTRIBUTION — and because the only code writing
+   * `basisPoints` was the test suite itself, which agreed with the engine and disagreed with
+   * the database.
+   *
+   * So this fixture stores the share exactly as the API and the seed store it, and asserts the
+   * amounts each party actually receives. Asserting balance alone passes either way, which is
+   * precisely why nothing caught it.
+   */
+  async function seedSplit(prefix: string, shares: [number, number]) {
+    const { db } = harness;
+    const operator = await seedMemberWithSet(
+      `${prefix}-op`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const actA = await seedMemberWithSet(
+      `${prefix}-a`,
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const actB = await seedMemberWithSet(
+      `${prefix}-b`,
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: operator.profileId,
+        title: "Split Night",
+        baseCurrency: "SEK",
+        createdBy: operator.userId,
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+
+    const parts = await db
+      .insert(schema.eventParticipants)
+      .values(
+        [operator, actA, actB].map((member, index) => ({
+          eventId: event.id,
+          profileId: member.profileId,
+          role: index === 0 ? ("host" as const) : ("performer" as const),
+          permissionSetId: member.permissionSetId,
+          status: "confirmed" as const,
+        })),
+      )
+      .returning();
+    const hostPart = parts.find((row) => row.profileId === operator.profileId)?.id as string;
+    const aPart = parts.find((row) => row.profileId === actA.profileId)?.id as string;
+    const bPart = parts.find((row) => row.profileId === actB.profileId)?.id as string;
+
+    // Pool = 1 000 000 revenue − 150 000 cost = 850 000, all of it to the split.
+    const [budget] = await db
+      .insert(schema.budgets)
+      .values({ eventId: event.id })
+      .returning();
+    if (!budget) throw new Error("budget seed failed");
+    await db.insert(schema.budgetLines).values([
+      {
+        budgetId: budget.id,
+        kind: "revenue",
+        label: "Tickets",
+        amount: 1000000n,
+        collectedBy: hostPart,
+      },
+      { budgetId: budget.id, kind: "cost", label: "Sound hire", amount: 150000n, paidBy: hostPart },
+    ]);
+
+    const [deal] = await db
+      .insert(schema.deals)
+      .values({
+        eventId: event.id,
+        type: "performance",
+        structure: "door_split",
+        name: "Uneven split",
+        currency: "SEK",
+        splitBasisPoints: 10000,
+        createdBy: operator.userId,
+      })
+      .returning();
+    if (!deal) throw new Error("deal seed failed");
+
+    await db.insert(schema.dealParties).values([
+      { dealId: deal.id, participantId: hostPart, roleInDeal: "payer" },
+      {
+        dealId: deal.id,
+        participantId: aPart,
+        roleInDeal: "split_member",
+        share: { splitBasisPoints: shares[0], currency: "SEK" },
+      },
+      {
+        dealId: deal.id,
+        participantId: bPart,
+        roleInDeal: "split_member",
+        share: { splitBasisPoints: shares[1], currency: "SEK" },
+      },
+    ]);
+
+    return { event, operator, aPart, bPart };
+  }
+
+  const compute = (eventId: string, uid: string) =>
+    app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/settlement/compute`,
+      headers: auth(uid),
+    });
+
+  const entitlementOf = (
+    body: { breakdowns: { participantId: string; entitlement: string }[] },
+    id: string,
+  ) => body.breakdowns.find((row) => row.participantId === id)?.entitlement;
+
+  it("honours an uneven split instead of paying everyone equally", async () => {
+    const seed = await seedSplit("split-uneven", [6000, 4000]);
+
+    const response = await compute(seed.event.id, seed.operator.userId);
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.pool).toBe("850000");
+    expect(entitlementOf(body, seed.aPart)).toBe("510000"); // 60%
+    expect(entitlementOf(body, seed.bPart)).toBe("340000"); // 40%
+    // Pre-fix this was 425000/425000 — and it balanced.
+    expect(entitlementOf(body, seed.aPart)).not.toBe(entitlementOf(body, seed.bPart));
+  });
+
+  it("balances either way, which is why balance alone never caught this", async () => {
+    const seed = await seedSplit("split-balance", [7500, 2500]);
+
+    const response = await compute(seed.event.id, seed.operator.userId);
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    const net = body.breakdowns.reduce(
+      (total: bigint, row: { net: string }) => total + BigInt(row.net),
+      0n,
+    );
+    expect(net).toBe(0n);
+    expect(entitlementOf(body, seed.aPart)).toBe("637500"); // 75%
+    expect(entitlementOf(body, seed.bPart)).toBe("212500"); // 25%
+  });
+
+  it("refuses to settle a share it cannot read rather than splitting equally", async () => {
+    const { db } = harness;
+    const seed = await seedSplit("split-unreadable", [5000, 5000]);
+    // The exact pre-fix shape: an object carrying only a key the engine does not know.
+    await db
+      .update(schema.dealParties)
+      .set({ share: { basisPoints: 6000 } })
+      .where(eq(schema.dealParties.participantId, seed.aPart));
+
+    const response = await compute(seed.event.id, seed.operator.userId);
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toContain("splitBasisPoints");
+  });
+});

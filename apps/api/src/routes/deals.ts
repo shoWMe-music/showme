@@ -20,10 +20,35 @@ const paymentTimingEnum = z.enum(["before_event", "at_settlement", "due_date"]);
 const dealStatusEnum = z.enum(["draft", "confirmed", "cancelled"]);
 const dealPartyRoleEnum = z.enum(["payer", "payee", "split_member", "commission", "observer"]);
 
+/**
+ * A party's agreed line on the deal. `share` was `z.unknown()`, which is how the writers and
+ * the settlement engine drifted onto different key names without anything failing — the
+ * engine read `basisPoints`, every real writer stored `splitBasisPoints`, and the mismatch
+ * surfaced only as a silently equal split. Naming the shape here is what keeps the two ends
+ * honest; `settlement.ts` reads exactly these keys.
+ *
+ * `splitBasisPoints` is basis points of the pool (4000 = 40.00%), matching
+ * `deals.split_basis_points`. Money stays a minor-unit decimal string on the wire (money.md).
+ */
+const DealPartyShare = z
+  .object({
+    splitBasisPoints: z.number().int().min(0).max(10000).optional(),
+    guaranteeAmount: z
+      .string()
+      .regex(/^-?\d+$/)
+      .optional(),
+    currency: z.string().min(1).optional(),
+    terms: z.string().optional(),
+  })
+  // STRICT on purpose. Zod's default strips unknown keys, so a client sending the old
+  // `basisPoints` would get a silent `share: {}` — no stated weight, equal split, exactly the
+  // failure this schema exists to prevent. Rejecting the write is how the caller finds out.
+  .strict();
+
 const DealPartyInput = z.object({
   participantId: z.string().uuid(),
   roleInDeal: dealPartyRoleEnum,
-  share: z.unknown().optional(),
+  share: DealPartyShare.optional(),
 });
 
 const CreateDealBody = z.object({

@@ -135,12 +135,12 @@ describe("deals — party-scoped visibility", () => {
           {
             participantId: participantA.id,
             roleInDeal: "split_member",
-            share: { basisPoints: 5000 },
+            share: { splitBasisPoints: 5000 },
           },
           {
             participantId: participantB.id,
             roleInDeal: "split_member",
-            share: { basisPoints: 5000 },
+            share: { splitBasisPoints: 5000 },
           },
         ],
       },
