@@ -11,15 +11,29 @@ export type PatchApiV1BookingRequestsId200 = {
   status: string;
   targetProfileId: string;
   /** @nullable */
+  senderProfileId: string | null;
+  /** @nullable */
+  senderType: string | null;
+  /** @nullable */
   contactName: string | null;
   /** @nullable */
   email: string | null;
   /** @nullable */
   artistName: string | null;
   /** @nullable */
+  onBehalfOfProfileId: string | null;
+  /** @nullable */
+  onBehalfOfName: string | null;
+  /** @nullable */
   wantedDate: string | null;
   /** @nullable */
   pitch: string | null;
+  /** @nullable */
+  note: string | null;
+  /** @nullable */
+  musicUrl: string | null;
+  /** @nullable */
+  videoUrl: string | null;
   /** @nullable */
   artistFee: string | null;
   /** @nullable */

@@ -135,6 +135,7 @@ const PERFORMER_CAPABILITIES = [
   "settlement.confirm",
   "rider.submit",
   "schedule.view",
+  "setlist.author",
   "message.post",
 ];
 
@@ -215,7 +216,9 @@ async function main() {
       .delete(schema.settlementTransfers)
       .where(inArray(schema.settlementTransfers.eventId, eventIds)); // → participants, representations (no action)
     await database.delete(schema.settlements).where(inArray(schema.settlements.eventId, eventIds)); // → participants, representations
-    await database.delete(schema.budgetLines).where(inArray(schema.budgetLines.budgetId, [BUDGET_ID])); // → participants, deals
+    await database
+      .delete(schema.budgetLines)
+      .where(inArray(schema.budgetLines.budgetId, [BUDGET_ID])); // → participants, deals
     await database.delete(schema.budgets).where(inArray(schema.budgets.id, [BUDGET_ID]));
     await database.delete(schema.dealParties).where(inArray(schema.dealParties.dealId, dealIds)); // → participants
     await database.delete(schema.deals).where(inArray(schema.deals.id, dealIds));
@@ -624,7 +627,11 @@ async function main() {
           role: "crew",
           permissionSetId: PERMISSION_SET_IDS.crewScheduleOnly,
           status: "confirmed",
-          details: { call_time: "17:00", task: "Front-of-house sound", pay_note: "Fee invoiced separately" },
+          details: {
+            call_time: "17:00",
+            task: "Front-of-house sound",
+            pay_note: "Fee invoiced separately",
+          },
           addedBy: operatorUserId,
         },
         {
@@ -787,7 +794,11 @@ async function main() {
           },
         },
         // Spring Warmup — payer (operator) + payee (performerA).
-        { dealId: DEAL_IDS.springGuaranteeVsDoor, participantId: PART.springHost, roleInDeal: "payer" },
+        {
+          dealId: DEAL_IDS.springGuaranteeVsDoor,
+          participantId: PART.springHost,
+          roleInDeal: "payer",
+        },
         {
           dealId: DEAL_IDS.springGuaranteeVsDoor,
           participantId: PART.springPerformerA,
@@ -1025,6 +1036,10 @@ async function main() {
           senderProfileId: PROFILE_IDS.agent,
           contactName: E2E_ACCOUNTS.agent.displayName,
           email: E2E_ACCOUNTS.agent.email,
+          // The act this offer is FOR — what makes `artistName` the performer's
+          // and not the agency's. Backed by the active representation seeded above
+          // (the same pairing POST /offers validates before accepting the field).
+          onBehalfOfProfileId: PROFILE_IDS.performerA,
           artistName: E2E_ACCOUNTS.performerA.profileName,
           wantedDate: "2026-11-07",
           offerFeeMin: 2500000n, // 25 000.00 SEK
@@ -1098,7 +1113,9 @@ async function main() {
     // ── Summary ────────────────────────────────────────────────────────────
     console.log("\nE2E seed complete. Accounts (Firebase uid = users.id):");
     for (const account of Object.values(E2E_ACCOUNTS)) {
-      console.log(`  ${account.kind.padEnd(13)} ${account.email.padEnd(30)} → ${account.profileName}`);
+      console.log(
+        `  ${account.kind.padEnd(13)} ${account.email.padEnd(30)} → ${account.profileName}`,
+      );
     }
     console.log("\nInserted rows:");
     for (const [label, count] of Object.entries(counts)) {

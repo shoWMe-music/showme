@@ -61,6 +61,7 @@ import type {
   GetApiV1EventsIdRiders200Item,
   GetApiV1EventsIdSchedule200Item,
   GetApiV1EventsIdSetlists200Item,
+  GetApiV1EventsIdSetlistsSetlistIdShares200Item,
   GetApiV1EventsIdSettlements200,
   GetApiV1EventsParams,
   GetApiV1ExchangeRate200,
@@ -183,6 +184,8 @@ import type {
   PostApiV1EventsIdRidersBody,
   PostApiV1EventsIdSchedule201,
   PostApiV1EventsIdScheduleBody,
+  PostApiV1EventsIdSetlistsSetlistIdShares201,
+  PostApiV1EventsIdSetlistsSetlistIdSharesBody,
   PostApiV1EventsIdSettlementCompute200,
   PostApiV1EventsIdSettlementFinalize200,
   PostApiV1EventsIdSettlementsSidConfirm200,
@@ -5016,6 +5019,216 @@ const {mutation: mutationOptions} = options ?
       > => {
 
       const mutationOptions = getPutApiV1EventsIdSetlistsMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const getApiV1EventsIdSetlistsSetlistIdShares = (
+    id: string,
+    setlistId: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1EventsIdSetlistsSetlistIdShares200Item[]>(
+      {url: `/api/v1/events/${id}/setlists/${setlistId}/shares`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1EventsIdSetlistsSetlistIdSharesQueryKey = (id?: string,
+    setlistId?: string,) => {
+    return [
+    `/api/v1/events/${id}/setlists/${setlistId}/shares`
+    ] as const;
+    }
+
+    
+export const getGetApiV1EventsIdSetlistsSetlistIdSharesQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1EventsIdSetlistsSetlistIdShares>>, TError = unknown>(id: string,
+    setlistId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdSetlistsSetlistIdShares>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1EventsIdSetlistsSetlistIdSharesQueryKey(id,setlistId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1EventsIdSetlistsSetlistIdShares>>> = ({ signal }) => getApiV1EventsIdSetlistsSetlistIdShares(id,setlistId, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(id && setlistId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdSetlistsSetlistIdShares>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1EventsIdSetlistsSetlistIdSharesQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1EventsIdSetlistsSetlistIdShares>>>
+export type GetApiV1EventsIdSetlistsSetlistIdSharesQueryError = unknown
+
+
+export function useGetApiV1EventsIdSetlistsSetlistIdShares<TData = Awaited<ReturnType<typeof getApiV1EventsIdSetlistsSetlistIdShares>>, TError = unknown>(
+ id: string,
+    setlistId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdSetlistsSetlistIdShares>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1EventsIdSetlistsSetlistIdShares>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1EventsIdSetlistsSetlistIdShares>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1EventsIdSetlistsSetlistIdShares<TData = Awaited<ReturnType<typeof getApiV1EventsIdSetlistsSetlistIdShares>>, TError = unknown>(
+ id: string,
+    setlistId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdSetlistsSetlistIdShares>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1EventsIdSetlistsSetlistIdShares>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1EventsIdSetlistsSetlistIdShares>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1EventsIdSetlistsSetlistIdShares<TData = Awaited<ReturnType<typeof getApiV1EventsIdSetlistsSetlistIdShares>>, TError = unknown>(
+ id: string,
+    setlistId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdSetlistsSetlistIdShares>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1EventsIdSetlistsSetlistIdShares<TData = Awaited<ReturnType<typeof getApiV1EventsIdSetlistsSetlistIdShares>>, TError = unknown>(
+ id: string,
+    setlistId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdSetlistsSetlistIdShares>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1EventsIdSetlistsSetlistIdSharesQueryOptions(id,setlistId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const postApiV1EventsIdSetlistsSetlistIdShares = (
+    id: string,
+    setlistId: string,
+    postApiV1EventsIdSetlistsSetlistIdSharesBody: PostApiV1EventsIdSetlistsSetlistIdSharesBody,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1EventsIdSetlistsSetlistIdShares201>(
+      {url: `/api/v1/events/${id}/setlists/${setlistId}/shares`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: postApiV1EventsIdSetlistsSetlistIdSharesBody, signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1EventsIdSetlistsSetlistIdSharesMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdSetlistsSetlistIdShares>>, TError,{id: string;setlistId: string;data: PostApiV1EventsIdSetlistsSetlistIdSharesBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdSetlistsSetlistIdShares>>, TError,{id: string;setlistId: string;data: PostApiV1EventsIdSetlistsSetlistIdSharesBody}, TContext> => {
+
+const mutationKey = ['postApiV1EventsIdSetlistsSetlistIdShares'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1EventsIdSetlistsSetlistIdShares>>, {id: string;setlistId: string;data: PostApiV1EventsIdSetlistsSetlistIdSharesBody}> = (props) => {
+          const {id,setlistId,data} = props ?? {};
+
+          return  postApiV1EventsIdSetlistsSetlistIdShares(id,setlistId,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1EventsIdSetlistsSetlistIdSharesMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1EventsIdSetlistsSetlistIdShares>>>
+    export type PostApiV1EventsIdSetlistsSetlistIdSharesMutationBody = PostApiV1EventsIdSetlistsSetlistIdSharesBody
+    export type PostApiV1EventsIdSetlistsSetlistIdSharesMutationError = unknown
+
+    export const usePostApiV1EventsIdSetlistsSetlistIdShares = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdSetlistsSetlistIdShares>>, TError,{id: string;setlistId: string;data: PostApiV1EventsIdSetlistsSetlistIdSharesBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1EventsIdSetlistsSetlistIdShares>>,
+        TError,
+        {id: string;setlistId: string;data: PostApiV1EventsIdSetlistsSetlistIdSharesBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1EventsIdSetlistsSetlistIdSharesMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const deleteApiV1EventsIdSetlistsSetlistIdSharesParticipantId = (
+    id: string,
+    setlistId: string,
+    participantId: string,
+ ) => {
+      
+      
+      return customFetch<void>(
+      {url: `/api/v1/events/${id}/setlists/${setlistId}/shares/${participantId}`, method: 'DELETE'
+    },
+      );
+    }
+  
+
+
+export const getDeleteApiV1EventsIdSetlistsSetlistIdSharesParticipantIdMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteApiV1EventsIdSetlistsSetlistIdSharesParticipantId>>, TError,{id: string;setlistId: string;participantId: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof deleteApiV1EventsIdSetlistsSetlistIdSharesParticipantId>>, TError,{id: string;setlistId: string;participantId: string}, TContext> => {
+
+const mutationKey = ['deleteApiV1EventsIdSetlistsSetlistIdSharesParticipantId'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteApiV1EventsIdSetlistsSetlistIdSharesParticipantId>>, {id: string;setlistId: string;participantId: string}> = (props) => {
+          const {id,setlistId,participantId} = props ?? {};
+
+          return  deleteApiV1EventsIdSetlistsSetlistIdSharesParticipantId(id,setlistId,participantId,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteApiV1EventsIdSetlistsSetlistIdSharesParticipantIdMutationResult = NonNullable<Awaited<ReturnType<typeof deleteApiV1EventsIdSetlistsSetlistIdSharesParticipantId>>>
+    
+    export type DeleteApiV1EventsIdSetlistsSetlistIdSharesParticipantIdMutationError = unknown
+
+    export const useDeleteApiV1EventsIdSetlistsSetlistIdSharesParticipantId = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteApiV1EventsIdSetlistsSetlistIdSharesParticipantId>>, TError,{id: string;setlistId: string;participantId: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteApiV1EventsIdSetlistsSetlistIdSharesParticipantId>>,
+        TError,
+        {id: string;setlistId: string;participantId: string},
+        TContext
+      > => {
+
+      const mutationOptions = getDeleteApiV1EventsIdSetlistsSetlistIdSharesParticipantIdMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }

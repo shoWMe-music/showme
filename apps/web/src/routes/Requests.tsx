@@ -57,8 +57,28 @@ function initials(label: string): string {
   return ((first[0] ?? "") + (last[0] ?? "")).toUpperCase();
 }
 
+/**
+ * The ACT being offered — the represented performer first, never the agency. An
+ * agent's offer carries the performer it is FOR (audit A-24), so the inbox names
+ * the act and credits the agency on the line beneath it.
+ */
 function requesterName(request: RequestItem): string {
-  return request.artistName ?? request.contactName ?? "Unknown requester";
+  return request.onBehalfOfName ?? request.artistName ?? request.contactName ?? "Unknown requester";
+}
+
+/**
+ * The sub-line under the act: who actually sent it, and when. An agent's offer
+ * reads "via Astra Bookings" so the venue can tell a self-booked act from a
+ * represented one at a glance.
+ */
+function contactLine(request: RequestItem): string | undefined {
+  const sentBy = request.onBehalfOfProfileId
+    ? request.contactName
+      ? `via ${request.contactName}`
+      : "via an agency"
+    : request.contactName;
+  const parts = [sentBy, relativeTime(request.createdAt)].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
 /**
@@ -85,13 +105,12 @@ function toCardData(request: RequestItem): RequestCardData {
     status: "draft" as Status,
     label: request.status,
   };
-  const contactBits = [request.contactName, relativeTime(request.createdAt)].filter(Boolean);
   return {
     id: request.id,
     requester,
     initials: initials(requester),
     tone: "purple",
-    contactLine: contactBits.length > 0 ? contactBits.join(" · ") : undefined,
+    contactLine: contactLine(request),
     status: meta.status,
     statusLabel: meta.label,
     wantedDate: formatDate(request.wantedDate, { day: "2-digit", month: "short", year: "numeric" }),

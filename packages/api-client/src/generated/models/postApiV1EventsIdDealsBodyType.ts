@@ -14,5 +14,4 @@ export const PostApiV1EventsIdDealsBodyType = {
   rental: 'rental',
   fee: 'fee',
   split: 'split',
-  custom: 'custom',
 } as const;

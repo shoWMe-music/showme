@@ -13,7 +13,7 @@ export type PostApiV1EventsIdBudgetsBidLinesBody = {
   providerRef?: string;
   /** @minLength 1 */
   label: string;
-  /** @minLength 1 */
+  /** @pattern ^-?\d+$ */
   amount: string;
   /** @minLength 1 */
   currency?: string;

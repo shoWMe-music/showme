@@ -4,6 +4,13 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PostApiV1OffersBodyContactName } from './postApiV1OffersBodyContactName';
+import type { PostApiV1OffersBodyEmail } from './postApiV1OffersBodyEmail';
+import type { PostApiV1OffersBodyArtistName } from './postApiV1OffersBodyArtistName';
+import type { PostApiV1OffersBodyPitch } from './postApiV1OffersBodyPitch';
+import type { PostApiV1OffersBodyNote } from './postApiV1OffersBodyNote';
+import type { PostApiV1OffersBodyMusicUrl } from './postApiV1OffersBodyMusicUrl';
+import type { PostApiV1OffersBodyVideoUrl } from './postApiV1OffersBodyVideoUrl';
 
 export type PostApiV1OffersBody = {
   targetProfileId: string;
@@ -12,4 +19,12 @@ export type PostApiV1OffersBody = {
   offerFeeMin?: string;
   /** @pattern ^\d+$ */
   offerFeeMax?: string;
+  contactName?: PostApiV1OffersBodyContactName;
+  email?: PostApiV1OffersBodyEmail;
+  artistName?: PostApiV1OffersBodyArtistName;
+  pitch?: PostApiV1OffersBodyPitch;
+  note?: PostApiV1OffersBodyNote;
+  musicUrl?: PostApiV1OffersBodyMusicUrl;
+  videoUrl?: PostApiV1OffersBodyVideoUrl;
+  onBehalfOfProfileId?: string;
 };

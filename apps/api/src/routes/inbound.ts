@@ -11,11 +11,44 @@ import { requireEventCapability, requireProfileRole } from "../lib/authorize";
 import { canUseFeature } from "../lib/entitlements";
 import { notifyProfileMembers } from "../lib/notify";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
+import { isRepresentationActiveAt } from "../lib/representation-rules";
 
 const IdParams = z.object({ id: z.string().uuid() });
 
 /** Money on the wire is a decimal STRING of minor units (money.md); parse to bigint. */
 const MinorUnits = z.string().regex(/^\d+$/, 'amount must be minor units, e.g. "50000"');
+
+// Free text from a sender lands in someone else's inbox, so it is sanitized before
+// the length checks run — the same treatment the public lead form gives its input
+// (see `routes/public.ts`). All C0 control characters + DEL on single-line fields;
+// tab and newline survive in the multi-line ones.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: intentional — we strip control chars from user input.
+const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: intentional — we strip control chars from user input.
+const CONTROL_CHARACTERS_KEEPING_LINE_BREAKS = /[\u0000-\u0008\u000B-\u001F\u007F]/g;
+
+const cleanSingleLine = (value: string) =>
+  value.replace(CONTROL_CHARACTERS, " ").replace(/\s+/g, " ").trim();
+
+const cleanMultipleLines = (value: string) =>
+  value.replace(CONTROL_CHARACTERS_KEEPING_LINE_BREAKS, "").replace(/\r\n/g, "\n").trim();
+
+/** A bounded, sanitized one-line field (a name, a label). */
+const singleLineText = (maximumLength: number) =>
+  z.string().transform(cleanSingleLine).pipe(z.string().min(1).max(maximumLength));
+
+/** A bounded, sanitized multi-line field (a pitch, a note). */
+const multipleLineText = (maximumLength: number) =>
+  z.string().transform(cleanMultipleLines).pipe(z.string().min(1).max(maximumLength));
+
+/** A bounded, sanitized, lower-cased email address. */
+const emailAddress = z
+  .string()
+  .transform((value) => value.replace(CONTROL_CHARACTERS, "").trim().toLowerCase())
+  .pipe(z.string().email().max(254));
+
+/** A bounded, sanitized link (music / video). */
+const linkUrl = z.string().transform(cleanSingleLine).pipe(z.string().url().max(500));
 
 const bookingRequestStatus = z.enum(["accepted", "declined", "archived", "flagged"]);
 
@@ -40,11 +73,31 @@ const ListQuery = PaginationQuery.extend({
 
 const UpdateStatusBody = z.object({ status: bookingRequestStatus });
 
+/**
+ * An outgoing offer. The date and the fee range are the ASK; everything below the
+ * fold is WHO is asking and WHY — an offer that reaches a venue's inbox nameless
+ * and pitchless is not an offer, it is noise (audit A-24, decisions.md #18/#6).
+ * The identity fields are optional on the wire but never optional in the row: when
+ * the caller omits them they are derived from the sending user and profile.
+ */
 const CreateOfferBody = z.object({
   targetProfileId: z.string().uuid(),
   wantedDate: z.string(),
   offerFeeMin: MinorUnits.optional(),
   offerFeeMax: MinorUnits.optional(),
+  // Who is offering. Defaulted from the sender when omitted — never left blank.
+  contactName: singleLineText(200).optional(),
+  email: emailAddress.optional(),
+  artistName: singleLineText(200).optional(),
+  // Why. Free text, sanitized and length-bounded like any other inbox-bound input.
+  pitch: multipleLineText(5000).optional(),
+  note: multipleLineText(2000).optional(),
+  musicUrl: linkUrl.optional(),
+  videoUrl: linkUrl.optional(),
+  // AGENT ONLY: the performer this offer is FOR (decisions.md #14). Accepted only
+  // from an `agent`-kind profile with an ACTIVE representation of that performer;
+  // anything else is a 400, never a silent drop.
+  onBehalfOfProfileId: z.string().uuid().optional(),
 });
 
 const FlagSpamBody = z.object({ kind: z.string().min(1) });
@@ -58,11 +111,28 @@ const BookingRequestResponse = z.object({
   source: z.string(),
   status: z.string(),
   targetProfileId: z.string(),
+  // WHO sent it. `senderProfileId` is null for a public-form request (no account).
+  // `contactName` / `email` are the sender's business contact — the whole point of
+  // a booking request is that the recipient can answer it, and this payload only
+  // ever reaches members of the request's TARGET profile (incoming) or of its
+  // SENDER profile (outgoing), never a third party. No separate field-level rule
+  // applies: there is no capability under which a party may read the row but not
+  // the contact on it.
+  senderProfileId: z.string().nullable(),
+  senderType: z.string().nullable(),
   contactName: z.string().nullable(),
   email: z.string().nullable(),
   artistName: z.string().nullable(),
+  // Set when an AGENT offers on behalf of a performer it represents: the venue's
+  // inbox names the ACT (`artistName`) and can still see the agency behind it
+  // (`contactName`). `onBehalfOfName` is the performer profile's own display name.
+  onBehalfOfProfileId: z.string().nullable(),
+  onBehalfOfName: z.string().nullable(),
   wantedDate: z.string().nullable(),
   pitch: z.string().nullable(),
+  note: z.string().nullable(),
+  musicUrl: z.string().nullable(),
+  videoUrl: z.string().nullable(),
   // `artistFee` is what a public-form sender asks for; `offerFeeMin/Max` is the
   // range a performer/agent offers. A row carries one shape or the other, so a
   // client that reads only the offer range shows nothing for public-form requests.
@@ -92,18 +162,33 @@ interface BookingRequestCursor {
   id: string;
 }
 
-/** Shape a booking-request row for the wire — bigint money → string, dates → ISO. */
-function serializeBookingRequest(row: BookingRequestRow): z.infer<typeof BookingRequestResponse> {
+/**
+ * Shape a booking-request row for the wire — bigint money → string, dates → ISO.
+ * `onBehalfOfName` is the represented performer's display name, resolved by the
+ * caller (a join on the list path, a single lookup elsewhere) rather than here, so
+ * the serializer stays synchronous and free of I/O.
+ */
+function serializeBookingRequest(
+  row: BookingRequestRow,
+  onBehalfOfName: string | null = null,
+): z.infer<typeof BookingRequestResponse> {
   return {
     id: row.id,
     source: row.source,
     status: row.status,
     targetProfileId: row.targetProfileId,
+    senderProfileId: row.senderProfileId,
+    senderType: row.senderType,
     contactName: row.contactName,
     email: row.email,
     artistName: row.artistName,
+    onBehalfOfProfileId: row.onBehalfOfProfileId,
+    onBehalfOfName,
     wantedDate: row.wantedDate,
     pitch: row.pitch,
+    note: row.note,
+    musicUrl: row.musicUrl,
+    videoUrl: row.videoUrl,
     artistFee: row.artistFee?.toString() ?? null,
     offerFeeMin: row.offerFeeMin?.toString() ?? null,
     offerFeeMax: row.offerFeeMax?.toString() ?? null,
@@ -144,6 +229,46 @@ async function venueCurrency(
     )
     .limit(1);
   return currencyForCountry(location?.country);
+}
+
+/**
+ * The live representation linking an agent to a performer, or null. Every row for
+ * the pair is read and the "is it live?" question answered by the shared
+ * `isRepresentationActiveAt` — which is NOT `status = 'active'`, because a
+ * termination effective-dated into the future leaves the agreement running until
+ * that moment (decisions.md #14). Filtering in SQL would fork that definition, so
+ * the rows come back whole and the one rule decides.
+ */
+async function findActiveRepresentation(
+  database: FastifyInstance["database"],
+  agentProfileId: string,
+  performerProfileId: string,
+): Promise<typeof schema.representations.$inferSelect | null> {
+  const rows = await database
+    .select()
+    .from(schema.representations)
+    .where(
+      and(
+        eq(schema.representations.agentProfileId, agentProfileId),
+        eq(schema.representations.performerProfileId, performerProfileId),
+      ),
+    );
+  const now = new Date();
+  return rows.find((row) => isRepresentationActiveAt(row, now)) ?? null;
+}
+
+/** A profile's display name, or null when the id is null / the profile is gone. */
+async function profileDisplayName(
+  database: FastifyInstance["database"],
+  profileId: string | null,
+): Promise<string | null> {
+  if (!profileId) return null;
+  const [profile] = await database
+    .select({ name: schema.profiles.name })
+    .from(schema.profiles)
+    .where(eq(schema.profiles.id, profileId))
+    .limit(1);
+  return profile?.name ?? null;
 }
 
 /** An opaque link token for the handoff invitation — never guessable, never typed. */
@@ -242,9 +367,15 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
         ? sql`(${createdAtMillis}, ${schema.bookingRequests.id}) > (${decoded.createdAt}::timestamptz, ${decoded.id}::uuid)`
         : undefined;
 
+      // The represented performer's name comes along in the same query — the inbox
+      // has to name the ACT, and a second round trip per row would be absurd.
       const rows = await database
-        .select()
+        .select({ request: schema.bookingRequests, onBehalfOfName: schema.profiles.name })
         .from(schema.bookingRequests)
+        .leftJoin(
+          schema.profiles,
+          eq(schema.profiles.id, schema.bookingRequests.onBehalfOfProfileId),
+        )
         .where(
           and(scope, status ? eq(schema.bookingRequests.status, status) : undefined, afterCursor),
         )
@@ -252,11 +383,14 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
         .limit(limit + 1);
 
       const { items, nextCursor } = paginate(rows, limit, (row) => ({
-        createdAt: row.createdAt,
-        id: row.id,
+        createdAt: row.request.createdAt,
+        id: row.request.id,
       }));
 
-      return { items: items.map(serializeBookingRequest), nextCursor };
+      return {
+        items: items.map((row) => serializeBookingRequest(row.request, row.onBehalfOfName)),
+        nextCursor,
+      };
     },
   );
 
@@ -323,7 +457,10 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
         }
       }
 
-      return serializeBookingRequest(updated);
+      return serializeBookingRequest(
+        updated,
+        await profileDisplayName(database, updated.onBehalfOfProfileId),
+      );
     },
   );
 
@@ -342,6 +479,10 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
       // An offer is sent AS a profile — needed to resolve the plan tier.
       const senderProfileId = principal.actingProfileId;
       if (!senderProfileId) throw badRequest("Select a profile to send the offer from");
+      const senderMembership = principal.memberships.find(
+        (membership) => membership.profileId === senderProfileId,
+      );
+      if (!senderMembership) throw badRequest("Select a profile to send the offer from");
 
       // Entitlement gate (decisions #4/§C): the free artist plan meters offers per
       // month. Composed AFTER authorization, always a fresh read — never conflated.
@@ -349,6 +490,51 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
       if (!gate.allowed) {
         throw forbidden(gate.reason ?? "Monthly offer limit reached — upgrade to send more");
       }
+
+      // Who the offer is FROM: the sending profile plus the person behind it. The
+      // row must never be anonymous, so these are the fallbacks for the identity
+      // fields the caller may omit.
+      const [sender] = await database
+        .select({
+          profileName: schema.profiles.name,
+          userName: schema.users.name,
+          userEmail: schema.users.email,
+        })
+        .from(schema.profiles)
+        .innerJoin(schema.users, eq(schema.users.id, principal.userId))
+        .where(eq(schema.profiles.id, senderProfileId))
+        .limit(1);
+      if (!sender) throw badRequest("Select a profile to send the offer from");
+
+      // An AGENT offers on behalf of an act it represents (decisions.md #14). Both
+      // edges are required — the sending profile is an `agent`, AND a live
+      // representation links it to that performer — and a failure is an explicit
+      // 400: dropping the field silently would send the offer under the agency's
+      // own name, which is exactly the anonymity this fixes.
+      let onBehalfOfName: string | null = null;
+      if (body.onBehalfOfProfileId) {
+        if (senderMembership.kind !== "agent") {
+          throw badRequest("Only an agent profile can offer on behalf of a performer");
+        }
+        const representation = await findActiveRepresentation(
+          database,
+          senderProfileId,
+          body.onBehalfOfProfileId,
+        );
+        if (!representation) {
+          throw badRequest("You have no active representation for that performer");
+        }
+        onBehalfOfName = await profileDisplayName(database, body.onBehalfOfProfileId);
+        if (!onBehalfOfName) throw badRequest("That performer profile no longer exists");
+      }
+
+      // Defaults, not busywork: an omitted field is derived, never left null.
+      // `artistName` is the ACT — the represented performer when an agent sends,
+      // otherwise the sending profile itself.
+      const contactName = body.contactName ?? sender.userName ?? sender.profileName;
+      const email = body.email ?? sender.userEmail;
+      const artistName = body.artistName ?? onBehalfOfName ?? sender.profileName;
+      const senderType = senderMembership.kind === "agent" ? "agency" : "performer";
 
       let created: BookingRequestRow;
       // Resolved before the transaction: it is a read of the target venue, not part
@@ -363,7 +549,16 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
               status: "pending",
               targetProfileId: body.targetProfileId,
               senderUserId: principal.userId,
-              senderProfileId: principal.actingProfileId,
+              senderProfileId,
+              senderType,
+              contactName,
+              email,
+              artistName,
+              onBehalfOfProfileId: body.onBehalfOfProfileId,
+              pitch: body.pitch,
+              note: body.note,
+              musicUrl: body.musicUrl,
+              videoUrl: body.videoUrl,
               wantedDate: body.wantedDate,
               offerFeeMin: body.offerFeeMin != null ? BigInt(body.offerFeeMin) : undefined,
               offerFeeMax: body.offerFeeMax != null ? BigInt(body.offerFeeMax) : undefined,
@@ -387,12 +582,14 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
         throw error;
       }
 
-      // Realtime + feed: an offer is a request with a known sender.
+      // Realtime + feed: an offer is a request with a known sender, so name them.
       try {
         await notifyProfileMembers(database, created.targetProfileId, principal.userId, {
           type: "offer.received",
-          title: `Offer for ${created.wantedDate}`,
-          body: `${created.artistName ?? "A performer"} offered to play.`,
+          title: `Offer from ${artistName}`,
+          body: onBehalfOfName
+            ? `${contactName} is offering ${onBehalfOfName} for ${created.wantedDate}.`
+            : `Offered to play on ${created.wantedDate}.`,
           link: "/requests",
           metadata: { bookingRequestId: created.id },
         });
@@ -400,7 +597,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
         request.log.error({ error, offerId: created.id }, "offer notification failed");
       }
 
-      return reply.status(201).send(serializeBookingRequest(created));
+      return reply.status(201).send(serializeBookingRequest(created, onBehalfOfName));
     },
   );
 

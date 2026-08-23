@@ -10,7 +10,7 @@ export type PatchApiV1EventsIdBudgetsBidLinesLidBody = {
   kind?: PatchApiV1EventsIdBudgetsBidLinesLidBodyKind;
   /** @minLength 1 */
   label?: string;
-  /** @minLength 1 */
+  /** @pattern ^-?\d+$ */
   amount?: string;
   /**
    * @minLength 1

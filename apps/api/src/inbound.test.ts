@@ -31,31 +31,64 @@ afterAll(async () => {
 
 const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 
+type AccountKind = "operator" | "performer" | "agent";
+
+/** The full name a seeded person carries — what an offer should fall back to. */
+const personName = (id: string) => `${id} Person`;
+/** The display name a seeded profile carries — what an act should fall back to. */
+const profileName = (id: string) => `${id} Profile`;
+
 /** A bare provisioned user (no memberships). */
-async function seedUser(id: string, kind: "operator" | "performer") {
-  await harness.db.insert(schema.users).values({ id, email: `${id}@example.com`, kind });
+async function seedUser(id: string, kind: AccountKind) {
+  await harness.db
+    .insert(schema.users)
+    .values({ id, email: `${id}@example.com`, name: personName(id), kind });
 }
 
-/** Seed an owner + their claimed profile + an operator_full permission set. */
-async function seedOwnerWithProfile(id: string, kind: "operator" | "performer" = "operator") {
+/** Seed an owner + their claimed profile + a permission set matching the kind. */
+async function seedOwnerWithProfile(id: string, kind: AccountKind = "operator") {
   const { db } = harness;
   await seedUser(id, kind);
   const [profile] = await db
     .insert(schema.profiles)
-    .values({ kind, ownerUserId: id, name: id, slug: id, claimedAt: new Date() })
+    .values({ kind, ownerUserId: id, name: profileName(id), slug: id, claimedAt: new Date() })
     .returning();
   if (!profile) throw new Error("profile seed failed");
   await db
     .insert(schema.profileMembers)
     .values({ profileId: profile.id, userId: id, role: "owner", status: "active" });
   const preset =
-    kind === "operator" ? PRESET_PERMISSION_SETS.operator_full : PRESET_PERMISSION_SETS.performer;
+    kind === "operator"
+      ? PRESET_PERMISSION_SETS.operator_full
+      : kind === "agent"
+        ? PRESET_PERMISSION_SETS.agent
+        : PRESET_PERMISSION_SETS.performer;
   const [set] = await db
     .insert(schema.permissionSets)
     .values({ profileId: profile.id, name: "set", capabilities: [...preset] })
     .returning();
   if (!set) throw new Error("permission set seed failed");
   return { profileId: profile.id, permissionSetId: set.id };
+}
+
+/** A representation row linking an agent to a performer, in whatever state. */
+async function seedRepresentation(
+  agentProfileId: string,
+  performerProfileId: string,
+  status: "proposed" | "active" | "terminated",
+  terminatedEffectiveAt: Date | null = null,
+) {
+  await harness.db.insert(schema.representations).values({
+    agentProfileId,
+    performerProfileId,
+    region: ["SE"],
+    commissionRate: 1000,
+    proposedBy: "agent",
+    status,
+    confirmedByAgent: true,
+    confirmedByPerformer: status === "active",
+    terminatedEffectiveAt,
+  });
 }
 
 /** Seed an event hosted by `profileId`, with that profile as its host participant. */
@@ -182,6 +215,265 @@ describe("inbound — performer offers", () => {
       payload: { targetProfileId: target.profileId, wantedDate: "2026-10-10" },
     });
     expect(duplicate.statusCode).toBe(409);
+  });
+});
+
+describe("inbound — an offer names its sender (audit A-24)", () => {
+  it("carries the sender's identity and pitch end-to-end, defaulting what was omitted", async () => {
+    const target = await seedOwnerWithProfile("id-tgt");
+    const performer = await seedOwnerWithProfile("id-perf", "performer");
+    const headers = { ...auth("id-perf"), "x-profile-id": performer.profileId };
+
+    // Deliberately omits contactName / email / artistName — they must be DERIVED,
+    // never left null, or the venue's inbox shows an anonymous row.
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers,
+      payload: {
+        targetProfileId: target.profileId,
+        wantedDate: "2026-10-11",
+        offerFeeMin: "80000",
+        pitch: "  Four-piece indie rock, touring in October.  ",
+        note: "Self-booked.",
+        musicUrl: "https://open.spotify.example/id-perf",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const offer = created.json();
+    expect(offer.senderProfileId).toBe(performer.profileId);
+    expect(offer.senderType).toBe("performer");
+    expect(offer.contactName).toBe(personName("id-perf"));
+    expect(offer.email).toBe("id-perf@example.com");
+    expect(offer.artistName).toBe(profileName("id-perf"));
+    // Sanitized: control characters stripped, whitespace collapsed and trimmed.
+    expect(offer.pitch).toBe("Four-piece indie rock, touring in October.");
+    expect(offer.note).toBe("Self-booked.");
+    expect(offer.musicUrl).toBe("https://open.spotify.example/id-perf");
+    expect(offer.onBehalfOfProfileId).toBeNull();
+
+    // The row itself, not just the response — the write path is what A-24 broke.
+    const [row] = await harness.db
+      .select()
+      .from(schema.bookingRequests)
+      .where(eq(schema.bookingRequests.id, offer.id));
+    expect(row?.contactName).toBe(personName("id-perf"));
+    expect(row?.email).toBe("id-perf@example.com");
+    expect(row?.artistName).toBe(profileName("id-perf"));
+    expect(row?.pitch).toBe("Four-piece indie rock, touring in October.");
+
+    // …and the venue's INCOMING inbox shows who is offering.
+    const inbox = await app.inject({
+      method: "GET",
+      url: "/api/v1/booking-requests?direction=incoming",
+      headers: auth("id-tgt"),
+    });
+    expect(inbox.statusCode).toBe(200);
+    const listed = inbox.json().items.find((item: { id: string }) => item.id === offer.id);
+    expect(listed).toBeDefined();
+    expect(listed.senderProfileId).toBe(performer.profileId);
+    expect(listed.contactName).toBe(personName("id-perf"));
+    expect(listed.artistName).toBe(profileName("id-perf"));
+    expect(listed.pitch).toBe("Four-piece indie rock, touring in October.");
+  });
+
+  it("prefers an explicitly stated identity over the derived default", async () => {
+    const target = await seedOwnerWithProfile("id-tgt2");
+    const performer = await seedOwnerWithProfile("id-perf2", "performer");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("id-perf2"), "x-profile-id": performer.profileId },
+      payload: {
+        targetProfileId: target.profileId,
+        wantedDate: "2026-10-12",
+        contactName: "Ada Booker",
+        email: "Ada@Example.COM",
+        artistName: "The Adas",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().contactName).toBe("Ada Booker");
+    expect(created.json().email).toBe("ada@example.com"); // normalized
+    expect(created.json().artistName).toBe("The Adas");
+  });
+
+  it("rejects a malformed email rather than storing it", async () => {
+    const target = await seedOwnerWithProfile("id-tgt3");
+    const performer = await seedOwnerWithProfile("id-perf3", "performer");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("id-perf3"), "x-profile-id": performer.profileId },
+      payload: {
+        targetProfileId: target.profileId,
+        wantedDate: "2026-10-13",
+        email: "not-an-email",
+      },
+    });
+    expect(created.statusCode).toBe(400);
+  });
+});
+
+describe("inbound — an agent offers on behalf of the act it represents (decisions #14)", () => {
+  it("names the ACT, not the agency, when an active representation covers the pair", async () => {
+    const target = await seedOwnerWithProfile("ob-tgt");
+    const performer = await seedOwnerWithProfile("ob-perf", "performer");
+    const agent = await seedOwnerWithProfile("ob-agent", "agent");
+    await seedRepresentation(agent.profileId, performer.profileId, "active");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("ob-agent"), "x-profile-id": agent.profileId },
+      payload: {
+        targetProfileId: target.profileId,
+        wantedDate: "2026-11-07",
+        offerFeeMin: "2500000",
+        offerFeeMax: "3200000",
+        onBehalfOfProfileId: performer.profileId,
+        pitch: "Headline slot, routing through Stockholm in November.",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const offer = created.json();
+    expect(offer.onBehalfOfProfileId).toBe(performer.profileId);
+    expect(offer.onBehalfOfName).toBe(profileName("ob-perf"));
+    expect(offer.artistName).toBe(profileName("ob-perf")); // the ACT, not the agency
+    expect(offer.contactName).toBe(personName("ob-agent")); // the agency is still visible
+    expect(offer.senderProfileId).toBe(agent.profileId);
+    expect(offer.senderType).toBe("agency");
+
+    const inbox = await app.inject({
+      method: "GET",
+      url: "/api/v1/booking-requests?direction=incoming",
+      headers: auth("ob-tgt"),
+    });
+    const listed = inbox.json().items.find((item: { id: string }) => item.id === offer.id);
+    expect(listed.artistName).toBe(profileName("ob-perf"));
+    expect(listed.onBehalfOfName).toBe(profileName("ob-perf"));
+    expect(listed.onBehalfOfProfileId).toBe(performer.profileId);
+
+    // The agent's OWN outgoing view carries the same identity.
+    const outgoing = await app.inject({
+      method: "GET",
+      url: "/api/v1/booking-requests?direction=outgoing",
+      headers: { ...auth("ob-agent"), "x-profile-id": agent.profileId },
+    });
+    const sent = outgoing.json().items.find((item: { id: string }) => item.id === offer.id);
+    expect(sent.onBehalfOfName).toBe(profileName("ob-perf"));
+  });
+
+  it("400s an on-behalf-of offer with no ACTIVE representation — never a silent drop", async () => {
+    const target = await seedOwnerWithProfile("ob2-tgt");
+    const performer = await seedOwnerWithProfile("ob2-perf", "performer");
+    const agent = await seedOwnerWithProfile("ob2-agent", "agent");
+    // Proposed, not yet confirmed by both sides — not an authority to offer.
+    await seedRepresentation(agent.profileId, performer.profileId, "proposed");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("ob2-agent"), "x-profile-id": agent.profileId },
+      payload: {
+        targetProfileId: target.profileId,
+        wantedDate: "2026-11-08",
+        onBehalfOfProfileId: performer.profileId,
+      },
+    });
+    expect(created.statusCode).toBe(400);
+
+    // Nothing was written — not even under the agency's own name.
+    const rows = await harness.db
+      .select()
+      .from(schema.bookingRequests)
+      .where(eq(schema.bookingRequests.senderProfileId, agent.profileId));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("400s when there is no representation row at all", async () => {
+    const target = await seedOwnerWithProfile("ob3-tgt");
+    const performer = await seedOwnerWithProfile("ob3-perf", "performer");
+    const agent = await seedOwnerWithProfile("ob3-agent", "agent");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("ob3-agent"), "x-profile-id": agent.profileId },
+      payload: {
+        targetProfileId: target.profileId,
+        wantedDate: "2026-11-09",
+        onBehalfOfProfileId: performer.profileId,
+      },
+    });
+    expect(created.statusCode).toBe(400);
+  });
+
+  // Liveness is `isRepresentationActiveAt`, not `status = 'active'` — the two
+  // disagree exactly around an effective-dated termination (decisions.md #14).
+  it("still accepts an offer inside an agreed notice period, and refuses one after it", async () => {
+    const target = await seedOwnerWithProfile("ob5-tgt");
+    const noticePerformer = await seedOwnerWithProfile("ob5-perf", "performer");
+    const lapsedPerformer = await seedOwnerWithProfile("ob5-perf-lapsed", "performer");
+    const agent = await seedOwnerWithProfile("ob5-agent", "agent");
+    const oneDay = 24 * 60 * 60 * 1000;
+    await seedRepresentation(
+      agent.profileId,
+      noticePerformer.profileId,
+      "active",
+      new Date(Date.now() + 30 * oneDay), // notice served, not yet bitten
+    );
+    await seedRepresentation(
+      agent.profileId,
+      lapsedPerformer.profileId,
+      "active",
+      new Date(Date.now() - oneDay), // moment passed; the sweep has not run yet
+    );
+
+    const duringNotice = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("ob5-agent"), "x-profile-id": agent.profileId },
+      payload: {
+        targetProfileId: target.profileId,
+        wantedDate: "2026-11-11",
+        onBehalfOfProfileId: noticePerformer.profileId,
+      },
+    });
+    expect(duringNotice.statusCode).toBe(201);
+    expect(duringNotice.json().artistName).toBe(profileName("ob5-perf"));
+
+    const afterLapse = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("ob5-agent"), "x-profile-id": agent.profileId },
+      payload: {
+        targetProfileId: target.profileId,
+        wantedDate: "2026-11-12",
+        onBehalfOfProfileId: lapsedPerformer.profileId,
+      },
+    });
+    expect(afterLapse.statusCode).toBe(400);
+  });
+
+  it("400s a non-agent profile trying to offer on someone else's behalf", async () => {
+    const target = await seedOwnerWithProfile("ob4-tgt");
+    const other = await seedOwnerWithProfile("ob4-other", "performer");
+    const performer = await seedOwnerWithProfile("ob4-perf", "performer");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("ob4-perf"), "x-profile-id": performer.profileId },
+      payload: {
+        targetProfileId: target.profileId,
+        wantedDate: "2026-11-10",
+        onBehalfOfProfileId: other.profileId,
+      },
+    });
+    expect(created.statusCode).toBe(400);
   });
 });
 
