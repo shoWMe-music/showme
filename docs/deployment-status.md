@@ -8,7 +8,7 @@ Account/project map and the domain history live in
 
 | What | Where | Notes |
 |---|---|---|
-| **Marketing** | `www.showme.music` — Firebase Hosting, **gmail** `showme-production` | ⚠️ **STALE** — serving `main-D0FfydS8.js`, missing every 2026-08-23 fix. Deploys need the gmail account (`daniel@showme.music` gets 403) |
+| **Marketing** | `www.showme.music` — Firebase Hosting, **gmail** `showme-production` | Current as of 2026-08-23 (`main-9dPoRdKk.js`). Deploys need the **gmail** account — `daniel@showme.music` gets 403 |
 | **Marketing mirror** | `music-showme.web.app` — `music-showme` | Preview of the 2026-08-23 fixes. Do **not** overwrite; the web app has its own site |
 | **Web app** | `showme-app.web.app` — `music-showme`, site `showme-app` | Deployed 2026-08-23. Auth on `music-showme` |
 | **API** | Cloud Run `showme-api`, europe-north2, `prod-showme` | Revision `00006` (2026-08-23). Verifies tokens against **`music-showme`** — see 1c |
@@ -88,15 +88,19 @@ curl -H "Authorization: Bearer $TOKEN" -H "x-goog-user-project: music-showme" \
 Note the `x-goog-user-project` header — without it the Identity Toolkit API 403s on
 user ADC with a "requires a quota project" error.
 
-### 1d. Marketing production is stale
+### 1d. ~~Marketing production is stale~~ — DONE 2026-08-23
 
-`www.showme.music` serves `main-D0FfydS8.js`; the repo builds `main-9dPoRdKk.js`. Verified
-absent from the live site: the phone hero-card clip fix (`transform-style: flat`), the
-desktop chaos→order handoff, the touch scroll-snap, and the `firebase.json` no-cache
-headers (`/assets/hero-scene.js` still returns `max-age=3600`).
+Deployed with the gmail account. Live now: `main-9dPoRdKk.js`, the phone hero-card clip
+fix, the desktop chaos→order handoff and the touch scroll-snap — all verified against the
+live domain, not the mirror.
 
-All of it is committed and was verified on the `music-showme.web.app` mirror. Only the
-deploy is missing, and it needs the **gmail** account:
+The root-`/` `max-age=3600` gap recorded in the 2026-08-23 handoff is **also fixed**: the
+old rule matched `*.html`, which never covers the bare root (Firebase serves it as a
+directory index). Now a `**` catch-all with the content-hashed bundle re-asserted after it
+(last match wins). Verified live: `/`, `/index.html`, `/about.html`, `/contact.html` and
+the unhashed scene scripts all `no-cache`; `main-<hash>.js` `immutable`.
+
+To redeploy:
 
 ```bash
 pnpm --filter @showme/marketing build

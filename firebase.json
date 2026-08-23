@@ -18,8 +18,8 @@
       ],
       "headers": [
         {
-          "//": "HTML pages always revalidate \u2014 never serve a stale shell that points at old assets. All marketing pages are at the root, so *.html (not **/*.html, whose **/ wants a directory and skips root index.html).",
-          "source": "*.html",
+          "//": "Catch-all so the bare root is covered too: `*.html` misses `/` (a directory index), which is why the root served max-age=3600 while /index.html did not. Also covers the unhashed scene scripts, whose URLs are stable so a fix would otherwise sit behind a cache.",
+          "source": "**",
           "headers": [
             {
               "key": "Cache-Control",
@@ -28,12 +28,12 @@
           ]
         },
         {
-          "//": "Vanilla scene scripts have STABLE (unhashed) URLs, so they must revalidate on every load or a bug fix can sit behind a day-old cache. Vite's own bundle (main-<hash>.js / *.css) is content-hashed and safe to cache long.",
-          "source": "**/assets/@(hero-scene|chaos-order|feature-scroll|feature-visuals|ecosystem-galaxy|why-center).js",
+          "//": "Re-asserted AFTER the catch-all (last match wins): Vite's bundle is content-hashed, so the filename changes whenever the content does.",
+          "source": "**/assets/main-*.@(js|css)",
           "headers": [
             {
               "key": "Cache-Control",
-              "value": "no-cache"
+              "value": "public, max-age=31536000, immutable"
             }
           ]
         }
