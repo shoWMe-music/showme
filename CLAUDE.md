@@ -6,6 +6,8 @@ app, built as a **monorepo**. **Status:** scaffolded and substantially built —
 ## The blueprint
 The complete architecture, data model, engines, and API surface live in **[PLAN.md](./PLAN.md)** — the single source
 of truth. Topic guides are in `.claude/skills/`: `data-model`, `authorization`, `settlement`, `api-conventions`.
+**Before calling anything done, read `verify-e2e`** — how a change is proven against the running stack
+(with `app-walkthrough` for the browser half and `ui-testing` for authoring specs).
 **Later product decisions override PLAN.md and live in [docs/decisions.md](./docs/decisions.md)** — read it before
 building a subsystem (most recent: the **2026-07-24 session, folded in as #16**).
 

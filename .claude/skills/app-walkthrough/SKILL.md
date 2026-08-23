@@ -5,7 +5,7 @@ description: Drive the REAL web app as a logged-in user to test flows/logic/anim
 
 # App walkthrough (user-perspective testing)
 
-Test the app the way a user meets it: log in, click through a real flow, watch it behave. This complements — does not replace — the automated specs. Use it to *feel* the product and catch what assertions miss (confusing states, broken flows, janky motion).
+Test the app the way a user meets it: log in, click through a real flow, watch it behave. This complements — does not replace — the automated specs. For the standard a change must MEET before you call it done — every route into the rule, as the party who would really do it, checked in the database as well as the response — see the **verify-e2e** skill; this one is its browser half. Use it to *feel* the product and catch what assertions miss (confusing states, broken flows, janky motion).
 
 ## Boot the stack
 
