@@ -11,8 +11,8 @@ Account/project map and the domain history live in
 | **Marketing** | `www.showme.music` — Firebase Hosting, **gmail** `showme-production` | `daniel@showme.music` gets 403 on this project; deploys need the gmail account |
 | **Marketing mirror** | `music-showme.web.app` — `music-showme` | Preview of the 2026-08-23 fixes. Do **not** overwrite; the web app has its own site |
 | **Web app** | `showme-app.web.app` — `music-showme`, site `showme-app` | Deployed 2026-08-23. Auth on `music-showme` |
-| **API** | Cloud Run `showme-api`, europe-north2, `prod-showme` | Reachable on its `run.app` origin |
-| **Cloud SQL** | `showme-production-db`, europe-north2, `prod-showme` | `db-custom-1-3840` |
+| **API** | Cloud Run `showme-api`, europe-north2, `prod-showme` | Revision `00005` (2026-08-23, `e7bbc8b`). Reachable on its `run.app` origin |
+| **Cloud SQL** | `showme-production-db`, europe-north2, `prod-showme` | `db-custom-1-3840`. Schema at migration `0003`; **no application data yet** (0 profiles) |
 | **HTTPS load balancer** | `prod-showme` | Provisioned, **no DNS record** — carrying zero traffic and still billing |
 
 Deploy the web app with:
@@ -24,17 +24,39 @@ npx firebase deploy --only hosting:web --project music-showme
 
 ## Follow-ups
 
-### 1. The API on Cloud Run is running OLD code — migrate before you deploy it
+### 1. ~~API on old code~~ — DONE 2026-08-23
 
-The image predates the 2026-08-23 work (no `artistFee`/`currency` on booking requests,
-no message publish, none of the nine notification triggers).
+Migration `0003` applied to production (4 applied, `booking_requests.currency` exists),
+then the new image deployed as revision `showme-api-00005-7zr` from `e7bbc8b`. In that
+order — the reverse would have broken every booking-request insert.
 
-**`packages/db/migrations/0003_booking_request_currency.sql` is not applied to the
-production database.** Deploying the new API image without running it first means
-`INSERT` on `booking_requests` hits a missing `currency` column, and **every booking
-request from the live marketing form starts failing**. Migrate first, deploy second.
+Verified after: health OK, `artistFee` + `currency` in the live OpenAPI, both CORS
+origins still allowed, the marketing lead form still returns `{"ok":true}`, and an
+insert including `currency` reaches the FK check (so the column accepts writes).
 
-Harmless while the old image is serving: it never writes that column.
+**Running a migration locally** needs a TCP tunnel — the `DATABASE_URL` secret uses a
+Unix socket path that only resolves inside Cloud Run:
+
+```bash
+cloud-sql-proxy --port 55433 prod-showme:europe-north2:showme-production-db
+# rebuild the URL as postgresql://postgres:<password>@127.0.0.1:55433/showme
+DATABASE_URL=… pnpm --filter @showme/db exec drizzle-kit migrate
+```
+
+The proxy authenticates with **Application Default Credentials**, not the gcloud CLI
+credentials — they expire separately and need `gcloud auth application-default login`
+(browser). Note that overwrites the Firebase-admin impersonation ADC local API dev uses
+for Storage signing; backup at
+`~/.config/gcloud/application_default_credentials.firebase-impersonation.bak.json`.
+
+### 1b. The API has no logs
+
+`buildApp` sets `logger: false` (`apps/api/src/app.ts`), so `request.log.*` writes
+nowhere — including every best-effort notification catch block. In production this means
+a 500 arrives in Cloud Run logging with an **empty payload** and no diagnosable cause;
+during this deploy a 500 had to be diagnosed by reproducing the query against the
+database instead. It also hid an FK bug in the notification path for hours. Turning the
+logger on is a small change with a large payoff.
 
 ### 2. Deploy the SSE service
 
