@@ -8,7 +8,7 @@ Account/project map and the domain history live in
 
 | What | Where | Notes |
 |---|---|---|
-| **Marketing** | `www.showme.music` — Firebase Hosting, **gmail** `showme-production` | `daniel@showme.music` gets 403 on this project; deploys need the gmail account |
+| **Marketing** | `www.showme.music` — Firebase Hosting, **gmail** `showme-production` | ⚠️ **STALE** — serving `main-D0FfydS8.js`, missing every 2026-08-23 fix. Deploys need the gmail account (`daniel@showme.music` gets 403) |
 | **Marketing mirror** | `music-showme.web.app` — `music-showme` | Preview of the 2026-08-23 fixes. Do **not** overwrite; the web app has its own site |
 | **Web app** | `showme-app.web.app` — `music-showme`, site `showme-app` | Deployed 2026-08-23. Auth on `music-showme` |
 | **API** | Cloud Run `showme-api`, europe-north2, `prod-showme` | Revision `00006` (2026-08-23). Verifies tokens against **`music-showme`** — see 1c |
@@ -87,6 +87,44 @@ curl -H "Authorization: Bearer $TOKEN" -H "x-goog-user-project: music-showme" \
 
 Note the `x-goog-user-project` header — without it the Identity Toolkit API 403s on
 user ADC with a "requires a quota project" error.
+
+### 1d. Marketing production is stale
+
+`www.showme.music` serves `main-D0FfydS8.js`; the repo builds `main-9dPoRdKk.js`. Verified
+absent from the live site: the phone hero-card clip fix (`transform-style: flat`), the
+desktop chaos→order handoff, the touch scroll-snap, and the `firebase.json` no-cache
+headers (`/assets/hero-scene.js` still returns `max-age=3600`).
+
+All of it is committed and was verified on the `music-showme.web.app` mirror. Only the
+deploy is missing, and it needs the **gmail** account:
+
+```bash
+pnpm --filter @showme/marketing build
+npx firebase deploy --only hosting:marketing --project showme-production \
+  --account daniel.islandman@gmail.com
+```
+
+### 1e. `apps/jobs` has never been deployed — the scheduled work does not run
+
+There are **no Cloud Run Jobs** in `prod-showme`, and the **Cloud Scheduler API is not
+even enabled**. So nothing in `apps/jobs` has ever executed in production:
+
+| Job | Consequence of it never running |
+|---|---|
+| `reapExpiredOffers` | 30-day offers stay `pending` forever |
+| `reapExpiredHandoffs` | 90-day venue handoffs never expire |
+| `reapExpiredShares` | Share links never expire — the one with a security edge |
+| `runExchangeRateRefresh` | `exchange_rate_cache` never refreshes; display FX goes stale |
+
+Note ClickUp has "11 · Exchange-rate refresh scheduler" as **shipped** — that is the code,
+not a running schedule. Deploying it needs: enable `cloudscheduler.googleapis.com`, a
+Cloud Run Job built from `apps/jobs`, and a Scheduler trigger. None exist.
+
+### 1f. `apps/site` — unidentified
+
+A sixth Vite app (`@showme/site`, 65 files, its own router/sitemap/robots.txt) that appears
+in no deploy plan and is not one of `cicd-plan.md`'s five units. Likely superseded by
+`apps/marketing`. Worth confirming and deleting, or documenting why it stays.
 
 ### 2. Deploy the SSE service
 
