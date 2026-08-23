@@ -12,6 +12,8 @@ const EnvSchema = z.object({
   HOST: z.string().default("0.0.0.0"),
   FIREBASE_PROJECT_ID: z.string().optional(),
   FIREBASE_SERVICE_ACCOUNT: z.string().optional(),
+  /** Comma-separated origins allowed to open a stream (the web app). */
+  CORS_ALLOWED_ORIGINS: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

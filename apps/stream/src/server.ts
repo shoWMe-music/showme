@@ -18,7 +18,11 @@ const tokenVerifier = createFirebaseTokenVerifier({
   serviceAccount: env.FIREBASE_SERVICE_ACCOUNT,
 });
 
-const app = buildStreamApp({ database, pubsub, tokenVerifier });
+const corsAllowedOrigins = env.CORS_ALLOWED_ORIGINS?.split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const app = buildStreamApp({ database, pubsub, tokenVerifier, corsAllowedOrigins });
 
 app
   .listen({ port: env.PORT, host: env.HOST })

@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fastify/cors": "^11.3.0",
     "@showme/auth": "workspace:*",
     "@showme/db": "workspace:*",
     "@showme/shared": "workspace:*",

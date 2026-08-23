@@ -63,3 +63,77 @@ describe("GET /stream authentication", () => {
     });
   });
 });
+
+describe("CORS", () => {
+  const allowed = "https://app.showme.music";
+
+  it("answers the preflight for an allowed origin", async () => {
+    const app = buildStreamApp({
+      database: emptyDatabase,
+      pubsub: noopPubSub,
+      tokenVerifier: verifierFor({ uid: "user-a" }),
+      corsAllowedOrigins: [allowed],
+    });
+
+    const response = await app.inject({
+      method: "OPTIONS",
+      url: "/stream",
+      headers: {
+        origin: allowed,
+        "access-control-request-method": "GET",
+        "access-control-request-headers": "authorization",
+      },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.headers["access-control-allow-origin"]).toBe(allowed);
+  });
+
+  it("does not reflect an origin that is not allow-listed", async () => {
+    const app = buildStreamApp({
+      database: emptyDatabase,
+      pubsub: noopPubSub,
+      tokenVerifier: verifierFor({ uid: "user-a" }),
+      corsAllowedOrigins: [allowed],
+    });
+
+    const response = await app.inject({
+      method: "OPTIONS",
+      url: "/stream",
+      headers: { origin: "https://evil.example", "access-control-request-method": "GET" },
+    });
+
+    expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  // The regression that matters: `reply.hijack()` writes the head on the raw
+  // socket, bypassing every Fastify reply hook — so @fastify/cors covers the
+  // preflight but NOT the streaming response. Without the header set explicitly on
+  // the hijacked write, a browser passes the preflight and then discards the stream.
+  it("puts the header on the hijacked streaming response, not just the preflight", async () => {
+    const app = buildStreamApp({
+      database: emptyDatabase,
+      pubsub: noopPubSub,
+      tokenVerifier: verifierFor({ uid: "user-a" }),
+      corsAllowedOrigins: [allowed],
+    });
+    await app.ready();
+
+    const address = await app.listen({ port: 0, host: "127.0.0.1" });
+    try {
+      const controller = new AbortController();
+      const response = await fetch(`${address}/stream`, {
+        headers: { authorization: "Bearer good-token", origin: allowed },
+        signal: controller.signal,
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("text/event-stream");
+      expect(response.headers.get("access-control-allow-origin")).toBe(allowed);
+      expect(response.headers.get("vary")).toBe("Origin");
+      controller.abort();
+    } finally {
+      await app.close();
+    }
+  });
+});
