@@ -121,6 +121,28 @@ export const setlists = pgTable(
   (table) => [unique().on(table.eventId, table.participantId)],
 );
 
+/**
+ * A setlist SHARED with one more participant (PLAN.md:412 — "crew see only if
+ * shared (observer)"). The setlist itself stays party-scoped to the performer who
+ * authored it; a row here is the performer's explicit, revocable grant of read
+ * access to one other participant on the same event (the lighting operator on a
+ * cued show, decisions.md "Setlists"). Never a write grant — only the author writes.
+ */
+export const setlistShares = pgTable(
+  "setlist_shares",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    setlistId: uuid("setlist_id")
+      .notNull()
+      .references(() => setlists.id, { onDelete: "cascade" }),
+    participantId: uuid("participant_id")
+      .notNull()
+      .references(() => eventParticipants.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique().on(table.setlistId, table.participantId)],
+);
+
 /** The operator's PRO filing, derived from a setlist. */
 export const performanceReports = pgTable("performance_reports", {
   id: uuid("id").defaultRandom().primaryKey(),

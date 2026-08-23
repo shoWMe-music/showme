@@ -34,6 +34,13 @@ export const bookingRequests = pgTable(
     email: text("email"),
     phone: text("phone"),
     artistName: text("artist_name"),
+    // The performer an AGENT is offering on behalf of (decisions #14): the sender
+    // profile is the agent's own, so without this the act being offered has no
+    // identity. Set only when an active representation covers the two — validated
+    // at write time, never inferred at read time.
+    onBehalfOfProfileId: uuid("on_behalf_of_profile_id").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
     wantedDate: date("wanted_date"),
     additionalDates: jsonb("additional_dates"),
     artistFee: bigint("artist_fee", { mode: "bigint" }), // minor units (money.md)
@@ -63,8 +70,23 @@ export const bookingRequests = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    // Dedup only PENDING requests, so a declined one can be re-sent. The act being
+    // offered is part of the identity of the offer: an agent pitching two different
+    // performers to the same venue on the same night is two offers, not a duplicate.
+    // The act is COALESCEd rather than indexed raw, and only the act: Postgres
+    // treats NULLs as distinct, so an unqualified `on_behalf_of_profile_id` would
+    // make every direct (non-agent) offer unique and switch the guard off for the
+    // senders it was written for. `NULLS NOT DISTINCT` would fix that column but
+    // also collapse the others, silently deduplicating two DATELESS offers that
+    // have always been allowed. Collapsing just this one column keeps the original
+    // rule intact and adds the act to it.
     uniqueIndex("booking_requests_pending_dedup")
-      .on(table.senderUserId, table.targetProfileId, table.wantedDate)
+      .on(
+        table.senderUserId,
+        table.targetProfileId,
+        table.wantedDate,
+        sql`coalesce(${table.onBehalfOfProfileId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
+      )
       .where(sql`${table.status} = 'pending'`),
   ],
 );

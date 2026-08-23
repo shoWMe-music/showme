@@ -84,7 +84,9 @@ export const eventParticipantStatus = pgEnum("event_participant_status", [
 export const performerTag = pgEnum("performer_tag", ["headliner", "support", "dj", "opener"]);
 
 /** The relationship/grouping a deal represents (its economic shape at a glance). */
-export const dealType = pgEnum("deal_type", ["performance", "rental", "fee", "split", "custom"]);
+// `custom` was removed (PLAN.md:139, decisions.md:459) — a free-text deal type
+// broke the settlement engine, which can only reconcile a shape it recognises.
+export const dealType = pgEnum("deal_type", ["performance", "rental", "fee", "split"]);
 
 /**
  * The settlement math a deal uses (canonical set ported from `models.ts`
