@@ -155,6 +155,19 @@ const SETTLEMENT_IDS = {
   albumRepresentation: "e2e00000-0000-4000-8000-0000000000f4", // private agent commission
 } as const;
 
+// Booking requests — the operator's inbox AND, via `senderProfileId`, the
+// performers'/agent's outgoing view. Both directions read the same table
+// (`direction=incoming` scopes on target, `outgoing` on sender), so every row
+// here is deliberately either cross-wired to an E2E account or anonymous.
+const BOOKING_REQUEST_IDS = {
+  midnightEchoPending: "e2e00000-0000-4000-8000-0000000000f5", // anonymous public form → operator
+  performerAOffer: "e2e00000-0000-4000-8000-0000000000f6", // performerA → operator (performerA's outgoing)
+  agentOffer: "e2e00000-0000-4000-8000-0000000000f7", // agent → operator (agent's outgoing)
+  performerBAccepted: "e2e00000-0000-4000-8000-0000000000f8", // performerB → operator, accepted
+  frostbiteDeclined: "e2e00000-0000-4000-8000-0000000000f9", // anonymous, declined
+  megaPromoFlagged: "e2e00000-0000-4000-8000-0000000000fa", // anonymous, flagged as spam
+} as const;
+
 const SEK = "SEK";
 
 async function main() {
@@ -193,6 +206,9 @@ async function main() {
     await database.delete(schema.budgets).where(inArray(schema.budgets.id, [BUDGET_ID]));
     await database.delete(schema.dealParties).where(inArray(schema.dealParties.dealId, dealIds)); // → participants
     await database.delete(schema.deals).where(inArray(schema.deals.id, dealIds));
+    await database
+      .delete(schema.bookingRequests)
+      .where(inArray(schema.bookingRequests.id, Object.values(BOOKING_REQUEST_IDS))); // → profiles (cascade), but delete by id so re-runs stay exact
     await database
       .delete(schema.representations)
       .where(inArray(schema.representations.id, [REPRESENTATION_ID])); // → profiles (no action)
@@ -897,6 +913,146 @@ async function main() {
       })
       .returning({ id: schema.settlementTransfers.id });
     record("settlement_transfers.representation", representationTransfer);
+
+    // ── 13. Booking requests — the operator's inbox and the senders' outbox. ─
+    // One table serves both directions of the Requests page: `direction=incoming`
+    // scopes on `target_profile_id`, `outgoing` on `sender_profile_id`. So the
+    // three rows carrying a sender profile are what makes performerA's, performerB's
+    // and the agent's Outgoing view non-empty — without them the outgoing branch
+    // renders the empty state and its filter is never exercised.
+    // Statuses span the page's filter chips (pending / accepted / declined / flagged).
+    // Note the `booking_requests_pending_dedup` unique index: among PENDING rows,
+    // (sender_user_id, target_profile_id, wanted_date) must be distinct.
+    const bookingRequests = await database
+      .insert(schema.bookingRequests)
+      .values([
+        {
+          // Anonymous public-form request — no sender account, so it appears in the
+          // operator's Incoming only and in nobody's Outgoing.
+          id: BOOKING_REQUEST_IDS.midnightEchoPending,
+          source: "public_form",
+          status: "pending",
+          targetProfileId: PROFILE_IDS.operator,
+          contactName: "Anders Berg",
+          email: "anders@midnightecho.example",
+          phone: "+46 70 123 45 67",
+          artistName: "The Midnight Echo",
+          wantedDate: "2026-10-03",
+          artistFee: 3000000n, // 30 000.00 SEK asking fee
+          pitch:
+            "Four-piece indie rock, just wrapped a Nordic club tour. Would love a Friday slot.",
+          note: "Self-booked, no agency.",
+          senderType: "performer",
+          performerType: "band",
+          genres: ["indie rock", "post-punk"],
+          websiteUrl: "https://midnightecho.example",
+          socialLinks: {
+            instagram: "@midnightecho",
+            spotify: "https://open.spotify.example/midnightecho",
+          },
+          musicUrl: "https://open.spotify.example/midnightecho",
+          sentVia: "in_platform",
+        },
+        {
+          // performerA (Marlo) pitching the operator — THE row that proves
+          // `direction=outgoing` works for a performer.
+          id: BOOKING_REQUEST_IDS.performerAOffer,
+          source: "performer_offer",
+          status: "pending",
+          targetProfileId: PROFILE_IDS.operator,
+          senderUserId: performerAUserId,
+          senderProfileId: PROFILE_IDS.performerA,
+          contactName: E2E_ACCOUNTS.performerA.displayName,
+          email: E2E_ACCOUNTS.performerA.email,
+          artistName: E2E_ACCOUNTS.performerA.profileName,
+          wantedDate: "2026-10-18",
+          offerFeeMin: 2000000n, // 20 000.00 SEK
+          offerFeeMax: 2800000n, // 28 000.00 SEK
+          pitch:
+            "Second Stockholm date to support the new record. Flexible on the fee for a good room.",
+          note: "Sent directly, not via Astra.",
+          senderType: "performer",
+          performerType: "solo",
+          genres: ["indie-folk"],
+          sentVia: "in_platform",
+        },
+        {
+          // The agent pitching on behalf of the performer it represents — the
+          // agent kind's own Outgoing view (decisions.md #14).
+          id: BOOKING_REQUEST_IDS.agentOffer,
+          source: "performer_offer",
+          status: "pending",
+          targetProfileId: PROFILE_IDS.operator,
+          senderUserId: agentUserId,
+          senderProfileId: PROFILE_IDS.agent,
+          contactName: E2E_ACCOUNTS.agent.displayName,
+          email: E2E_ACCOUNTS.agent.email,
+          artistName: E2E_ACCOUNTS.performerA.profileName,
+          wantedDate: "2026-11-07",
+          offerFeeMin: 2500000n, // 25 000.00 SEK
+          offerFeeMax: 3200000n, // 32 000.00 SEK
+          pitch:
+            "Astra representing Marlo Vance for a headline slot. Routing through Stockholm in November.",
+          note: "Agency-sent on behalf of the represented performer.",
+          senderType: "agency",
+          performerType: "solo",
+          genres: ["indie-folk"],
+          sentVia: "in_platform",
+        },
+        {
+          // performerB, already accepted — gives the Accepted chip a row in both
+          // the operator's Incoming and performerB's Outgoing.
+          id: BOOKING_REQUEST_IDS.performerBAccepted,
+          source: "performer_offer",
+          status: "accepted",
+          targetProfileId: PROFILE_IDS.operator,
+          senderUserId: performerBUserId,
+          senderProfileId: PROFILE_IDS.performerB,
+          contactName: E2E_ACCOUNTS.performerB.displayName,
+          email: E2E_ACCOUNTS.performerB.email,
+          artistName: E2E_ACCOUNTS.performerB.profileName,
+          wantedDate: "2026-09-27",
+          offerFeeMin: 1500000n, // 15 000.00 SEK
+          pitch: "Synth-pop live set, seated show. Confirmed and looking forward to it.",
+          senderType: "performer",
+          performerType: "band",
+          genres: ["synth-pop"],
+          sentVia: "in_platform",
+        },
+        {
+          id: BOOKING_REQUEST_IDS.frostbiteDeclined,
+          source: "venue_handoff",
+          status: "declined",
+          targetProfileId: PROFILE_IDS.operator,
+          contactName: "DJ Frostbite",
+          email: "frostbite@coldwax.example",
+          artistName: "DJ Frostbite",
+          wantedDate: "2026-08-29",
+          artistFee: 800000n, // 8 000.00 SEK
+          pitch: "Late-night techno set. Passed over from Klubb Nord.",
+          note: "Declined, clashes with Open Mic night.",
+          senderType: "performer",
+          performerType: "dj",
+          genres: ["techno"],
+          sentVia: "mailto",
+        },
+        {
+          id: BOOKING_REQUEST_IDS.megaPromoFlagged,
+          source: "public_form",
+          status: "flagged",
+          targetProfileId: PROFILE_IDS.operator,
+          contactName: "MegaPromo Bookings",
+          email: "deals@megapromo.example",
+          artistName: "Various Artists",
+          wantedDate: "2026-11-14",
+          pitch: "GUARANTEED SELLOUT!!! Book 20 of our acts now for a special rate, reply ASAP!!!",
+          note: "Auto-flagged, bulk/spam pattern.",
+          senderType: "agency",
+          sentVia: "in_platform",
+        },
+      ])
+      .returning({ id: schema.bookingRequests.id });
+    record("booking_requests", bookingRequests);
 
     // ── Summary ────────────────────────────────────────────────────────────
     console.log("\nE2E seed complete. Accounts (Firebase uid = users.id):");
