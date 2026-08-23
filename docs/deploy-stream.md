@@ -46,7 +46,7 @@ gcloud run deploy showme-stream \
   --allow-unauthenticated \
   --add-cloudsql-instances prod-showme:europe-north2:showme-production-db \
   --set-secrets "DATABASE_URL=DATABASE_URL:latest" \
-  --set-env-vars "FIREBASE_PROJECT_ID=<firebase-project-id>" \
+  --set-env-vars "FIREBASE_PROJECT_ID=<firebase-project-id>,CORS_ALLOWED_ORIGINS=https://<web-app-origin>" \
   --timeout 3600 \
   --min-instances 0
 ```
@@ -69,6 +69,7 @@ gcloud run deploy showme-stream \
 | `FIREBASE_PROJECT_ID` | in prod | Token audience |
 | `FIREBASE_SERVICE_ACCOUNT` | no | Raw or base64 JSON; omit to use ADC |
 | `FIREBASE_AUTH_EMULATOR_HOST` | local only | Set by the dev stack; makes the verifier accept emulator-signed tokens |
+| `CORS_ALLOWED_ORIGINS` | **for browsers** | Comma-separated allow-list. Without the web app's origin, no browser can connect — see below |
 
 ## Cost — `min-instances` is the whole decision
 
@@ -111,6 +112,7 @@ DATABASE_URL="postgres://postgres:postgres@127.0.0.1:55432/showme" \
 PORT=8081 \
 FIREBASE_AUTH_EMULATOR_HOST="127.0.0.1:9099" \
 FIREBASE_PROJECT_ID="demo-showme" \
+CORS_ALLOWED_ORIGINS="http://127.0.0.1:5180,http://localhost:5180" \
 pnpm --filter @showme/stream dev
 ```
 
@@ -144,11 +146,30 @@ The message payload carries ids only, never the body — visibility is enforced 
 by `GET /events/:id/messages`, so a client must refetch through it rather than render
 anything pushed down the channel.
 
+The web app subscribes in `apps/web/src/hooks/useRealtimeStream.ts`, mounted once in the
+AppShell. It uses `fetch` + a streaming reader rather than `EventSource`, because
+`EventSource` cannot send an `Authorization` header and putting the token in the query
+string would leak it into logs. Frames only invalidate TanStack Query caches, so live
+updates and a cold load share one read path. Set `VITE_STREAM_URL`; leaving it blank
+disables the subscription entirely.
+
+## CORS is required for any browser client
+
+`CORS_ALLOWED_ORIGINS` must list the web app's origin, or **no browser can connect** —
+the client sends `Authorization`, which makes the request non-simple, so the browser
+preflights first.
+
+Two places must agree, and the second is easy to miss: `@fastify/cors` handles the
+OPTIONS preflight, but the streaming `GET` is written through `reply.hijack()` on the raw
+socket, which bypasses every Fastify reply hook. The handler therefore sets
+`Access-Control-Allow-Origin` itself on the hijacked write. Miss that and the preflight
+passes while the browser silently discards the stream — covered by a regression test in
+`app.test.ts`.
+
 ## Known gaps
 
-- **No client consumes this.** `apps/web` has no `EventSource`; nothing subscribes yet.
-- **No notifications read API.** `notifications` rows are written and published, but there
-  is no `GET /notifications`, so a user who was disconnected has no way to see what they
-  missed. SSE has no backlog — events published while offline are simply gone, which is
-  exactly what the durable feed is meant to cover.
-- Only two triggers publish. Deals, settlements, holds and invitations do not.
+- Only two triggers publish (`event.participant_added`, `event.message_posted`). Deals,
+  settlements, holds and invitations do not.
+- **SSE has no backlog.** Events published while a user is disconnected are gone; the
+  durable `notifications` feed (`GET /notifications`) is what covers the gap, and the
+  monthly digest in decisions.md #16.10 is not built.

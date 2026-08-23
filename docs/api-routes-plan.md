@@ -8,6 +8,12 @@ The remaining backend, as route modules in `apps/api/src/routes/*` + serializers
 
 Status legend: ☑ done · ◑ partial · ☐ not started.
 
+
+> **The per-route `☐` boxes are stale — do not read them as "not built".** Whole phases are
+> marked ✅ DONE in their headers while every box beneath stays unticked; ~47 remain that way.
+> The phase header and the code are authoritative. Check `apps/api/src/routes/` before
+> concluding a route is missing.
+
 ---
 
 ## Cross-cutting infrastructure (build first — every route depends on these)
@@ -88,7 +94,7 @@ Status legend: ☑ done · ◑ partial · ☐ not started.
 - ☐ `tasks` CRUD (+ `task_reminders`) · `calendar_items` CRUD. Scope by owner (event/profile/user).
 
 **notifications** (`routes/notifications.ts`)
-- ☐ `GET /notifications` (`list`) · `POST /notifications/read` (server-side `read_at`).
+- ☑ `GET /notifications` (`list`, keyset + `?unread=`) · `POST /notifications/read` (server-side `read_at`).
 
 **contacts** (`routes/contacts.ts`)
 - ☐ CRUD (owner-profile scoped; `persons` jsonb).
