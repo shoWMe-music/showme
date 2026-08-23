@@ -11,7 +11,7 @@ Account/project map and the domain history live in
 | **Marketing** | `www.showme.music` — Firebase Hosting, **gmail** `showme-production` | `daniel@showme.music` gets 403 on this project; deploys need the gmail account |
 | **Marketing mirror** | `music-showme.web.app` — `music-showme` | Preview of the 2026-08-23 fixes. Do **not** overwrite; the web app has its own site |
 | **Web app** | `showme-app.web.app` — `music-showme`, site `showme-app` | Deployed 2026-08-23. Auth on `music-showme` |
-| **API** | Cloud Run `showme-api`, europe-north2, `prod-showme` | Revision `00005` (2026-08-23, `e7bbc8b`). Reachable on its `run.app` origin |
+| **API** | Cloud Run `showme-api`, europe-north2, `prod-showme` | Revision `00006` (2026-08-23). Verifies tokens against **`music-showme`** — see 1c |
 | **Cloud SQL** | `showme-production-db`, europe-north2, `prod-showme` | `db-custom-1-3840`. Schema at migration `0003`; **no application data yet** (0 profiles) |
 | **HTTPS load balancer** | `prod-showme` | Provisioned, **no DNS record** — carrying zero traffic and still billing |
 
@@ -57,6 +57,36 @@ a 500 arrives in Cloud Run logging with an **empty payload** and no diagnosable 
 during this deploy a 500 had to be diagnosed by reproducing the query against the
 database instead. It also hid an FK bug in the notification path for hours. Turning the
 logger on is a small change with a large payoff.
+
+### 1c. Cross-project auth — the API must be told which project issues tokens
+
+Auth lives on **`music-showme`**; the API runs on **`prod-showme`**. `firebase-admin`
+infers its project from the runtime when `FIREBASE_PROJECT_ID` is unset, so it inferred
+`prod-showme`, and `verifyIdToken` rejected every `music-showme` token on the audience
+check — surfacing as **"Invalid or expired token"** on sign-in. Fixed by setting
+`FIREBASE_PROJECT_ID=music-showme` on the Cloud Run service (revision `00006`).
+
+Verified with a real token: minted a custom token for the signed-in user, exchanged it
+via `accounts:signInWithCustomToken`, and called the live API. The error moved from
+"Invalid or expired token" to "No provisioned account for this identity" — i.e. the
+token now verifies and only the Postgres account is missing, which is the onboarding
+path (`POST /auth/session` returns 400 "needs a `kind`", which `AuthProvider` maps to
+the onboarding flow).
+
+**A new Hosting site is not automatically an authorized Auth domain.** `showme-app.web.app`
+had to be added to Identity Platform's `authorizedDomains`, or Google sign-in fails with
+`auth/unauthorized-domain`. Adding a domain later (e.g. `app.showme.music`) needs the same
+step:
+
+```bash
+TOKEN=$(gcloud auth print-access-token)
+curl -H "Authorization: Bearer $TOKEN" -H "x-goog-user-project: music-showme" \
+  https://identitytoolkit.googleapis.com/admin/v2/projects/music-showme/config
+# then PATCH ?updateMask=authorizedDomains with the full list plus the new domain
+```
+
+Note the `x-goog-user-project` header — without it the Identity Toolkit API 403s on
+user ADC with a "requires a quota project" error.
 
 ### 2. Deploy the SSE service
 

@@ -57,12 +57,16 @@
       ],
       "headers": [
         {
-          "//": "Catch-all: every non-asset path serves the SPA shell (via the rewrite), and a cached shell points at asset hashes that no longer exist after a deploy.",
+          "//": "Catch-all: every non-asset path serves the SPA shell (via the rewrite), and a cached shell points at asset hashes that no longer exist after a deploy. COOP is same-origin-allow-popups because Firebase Auth's signInWithPopup polls window.closed on the popup \u2014 the stricter default blocks that and the flow can hang when a user dismisses the popup by hand.",
           "source": "**",
           "headers": [
             {
               "key": "Cache-Control",
               "value": "no-cache"
+            },
+            {
+              "key": "Cross-Origin-Opener-Policy",
+              "value": "same-origin-allow-popups"
             }
           ]
         },
