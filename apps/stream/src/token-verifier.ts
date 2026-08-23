@@ -42,14 +42,24 @@ export function createFirebaseTokenVerifier(config: {
           "firebase-admin/app"
         );
         const { getAuth } = await import("firebase-admin/auth");
+        // When the Auth emulator is targeted (FIREBASE_AUTH_EMULATOR_HOST, read
+        // automatically by firebase-admin), tokens are emulator-signed and need no
+        // real credential — initialize with the project id only. Without this the
+        // service cannot verify a seeded local user, so the SSE stream is
+        // untestable against the dev stack. Mirrors the API verifier.
+        const usingEmulator = !!process.env.FIREBASE_AUTH_EMULATOR_HOST;
         const app =
           getApps()[0] ??
-          initializeApp({
-            credential: config.serviceAccount
-              ? cert(decodeServiceAccount(config.serviceAccount))
-              : applicationDefault(),
-            projectId: config.projectId,
-          });
+          initializeApp(
+            usingEmulator
+              ? { projectId: config.projectId ?? "demo-showme" }
+              : {
+                  credential: config.serviceAccount
+                    ? cert(decodeServiceAccount(config.serviceAccount))
+                    : applicationDefault(),
+                  projectId: config.projectId,
+                },
+          );
         return getAuth(app);
       })();
     }
