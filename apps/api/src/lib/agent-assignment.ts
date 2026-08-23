@@ -91,7 +91,11 @@ export async function assignAgentToEvent(
   if (!performerParticipant) return false;
   if (!(await venueInRegion(tx, event.venueProfileId, representation))) return false;
 
-  // Materialize the agent participant (skip if already present).
+  // Materialize the agent participant. A row may already exist and be `removed`
+  // — a previous representation that was terminated (unassignment soft-removes,
+  // it never deletes) — in which case re-signing the agent REINSTATES that row
+  // rather than skipping it, which would otherwise leave the agent on the event
+  // with no access at all.
   const [existingAgent] = await tx
     .select()
     .from(schema.eventParticipants)
@@ -110,6 +114,12 @@ export async function assignAgentToEvent(
       permissionSetId,
       status: "accepted",
     });
+  } else if (existingAgent.status === "removed") {
+    const permissionSetId = await agentPermissionSetId(tx, representation.agentProfileId);
+    await tx
+      .update(schema.eventParticipants)
+      .set({ role: "agent", permissionSetId, status: "accepted", updatedAt: new Date() })
+      .where(eq(schema.eventParticipants.id, existingAgent.id));
   }
 
   // Flag the performer's participation delegated → view-only (auth engine reads this).
@@ -216,6 +226,14 @@ export async function delegatableEvents(
  * removed and the performer un-delegated. Concluded events keep the historical
  * agent row (and any confirmed deal's commission stands via its representation
  * settlement). Returns how many events reverted.
+ *
+ * "Removed" is `status = 'removed'`, NOT a DELETE — the same soft-remove the
+ * participants route and group unassignment use. `authorize()` excludes removed
+ * participants, so the agent's access ends the moment this runs, while anything
+ * that already pointed at that participation (a computed settlement, a transfer,
+ * a budget line's `collected_by`) keeps pointing at a row that still exists.
+ * Hard-deleting it made termination impossible the moment money touched the
+ * event — either party can terminate unilaterally (decisions #14), always.
  */
 export async function unassignAgentFromOpenEvents(
   tx: Transaction,
@@ -240,9 +258,10 @@ export async function unassignAgentFromOpenEvents(
 
   let reverted = 0;
   for (const row of rows) {
-    // Remove the agent participant from the event.
+    // Soft-remove the agent participant from the event (see the note above).
     await tx
-      .delete(schema.eventParticipants)
+      .update(schema.eventParticipants)
+      .set({ status: "removed", updatedAt: new Date() })
       .where(
         and(
           eq(schema.eventParticipants.eventId, row.eventId),

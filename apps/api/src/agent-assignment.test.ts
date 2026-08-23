@@ -107,14 +107,32 @@ async function capsFor(uid: string, eventId: string) {
   return effectiveEventCapabilities(harness.db, principal, eventId);
 }
 
-/** Propose (by agent) + performer-accept → an active representation over `region`. */
+/** Fresh agent + performer profiles with an active representation over `region`. */
 async function activateRepresentation(prefix: string, region: string[]) {
   const agent = await createProfile(`${prefix}-agent`, "agent");
   const performer = await createProfile(`${prefix}-performer`, "performer");
+  const repId = await activateRepresentationBetween(
+    agent,
+    performer,
+    `${prefix}-agent`,
+    `${prefix}-performer`,
+    region,
+  );
+  return { agent, performer, repId };
+}
+
+/** Propose (by agent) + performer-accept between two profiles that already exist. */
+async function activateRepresentationBetween(
+  agent: { id: string },
+  performer: { id: string },
+  agentUid: string,
+  performerUid: string,
+  region: string[],
+) {
   const proposed = await app.inject({
     method: "POST",
     url: "/api/v1/representations",
-    headers: auth(`${prefix}-agent`),
+    headers: auth(agentUid),
     payload: {
       agentProfileId: agent.id,
       performerProfileId: performer.id,
@@ -127,10 +145,10 @@ async function activateRepresentation(prefix: string, region: string[]) {
   await app.inject({
     method: "PATCH",
     url: `/api/v1/representations/${repId}`,
-    headers: auth(`${prefix}-performer`),
+    headers: auth(performerUid),
     payload: { action: "accept" },
   });
-  return { agent, performer, repId };
+  return repId;
 }
 
 describe("agent assignment", () => {
@@ -248,10 +266,115 @@ describe("agent assignment", () => {
       payload: { action: "terminate" },
     });
     expect(terminated.statusCode).toBe(200);
-    expect(await agentParticipant(event.id, agent.id)).toBeUndefined(); // agent removed
+    // Soft-removed, not deleted — the row stays, the access goes.
+    expect((await agentParticipant(event.id, agent.id))?.status).toBe("removed");
 
     // The performer's full floor is restored (confirm capability back).
     const caps = await capsFor("term-performer", event.id);
     expect(caps.has("settlement.confirm")).toBe(true);
+
+    // And the agent's access is gone the moment the row is marked removed.
+    const agentCaps = await capsFor("term-agent", event.id);
+    expect(agentCaps.size).toBe(0);
+  });
+
+  // A-12: unassignment used to hard-DELETE the agent participant, and
+  // `settlements.participant_id` references it with no `ON DELETE` — so the
+  // moment a settlement had been computed for that event, termination 500'd and
+  // the representation was permanent. Either party can terminate unilaterally
+  // (decisions #14), settled money or not.
+  it("terminates after a settlement has been computed, leaving the settled row intact", async () => {
+    const { agent, performer, repId } = await activateRepresentation("settled", ["SE"]);
+    const venue = await createVenue("settled-venue", "SE");
+    const event = await createEvent(venue.id, "settled-venue");
+    await addPerformer(event.id, performer.id);
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/representations/${repId}/events`,
+      headers: auth("settled-performer"),
+      payload: { eventIds: [event.id] },
+    });
+    const assigned = await agentParticipant(event.id, agent.id);
+    expect(assigned).toBeDefined();
+    if (!assigned) throw new Error("agent participant missing");
+
+    // What a settlement compute leaves behind: a settlement row pointing at the
+    // agent's participation.
+    const [settlement] = await harness.db
+      .insert(schema.settlements)
+      .values({
+        eventId: event.id,
+        participantId: assigned.id,
+        computed: { entitlement: "0", collected: "0", paid: "0", net: "0" },
+      })
+      .returning();
+    expect(settlement).toBeDefined();
+
+    const terminated = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/representations/${repId}`,
+      headers: auth("settled-performer"),
+      payload: { action: "terminate" },
+    });
+    expect(terminated.statusCode).toBe(200);
+
+    // The participation survives as `removed`, so the money history still resolves.
+    expect((await agentParticipant(event.id, agent.id))?.status).toBe("removed");
+    const settlementsAfter = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, event.id));
+    expect(settlementsAfter).toHaveLength(1);
+    expect(settlementsAfter[0]?.participantId).toBe(assigned.id);
+
+    // The agent is out: no capabilities left on the event.
+    expect((await capsFor("settled-agent", event.id)).size).toBe(0);
+  });
+
+  // Re-signing the same agent must bring the soft-removed row back to life,
+  // rather than skipping it and leaving an agent participant with no access.
+  it("reinstates a soft-removed agent participant when the agent is re-signed", async () => {
+    const { agent, performer, repId } = await activateRepresentation("again", ["SE"]);
+    const venue = await createVenue("again-venue", "SE");
+    const event = await createEvent(venue.id, "again-venue");
+    await addPerformer(event.id, performer.id);
+    const assign = () =>
+      app.inject({
+        method: "POST",
+        url: `/api/v1/representations/${repId}/events`,
+        headers: auth("again-performer"),
+        payload: { eventIds: [event.id] },
+      });
+
+    await assign();
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/representations/${repId}`,
+      headers: auth("again-performer"),
+      payload: { action: "terminate" },
+    });
+    expect((await agentParticipant(event.id, agent.id))?.status).toBe("removed");
+
+    // A fresh representation with the same two parties, re-assigned to the event.
+    const second = await activateRepresentationBetween(
+      agent,
+      performer,
+      "again-agent",
+      "again-performer",
+      ["SE"],
+    );
+    const reassigned = await app.inject({
+      method: "POST",
+      url: `/api/v1/representations/${second}/events`,
+      headers: auth("again-performer"),
+      payload: { eventIds: [event.id] },
+    });
+    expect(reassigned.statusCode).toBe(200);
+    expect(reassigned.json().assigned).toBe(1);
+
+    const back = await agentParticipant(event.id, agent.id);
+    expect(back?.status).toBe("accepted");
+    expect(back?.role).toBe("agent");
+    expect((await capsFor("again-agent", event.id)).has("deal.edit")).toBe(true);
   });
 });
