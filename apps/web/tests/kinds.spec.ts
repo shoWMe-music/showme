@@ -21,6 +21,47 @@ const EVENT = {
 
 const ALL_EVENTS = Object.values(EVENT);
 
+/**
+ * For each kind: the EXACT sidebar, in render order (audit A-25). Stated here
+ * rather than imported from `src/shell/navigation.ts` on purpose — a test that
+ * re-derives its expectation from the code under test asserts nothing.
+ *
+ * Hidden ≠ forbidden: every route stays registered and reachable by URL. What
+ * this asserts is that the navigation stops offering a venue operator's screens
+ * to accounts that can never fill them (see the reasons in `navigation.ts`).
+ */
+const OPERATOR_NAV = [
+  "Dashboard",
+  "Calendar",
+  "Events",
+  "Tasks",
+  "Performance Reports",
+  "Settlements",
+  "Financial Projections",
+  "Requests",
+  "Bills & Invoices",
+  "Team",
+  "Contacts",
+  "Audience",
+  "My Profiles",
+  "Settings",
+] as const;
+
+/** The operator set minus the items that kind has no data or no business for. */
+const without = (...hidden: string[]) => OPERATOR_NAV.filter((label) => !hidden.includes(label));
+
+const EXPECTED_NAV: Record<E2eAccountName, string[]> = {
+  operator: [...OPERATOR_NAV],
+  // No PRO filing (the operator files; the performer authors the setlist) and no
+  // projections (only operator profiles host events, and the budget is not theirs).
+  performerA: without("Performance Reports", "Financial Projections"),
+  performerB: without("Performance Reports", "Financial Projections"),
+  // …and no fan CRM: crew are an arm's-length service, not talent.
+  teamAndCrew: without("Performance Reports", "Financial Projections", "Audience"),
+  // …and no fan CRM: the act's following belongs to the act, not its agency.
+  agent: without("Performance Reports", "Financial Projections", "Audience"),
+};
+
 /** For each kind: the exact event titles it should reach on the Events list. */
 const VISIBLE_EVENTS: Record<E2eAccountName, string[]> = {
   // Host of every event → reaches all five.
@@ -44,14 +85,31 @@ for (const name of Object.keys(E2E_ACCOUNTS) as E2eAccountName[]) {
     test.use({ storageState: authFile(name) });
 
     test("restores its session and lands on the dashboard", async ({ page }) => {
-      await page.goto("/", { waitUntil: "networkidle" });
+      // Plain `goto` — see tests/support/e2e.ts: the shell holds an SSE connection
+      // open, so `networkidle` never fires. Each navigation asserts its own
+      // readiness below.
+      await page.goto("/");
       await expect(page.getByRole("button", { name: /Dashboard/i }).first()).toBeVisible();
       // Not stranded on the auth screen.
       await expect(page.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
     });
 
+    test("sidebar shows exactly the destinations this kind can use", async ({ page }) => {
+      await page.goto("/");
+      // Read the `title` attribute, not the text: the Requests row also renders a
+      // pending-count badge inside the button.
+      const navigationButtons = page.locator('nav[aria-label="Primary"] button');
+      // `evaluateAll` is a one-shot read with no auto-waiting, so the shell has to be
+      // rendered BEFORE it runs or it silently returns an empty array.
+      await navigationButtons.first().waitFor();
+      const labels = await navigationButtons.evaluateAll((buttons) =>
+        buttons.map((button) => button.getAttribute("title") ?? ""),
+      );
+      expect(labels).toEqual(EXPECTED_NAV[name]);
+    });
+
     test("Events list shows exactly the events this role reaches", async ({ page }) => {
-      await page.goto("/", { waitUntil: "networkidle" });
+      await page.goto("/");
       await page
         .getByRole("button", { name: /Events/i })
         .first()

@@ -1,8 +1,6 @@
 import {
-  type getApiV1Events,
   type getApiV1EventsIdBudgets,
   getGetApiV1EventsIdBudgetsQueryOptions,
-  useGetApiV1Events,
   useGetApiV1InsightsProfilesIdRevenue,
   useGetApiV1InsightsProfilesIdSummary,
 } from "@showme/api-client";
@@ -15,13 +13,13 @@ import {
   SectionHeader,
 } from "@showme/design-system";
 import { useQueries } from "@tanstack/react-query";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { KpiRow, SegmentedToggle } from "../components";
 import { ErrorState, LoadingState } from "../components/states";
+import { type EventItem, useAllEvents } from "../hooks/useEventList";
 import { formatDate, formatMoney } from "../lib/format";
-
-type EventItem = Awaited<ReturnType<typeof getApiV1Events>>["items"][number];
+import { isDestinationForKind } from "../shell/navigation";
 type BudgetList = Awaited<ReturnType<typeof getApiV1EventsIdBudgets>>;
 
 const POSITIVE = "#6FC97A";
@@ -92,13 +90,14 @@ function scopeMatches(event: EventItem, scope: Scope, now: number): boolean {
   return true;
 }
 
-export function Projections() {
+function ProjectionsScreen() {
   const { session } = useAuth();
   const profileId = session?.memberships[0]?.profileId ?? "";
   const [scope, setScope] = useState<Scope>("all");
 
-  const events = useGetApiV1Events();
-  const eventItems = events.data?.items ?? [];
+  // Every event, not the first page: a projection is a total over all of them.
+  const events = useAllEvents();
+  const eventItems = events.items;
 
   // Realized totals (settled-to-date) — surfaced honestly alongside the projections.
   const revenue = useGetApiV1InsightsProfilesIdRevenue(profileId, {
@@ -355,5 +354,31 @@ export function Projections() {
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * The screen is registered for every account kind — a hidden sidebar link is a
+ * navigation decision, not an authorization one — but the other kinds cannot own the
+ * data behind it, so reaching it by URL says so instead of asking the API for
+ * rows it will (correctly) refuse. Authorization itself stays server-side.
+ */
+function OperatorOnlyProjections({ children }: { children: ReactNode }) {
+  const { session } = useAuth();
+  if (isDestinationForKind("/projections", session?.kind ?? null)) return <>{children}</>;
+  return (
+    <EmptyState
+      icon={<Icon name="trending-up" />}
+      title="Projections belong to the venue's books"
+      description="A projection rolls up the event budget, which only the operator hosting the event can see."
+    />
+  );
+}
+
+export function Projections() {
+  return (
+    <OperatorOnlyProjections>
+      <ProjectionsScreen />
+    </OperatorOnlyProjections>
   );
 }

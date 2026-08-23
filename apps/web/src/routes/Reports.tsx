@@ -1,18 +1,17 @@
 import {
-  type getApiV1Events,
   type getApiV1EventsIdParticipants,
   type getApiV1EventsIdSetlists,
   getGetApiV1EventsIdParticipantsQueryOptions,
   getGetApiV1EventsIdSetlistsQueryOptions,
-  useGetApiV1Events,
 } from "@showme/api-client";
 import { Button, EmptyState, Icon, SectionHeader, useToast } from "@showme/design-system";
 import { useQueries } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { ErrorState, LoadingState } from "../components/states";
-
-type EventItem = Awaited<ReturnType<typeof getApiV1Events>>["items"][number];
+import { type EventItem, useAllEvents } from "../hooks/useEventList";
+import { isDestinationForKind } from "../shell/navigation";
 type Setlist = Awaited<ReturnType<typeof getApiV1EventsIdSetlists>>[number];
 type Participant = Awaited<ReturnType<typeof getApiV1EventsIdParticipants>>[number];
 
@@ -192,13 +191,14 @@ function ReportCard({
   );
 }
 
-export function Reports() {
+function ReportsScreen() {
   const { session } = useAuth();
   const toast = useToast();
   const profileId = session?.memberships[0]?.profileId ?? "";
 
-  const events = useGetApiV1Events();
-  const eventItems = events.data?.items ?? [];
+  // Every event, not the first page: a report over page one is not a report.
+  const events = useAllEvents();
+  const eventItems = events.items;
 
   // Setlists and participants live under each event, so expand one query per event.
   const setlistQueries = useQueries({
@@ -290,5 +290,31 @@ export function Reports() {
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * The screen is registered for every account kind — a hidden sidebar link is a
+ * navigation decision, not an authorization one — but the other kinds cannot own the
+ * data behind it, so reaching it by URL says so instead of asking the API for
+ * rows it will (correctly) refuse. Authorization itself stays server-side.
+ */
+function OperatorOnlyReports({ children }: { children: ReactNode }) {
+  const { session } = useAuth();
+  if (isDestinationForKind("/reports", session?.kind ?? null)) return <>{children}</>;
+  return (
+    <EmptyState
+      icon={<Icon name="trending-up" />}
+      title="The PRO filing is the operator's"
+      description="Performance reports are filed by whoever hosts the show; a performer authors the setlist it derives from."
+    />
+  );
+}
+
+export function Reports() {
+  return (
+    <OperatorOnlyReports>
+      <ReportsScreen />
+    </OperatorOnlyReports>
   );
 }

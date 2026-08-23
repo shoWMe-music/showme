@@ -1,60 +1,18 @@
 import { useGetApiV1BookingRequests } from "@showme/api-client";
-import { Avatar, Button, Icon, type IconName, Input, SidebarItem } from "@showme/design-system";
+import { Avatar, Button, Icon, Input, SidebarItem } from "@showme/design-system";
 import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { NotificationBell } from "../components/NotificationBell";
 import { useRealtimeStream } from "../hooks/useRealtimeStream";
 import { NewEventProvider, TopbarNewEventButton } from "./NewEventProvider";
+import { type NavRoute, navigationFor } from "./navigation";
 import { usePageTransition } from "./usePageTransition";
 
-/** Every registered nav route. `to` is a real router path so navigation and
- * active-state highlighting stay in lockstep with the router. */
-type NavRoute =
-  | "/"
-  | "/calendar"
-  | "/events"
-  | "/tasks"
-  | "/reports"
-  | "/settlements"
-  | "/projections"
-  | "/requests"
-  | "/invoices"
-  | "/team"
-  | "/contacts"
-  | "/audience"
-  | "/profiles"
-  | "/settings";
-
-type NavItem = {
-  label: string;
-  icon: IconName;
-  to: NavRoute;
-  badge?: "requests";
-};
-
-// The 14 operator destinations, in the exact sidebar order (screen-specs §0.1).
-const NAV: NavItem[] = [
-  { label: "Dashboard", icon: "grid", to: "/" },
-  { label: "Calendar", icon: "calendar", to: "/calendar" },
-  { label: "Events", icon: "calendar-check", to: "/events" },
-  { label: "Tasks", icon: "check", to: "/tasks" },
-  { label: "Performance Reports", icon: "trending-up", to: "/reports" },
-  { label: "Settlements", icon: "receipt", to: "/settlements" },
-  { label: "Financial Projections", icon: "trending-up", to: "/projections" },
-  // "Requests", not "Incoming Requests" — the page carries both directions and
-  // names the active one itself; a fixed "Incoming" here contradicts the Outgoing view.
-  { label: "Requests", icon: "inbox", to: "/requests", badge: "requests" },
-  { label: "Bills & Invoices", icon: "file", to: "/invoices" },
-  { label: "Team", icon: "users", to: "/team" },
-  { label: "Contacts", icon: "building", to: "/contacts" },
-  { label: "Audience", icon: "users", to: "/audience" },
-  { label: "My Profiles", icon: "user", to: "/profiles" },
-  { label: "Settings", icon: "settings", to: "/settings" },
-];
-
 /** Top-bar crumb + title per route — the page title lives in the chrome, not in
- * the screen body (the prototype's `titles` map). */
+ * the screen body (the prototype's `titles` map). Covers EVERY route, including
+ * the ones a given account kind has no sidebar link to: those stay reachable by
+ * URL, and a reachable page still needs its title. */
 const PAGE_TITLES: Record<string, { crumb: string; title: string }> = {
   "/": { crumb: "Overview", title: "Dashboard" },
   "/calendar": { crumb: "Schedule", title: "Calendar" },
@@ -130,6 +88,10 @@ export function AppShell() {
   const { data: requests } = useGetApiV1BookingRequests({ status: "pending" });
   const pendingCount = requests?.items.length ?? 0;
 
+  // The sidebar tells the truth about the signed-in account kind — the mapping,
+  // and the reason for every exclusion, live in ./navigation.
+  const navItems = useMemo(() => navigationFor(session?.kind ?? null), [session?.kind]);
+
   // Keep the <html> data-theme attribute in sync with the theme state (incl. on
   // first mount, so the light default is applied without a toggle click).
   useEffect(() => {
@@ -171,7 +133,7 @@ export function AppShell() {
           </button>
 
           <nav className="sidebar__nav" aria-label="Primary">
-            {NAV.map((item) => (
+            {navItems.map((item) => (
               <SidebarItem
                 key={item.to}
                 icon={<Icon name={item.icon} />}
