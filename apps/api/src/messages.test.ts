@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
+import { messageRecipients } from "./lib/notify";
 import { messageRoutes } from "./routes/messages";
 import { buildTestApp } from "./testing";
 
@@ -215,5 +216,56 @@ describe("messages — visibility + audit", () => {
       headers: auth("msg-party-other"),
     });
     expect(bystanderList.json()).toHaveLength(0);
+  });
+});
+
+describe("messages — realtime recipients", () => {
+  // Who gets the `event.message_posted` nudge must mirror `canSeeMessage`. Over-
+  // notifying is a privacy leak: a performer learning that an operators-only note
+  // exists is exactly what `visibility` is there to prevent. The payload itself
+  // carries ids only, so this recipient set is the whole protection.
+  it("an all-visibility message reaches every participant except the sender", async () => {
+    const { event } = await seedEventWithParticipants("msg-rt-all");
+
+    const recipients = await messageRecipients(harness.db, event.id, "msg-rt-all-op", "all");
+
+    expect(recipients).toEqual(["msg-rt-all-perf"]);
+    expect(recipients).not.toContain("msg-rt-all-op");
+  });
+
+  it("an operators-only message never reaches a performer", async () => {
+    const { event } = await seedEventWithParticipants("msg-rt-ops");
+
+    // Posted BY the performer, so the host is the only legitimate recipient.
+    const recipients = await messageRecipients(
+      harness.db,
+      event.id,
+      "msg-rt-ops-perf",
+      "operators",
+    );
+
+    expect(recipients).toEqual(["msg-rt-ops-op"]);
+    expect(recipients).not.toContain("msg-rt-ops-perf");
+  });
+
+  it("a party message reaches operators only — the sender is the other reader and is excluded", async () => {
+    const { event } = await seedEventWithParticipants("msg-rt-party");
+
+    const recipients = await messageRecipients(harness.db, event.id, "msg-rt-party-perf", "party");
+
+    expect(recipients).toEqual(["msg-rt-party-op"]);
+  });
+
+  it("skips a member whose profile membership is not active", async () => {
+    const { db } = harness;
+    const { event, performer } = await seedEventWithParticipants("msg-rt-inactive");
+    await db
+      .update(schema.profileMembers)
+      .set({ status: "revoked" })
+      .where(eq(schema.profileMembers.profileId, performer.profileId));
+
+    const recipients = await messageRecipients(db, event.id, "msg-rt-inactive-op", "all");
+
+    expect(recipients).toEqual([]);
   });
 });

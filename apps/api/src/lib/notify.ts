@@ -1,6 +1,6 @@
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
-import { and, eq, isNotNull, ne } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, ne } from "drizzle-orm";
 import { publish } from "./publish";
 
 /**
@@ -74,6 +74,78 @@ export async function notifyProfileMembers(
       title: notification.title,
       eventId: notification.eventId,
       link: notification.link,
+    });
+  }
+}
+
+/**
+ * Realtime-only nudge to everyone on an event who may see a message, so open
+ * clients refetch the thread. Deliberately NOT a `notifications` row: a feed entry
+ * per chat line would bury the things that actually need attention. The durable
+ * record of a message is the message itself.
+ *
+ * `operatorsOnly` mirrors `canSeeMessage`: `all` reaches every participant, while
+ * `operators`/`party` reach only the managing operators (`host`/`co_host`) — for
+ * `party` the sender is the only other reader and they are the actor, who is always
+ * excluded. Recipients are narrowed by ROLE rather than by resolving each viewer's
+ * capabilities; under-notifying a co-host is a missed refresh, whereas
+ * over-notifying would tell a performer that an operators-only note exists.
+ *
+ * The payload carries ids only — never the body. Message visibility is enforced
+ * server-side by `GET /events/:id/messages`, so the client must refetch through it
+ * rather than render anything pushed down this channel.
+ *
+ * Best-effort by contract, exactly like `notifyProfileMembers`: callers wrap it so a
+ * delivery failure can never roll back the post that triggered it.
+ *
+ * Split from the publish loop so the recipient rule — the part with a privacy
+ * consequence — is directly assertable without a live LISTEN connection.
+ */
+export async function messageRecipients(
+  database: Database,
+  eventId: string,
+  actorUserId: string,
+  visibility: string,
+): Promise<string[]> {
+  const operatorsOnly = visibility !== "all";
+
+  const rows = await database
+    .selectDistinct({ userId: schema.profileMembers.userId })
+    .from(schema.eventParticipants)
+    .innerJoin(
+      schema.profileMembers,
+      eq(schema.profileMembers.profileId, schema.eventParticipants.profileId),
+    )
+    .where(
+      and(
+        eq(schema.eventParticipants.eventId, eventId),
+        eq(schema.profileMembers.status, "active"),
+        isNotNull(schema.profileMembers.userId),
+        ne(schema.profileMembers.userId, actorUserId),
+        operatorsOnly ? inArray(schema.eventParticipants.role, ["host", "co_host"]) : undefined,
+      ),
+    );
+
+  return rows
+    .map((row) => row.userId)
+    .filter((userId): userId is string => userId !== null)
+    .sort();
+}
+
+/** Publish the nudge to everyone `messageRecipients` resolves. */
+export async function publishEventMessagePosted(
+  database: Database,
+  eventId: string,
+  actorUserId: string,
+  message: { id: string; visibility: string },
+): Promise<void> {
+  const recipients = await messageRecipients(database, eventId, actorUserId, message.visibility);
+  for (const userId of recipients) {
+    await publish(database, userId, {
+      type: "event.message_posted",
+      eventId,
+      messageId: message.id,
+      link: `/events/${eventId}`,
     });
   }
 }

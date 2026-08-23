@@ -5,6 +5,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
+import { publishEventMessagePosted } from "../lib/notify";
 import {
   type MessageViewer,
   canSeeMessage,
@@ -130,6 +131,18 @@ export async function messageRoutes(fastify: FastifyInstance): Promise<void> {
         });
         return message;
       });
+
+      // Realtime: tell everyone who may read this message that the thread moved,
+      // so open clients refetch. Best-effort — a delivery failure must never undo
+      // the post above, so it runs after the commit, off the transaction.
+      try {
+        await publishEventMessagePosted(database, eventId, principal.userId, {
+          id: created.id,
+          visibility: created.visibility,
+        });
+      } catch (error) {
+        request.log.error({ error, eventId, messageId: created.id }, "message publish failed");
+      }
 
       return reply.status(201).send(serializeMessage(created));
     },
