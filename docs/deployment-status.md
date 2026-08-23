@@ -10,9 +10,9 @@ Account/project map and the domain history live in
 |---|---|---|
 | **Marketing** | `www.showme.music` — Firebase Hosting, **gmail** `showme-production` | Current as of 2026-08-23 (`main-9dPoRdKk.js`). Deploys need the **gmail** account — `daniel@showme.music` gets 403 |
 | **Marketing mirror** | `music-showme.web.app` — `music-showme` | Preview of the 2026-08-23 fixes. Do **not** overwrite; the web app has its own site |
-| **Web app** | `showme-app.web.app` — `music-showme`, site `showme-app` | Deployed 2026-08-23. Auth on `music-showme` |
-| **API** | Cloud Run `showme-api`, europe-north2, `prod-showme` | Revision `00006` (2026-08-23). Verifies tokens against **`music-showme`** — see 1c |
-| **Cloud SQL** | `showme-production-db`, europe-north2, `prod-showme` | `db-custom-1-3840`. Schema at migration `0003`; **no application data yet** (0 profiles) |
+| **Web app** | `showme-app.web.app` — `music-showme`, site `showme-app` | Bundle `index-Df9biiAk.js` (2026-08-24). Carries the P3 fixes, the per-kind sidebar and server-side list filtering. Auth on `music-showme` |
+| **API** | Cloud Run `showme-api`, europe-north2, `prod-showme` | Revision `00007-b4k` (2026-08-24) from `683001c`. Verifies tokens against **`music-showme`** — see 1c |
+| **Cloud SQL** | `showme-production-db`, europe-north2, `prod-showme` | `db-custom-1-3840`. Schema at migration **`0006`**; **1 user / 1 profile / 1 draft event** (0 deals, 0 booking requests) |
 | **HTTPS load balancer** | `prod-showme` | Provisioned, **no DNS record** — carrying zero traffic and still billing |
 
 Deploy the web app with:
@@ -21,6 +21,34 @@ Deploy the web app with:
 pnpm --filter @showme/web build          # reads apps/web/.env.production
 npx firebase deploy --only hosting:web --project music-showme
 ```
+
+## The 2026-08-24 release (P3 audit fixes + reachability)
+
+Migrations `0004`→`0006` then the image, in that order — the reverse would have served
+routes for a schema that did not exist yet (`setlist_shares`, `booking_requests.on_behalf_of_profile_id`).
+
+1. **On-demand backup first.** The instance is no longer empty: it holds 1 user, 1 profile and
+   1 draft event, so `0005` (which drops and recreates the `deal_type` enum) ran against real
+   rows. It was safe — 0 deals, 0 booking requests, no row carrying `custom` — but that was
+   *checked*, not assumed, and a backup was taken before touching it.
+2. **Migrate** through the Cloud SQL proxy (`cloud-sql-proxy --port 55433 …`), rewriting the
+   secret's unix-socket URL onto the TCP port. Applied 4 → 7. Verified after: `deal_type` is the
+   four-value vocabulary, `setlist_shares` exists, the offer column exists, the pending-offer
+   dedup index names the act, and all three row counts are unchanged.
+3. **Deploy the API** — `gcloud run deploy showme-api --source .` (Cloud Build). No env or secret
+   flags: an image-only deploy keeps the service's existing configuration.
+4. **Deploy the web app** — build, then `firebase deploy --only hosting:web --project music-showme`.
+
+Verified against production afterwards: health OK; the OpenAPI document carries the setlist-share
+routes, the four-value deal type, the array-valued `status` filter and the offer identity fields;
+the one draft event is a **404** on its public page (A-22) and the events list is **401**
+unauthenticated; the served bundle hash matches the local build; the app loads with zero console
+errors; and a CORS preflight from `https://showme-app.web.app` is allowed *with* `x-profile-id`
+while an unknown origin gets no allow-origin header.
+
+**Not verified in production: any signed-in flow.** The seeded accounts are emulator-only and the
+single real account's password is the owner's, so everything past the sign-in screen was verified
+locally (see `docs/audit-2026-08-23.md`) and by contract in production, not by logging in there.
 
 ## Follow-ups
 
