@@ -9,7 +9,8 @@ import {
   type Status,
   StatusDot,
 } from "@showme/design-system";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
+import { useAuth } from "../auth/AuthProvider";
 import { KpiRow } from "../components";
 import { ErrorState, LoadingState } from "../components/states";
 import { formatDate } from "../lib/format";
@@ -52,47 +53,64 @@ function settlementSubStatus(_event: EventItem): FilterKey | null {
   return null;
 }
 
-const columns: DataTableColumn<EventItem>[] = [
-  {
-    header: "Artist / Event",
-    width: "2.4fr",
-    render: (event) => <b>{event.title}</b>,
-  },
-  {
-    header: "Venue",
-    width: "1.6fr",
-    // The list payload carries only `venueProfileId`, not a venue name.
-    render: () => <span className="muted">—</span>,
-  },
-  {
-    header: "Date",
-    width: "1fr",
-    render: (event) => formatDate(event.eventDate, { day: "2-digit", month: "short" }),
-  },
-  {
-    header: "Status",
-    width: "1.2fr",
-    render: (event) => {
-      const display = apiStatusToDisplay(event.status);
-      return (
-        <Badge status={display.status} dot>
-          {display.label}
-        </Badge>
-      );
+/**
+ * The first column names the row. Who the row is *about* only needs saying when it
+ * could be someone else: an operator settles many artists, and a performer running
+ * several acts needs to know which one. A performer with a single profile is always
+ * the artist, so naming them on every row is noise — the event alone identifies it.
+ *
+ * Built per-render from the session rather than as a module constant, because the
+ * answer depends on who is looking.
+ */
+function buildColumns(isSingleProfile: boolean): DataTableColumn<EventItem>[] {
+  return [
+    {
+      header: isSingleProfile ? "Event" : "Artist / Event",
+      width: "2.4fr",
+      render: (event) => <b>{event.title}</b>,
     },
-  },
-  {
-    header: "Artist payout",
-    width: "1fr",
-    align: "right",
-    // No settlement payout on the event payload — honest placeholder.
-    render: () => <span className="muted">—</span>,
-  },
-];
+    {
+      header: "Venue",
+      width: "1.6fr",
+      // The list payload carries only `venueProfileId`, not a venue name.
+      render: () => <span className="muted">—</span>,
+    },
+    {
+      header: "Date",
+      width: "1fr",
+      render: (event) => formatDate(event.eventDate, { day: "2-digit", month: "short" }),
+    },
+    {
+      header: "Status",
+      width: "1.2fr",
+      render: (event) => {
+        const display = apiStatusToDisplay(event.status);
+        return (
+          <Badge status={display.status} dot>
+            {display.label}
+          </Badge>
+        );
+      },
+    },
+    {
+      // "Artist payout" reads as someone else's money when the artist IS the viewer.
+      header: isSingleProfile ? "Your payout" : "Artist payout",
+      width: "1fr",
+      align: "right",
+      // No settlement payout on the event payload — honest placeholder (A-35).
+      render: () => <span className="muted">—</span>,
+    },
+  ];
+}
 
 export function Settlements() {
   const { data, isPending, isError, error } = useGetApiV1Events();
   const [filter, setFilter] = useState<FilterKey>("all");
+  const { session } = useAuth();
+
+  // One profile → the viewer is unambiguously the artist on every row.
+  const isSingleProfile = (session?.memberships.length ?? 0) === 1;
+  const columns = useMemo(() => buildColumns(isSingleProfile), [isSingleProfile]);
 
   const events = data?.items ?? [];
   const rows = events.filter((event) => filter === "all" || settlementSubStatus(event) === filter);
