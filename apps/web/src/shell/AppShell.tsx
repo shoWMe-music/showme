@@ -40,7 +40,9 @@ const NAV: NavItem[] = [
   { label: "Performance Reports", icon: "trending-up", to: "/reports" },
   { label: "Settlements", icon: "receipt", to: "/settlements" },
   { label: "Financial Projections", icon: "trending-up", to: "/projections" },
-  { label: "Incoming Requests", icon: "inbox", to: "/requests", badge: "requests" },
+  // "Requests", not "Incoming Requests" — the page carries both directions and
+  // names the active one itself; a fixed "Incoming" here contradicts the Outgoing view.
+  { label: "Requests", icon: "inbox", to: "/requests", badge: "requests" },
   { label: "Bills & Invoices", icon: "file", to: "/invoices" },
   { label: "Team", icon: "users", to: "/team" },
   { label: "Contacts", icon: "building", to: "/contacts" },
@@ -59,7 +61,7 @@ const PAGE_TITLES: Record<string, { crumb: string; title: string }> = {
   "/reports": { crumb: "PRO royalties", title: "Performance Reports" },
   "/settlements": { crumb: "Money", title: "Settlements" },
   "/projections": { crumb: "Forecast", title: "Financial Projections" },
-  "/requests": { crumb: "Inbound", title: "Incoming Requests" },
+  "/requests": { crumb: "Bookings", title: "Requests" }, // direction-neutral; the page states which way
   "/invoices": { crumb: "Finance", title: "Bills & Invoices" },
   "/team": { crumb: "People", title: "Team" },
   "/contacts": { crumb: "Directory", title: "Contacts" },
@@ -116,7 +118,8 @@ export function AppShell() {
   const [userMenu, setUserMenu] = useState(false);
   const pageRef = usePageTransition(pathname);
 
-  // The Incoming Requests badge is the count of pending booking requests.
+  // The Requests badge is the count of pending INCOMING booking requests (the
+  // default direction), i.e. what is waiting on this user to triage.
   const { data: requests } = useGetApiV1BookingRequests({ status: "pending" });
   const pendingCount = requests?.items.length ?? 0;
 

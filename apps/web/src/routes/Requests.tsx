@@ -118,6 +118,21 @@ export function Requests() {
     },
   });
 
+  // Triage belongs to the RECIPIENT of a request. On the outgoing view these are
+  // offers this user SENT, so declining or blocking them is meaningless (Block
+  // would flag your own request as spam). Passing no handlers makes RequestCard
+  // render no action bar, which is the honest state until a withdraw flow exists.
+  const triageActions =
+    direction === "incoming"
+      ? {
+          onCreateDraft: () => toast.info("Draft flow coming soon"),
+          onMakeOffer: () => toast.info("Offer flow coming soon"),
+          onDecline: () => toast.info("Decline flow coming soon"),
+          onBlock: (id: string) => flagSpam.mutate({ id, data: { kind: "spam" } }),
+          onArchive: () => toast.info("Archive flow coming soon"),
+        }
+      : {};
+
   const requests = data?.items ?? [];
   const pendingCount = requests.filter((request) => request.status === "pending").length;
 
@@ -228,15 +243,7 @@ export function Requests() {
               </Card>
             ) : (
               visible.map((request) => (
-                <RequestCard
-                  key={request.id}
-                  request={toCardData(request)}
-                  onCreateDraft={() => toast.info("Draft flow coming soon")}
-                  onMakeOffer={() => toast.info("Offer flow coming soon")}
-                  onDecline={() => toast.info("Decline flow coming soon")}
-                  onBlock={(id) => flagSpam.mutate({ id, data: { kind: "spam" } })}
-                  onArchive={() => toast.info("Archive flow coming soon")}
-                />
+                <RequestCard key={request.id} request={toCardData(request)} {...triageActions} />
               ))
             )}
           </div>
