@@ -2,6 +2,7 @@ import { schema } from "@showme/db";
 import { settleRepresentation } from "@showme/settlement";
 import { and, eq, isNotNull } from "drizzle-orm";
 import type { Transaction } from "./audit";
+import { isRepresentationActiveAt } from "./representation-rules";
 import { type DesiredTransfer, reconcileTransfers } from "./settlement-transfers";
 
 /** The per-participant entitlement the event settlement produced (gross, minor units). */
@@ -73,7 +74,11 @@ export async function syncCommissionSettlements(
           eq(schema.representations.status, "active"),
         ),
       );
-    if (!representation || representation.commissionRate == null) continue;
+    // `status = 'active'` is the SQL prefilter; liveness is the shared helper —
+    // a representation in its notice period still earns commission, one past its
+    // effective moment does not, whether or not the sweep has run yet (A-19).
+    if (!representation || !isRepresentationActiveAt(representation, new Date())) continue;
+    if (representation.commissionRate == null) continue;
 
     const performerEntitlement = entitlementByParticipant.get(performer.id) ?? 0n;
     const { commission, transfer } = settleRepresentation({

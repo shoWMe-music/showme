@@ -282,7 +282,13 @@ async function addParticipant(
   });
 }
 
-/** Stamp the booked performer's participation as delegated to `agentProfileId` (decisions #14). */
+/**
+ * Stamp the booked performer's participation as delegated to `agentProfileId`
+ * (decisions #14) AND seed the standing representation it projects. The stamp on
+ * its own is not authority — every reader resolves it against a live
+ * representation (A-19 follow-up) — so a fixture with only the stamp models a
+ * state the assignment path never produces.
+ */
 async function delegateToAgent(
   eventId: string,
   performerProfileId: string,
@@ -297,6 +303,32 @@ async function delegateToAgent(
         eq(schema.eventParticipants.profileId, performerProfileId),
       ),
     );
+  await seedRepresentation(agentProfileId, performerProfileId);
+}
+
+/**
+ * The standing agent↔performer agreement a delegation stamp projects. Pass
+ * `terminatedEffectiveAt` in the past to model a notice period that has MATURED
+ * but not yet been swept — the row is still `active`, the stamp is still there.
+ */
+async function seedRepresentation(
+  agentProfileId: string,
+  performerProfileId: string,
+  terminatedEffectiveAt: Date | null = null,
+) {
+  await harness.db.insert(schema.representations).values({
+    agentProfileId,
+    performerProfileId,
+    terminatedAt: terminatedEffectiveAt,
+    terminatedEffectiveAt,
+    isWorldwide: true,
+    commissionRate: 1000,
+    commissionableBasis: "deal_income",
+    proposedBy: "agent",
+    status: "active",
+    confirmedByAgent: true,
+    confirmedByPerformer: true,
+  });
 }
 
 /**
@@ -398,6 +430,69 @@ describe("holds — who may accept the date (A-04)", () => {
     expect((await readEvent(second)).status).toBe("cancelled");
   });
 
+  // A-19 follow-up. The agent still legitimately represents the SUPPORT act, so
+  // they keep standing on the event — but the headliner fired them with notice and
+  // that notice has matured. The delegation stamp on the headliner survives until
+  // the sweep runs, and reading it raw would let a fired agent take the act's date.
+  it("forbids an agent whose notice period on the booked act has already matured", async () => {
+    const operator = await seedMemberWithSet(
+      "a4-op6",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "a4-perf6",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const support = await seedMemberWithSet(
+      "a4-support6",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const agent = await seedMemberWithSet("a4-agent6", "agent", PRESET_PERMISSION_SETS.agent);
+    const [first] = await seedHoldPool("a4-agent6", "a4-op6", operator, performer, 2);
+    if (!first) throw new Error("seed failed");
+
+    // Still representing the support act — so the agent keeps event standing.
+    await addParticipant(first, support, "support", {
+      delegatedToAgentProfileId: agent.profileId,
+    });
+    await seedRepresentation(agent.profileId, support.profileId);
+    // The headliner's agreement lapsed, but its stamp is still on the participant.
+    await harness.db
+      .update(schema.eventParticipants)
+      .set({ details: { delegatedToAgentProfileId: agent.profileId } })
+      .where(
+        and(
+          eq(schema.eventParticipants.eventId, first),
+          eq(schema.eventParticipants.profileId, performer.profileId),
+        ),
+      );
+    await seedRepresentation(
+      agent.profileId,
+      performer.profileId,
+      new Date("2026-01-01T00:00:00.000Z"),
+    );
+    await addParticipant(first, agent, "agent");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/confirm`,
+      headers: auth("a4-agent6"),
+    });
+    expect(response.statusCode).toBe(403);
+    expect((await readEvent(first)).status).toBe("on_hold");
+
+    // …and the headliner has their own date decision back, without waiting for cron.
+    const booked = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/confirm`,
+      headers: auth("a4-perf6"),
+    });
+    expect(booked.statusCode).toBe(200);
+  });
+
   it("forbids an agent who represents nobody booked on this event", async () => {
     const operator = await seedMemberWithSet(
       "a4-op3",
@@ -421,6 +516,7 @@ describe("holds — who may accept the date (A-04)", () => {
     await addParticipant(first, support, "support", {
       delegatedToAgentProfileId: agent.profileId,
     });
+    await seedRepresentation(agent.profileId, support.profileId);
     await addParticipant(first, agent, "agent");
 
     const response = await app.inject({
@@ -495,5 +591,103 @@ describe("holds — who may accept the date (A-04)", () => {
     });
     expect(response.statusCode).toBe(404);
     expect((await readEvent(first)).status).toBe("on_hold");
+  });
+});
+
+describe("holds — the free-tier event cap (entitlement layer)", () => {
+  /** Fill the host's rolling window with `count` counted (confirmed) events. */
+  async function fillCountedEvents(
+    operator: { profileId: string; permissionSetId: string },
+    operatorUid: string,
+    count: number,
+  ) {
+    for (let index = 0; index < count; index++) {
+      await harness.db.insert(schema.events).values({
+        hostProfileId: operator.profileId,
+        title: `Counted ${index}`,
+        baseCurrency: "SEK",
+        status: "confirmed",
+        createdBy: operatorUid,
+      });
+    }
+  }
+
+  it("403s a hold confirm that would take a free host past the cap, leaving the pool intact", async () => {
+    const operator = await seedMemberWithSet(
+      "cap-h-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "cap-h-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    await fillCountedEvents(operator, "cap-h-op", 3);
+    const [first, second] = await seedHoldPool("cap-hold", "cap-h-op", operator, performer, 2);
+    if (!first || !second) throw new Error("seed failed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/confirm`,
+      headers: auth("cap-h-perf"),
+    });
+    expect(response.statusCode).toBe(403);
+
+    // Nothing moved: the target is still held, and the sibling was NOT cancelled.
+    expect((await readEvent(first)).status).toBe("on_hold");
+    expect((await readEvent(second)).status).toBe("on_hold");
+  });
+
+  it("lets the same confirm through once the host's plan is paid", async () => {
+    const operator = await seedMemberWithSet(
+      "cap-h2-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "cap-h2-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    await fillCountedEvents(operator, "cap-h2-op", 3);
+    await harness.db
+      .insert(schema.plans)
+      .values({ profileId: operator.profileId, tier: "operator_pro" });
+    const [first, second] = await seedHoldPool("cap-hold2", "cap-h2-op", operator, performer, 2);
+    if (!first || !second) throw new Error("seed failed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/confirm`,
+      headers: auth("cap-h2-perf"),
+    });
+    expect(response.statusCode).toBe(200);
+    expect((await readEvent(first)).status).toBe("confirmed");
+    expect((await readEvent(second)).status).toBe("cancelled");
+  });
+
+  it("never gates a decline — leaving the counted set costs nothing", async () => {
+    const operator = await seedMemberWithSet(
+      "cap-h3-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "cap-h3-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    await fillCountedEvents(operator, "cap-h3-op", 3);
+    const [first] = await seedHoldPool("cap-hold3", "cap-h3-op", operator, performer, 2);
+    if (!first) throw new Error("seed failed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/decline`,
+      headers: auth("cap-h3-perf"),
+    });
+    expect(response.statusCode).toBe(200);
+    expect((await readEvent(first)).status).toBe("cancelled");
   });
 });

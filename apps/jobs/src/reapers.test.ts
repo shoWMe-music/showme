@@ -3,7 +3,12 @@ import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { reapExpiredHandoffs, reapExpiredOffers, reapExpiredShares } from "./reapers";
+import {
+  reapDueRepresentationTerminations,
+  reapExpiredHandoffs,
+  reapExpiredOffers,
+  reapExpiredShares,
+} from "./reapers";
 
 let harness: TestDatabase;
 
@@ -14,14 +19,15 @@ function daysAgo(days: number): Date {
 }
 
 /** A minimal owner user + profile to satisfy the FKs the reaped rows hang off. */
-async function seedProfile(slug: string): Promise<{ userId: string; profileId: string }> {
+async function seedProfile(
+  slug: string,
+  kind: "operator" | "performer" | "agent" = "operator",
+): Promise<{ userId: string; profileId: string }> {
   const userId = `user-${randomUUID()}`;
-  await harness.db
-    .insert(schema.users)
-    .values({ id: userId, email: `${slug}@example.com`, kind: "operator" });
+  await harness.db.insert(schema.users).values({ id: userId, email: `${slug}@example.com`, kind });
   const [profile] = await harness.db
     .insert(schema.profiles)
-    .values({ kind: "operator", ownerUserId: userId, name: slug, slug })
+    .values({ kind, ownerUserId: userId, name: slug, slug })
     .returning({ id: schema.profiles.id });
   if (!profile) throw new Error("failed to seed profile");
   return { userId, profileId: profile.id };
@@ -208,5 +214,141 @@ describe("reapExpiredShares", () => {
     };
     expect(await otpExists(expiredOtpId)).toBe(false);
     expect(await otpExists(freshOtpId)).toBe(true);
+  });
+});
+
+/**
+ * An ACTIVE representation whose agent already holds one still-open event: the
+ * agent is a participant, the performer's own participation carries the
+ * delegation flag. `terminatedEffectiveAt` decides whether the notice is due.
+ */
+async function seedRepresentedEvent(slug: string, terminatedEffectiveAt: Date) {
+  const venue = await seedProfile(`${slug}-venue`);
+  const agent = await seedProfile(`${slug}-agent`, "agent");
+  const performer = await seedProfile(`${slug}-performer`, "performer");
+
+  const [event] = await harness.db
+    .insert(schema.events)
+    .values({
+      hostProfileId: venue.profileId,
+      venueProfileId: venue.profileId,
+      title: `${slug} show`,
+      baseCurrency: "SEK",
+      status: "on_hold",
+      createdBy: venue.userId,
+    })
+    .returning({ id: schema.events.id });
+  if (!event) throw new Error("failed to seed event");
+
+  const [performerParticipant] = await harness.db
+    .insert(schema.eventParticipants)
+    .values({
+      eventId: event.id,
+      profileId: performer.profileId,
+      role: "performer",
+      status: "confirmed",
+      details: { delegatedToAgentProfileId: agent.profileId, callTime: "18:00" },
+    })
+    .returning({ id: schema.eventParticipants.id });
+  const [agentParticipant] = await harness.db
+    .insert(schema.eventParticipants)
+    .values({
+      eventId: event.id,
+      profileId: agent.profileId,
+      role: "agent",
+      status: "accepted",
+    })
+    .returning({ id: schema.eventParticipants.id });
+
+  const [representation] = await harness.db
+    .insert(schema.representations)
+    .values({
+      agentProfileId: agent.profileId,
+      performerProfileId: performer.profileId,
+      region: ["SE"],
+      commissionRate: 1000,
+      commissionableBasis: "deal_income",
+      proposedBy: "agent",
+      status: "active",
+      confirmedByAgent: true,
+      confirmedByPerformer: true,
+      terminatedAt: new Date("2026-07-01T00:00:00.000Z"),
+      terminatedEffectiveAt,
+      terminatedBy: performer.userId,
+    })
+    .returning({ id: schema.representations.id });
+  if (!representation || !performerParticipant || !agentParticipant) {
+    throw new Error("failed to seed representation");
+  }
+
+  return {
+    representationId: representation.id,
+    performerParticipantId: performerParticipant.id,
+    agentParticipantId: agentParticipant.id,
+  };
+}
+
+async function participantRow(id: string) {
+  const [row] = await harness.db
+    .select()
+    .from(schema.eventParticipants)
+    .where(eq(schema.eventParticipants.id, id));
+  return row;
+}
+
+/**
+ * A-19. A future-dated termination stays `active` on purpose — the agent works the
+ * notice period. This reaper is what makes the STORED state catch up once the
+ * agreed moment passes, through the same `applyRepresentationTermination` path an
+ * immediate termination takes in the API.
+ */
+describe("reapDueRepresentationTerminations", () => {
+  it("terminates a due notice and hands the still-open event back to the performer", async () => {
+    const seeded = await seedRepresentedEvent(
+      `due-${randomUUID().slice(0, 8)}`,
+      daysAgo(1), // the agreed moment has passed
+    );
+
+    expect(await reapDueRepresentationTerminations(harness.db, NOW)).toBeGreaterThanOrEqual(1);
+
+    const [representation] = await harness.db
+      .select()
+      .from(schema.representations)
+      .where(eq(schema.representations.id, seeded.representationId));
+    expect(representation?.status).toBe("terminated");
+
+    // The agent is soft-removed (never deleted — settled money still resolves)…
+    expect((await participantRow(seeded.agentParticipantId))?.status).toBe("removed");
+    // …and the performer is un-delegated, keeping their other details.
+    const performer = await participantRow(seeded.performerParticipantId);
+    const details = (performer?.details as Record<string, unknown> | null) ?? {};
+    expect(details).not.toHaveProperty("delegatedToAgentProfileId");
+    expect(details.callTime).toBe("18:00");
+  });
+
+  it("leaves a notice period that has not expired alone", async () => {
+    const seeded = await seedRepresentedEvent(
+      `pending-${randomUUID().slice(0, 8)}`,
+      new Date(NOW.getTime() + 300 * DAY_MS), // agreed for next year
+    );
+
+    await reapDueRepresentationTerminations(harness.db, NOW);
+
+    const [representation] = await harness.db
+      .select()
+      .from(schema.representations)
+      .where(eq(schema.representations.id, seeded.representationId));
+    expect(representation?.status).toBe("active");
+    expect((await participantRow(seeded.agentParticipantId))?.status).toBe("accepted");
+    const performer = await participantRow(seeded.performerParticipantId);
+    expect(performer?.details).toHaveProperty("delegatedToAgentProfileId");
+  });
+
+  it("is idempotent — a swept representation is not swept again", async () => {
+    await seedRepresentedEvent(`twice-${randomUUID().slice(0, 8)}`, daysAgo(2));
+    const first = await reapDueRepresentationTerminations(harness.db, NOW);
+    const second = await reapDueRepresentationTerminations(harness.db, NOW);
+    expect(first).toBeGreaterThanOrEqual(1);
+    expect(second).toBe(0);
   });
 });

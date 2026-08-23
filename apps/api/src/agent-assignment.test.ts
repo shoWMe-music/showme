@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
+import { autoAssignAgentOnPerformerJoin } from "./lib/agent-assignment";
 import { participantRoutes } from "./routes/participants";
 import { representationRoutes } from "./routes/representations";
 import { buildTestApp } from "./testing";
@@ -32,7 +33,10 @@ afterAll(async () => {
   await harness?.stop();
 });
 
-async function createProfile(id: string, kind: "operator" | "performer" | "agent") {
+async function createProfile(
+  id: string,
+  kind: "operator" | "performer" | "agent" | "team_and_crew",
+) {
   const { db } = harness;
   await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind });
   const [profile] = await db
@@ -376,5 +380,180 @@ describe("agent assignment", () => {
     expect(back?.status).toBe("accepted");
     expect(back?.role).toBe("agent");
     expect((await capsFor("again-agent", event.id)).has("deal.edit")).toBe(true);
+  });
+
+  // ── A-16 · a delegation flag may never land on a non-performer participant ───
+  // The route now refuses to create or activate an agent↔crew representation, so
+  // this drives the LAST line of defence: a row that got into the table anyway
+  // must still project nothing onto an event. Before the fix the whole chain ran
+  // — proposal → accept → picker → assignment — and left `delegatedToAgentProfileId`
+  // on a crew participant, silently handing their event authority to an agent.
+  it("refuses to assign a representation whose represented side is not a performer", async () => {
+    const agent = await createProfile("kind-agent", "agent");
+    const crew = await createProfile("kind-crew", "team_and_crew");
+    const venue = await createVenue("kind-venue", "SE");
+    const event = await createEvent(venue.id, "kind-venue");
+
+    const [set] = await harness.db
+      .insert(schema.permissionSets)
+      .values({
+        profileId: crew.id,
+        name: "crew",
+        capabilities: [...PRESET_PERMISSION_SETS.crew_schedule_only],
+      })
+      .returning();
+    const [crewParticipant] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: crew.id,
+        role: "crew",
+        permissionSetId: set?.id,
+        status: "confirmed",
+      })
+      .returning();
+
+    const [representation] = await harness.db
+      .insert(schema.representations)
+      .values({
+        agentProfileId: agent.id,
+        performerProfileId: crew.id,
+        region: ["SE"],
+        commissionRate: 1500,
+        proposedBy: "agent",
+        status: "active",
+        confirmedByAgent: true,
+        confirmedByPerformer: true,
+      })
+      .returning();
+    if (!representation) throw new Error("representation seed failed");
+
+    const assigned = await app.inject({
+      method: "POST",
+      url: `/api/v1/representations/${representation.id}/events`,
+      headers: auth("kind-crew"),
+      payload: { eventIds: [event.id] },
+    });
+    expect(assigned.statusCode).toBe(200);
+    expect(assigned.json().assigned).toBe(0);
+
+    // No agent participant, and the crew member's own row is untouched.
+    expect(await agentParticipant(event.id, agent.id)).toBeUndefined();
+    const [after] = await harness.db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.id, crewParticipant?.id ?? ""));
+    expect((after?.details as Record<string, unknown> | null) ?? {}).not.toHaveProperty(
+      "delegatedToAgentProfileId",
+    );
+  });
+
+  // ── A-19 · the notice period is WORKED, then it ends ─────────────────────────
+  it("a future-dated termination keeps the agent working: events kept, new ones still auto-assigned", async () => {
+    const { agent, performer, repId } = await activateRepresentation("notice", ["SE"]);
+    const venue = await createVenue("notice-venue", "SE");
+    const existing = await createEvent(venue.id, "notice-venue");
+    await addPerformer(existing.id, performer.id);
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/representations/${repId}/events`,
+      headers: auth("notice-performer"),
+      payload: { eventIds: [existing.id] },
+    });
+
+    const notice = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/representations/${repId}`,
+      headers: auth("notice-performer"),
+      payload: { action: "terminate", terminatedEffectiveAt: "2027-06-01T00:00:00.000Z" },
+    });
+    expect(notice.statusCode).toBe(200);
+    expect(notice.json().status).toBe("active");
+
+    // Nothing was taken away mid-notice.
+    expect((await agentParticipant(existing.id, agent.id))?.status).toBe("accepted");
+    expect((await capsFor("notice-agent", existing.id)).has("deal.edit")).toBe(true);
+
+    // And a NEW in-region event the performer joins still auto-assigns the agent —
+    // they are contractually working the territory until the moment arrives.
+    const fresh = await createEvent(venue.id, "notice-venue");
+    await addPerformer(fresh.id, performer.id);
+    await harness.db.transaction(async (tx) => {
+      await autoAssignAgentOnPerformerJoin(tx, fresh, performer.id);
+    });
+    expect((await agentParticipant(fresh.id, agent.id))?.role).toBe("agent");
+  });
+
+  it("stops honouring the agreement the instant the agreed moment passes, before any sweep", async () => {
+    const { agent, performer, repId } = await activateRepresentation("lapse", ["SE"]);
+    const venue = await createVenue("lapse-venue", "SE");
+
+    // An event the agent already holds, so the stale delegation projection is on
+    // the performer's participation when the notice matures.
+    const held = await createEvent(venue.id, "lapse-venue");
+    await addPerformer(held.id, performer.id);
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/representations/${repId}/events`,
+      headers: auth("lapse-performer"),
+      payload: { eventIds: [held.id] },
+    });
+    expect((await capsFor("lapse-agent", held.id)).has("deal.edit")).toBe(true);
+    expect((await capsFor("lapse-performer", held.id)).has("settlement.confirm")).toBe(false);
+
+    // A notice served, then time passes — the sweep has NOT run, so the row is
+    // still `status = 'active'` with a now-past effective moment.
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/representations/${repId}`,
+      headers: auth("lapse-performer"),
+      payload: { action: "terminate", terminatedEffectiveAt: "2027-06-01T00:00:00.000Z" },
+    });
+    await harness.db
+      .update(schema.representations)
+      .set({ terminatedEffectiveAt: new Date("2026-01-01T00:00:00.000Z") })
+      .where(eq(schema.representations.id, repId));
+    const [stale] = await harness.db
+      .select()
+      .from(schema.representations)
+      .where(eq(schema.representations.id, repId));
+    expect(stale?.status).toBe("active"); // unswept — the stored state still lies
+    const [stillFlagged] = await harness.db
+      .select()
+      .from(schema.eventParticipants)
+      .where(
+        and(
+          eq(schema.eventParticipants.eventId, held.id),
+          eq(schema.eventParticipants.profileId, performer.id),
+        ),
+      );
+    expect(stillFlagged?.details).toHaveProperty("delegatedToAgentProfileId");
+
+    // The capability engine resolves the AGREEMENT, not the stale projection: the
+    // agent is out of the event, and the performer has their own floor back — they
+    // can confirm their own deal without waiting for the reaper.
+    expect((await capsFor("lapse-agent", held.id)).size).toBe(0);
+    const freedPerformer = await capsFor("lapse-performer", held.id);
+    expect(freedPerformer.has("settlement.confirm")).toBe(true);
+    expect(freedPerformer.has("agreement.confirm")).toBe(true);
+
+    // Auto-assignment must not fire for a lapsed agreement…
+    const fresh = await createEvent(venue.id, "lapse-venue");
+    await addPerformer(fresh.id, performer.id);
+    await harness.db.transaction(async (tx) => {
+      await autoAssignAgentOnPerformerJoin(tx, fresh, performer.id);
+    });
+    expect(await agentParticipant(fresh.id, agent.id)).toBeUndefined();
+
+    // …and it takes no new events either.
+    const other = await createEvent(venue.id, "lapse-venue");
+    await addPerformer(other.id, performer.id);
+    const assign = await app.inject({
+      method: "POST",
+      url: `/api/v1/representations/${repId}/events`,
+      headers: auth("lapse-performer"),
+      payload: { eventIds: [other.id] },
+    });
+    expect(assign.statusCode).toBe(400);
   });
 });

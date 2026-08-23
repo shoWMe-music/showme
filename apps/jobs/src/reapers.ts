@@ -1,4 +1,8 @@
 import { type Database, schema } from "@showme/db";
+import {
+  applyRepresentationTermination,
+  dueRepresentationTerminations,
+} from "@showme/db/representation-termination";
 import { and, eq, isNull, lt } from "drizzle-orm";
 
 /**
@@ -69,4 +73,36 @@ export async function reapExpiredShares(database: Database, now: Date): Promise<
   await database.delete(schema.shareOtps).where(lt(schema.shareOtps.expiresAt, now));
 
   return revoked.length;
+}
+
+/**
+ * Land the agreed-future representation terminations whose moment has arrived
+ * (decisions #14: "immediate or agreed-future"; audit A-19).
+ *
+ * This job is CONVERGENCE, not correctness. A future-dated termination leaves the
+ * row `active` with `terminated_effective_at` stamped, and every reader already
+ * asks `isRepresentationActiveAt` — so the agent's authority, their auto-assignment
+ * onto new events and their commission all stop at the effective instant whether or
+ * not this has run. What this does is make the STORED state say the same thing:
+ * flip the status and hand the performer back every still-open event, through
+ * `applyRepresentationTermination` — the exact code path an immediate termination
+ * takes in the API, so the two can never drift into different end states.
+ *
+ * Each representation gets its own transaction: one that fails (a locked
+ * participant row, say) must not hold back the rest of the day's terminations.
+ * Returns the number of representations terminated.
+ */
+export async function reapDueRepresentationTerminations(
+  database: Database,
+  now: Date,
+): Promise<number> {
+  const due = await dueRepresentationTerminations(database, now);
+  let terminated = 0;
+  for (const representation of due) {
+    await database.transaction(async (tx) => {
+      await applyRepresentationTermination(tx, representation);
+    });
+    terminated += 1;
+  }
+  return terminated;
 }

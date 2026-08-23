@@ -1,3 +1,4 @@
+import { liveEventDelegations } from "@showme/auth";
 import { schema } from "@showme/db";
 import {
   type HoldSibling,
@@ -12,6 +13,7 @@ import { z } from "zod";
 import { forbidden, notFound } from "../errors";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
+import { assertEventCapAllows } from "../lib/entitlements";
 import { eventParticipantRecipients, notifyUsers } from "../lib/notify";
 
 const EventParams = z.object({ id: z.string().uuid() });
@@ -117,13 +119,20 @@ async function requireBookingDecision(request: FastifyRequest, eventId: string):
 
   const bookedActs = participants.filter((row) => row.role === "performer");
   const isBookedAct = bookedActs.some((row) => profileIds.has(row.profileId));
-  const representsBookedAct =
-    participants.some((row) => row.role === "agent" && profileIds.has(row.profileId)) &&
-    bookedActs.some((row) => {
-      const delegatedTo = (row.details as { delegatedToAgentProfileId?: string } | null)
-        ?.delegatedToAgentProfileId;
-      return delegatedTo != null && profileIds.has(delegatedTo);
-    });
+
+  // "Their agent" means an agent a LIVE representation still puts behind a booked
+  // act. The `delegatedToAgentProfileId` stamp survives an effective-dated
+  // termination until the sweep clears it, so reading it raw would let an agent
+  // whose notice has already expired accept or decline a hold on the act's behalf
+  // (A-19 follow-up). One keyed query answers it the same way the capability engine
+  // does — the stamp is the candidate, the representation is the authority.
+  const bookedActProfileIds = new Set(bookedActs.map((row) => row.profileId));
+  const delegations = await liveEventDelegations(request.server.database, eventId);
+  const representsBookedAct = delegations.some(
+    (delegation) =>
+      profileIds.has(delegation.agentProfileId) &&
+      bookedActProfileIds.has(delegation.performerProfileId),
+  );
 
   if (!isBookedAct && !representsBookedAct) {
     throw forbidden("Only the booked performer, or their agent, can confirm or decline this hold");
@@ -199,8 +208,17 @@ export async function holdRoutes(fastify: FastifyInstance): Promise<void> {
       const [event] = await database.select().from(schema.events).where(eq(schema.events.id, id));
       if (!event) throw notFound("Event not found");
 
+      // Entitlement gate (decisions #4/§C, PLAN.md:613): accepting a hold moves the
+      // event `on_hold` -> `confirmed`, i.e. INTO the counted set — the same cap the
+      // PATCH path charges, so it runs through the same helper (audit A-20). Charged
+      // to the HOST's plan, not the confirming performer's. Composed AFTER the
+      // authorization check above, never conflated with it.
+      await assertEventCapAllows(database, event, "confirmed");
+
       const siblingRows = await loadSiblings(request, event, false);
       const cancelledIds = competingHoldIds({ siblings: toHoldSiblings(siblingRows) });
+      // The cascade only ever writes `cancelled` (and, on decline, `hold_rank`) —
+      // transitions OUT of the counted set consume no cap and are never gated.
 
       await database.transaction(async (tx) => {
         await tx

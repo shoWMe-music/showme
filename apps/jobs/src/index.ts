@@ -1,6 +1,11 @@
 import { type Database, createDatabase } from "@showme/db";
 import { runExchangeRateRefresh } from "./exchange-rate";
-import { reapExpiredHandoffs, reapExpiredOffers, reapExpiredShares } from "./reapers";
+import {
+  reapDueRepresentationTerminations,
+  reapExpiredHandoffs,
+  reapExpiredOffers,
+  reapExpiredShares,
+} from "./reapers";
 
 /**
  * Result of one scheduled-jobs run. Each numeric field is the number of rows the
@@ -10,6 +15,8 @@ export interface JobRunResult {
   offers: number;
   handoffs: number;
   shares: number;
+  /** Agreed-future representation terminations whose moment arrived (decisions #14). */
+  representationTerminations: number;
   exchangeRates: number;
   errors: string[];
 }
@@ -19,7 +26,7 @@ function describeError(error: unknown): string {
 }
 
 /**
- * Orchestrator for the scheduled jobs. Runs all four jobs, each isolated in its
+ * Orchestrator for the scheduled jobs. Runs all five jobs, each isolated in its
  * own try/catch so one failure never aborts the others — a failed job leaves its
  * count at 0 and pushes a short message to `errors`.
  */
@@ -31,6 +38,7 @@ export async function runScheduledJobs(
     offers: 0,
     handoffs: 0,
     shares: 0,
+    representationTerminations: 0,
     exchangeRates: 0,
     errors: [],
   };
@@ -51,6 +59,12 @@ export async function runScheduledJobs(
     result.shares = await reapExpiredShares(db, now);
   } catch (error) {
     result.errors.push(`shares: ${describeError(error)}`);
+  }
+
+  try {
+    result.representationTerminations = await reapDueRepresentationTerminations(db, now);
+  } catch (error) {
+    result.errors.push(`representationTerminations: ${describeError(error)}`);
   }
 
   try {

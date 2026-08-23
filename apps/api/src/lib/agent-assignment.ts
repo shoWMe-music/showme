@@ -1,13 +1,19 @@
 import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
-import { and, eq, notInArray, sql } from "drizzle-orm";
+import { CLOSED_EVENT_STATUSES } from "@showme/db/representation-termination";
+import { and, eq, inArray, notInArray } from "drizzle-orm";
 import type { Transaction } from "./audit";
+import { assertRepresentationPartyKinds, isRepresentationActiveAt } from "./representation-rules";
 
 type RepresentationRow = typeof schema.representations.$inferSelect;
 type EventRow = typeof schema.events.$inferSelect;
 
-/** An event that is over (or never happened) is out of the agent's reach. */
-const CLOSED_STATUSES = ["concluded", "cancelled"] as const;
+/**
+ * An event that is over (or never happened) is out of the agent's reach. Shared
+ * with the termination path (`@showme/db/representation-termination`) so "still
+ * open" means one thing on the way in and on the way out.
+ */
+const CLOSED_STATUSES = CLOSED_EVENT_STATUSES;
 
 /** Find or create the agent profile's `agent`-preset permission set (reused across events). */
 async function agentPermissionSetId(tx: Transaction, agentProfileId: string): Promise<string> {
@@ -64,6 +70,37 @@ async function venueInRegion(
 }
 
 /**
+ * Are the two profiles on this representation still the kinds a representation is
+ * defined between (`agent` → `performer`)? Kinds are fixed at signup, so this can
+ * only ever fail for a row that bypassed the route — which is exactly why the
+ * write path re-checks instead of trusting the row.
+ */
+async function representationPartiesAreCorrectKinds(
+  tx: Transaction,
+  representation: RepresentationRow,
+): Promise<boolean> {
+  const rows = await tx
+    .select({ id: schema.profiles.id, kind: schema.profiles.kind })
+    .from(schema.profiles)
+    .where(
+      inArray(schema.profiles.id, [
+        representation.agentProfileId,
+        representation.performerProfileId,
+      ]),
+    );
+  const kindOf = (profileId: string) => rows.find((row) => row.id === profileId)?.kind;
+  try {
+    assertRepresentationPartyKinds(
+      kindOf(representation.agentProfileId),
+      kindOf(representation.performerProfileId),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Assign the agent to ONE event (decisions #14 fan-out, like adding a group #12):
  * materialize the agent as a negotiate/approve participant and flag the performer's
  * participation delegated (→ view-only, enforced by the auth engine). Applies only
@@ -77,6 +114,14 @@ export async function assignAgentToEvent(
 ): Promise<boolean> {
   const [event] = await tx.select().from(schema.events).where(eq(schema.events.id, eventId));
   if (!event || (CLOSED_STATUSES as readonly string[]).includes(event.status)) return false;
+
+  // Belt-and-braces on the kind rule (audit A-16). The route refuses to create or
+  // activate a representation between the wrong kinds, but this is the function
+  // that WRITES the delegation flag, and a delegation flag on a crew or operator
+  // participant is a silent authority grant no screen would explain. A row that
+  // somehow escaped the route (a seed, a migration, a future caller) stops here
+  // rather than projecting itself onto an event.
+  if (!(await representationPartiesAreCorrectKinds(tx, representation))) return false;
 
   // You can only delegate what you hold — the performer must be on the event.
   const [performerParticipant] = await tx
@@ -160,15 +205,21 @@ export async function autoAssignAgentOnPerformerJoin(
   event: EventRow,
   performerProfileId: string,
 ): Promise<void> {
-  const activeReps = await tx
-    .select()
-    .from(schema.representations)
-    .where(
-      and(
-        eq(schema.representations.performerProfileId, performerProfileId),
-        eq(schema.representations.status, "active"),
-      ),
-    );
+  const now = new Date();
+  // `status = 'active'` is only the SQL prefilter — a row can carry an agreed
+  // future termination and still be `active`, and one whose moment has passed is
+  // dead before the sweep runs. `isRepresentationActiveAt` is the answer (A-19).
+  const activeReps = (
+    await tx
+      .select()
+      .from(schema.representations)
+      .where(
+        and(
+          eq(schema.representations.performerProfileId, performerProfileId),
+          eq(schema.representations.status, "active"),
+        ),
+      )
+  ).filter((representation) => isRepresentationActiveAt(representation, now));
   for (const representation of activeReps) {
     if (await venueInRegion(tx, event.venueProfileId, representation)) {
       await assignAgentToEvent(tx, representation, event.id);
@@ -218,67 +269,4 @@ export async function delegatableEvents(
     });
   }
   return candidates;
-}
-
-/**
- * Reverse assignment on termination (decisions #14 step 6): the performer regains
- * control of every still-OPEN event (not concluded) — the agent participant is
- * removed and the performer un-delegated. Concluded events keep the historical
- * agent row (and any confirmed deal's commission stands via its representation
- * settlement). Returns how many events reverted.
- *
- * "Removed" is `status = 'removed'`, NOT a DELETE — the same soft-remove the
- * participants route and group unassignment use. `authorize()` excludes removed
- * participants, so the agent's access ends the moment this runs, while anything
- * that already pointed at that participation (a computed settlement, a transfer,
- * a budget line's `collected_by`) keeps pointing at a row that still exists.
- * Hard-deleting it made termination impossible the moment money touched the
- * event — either party can terminate unilaterally (decisions #14), always.
- */
-export async function unassignAgentFromOpenEvents(
-  tx: Transaction,
-  representation: RepresentationRow,
-): Promise<number> {
-  // Events where this performer is delegated to this agent, still open.
-  const rows = await tx
-    .select({
-      participantId: schema.eventParticipants.id,
-      eventId: schema.eventParticipants.eventId,
-      details: schema.eventParticipants.details,
-    })
-    .from(schema.eventParticipants)
-    .innerJoin(schema.events, eq(schema.events.id, schema.eventParticipants.eventId))
-    .where(
-      and(
-        eq(schema.eventParticipants.profileId, representation.performerProfileId),
-        notInArray(schema.events.status, [...CLOSED_STATUSES]),
-        sql`${schema.eventParticipants.details}->>'delegatedToAgentProfileId' = ${representation.agentProfileId}`,
-      ),
-    );
-
-  let reverted = 0;
-  for (const row of rows) {
-    // Soft-remove the agent participant from the event (see the note above).
-    await tx
-      .update(schema.eventParticipants)
-      .set({ status: "removed", updatedAt: new Date() })
-      .where(
-        and(
-          eq(schema.eventParticipants.eventId, row.eventId),
-          eq(schema.eventParticipants.profileId, representation.agentProfileId),
-          eq(schema.eventParticipants.role, "agent"),
-        ),
-      );
-    // Un-delegate the performer (drop the flag, keep any other details).
-    const previous = (row.details as Record<string, unknown> | null) ?? {};
-    const details = Object.fromEntries(
-      Object.entries(previous).filter(([key]) => key !== "delegatedToAgentProfileId"),
-    );
-    await tx
-      .update(schema.eventParticipants)
-      .set({ details, updatedAt: new Date() })
-      .where(eq(schema.eventParticipants.id, row.participantId));
-    reverted += 1;
-  }
-  return reverted;
 }

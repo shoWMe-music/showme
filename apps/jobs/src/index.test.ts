@@ -25,6 +25,7 @@ describe("runScheduledJobs", () => {
     expect(typeof result.offers).toBe("number");
     expect(typeof result.handoffs).toBe("number");
     expect(typeof result.shares).toBe("number");
+    expect(typeof result.representationTerminations).toBe("number");
     expect(typeof result.exchangeRates).toBe("number");
     expect(Array.isArray(result.errors)).toBe(true);
 
@@ -32,6 +33,7 @@ describe("runScheduledJobs", () => {
     expect(result.offers).toBe(0);
     expect(result.handoffs).toBe(0);
     expect(result.shares).toBe(0);
+    expect(result.representationTerminations).toBe(0);
 
     // The exchange-rate refresh failed and was caught in isolation.
     expect(result.exchangeRates).toBe(0);

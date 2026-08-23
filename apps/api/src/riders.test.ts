@@ -319,6 +319,20 @@ describe("riders — profile library + event instances (copy-on-attach)", () => 
       .update(schema.eventParticipants)
       .set({ details: { delegatedToAgentProfileId: agent.profileId } })
       .where(eq(schema.eventParticipants.id, aPart));
+    // The standing agreement the stamp is a projection OF. Authority is resolved
+    // against this row, never the stamp alone (A-19 follow-up), so a fixture that
+    // stamps without it is modelling a state the product cannot produce.
+    await db.insert(schema.representations).values({
+      agentProfileId: agent.profileId,
+      performerProfileId: perfA.profileId,
+      isWorldwide: true,
+      commissionRate: 1000,
+      commissionableBasis: "deal_income",
+      proposedBy: "agent",
+      status: "active",
+      confirmedByAgent: true,
+      confirmedByPerformer: true,
+    });
 
     // A crew member the AGENT brought (sponsored by the agent participant).
     const crew = await seedMemberWithSet(
@@ -348,6 +362,31 @@ describe("riders — profile library + event instances (copy-on-attach)", () => 
     // The agent sees the rider of the performer they represent — not the other's.
     expect(await namesFor("rg-agent")).toEqual(["A tech"]);
     // The agent's crew inherits that reach: A's rider only, never B's.
+    expect(await namesFor("rg-crew")).toEqual(["A tech"]);
+
+    // A-19 follow-up: B fires the agent with notice, the notice matures, the sweep
+    // has NOT run — so B's participation still carries the delegation stamp. The
+    // stamp is not authority: B's rider must stay shut to the agent (and to the
+    // crew that inherits their reach) the instant the agreement lapses.
+    const bPart = participants.find((p) => p.profileId === perfB.profileId)?.id as string;
+    await db
+      .update(schema.eventParticipants)
+      .set({ details: { delegatedToAgentProfileId: agent.profileId } })
+      .where(eq(schema.eventParticipants.id, bPart));
+    await db.insert(schema.representations).values({
+      agentProfileId: agent.profileId,
+      performerProfileId: perfB.profileId,
+      isWorldwide: true,
+      commissionRate: 1000,
+      commissionableBasis: "deal_income",
+      proposedBy: "agent",
+      status: "active", // still `active` — an effective-dated termination, unswept
+      terminatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      terminatedEffectiveAt: new Date("2026-01-01T00:00:00.000Z"),
+      confirmedByAgent: true,
+      confirmedByPerformer: true,
+    });
+    expect(await namesFor("rg-agent")).toEqual(["A tech"]);
     expect(await namesFor("rg-crew")).toEqual(["A tech"]);
   });
 

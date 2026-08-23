@@ -1,6 +1,7 @@
+import { liveEventDelegations } from "@showme/auth";
 import { type Database, schema } from "@showme/db";
 import type { Capability } from "@showme/shared";
-import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -131,17 +132,16 @@ async function participantRiderDomain(
     return new Set([participant.id]);
   }
   if (participant.role === "agent") {
-    // The performers this agent represents ON this event carry a delegation stamp.
-    const represented = await database
-      .select({ id: schema.eventParticipants.id })
-      .from(schema.eventParticipants)
-      .where(
-        and(
-          eq(schema.eventParticipants.eventId, eventId),
-          sql`${schema.eventParticipants.details}->>'delegatedToAgentProfileId' = ${participant.profileId}`,
-        ),
-      );
-    return new Set(represented.map((row) => row.id));
+    // The performers this agent represents ON this event — resolved against the
+    // representation, not the delegation stamp alone. The stamp outlives an
+    // effective-dated termination until the sweep clears it, and a lapsed agreement
+    // must not still open its performer's rider (A-19 follow-up).
+    const represented = await liveEventDelegations(database, eventId);
+    return new Set(
+      represented
+        .filter((delegation) => delegation.agentProfileId === participant.profileId)
+        .map((delegation) => delegation.performerParticipantId),
+    );
   }
   if (CREW_ROLES.has(participant.role)) {
     const sponsorId = (participant.details as { sponsorParticipantId?: string } | null)

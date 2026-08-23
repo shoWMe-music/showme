@@ -21,6 +21,18 @@ export {
   currencyExponent,
   currencyForCountry,
 } from "./currencies";
+export {
+  COUNTRY_CODES,
+  isCountryCode,
+  normalizeCountryCode,
+  normalizeCountryCodes,
+} from "./countries";
+export {
+  type RepresentationLifecycle,
+  isPendingTermination,
+  isRepresentationActiveAt,
+  terminationTakesEffectNow,
+} from "./representation";
 export { convertMinorUnits } from "./exchange";
 export { type CsvColumn, escapeCsvField, toCsv } from "./csv";
 export {

@@ -6,6 +6,7 @@ import { forbidden, notFound } from "../errors";
 import { type DealViewer, isDealVisible } from "../serialize/deal";
 import { countryInRegion } from "./agent-assignment";
 import { eventCapabilities } from "./authorize";
+import { isRepresentationActiveAt } from "./representation-rules";
 
 type DealRow = typeof schema.deals.$inferSelect;
 type DealPartyRow = typeof schema.dealParties.$inferSelect;
@@ -94,19 +95,26 @@ async function resolveRepresentedParticipants(
     );
   if (delegated.length === 0) return [];
 
-  const representations = await database
-    .select()
-    .from(schema.representations)
-    .where(
-      and(
-        inArray(schema.representations.agentProfileId, agentProfileIds),
-        inArray(
-          schema.representations.performerProfileId,
-          delegated.map((participant) => participant.profileId),
+  // `status = 'active'` is the SQL prefilter only: a representation working out an
+  // agreed notice period is still `active`, and one whose effective moment has
+  // passed is dead to every reader the instant it passes — swept or not (A-19).
+  // `isRepresentationActiveAt` is the single answer to "is this live right now?".
+  const now = new Date();
+  const representations = (
+    await database
+      .select()
+      .from(schema.representations)
+      .where(
+        and(
+          inArray(schema.representations.agentProfileId, agentProfileIds),
+          inArray(
+            schema.representations.performerProfileId,
+            delegated.map((participant) => participant.profileId),
+          ),
+          eq(schema.representations.status, "active"),
         ),
-        eq(schema.representations.status, "active"),
-      ),
-    );
+      )
+  ).filter((representation) => isRepresentationActiveAt(representation, now));
   if (representations.length === 0) return [];
 
   const venueCountry = await eventVenueCountry(request, eventId);
