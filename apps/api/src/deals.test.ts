@@ -1336,3 +1336,104 @@ describe("deals — an operator sees a deal by being a party, not by being the h
     expect(crewRead.json().parties[0].participantId).toBe(crewPart);
   });
 });
+
+/**
+ * A-15. `custom` was a free-text deal type; it was removed because the settlement
+ * engine can only reconcile a shape it recognises (PLAN.md:139, decisions.md #16.2).
+ * It survived in the route's hand-copied Zod enum after the column dropped it, so the
+ * write reached Postgres and blew up there. The rule: the four named types are the
+ * whole vocabulary, and anything outside it is a caller error, not a server error.
+ */
+describe("deals — the type vocabulary is closed", () => {
+  it("rejects the removed `custom` type with a 400 naming the allowed values", async () => {
+    const operator = await seedMemberWithSet(
+      "ct-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "ct-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const { event, participants } = await seedEvent(
+      operator,
+      [
+        { ...operator, role: "host" },
+        { ...performer, role: "performer" },
+      ],
+      "ct-op",
+    );
+    const participant = participants.find((row) => row.profileId === performer.profileId);
+    if (!participant) throw new Error("participant seed failed");
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("ct-op"),
+      payload: {
+        type: "custom",
+        name: "Whatever we agreed on the phone",
+        parties: [{ participantId: participant.id, roleInDeal: "payee" }],
+      },
+    });
+
+    // 400 from the schema, NOT a 500 from the Postgres enum.
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json().error.code).toBe("validation");
+    // The caller is told what it may send instead.
+    const complaint = JSON.stringify(rejected.json());
+    for (const allowed of schema.dealType.enumValues) {
+      expect(complaint).toContain(allowed);
+    }
+
+    // Nothing was written.
+    const rows = await harness.db
+      .select()
+      .from(schema.deals)
+      .where(eq(schema.deals.eventId, event.id));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("still accepts each of the four surviving types", async () => {
+    const operator = await seedMemberWithSet(
+      "cs-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "cs-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const { event, participants } = await seedEvent(
+      operator,
+      [
+        { ...operator, role: "host" },
+        { ...performer, role: "performer" },
+      ],
+      "cs-op",
+    );
+    const participant = participants.find((row) => row.profileId === performer.profileId);
+    if (!participant) throw new Error("participant seed failed");
+
+    expect(schema.dealType.enumValues).toEqual(["performance", "rental", "fee", "split"]);
+
+    for (const type of schema.dealType.enumValues) {
+      const created = await app.inject({
+        method: "POST",
+        url: `/api/v1/events/${event.id}/deals`,
+        headers: auth("cs-op"),
+        payload: {
+          type,
+          structure: "guarantee",
+          name: `A ${type} deal`,
+          guaranteeAmount: "100000",
+          parties: [{ participantId: participant.id, roleInDeal: "payee" }],
+        },
+      });
+      expect(created.statusCode, `${type} should be creatable`).toBe(201);
+      expect(created.json().type).toBe(type);
+    }
+  });
+});

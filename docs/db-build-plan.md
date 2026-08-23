@@ -41,7 +41,7 @@ Fold into a regenerated clean baseline (nothing deployed yet, so squash M1+M2 mi
 
 ## Module 3 — Deals  ☑ (2 tables, 6 enums, 2 tests)
 **Tables:** `deals`, `deal_parties`.
-- `deals`: `event_id→events`, `type`(enum `performance|rental|fee|split|custom`),
+- `deals`: `event_id→events`, `type`(enum `performance|rental|fee|split` — `custom` removed, decisions #16.2),
   `structure`(enum `guarantee|door_split|guarantee_vs_door|rental`, nullable = paper-only),
   `currency`(payout, nullable→event base), `name`, `payer_participant_id→event_participants` nullable,
   `payment_timing`(enum `before_event|at_settlement|due_date`), `priority` int,

@@ -20,7 +20,14 @@ import { isDealVisible, serializeDeal, serializeDealUnredacted } from "../serial
 const EventParams = z.object({ id: z.string().uuid() });
 const DealParams = z.object({ did: z.string().uuid() });
 
-const dealTypeEnum = z.enum(["performance", "rental", "fee", "split", "custom"]);
+/**
+ * Read straight off the Postgres enum, so this surface can never again outlive the
+ * column it writes into. `custom` was removed (PLAN.md:139, decisions.md #16.2 — free
+ * text broke the settlement engine, which can only reconcile a shape it recognises);
+ * the route kept accepting it for a while precisely because this list was hand-copied.
+ * An uncovered arrangement is a NULL-structure paper-only deal, not a new type.
+ */
+const dealTypeEnum = z.enum(schema.dealType.enumValues);
 const dealStructureEnum = z.enum(["guarantee", "door_split", "guarantee_vs_door", "rental"]);
 const paymentTimingEnum = z.enum(["before_event", "at_settlement", "due_date"]);
 const dealStatusEnum = z.enum(["draft", "confirmed", "cancelled"]);
