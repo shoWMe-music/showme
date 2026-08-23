@@ -30,13 +30,23 @@ const CreateBudgetBody = z.object({
 // never a JS number, which loses precision past 2^53.
 const ticketingSourceEnum = z.enum(["manual", "ticketing_provider"]);
 
+/**
+ * Minor units as a decimal string — the only thing `BigInt()` can parse (audit A-14).
+ * `BigInt("abc")` throws a SyntaxError, which used to escape the handler as an opaque
+ * 500; the shape belongs in the schema so the parse downstream cannot fail at all.
+ * Same expression as `deals.ts` uses for guarantees — one spelling of money everywhere.
+ */
+const MinorUnitsAmount = z
+  .string()
+  .regex(/^-?\d+$/, 'amount must be a whole number of minor units as a string, e.g. "150000"');
+
 const CreateLineBody = z.object({
   kind: z.enum(["revenue", "cost"]),
   /** Provenance of a revenue line (decisions #15) — `manual` unless synced. */
   source: ticketingSourceEnum.default("manual"),
   providerRef: z.string().optional(),
   label: z.string().min(1),
-  amount: z.string().min(1),
+  amount: MinorUnitsAmount,
   currency: z.string().min(1).optional(),
   collectedBy: z.string().uuid().optional(),
   paidBy: z.string().uuid().optional(),
@@ -47,7 +57,7 @@ const CreateLineBody = z.object({
 const UpdateLineBody = z.object({
   kind: z.enum(["revenue", "cost"]).optional(),
   label: z.string().min(1).optional(),
-  amount: z.string().min(1).optional(),
+  amount: MinorUnitsAmount.optional(),
   currency: z.string().min(1).nullable().optional(),
   collectedBy: z.string().uuid().nullable().optional(),
   paidBy: z.string().uuid().nullable().optional(),
@@ -137,6 +147,121 @@ async function loadVisibleBudget(
     );
   if (!budget) throw notFound("Budget not found");
   return budget;
+}
+
+/**
+ * The budget-line columns that name an `event_participants` row. Each one answers
+ * "who physically handled this cash" for the reconciliation, so each one must name
+ * a participant of THIS event.
+ */
+const PARTICIPANT_REFERENCE_FIELDS = ["collectedBy", "paidBy", "payeeParticipantId"] as const;
+
+type ParticipantReferenceField = (typeof PARTICIPANT_REFERENCE_FIELDS)[number];
+
+/** The reference-carrying half of a create/update line body. */
+type LineReferences = Partial<Record<ParticipantReferenceField, string | null>> & {
+  dealId?: string | null;
+};
+
+/**
+ * Every reference on a line must point INSIDE this event (audit A-14).
+ *
+ * The columns are plain foreign keys to `event_participants` / `deals`, so Postgres
+ * only ever asked "does this row exist" — never "does it belong here". A `collectedBy`
+ * naming another event's participant was therefore accepted, and the settlement then
+ * failed forever: `reconcile()` raises the pool by that revenue but attributes the cash
+ * to nobody in this event's participant set, so `Σ net ≠ 0` and `assertBalanced` throws
+ * on every subsequent compute. The cheapest id to send by mistake is a *profile* id,
+ * which is a real uuid of the wrong kind entirely — hence the hint in the message.
+ *
+ * A dangling id and another event's id collapse into ONE message on purpose: the
+ * caller holds `budget.edit` here and nowhere else, so telling them which foreign ids
+ * exist would be an existence oracle over events they cannot see. Either way the fix
+ * is the same — send a participant id from this event.
+ *
+ * Mirrors `assertPartiesAreEntitled` in `deals.ts`; both are 400, because the request
+ * body is what is wrong.
+ */
+async function assertLineReferencesBelongToEvent(
+  request: FastifyRequest,
+  eventId: string,
+  line: LineReferences,
+): Promise<void> {
+  const { database } = request.server;
+
+  const referencedParticipantIds = [
+    ...new Set(
+      PARTICIPANT_REFERENCE_FIELDS.map((field) => line[field]).filter(
+        (value): value is string => typeof value === "string",
+      ),
+    ),
+  ];
+  if (referencedParticipantIds.length > 0) {
+    const rows = await database
+      .select({ id: schema.eventParticipants.id })
+      .from(schema.eventParticipants)
+      .where(
+        and(
+          eq(schema.eventParticipants.eventId, eventId),
+          inArray(schema.eventParticipants.id, referencedParticipantIds),
+        ),
+      );
+    const participantsOnThisEvent = new Set(rows.map((row) => row.id));
+    for (const field of PARTICIPANT_REFERENCE_FIELDS) {
+      const value = line[field];
+      if (typeof value === "string" && !participantsOnThisEvent.has(value)) {
+        throw badRequest(
+          `${field} ${value} is not a participant on this event. Send a participant id from GET /events/${eventId}/participants — not a profile id.`,
+        );
+      }
+    }
+  }
+
+  // `deal_id` assigns the line to a deal for accountability; a deal from another
+  // event would attribute this event's cost to a settlement that never reads it.
+  if (typeof line.dealId === "string") {
+    const [deal] = await database
+      .select({ id: schema.deals.id })
+      .from(schema.deals)
+      .where(and(eq(schema.deals.id, line.dealId), eq(schema.deals.eventId, eventId)));
+    if (!deal) {
+      throw badRequest(`dealId ${line.dealId} is not a deal on this event`);
+    }
+  }
+}
+
+/**
+ * Every line must say WHO HELD THE CASH (audit A-14, second half).
+ *
+ * `collected_by` / `paid_by` are nullable columns, so a line could simply omit the
+ * field — and an omitted attribution produces the exact state a cross-event id
+ * produced, by the same arithmetic. `reconcile()` moves the pool by the amount
+ * either way (step 1 sums every revenue and every payee-less cost), but step 4 only
+ * credits `held` to a NAMED participant. Unnamed, the cash is in the pool and in
+ * nobody's hands, `Σ net ≠ 0`, and `assertBalanced` throws on every compute from
+ * then on. A revenue line nobody collected is money from nowhere; a cost line
+ * nobody paid is its mirror image.
+ *
+ * `payeeParticipantId` stays optional on purpose and is NOT checked here: NULL there
+ * means the cost went to an off-platform supplier, which is the ordinary case (it is
+ * what makes the line an external pool cost rather than a deductible) and it
+ * reconciles correctly today.
+ */
+function assertCashIsAttributed(line: {
+  kind: "revenue" | "cost";
+  collectedBy?: string | null;
+  paidBy?: string | null;
+}): void {
+  if (line.kind === "revenue" && !line.collectedBy) {
+    throw badRequest(
+      "A revenue line must name collectedBy — the participant who received the cash. Revenue nobody collected raises the pool while nobody holds it, and the settlement can never balance.",
+    );
+  }
+  if (line.kind === "cost" && !line.paidBy) {
+    throw badRequest(
+      "A cost line must name paidBy — the participant who fronted the cash. A cost nobody paid lowers the pool while nobody is out of pocket, and the settlement can never balance.",
+    );
+  }
 }
 
 export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
@@ -263,6 +388,12 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       await loadVisibleBudget(request, id, bid);
 
       const body = request.body;
+      // Every participant/deal reference must point inside this event, and the cash
+      // must be attributed to somebody (A-14) — both checked BEFORE the insert, so
+      // neither a foreign id nor an unattributed amount becomes a stored row.
+      await assertLineReferencesBelongToEvent(request, id, body);
+      assertCashIsAttributed(body);
+
       const created = await database.transaction(async (tx) => {
         const [line] = await tx
           .insert(schema.budgetLines)
@@ -313,6 +444,20 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
         .from(schema.budgetLines)
         .where(and(eq(schema.budgetLines.id, lid), eq(schema.budgetLines.budgetId, bid)));
       if (!before) throw notFound("Budget line not found");
+
+      // The same two rules the create path enforces (A-14) — an edit that repoints
+      // `collectedBy` at a foreign participant, or that NULLs it, poisons the
+      // settlement exactly as a create would.
+      await assertLineReferencesBelongToEvent(request, id, request.body);
+      // Validate the row the edit WOULD PRODUCE, not the patch: `kind` and the
+      // attribution field move independently, so flipping a paid-for cost into a
+      // revenue line has to leave a `collectedBy` behind it.
+      assertCashIsAttributed({
+        kind: request.body.kind ?? before.kind,
+        collectedBy:
+          request.body.collectedBy !== undefined ? request.body.collectedBy : before.collectedBy,
+        paidBy: request.body.paidBy !== undefined ? request.body.paidBy : before.paidBy,
+      });
 
       const { expectedVersion, amount, ...rest } = request.body;
       const fields: Partial<typeof schema.budgetLines.$inferInsert> = { ...rest };

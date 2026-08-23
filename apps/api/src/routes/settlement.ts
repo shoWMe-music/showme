@@ -15,7 +15,7 @@ import { alias } from "drizzle-orm/pg-core";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { badRequest, conflict, forbidden, notFound } from "../errors";
+import { type HttpError, badRequest, conflict, forbidden, notFound } from "../errors";
 import type { Transaction } from "../lib/audit";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
@@ -182,6 +182,90 @@ interface ReconciledEvent {
   rates: Map<string, string>;
 }
 
+/** The budget-line columns that name an `event_participants` row. */
+const PARTICIPANT_REFERENCE_FIELDS = ["collectedBy", "paidBy", "payeeParticipantId"] as const;
+
+/** One stored budget line, in the shape the integrity guards need to name it. */
+type BudgetLineReference = {
+  id: string;
+  budgetId: string;
+  label: string;
+  kind: "revenue" | "cost";
+} & Partial<Record<(typeof PARTICIPANT_REFERENCE_FIELDS)[number], string | null>>;
+
+/** How a guard tells the operator which row is at fault and how to be rid of it. */
+function unsettlableLine(eventId: string, line: BudgetLineReference, problem: string): HttpError {
+  return conflict(
+    `Budget line "${line.label}" (${line.id}) ${problem}, so the settlement cannot balance. Correct or remove it — DELETE /events/${eventId}/budgets/${line.budgetId}/lines/${line.id} — then compute again.`,
+  );
+}
+
+/**
+ * A stored budget line whose `collected_by` / `paid_by` / `payee_participant_id`
+ * names a participant of some OTHER event breaks the conservation law by
+ * construction: the amount moves the pool, but the cash is credited to a
+ * participant this event's breakdowns do not contain, so `Σ net ≠ 0` and
+ * `assertBalanced` throws (audit A-14).
+ *
+ * `assertBalanced` stays exactly as strict as it was — `Σ net = 0` is the invariant
+ * the whole engine rests on and must never be relaxed to accommodate bad data. What
+ * changes is WHERE the failure is reported and how legible it is: a 409 naming the
+ * offending line, its budget and the DELETE that removes it, instead of a 500 whose
+ * body is `{"error":{"code":"internal"}}` and whose cause is only in a log the API
+ * does not even write. 409 rather than 400 because the request is fine — the stored
+ * state is what blocks it, the same reasoning `assertNotFinalized` uses.
+ */
+function assertBudgetLinesAreEventScoped(
+  eventId: string,
+  lines: BudgetLineReference[],
+  participantIdsOnEvent: ReadonlySet<string>,
+): void {
+  for (const line of lines) {
+    for (const field of PARTICIPANT_REFERENCE_FIELDS) {
+      const value = line[field];
+      if (typeof value === "string" && !participantIdsOnEvent.has(value)) {
+        throw unsettlableLine(
+          eventId,
+          line,
+          `has ${field} ${value}, which is not a participant on this event, so its cash belongs to nobody`,
+        );
+      }
+    }
+  }
+}
+
+/**
+ * The same defect through the other door: a stored line that names NOBODY.
+ *
+ * A foreign participant id and a NULL attribution are one bug with two spellings —
+ * in both, `reconcile()` moves the pool by the amount but credits `held` to no
+ * participant of this event, so `Σ net ≠ 0` and every compute 500s forever. The
+ * route now requires `collected_by` on revenue and `paid_by` on cost, but rows
+ * written before that fix are still sitting in the table, and their only symptom was
+ * that opaque 500. Same 409, same diagnosis, same way out.
+ *
+ * `payee_participant_id` is deliberately not required: NULL there is the ordinary
+ * external supplier, which is exactly what makes the cost a pool cost.
+ */
+function assertBudgetLinesAttributeTheirCash(eventId: string, lines: BudgetLineReference[]): void {
+  for (const line of lines) {
+    if (line.kind === "revenue" && !line.collectedBy) {
+      throw unsettlableLine(
+        eventId,
+        line,
+        "is revenue with no collectedBy, so it raises the pool while no participant holds the cash",
+      );
+    }
+    if (line.kind === "cost" && !line.paidBy) {
+      throw unsettlableLine(
+        eventId,
+        line,
+        "is a cost with no paidBy, so it lowers the pool while no participant is out of pocket",
+      );
+    }
+  }
+}
+
 /**
  * Read the event's spine (participants, deals, budget lines), convert every
  * non-base amount to base, and reconcile.
@@ -220,6 +304,9 @@ async function reconcileEvent(
 
   const lineRows = await database
     .select({
+      id: schema.budgetLines.id,
+      budgetId: schema.budgetLines.budgetId,
+      label: schema.budgetLines.label,
       kind: schema.budgetLines.kind,
       amount: schema.budgetLines.amount,
       currency: schema.budgetLines.currency,
@@ -230,6 +317,15 @@ async function reconcileEvent(
     .from(schema.budgetLines)
     .innerJoin(schema.budgets, eq(schema.budgets.id, schema.budgetLines.budgetId))
     .where(eq(schema.budgets.eventId, eventId));
+
+  // Refuse to reconcile a budget that references participants from outside the
+  // event (audit A-14). The route now rejects such a reference at write time, but
+  // rows written before that fix — or by any future path that forgets — are still
+  // there, and their only symptom was a 500 on EVERY compute, forever, with an
+  // empty body. `assertBalanced` is right to throw (Σ net = 0 is a hard invariant);
+  // what was missing is a diagnosis. This names the line and the way out.
+  assertBudgetLinesAreEventScoped(eventId, lineRows, new Set(participantRows.map((row) => row.id)));
+  assertBudgetLinesAttributeTheirCash(eventId, lineRows);
 
   const [event] = await database
     .select({ baseCurrency: schema.events.baseCurrency })

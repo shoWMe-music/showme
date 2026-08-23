@@ -1532,3 +1532,166 @@ describe("settlement — GET /settlements (the caller's own, across events)", ()
     expect(response.json().items).toEqual([]);
   });
 });
+
+/**
+ * A-14 — the already-poisoned case. A budget line pointing at a foreign participant
+ * used to 500 EVERY compute, forever, with an empty body (the API runs `logger: false`,
+ * so nothing was written anywhere either). `assertBalanced` is right to refuse — Σ net = 0
+ * is the invariant the engine rests on — but the operator was given no way to learn which
+ * row was at fault. Compute now names the line and the DELETE that clears it.
+ */
+describe("settlement — a foreign budget-line reference is diagnosable (A-14)", () => {
+  it("names the offending line with a 409 instead of an opaque 500, and stays fixable", async () => {
+    const seed = await seedWorkedExample("poisoned");
+
+    // A second event, whose participant id is foreign to the one being settled.
+    const other = await seedWorkedExample("poisoned-other");
+
+    // Write the row the pre-fix route would have accepted (201) — bypassing the
+    // route on purpose: this is the state a DB already in production is in.
+    const [budget] = await harness.db
+      .select()
+      .from(schema.budgets)
+      .where(eq(schema.budgets.eventId, seed.event.id));
+    if (!budget) throw new Error("budget lookup failed");
+    const [poisoned] = await harness.db
+      .insert(schema.budgetLines)
+      .values({
+        budgetId: budget.id,
+        kind: "revenue",
+        label: "Merch (mis-attributed)",
+        amount: 50000n,
+        collectedBy: other.pPart, // another event's participant
+      })
+      .returning();
+    if (!poisoned) throw new Error("poisoned line seed failed");
+
+    const blocked = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(blocked.statusCode).toBe(409);
+    const error = blocked.json().error;
+    expect(error.code).toBe("conflict");
+    expect(error.message).toContain(poisoned.id); // the offending line, by id
+    expect(error.message).toContain("Merch (mis-attributed)"); // …and by label
+    expect(error.message).toContain("collectedBy"); // …and the field at fault
+    expect(error.message).toContain(
+      `DELETE /events/${seed.event.id}/budgets/${budget.id}/lines/${poisoned.id}`,
+    ); // …and the way out
+
+    // No settlement was persisted off a budget that cannot balance.
+    const rows = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    expect(rows).toHaveLength(0);
+
+    // The way out actually works: remove the line, compute again, books balance.
+    await harness.db.delete(schema.budgetLines).where(eq(schema.budgetLines.id, poisoned.id));
+    const recovered = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(recovered.statusCode).toBe(200);
+    expect(recovered.json().pool).toBe("850000");
+  });
+});
+
+/**
+ * A-14, second half — a stored line that names NOBODY. Same arithmetic as the
+ * foreign-id case (the amount moves the pool, no participant's `held` moves with
+ * it), so it gets the same diagnosis rather than the same opaque 500. Rows like
+ * these exist in any database written before the route required an attribution.
+ */
+describe("settlement — an unattributed budget line is diagnosable (A-14)", () => {
+  /** Insert the row the pre-fix route accepted with a 201, bypassing the route. */
+  async function seedUnattributedLine(
+    prefix: string,
+    line: { kind: "revenue" | "cost"; label: string },
+  ) {
+    const seed = await seedWorkedExample(prefix);
+    const [budget] = await harness.db
+      .select()
+      .from(schema.budgets)
+      .where(eq(schema.budgets.eventId, seed.event.id));
+    if (!budget) throw new Error("budget lookup failed");
+    const [stored] = await harness.db
+      .insert(schema.budgetLines)
+      .values({ budgetId: budget.id, amount: 100000n, ...line })
+      .returning();
+    if (!stored) throw new Error("unattributed line seed failed");
+    return { seed, budgetId: budget.id, line: stored };
+  }
+
+  it("409s naming a revenue line that nobody collected", async () => {
+    const { seed, budgetId, line } = await seedUnattributedLine("ghost-rev", {
+      kind: "revenue",
+      label: "Ghost revenue",
+    });
+
+    const blocked = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(blocked.statusCode).toBe(409);
+    const error = blocked.json().error;
+    expect(error.code).toBe("conflict");
+    expect(error.message).toContain(line.id);
+    expect(error.message).toContain("Ghost revenue");
+    expect(error.message).toContain("collectedBy");
+    expect(error.message).toContain(
+      `DELETE /events/${seed.event.id}/budgets/${budgetId}/lines/${line.id}`,
+    );
+
+    // Nothing persisted off books that cannot balance.
+    const rows = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    expect(rows).toHaveLength(0);
+
+    // The named DELETE is a real way out.
+    await harness.db.delete(schema.budgetLines).where(eq(schema.budgetLines.id, line.id));
+    const recovered = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(recovered.statusCode).toBe(200);
+    expect(recovered.json().pool).toBe("850000");
+  });
+
+  it("409s naming a cost line that nobody paid", async () => {
+    const { seed, line } = await seedUnattributedLine("ghost-cost", {
+      kind: "cost",
+      label: "Ghost cost",
+    });
+
+    const blocked = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json().error.message).toContain(line.id);
+    expect(blocked.json().error.message).toContain("Ghost cost");
+    expect(blocked.json().error.message).toContain("paidBy");
+  });
+
+  it("computes normally when every line is attributed — including a payee-less external cost", async () => {
+    const seed = await seedWorkedExample("attributed");
+
+    // The worked example's own cost is exactly this shape: paidBy set, no payee.
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().pool).toBe("850000");
+  });
+});

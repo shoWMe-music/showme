@@ -118,10 +118,26 @@ export function reconcile(input: SettlementInput): SettlementResult {
   };
 }
 
-/** The conservation law: net positions must sum to exactly zero. Throws otherwise. */
+/**
+ * The conservation law: net positions must sum to exactly zero. Throws otherwise.
+ *
+ * The check itself is absolute and stays that way — an imbalance means money has
+ * appeared or vanished, and no settlement may be persisted on top of it. The message
+ * carries the pool and every party's net because the sum alone says only *that* the
+ * books are wrong, never *where* (audit A-14: an imbalance of exactly the amount of
+ * one mis-attributed budget line surfaced as an opaque 500).
+ */
 export function assertBalanced(result: SettlementResult): void {
   const netSum = sumBigint(result.breakdowns.map((party) => party.net));
   if (netSum !== 0n) {
-    throw new Error(`Settlement does not balance: Σ net = ${netSum}`);
+    const positions = result.breakdowns
+      .map(
+        (party) =>
+          `${party.participantId} net=${party.net} (entitlement=${party.entitlement}, held=${party.held})`,
+      )
+      .join("; ");
+    throw new Error(
+      `Settlement does not balance: Σ net = ${netSum} (pool=${result.pool} ${result.baseCurrency}). Positions: ${positions || "none"}`,
+    );
   }
 }
