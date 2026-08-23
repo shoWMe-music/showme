@@ -139,6 +139,7 @@ describe("public profiles", () => {
 describe("public events", () => {
   it("serves a published event without budget/notes leaking", async () => {
     const eventId = await seedEvent("ev-owner", true, {
+      status: "confirmed",
       venueName: "The Hall",
       doorTime: "19:00:00",
       startTime: "20:00:00",
@@ -169,11 +170,36 @@ describe("public events", () => {
     const response = await app.inject({ method: "GET", url: `/api/v1/public/events/${eventId}` });
     expect(response.statusCode).toBe(404);
   });
+
+  it("still serves a published concluded event — the link is out in the world", async () => {
+    const eventId = await seedEvent("done-owner", true, {
+      status: "concluded",
+      eventDate: "2026-04-18",
+    });
+    const response = await app.inject({ method: "GET", url: `/api/v1/public/events/${eventId}` });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().eventDate).toBe("2026-04-18");
+  });
+
+  it.each(["draft", "suggested", "pending", "on_hold", "cancelled"] as const)(
+    "404s a published %s event — status is consulted, not just the flag",
+    async (status) => {
+      const eventId = await seedEvent(`status-${status}-owner`, true, {
+        status,
+        eventDate: "2026-09-01",
+      });
+      const response = await app.inject({ method: "GET", url: `/api/v1/public/events/${eventId}` });
+      expect(response.statusCode).toBe(404);
+    },
+  );
 });
 
 describe("public RSVP", () => {
   it("inserts an RSVP, then 409s a duplicate (event,email)", async () => {
-    const eventId = await seedEvent("rsvp-owner", true);
+    const eventId = await seedEvent("rsvp-owner", true, {
+      status: "confirmed",
+      eventDate: "2026-09-01",
+    });
 
     const first = await app.inject({
       method: "POST",
@@ -196,6 +222,72 @@ describe("public RSVP", () => {
       payload: { email: "ada@example.com" },
     });
     expect(duplicate.statusCode).toBe(409);
+  });
+
+  it("refuses an RSVP to a published event that was cancelled, and stores nothing", async () => {
+    const eventId = await seedEvent("cancelled-rsvp-owner", true, {
+      status: "cancelled",
+      eventDate: "2026-12-05",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/public/events/${eventId}/rsvp`,
+      payload: { email: "ada@example.com" },
+    });
+    // The page WAS public, so the honest answer names the reason (409) rather
+    // than pretending the event never existed.
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.message).toMatch(/cancelled/i);
+
+    const rows = await harness.db
+      .select()
+      .from(schema.audienceRsvps)
+      .where(eq(schema.audienceRsvps.eventId, eventId));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("takes no new RSVP for a concluded event, even though its page still renders", async () => {
+    const eventId = await seedEvent("concluded-rsvp-owner", true, {
+      status: "concluded",
+      eventDate: "2026-04-18",
+    });
+
+    const page = await app.inject({ method: "GET", url: `/api/v1/public/events/${eventId}` });
+    expect(page.statusCode).toBe(200);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/public/events/${eventId}/rsvp`,
+      payload: { email: "ada@example.com" },
+    });
+    expect(response.statusCode).toBe(409);
+
+    const rows = await harness.db
+      .select()
+      .from(schema.audienceRsvps)
+      .where(eq(schema.audienceRsvps.eventId, eventId));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("404s an RSVP to a published draft — a status that was never public", async () => {
+    const eventId = await seedEvent("draft-rsvp-owner", true, {
+      status: "draft",
+      eventDate: "2026-09-01",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/public/events/${eventId}/rsvp`,
+      payload: { email: "ada@example.com" },
+    });
+    expect(response.statusCode).toBe(404);
+
+    const rows = await harness.db
+      .select()
+      .from(schema.audienceRsvps)
+      .where(eq(schema.audienceRsvps.eventId, eventId));
+    expect(rows).toHaveLength(0);
   });
 });
 

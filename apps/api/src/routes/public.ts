@@ -1,11 +1,26 @@
 import { schema } from "@showme/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { conflict, forbidden, notFound, tooManyRequests } from "../errors";
 import { createSlidingWindowRateLimiter } from "../lib/rate-limit";
 import { serializePublicEvent, serializePublicProfile } from "../serialize/public";
+
+/**
+ * The only event statuses an anonymous visitor may see (PLAN.md:620 —
+ * "published+confirmed events"). `concluded` is included on purpose: the show
+ * happened and its link is out in the world, so the page keeps working as a
+ * record. `draft` / `suggested` / `pending` / `on_hold` were never announced and
+ * `cancelled` is no longer a show — all of them are a 404 here, matching this
+ * file's no-existence-leak doctrine.
+ *
+ * `events.published` stays untouched when an event is later cancelled: it is the
+ * host's publishing INTENT, not a computed visibility. This read rule is the
+ * single gate, so a re-confirmed event returns to the world instead of silently
+ * staying dark.
+ */
+const PUBLICLY_VISIBLE_EVENT_STATUSES = ["confirmed", "concluded"] as const;
 
 const SlugParams = z.object({ slug: z.string().min(1) });
 const EventParams = z.object({ id: z.string().uuid() });
@@ -107,7 +122,8 @@ function clientIp(request: FastifyRequest): string {
  * so the pipeline skips auth and there is no principal. These endpoints select
  * ONLY the columns the serializer whitelists; internal/financial fields are never
  * read here, so they cannot leak. Visibility is gated by the row's own public
- * flag (`profiles.is_public`, `events.published`) — a non-public row is a 404,
+ * flag (`profiles.is_public`, `events.published`) PLUS, for an event, its
+ * booking status (`PUBLICLY_VISIBLE_EVENT_STATUSES`) — a non-public row is a 404,
  * not a 403 (no existence leak, and nothing to reveal).
  */
 export async function publicRoutes(fastify: FastifyInstance): Promise<void> {
@@ -147,7 +163,13 @@ export async function publicRoutes(fastify: FastifyInstance): Promise<void> {
       const [event] = await database
         .select()
         .from(schema.events)
-        .where(and(eq(schema.events.id, request.params.id), eq(schema.events.published, true)));
+        .where(
+          and(
+            eq(schema.events.id, request.params.id),
+            eq(schema.events.published, true),
+            inArray(schema.events.status, [...PUBLICLY_VISIBLE_EVENT_STATUSES]),
+          ),
+        );
       if (!event) throw notFound("Event not found");
       return serializePublicEvent(event);
     },
@@ -190,10 +212,27 @@ export async function publicRoutes(fastify: FastifyInstance): Promise<void> {
     async (request) => {
       const { database } = request.server;
       const [event] = await database
-        .select({ id: schema.events.id })
+        .select({
+          id: schema.events.id,
+          status: schema.events.status,
+          published: schema.events.published,
+        })
         .from(schema.events)
-        .where(and(eq(schema.events.id, request.params.id), eq(schema.events.published, true)));
-      if (!event) throw notFound("Event not found");
+        .where(eq(schema.events.id, request.params.id));
+
+      // Only a live, announced show takes RSVPs. A status that was never public
+      // (or an unpublished event) is a 404 — same non-answer as the read route,
+      // so nobody can probe for a draft. A `cancelled` or `concluded` event that
+      // WAS published is different: its page is (or was) out in the world, so the
+      // honest answer is a refusal with a reason, not a lie about existence.
+      // 409 is the closest helper the codebase has (errors.ts) to the 410-style
+      // "this used to work and no longer does" we want here.
+      if (!event || !event.published) throw notFound("Event not found");
+      if (event.status === "cancelled") throw conflict("This event has been cancelled");
+      if (event.status === "concluded") {
+        throw conflict("This event has already taken place");
+      }
+      if (event.status !== "confirmed") throw notFound("Event not found");
 
       try {
         await database.insert(schema.audienceRsvps).values({

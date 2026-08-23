@@ -68,11 +68,12 @@ async function seedHostedEvent(
   title: string,
   host: { profileId: string; permissionSetId: string },
   createdBy: string,
+  extra: Record<string, unknown> = {},
 ) {
   const { db } = harness;
   const [event] = await db
     .insert(schema.events)
-    .values({ hostProfileId: host.profileId, title, baseCurrency: "SEK", createdBy })
+    .values({ hostProfileId: host.profileId, title, baseCurrency: "SEK", createdBy, ...extra })
     .returning();
   if (!event) throw new Error("event seed failed");
   await db.insert(schema.eventParticipants).values({
@@ -282,7 +283,10 @@ describe("POST /events/:id/publish", () => {
       "operator",
       PRESET_PERMISSION_SETS.operator_full,
     );
-    const event = await seedHostedEvent("Draft Night", caller, "pub-op");
+    const event = await seedHostedEvent("Confirmed Night", caller, "pub-op", {
+      status: "confirmed",
+      eventDate: "2026-09-12",
+    });
     expect(event.published).toBe(false);
 
     const response = await app.inject({
@@ -302,6 +306,60 @@ describe("POST /events/:id/publish", () => {
         and(eq(schema.auditLog.targetId, event.id), eq(schema.auditLog.action, "event.publish")),
       );
     expect(audit).toHaveLength(1);
+  });
+
+  it("refuses to publish an unconfirmed event and leaves the flag down", async () => {
+    const caller = await seedMemberWithSet(
+      "pub-draft-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const event = await seedHostedEvent("Draft Night", caller, "pub-draft-op", {
+      status: "draft",
+      eventDate: "2026-09-12",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/publish`,
+      headers: auth("pub-draft-op"),
+      payload: { expectedVersion: 1 },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toMatch(/confirmed/i);
+
+    const [after] = await harness.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.id, event.id));
+    expect(after?.published).toBe(false);
+    expect(after?.version).toBe(1);
+  });
+
+  it("refuses to publish a dateless event — a poster with no date is not an announcement", async () => {
+    const caller = await seedMemberWithSet(
+      "pub-nodate-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const event = await seedHostedEvent("Someday Show", caller, "pub-nodate-op", {
+      status: "confirmed",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/publish`,
+      headers: auth("pub-nodate-op"),
+      payload: { expectedVersion: 1 },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toMatch(/date/i);
+
+    const [after] = await harness.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.id, event.id));
+    expect(after?.published).toBe(false);
   });
 });
 
@@ -329,5 +387,91 @@ describe("POST /events/:id/notify", () => {
         and(eq(schema.auditLog.targetId, event.id), eq(schema.auditLog.action, "event.notify")),
       );
     expect(audit).toHaveLength(1);
+  });
+});
+
+describe("PATCH /events/:id — the free-tier event cap (entitlement layer)", () => {
+  /** A free_operator host already sitting ON the cap: 3 counted events in the window. */
+  async function seedHostAtCap(prefix: string) {
+    const host = await seedMemberWithSet(
+      `${prefix}-op`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    await seedHostedEvent("Counted A", host, `${prefix}-op`, { status: "confirmed" });
+    await seedHostedEvent("Counted B", host, `${prefix}-op`, { status: "confirmed" });
+    await seedHostedEvent("Counted C", host, `${prefix}-op`, { status: "concluded" });
+    return host;
+  }
+
+  it("403s a fourth event going straight to `concluded`, not just to `confirmed`", async () => {
+    const host = await seedHostAtCap("cap-conc");
+    const fourth = await seedHostedEvent("Fourth", host, "cap-conc-op", { status: "draft" });
+
+    const confirmed = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${fourth.id}`,
+      headers: auth("cap-conc-op"),
+      payload: { status: "confirmed" },
+    });
+    expect(confirmed.statusCode).toBe(403);
+
+    // The A-20 hole: the SAME event walked into the counted set through `concluded`.
+    const concluded = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${fourth.id}`,
+      headers: auth("cap-conc-op"),
+      payload: { status: "concluded" },
+    });
+    expect(concluded.statusCode).toBe(403);
+
+    const [after] = await harness.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.id, fourth.id));
+    expect(after?.status).toBe("draft");
+  });
+
+  it("still lets an event already inside the counted set conclude, and lets a cancel through", async () => {
+    const host = await seedHostAtCap("cap-inside");
+    const live = await seedHostedEvent("Live", host, "cap-inside-op", { status: "confirmed" });
+    const draft = await seedHostedEvent("Shelved", host, "cap-inside-op", { status: "draft" });
+
+    // confirmed → concluded consumes nothing new: never gated.
+    const concluded = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${live.id}`,
+      headers: auth("cap-inside-op"),
+      payload: { status: "concluded" },
+    });
+    expect(concluded.statusCode).toBe(200);
+    expect(concluded.json().status).toBe("concluded");
+
+    // Leaving the set is never gated either.
+    const cancelled = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${draft.id}`,
+      headers: auth("cap-inside-op"),
+      payload: { status: "cancelled" },
+    });
+    expect(cancelled.statusCode).toBe(200);
+  });
+
+  it("lets a host under the cap conclude a draft", async () => {
+    const host = await seedMemberWithSet(
+      "cap-under-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    await seedHostedEvent("Counted A", host, "cap-under-op", { status: "confirmed" });
+    const draft = await seedHostedEvent("Next", host, "cap-under-op", { status: "draft" });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${draft.id}`,
+      headers: auth("cap-under-op"),
+      payload: { status: "concluded" },
+    });
+    expect(response.statusCode).toBe(200);
   });
 });

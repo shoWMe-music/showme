@@ -3,7 +3,7 @@ import { and, asc, eq, exists, ne, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { conflict, notFound } from "../errors";
+import { badRequest, conflict, notFound } from "../errors";
 import { writeAudit } from "../lib/audit";
 import { eventCapabilities, requireEventCapability } from "../lib/authorize";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
@@ -162,7 +162,20 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // Publish: authorize `event.publish`, optimistic-lock, flip the flag + audit.
+  // Publish: authorize `event.publish`, check the public-page preconditions,
+  // optimistic-lock, flip the flag + audit.
+  //
+  // Publishing is a promise to the world, so only a `confirmed` event may be
+  // published (PLAN.md:620 — "published+confirmed events") and it must carry the
+  // date the poster needs: `serializePublicEvent` renders eventDate/doorTime/
+  // startTime, and of those only `eventDate` is genuinely load-bearing — a page
+  // with no date is not an announcement. Door/start times are honestly "TBA" on
+  // plenty of real posters, and the public response declares them nullable.
+  //
+  // The mirror rule lives in `routes/public.ts`: `published` is NOT recomputed
+  // when an event is later cancelled — it stays as the host's publishing intent,
+  // and the public read is the single gate that hides it. So a cancelled show
+  // goes dark without losing its intent, and re-confirming brings the page back.
   app.post(
     "/events/:id/publish",
     { schema: { params: EventParams, body: OptimisticLockBody, response: { 200: EventResponse } } },
@@ -174,6 +187,13 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
       const capabilities = await requireEventCapability(request, id, "event.publish");
       const [before] = await database.select().from(schema.events).where(eq(schema.events.id, id));
       if (!before) throw notFound("Event not found");
+
+      if (before.status !== "confirmed") {
+        throw badRequest(`Only a confirmed event can be published (this one is ${before.status})`);
+      }
+      if (!before.eventDate) {
+        throw badRequest("An event needs a date before it can be published");
+      }
 
       const where =
         expectedVersion != null
