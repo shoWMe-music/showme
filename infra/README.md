@@ -56,6 +56,38 @@ terraform apply
    Wait for `ACTIVE`.
 3. **Smoke test:** `curl -s https://api.showme.music/api/v1/health` → `{"status":"ok"}`.
 
+## If the certificate is stuck at FAILED_NOT_VISIBLE
+
+A Google-managed certificate can only provision **after** the domain already resolves to
+the load balancer's IP. Create the cert first and it fails, reporting:
+
+```bash
+gcloud compute ssl-certificates describe showme-api-lb-cert-v1 \
+  --global --project prod-showme --format="value(managed.status,managed.domainStatus)"
+# PROVISIONING   api.showme.music=FAILED_NOT_VISIBLE
+```
+
+Google retries by itself, so if the DNS record was added recently, **wait up to an hour
+and re-check before changing anything**. Confirm the record is globally visible first —
+this is what the provisioning check actually looks at:
+
+```bash
+dig +short @8.8.8.8 api.showme.music A     # must equal the LB's static IP
+curl -sI http://api.showme.music/api/v1/health | head -1   # 301 → the LB is wired
+```
+
+If it is still failing after that, the cert has to be **replaced** — a managed cert
+cannot be re-provisioned in place. Bump `cert_version` and apply:
+
+```bash
+cd infra/envs/prod
+terraform apply -var="cert_version=v2"
+```
+
+`create_before_destroy` means the new cert is minted and attached before the old one is
+removed, so the proxy is never without a certificate. Without it the apply fails with
+"resource in use", since the HTTPS proxy references the cert.
+
 ## Cut the marketing form over to the custom domain
 
 Once the cert is ACTIVE and the health check passes over `api.showme.music`:

@@ -54,12 +54,24 @@ resource "google_compute_url_map" "default" {
 # Google-managed SSL certificate. Provisioning to ACTIVE requires the domain's A
 # record to already resolve to google_compute_global_address.default — so create the
 # LB, add the DNS record, then wait (typically 15-60 min) for the cert to go ACTIVE.
+# A managed cert can only provision once the domain already resolves to this LB's IP;
+# until then it reports FAILED_NOT_VISIBLE. Google retries on its own, but a cert that
+# has given up needs REPLACING, and a managed cert cannot be re-provisioned in place.
+#
+# Replacing it is why the name carries `cert_version` and why create_before_destroy is
+# set: the HTTPS proxy holds a reference, so destroying first fails with "resource in
+# use". Bump `cert_version` to mint a fresh cert, attach it, then drop the old one —
+# no window without a certificate.
 resource "google_compute_managed_ssl_certificate" "default" {
   project = var.project_id
-  name    = "${local.name}-cert"
+  name    = "${local.name}-cert-${var.cert_version}"
 
   managed {
     domains = [var.domain]
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 }
 

@@ -23,3 +23,12 @@ variable "name_prefix" {
   description = "Prefix for the names of the load-balancer resources."
   default     = "showme-api-lb"
 }
+
+# Bump to force a fresh managed certificate — the only way to retry provisioning after
+# a FAILED_NOT_VISIBLE (e.g. the DNS A record was added after the cert was created).
+# Paired with create_before_destroy so the swap never leaves the proxy without a cert.
+variable "cert_version" {
+  type        = string
+  description = "Suffix for the managed SSL certificate name; bump to re-provision."
+  default     = "v1"
+}
