@@ -582,10 +582,27 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
 
       const result = await database.transaction(async (tx) => {
         const now = new Date();
+        // An agent may sign and UNSIGN only the performers it manages. On a shared
+        // split an agented and a self-managed act sit on one deal, and a deal-wide
+        // clear would let the agent tear up the signature of an act it has no
+        // relationship with — the case the per-deal invariant exists to govern
+        // (`authorization/SKILL.md`: authority is "scoped to each represented
+        // performer's deal / split-line"). `confirm` is already line-scoped; this
+        // makes reopen agree with it.
+        //
+        // Anyone acting for themselves — the operator on its own deal, a performer
+        // on their own line — keeps the deal-wide clear: renegotiating terms you are
+        // a direct counterparty to invalidates every signature on them.
+        const clearScope = viewer.actsOnlyAsAgent
+          ? and(
+              eq(schema.dealParties.dealId, deal.id),
+              inArray(schema.dealParties.participantId, viewer.representedParticipantIds),
+            )
+          : eq(schema.dealParties.dealId, deal.id);
         await tx
           .update(schema.dealParties)
           .set({ confirmedAt: null, confirmedBy: null })
-          .where(eq(schema.dealParties.dealId, deal.id));
+          .where(clearScope);
         const [after] = await tx
           .update(schema.deals)
           .set({

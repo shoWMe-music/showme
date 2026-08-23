@@ -1018,6 +1018,31 @@ describe("deals — an agent's authority is per-deal, via the representation (de
     expect(parties.find((p) => p.participantId === fixture.clientPart)?.confirmedAt).not.toBeNull();
     expect(parties.find((p) => p.participantId === fixture.otherPart)?.confirmedAt).toBeNull();
     expect(parties.find((p) => p.participantId === fixture.hostPart)?.confirmedAt).toBeNull();
+
+    // ...and REOPEN must agree with confirm. The agent may unsign only what it may
+    // sign: a deal-wide clear would tear up the signature of an act it does not
+    // represent and has no relationship with.
+    expect((await confirm(dealId, fixture.otherUid)).statusCode).toBe(200);
+    expect((await confirm(dealId, fixture.opUid)).statusCode).toBe(200);
+    const [ready] = await harness.db.select().from(schema.deals).where(eq(schema.deals.id, dealId));
+    expect(ready?.agreementStatus).toBe("confirmed");
+
+    expect((await reopen(dealId, fixture.agentUid, "renegotiating my act")).statusCode).toBe(200);
+
+    const afterReopen = await harness.db
+      .select()
+      .from(schema.dealParties)
+      .where(eq(schema.dealParties.dealId, dealId));
+    // The client's line is released — that is the agent's own to withdraw.
+    expect(afterReopen.find((p) => p.participantId === fixture.clientPart)?.confirmedAt).toBeNull();
+    // The self-managed act's signature STANDS. This is the A-02 regression guard.
+    expect(
+      afterReopen.find((p) => p.participantId === fixture.otherPart)?.confirmedAt,
+    ).not.toBeNull();
+    // As does the venue's — also not the agent's to clear.
+    expect(
+      afterReopen.find((p) => p.participantId === fixture.hostPart)?.confirmedAt,
+    ).not.toBeNull();
   });
 
   it("cannot make itself an entitled party on a deal", async () => {
