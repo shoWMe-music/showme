@@ -1,6 +1,6 @@
 import { type getApiV1Profiles, useGetApiV1Profiles, usePostApiV1Events } from "@showme/api-client";
 import { Icon, type IconName, Select, useToast } from "@showme/design-system";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { setActiveProfileId } from "../lib/activeProfile";
 import { errorMessage } from "../lib/errors";
@@ -159,6 +159,23 @@ export function NewEventWizard({ open, onClose, onCreated }: NewEventWizardProps
     setVenueRental("");
     setRentalPaidBy("promoter");
   };
+
+  // Escape closes it, like any modal with `aria-modal`. Registered before the
+  // early return so the hook order never changes between renders.
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.key === "Escape") {
+        keyEvent.stopPropagation();
+        // Not `close()` — that is declared below the early return, so calling it
+        // here would read as a forward reference. Same two steps.
+        reset();
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  });
 
   if (!open) return null;
   // Rendered through a portal to <body>: the app's `.content__page` sets

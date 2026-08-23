@@ -24,11 +24,26 @@ export function NewEventProvider({ children }: { children: ReactNode }) {
   const { session } = useAuth();
   const canCreateEvent = session?.kind === "operator";
   const [open, setOpen] = useState(false);
+  /**
+   * Bumped on every open, and used as the wizard's `key`, so a click ALWAYS
+   * produces a fresh modal. `setOpen(true)` alone is a no-op when `open` is
+   * already true — which is invisible while the wizard is on screen, and
+   * indistinguishable from a dead button if the state ever desyncs from what is
+   * rendered. Remounting also guarantees the form starts empty rather than
+   * showing the last attempt's half-filled fields.
+   */
+  const [openCount, setOpenCount] = useState(0);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const value = useMemo<NewEventContextValue>(
-    () => ({ openNewEvent: () => setOpen(true), canCreateEvent }),
+    () => ({
+      openNewEvent: () => {
+        setOpenCount((count) => count + 1);
+        setOpen(true);
+      },
+      canCreateEvent,
+    }),
     [canCreateEvent],
   );
 
@@ -36,6 +51,7 @@ export function NewEventProvider({ children }: { children: ReactNode }) {
     <NewEventContext.Provider value={value}>
       {children}
       <NewEventWizard
+        key={openCount}
         open={open}
         onClose={() => setOpen(false)}
         onCreated={(id) => {
