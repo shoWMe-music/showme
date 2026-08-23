@@ -7,6 +7,7 @@ import { badRequest, conflict, notFound } from "../errors";
 import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
+import { dealPartyRecipients, notifyUsers } from "../lib/notify";
 import { withIdempotency } from "../plugins/idempotency";
 import { type DealViewer, isDealVisible, serializeDeal } from "../serialize/deal";
 
@@ -375,6 +376,24 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
         return { deal: after, parties };
       });
 
+      // Realtime + feed: PARTY-scoped, not event-scoped — a performer must not learn
+      // that another party's terms moved (`deal.view.own`). Best-effort, post-commit.
+      try {
+        const actorUserId = request.principal?.userId ?? null;
+        const recipients = await dealPartyRecipients(database, deal.id, actorUserId);
+        await notifyUsers(database, recipients, actorUserId, {
+          type: "deal.sent",
+          title: `Agreement sent for "${deal.name ?? "a deal"}"`,
+          body: "Terms are ready for your review.",
+          eventId: deal.eventId,
+          actorDisplay: request.firebaseUser?.name ?? undefined,
+          link: `/events/${deal.eventId}`,
+          metadata: { dealId: deal.id },
+        });
+      } catch (error) {
+        request.log.error({ error, dealId: deal.id }, "deal.sent notification failed");
+      }
+
       return serializeDeal(result.deal, result.parties, viewer);
     },
   );
@@ -461,6 +480,24 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
         });
         return { deal: current, parties: fresh };
       });
+
+      // Realtime + feed: PARTY-scoped, not event-scoped — a performer must not learn
+      // that another party's terms moved (`deal.view.own`). Best-effort, post-commit.
+      try {
+        const actorUserId = request.principal?.userId ?? null;
+        const recipients = await dealPartyRecipients(database, deal.id, actorUserId);
+        await notifyUsers(database, recipients, actorUserId, {
+          type: "deal.confirmed",
+          title: `Agreement confirmed on "${deal.name ?? "a deal"}"`,
+          body: "A party has confirmed their line.",
+          eventId: deal.eventId,
+          actorDisplay: request.firebaseUser?.name ?? undefined,
+          link: `/events/${deal.eventId}`,
+          metadata: { dealId: deal.id },
+        });
+      } catch (error) {
+        request.log.error({ error, dealId: deal.id }, "deal.confirmed notification failed");
+      }
 
       return serializeDeal(result.deal, result.parties, viewer);
     },

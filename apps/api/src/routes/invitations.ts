@@ -7,6 +7,7 @@ import { z } from "zod";
 import { badRequest, conflict, notFound } from "../errors";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
+import { notifyUsers } from "../lib/notify";
 import { withIdempotency } from "../plugins/idempotency";
 
 const TokenParams = z.object({ token: z.string().min(1) });
@@ -280,6 +281,27 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
           throw conflict("Already a member of this target");
         }
         throw error;
+      }
+
+      // Realtime + feed: the person who sent the invite is the one waiting on it.
+      // `POST /invitations` itself notifies nobody in-app — it targets an email
+      // address that may not belong to a platform user yet, and email covers that.
+      // The acceptance is the first moment there is someone to tell.
+      try {
+        await notifyUsers(database, [updated.createdByUser], principal.userId, {
+          type: "invitation.accepted",
+          title: `${updated.recipientName ?? updated.recipientEmail ?? "Your invitee"} accepted`,
+          body: "They now have access.",
+          eventId: updated.targetEventId ?? undefined,
+          actorDisplay: request.firebaseUser?.name ?? undefined,
+          link: updated.targetEventId ? `/events/${updated.targetEventId}` : "/team",
+          metadata: { invitationId: updated.id },
+        });
+      } catch (error) {
+        request.log.error(
+          { error, invitationId: updated.id },
+          "invitation-accept notification failed",
+        );
       }
 
       return serializeInvitation(updated);

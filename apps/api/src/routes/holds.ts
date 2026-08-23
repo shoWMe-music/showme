@@ -12,6 +12,7 @@ import { z } from "zod";
 import { forbidden, notFound } from "../errors";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
+import { eventParticipantRecipients, notifyUsers } from "../lib/notify";
 
 const EventParams = z.object({ id: z.string().uuid() });
 
@@ -204,6 +205,34 @@ export async function holdRoutes(fastify: FastifyInstance): Promise<void> {
           after: { status: "confirmed", cancelled: cancelledIds },
         });
       });
+
+      // Realtime + feed: a hold confirmation resolves a date for everyone waiting on
+      // it — and the losing side needs it MORE than the winner, because their event
+      // just got cancelled out from under them. Both sides, best-effort, post-commit.
+      try {
+        const actorUserId = request.principal?.userId ?? null;
+        const won = await eventParticipantRecipients(database, event.id, actorUserId);
+        await notifyUsers(database, won, actorUserId, {
+          type: "hold.confirmed",
+          title: `"${event.title ?? "The event"}" is confirmed`,
+          body: "The date is yours.",
+          eventId: event.id,
+          actorDisplay: request.firebaseUser?.name ?? undefined,
+          link: `/events/${event.id}`,
+        });
+        for (const cancelledId of cancelledIds) {
+          const lost = await eventParticipantRecipients(database, cancelledId, actorUserId);
+          await notifyUsers(database, lost, actorUserId, {
+            type: "hold.lost",
+            title: "A held date was released",
+            body: "Another hold on this date was confirmed, so yours was cancelled.",
+            eventId: cancelledId,
+            link: `/events/${cancelledId}`,
+          });
+        }
+      } catch (error) {
+        request.log.error({ error, eventId: event.id }, "hold-confirm notification failed");
+      }
 
       return { id: event.id, status: "confirmed", cancelled: cancelledIds };
     },

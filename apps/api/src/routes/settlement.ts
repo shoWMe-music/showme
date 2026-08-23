@@ -17,6 +17,7 @@ import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import { syncCommissionSettlements } from "../lib/commission-settlement";
 import { loadRatesToBase } from "../lib/exchange-rate";
+import { notifyUsers, settlementRecipients } from "../lib/notify";
 import { withIdempotency } from "../plugins/idempotency";
 import {
   type SerializedSummary,
@@ -566,6 +567,25 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           };
         },
       );
+
+      // Realtime + feed: finalizing LOCKS the figures and the FX, so everyone with
+      // money in this event needs to know their numbers are now fixed. Scoped to
+      // settlement holders rather than every viewer. Best-effort, post-commit.
+      try {
+        const actorUserId = request.principal?.userId ?? null;
+        const recipients = await settlementRecipients(database, id, actorUserId);
+        await notifyUsers(database, recipients, actorUserId, {
+          type: "settlement.finalized",
+          title: "Settlement finalized",
+          body: "The figures are locked and payouts are set.",
+          eventId: id,
+          actorDisplay: request.firebaseUser?.name ?? undefined,
+          link: `/events/${id}`,
+          metadata: { eventId: id },
+        });
+      } catch (error) {
+        request.log.error({ error, eventId: id }, "settlement-finalize notification failed");
+      }
 
       return reply.status(statusCode as 200).send(body);
     },

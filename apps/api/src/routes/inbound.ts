@@ -9,6 +9,7 @@ import { badRequest, conflict, forbidden, notFound } from "../errors";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
 import { canUseFeature } from "../lib/entitlements";
+import { notifyProfileMembers } from "../lib/notify";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
 
 const IdParams = z.object({ id: z.string().uuid() });
@@ -184,6 +185,26 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
         .returning();
       if (!created) throw new Error("booking request create failed");
 
+      // Realtime + feed: a request from the open web needs to reach the venue's
+      // inbox. Best-effort — the request is already persisted and triageable, so a
+      // delivery failure must never turn into a 500 for an anonymous sender.
+      try {
+        await notifyProfileMembers(database, created.targetProfileId, null, {
+          type: "booking_request.received",
+          title: `Booking request from ${created.artistName ?? created.contactName ?? "an artist"}`,
+          body: created.wantedDate
+            ? `They asked about ${created.wantedDate}.`
+            : "A new request is waiting in your inbox.",
+          link: "/requests",
+          metadata: { bookingRequestId: created.id, source: created.source },
+        });
+      } catch (error) {
+        request.log.error(
+          { error, bookingRequestId: created.id },
+          "booking-request notification failed",
+        );
+      }
+
       return reply.status(201).send({ id: created.id });
     },
   );
@@ -280,6 +301,28 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
         return after;
       });
 
+      // Realtime + feed: the sender is waiting on this answer. Only on-platform
+      // senders have a profile to notify; a public-form request has none, and the
+      // operator replies to them by email instead.
+      if (updated.senderProfileId) {
+        try {
+          await notifyProfileMembers(
+            database,
+            updated.senderProfileId,
+            request.principal?.userId ?? null,
+            {
+              type: "booking_request.status_changed",
+              title: `Your request was ${updated.status}`,
+              body: updated.wantedDate ? `For ${updated.wantedDate}.` : undefined,
+              link: "/requests",
+              metadata: { bookingRequestId: updated.id, status: updated.status },
+            },
+          );
+        } catch (error) {
+          request.log.error({ error, bookingRequestId: updated.id }, "triage notification failed");
+        }
+      }
+
       return serializeBookingRequest(updated);
     },
   );
@@ -342,6 +385,19 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
           throw conflict("You already have a pending offer for this target and date");
         }
         throw error;
+      }
+
+      // Realtime + feed: an offer is a request with a known sender.
+      try {
+        await notifyProfileMembers(database, created.targetProfileId, principal.userId, {
+          type: "offer.received",
+          title: `Offer for ${created.wantedDate}`,
+          body: `${created.artistName ?? "A performer"} offered to play.`,
+          link: "/requests",
+          metadata: { bookingRequestId: created.id },
+        });
+      } catch (error) {
+        request.log.error({ error, offerId: created.id }, "offer notification failed");
       }
 
       return reply.status(201).send(serializeBookingRequest(created));
