@@ -511,6 +511,19 @@
       .pill-2 { right: 40px; top: 350px; }
       .pill-3 { bottom: 0; left: 40px; }
     }
+    /* Phones: the stage is scaled down and much shorter than the 480px-tall
+       app-window, so the timeline card overlaps the dashboard heavily — and
+       because the two are 3D sibling planes with OPPOSITE tilts inside a
+       preserve-3d context, their surfaces intersect and the dashboard shows
+       through the card ("clipping through"). Compositing the stage flat makes each
+       card a 2D layer (still perspective-tilted) stacked by z-index, so the
+       timeline card sits cleanly in front. z-index then has to encode the old
+       front-to-back order the translateZ values used to give (pills > card >
+       dashboard). */
+    @media (max-width: 600px) {
+      .stage-3d { transform-style: flat; }
+      .pill-1, .pill-3 { z-index: 6; }
+    }
   `;
   document.head.appendChild(s);
 

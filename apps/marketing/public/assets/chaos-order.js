@@ -175,7 +175,14 @@
   // op = [fadeInStart, fadeInEnd, fadeOutStart, fadeOutEnd], wr = write-in [start, end].
   const STORY = [
     { op: [-1, -0.5, 0.16, 0.26], wr: [0.00, 0.11] },  // chaos: writes in on scroll, holds, fades as cards rise
-    { op: [0.44, 0.56, 2, 3], wr: [0.46, 0.60] },      // smart/synced: rises AS the cards organize into columns (no intermediate step), then a LONG hold (to t 1) while the features scroll up and cover it
+    // smart/synced, then a LONG hold (to t 1) while the features scroll up and cover it.
+    // Mobile keeps beats in the top zone and cards in the lower zone, so they never
+    // overlap — the original simultaneous rise reads well there. Desktop centres the
+    // wide beat over the columns, so it MUST hand off sequentially: hold the organized
+    // columns, clear them, THEN rise the solution into the empty space.
+    MOBILE
+      ? { op: [0.44, 0.56, 2, 3], wr: [0.46, 0.60] }
+      : { op: [0.70, 0.78, 2, 3], wr: [0.71, 0.85] },
   ];
   function beatOp(t, w) {
     const inp = w[1] > w[0] ? clamp((t - w[0]) / (w[1] - w[0]), 0, 1) : 1;
@@ -196,12 +203,17 @@
       beat.style.opacity = String(beatOp(t, STORY[b].op));
       writeIn(spans, clamp((t - STORY[b].wr[0]) / (STORY[b].wr[1] - STORY[b].wr[0]), 0, 1));
     });
-    // Cards + column headers clear as the closing "solution" statement takes over.
-    const cardOut = clamp((t - 0.58) / 0.08, 0, 1);
+    // Cards clear as the solution takes over. Desktop HOLDS the organized
+    // columns long enough to read (a deliberate dwell/stop, t≈0.44–0.64), then
+    // clears them fully before the (centred, wide) beat rises — a sequential
+    // handoff so it never overlaps the columns. Mobile (beats top / cards low,
+    // no overlap) keeps the original earlier, simultaneous clear.
+    const cardOut = clamp((t - (MOBILE ? 0.58 : 0.64)) / (MOBILE ? 0.08 : 0.06), 0, 1);
     heads.forEach((h) => { h.style.opacity = String(clamp((t - 0.44) / 0.1, 0, 1) * (1 - cardOut)); });
     els.forEach((el, i) => {
       // Single transition in [0.16,0.44]; the trailing gap is the freeze/dwell hold.
-      // Everything finishes by t≈0.70 so the solution can hold (and be covered) through t .70–1.
+      // Cards clear by t≈0.63; the solution then rises into the empty space and
+      // holds (and is covered) through t≈0.78–1.
       const L = lerpL(A[i], C[i], easeInOut(segProg(t, 0.16, 0.44, i)));
       el.style.width = L.w + 'px';
       el.style.height = L.h + 'px';
