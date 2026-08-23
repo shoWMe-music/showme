@@ -290,6 +290,44 @@ describe("groups — assign to event (crew per member)", () => {
     expect(crew?.status).toBe("removed");
   });
 
+  it("refuses a member who names nobody, instead of a bare foreign-key 500", async () => {
+    const operator = await seedMember("gnm-op", "operator", PRESET_PERMISSION_SETS.operator_full);
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/groups",
+      headers: auth("gnm-op"),
+      payload: { name: "Typo crew" },
+    });
+    const groupId = created.json().id;
+
+    const unknownUser = await app.inject({
+      method: "POST",
+      url: `/api/v1/groups/${groupId}/members`,
+      headers: auth("gnm-op"),
+      payload: { userId: "nobody-by-that-name" },
+    });
+    expect(unknownUser.statusCode).toBe(400);
+    expect(unknownUser.json().error.message).toMatch(/real userId/);
+
+    const unknownSet = await app.inject({
+      method: "POST",
+      url: `/api/v1/groups/${groupId}/members`,
+      headers: auth("gnm-op"),
+      payload: { userId: operator.userId, defaultPermissionSetId: crypto.randomUUID() },
+    });
+    expect(unknownSet.statusCode).toBe(400);
+
+    // The real thing still lands.
+    const good = await app.inject({
+      method: "POST",
+      url: `/api/v1/groups/${groupId}/members`,
+      headers: auth("gnm-op"),
+      payload: { userId: operator.userId },
+    });
+    expect(good.statusCode).toBe(200);
+    expect(good.json().members).toHaveLength(1);
+  });
+
   it("an agent brings crew too, sponsored by the agent's own participant", async () => {
     const { db } = harness;
     const operator = await seedMember("gag-op", "operator", PRESET_PERMISSION_SETS.operator_full);

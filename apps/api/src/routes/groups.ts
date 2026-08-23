@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { forbidden, notFound } from "../errors";
+import { badRequest, forbidden, notFound } from "../errors";
 import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
@@ -237,6 +237,30 @@ export async function groupRoutes(fastify: FastifyInstance): Promise<void> {
     async (request) => {
       const { database } = request.server;
       const group = await loadOwnedGroup(request, request.params.gid);
+
+      // A `userId` that names nobody used to reach the insert and come back as a
+      // bare foreign-key 500 — and with `logger: false` that is an empty body the
+      // caller cannot act on. Checked here so a typo reads as a typo. Deliberately
+      // not an existence oracle: a group is the caller's own, and the id they are
+      // passing is one they typed, not one they discovered.
+      if (request.body.userId) {
+        const [user] = await database
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(eq(schema.users.id, request.body.userId));
+        if (!user)
+          throw badRequest(
+            "No such user — a group member needs a real userId, or an email for someone off-platform",
+          );
+      }
+      if (request.body.defaultPermissionSetId) {
+        const [permissionSet] = await database
+          .select({ id: schema.permissionSets.id })
+          .from(schema.permissionSets)
+          .where(eq(schema.permissionSets.id, request.body.defaultPermissionSetId));
+        if (!permissionSet) throw badRequest("No such permission set");
+      }
+
       await database.transaction(async (tx) => {
         const [member] = await tx
           .insert(schema.groupMembers)
