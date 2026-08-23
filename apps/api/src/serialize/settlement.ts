@@ -1,22 +1,21 @@
 import type { schema } from "@showme/db";
-import type { SettlementResult } from "@showme/settlement";
+import {
+  type SerializedBreakdown,
+  type SettlementResult,
+  serializeBreakdown,
+} from "@showme/settlement";
 
 type SettlementRow = typeof schema.settlements.$inferSelect;
 type TransferRow = typeof schema.settlementTransfers.$inferSelect;
 
 /**
- * One party's line, money as STRING (money.md: minor units past 2^53 are unsafe
- * as a JS number, so money never crosses the JSON boundary as a number). This is
- * exactly the shape persisted into `settlements.computed` (jsonb).
+ * One party's line, money as STRING (money.md), and the shape persisted into
+ * `settlements.computed` (jsonb). Defined ONCE, in the engine — every writer of a
+ * snapshot (this route, the seeds) imports the same type and the same serializer,
+ * because a second hand-written copy is exactly what audit A-13 was.
  */
-export interface SerializedBreakdown {
-  participantId: string;
-  entitlement: string;
-  collected: string;
-  paid: string;
-  held: string;
-  net: string;
-}
+export type { SerializedBreakdown };
+export { serializeBreakdown };
 
 /** The compute summary: the pool plus every party's breakdown and the transfers. */
 export interface SerializedSummary {
@@ -59,20 +58,6 @@ export interface SerializedSettlement {
   status: string;
   computed: SerializedBreakdown | null;
   version: number;
-}
-
-/** Turn one engine breakdown into its JSON-safe (string money) form. */
-export function serializeBreakdown(
-  breakdown: SettlementResult["breakdowns"][number],
-): SerializedBreakdown {
-  return {
-    participantId: breakdown.participantId,
-    entitlement: breakdown.entitlement.toString(),
-    collected: breakdown.collected.toString(),
-    paid: breakdown.paid.toString(),
-    held: breakdown.held.toString(),
-    net: breakdown.net.toString(),
-  };
 }
 
 /** The full compute result as strings — the POST /compute response body. */

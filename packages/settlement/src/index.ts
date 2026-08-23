@@ -1,6 +1,12 @@
 export { reconcile, assertBalanced } from "./reconcile";
 export { dealEntitlement, splitBasisPointsForSales } from "./entitlement";
 export { greedyTransfers } from "./transfers";
+export {
+  serializeBreakdown,
+  serializeCommissionSnapshot,
+  type SerializedBreakdown,
+  type SerializedCommissionSnapshot,
+} from "./snapshot";
 export { type TicketingSource, type TicketingSync, manualTicketing } from "./ticketing";
 export {
   settleRepresentation,

@@ -364,6 +364,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@showme/settlement':
+        specifier: workspace:*
+        version: link:../settlement
       '@showme/shared':
         specifier: workspace:*
         version: link:../shared

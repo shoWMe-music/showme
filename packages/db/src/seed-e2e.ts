@@ -1,7 +1,20 @@
+import {
+  serializeBreakdown,
+  serializeCommissionSnapshot,
+  settleRepresentation,
+} from "@showme/settlement";
 import { E2E_ACCOUNTS } from "@showme/shared";
 import { inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import {
+  REFERENCE_DOOR_SPLIT_SHARES,
+  REFERENCE_DOOR_SPLIT_TERMS,
+  REFERENCE_GUARANTEE_VS_DOOR_TERMS,
+  breakdownFor,
+  referenceBudgetLines,
+  referenceSettlement,
+} from "./reference-settlement";
 import * as schema from "./schema";
 
 /**
@@ -697,6 +710,11 @@ async function main() {
     // each performer ONLY their own line (deal-party visibility). The operator is
     // the payer party; the agent negotiates performerA's line (delegated).
     // Spring Warmup: performerA guarantee-vs-door — drives the finalized settlement.
+    //
+    // BOTH deals carry deal-level terms, because those are the ones the engine reads.
+    // The split deal used to carry none — only the two party weights — so it sized to
+    // 0% of the pool and paid both performers nothing (A-01's leftover, filed under
+    // A-13). A party's `share` divides a deal; it never sizes one.
     const deals = await database
       .insert(schema.deals)
       .values([
@@ -704,11 +722,14 @@ async function main() {
           id: DEAL_IDS.albumSplit,
           eventId: EVENT_IDS.albumRelease,
           type: "split",
-          structure: "door_split",
+          structure: REFERENCE_DOOR_SPLIT_TERMS.structure,
           currency: SEK,
           name: "Album Release — Door Split",
           payerParticipantId: PART.albumHost,
           paymentTiming: "at_settlement",
+          // The two split members take the whole pool between them; the 60/40 below
+          // divides it. Without this column the deal takes nothing out of the pool.
+          splitBasisPoints: REFERENCE_DOOR_SPLIT_TERMS.splitBasisPoints, // 100.00% OF THE POOL
           agreementStatus: "confirmed",
           status: "confirmed",
           createdBy: operatorUserId,
@@ -722,8 +743,10 @@ async function main() {
           name: "Marlo Vance — Guarantee vs Door",
           payerParticipantId: PART.springHost,
           paymentTiming: "at_settlement",
-          guaranteeAmount: 1800000n, // 18 000.00 SEK guarantee floor
-          splitBasisPoints: 7000, // 70.00% of the door above the floor
+          // The signed terms live in reference-settlement.ts, which is also what
+          // derives the settlement below — one statement of the deal, not two.
+          guaranteeAmount: REFERENCE_GUARANTEE_VS_DOOR_TERMS.guaranteeAmount, // 18 000.00 SEK floor
+          splitBasisPoints: REFERENCE_GUARANTEE_VS_DOOR_TERMS.splitBasisPoints, // 70.00% OF THE POOL
           agreementStatus: "signed",
           status: "confirmed",
           createdBy: operatorUserId,
@@ -743,7 +766,12 @@ async function main() {
           roleInDeal: "split_member",
           confirmedAt: new Date(),
           confirmedBy: agentUserId, // the AGENT confirms on performerA's behalf (delegated)
-          share: { guaranteeAmount: "3000000", splitBasisPoints: 6000, currency: SEK }, // 30 000.00 SEK / 60%
+          // 60.00% of the deal — 30 000.00 SEK at the reference 50 000.00 pool.
+          share: {
+            guaranteeAmount: REFERENCE_DOOR_SPLIT_SHARES.headlinerAmount.toString(),
+            splitBasisPoints: REFERENCE_DOOR_SPLIT_SHARES.headlinerBasisPoints,
+            currency: SEK,
+          },
         },
         {
           dealId: DEAL_IDS.albumSplit,
@@ -751,7 +779,12 @@ async function main() {
           roleInDeal: "split_member",
           confirmedAt: new Date(),
           confirmedBy: performerBUserId, // performerB is self-managed
-          share: { guaranteeAmount: "2000000", splitBasisPoints: 4000, currency: SEK }, // 20 000.00 SEK / 40%
+          // 40.00% of the deal — 20 000.00 SEK at the reference 50 000.00 pool.
+          share: {
+            guaranteeAmount: REFERENCE_DOOR_SPLIT_SHARES.supportAmount.toString(),
+            splitBasisPoints: REFERENCE_DOOR_SPLIT_SHARES.supportBasisPoints,
+            currency: SEK,
+          },
         },
         // Spring Warmup — payer (operator) + payee (performerA).
         { dealId: DEAL_IDS.springGuaranteeVsDoor, participantId: PART.springHost, roleInDeal: "payer" },
@@ -761,7 +794,11 @@ async function main() {
           roleInDeal: "payee",
           confirmedAt: new Date(),
           confirmedBy: performerAUserId,
-          share: { guaranteeAmount: "1800000", splitBasisPoints: 7000, currency: SEK },
+          share: {
+            guaranteeAmount: REFERENCE_GUARANTEE_VS_DOOR_TERMS.guaranteeAmount.toString(),
+            splitBasisPoints: REFERENCE_GUARANTEE_VS_DOOR_TERMS.splitBasisPoints,
+            currency: SEK,
+          },
         },
       ])
       .returning({ id: schema.dealParties.id });
@@ -774,55 +811,45 @@ async function main() {
       .returning({ id: schema.budgets.id });
     record("budgets", budgets);
 
+    // The external cash of the reference event: 78 000 door collected by the operator,
+    // a 9 000 external supplier cost, and an 1 800 hotel booked FOR performerA (a
+    // deductible, not a pool cost). Shared with seed.ts and with the settlement
+    // derivation below — see reference-settlement.ts.
+    const REFERENCE_SPINE = {
+      hostParticipantId: PART.springHost,
+      performerParticipantId: PART.springPerformerA,
+      dealId: DEAL_IDS.springGuaranteeVsDoor,
+    };
+
     const budgetLines = await database
       .insert(schema.budgetLines)
-      .values([
-        {
+      .values(
+        referenceBudgetLines(REFERENCE_SPINE).map((line) => ({
           budgetId: BUDGET_ID,
-          kind: "revenue",
-          source: "manual",
-          label: "Ticket sales (312 @ 250 SEK)",
-          amount: 7800000n, // 78 000.00 SEK door, collected by the operator
-          currency: SEK,
-          collectedBy: PART.springHost,
-          dealId: DEAL_IDS.springGuaranteeVsDoor,
-        },
-        {
-          budgetId: BUDGET_ID,
-          kind: "cost",
-          source: "manual",
-          label: "Sound & production",
-          amount: 900000n, // 9 000.00 SEK external cost, fronted by the operator
-          currency: SEK,
-          paidBy: PART.springHost,
-        },
-        {
-          budgetId: BUDGET_ID,
-          kind: "cost",
-          source: "manual",
-          label: "Artist hotel",
-          amount: 180000n, // 1 800.00 SEK — a cost incurred FOR performerA (deductible)
-          currency: SEK,
-          paidBy: PART.springHost,
-          payeeParticipantId: PART.springPerformerA,
-        },
-      ])
+          source: "manual" as const,
+          ...line,
+        })),
+      )
       .returning({ id: schema.budgetLines.id });
     record("budget_lines", budgetLines);
 
     // ── 11. Settlement on the concluded event — ONE per participant, Σ net = 0. ─
-    // Pool math (base SEK, minor units):
-    //   revenue door             +78 000  (collected by operator)
-    //   sound & production        −9 000  (external cost, paid by operator)
-    //   artist hotel              −1 800  (cost FOR performerA — a deductible)
-    //   Σ (collected − paid) = 78 000 − 9 000 − 1 800 = 67 200
-    // Entitlements (Σ must equal 67 200 for Σ net = 0):
-    //   performerA  guarantee-vs-door: max(18 000, 70% × 78 000 = 54 600) = 54 600,
-    //               less the 1 800 hotel deductible = 52 800
-    //   operator    residual = 67 200 − 52 800 = 14 400
-    // Cash held (collected − paid):  operator 67 200 · performerA 0
-    // Net (E − held):                operator 14 400 − 67 200 = −52 800
-    //                                performerA 52 800 − 0     = +52 800   (Σ = 0 ✓)
+    // DERIVED by the settlement engine from the deal and budget lines above, never
+    // typed by hand (audit A-13): the hand arithmetic took 70% of gross revenue where
+    // the engine takes 70% of the pool, so the reference settlement was 6 300.00 SEK
+    // adrift from what the platform would actually pay. `computed` is the exact
+    // `SerializedBreakdown` the API reads back — `participantId`/`held` present,
+    // no `cashHeld` — so these rows satisfy `GET /events/:id/settlements`.
+    //
+    //   pool        = 78 000 door − 9 000 external cost                    = 69 000
+    //                 (the 1 800 hotel names performerA, so it is a deductible,
+    //                  not a pool cost — it comes off her entitlement instead)
+    //   performerA  = max(18 000 guarantee, 70% × 69 000 = 48 300) − 1 800 = 46 500
+    //   operator    = residual 69 000 − 48 300                             = 20 700
+    //   held        = operator 78 000 − 10 800 = 67 200 · performerA 0
+    //   net         = operator 20 700 − 67 200 = −46 500 · performerA +46 500 (Σ = 0)
+    const referenceResult = referenceSettlement(REFERENCE_SPINE);
+
     const settlements = await database
       .insert(schema.settlements)
       .values([
@@ -831,47 +858,32 @@ async function main() {
           eventId: EVENT_IDS.springWarmup,
           participantId: PART.springHost,
           status: "finalized",
-          computed: {
-            currency: SEK,
-            entitlement: "1440000", // 14 400.00 residual
-            collected: "7800000",
-            paid: "1080000",
-            cashHeld: "6720000",
-            net: "-5280000", // owes performerA 52 800.00
-            note: "Operator residual. Holds 67 200 door-less-costs; owes performerA 52 800.",
-          },
+          computed: serializeBreakdown(breakdownFor(referenceResult, PART.springHost)),
         },
         {
           id: SETTLEMENT_IDS.springPerformerA,
           eventId: EVENT_IDS.springWarmup,
           participantId: PART.springPerformerA,
           status: "finalized",
-          computed: {
-            currency: SEK,
-            entitlement: "5460000", // 54 600.00 (70% of 78 000 door)
-            deductions: "180000", // 1 800.00 hotel
-            collected: "0",
-            paid: "0",
-            cashHeld: "0",
-            net: "5280000", // owed 52 800.00
-            note: "70% of 78 000 door, less 1 800 hotel. Operator owes performerA 52 800 SEK.",
-          },
+          computed: serializeBreakdown(breakdownFor(referenceResult, PART.springPerformerA)),
         },
       ])
       .returning({ id: schema.settlements.id });
     record("settlements", settlements);
 
-    // The owed transfer materialising the event settlement (operator → performerA).
+    // The owed transfers the engine matched — one here: operator → performerA 46 500.
     const eventTransfers = await database
       .insert(schema.settlementTransfers)
-      .values({
-        eventId: EVENT_IDS.springWarmup,
-        fromParticipant: PART.springHost,
-        toParticipant: PART.springPerformerA,
-        amount: 5280000n, // 52 800.00 SEK
-        currency: SEK,
-        state: "owed",
-      })
+      .values(
+        referenceResult.transfers.map((transfer) => ({
+          eventId: EVENT_IDS.springWarmup,
+          fromParticipant: transfer.fromParticipantId,
+          toParticipant: transfer.toParticipantId,
+          amount: transfer.amount,
+          currency: SEK,
+          state: "owed" as const,
+        })),
+      )
       .returning({ id: schema.settlementTransfers.id });
     record("settlement_transfers.event", eventTransfers);
 
@@ -879,8 +891,25 @@ async function main() {
     // NOT an event deal party: a separate settlement keyed to the representation
     // (decisions.md #14), private to agent + performerA. The operator never sees
     // it, so the event's Σ net = 0 has no hidden term. Commission = 10% of
-    // performerA's Album Release deal income (30 000.00) = 3 000.00 SEK. Direction
-    // performer → agent (agentCollects = false: performerA collects, pays the agent).
+    // performerA's Album Release line (30 000.00 guaranteed) = 3 000.00 SEK.
+    // Direction performer → agent (agentCollects = false: performerA collects the
+    // gross, then pays the agent) — `settleRepresentation` decides that, not this file.
+    //
+    // The snapshot goes through `serializeCommissionSnapshot` for the same reason the
+    // event breakdowns do: the reader (`GET /events/:id/settlements`) matches on
+    // `performerParticipantId`/`agentParticipantId` to decide who may see the row, and
+    // the hand-written version named neither — so the seeded commission was invisible
+    // to both of the two people it exists for.
+    // performerA's Album Release line at the reference pool — the SAME constant the
+    // split deal states her share with, so the commission cannot quote a figure the
+    // deal no longer pays.
+    const albumPerformerALine = REFERENCE_DOOR_SPLIT_SHARES.headlinerAmount; // 30 000.00 SEK
+    const albumCommission = settleRepresentation({
+      performerEntitlement: albumPerformerALine,
+      commissionBasisPoints: 1000, // 10.00%, per the representation above
+      agentCollects: false,
+    });
+
     const representationSettlement = await database
       .insert(schema.settlements)
       .values({
@@ -888,25 +917,31 @@ async function main() {
         eventId: EVENT_IDS.albumRelease,
         representationId: REPRESENTATION_ID,
         status: "open",
-        computed: {
-          currency: SEK,
-          commissionableIncome: "3000000", // performerA's 30 000.00 deal income
-          commissionRate: 1000, // 10.00%
-          commission: "300000", // 3 000.00 SEK owed performerA → agent
-          direction: "performer_to_agent",
-          note: "Private agent commission on Marlo Vance's Album Release line. Operator cannot see this.",
-        },
+        computed: serializeCommissionSnapshot({
+          performerParticipantId: PART.albumPerformerA,
+          agentParticipantId: PART.albumAgent,
+          performerEntitlement: albumPerformerALine,
+          commission: albumCommission.commission,
+          agentCollects: false,
+        }),
       })
       .returning({ id: schema.settlements.id });
     record("settlements.representation", representationSettlement);
+
+    const commissionTransfer = albumCommission.transfer;
+    if (!commissionTransfer) {
+      throw new Error("The reference commission settles to nothing — check the rate and the line.");
+    }
+    const participantOfCommissionParty = (party: "performer" | "agent") =>
+      party === "performer" ? PART.albumPerformerA : PART.albumAgent;
 
     const representationTransfer = await database
       .insert(schema.settlementTransfers)
       .values({
         eventId: EVENT_IDS.albumRelease,
-        fromParticipant: PART.albumPerformerA,
-        toParticipant: PART.albumAgent,
-        amount: 300000n, // 3 000.00 SEK commission
+        fromParticipant: participantOfCommissionParty(commissionTransfer.from),
+        toParticipant: participantOfCommissionParty(commissionTransfer.to),
+        amount: commissionTransfer.amount, // 3 000.00 SEK commission
         currency: SEK,
         representationId: REPRESENTATION_ID, // → PRIVATE (operator never sees it)
         state: "owed",

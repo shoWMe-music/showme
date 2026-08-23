@@ -1,6 +1,14 @@
+import { serializeBreakdown } from "@showme/settlement";
 import { inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import {
+  REFERENCE_GUARANTEE_TERMS,
+  REFERENCE_GUARANTEE_VS_DOOR_TERMS,
+  breakdownFor,
+  referenceBudgetLines,
+  referenceSettlement,
+} from "./reference-settlement";
 import * as schema from "./schema";
 
 /**
@@ -85,7 +93,12 @@ const DEAL_IDS = {
   e2: "5eed0000-0000-4000-8000-0000000000d2",
 };
 const BUDGET_ID = "5eed0000-0000-4000-8000-0000000000c1";
-const SETTLEMENT_ID = "5eed0000-0000-4000-8000-0000000000f1";
+// One settlement per participant (PLAN.md) — the operator's line is not optional:
+// without it the host reads its own event and finds no line of its own.
+const SETTLEMENT_IDS = {
+  springOperator: "5eed0000-0000-4000-8000-0000000000f1",
+  springPerformer: "5eed0000-0000-4000-8000-0000000000f2",
+} as const;
 
 // ── Operator "app furniture" ids (inbox, address book, team, bills, todos). ──
 const BOOKING_REQUEST_IDS = [
@@ -527,12 +540,13 @@ async function main() {
           id: DEAL_IDS.e1,
           eventId: EVENT_IDS.albumRelease,
           type: "performance",
-          structure: "guarantee",
+          structure: REFERENCE_GUARANTEE_TERMS.structure,
           currency: SEK,
           name: "Marlo Vance — Guarantee",
           payerParticipantId: PART.e1Host,
           paymentTiming: "at_settlement",
-          guaranteeAmount: 2500000n, // 25 000.00 SEK (minor units / öre)
+          // Deal-level, because that is what the engine reads to size a guarantee.
+          guaranteeAmount: REFERENCE_GUARANTEE_TERMS.guaranteeAmount, // 25 000.00 SEK
           advanceAmount: 500000n, // 5 000.00 SEK paid in advance
           agreementStatus: "confirmed",
           status: "confirmed",
@@ -547,8 +561,10 @@ async function main() {
           name: "Marlo Vance — Guarantee vs Door",
           payerParticipantId: PART.e2Host,
           paymentTiming: "at_settlement",
-          guaranteeAmount: 1800000n, // 18 000.00 SEK guarantee floor
-          splitBasisPoints: 7000, // 70.00% of the door above the floor
+          // The signed terms live in reference-settlement.ts, which is also what
+          // derives the settlement below — one statement of the deal, not two.
+          guaranteeAmount: REFERENCE_GUARANTEE_VS_DOOR_TERMS.guaranteeAmount, // 18 000.00 SEK floor
+          splitBasisPoints: REFERENCE_GUARANTEE_VS_DOOR_TERMS.splitBasisPoints, // 70.00% OF THE POOL
           agreementStatus: "signed",
           status: "confirmed",
           createdBy: operatorUserId,
@@ -567,7 +583,10 @@ async function main() {
           roleInDeal: "payee",
           confirmedAt: new Date(),
           confirmedBy: PERFORMER_USER_ID,
-          share: { guaranteeAmount: "2500000", currency: SEK },
+          share: {
+            guaranteeAmount: REFERENCE_GUARANTEE_TERMS.guaranteeAmount.toString(),
+            currency: SEK,
+          },
         },
         { dealId: DEAL_IDS.e2, participantId: PART.e2Host, roleInDeal: "payer" },
         {
@@ -576,7 +595,11 @@ async function main() {
           roleInDeal: "payee",
           confirmedAt: new Date(),
           confirmedBy: PERFORMER_USER_ID,
-          share: { guaranteeAmount: "1800000", splitBasisPoints: 7000, currency: SEK },
+          share: {
+            guaranteeAmount: REFERENCE_GUARANTEE_VS_DOOR_TERMS.guaranteeAmount.toString(),
+            splitBasisPoints: REFERENCE_GUARANTEE_VS_DOOR_TERMS.splitBasisPoints,
+            currency: SEK,
+          },
         },
       ])
       .returning({ id: schema.dealParties.id });
@@ -589,75 +612,71 @@ async function main() {
       .returning({ id: schema.budgets.id });
     record("budgets", budgets);
 
+    // The external cash of the reference event: 78 000 door collected by the operator,
+    // a 9 000 external supplier cost, and an 1 800 hotel booked FOR the performer (a
+    // deductible, not a pool cost). Shared with seed-e2e.ts and with the settlement
+    // derivation below — see reference-settlement.ts.
+    const REFERENCE_SPINE = {
+      hostParticipantId: PART.e2Host,
+      performerParticipantId: PART.e2Perf,
+      dealId: DEAL_IDS.e2,
+    };
+
     const budgetLines = await database
       .insert(schema.budgetLines)
-      .values([
-        {
+      .values(
+        referenceBudgetLines(REFERENCE_SPINE).map((line) => ({
           budgetId: BUDGET_ID,
-          kind: "revenue",
-          source: "manual",
-          label: "Ticket sales (312 @ 250 SEK)",
-          amount: 7800000n, // 78 000.00 SEK collected at the box office
-          currency: SEK,
-          collectedBy: PART.e2Host, // operator holds the door cash
-          dealId: DEAL_IDS.e2,
-        },
-        {
-          budgetId: BUDGET_ID,
-          kind: "cost",
-          source: "manual",
-          label: "Sound & production",
-          amount: 900000n, // 9 000.00 SEK
-          currency: SEK,
-          paidBy: PART.e2Host, // operator fronts the external supplier
-        },
-        {
-          budgetId: BUDGET_ID,
-          kind: "cost",
-          source: "manual",
-          label: "Artist hotel",
-          amount: 180000n, // 1 800.00 SEK — a cost incurred FOR the performer
-          currency: SEK,
-          paidBy: PART.e2Host,
-          payeeParticipantId: PART.e2Perf,
-        },
-      ])
+          source: "manual" as const,
+          ...line,
+        })),
+      )
       .returning({ id: schema.budgetLines.id });
     record("budget_lines", budgetLines);
 
-    // One settlement per participant — the performer's line on the concluded event.
-    // Door 78 000; guarantee-vs-door 70% of door = 54 600 > 18 000 floor, so the
-    // performer's entitlement is 54 600, less the 1 800 hotel deductible = 52 800.
+    // One settlement per participant, DERIVED by the settlement engine from the deal
+    // and the budget lines above — never typed by hand (audit A-13). `computed` is
+    // the exact `SerializedBreakdown` the API reads back, so the seeded rows satisfy
+    // `GET /events/:id/settlements` the same way a real compute would.
+    //   pool 69 000 = 78 000 door − 9 000 external cost
+    //   performer   max(18 000, 70% × 69 000 = 48 300) − 1 800 hotel = 46 500
+    //   operator    residual 20 700 − 67 200 held = −46 500          (Σ net = 0)
+    const referenceResult = referenceSettlement(REFERENCE_SPINE);
+
     const settlements = await database
       .insert(schema.settlements)
-      .values({
-        id: SETTLEMENT_ID,
-        eventId: EVENT_IDS.springWarmup,
-        participantId: PART.e2Perf,
-        status: "finalized",
-        computed: {
-          currency: SEK,
-          entitlement: "5460000",
-          deductions: "180000",
-          cashHeld: "0",
-          net: "5280000",
-          note: "70% of 78 000 door, less 1 800 hotel. Operator owes performer 52 800 SEK.",
+      .values([
+        {
+          id: SETTLEMENT_IDS.springOperator,
+          eventId: EVENT_IDS.springWarmup,
+          participantId: PART.e2Host,
+          status: "finalized",
+          computed: serializeBreakdown(breakdownFor(referenceResult, PART.e2Host)),
         },
-      })
+        {
+          id: SETTLEMENT_IDS.springPerformer,
+          eventId: EVENT_IDS.springWarmup,
+          participantId: PART.e2Perf,
+          status: "finalized",
+          computed: serializeBreakdown(breakdownFor(referenceResult, PART.e2Perf)),
+        },
+      ])
       .returning({ id: schema.settlements.id });
     record("settlements", settlements);
 
-    // A single owed transfer materialising the settlement (operator → performer).
+    // The owed transfers the engine matched — one here: operator → performer 46 500.
     const transfers = await database
       .insert(schema.settlementTransfers)
-      .values({
-        eventId: EVENT_IDS.springWarmup,
-        fromParticipant: PART.e2Host,
-        toParticipant: PART.e2Perf,
-        amount: 5280000n,
-        currency: SEK,
-        state: "owed",
-      })
+      .values(
+        referenceResult.transfers.map((transfer) => ({
+          eventId: EVENT_IDS.springWarmup,
+          fromParticipant: transfer.fromParticipantId,
+          toParticipant: transfer.toParticipantId,
+          amount: transfer.amount,
+          currency: SEK,
+          state: "owed" as const,
+        })),
+      )
       .returning({ id: schema.settlementTransfers.id });
     record("settlement_transfers", transfers);
 
