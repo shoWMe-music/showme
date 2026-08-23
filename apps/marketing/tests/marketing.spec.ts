@@ -24,7 +24,6 @@ function trackErrors(page: Page) {
 
 const PAGES = [
   { path: "/", title: /shoWMe/, slug: "index" },
-  { path: "/product.html", title: /Product/, slug: "product" },
   { path: "/about.html", title: /About/, slug: "about" },
   { path: "/contact.html", title: /Contact/, slug: "contact" },
 ];
@@ -121,24 +120,24 @@ test("home: ecosystem fits the phone viewport, no overflow (fix-list M2)", async
   expect(scrollW, "no horizontal page overflow").toBeLessThanOrEqual(vw + 1);
 });
 
-test("product: real product screenshots actually load", async ({ page }) => {
-  await page.goto("/product.html", { waitUntil: "domcontentloaded" });
-  const shots = page.locator('img[src*="/assets/shots/"]');
-  const n = await shots.count();
-  expect(n).toBeGreaterThan(0);
-  // first shot decoded to real pixels
-  const w = await shots.first().evaluate((img: HTMLImageElement) => img.naturalWidth);
-  expect(w).toBeGreaterThan(0);
-});
-
-test("nav: Product dropdown link navigates (fix-list #17)", async ({ page }, testInfo) => {
+test("nav: single-destination items are links, Company is a dropdown (fix-list #17)", async ({
+  page,
+}, testInfo) => {
   test.skip(testInfo.project.name === "mobile", "dropdowns collapse into the burger on phones");
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  // Open the Product dropdown, then follow a product link.
-  await page.getByRole("button", { name: "Product" }).click();
-  await page.locator('.topnav__panel a[href*="product.html"]').first().click();
-  await expect(page).toHaveURL(/product\.html/);
-  await expect(page.locator("h1, .display, .hero").first()).toBeVisible();
+
+  // Product and Contact go one place each, so they render as plain links, not
+  // as dropdowns with a single item (9850a2d).
+  await expect(page.locator('.topnav__item a.topnav__link[href*="#features"]')).toBeVisible();
+  await expect(page.locator('.topnav__item a.topnav__link[href*="contact.html"]')).toBeVisible();
+
+  // Company is the one real dropdown: hidden until opened, then its links work.
+  const panel = page.locator(".topnav__panel").first();
+  await expect(panel).toBeHidden();
+  await page.getByRole("button", { name: "Company" }).click();
+  await expect(panel).toBeVisible();
+  await panel.locator('a[href*="about.html"]').first().click();
+  await expect(page).toHaveURL(/about\.html/);
 });
 
 test("contact: early-access form present with email field", async ({ page }) => {

@@ -16,7 +16,7 @@ import { gotoFrozen } from "./helpers/visual";
 const rgb = (el: HTMLElement) => getComputedStyle(el).color;
 
 test("brand wordmark is visible on every page", async ({ page }) => {
-  for (const path of ["/", "/product.html", "/about.html", "/contact.html"]) {
+  for (const path of ["/", "/about.html", "/contact.html"]) {
     await gotoFrozen(page, path, 300);
     await expect(page.locator(".brand").first()).toBeVisible();
   }
@@ -29,7 +29,7 @@ test("brand wordmark colour is consistent across pages (fix-list #16)", async ({
   await gotoFrozen(page, "/", 300);
   const expected = await page.locator(".brand").first().evaluate(rgb);
 
-  for (const path of ["/product.html", "/about.html", "/contact.html"]) {
+  for (const path of ["/about.html", "/contact.html"]) {
     await gotoFrozen(page, path, 300);
     const actual = await page.locator(".brand").first().evaluate(rgb);
     expect(actual, `${path} header wordmark colour should match the homepage`).toBe(expected);
@@ -47,7 +47,7 @@ test("hero: subheader split out, body has no em dash (fix-list #1, #3)", async (
 });
 
 test("no em dashes in rendered copy, site-wide (fix-list #3)", async ({ page }) => {
-  for (const path of ["/", "/product.html", "/about.html", "/contact.html"]) {
+  for (const path of ["/", "/about.html", "/contact.html"]) {
     await gotoFrozen(page, path, 300);
     const title = await page.title();
     expect(title, `${path} <title> has no em dash`).not.toContain("—");
@@ -73,7 +73,7 @@ test("pricing lists Unlimited templates on the operator Pro plan (fix-list #10)"
 });
 
 test("footer tagline is the simplified copy (fix-list #12)", async ({ page }) => {
-  for (const path of ["/", "/about.html", "/contact.html", "/product.html"]) {
+  for (const path of ["/", "/about.html", "/contact.html"]) {
     await gotoFrozen(page, path, 300);
     const footer = await page.locator(".footer").first().innerText();
     expect(footer, `${path} footer uses the shortened line`).toContain(
