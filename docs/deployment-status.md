@@ -10,7 +10,7 @@ Account/project map and the domain history live in
 |---|---|---|
 | **Marketing** | `www.showme.music` — Firebase Hosting, **gmail** `showme-production` | Current as of 2026-08-23 (`main-9dPoRdKk.js`). Deploys need the **gmail** account — `daniel@showme.music` gets 403 |
 | **Marketing mirror** | `music-showme.web.app` — `music-showme` | Preview of the 2026-08-23 fixes. Do **not** overwrite; the web app has its own site |
-| **Web app** | `showme-app.web.app` — `music-showme`, site `showme-app` | Bundle `index-BKe_O5Ya.js` (2026-08-24, second deploy: the create-event hardening). Carries the P3 fixes, the per-kind sidebar and server-side list filtering. Auth on `music-showme` |
+| **Web app** | `showme-app.web.app` — `music-showme`, site `showme-app` | Bundle `index-scfLaoqh.js` (2026-08-24, third deploy, from `eef8b1a`). Adds the create-event hardening and the collaborators card layout. Carries the P3 fixes, the per-kind sidebar and server-side list filtering. Auth on `music-showme` |
 | **API** | Cloud Run `showme-api`, europe-north2, `prod-showme` | Revision `00007-b4k` (2026-08-24) from `683001c`. Verifies tokens against **`music-showme`** — see 1c |
 | **Cloud SQL** | `showme-production-db`, europe-north2, `prod-showme` | `db-custom-1-3840`. Schema at migration **`0006`**; **1 user / 1 profile / 1 draft event** (0 deals, 0 booking requests) |
 | **HTTPS load balancer** | `prod-showme` | Provisioned, **no DNS record** — carrying zero traffic and still billing |
@@ -49,6 +49,22 @@ while an unknown origin gets no allow-origin header.
 **Not verified in production: any signed-in flow.** The seeded accounts are emulator-only and the
 single real account's password is the owner's, so everything past the sign-in screen was verified
 locally (see `docs/audit-2026-08-23.md`) and by contract in production, not by logging in there.
+
+### Deleting a Firebase Auth user from the command line
+
+Needed after any throwaway account made against the live app. `firebase-admin` with
+Application Default Credentials calls Identity Toolkit against the ADC's **quota
+project**, which is `prod-showme` — where that API is disabled — so it fails with a
+confusing `SERVICE_DISABLED` about the wrong project even though Auth lives on
+`music-showme`. Name the quota project for the call instead of enabling an API you
+do not want:
+
+```bash
+GOOGLE_CLOUD_QUOTA_PROJECT=music-showme GCLOUD_PROJECT=music-showme node delete-user.mjs
+```
+
+The Postgres side is separate: `profile_members` → `profiles` → `audit_log` → `users`,
+in that order (foreign keys), or the delete fails half-done.
 
 ## Follow-ups
 
