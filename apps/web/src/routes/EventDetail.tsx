@@ -24,7 +24,6 @@ import {
   Card,
   EmptyState,
   Icon,
-  ListRow,
   Select,
   type Status,
   Toggle,
@@ -832,26 +831,45 @@ function CollaboratorsTab({
     return "blue" as const;
   };
 
+  // Laid out like the Team screen's member grid (`routes/Team.tsx`): each person
+  // is their own card on the page background, rather than rows inside one big
+  // surface. A card inside a card reads as a container the eye has to discount,
+  // and the two screens show the same thing — people on a roster — so they should
+  // look the same. Geometry is deliberately identical: `minmax(260px, 1fr)` and a
+  // 14px gutter.
   return (
-    <Card padding="sm">
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+        gap: 14,
+      }}
+    >
       {roster.map((party) => {
         const name = participantName(party);
         const state = apiStatusToDisplay(party.status);
         return (
-          <ListRow
+          <Card
             key={party.id}
-            leading={<Avatar initials={initials(name)} tone={roleTone(party.role)} />}
-            title={name}
-            meta={statusLabel(party.role)}
-            trailing={
+            padding="md"
+            style={{ display: "flex", flexDirection: "column", gap: 10 }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+              <Avatar initials={initials(name)} tone={roleTone(party.role)} size={40} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 600, color: "var(--text)", fontSize: 14 }}>{name}</div>
+                <div style={{ color: "var(--muted)", fontSize: 12 }}>{statusLabel(party.role)}</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <Badge status={badgeStatusForParticipant(party.status)} dot>
                 {state.label}
               </Badge>
-            }
-          />
+            </div>
+          </Card>
         );
       })}
-    </Card>
+    </div>
   );
 }
 
