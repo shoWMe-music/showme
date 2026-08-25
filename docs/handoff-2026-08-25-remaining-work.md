@@ -4,6 +4,11 @@ Written at the end of the P3-audit session, for whoever picks this up next (like
 fresh Claude session with no memory of it). Everything here was checked against the
 repo or the running system on the day; where something is uncertain it says so.
 
+**Updated 2026-08-26.** Four of the five "do these first" items are done, and both
+open product decisions were made and built (A-36, A-37). What is struck through was
+finished; what is left says so plainly. The one item that is written but NOT live is
+the job schedule — it needs a decision and credentials, not more code.
+
 The *why* still lives in `PLAN.md`, `docs/decisions.md` and `docs/story.md`. The
 per-finding detail lives in `docs/audit-2026-08-23.md`. What is deployed where lives
 in `docs/deployment-status.md`. This file is only the **to-do list**.
@@ -12,9 +17,14 @@ in `docs/deployment-status.md`. This file is only the **to-do list**.
 
 ## Start here
 
-**The branch is not pushed.** `p2-audit-fixes` is 25 commits ahead of `main` with no
-upstream and no PR. Nothing is lost — it is all committed locally — but it exists on
-one machine only. Pushing it is the first thing to do.
+**The branch is still not pushed — and pushing it is not one command.** `p2-audit-fixes`
+was merged into local `main` on 2026-08-26, and `origin` now exists
+(`git@github.com:shoWMe-music/showme.git`). But `origin/main` is the **old Firebase
+app** and shares NO common ancestor with this rebuild: 42 commits ending 2026-04-29,
+`firestore.rules` and `functions/` at its root, plus an `origin/claudemove` branch of
+231 commits. So a plain push is rejected and `--force` would orphan the old app on the
+default branch. The open decision is push-to-a-new-branch versus force-replace; until
+it is made, everything here exists on one machine only.
 
 **What is live** (see `deployment-status.md` for the full table):
 
@@ -38,44 +48,67 @@ proven. 419 API tests, 34 web e2e, typecheck 15/15 at the time of writing.
 
 1. **Push the branch and open the PR.** One command away, and everything below
    assumes it.
-2. **Turn the API's logs on.** `apps/api/src/app.ts:137` — `Fastify({ logger: false })`.
-   Every production 500 currently arrives as an empty body with nothing in Cloud
-   Logging behind it. This cost real diagnosis time twice in two days, and it is a
-   one-line change plus whatever redaction the audit log deserves.
-3. **Add CI.** `.github/workflows/` does not exist. Nothing runs the suite but a human
-   on a laptop. `docs/cicd-plan.md` has the intended shape.
-4. **Schedule the jobs in production.** `pnpm jobs:run` works locally (Cloud Scheduler
-   → Cloud Run job was left out of scope). Until it exists, **no reaper runs in
-   production**: expired offers and shares never expire, and — new this week — an
-   agreed-future representation termination never converges. Reads are correct
-   without it by design (`isRepresentationActiveAt`), so this is stored-state drift,
-   not a correctness hole, but it is drift that accumulates.
-5. **Decide `apps/site`.** Evidence says it is an abandoned two-week-old spike:
-   `firebase.json` deploys `apps/marketing/dist`, the live bundle hash matches
-   marketing, `apps/site` has one commit ever, 2 pages against marketing's 6, no
-   contact form and no cookie consent. It also **makes root `pnpm test` red** (a
-   `test` script with no Playwright config → "No tests found") and owns three
-   repo-wide `@tanstack/*` version pins in `pnpm-workspace.yaml`. Before deleting,
-   check those pins are not load-bearing for `apps/web`, which also uses TanStack.
+2. ~~**Turn the API's logs on.**~~ **Done 2026-08-26.** Structured logging shaped for
+   Cloud Logging (`severity`, `message`, RFC3339 `timestamp`), `LOG_LEVEL` to tune it,
+   off under `NODE_ENV=test`. Note what it cost to do safely: an off-platform share is
+   authorized by a token **in its path** (`/shares/:token`), so naive request logging
+   would have published a live capability grant on every call. URLs are sanitized, the
+   request serializer emits no headers at all, and four tests read the real log stream
+   to prove the share token, the Firebase ID token, and nothing else sensitive appear.
+   See `apps/api/src/logging.ts`.
+3. ~~**Add CI.**~~ **Done 2026-08-26.** `.github/workflows/ci.yml` — Biome, build +
+   typecheck, Vitest, marketing e2e, web full-stack e2e. Two things had to be fixed so
+   it would not be red on arrival: `pnpm lint` failed on a clean checkout (formatting
+   drift, an assignment-in-expression, and a mouse-only calendar day cell), and
+   `packages/gdpr` had no `vitest.config.ts`, leaving it on vitest's 10s `hookTimeout`
+   while its `beforeAll` boots Postgres. **Not yet observed running on GitHub** — no
+   push has happened (see above), so every claim about it is local-verification only.
+   The marketing suite runs `--ignore-snapshots` because the pixel baselines are macOS
+   ones; committing `-chromium-linux` baselines is the follow-up.
+4. **Schedule the jobs in production — WRITTEN, NOT APPLIED.** The Terraform now exists
+   (`infra/modules/scheduled-jobs`: Cloud Run Job + Cloud Scheduler, split runner and
+   trigger service accounts, per-secret access, `0 */4 * * *` UTC — paced by the FX
+   free tier, not the reapers), as does the container it runs
+   (`Dockerfile.jobs` + `apps/jobs/esbuild.mjs`, verified by running the bundle against
+   a freshly migrated throwaway Postgres). `terraform validate` and `fmt` pass; `plan`
+   was not run because it needs the GCS backend and credentials. **Three prerequisites
+   before applying**: build and push the image, create the `EXCHANGE_RATE_API` secret
+   (without it the FX job fails the whole execution — confirmed live; the reapers still
+   run and report first), and let Terraform enable `cloudscheduler.googleapis.com`.
+   Two unknowns are in `infra/README.md`: whether Cloud Scheduler is offered in
+   europe-north2 (defaulted to europe-north1, one variable to flip), and whether the
+   Artifact Registry repo exists. **Until this is applied, no reaper runs in
+   production** and the drift described below continues.
+5. ~~**Decide `apps/site`.**~~ **Done 2026-08-26 — deleted.** It was the abandoned spike
+   the evidence said it was: nothing built or shipped it, and its config-less `playwright
+   test` script was what made root `pnpm test` red. Of its three repo-wide `@tanstack/*`
+   overrides only `react-router` was load-bearing — it was pinning `apps/web`'s floating
+   `^1.87.0` to 1.170.24 — so that pin now lives in `apps/web/package.json` as an exact
+   version and the `overrides` block is gone. See `deployment-status.md` §1f. **Still
+   needs a `pnpm install`** to clear the stale importer from `pnpm-lock.yaml`.
 
 ---
 
 ## Waiting on a product decision
 
-Neither of these is a coding question, which is why they are still open.
+**Both were decided on 2026-08-26, and both are now built.** Kept here with their
+reasoning because the reasoning is the part that will be asked about again.
 
-- **A-36 — is a split member's signed guarantee a floor?** `share.guaranteeAmount` is
-  stored, validated and displayed as the signed per-line figure, and the engine never
-  reads it. Either it is a genuine floor — `max(share-of-pool, guarantee)`, which
-  breaks "split members take 100% of the pool" and can push the operator's residual
-  negative — or it is illustrative at the projected pool, in which case showing it as
-  a signed figure is the thing to change. Detail in `audit-2026-08-23.md`.
-- **A-37 — should a profile-level admin invite cost a paid plan?** A-21 closed every
-  *event*-level path to granting admin. The profile-level sibling (`POST /invitations`
-  with `targetProfileId` + `role: "admin"`) still skips the gate and never consumes a
-  seat. Gating it changes team invites on free plans, so it is your call. The fix is
-  the same shape as A-21: `canUseFeature(database, targetProfileId, "grant_admin")` at
-  create and at accept.
+- **A-36 — is a split member's signed guarantee a floor? NO — illustrative.** The docs
+  already answered it: a floor is `guarantee_vs_door`, a deal STRUCTURE the engine
+  settles as `max(guarantee, door)`, while a `door_split`'s members divide 100% of the
+  pool. A second floor at party level would re-implement the first and could only be
+  paid by pushing the operator's residual negative. The key is `illustrativeAmount`
+  now; the old name is rejected with a message pointing at `guarantee_vs_door`, and
+  migration `0007` renames it in live shares AND in frozen snapshots — it was being
+  copied into the record both parties sign. Detail in `audit-2026-08-23.md`.
+- **A-37 — should a profile-level admin invite cost a paid plan? YES — it is a seat.**
+  It grants `members.manage` over the whole account, a strictly larger grant than admin
+  on one event. Gated at create and again at accept (a plan can lapse in between, and
+  redemption is the write that confers the authority), and accept now records
+  `seatConsumed`, which it never did. Team invites on free plans DID change: inviting
+  someone as `admin` is now a 403 on a free plan, while every other role is untouched
+  and takes no seat.
 
 ---
 
@@ -163,8 +196,8 @@ Filed while fixing P3, still open:
 
 ## Engineering and platform
 
-- **No CI** (above).
-- **No logs** (above).
+- ~~**No CI**~~ / ~~**No logs**~~ — both done 2026-08-26, see "Do these first" above.
+  CI has not yet been observed running on GitHub, because nothing has been pushed.
 - **Terraform covers the load balancer only.** `infra/` is real — `modules/api-load-balancer`
   and `envs/prod` — but the Cloud Run service, the Cloud SQL instance, the secrets and
   Firebase Hosting were all created by hand and are not in code. (An earlier note in

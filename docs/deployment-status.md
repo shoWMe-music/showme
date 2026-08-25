@@ -168,11 +168,22 @@ Note ClickUp has "11 · Exchange-rate refresh scheduler" as **shipped** — that
 not a running schedule. Deploying it needs: enable `cloudscheduler.googleapis.com`, a
 Cloud Run Job built from `apps/jobs`, and a Scheduler trigger. None exist.
 
-### 1f. `apps/site` — unidentified
+### 1f. `apps/site` — deleted 2026-08-26
 
-A sixth Vite app (`@showme/site`, 65 files, its own router/sitemap/robots.txt) that appears
-in no deploy plan and is not one of `cicd-plan.md`'s five units. Likely superseded by
-`apps/marketing`. Worth confirming and deleting, or documenting why it stays.
+Was a sixth Vite app (`@showme/site`, a TanStack Start spike) that appeared in no deploy
+plan. Confirmed abandoned and removed: `firebase.json`/`.firebaserc` ship
+`apps/marketing/dist` to the `marketing` target, nothing in `scripts/`, `turbo.json`,
+`biome.json` or any tsconfig referenced it, and it had a single commit (`0ad2897`) ever.
+Its `test` script (`playwright test`, with no Playwright config) was the reason root
+`pnpm test` was red.
+
+It owned three repo-wide `@tanstack/*` overrides in `pnpm-workspace.yaml`. One was
+load-bearing for `apps/web` — the override was what held `apps/web`'s floating
+`^1.87.0` at `@tanstack/react-router` **1.170.24** — so the pin moved into
+`apps/web/package.json` as an exact version. The other two (`router-core` 1.171.20,
+`history` 1.162.1) are the exact versions `react-router@1.170.24` already declares, so
+they were redundant and went with the app. **A `pnpm install` is required** to drop the
+stale `apps/site` importer and the `overrides` block from `pnpm-lock.yaml`.
 
 ### 2. Deploy the SSE service
 
