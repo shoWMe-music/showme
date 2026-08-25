@@ -491,7 +491,7 @@ describe("the seeded album split deal (A-01's leftover)", () => {
         participantId: headlinerParticipantId,
         roleInDeal: "split_member",
         share: {
-          guaranteeAmount: REFERENCE_DOOR_SPLIT_SHARES.headlinerAmount.toString(),
+          illustrativeAmount: REFERENCE_DOOR_SPLIT_SHARES.headlinerAmount.toString(),
           splitBasisPoints: REFERENCE_DOOR_SPLIT_SHARES.headlinerBasisPoints,
           currency: "SEK",
         },
@@ -501,7 +501,7 @@ describe("the seeded album split deal (A-01's leftover)", () => {
         participantId: supportParticipantId,
         roleInDeal: "split_member",
         share: {
-          guaranteeAmount: REFERENCE_DOOR_SPLIT_SHARES.supportAmount.toString(),
+          illustrativeAmount: REFERENCE_DOOR_SPLIT_SHARES.supportAmount.toString(),
           splitBasisPoints: REFERENCE_DOOR_SPLIT_SHARES.supportBasisPoints,
           currency: "SEK",
         },

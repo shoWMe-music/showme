@@ -1437,3 +1437,110 @@ describe("deals — the type vocabulary is closed", () => {
     }
   });
 });
+
+/**
+ * A-36. A share's amount was called `guaranteeAmount` and the engine never read it
+ * as a floor, so a split member's line promised a figure no code would ever pay —
+ * and `freezeSnapshot` copied that promise into the record both parties signed. A
+ * floor is not missing from the model; it is the deal-level `guarantee_vs_door`
+ * structure. The amount survives, honestly named.
+ */
+describe("deals — a share's amount is illustrative, never a floor (A-36)", () => {
+  /** An operator, a performer, and the event participant row that joins them. */
+  async function seedSplitFixture(prefix: string) {
+    const operator = await seedMemberWithSet(
+      `${prefix}-op`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      `${prefix}-perf`,
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const { event, participants } = await seedEvent(
+      operator,
+      [
+        { ...operator, role: "host" },
+        { ...performer, role: "performer" },
+      ],
+      `${prefix}-op`,
+    );
+    const host = participants.find((row) => row.profileId === operator.profileId);
+    const act = participants.find((row) => row.profileId === performer.profileId);
+    if (!host || !act) throw new Error("participant seed failed");
+    return { event, host, act, operatorUid: `${prefix}-op` };
+  }
+
+  it("takes `illustrativeAmount` on a share and returns it unchanged", async () => {
+    const { event, host, act, operatorUid } = await seedSplitFixture("ill-ok");
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth(operatorUid),
+      payload: {
+        type: "split",
+        structure: "door_split",
+        name: "Door split",
+        currency: "SEK",
+        splitBasisPoints: 10000,
+        parties: [
+          { participantId: host.id, roleInDeal: "payer" },
+          {
+            participantId: act.id,
+            roleInDeal: "split_member",
+            share: { splitBasisPoints: 6000, illustrativeAmount: "3000000", currency: "SEK" },
+          },
+        ],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const line = created
+      .json()
+      .parties.find((party: { participantId: string }) => party.participantId === act.id);
+    expect(line.share).toEqual({
+      splitBasisPoints: 6000,
+      illustrativeAmount: "3000000",
+      currency: "SEK",
+    });
+  });
+
+  it("refuses the old `guaranteeAmount` and says where a real floor lives", async () => {
+    const { event, host, act, operatorUid } = await seedSplitFixture("ill-old");
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth(operatorUid),
+      payload: {
+        type: "split",
+        structure: "door_split",
+        name: "Door split with a phantom floor",
+        currency: "SEK",
+        splitBasisPoints: 10000,
+        parties: [
+          { participantId: host.id, roleInDeal: "payer" },
+          {
+            participantId: act.id,
+            roleInDeal: "split_member",
+            share: { splitBasisPoints: 6000, guaranteeAmount: "3000000" },
+          },
+        ],
+      },
+    });
+    expect(rejected.statusCode).toBe(400);
+    // A refusal is only evidence when it refuses for the stated reason — and this
+    // message has to teach, because the caller's mental model is the wrong one.
+    const message = JSON.stringify(rejected.json());
+    expect(message).toContain("illustrativeAmount");
+    expect(message).toContain("guarantee_vs_door");
+
+    // And nothing was stored: a rejected promise must not survive anywhere.
+    const stored = await harness.db
+      .select()
+      .from(schema.deals)
+      .where(eq(schema.deals.eventId, event.id));
+    expect(stored).toHaveLength(0);
+  });
+});

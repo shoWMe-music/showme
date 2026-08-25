@@ -166,7 +166,16 @@ function weightFromShare(share: unknown, participantId: string): number | null {
     // A share may legitimately state terms without a split weight (a flat guarantee, say).
     // What must never pass silently is a share carrying ONLY keys we do not understand —
     // that is the drift that produced the equal-split bug.
-    const known = ["splitBasisPoints", "guaranteeAmount", "currency", "terms"];
+    // `guaranteeAmount` is the pre-A-36 name for `illustrativeAmount` and is still
+    // listed so a share written before the 0007 rename reads as "no stated weight"
+    // rather than throwing. Neither key is a floor; neither is read here.
+    const known = [
+      "splitBasisPoints",
+      "illustrativeAmount",
+      "guaranteeAmount",
+      "currency",
+      "terms",
+    ];
     if (Object.keys(record).some((key) => known.includes(key))) return null;
   }
   throw badRequest(

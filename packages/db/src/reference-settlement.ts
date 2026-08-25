@@ -65,10 +65,12 @@ export const REFERENCE_DOOR_SPLIT_TERMS = {
 
 /**
  * How the two split members divide that entitlement between themselves — weights, not
- * sizes (see above). `guaranteeAmount` is the signed per-line figure at the reference
- * 50 000.00 pool; note that the engine does **not** read a share's `guaranteeAmount`
- * as a floor — per-party guarantee floors are not implemented, and stating one here
- * does not create one.
+ * sizes (see above). The per-line amounts are what each share comes to at the reference
+ * 50 000.00 pool and nothing more: they are ILLUSTRATIVE, not floors. Audit A-36 settled
+ * that question — a floor is the deal-level `guarantee_vs_door` structure, which the
+ * engine settles as max(guarantee, door); a floor inside a `door_split` would break the
+ * rule that split members divide 100% of the pool. At a 20 000.00 door the headliner is
+ * owed 12 000.00, not 30 000.00, and that is correct.
  */
 export const REFERENCE_DOOR_SPLIT_SHARES = {
   headlinerBasisPoints: 6_000, // Marlo Vance — 60.00%

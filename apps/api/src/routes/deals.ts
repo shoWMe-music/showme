@@ -42,13 +42,34 @@ const dealPartyRoleEnum = z.enum(["payer", "payee", "split_member", "commission"
  *
  * `splitBasisPoints` is basis points of the pool (4000 = 40.00%), matching
  * `deals.split_basis_points`. Money stays a minor-unit decimal string on the wire (money.md).
+ *
+ * `illustrativeAmount` was called `guaranteeAmount` until 2026-08-26 (audit A-36), and the
+ * rename is the whole point: the engine never read it as a floor, so a share saying
+ * "guarantee: 30 000.00" promised a performer something no code would ever pay — and
+ * `freezeSnapshot` copied that promise verbatim into the record both parties signed. A floor
+ * is not missing from the model; it lives one level up, as the `guarantee_vs_door` deal
+ * STRUCTURE, which the engine really does settle as `max(guarantee, door)`. A per-party floor
+ * inside a `door_split` would re-implement that a second time and break the invariant that
+ * split members divide 100% of the pool (PLAN.md:161) — it can only be paid by pushing the
+ * operator's residual negative. So the amount stays, honestly named: what this line is worth
+ * at the projected pool, not what it is owed.
  */
 const DealPartyShare = z
   .object({
     splitBasisPoints: z.number().int().min(0).max(10000).optional(),
-    guaranteeAmount: z
+    /** What this line comes to at the PROJECTED pool. Illustrative — never a floor. */
+    illustrativeAmount: z
       .string()
       .regex(/^-?\d+$/)
+      .optional(),
+    // Named so the old key fails LOUDLY with an explanation rather than as a bare
+    // "unrecognized key" — the A-01 lesson: a silently-dropped money key is how the
+    // writers and the engine drifted apart in the first place.
+    guaranteeAmount: z
+      .undefined({
+        invalid_type_error:
+          "A party's share has no guarantee floor: an amount on a share is illustrative at the projected pool, so it is `illustrativeAmount`. For a real floor, give the DEAL the `guarantee_vs_door` structure, which settles as max(guarantee, door).",
+      })
       .optional(),
     currency: z.string().min(1).optional(),
     terms: z.string().optional(),

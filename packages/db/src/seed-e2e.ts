@@ -775,7 +775,7 @@ async function main() {
           confirmedBy: agentUserId, // the AGENT confirms on performerA's behalf (delegated)
           // 60.00% of the deal — 30 000.00 SEK at the reference 50 000.00 pool.
           share: {
-            guaranteeAmount: REFERENCE_DOOR_SPLIT_SHARES.headlinerAmount.toString(),
+            illustrativeAmount: REFERENCE_DOOR_SPLIT_SHARES.headlinerAmount.toString(),
             splitBasisPoints: REFERENCE_DOOR_SPLIT_SHARES.headlinerBasisPoints,
             currency: SEK,
           },
@@ -788,7 +788,7 @@ async function main() {
           confirmedBy: performerBUserId, // performerB is self-managed
           // 40.00% of the deal — 20 000.00 SEK at the reference 50 000.00 pool.
           share: {
-            guaranteeAmount: REFERENCE_DOOR_SPLIT_SHARES.supportAmount.toString(),
+            illustrativeAmount: REFERENCE_DOOR_SPLIT_SHARES.supportAmount.toString(),
             splitBasisPoints: REFERENCE_DOOR_SPLIT_SHARES.supportBasisPoints,
             currency: SEK,
           },
@@ -806,7 +806,7 @@ async function main() {
           confirmedAt: new Date(),
           confirmedBy: performerAUserId,
           share: {
-            guaranteeAmount: REFERENCE_GUARANTEE_VS_DOOR_TERMS.guaranteeAmount.toString(),
+            illustrativeAmount: REFERENCE_GUARANTEE_VS_DOOR_TERMS.guaranteeAmount.toString(),
             splitBasisPoints: REFERENCE_GUARANTEE_VS_DOOR_TERMS.splitBasisPoints,
             currency: SEK,
           },

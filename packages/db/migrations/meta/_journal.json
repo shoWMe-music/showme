@@ -50,6 +50,13 @@
       "when": 1787519035003,
       "tag": "0006_offer_dedup_names_the_act",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787605435003,
+      "tag": "0007_a_share_amount_is_illustrative",
+      "breakpoints": true
     }
   ]
 }

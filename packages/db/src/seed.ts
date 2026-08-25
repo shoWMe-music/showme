@@ -584,7 +584,7 @@ async function main() {
           confirmedAt: new Date(),
           confirmedBy: PERFORMER_USER_ID,
           share: {
-            guaranteeAmount: REFERENCE_GUARANTEE_TERMS.guaranteeAmount.toString(),
+            illustrativeAmount: REFERENCE_GUARANTEE_TERMS.guaranteeAmount.toString(),
             currency: SEK,
           },
         },
@@ -596,7 +596,7 @@ async function main() {
           confirmedAt: new Date(),
           confirmedBy: PERFORMER_USER_ID,
           share: {
-            guaranteeAmount: REFERENCE_GUARANTEE_VS_DOOR_TERMS.guaranteeAmount.toString(),
+            illustrativeAmount: REFERENCE_GUARANTEE_VS_DOOR_TERMS.guaranteeAmount.toString(),
             splitBasisPoints: REFERENCE_GUARANTEE_VS_DOOR_TERMS.splitBasisPoints,
             currency: SEK,
           },
@@ -695,13 +695,17 @@ async function main() {
           artistName: "The Midnight Echo",
           wantedDate: "2026-10-03",
           artistFee: 3000000n, // 30 000.00 SEK asking fee
-          pitch: "Four-piece indie rock, just wrapped a Nordic club tour. Would love a Friday slot.",
+          pitch:
+            "Four-piece indie rock, just wrapped a Nordic club tour. Would love a Friday slot.",
           note: "Self-booked — no agency.",
           senderType: "performer",
           performerType: "band",
           genres: ["indie rock", "post-punk"],
           websiteUrl: "https://midnightecho.example",
-          socialLinks: { instagram: "@midnightecho", spotify: "https://open.spotify.example/midnightecho" },
+          socialLinks: {
+            instagram: "@midnightecho",
+            spotify: "https://open.spotify.example/midnightecho",
+          },
           musicUrl: "https://open.spotify.example/midnightecho",
           sentVia: "in_platform",
         },
@@ -718,7 +722,8 @@ async function main() {
           wantedDate: "2026-10-18",
           offerFeeMin: 2000000n, // 20 000.00 SEK
           offerFeeMax: 2800000n, // 28 000.00 SEK
-          pitch: "Second Stockholm date to support the new record — flexible on the fee for a good room.",
+          pitch:
+            "Second Stockholm date to support the new record — flexible on the fee for a good room.",
           note: "Represented by Blue Owl Agency.",
           senderType: "performer",
           performerType: "solo",
@@ -792,7 +797,9 @@ async function main() {
           vatId: "SE556200100001",
           address: "Industrigatan 4, 117 45 Stockholm",
           notes: "PA + backline hire. Net-30 terms.",
-          persons: [{ name: "Erik Sund", email: "erik@nordicsound.example", phone: "+46 8 555 010 20" }],
+          persons: [
+            { name: "Erik Sund", email: "erik@nordicsound.example", phone: "+46 8 555 010 20" },
+          ],
         },
         {
           id: CONTACT_IDS[1],
@@ -803,7 +810,11 @@ async function main() {
           notes: "Marlo's booking + settlement contact.",
           persons: [
             { name: "Marlo Vance", email: "marlo.vance@showme.test", phone: "+46 70 222 33 44" },
-            { name: "Nora Ek (manager)", email: "nora@marlovance.example", phone: "+46 70 222 33 45" },
+            {
+              name: "Nora Ek (manager)",
+              email: "nora@marlovance.example",
+              phone: "+46 70 222 33 45",
+            },
           ],
         },
         {
@@ -812,7 +823,9 @@ async function main() {
           name: "STIM",
           type: "authority",
           notes: "Performing-rights reporting (Swedish PRO).",
-          persons: [{ name: "Reporting desk", email: "reporting@stim.example", phone: "+46 8 783 88 00" }],
+          persons: [
+            { name: "Reporting desk", email: "reporting@stim.example", phone: "+46 8 783 88 00" },
+          ],
         },
         {
           id: CONTACT_IDS[3],
@@ -824,7 +837,9 @@ async function main() {
           vatId: "SE556200100003",
           address: "Hornsgatan 88, 118 21 Stockholm",
           notes: "Green-room hospitality + artist meals.",
-          persons: [{ name: "Amir Haddad", email: "amir@sodercatering.example", phone: "+46 8 640 11 22" }],
+          persons: [
+            { name: "Amir Haddad", email: "amir@sodercatering.example", phone: "+46 8 640 11 22" },
+          ],
         },
         {
           id: CONTACT_IDS[4],
@@ -832,7 +847,9 @@ async function main() {
           name: "Klara Nyström",
           type: "crew",
           notes: "Freelance FOH engineer — first call for seated shows.",
-          persons: [{ name: "Klara Nyström", email: "klara@foh.example", phone: "+46 76 300 40 50" }],
+          persons: [
+            { name: "Klara Nyström", email: "klara@foh.example", phone: "+46 76 300 40 50" },
+          ],
         },
         {
           id: CONTACT_IDS[5],
@@ -844,7 +861,9 @@ async function main() {
           vatId: "SE556200100004",
           address: "Sveavägen 21, 111 34 Stockholm",
           notes: "Posters, tickets, flyers.",
-          persons: [{ name: "Petra Holm", email: "petra@cityprint.example", phone: "+46 8 411 22 33" }],
+          persons: [
+            { name: "Petra Holm", email: "petra@cityprint.example", phone: "+46 8 411 22 33" },
+          ],
         },
         {
           id: CONTACT_IDS[6],
@@ -854,7 +873,9 @@ async function main() {
           vatId: "SE556200100005",
           address: "Götgatan 15, 116 46 Stockholm",
           notes: "Booking agent — represents several touring acts.",
-          persons: [{ name: "Sofia Lind", email: "sofia@blueowl.example", phone: "+46 70 900 80 70" }],
+          persons: [
+            { name: "Sofia Lind", email: "sofia@blueowl.example", phone: "+46 70 900 80 70" },
+          ],
         },
         {
           id: CONTACT_IDS[7],
@@ -865,7 +886,9 @@ async function main() {
           bankName: "Nordea",
           vatId: "SE556200100006",
           notes: "Door + crowd security staffing.",
-          persons: [{ name: "Jonas Ek", email: "jonas@securitypartners.example", phone: "+46 8 700 60 50" }],
+          persons: [
+            { name: "Jonas Ek", email: "jonas@securitypartners.example", phone: "+46 8 700 60 50" },
+          ],
         },
       ])
       .returning({ id: schema.contacts.id });
@@ -931,7 +954,11 @@ async function main() {
       .insert(schema.groupProfiles)
       .values([
         { id: GROUP_PROFILE_IDS[0], groupId: GROUP_IDS.coreCrew, profileId: OPERATOR_PROFILE_ID },
-        { id: GROUP_PROFILE_IDS[1], groupId: GROUP_IDS.frontOfHouse, profileId: OPERATOR_PROFILE_ID },
+        {
+          id: GROUP_PROFILE_IDS[1],
+          groupId: GROUP_IDS.frontOfHouse,
+          profileId: OPERATOR_PROFILE_ID,
+        },
       ])
       .returning({ id: schema.groupProfiles.id });
     record("group_profiles", groupProfiles);
