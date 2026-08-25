@@ -1,0 +1,31 @@
+# Scheduled-jobs container for Cloud Run *Jobs*. Mirrors `Dockerfile` (API) and
+# `Dockerfile.stream`; all three live at the repo ROOT so the build context is the
+# whole workspace (the esbuild bundle pulls in the @showme/* TS source).
+#
+# Unlike the other two this serves no traffic and listens on no port — it runs to
+# completion and exits, which is exactly what a Cloud Run Job expects and what a
+# Cloud Run *service* would fail the startup probe for.
+#
+#   docker build -f Dockerfile.jobs -t <REGION>-docker.pkg.dev/<PROJECT>/<REPO>/showme-jobs .
+#   docker push  <REGION>-docker.pkg.dev/<PROJECT>/<REPO>/showme-jobs
+# The schedule itself is Terraform — infra/modules/scheduled-jobs — so after pushing
+# a new tag, re-apply rather than deploying by hand.
+# syntax=docker/dockerfile:1
+
+FROM node:22-slim AS build
+RUN corepack enable
+WORKDIR /repo
+# Copy the whole workspace (the repo-root .dockerignore keeps node_modules, builds,
+# secrets and test junk out) so pnpm can resolve the full workspace graph, then
+# install just what the jobs need and bundle them.
+COPY . .
+RUN pnpm install --frozen-lockfile --filter @showme/jobs...
+RUN pnpm --filter @showme/jobs build
+
+FROM node:22-slim AS runtime
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=build /repo/apps/jobs/dist/index.mjs ./index.mjs
+# Run as the non-root node user baked into the image.
+USER node
+CMD ["node", "index.mjs"]

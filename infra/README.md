@@ -7,8 +7,9 @@ bucket bootstrap and interactive logins — everything else is `terraform apply`
 infra/
   modules/
     api-load-balancer/   # external HTTPS LB → serverless NEG → Cloud Run service
+    scheduled-jobs/      # Cloud Run Job (apps/jobs) + Cloud Scheduler trigger
   envs/
-    prod/                # prod-showme: puts api.showme.music in front of showme-api
+    prod/                # prod-showme: the load balancer and the scheduled jobs
 ```
 
 > **Why an LB for the API domain?** `europe-north2` (Stockholm) doesn't support
@@ -113,3 +114,103 @@ gcloud run services update showme-api --region europe-north2 --project prod-show
 ```
 
 Consider adding a Cloud Armor policy to the backend service for WAF + rate limiting.
+
+## Schedule the jobs in production (envs/prod, `modules/scheduled-jobs`)
+
+`apps/jobs` has never run in production. Until this is applied, no reaper runs: 30-day
+performer offers and 90-day venue handoffs keep their `pending` status forever, expired
+shares are never revoked, an agreed-future representation termination never lands in
+stored state, and `exchange_rate_cache` goes stale.
+
+Reads are already correct without it — the share route 404s a share past its `expiresAt`
+and every representation reader asks `isRepresentationActiveAt` — so this closes
+**stored-state drift**, not a correctness hole. That is also why the schedule can be
+four-hourly rather than tight.
+
+### What it declares
+
+| Resource | Why |
+|---|---|
+| Cloud Run **Job** `showme-jobs` | `apps/jobs` runs to completion and serves no traffic, so a service would fail its startup probe |
+| Cloud Scheduler job `showme-jobs-schedule` | `0 */4 * * *` UTC → `POST …/jobs/showme-jobs:run` |
+| Service account `showme-jobs-runner` | The job's identity: `roles/cloudsql.client` + `secretAccessor` on **exactly** its two secrets |
+| Service account `showme-jobs-trigger` | Cloud Scheduler's identity: `roles/run.invoker` on the job and nothing else |
+| `google_project_service` `cloudscheduler` | The API is off on `prod-showme` — nothing has ever used Scheduler there |
+
+**Why every four hours:** the binding constraint is the exchange-rate refresh, not the
+reapers. `apps/jobs/src/exchange-rate.ts` exports the same `0 */4 * * *` as
+`REFRESH_CRON` because 6 runs/day ≈ 180 calls/month sits well inside ExchangeRate-API's
+free 1500, while hourly (720) starts to crowd it. The reapers lose nothing at that
+cadence: two of them measure 30 and 90 days, and the two time-sensitive ones already
+answer correctly on read.
+
+### Before `terraform apply` — three things must exist
+
+1. **The container image.** There is **no `Dockerfile.jobs` and no `build` script in
+   `apps/jobs` yet**, and the API image cannot be reused with a different command — it
+   contains only the API's `dist/server.mjs`, not the jobs code. Both need adding
+   (outside `infra/`), mirroring `Dockerfile.stream` exactly:
+   - `apps/jobs/esbuild.mjs` — a copy of `apps/api/esbuild.mjs` with
+     `entryPoints: ["src/index.ts"]` and `outfile: "dist/index.mjs"`, plus
+     `"build": "node esbuild.mjs"` in `apps/jobs/package.json`.
+   - `Dockerfile.jobs` at the repo root — `pnpm install --filter @showme/jobs...`,
+     `pnpm --filter @showme/jobs build`, copy `dist/index.mjs`, `CMD ["node", "index.mjs"]`.
+     `index.ts`'s `import.meta.url === file://${process.argv[1]}` main-module guard still
+     matches after bundling, so the entrypoint stays as it is.
+
+   Then build and push to the tag `var.jobs_image` names (the same Artifact Registry
+   repository Cloud Build made for `gcloud run deploy showme-api --source .`):
+
+   ```bash
+   IMAGE=europe-north2-docker.pkg.dev/prod-showme/cloud-run-source-deploy/showme-jobs:latest
+   docker build -f Dockerfile.jobs -t "$IMAGE" .
+   docker push "$IMAGE"
+   ```
+
+   Terraform owns the image reference, so shipping a new build later means pushing the
+   tag **and** re-applying (or `terraform apply -var="jobs_image=…:<new tag>"`).
+
+2. **The `EXCHANGE_RATE_API` secret.** `DATABASE_URL` already exists (showme-api uses
+   it); this one does not. The FX refresh throws without a key and that fails the whole
+   execution, so it is required, not optional:
+
+   ```bash
+   printf %s "<key>" | gcloud secrets create EXCHANGE_RATE_API \
+     --project prod-showme --replication-policy automatic --data-file=-
+   ```
+
+3. **Cloud Scheduler in `europe-north1`.** `var.scheduler_region` defaults to Finland
+   because availability in `europe-north2` (Stockholm) is unconfirmed — the same region
+   thinness that forced the load balancer. The trigger is one HTTPS call per run, so the
+   cross-region hop costs nothing. If Scheduler *is* offered in Stockholm, set
+   `scheduler_region = "europe-north2"`; nothing else moves.
+
+### Apply and verify
+
+```bash
+cd infra/envs/prod
+terraform init
+terraform plan
+terraform apply
+```
+
+Then prove it end to end, without waiting four hours for the trigger:
+
+```bash
+# 1. The job runs at all (this is the container + secrets + Cloud SQL path).
+gcloud run jobs execute showme-jobs --project prod-showme --region europe-north2 --wait
+
+# 2. Its output is the orchestrator's JSON summary — `errors: []` is the pass.
+gcloud logging read \
+  'resource.type=cloud_run_job AND resource.labels.job_name=showme-jobs' \
+  --project prod-showme --limit 20 --format='value(textPayload)'
+
+# 3. The SCHEDULE works — this exercises the trigger service account and run.invoker,
+#    which step 1 does not.
+gcloud scheduler jobs run showme-jobs-schedule --project prod-showme --location europe-north1
+gcloud run jobs executions list --job showme-jobs --project prod-showme --region europe-north2
+```
+
+A run that fails only on `exchangeRates: EXCHANGE_RATE_API is not set` means step 2 of
+the prerequisites was skipped — the reapers themselves still ran, and their counts are
+in the same JSON line.
