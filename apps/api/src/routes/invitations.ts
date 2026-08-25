@@ -7,7 +7,7 @@ import { z } from "zod";
 import { badRequest, conflict, notFound } from "../errors";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
-import { assertGrantAdminAllows } from "../lib/entitlements";
+import { assertGrantAdminAllows, assertProfileAdminGrantAllows } from "../lib/entitlements";
 import { notifyUsers } from "../lib/notify";
 import { withIdempotency } from "../plugins/idempotency";
 
@@ -158,6 +158,18 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
         });
       }
 
+      // The PROFILE-level sibling (A-37). `role: "admin"` here mints an admin
+      // membership over the whole account — a larger grant than admin on one
+      // event — and until now it walked straight past the gate that
+      // `POST /profiles/:id/members` applies to the very same grant. Charged to
+      // the TARGET profile, which is the account gaining an administrator.
+      if (body.targetProfileId) {
+        await assertProfileAdminGrantAllows(database, {
+          profileId: body.targetProfileId,
+          nextRole: body.role,
+        });
+      }
+
       const { statusCode, body: result } = await withIdempotency(
         request,
         "POST /invitations",
@@ -269,6 +281,16 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
         });
       }
 
+      // Same backstop for the profile-level grant (A-37): the target account's
+      // plan can lapse between the invite being sent and the invitee redeeming
+      // it, and redemption is the write that actually confers the authority.
+      if (grantsProfileMember && invitation.targetProfileId) {
+        await assertProfileAdminGrantAllows(database, {
+          profileId: invitation.targetProfileId,
+          nextRole: invitation.role,
+        });
+      }
+
       let updated: InvitationRow;
       try {
         updated = await database.transaction(async (tx) => {
@@ -279,6 +301,11 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
               role: (invitation.role ??
                 "viewer") as (typeof schema.profileMembers.$inferInsert)["role"],
               status: "active",
+              // A-37: an admin membership costs a seat however it was granted —
+              // `POST /profiles/:id/members` has always recorded that, and a
+              // redeemed invitation now records it too, or the seat count is a
+              // lie the moment anyone invites rather than adds.
+              seatConsumed: invitation.role === "admin",
               permissionSetId: invitation.permissionSetId,
               addedBy: invitation.createdByUser,
             });

@@ -6,7 +6,7 @@ import { z } from "zod";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
 import { writeAudit } from "../lib/audit";
 import { requireProfileRole } from "../lib/authorize";
-import { canUseFeature } from "../lib/entitlements";
+import { assertProfileAdminGrantAllows } from "../lib/entitlements";
 import { withIdempotency } from "../plugins/idempotency";
 import { serializeProfile } from "../serialize/profile";
 
@@ -500,10 +500,7 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
 
       // Entitlement gate (decisions #4/§C, #12): granting admin consumes a seat and
       // is a paid-plan feature. Composed AFTER authorization, always a fresh read.
-      if (request.body.role === "admin") {
-        const gate = await canUseFeature(database, id, "grant_admin");
-        if (!gate.allowed) throw forbidden(gate.reason ?? "Granting admin requires a paid plan");
-      }
+      await assertProfileAdminGrantAllows(database, { profileId: id, nextRole: request.body.role });
 
       let created: MemberRow;
       try {
@@ -561,11 +558,11 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       // Promoting to admin is gated (and consumes a seat) — same paid-plan rule as add.
-      const promotingToAdmin = request.body.role === "admin" && before.role !== "admin";
-      if (promotingToAdmin) {
-        const gate = await canUseFeature(database, id, "grant_admin");
-        if (!gate.allowed) throw forbidden(gate.reason ?? "Granting admin requires a paid plan");
-      }
+      await assertProfileAdminGrantAllows(database, {
+        profileId: id,
+        nextRole: request.body.role,
+        currentRole: before.role,
+      });
 
       const fields: Partial<typeof schema.profileMembers.$inferInsert> = {};
       if (request.body.role !== undefined) {

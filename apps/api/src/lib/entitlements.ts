@@ -310,3 +310,30 @@ export async function assertGrantAdminAllows(
   const gate = await canUseFeature(database, hostProfileId, "grant_admin");
   if (!gate.allowed) throw forbidden(gate.reason ?? "Granting admin requires a paid plan");
 }
+
+/**
+ * The PROFILE-level sibling of `assertGrantAdminAllows` (A-37).
+ *
+ * A-21 closed every EVENT-level path to admin authority. This is the other half:
+ * an `admin` membership on a profile carries `members.manage` over the whole
+ * account — a strictly larger grant than admin on a single event — so it is the
+ * same paid-plan feature and it consumes a seat. Charged to the TARGET profile,
+ * because that is the account gaining an administrator.
+ *
+ * Shaped like its event-level twin on purpose: promoting someone who is already
+ * an admin re-grants nothing and so costs nothing.
+ */
+export async function assertProfileAdminGrantAllows(
+  database: Database,
+  grant: {
+    profileId: string;
+    nextRole: string | null | undefined;
+    currentRole?: string | null;
+  },
+): Promise<void> {
+  const { profileId, nextRole, currentRole = null } = grant;
+  if (nextRole !== "admin" || currentRole === "admin") return;
+
+  const gate = await canUseFeature(database, profileId, "grant_admin");
+  if (!gate.allowed) throw forbidden(gate.reason ?? "Granting admin requires a paid plan");
+}

@@ -534,3 +534,171 @@ describe("invitations — the grant_admin entitlement gate (paid plans only)", (
     expect(accepted.statusCode).toBe(200);
   });
 });
+
+/**
+ * A-37. A-21 closed every EVENT-level path to admin authority; this is the
+ * profile-level sibling, which used to walk straight past the gate that
+ * `POST /profiles/:id/members` applies to the identical grant — and never
+ * consumed a seat when redeemed.
+ */
+describe("invitations — the PROFILE-level grant_admin gate (A-37)", () => {
+  /** A performer who can redeem an invitation as themselves. */
+  async function seedInvitee(id: string) {
+    await seedUser(id, "performer");
+    return { userId: id };
+  }
+
+  it("403s a FREE profile inviting someone as admin, and stores no invitation", async () => {
+    const owner = await seedOwnerWithProfile("inv-pa-free");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("inv-pa-free"), "x-profile-id": owner.profileId },
+      payload: {
+        type: "profile_member",
+        source: "team",
+        recipientEmail: "second@example.com",
+        targetProfileId: owner.profileId,
+        role: "admin",
+      },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe("Granting admin requires a paid plan");
+
+    const rows = await harness.db
+      .select()
+      .from(schema.invitations)
+      .where(eq(schema.invitations.targetProfileId, owner.profileId));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("lets a PAID profile send it, and the redeemed membership consumes a seat", async () => {
+    const { db } = harness;
+    const owner = await seedOwnerWithProfile("inv-pa-paid");
+    const invitee = await seedInvitee("inv-pa-paid-rec");
+    await db.insert(schema.plans).values({ profileId: owner.profileId, tier: "operator_pro" });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("inv-pa-paid"), "x-profile-id": owner.profileId },
+      payload: {
+        type: "profile_member",
+        source: "team",
+        recipientEmail: "second@example.com",
+        targetProfileId: owner.profileId,
+        role: "admin",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${created.json().token}/accept`,
+      headers: auth(invitee.userId),
+    });
+    expect(accepted.statusCode).toBe(200);
+
+    const [member] = await db
+      .select()
+      .from(schema.profileMembers)
+      .where(
+        and(
+          eq(schema.profileMembers.profileId, owner.profileId),
+          eq(schema.profileMembers.userId, invitee.userId),
+        ),
+      );
+    expect(member?.role).toBe("admin");
+    // The seat is the point: without this the count is a lie the moment anyone
+    // invites an admin rather than adding one directly.
+    expect(member?.seatConsumed).toBe(true);
+  });
+
+  it("403s the ACCEPT when the profile's plan lapsed after the invitation was sent", async () => {
+    const { db } = harness;
+    const owner = await seedOwnerWithProfile("inv-pa-lapse");
+    const invitee = await seedInvitee("inv-pa-lapse-rec");
+
+    // Minted while paid — writing it straight to the table is exactly the state a
+    // since-lapsed plan leaves behind.
+    const [invitation] = await db
+      .insert(schema.invitations)
+      .values({
+        type: "profile_member",
+        source: "team",
+        status: "pending",
+        token: "inv-pa-lapse-token",
+        recipientEmail: "second@example.com",
+        targetProfileId: owner.profileId,
+        role: "admin",
+        createdByUser: "inv-pa-lapse",
+      })
+      .returning();
+    if (!invitation) throw new Error("invitation seed failed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${invitation.token}/accept`,
+      headers: auth(invitee.userId),
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe("Granting admin requires a paid plan");
+
+    // Nothing landed: no membership, and the invitation is still redeemable.
+    const members = await db
+      .select()
+      .from(schema.profileMembers)
+      .where(
+        and(
+          eq(schema.profileMembers.profileId, owner.profileId),
+          eq(schema.profileMembers.userId, invitee.userId),
+        ),
+      );
+    expect(members).toHaveLength(0);
+    const [after] = await db
+      .select()
+      .from(schema.invitations)
+      .where(eq(schema.invitations.id, invitation.id));
+    expect(after?.status).toBe("pending");
+  });
+
+  it("never charges an ordinary team invitation on a free plan, and takes no seat", async () => {
+    const { db } = harness;
+    const owner = await seedOwnerWithProfile("inv-pa-plain");
+    const invitee = await seedInvitee("inv-pa-plain-rec");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("inv-pa-plain"), "x-profile-id": owner.profileId },
+      payload: {
+        type: "profile_member",
+        source: "team",
+        recipientEmail: "helper@example.com",
+        targetProfileId: owner.profileId,
+        role: "editor",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${created.json().token}/accept`,
+      headers: auth(invitee.userId),
+    });
+    expect(accepted.statusCode).toBe(200);
+
+    const [member] = await db
+      .select()
+      .from(schema.profileMembers)
+      .where(
+        and(
+          eq(schema.profileMembers.profileId, owner.profileId),
+          eq(schema.profileMembers.userId, invitee.userId),
+        ),
+      );
+    expect(member?.role).toBe("editor");
+    expect(member?.seatConsumed).toBe(false);
+  });
+});
