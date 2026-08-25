@@ -1,7 +1,11 @@
 # shoWMe — rebuild (2026)
 
 Live-events **booking + settlement** SaaS. This repo is a **from-scratch rebuild** of the prior Firebase/Firestore
-app, built as a **monorepo**. **Status:** scaffolded and substantially built — see **[docs/STATUS.md](./docs/STATUS.md)** for the current build snapshot (what exists, how to run it, what's verified, what's next). Read STATUS.md first; the *why* still lives in decisions.md / story.md.
+app, built as a **monorepo**. **Status:** scaffolded and substantially built, with the API and web app deployed. Start with
+**[docs/handoff-2026-08-25-remaining-work.md](./docs/handoff-2026-08-25-remaining-work.md)** (what is
+left), then **[docs/deployment-status.md](./docs/deployment-status.md)** (what is live) and
+**[docs/STATUS.md](./docs/STATUS.md)** (the 2026-08-02 build snapshot, now partly stale). The *why*
+still lives in decisions.md / story.md.
 
 ## The blueprint
 The complete architecture, data model, engines, and API surface live in **[PLAN.md](./PLAN.md)** — the single source

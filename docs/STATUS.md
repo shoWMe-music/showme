@@ -2,8 +2,14 @@
 
 Point-in-time snapshot of what exists in the repo, how to run it, what's verified, and
 what's next. **This supersedes CLAUDE.md's "blueprint only — no code yet" line** (that
-line is now stale; the monorepo is scaffolded and substantially built). Read this first
-when picking the project back up; the *why* still lives in `decisions.md` / `story.md`.
+line is now stale; the monorepo is scaffolded and substantially built). The *why* still
+lives in `decisions.md` / `story.md`.
+
+> **This file is from 2026-08-02 and is now partly stale.** For what is left to do,
+> read **[handoff-2026-08-25-remaining-work.md](./handoff-2026-08-25-remaining-work.md)**
+> first — it is the current to-do list. For what is deployed, read
+> [deployment-status.md](./deployment-status.md). For the audit that drove the
+> 2026-08-23/24 work, read [audit-2026-08-23.md](./audit-2026-08-23.md).
 
 ---
 
