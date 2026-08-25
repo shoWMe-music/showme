@@ -34,6 +34,9 @@ const EnvSchema = z.object({
   // Comma-separated browser origins allowed to call the API (CORS). The web app
   // and marketing site. Defaults to the local dev/preview origins (see app.ts).
   CORS_ALLOWED_ORIGINS: z.string().optional(),
+  // pino level for the request/error log (see logging.ts). `info` logs every
+  // request; `warn` quiets that down to problems only.
+  LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

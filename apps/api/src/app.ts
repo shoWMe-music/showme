@@ -12,6 +12,7 @@ import type { TokenVerifier } from "./auth/token-verifier";
 import { HttpError } from "./errors";
 import { type LeadSink, createNoopLeadSink } from "./lib/clickup";
 import { type EmailSink, createNoopEmailSink } from "./lib/email";
+import { loggerOptions } from "./logging";
 import { authenticate } from "./plugins/authenticate";
 import { activityRoutes } from "./routes/activity";
 import { adminRoutes } from "./routes/admin";
@@ -134,7 +135,7 @@ export function apiErrorHandler(
  * validate → handle → serialize → audit.
  */
 export function buildApp(dependencies: AppDependencies): FastifyInstance {
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: loggerOptions() });
   app.decorate("database", dependencies.database);
   app.decorate("tokenVerifier", dependencies.tokenVerifier);
   app.decorate("leadSink", dependencies.leadSink ?? createNoopLeadSink());
@@ -167,7 +168,9 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
 
   app.register(
     async (api) => {
-      await api.register(healthRoutes);
+      // `logLevel: warn` so Cloud Run's liveness probe does not write two log
+      // lines per check — a health probe that returns 200 is not news.
+      await api.register(healthRoutes, { logLevel: "warn" });
       await api.register(sessionRoutes);
       await api.register(meRoutes);
       await api.register(eventRoutes);

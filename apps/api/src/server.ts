@@ -47,9 +47,9 @@ const app = buildApp({
 app
   .listen({ port: env.PORT, host: env.HOST })
   .then((address) => {
-    console.log(`shoWMe API listening on ${address}`);
+    app.log.info({ address }, "shoWMe API listening");
   })
   .catch((error) => {
-    console.error(error);
+    app.log.fatal(error, "shoWMe API failed to start");
     process.exit(1);
   });

@@ -1,0 +1,157 @@
+import Fastify, { type FastifyRequest } from "fastify";
+import { describe, expect, it } from "vitest";
+import { loggerOptions, sanitizeUrl } from "./logging";
+
+/**
+ * The share token in `/shares/:token` is a bearer capability (routes/shares.ts).
+ * Turning the logger on without these tests would publish one to Cloud Logging
+ * on every request that carries it.
+ */
+describe("sanitizeUrl", () => {
+  it("leaves an ordinary path alone", () => {
+    expect(sanitizeUrl("/api/v1/events/evt_1")).toBe("/api/v1/events/evt_1");
+  });
+
+  it("leaves an ordinary query string byte-for-byte alone", () => {
+    expect(sanitizeUrl("/api/v1/events?status=confirmed&limit=25")).toBe(
+      "/api/v1/events?status=confirmed&limit=25",
+    );
+  });
+
+  it("masks the share token in the path", () => {
+    expect(sanitizeUrl("/api/v1/shares/9f3c1adeadbeef")).toBe("/api/v1/shares/[redacted]");
+  });
+
+  it("masks the share token but keeps the sub-route readable", () => {
+    expect(sanitizeUrl("/api/v1/shares/9f3c1adeadbeef/otp")).toBe("/api/v1/shares/[redacted]/otp");
+    expect(sanitizeUrl("/api/v1/shares/9f3c1adeadbeef/verify")).toBe(
+      "/api/v1/shares/[redacted]/verify",
+    );
+  });
+
+  it("masks a token, code or otp carried in the query string", () => {
+    expect(sanitizeUrl("/api/v1/anything?token=secret")).toContain("token=%5Bredacted%5D");
+    expect(sanitizeUrl("/api/v1/anything?code=123456")).toContain("code=%5Bredacted%5D");
+    expect(sanitizeUrl("/api/v1/anything?otp=123456")).toContain("otp=%5Bredacted%5D");
+  });
+
+  it("keeps the non-secret parameters beside a masked one", () => {
+    const sanitized = sanitizeUrl("/api/v1/shares/abc?token=secret&page=2");
+    expect(sanitized).toContain("page=2");
+    expect(sanitized).not.toContain("secret");
+    expect(sanitized).not.toContain("abc");
+  });
+});
+
+describe("loggerOptions", () => {
+  it("is off under test, so the suite stays silent", () => {
+    expect(loggerOptions({ NODE_ENV: "test" })).toBe(false);
+  });
+
+  it("is on everywhere else", () => {
+    expect(loggerOptions({ NODE_ENV: "production" })).not.toBe(false);
+  });
+
+  it("maps pino levels onto Cloud Logging severities", () => {
+    const options = loggerOptions({ NODE_ENV: "production" });
+    if (options === false || options === true || options === undefined) {
+      throw new Error("expected logger options");
+    }
+    const level = options.formatters?.level;
+    if (!level) throw new Error("expected a level formatter");
+    expect(level("error", 50)).toEqual({ severity: "ERROR" });
+    expect(level("warn", 40)).toEqual({ severity: "WARNING" });
+    expect(level("info", 30)).toEqual({ severity: "INFO" });
+    expect(level("fatal", 60)).toEqual({ severity: "CRITICAL" });
+  });
+
+  it("honours LOG_LEVEL", () => {
+    const options = loggerOptions({ NODE_ENV: "production", LOG_LEVEL: "warn" });
+    if (options === false || options === true || options === undefined) {
+      throw new Error("expected logger options");
+    }
+    expect(options.level).toBe("warn");
+  });
+});
+
+/**
+ * The point of the whole change: a 500 must leave a diagnosable line behind.
+ * These drive a real Fastify instance with the real options and read what
+ * actually lands on the log stream.
+ */
+describe("what a live request actually writes", () => {
+  /** Boot Fastify with the production logger, pointed at an in-memory stream. */
+  async function captureLogLines(
+    register: (app: ReturnType<typeof Fastify>) => void,
+    request: { method: "GET"; url: string; headers?: Record<string, string> },
+  ): Promise<Record<string, unknown>[]> {
+    const lines: Record<string, unknown>[] = [];
+    const options = loggerOptions({ NODE_ENV: "production" });
+    if (options === false || options === true || options === undefined) {
+      throw new Error("expected logger options");
+    }
+    const app = Fastify({
+      logger: {
+        ...options,
+        stream: {
+          write(line: string) {
+            lines.push(JSON.parse(line));
+          },
+        },
+      },
+    });
+    register(app);
+    await app.ready();
+    await app.inject(request);
+    await app.close();
+    return lines;
+  }
+
+  it("stamps every line the way Cloud Logging reads it", async () => {
+    const lines = await captureLogLines(
+      (app) => app.get("/api/v1/events", async () => ({ ok: true })),
+      { method: "GET", url: "/api/v1/events" },
+    );
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) {
+      expect(line.severity).toBeTypeOf("string");
+      expect(line.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(line.level).toBeUndefined();
+    }
+  });
+
+  it("writes the error behind a 500 instead of swallowing it", async () => {
+    const lines = await captureLogLines(
+      (app) =>
+        app.get("/api/v1/events", async (request: FastifyRequest) => {
+          request.log.error(new Error("the database fell over"), "request failed");
+          throw new Error("the database fell over");
+        }),
+      { method: "GET", url: "/api/v1/events" },
+    );
+    const errors = lines.filter((line) => line.severity === "ERROR");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(JSON.stringify(errors)).toContain("the database fell over");
+  });
+
+  it("never writes the caller's Firebase token", async () => {
+    const lines = await captureLogLines(
+      (app) => app.get("/api/v1/events", async () => ({ ok: true })),
+      {
+        method: "GET",
+        url: "/api/v1/events",
+        headers: { authorization: "Bearer a-real-looking-firebase-id-token" },
+      },
+    );
+    expect(JSON.stringify(lines)).not.toContain("a-real-looking-firebase-id-token");
+  });
+
+  it("never writes a share token", async () => {
+    const lines = await captureLogLines(
+      (app) => app.get("/api/v1/shares/:token", async () => ({ ok: true })),
+      { method: "GET", url: "/api/v1/shares/9f3c1adeadbeef" },
+    );
+    expect(JSON.stringify(lines)).not.toContain("9f3c1adeadbeef");
+    expect(JSON.stringify(lines)).toContain("[redacted]");
+  });
+});
