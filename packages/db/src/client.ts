@@ -21,7 +21,13 @@ function connect(connectionString: string) {
   const user = decodeURIComponent(connectionString.match(/:\/\/([^:/@]+):/)?.[1] ?? "");
   const password = decodeURIComponent(connectionString.match(/:\/\/[^:/@]+:([^@]*)@/)?.[1] ?? "");
   const database = connectionString.match(/@[^/]*\/([^?]+)/)?.[1] ?? "";
-  return postgres({ host: decodeURIComponent(socket[1] ?? ""), database, username: user, password, ssl: false });
+  return postgres({
+    host: decodeURIComponent(socket[1] ?? ""),
+    database,
+    username: user,
+    password,
+    ssl: false,
+  });
 }
 
 export function createDatabase(connectionString: string) {

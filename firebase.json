@@ -11,11 +11,7 @@
   "hosting": [
     {
       "public": "apps/marketing/dist",
-      "ignore": [
-        "firebase.json",
-        "**/.*",
-        "**/node_modules/**"
-      ],
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
       "headers": [
         {
           "//": "Catch-all so the bare root is covered too: `*.html` misses `/` (a directory index), which is why the root served max-age=3600 while /index.html did not. Also covers the unhashed scene scripts, whose URLs are stable so a fix would otherwise sit behind a cache.",
@@ -44,11 +40,7 @@
       "//": "The React SPA. Every path must serve index.html so TanStack Router owns routing; the hashed Vite bundle is immutable, so it caches hard while the shell revalidates.",
       "target": "web",
       "public": "apps/web/dist",
-      "ignore": [
-        "firebase.json",
-        "**/.*",
-        "**/node_modules/**"
-      ],
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
       "rewrites": [
         {
           "source": "**",

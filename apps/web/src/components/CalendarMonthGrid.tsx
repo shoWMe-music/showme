@@ -115,9 +115,21 @@ export function CalendarMonthGrid({
             return (
               <div
                 key={cell.key}
+                // Clicking anywhere in the cell selects the day. The keyboard route is
+                // the day-number button below, NOT a role/tabIndex on this div: the cell
+                // already contains real buttons (the day number, every event chip), so
+                // making it a button too would nest interactive elements. This handler
+                // exists for the keyboard user who has focused the cell itself, and
+                // ignores keys bubbling up from those inner controls.
                 onClick={(clickEvent) =>
                   onSelectDay?.(cell.key, clickEvent.currentTarget.getBoundingClientRect())
                 }
+                onKeyDown={(keyEvent) => {
+                  if (keyEvent.target !== keyEvent.currentTarget) return;
+                  if (keyEvent.key !== "Enter" && keyEvent.key !== " ") return;
+                  keyEvent.preventDefault();
+                  onSelectDay?.(cell.key, keyEvent.currentTarget.getBoundingClientRect());
+                }}
                 onDoubleClick={() => onCreateAt?.(cell.key)}
                 style={{
                   position: "relative",
@@ -133,6 +145,17 @@ export function CalendarMonthGrid({
               >
                 <button
                   type="button"
+                  // The cell's keyboard equivalent: this button is already in the tab
+                  // order, so selecting the day from it costs no extra tab stops and
+                  // needs no ARIA. It measures the CELL's rectangle, not its own, so the
+                  // popover lands where a click would have put it.
+                  aria-label={`Select ${cell.key}`}
+                  onClick={(clickEvent) => {
+                    clickEvent.stopPropagation();
+                    const cellElement = clickEvent.currentTarget.parentElement;
+                    if (!cellElement) return;
+                    onSelectDay?.(cell.key, cellElement.getBoundingClientRect());
+                  }}
                   style={{
                     alignSelf: "flex-start",
                     display: "inline-grid",

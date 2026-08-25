@@ -10,9 +10,7 @@ const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 /** Sentence-case field label (Calendar / From / To) — the design uses these for
  * inputs, and reserves the uppercase `Eyebrow` for section headers. */
 function FieldLabel({ children }: { children: ReactNode }) {
-  return (
-    <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{children}</span>
-  );
+  return <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{children}</span>;
 }
 
 export interface AvailabilityShareModalProps {

@@ -1,0 +1,153 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push makes the in-flight run irrelevant. The Docker-heavy jobs below are
+# the expensive ones, so cancel rather than let two generations of them queue up.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Nothing in this workflow writes back to the repo or talks to GCP.
+permissions:
+  contents: read
+
+env:
+  # Both Playwright configs branch on CI: it turns on `forbidOnly` and turns OFF
+  # `reuseExistingServer`, so the suite always tests a server this run started.
+  CI: "true"
+  TURBO_TELEMETRY_DISABLED: "1"
+  DO_NOT_TRACK: "1"
+
+jobs:
+  lint:
+    name: Biome (lint + format)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      # `biome check` is lint AND formatting in one pass. It reports formatting
+      # drift without rewriting anything, so a red job means "run pnpm format".
+      - run: pnpm lint
+
+  build-and-typecheck:
+    name: Build + typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      # Build first: turbo's `typecheck` only depends on ^build (dependencies),
+      # so without this the apps' own bundlers never run and a broken vite build
+      # would sail through. Running both in one job also lets the second command
+      # reuse the first one's turbo cache instead of rebuilding on a fresh runner.
+      - run: pnpm build
+      - run: pnpm typecheck
+
+  unit-tests:
+    name: Unit + integration (Vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      # The DB-backed suites boot a real Postgres per test file via Testcontainers
+      # (packages/db/src/testing.ts), up to 4 at once. Pull the image once up front
+      # so those parallel container starts don't each wait on the same download.
+      - run: docker pull postgres:18-alpine
+
+      # Everything except the two Playwright packages, which have their own jobs.
+      # Negative filters keep new Vitest packages included automatically.
+      - run: pnpm exec turbo run test --filter='!@showme/web' --filter='!@showme/marketing'
+
+  marketing-e2e:
+    name: Marketing e2e (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      # Chromium is a ~130 MB download per job per run. Keyed on the lockfile so a
+      # Playwright version bump invalidates it automatically.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      # Both marketing projects (Desktop Chrome, Pixel 5) run on Chromium, so that
+      # is the only engine worth downloading. `--with-deps` adds the system
+      # libraries the headless browser needs on a bare runner.
+      - run: pnpm --filter @showme/marketing exec playwright install --with-deps chromium
+
+      # Self-contained: the config's webServer does `vite build && vite preview`.
+      # No database, no emulator, no API.
+      #
+      # `--ignore-snapshots` because the only pixel baselines in the repo
+      # (tests/animations.spec.ts-snapshots) were captured on macOS and are named
+      # `-chromium-darwin.png`. Linux rasterises text and canvas differently, so a
+      # Linux runner would look for baselines that do not exist and be red on every
+      # run. The frozen-frame specs still execute end to end — the fake clock, the
+      # seek to t=2s, the screenshot — only the byte comparison is skipped. To get
+      # real visual coverage here, commit `-chromium-linux` baselines generated on
+      # this same runner image (`playwright test --update-snapshots`) and drop the flag.
+      - run: pnpm --filter @showme/marketing exec playwright test --ignore-snapshots
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: marketing-playwright-results
+          path: apps/marketing/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  web-e2e:
+    name: Web app e2e (full local stack)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      # The Firebase Auth emulator that scripts/stack.mjs starts is a Java process.
+      # Pin the JDK instead of inheriting whatever the runner image ships this week.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # firebase-tools downloads the emulator jar on first use. Cache it so every
+      # run does not re-fetch it from Google.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}
+
+      # Chromium is a ~130 MB download per job per run. Keyed on the lockfile so a
+      # Playwright version bump invalidates it automatically.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - run: pnpm --filter @showme/web exec playwright install --with-deps chromium
+
+      # scripts/e2e.mjs is the whole stack: throwaway Docker Postgres -> migrate ->
+      # deterministic seed -> Auth emulator -> seeded accounts -> API -> SSE service,
+      # then `playwright test` (whose webServer builds and previews the SPA), then
+      # teardown. It needs no secrets: the only required env is DATABASE_URL, which
+      # it supplies itself, and every Firebase value is the demo-showme emulator.
+      - run: pnpm test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: web-playwright-results
+          path: apps/web/test-results/
+          if-no-files-found: ignore
+          retention-days: 7

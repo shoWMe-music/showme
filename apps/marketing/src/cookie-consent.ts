@@ -29,7 +29,8 @@ declare global {
 }
 
 function gtag(...args: unknown[]): void {
-  (window.dataLayer ??= []).push(args);
+  window.dataLayer ??= [];
+  window.dataLayer.push(args);
 }
 
 function readChoice(): ConsentChoice | null {

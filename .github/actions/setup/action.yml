@@ -1,0 +1,21 @@
+name: Set up the workspace
+description: Node 22 + pnpm with a cached store, then a frozen-lockfile install of the whole monorepo.
+
+runs:
+  using: composite
+  steps:
+    # No `version:` on purpose — the action reads `packageManager` from the root
+    # package.json, so the pinned pnpm stays pinned in exactly one place.
+    - uses: pnpm/action-setup@v4
+
+    # Must come AFTER pnpm exists: `cache: pnpm` shells out to `pnpm store path`.
+    # `.nvmrc` is the same Node the repo pins for local work (22).
+    - uses: actions/setup-node@v4
+      with:
+        node-version-file: .nvmrc
+        cache: pnpm
+
+    # Frozen lockfile: CI must fail on a stale pnpm-lock.yaml rather than quietly
+    # resolving something different from what a developer has on disk.
+    - run: pnpm install --frozen-lockfile
+      shell: bash

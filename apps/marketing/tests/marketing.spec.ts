@@ -72,9 +72,7 @@ test("home: hero + ecosystem + feature visuals render", async ({ page }) => {
   expect(errors, errors.join("\n")).toHaveLength(0);
 });
 
-test("home: problem section goes straight mess -> smart/synced (fix-list #2)", async ({
-  page,
-}) => {
+test("home: problem section goes straight mess -> smart/synced (fix-list #2)", async ({ page }) => {
   await page.goto("/", { waitUntil: "domcontentloaded" });
   // Both intermediate steps removed → 2 beats: the messy problem and the synced end.
   await expect(page.locator(".chaos .chaos__beat")).toHaveCount(2);
