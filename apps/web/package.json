@@ -15,7 +15,7 @@
     "@showme/design-system": "workspace:*",
     "@showme/shared": "workspace:*",
     "@tanstack/react-query": "^5.62.7",
-    "@tanstack/react-router": "^1.87.0",
+    "@tanstack/react-router": "1.170.24",
     "firebase": "^12.17.0",
     "gsap": "^3.15.0",
     "react": "^19.0.0",
