@@ -243,8 +243,32 @@ export const invoiceDirection = pgEnum("invoice_direction", ["issued", "received
 /** Invoice lifecycle. */
 export const invoiceState = pgEnum("invoice_state", ["draft", "sent", "paid", "overdue", "void"]);
 
-/** A calendar entry is a task, an appointment, or a free note. */
-export const calendarItemType = pgEnum("calendar_item_type", ["task", "appointment", "note"]);
+/**
+ * A calendar entry is a task, an appointment, a free note — or an `external`
+ * event: something that arrived from somebody else's calendar (Google, an .ics)
+ * rather than being written here.
+ *
+ * WHY `external` is a TYPE and not only `external_source IS NOT NULL`. The two
+ * columns answer different questions and the product asks both. `external_source`
+ * says WHERE a row came from — it is provenance, and it names a provider.
+ * `type` says WHAT the row is TO shoWMe, which is the word the user reached for:
+ * "we will treat them as external events unless the user decides to turn it into
+ * a real event". An external event is its own thing here — it blocks time, it
+ * hides its title from everyone but the person whose calendar it came from, and
+ * it can be promoted into a show. None of that is true of a task or a note, and
+ * all of it keys off one legible predicate rather than a NULL check.
+ *
+ * They cannot drift: `POST /calendar` refuses `external` outright (an external
+ * event is not hand-authored — it arrives through the sync seam, which always
+ * stamps both), so every `external` row carries provenance and every row with
+ * provenance is `external`.
+ */
+export const calendarItemType = pgEnum("calendar_item_type", [
+  "task",
+  "appointment",
+  "note",
+  "external",
+]);
 
 /** Which surface a saved template applies to (`payload` is validated per-category). */
 export const templateCategory = pgEnum("template_category", [

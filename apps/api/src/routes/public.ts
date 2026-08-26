@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { conflict, forbidden, notFound, tooManyRequests } from "../errors";
+import { readProfileBusyTime } from "../lib/availability";
 import { createSlidingWindowRateLimiter } from "../lib/rate-limit";
 import { serializePublicEvent, serializePublicProfile } from "../serialize/public";
 
@@ -44,11 +45,42 @@ const PublicEventResponse = z.object({
   startTime: z.string().nullable(),
 });
 
+/**
+ * WHAT A STRANGER LEARNS FROM A PUBLIC AVAILABILITY PAGE, and what they do not.
+ *
+ * `unavailability` — whole days this profile is not bookable. Two sources, one
+ * shape: the blocks the profile made by hand (`profile_unavailability`) and the
+ * ALL-DAY entries imported from a connected calendar. It keeps the exact shape it
+ * has always had, so the public page that reads it (`apps/marketing/src/availability.ts`)
+ * keeps working unchanged and simply strikes out more days than before.
+ *
+ * `busyTimes` — HOURS taken on a day that is otherwise still bookable. This is
+ * new, and it is the whole point of the imported half: a 09:00–09:30 coffee must
+ * not blank out a night that can still host a show, while an all-day offsite
+ * should. A day appears here only when it is NOT already in `unavailability`
+ * for that reason.
+ *
+ * WHAT IS WITHHELD, on both: the title, the location, the provider, the remote
+ * id, the reason, and any id at all. A stranger may learn that this profile is
+ * busy on Tuesday from 09:00 to 09:30 — that is the fact they need in order to
+ * not ask. They may not learn that it is called "Founder Lunch", that it is at a
+ * competitor's address, or that it came from Google. The in-app read is narrower
+ * still by one degree: it shows the title to the person whose calendar it came
+ * from and "Busy" to everyone else (`serialize/calendar.ts`). This endpoint is
+ * the outer bound and shows a title to nobody.
+ */
 const AvailabilityResponse = z.object({
   unavailability: z.array(
     z.object({
       startDate: z.string(),
       endDate: z.string(),
+    }),
+  ),
+  busyTimes: z.array(
+    z.object({
+      date: z.string(),
+      startTime: z.string(),
+      endTime: z.string(),
     }),
   ),
 });
@@ -191,15 +223,11 @@ export async function publicRoutes(fastify: FastifyInstance): Promise<void> {
         );
       if (!profile) throw notFound("Profile not found");
 
-      const rows = await database
-        .select({
-          startDate: schema.profileUnavailability.startDate,
-          endDate: schema.profileUnavailability.endDate,
-        })
-        .from(schema.profileUnavailability)
-        .where(eq(schema.profileUnavailability.profileId, profile.id));
-
-      return { unavailability: rows };
+      // One rule, computed in one place, shared with the in-app read
+      // (`GET /profiles/:id/availability`) so the two can never disagree about
+      // when somebody is free.
+      const busy = await readProfileBusyTime(database, profile.id);
+      return { unavailability: busy.dateRanges, busyTimes: busy.timeWindows };
     },
   );
 

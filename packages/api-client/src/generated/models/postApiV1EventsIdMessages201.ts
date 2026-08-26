@@ -12,6 +12,9 @@ export type PostApiV1EventsIdMessages201 = {
   senderUserId: string;
   /** @nullable */
   senderParticipantId: string | null;
+  threadKey: string;
+  /** @nullable */
+  threadParticipantId: string | null;
   body: string;
   /** @nullable */
   attachments?: PostApiV1EventsIdMessages201Attachments;

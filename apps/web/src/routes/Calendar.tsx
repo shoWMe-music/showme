@@ -9,6 +9,8 @@ import { CalendarDayAgenda } from "../components/CalendarDayAgenda";
 import { CalendarFilterChip } from "../components/CalendarFilterChip";
 import { CalendarItemCreateModal } from "../components/CalendarItemCreateModal";
 import { CalendarWeekGrid } from "../components/CalendarWeekGrid";
+import { DateTimeField } from "../components/DateTimeField";
+import { ExternalCalendarCard } from "../components/ExternalCalendarCard";
 import { MarkUnavailableModal } from "../components/MarkUnavailableModal";
 import {
   type CalendarView,
@@ -23,6 +25,7 @@ import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
 import { useCalendarIcsExport } from "../components/useCalendarIcsExport";
 import { type CalendarItemKind, useCalendarItemCreate } from "../components/useCalendarItemCreate";
+import { useExternalCalendarEntries } from "../components/useExternalCalendarEntries";
 import { blocksOverlappingRange, useMarkUnavailable } from "../components/useMarkUnavailable";
 import { useAvailabilityShare } from "../hooks/useAvailabilityShare";
 import { type EventItem, useAllEvents } from "../hooks/useEventList";
@@ -51,6 +54,13 @@ const TYPE_TO_STATUS: Record<string, Status> = {
   task: "task",
   appointment: "task",
   note: "draft",
+  // Imported entries take the muted `concluded` tint: they are the one kind on
+  // this grid that is NOT shoWMe's, and reading as background is exactly right
+  // for something that occupies a night without being a show. The palette is
+  // fixed by the design system and every hue is already spoken for, so the tint
+  // is shared and the WORD does the telling apart — the same trade this map
+  // already makes for appointments (see below).
+  external: "concluded",
 };
 
 /** What to CALL each calendar-item kind. Separate from `TYPE_TO_STATUS` because
@@ -62,6 +72,7 @@ const TYPE_LABEL: Record<string, string> = {
   task: "Task",
   appointment: "Appointment",
   note: "Note",
+  external: "External",
 };
 
 /** The legend, verbatim from the prototype (§2): the six event statuses plus
@@ -94,6 +105,10 @@ const LEGEND: { label: string; color: string }[] = [
 const STATUS_FILTER_OPTIONS: { key: string; label: string; color: string }[] = [
   ...LEGEND.map((entry) => ({ key: entry.label, label: entry.label, color: entry.color })),
   { key: "Draft", label: "Draft", color: "#8C7A6C" },
+  // Same reasoning as Draft: imported entries are real rows on the grid, and a
+  // filter that cannot name what is on screen is a filter that hides it with no
+  // way back. Not added to LEGEND, which is verbatim from the prototype.
+  { key: "External", label: "External", color: "#B8A99B" },
 ];
 
 /** The three "My Calendars" sources from the prototype, with their swatch. */
@@ -124,6 +139,36 @@ function toDayKey(value: string): string {
   if (BARE_DATE.test(value)) return value;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value.slice(0, 10) : dayKey(date);
+}
+
+/**
+ * Every day key from `date` to `endDate` inclusive; just `[date]` when the entry
+ * does not span. Capped, because the bound comes from a row somebody else's
+ * calendar wrote and a runaway range would draw a year of chips.
+ *
+ * The cursor is built from the string's own parts for the reason `toDayKey`
+ * explains: `new Date("2026-10-10")` is UTC midnight, and reading it back with
+ * local getters lands on the 9th anywhere west of Greenwich.
+ */
+const MAX_SPANNED_DAYS = 366;
+
+function spannedDayKeys(date: string, endDate: string | null | undefined): string[] {
+  const start = toDayKey(date);
+  const end = endDate ? toDayKey(endDate) : start;
+  if (end <= start) return [start];
+
+  const [year, month, day] = start.split("-").map(Number);
+  if (!year || !month || !day) return [start];
+
+  const days: string[] = [];
+  const cursor = new Date(year, month - 1, day);
+  while (days.length < MAX_SPANNED_DAYS) {
+    const key = dayKey(cursor);
+    days.push(key);
+    if (key >= end) break;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return days;
 }
 
 /** A bordered secondary control matching the prototype's toolbar buttons. */
@@ -329,15 +374,21 @@ export function Calendar() {
     // notes) and the dated events. They come from different tables and share no
     // ids, so there is nothing to de-duplicate — and showing only one of them
     // would hide every event from anyone who had also written down a task.
-    const items: CalendarEvent[] = (calendar.data ?? []).map((item: CalendarItem) => ({
-      id: item.id,
-      date: toDayKey(item.date),
-      eventName: item.title,
-      performer: item.entity ?? undefined,
-      startTime: item.startTime ?? undefined,
-      status: TYPE_TO_STATUS[item.type] ?? "draft",
-      statusLabel: TYPE_LABEL[item.type] ?? item.type,
-    }));
+    const items: CalendarEvent[] = (calendar.data ?? []).flatMap((item: CalendarItem) =>
+      // One row can span days (an imported festival or holiday), and a grid draws
+      // days — so a multi-day entry becomes one chip per day it covers. The chips
+      // share the row's id with a day suffix, because React needs distinct keys
+      // and nothing on the grid navigates by a calendar item's id.
+      spannedDayKeys(item.date, item.endDate).map((day, index) => ({
+        id: index === 0 ? item.id : `${item.id}@${day}`,
+        date: day,
+        eventName: item.title,
+        performer: item.entity ?? undefined,
+        startTime: item.startTime ?? undefined,
+        status: TYPE_TO_STATUS[item.type] ?? "draft",
+        statusLabel: TYPE_LABEL[item.type] ?? item.type,
+      })),
+    );
     // Events are real, so tag them with eventId to click through.
     const evented: EventItem[] = events.items;
     const dated: CalendarEvent[] = evented
@@ -399,6 +450,10 @@ export function Calendar() {
     setUnavailableOpen(false);
     toast.success("Blocked dates saved.");
   });
+  // The imported entries that touch what is on screen, plus the two writes the
+  // rail card offers on each of them.
+  const externalEntries = useExternalCalendarEntries(calendar.data ?? [], visibleRange);
+
   const blockedInView = blocksOverlappingRange(
     markUnavailable.savedBlocks,
     visibleRange.from,
@@ -697,7 +752,9 @@ export function Calendar() {
             aria-label="Filter by venue or room"
             style={filterInputStyle()}
           />
-          <input
+          {/* Ours, not Chrome's: every other date field in the app opens the
+              in-app picker, and a native popup here arrived in system blue. */}
+          <DateTimeField
             type="date"
             value={dateJump}
             onChange={(event) => onDateJump(event.target.value)}
@@ -800,6 +857,13 @@ export function Calendar() {
                 Edit blocked dates
               </button>
             </Card>
+
+            <ExternalCalendarCard
+              view={externalEntries}
+              periodTitle={periodTitle}
+              canCreateEvent={canCreateEvent}
+              onOpenEvent={(eventId) => navigate({ to: "/events/$eventId", params: { eventId } })}
+            />
 
             <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <Eyebrow>My calendars</Eyebrow>

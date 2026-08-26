@@ -41,6 +41,8 @@ export type GetApiV1BookingRequests200ItemsItem = {
   /** @nullable */
   offerFeeMax: string | null;
   /** @nullable */
+  eventId: string | null;
+  /** @nullable */
   currency: string | null;
   createdAt: string;
 };

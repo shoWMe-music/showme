@@ -16,6 +16,11 @@ export type PatchApiV1CalendarIdBody = {
    * @minLength 1
    * @nullable
    */
+  endDate?: string | null;
+  /**
+   * @minLength 1
+   * @nullable
+   */
   startTime?: string | null;
   /**
    * @minLength 1

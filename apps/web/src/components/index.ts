@@ -37,6 +37,9 @@ export type {
 } from "./EventDetailsTab";
 
 export { EventTodoTab, EventTeamCrewTab, EventHistoryTab } from "./EventExtraTabs";
+
+export { EventMessagesTab } from "./EventMessagesTab";
+export type { MessagesTabParty } from "./EventMessagesTab";
 export type { CrewMember } from "./EventExtraTabs";
 
 export { EventStatusTimeline } from "./EventStatusTimeline";

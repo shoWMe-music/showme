@@ -7,6 +7,7 @@ import { z } from "zod";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
 import { type Transaction, writeAudit } from "../lib/audit";
 import { requireProfileRole } from "../lib/authorize";
+import { readProfileBusyTime } from "../lib/availability";
 import { assertProfileAdminGrantAllows } from "../lib/entitlements";
 import { withIdempotency } from "../plugins/idempotency";
 import { type ProfileRelations, serializeProfile } from "../serialize/profile";
@@ -175,6 +176,19 @@ const UnavailabilityResponse = z.object({
   startDate: z.string(),
   endDate: z.string(),
   reason: z.string().nullable(),
+});
+
+/**
+ * The in-app answer to "when is this profile free" — the SAME union the public
+ * page gets, from the same module, so a share window and a public link can never
+ * disagree. Deliberately identical in shape to the public response and not a
+ * superset: a member can already read the underlying rows through
+ * `GET /profiles/:id/unavailability` and `GET /calendar`, so widening this one
+ * would only give two ways to ask the same question.
+ */
+const AvailabilityResponse = z.object({
+  unavailability: z.array(z.object({ startDate: z.string(), endDate: z.string() })),
+  busyTimes: z.array(z.object({ date: z.string(), startTime: z.string(), endTime: z.string() })),
 });
 
 const TemplateResponse = z.object({
@@ -907,6 +921,44 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
         endDate: row.endDate,
         reason: row.reason,
       }));
+    },
+  );
+
+  /**
+   * The computed availability for a profile: hand-made blocks UNIONED with the
+   * days and hours taken by entries imported from a connected calendar.
+   *
+   * WHY A ROUTE AND NOT CLIENT-SIDE ARITHMETIC. The share modal used to derive
+   * "free days" from the events it happened to have on screen, which meant the
+   * rule lived in a React hook, ran over a month's worth of data for a window
+   * that routinely runs past the month edge, and never subtracted recorded
+   * unavailability at all. That is three ways for the app to advertise a date it
+   * cannot honour. The rule belongs in one framework-agnostic module
+   * (`lib/availability.ts`); this is its authenticated door.
+   *
+   * No title, no reason, no ids — same as the public shape. A member who wants
+   * detail reads the calendar itself, where the serializer applies the
+   * owner-only-title rule.
+   */
+  app.get(
+    "/profiles/:id/availability",
+    {
+      schema: {
+        params: ProfileParams,
+        querystring: z.object({
+          from: z.string().min(1).optional(),
+          to: z.string().min(1).optional(),
+        }),
+        response: { 200: AvailabilityResponse },
+      },
+    },
+    async (request) => {
+      const { database } = request.server;
+      const { id } = request.params;
+
+      requireProfileRole(request, id, [...ANY_ROLE]);
+      const busy = await readProfileBusyTime(database, id, request.query);
+      return { unavailability: busy.dateRanges, busyTimes: busy.timeWindows };
     },
   );
 

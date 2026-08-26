@@ -5,17 +5,20 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { PostApiV1BookingRequestsBodySource } from './postApiV1BookingRequestsBodySource';
+import type { PostApiV1BookingRequestsBodyContactName } from './postApiV1BookingRequestsBodyContactName';
+import type { PostApiV1BookingRequestsBodyEmail } from './postApiV1BookingRequestsBodyEmail';
+import type { PostApiV1BookingRequestsBodyArtistName } from './postApiV1BookingRequestsBodyArtistName';
+import type { PostApiV1BookingRequestsBodyPitch } from './postApiV1BookingRequestsBodyPitch';
 
 export type PostApiV1BookingRequestsBody = {
   source: PostApiV1BookingRequestsBodySource;
   targetProfileId: string;
-  /** @minLength 1 */
-  contactName: string;
-  email: string;
-  /** @minLength 1 */
-  artistName?: string;
+  contactName: PostApiV1BookingRequestsBodyContactName;
+  email: PostApiV1BookingRequestsBodyEmail;
+  artistName?: PostApiV1BookingRequestsBodyArtistName;
+  /** @pattern ^\d{4}-\d{2}-\d{2}$ */
   wantedDate?: string;
-  pitch?: string;
+  pitch?: PostApiV1BookingRequestsBodyPitch;
   /** @pattern ^\d+$ */
   offerFeeMin?: string;
   /** @pattern ^\d+$ */

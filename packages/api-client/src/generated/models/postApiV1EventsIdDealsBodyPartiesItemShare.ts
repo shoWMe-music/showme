@@ -12,7 +12,8 @@ export type PostApiV1EventsIdDealsBodyPartiesItemShare = {
    */
   splitBasisPoints?: number;
   /** @pattern ^-?\d+$ */
-  guaranteeAmount?: string;
+  illustrativeAmount?: string;
+  guaranteeAmount?: unknown;
   /** @minLength 1 */
   currency?: string;
   terms?: string;

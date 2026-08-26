@@ -10,5 +10,6 @@ export type PostApiV1EventsIdMessagesBody = {
   /** @minLength 1 */
   body: string;
   visibility?: PostApiV1EventsIdMessagesBodyVisibility;
+  threadParticipantId?: string;
   attachments?: unknown;
 };

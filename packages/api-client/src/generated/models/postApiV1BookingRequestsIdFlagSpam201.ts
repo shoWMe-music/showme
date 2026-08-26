@@ -8,4 +8,7 @@
 export type PostApiV1BookingRequestsIdFlagSpam201 = {
   id: string;
   flagged: boolean;
+  status: string;
+  /** @nullable */
+  reportedProfileId: string | null;
 };

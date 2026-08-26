@@ -12,6 +12,9 @@ export type GetApiV1EventsIdMessages200Item = {
   senderUserId: string;
   /** @nullable */
   senderParticipantId: string | null;
+  threadKey: string;
+  /** @nullable */
+  threadParticipantId: string | null;
   body: string;
   /** @nullable */
   attachments?: GetApiV1EventsIdMessages200ItemAttachments;

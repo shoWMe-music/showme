@@ -78,6 +78,13 @@
       "when": 1787699035003,
       "tag": "0010_a_venue_says_what_it_has",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1787702635003,
+      "tag": "0011_calendar_imports_block_time_and_can_become_shows",
+      "breakpoints": true
     }
   ]
 }

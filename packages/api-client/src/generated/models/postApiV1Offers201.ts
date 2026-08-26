@@ -41,6 +41,8 @@ export type PostApiV1Offers201 = {
   /** @nullable */
   offerFeeMax: string | null;
   /** @nullable */
+  eventId: string | null;
+  /** @nullable */
   currency: string | null;
   createdAt: string;
 };

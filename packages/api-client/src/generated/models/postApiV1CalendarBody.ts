@@ -13,6 +13,8 @@ export type PostApiV1CalendarBody = {
   /** @minLength 1 */
   date: string;
   /** @minLength 1 */
+  endDate?: string;
+  /** @minLength 1 */
   startTime?: string;
   /** @minLength 1 */
   endTime?: string;

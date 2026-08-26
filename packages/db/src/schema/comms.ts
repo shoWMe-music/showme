@@ -118,22 +118,146 @@ export const taskReminders = pgTable("task_reminders", {
   label: text("label"),
 });
 
-/** Unified calendar entries — event/profile/personal, appointment/task/note. */
-export const calendarItems = pgTable("calendar_items", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  ownerProfileId: uuid("owner_profile_id").references(() => profiles.id),
-  ownerUserId: text("owner_user_id").references(() => users.id),
-  type: calendarItemType("type").notNull(),
-  title: text("title").notNull(),
-  date: date("date").notNull(),
-  startTime: time("start_time"),
-  endTime: time("end_time"),
-  entity: text("entity"),
-  assigneeUserId: text("assignee_user_id").references(() => users.id),
-  assigneeName: text("assignee_name"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+/**
+ * Unified calendar entries — event/profile/personal; task, appointment, note, or
+ * an imported `external` event.
+ *
+ * OWNERSHIP IS TWO COLUMNS AND BOTH MATTER FOR AN IMPORTED ROW.
+ * `ownerProfileId` is WHOSE AVAILABILITY this occupies — availability is a
+ * property of a profile (that is what `profile_unavailability` is keyed by and
+ * what the public page is asked about), so an import that should block bookings
+ * must name a profile. `ownerUserId` is WHOSE CALENDAR IT CAME FROM — the person
+ * who connected the account. A hand-authored row sets one or the other; an
+ * imported row sets BOTH, and the pair is exactly what the title rule needs:
+ * co-members of a profile may see that Tuesday 09:00–09:30 is taken, but only the
+ * person whose Google account it came from may see that it is called "Founder
+ * Lunch" (see `serialize/calendar.ts`).
+ */
+export const calendarItems = pgTable(
+  "calendar_items",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerProfileId: uuid("owner_profile_id").references(() => profiles.id),
+    ownerUserId: text("owner_user_id").references(() => users.id),
+    type: calendarItemType("type").notNull(),
+    title: text("title").notNull(),
+    date: date("date").notNull(),
+    // The last day this entry runs, inclusive; null means it starts and ends on
+    // `date`. Added for imports: a real calendar contains multi-day entries (a
+    // festival, a holiday, a tour leg), and a single `date` could only model one
+    // by expanding it into a row per day — which would give every one of those
+    // rows the SAME `external_id` and so collide with the idempotency index that
+    // makes re-syncing safe. One row, two bounds, one identity.
+    endDate: date("end_date"),
+    startTime: time("start_time"),
+    endTime: time("end_time"),
+    entity: text("entity"),
+    assigneeUserId: text("assignee_user_id").references(() => users.id),
+    assigneeName: text("assignee_name"),
+    // Where this row came from, when it did not come from us. `externalSource` names
+    // the provider ("google", "ics"); `externalId` is that provider's opaque event id.
+    // The pair is what makes a re-sync idempotent — without it, importing the same
+    // calendar twice duplicates every entry, because nothing else about a calendar
+    // row is stable enough to match on (a title and a date are not an identity).
+    // Both null for anything authored inside shoWMe. See migration 0009.
+    externalSource: text("external_source"),
+    externalId: text("external_id"),
+    // Does this entry take its time off the owner's availability? True by default,
+    // which is the product rule stated plainly: an imported commitment occupies you
+    // unless you say otherwise. `false` is the user's "available anyway" override —
+    // the dentist appointment you would happily move for a show.
+    //
+    // WHY A FLAG RATHER THAN DELETING THE ROW: the entry is still on the user's real
+    // calendar. Deleting it here would make it come straight back on the next sync,
+    // and the override with it. The flag survives an upsert precisely because the
+    // upsert does not touch it.
+    //
+    // Non-external rows carry `true` as well, and nothing reads it there yet — the
+    // availability union ingests imported entries only, because a note or a task is
+    // a reminder, not an occupied window. The value is not a lie: it says "if this
+    // were counted, it would count", which is what a shoWMe-authored appointment
+    // would want if appointments are ever folded in.
+    blocksAvailability: boolean("blocks_availability").notNull().default(true),
+    // The shoWMe event this entry was turned into ("turn it into a real event").
+    // Modelled exactly like `booking_requests.event_id`: the calendar entry predates
+    // the event and outlives it, so the link is `SET NULL` rather than `CASCADE` —
+    // deleting the show must not silently delete the imported entry, because the
+    // commitment is still on the user's real calendar and still occupies the night.
+    promotedEventId: uuid("promoted_event_id").references(() => events.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // The availability read is "this profile, these days" and the list route is the
+  // same question — one composite index serves both. Deliberately NOT partial on
+  // `type = 'external'`: a partial index on a value added to the enum in the same
+  // migration cannot be created in that migration (Postgres refuses to use a new
+  // enum value in the transaction that added it), and the full index is useful to
+  // the list route anyway.
+  (table) => [index("calendar_items_owner_profile_date_idx").on(table.ownerProfileId, table.date)],
+);
+
+/**
+ * A copy of one of OUR events living on somebody else's calendar — the outbound
+ * half of calendar sync ("the events in shoWMe should also show in the calendar").
+ *
+ * WHY A TABLE AND NOT COLUMNS ON `events`. The inbound and outbound directions are
+ * not the same relationship, and collapsing them would be the mistake. An imported
+ * row EXISTS BECAUSE the remote event exists — that is provenance, it is intrinsic
+ * to the row, and it belongs on the row (`calendar_items.external_source/id`, added
+ * by 0009). A pushed copy is the opposite: the `events` row is the original and the
+ * remote copy is a projection with its own lifecycle, its own ETag, and its own
+ * failure modes. Putting `google_event_id`, `google_calendar_id`, `etag` and
+ * `pushed_at` on `events` would park four columns of sync plumbing in the middle of
+ * the booking/settlement spine, where every reader of the table has to scroll past
+ * them, and would add four more the day a second provider appears. Here a second
+ * provider is a second ROW.
+ *
+ * It is also what makes the ECHO trap detectable. Push an event to Google, then run
+ * the inbound sync, and without this table the event comes back as an imported
+ * external entry that blocks its own night twice. The inbound seam asks this table
+ * first — "is this remote id a copy of something of ours?" — and skips it if so.
+ * One indexed lookup on the unique key below.
+ *
+ * NOT HERE, deliberately: the credential. A `sync_token`, a refresh token, and the
+ * webhook channel registration are all per-CONNECTION (a user and one remote
+ * calendar), not per-event, and where a refresh token may be stored is an open
+ * security decision. See `lib/external-calendar.ts` for exactly what is still
+ * missing.
+ */
+export const externalCalendarMirrors = pgTable(
+  "external_calendar_mirrors",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    /** The provider holding the copy — "google" today. */
+    provider: text("provider").notNull(),
+    /** That provider's calendar id (for Google, the calendar's address). */
+    providerCalendarId: text("provider_calendar_id").notNull(),
+    /** That provider's id for the copy — what an update or a delete addresses. */
+    providerEventId: text("provider_event_id").notNull(),
+    /** The provider's version stamp, sent back as `If-Match` so a push cannot
+     * clobber an edit made on the far side without us noticing. */
+    etag: text("etag"),
+    /** When the provider last saw the copy change — theirs, not ours. */
+    remoteUpdatedAt: timestamp("remote_updated_at", { withTimezone: true }),
+    /** When we last wrote it. `remoteUpdatedAt > pushedAt` means they edited it. */
+    pushedAt: timestamp("pushed_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // One link per remote event, and the lookup the echo check performs.
+    unique("external_calendar_mirrors_remote_identity").on(
+      table.provider,
+      table.providerCalendarId,
+      table.providerEventId,
+    ),
+    index("external_calendar_mirrors_event_idx").on(table.eventId),
+  ],
+);
 
 /**
  * A profile's blocked dates. PLAN.md models this as a `daterange`; here it is a

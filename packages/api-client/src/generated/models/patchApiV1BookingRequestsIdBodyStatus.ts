@@ -10,6 +10,7 @@ export type PatchApiV1BookingRequestsIdBodyStatus = typeof PatchApiV1BookingRequ
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PatchApiV1BookingRequestsIdBodyStatus = {
+  pending: 'pending',
   accepted: 'accepted',
   declined: 'declined',
   archived: 'archived',

@@ -13,7 +13,10 @@ export type PostApiV1Calendar201 = {
   ownerUserId: string | null;
   type: string;
   title: string;
+  titleWithheld: boolean;
   date: string;
+  /** @nullable */
+  endDate: string | null;
   /** @nullable */
   startTime: string | null;
   /** @nullable */
@@ -24,6 +27,13 @@ export type PostApiV1Calendar201 = {
   assigneeUserId: string | null;
   /** @nullable */
   assigneeName: string | null;
+  /** @nullable */
+  externalSource: string | null;
+  /** @nullable */
+  externalId: string | null;
+  blocksAvailability: boolean;
+  /** @nullable */
+  promotedEventId: string | null;
   createdAt: string;
   updatedAt: string;
 };

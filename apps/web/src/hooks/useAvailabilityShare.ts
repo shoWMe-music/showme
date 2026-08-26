@@ -1,4 +1,4 @@
-import { useGetApiV1Profiles } from "@showme/api-client";
+import { useGetApiV1Profiles, useGetApiV1ProfilesIdAvailability } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
 import { useMemo, useState } from "react";
 import type { CalendarEvent } from "../components";
@@ -42,15 +42,35 @@ function datesInRange(from: string, to: string): string[] {
   return days;
 }
 
+/** A whole-day block from `GET /profiles/:id/availability`, inclusive at both ends. */
+interface BlockedRange {
+  startDate: string;
+  endDate: string;
+}
+
 /**
- * The days the sharer is NOT free. Read from BOTH sources on the screen: the
- * calendar feed only covers the month being viewed, while the event list covers
- * the whole schedule — and a share window routinely runs past the month edge, so
- * a month-only busy set would advertise days that are already booked.
+ * The days the sharer is NOT free. THREE sources, and each one closes a hole the
+ * other two leave open:
+ *
+ * 1. **The calendar feed** — the month on screen, for standalone entries.
+ * 2. **The event list** — the whole schedule, because a share window routinely
+ *    runs past the month edge and a month-only busy set advertises booked days.
+ * 3. **The profile's computed availability** — the hand-made blocked dates AND
+ *    the days taken by entries imported from a connected calendar. This one was
+ *    simply missing: "Mark Unavailable" wrote rows that the share modal never
+ *    read, so a user could block a week by hand and still hand out a link
+ *    offering it. It is fetched for the SHARE window, not the month, which is
+ *    why it is asked for separately from the grid's own feed.
+ *
+ * What is deliberately NOT here: the timed `busyTimes` half of that response. An
+ * entry from 09:00 to 09:30 does not take the night — the whole point of
+ * separating hours from days is that such a day stays offerable — and the shared
+ * link's format is a list of DATES, with nowhere to put an hour.
  */
 function busyDates(
   calendarEvents: CalendarEvent[],
   events: EventItem[],
+  blockedRanges: BlockedRange[],
   toggles: BusyToggles,
 ): Set<string> {
   const busy = new Set<string>();
@@ -68,6 +88,12 @@ function busyDates(
       (toggles.confirmed && event.status === "confirmed") ||
       (toggles.held && event.status === "on_hold");
     if (isBusy) busy.add(event.eventDate.slice(0, 10));
+  }
+
+  // Recorded and imported blocks are not a display preference — the two toggles
+  // above are about how to treat SHOWS, and a blocked date is not a show.
+  for (const range of blockedRanges) {
+    for (const day of datesInRange(range.startDate, range.endDate)) busy.add(day);
   }
 
   return busy;
@@ -132,8 +158,16 @@ export function useAvailabilityShare(
     return items.find((profile) => profile.id === activeProfileId) ?? items[0];
   }, [profiles.data]);
 
+  // The computed availability for the WINDOW being shared, not for the month the
+  // grid happens to be showing — the two ranges are unrelated.
+  const availability = useGetApiV1ProfilesIdAvailability(
+    shareProfile?.id ?? "",
+    { from, to },
+    { query: { enabled: Boolean(shareProfile?.id) } },
+  );
+
   const availableDateKeys = useMemo(() => {
-    const busy = busyDates(calendarEvents, events, {
+    const busy = busyDates(calendarEvents, events, availability.data?.unavailability ?? [], {
       confirmed: showConfirmed,
       held: showHeld,
     });
@@ -141,7 +175,16 @@ export function useAvailabilityShare(
     return datesInRange(from, to)
       .filter((isoDate) => weekdays.has(mondayFirstWeekday(new Date(`${isoDate}T00:00:00`))))
       .filter((isoDate) => !busy.has(isoDate));
-  }, [calendarEvents, events, from, to, selectedWeekdays, showConfirmed, showHeld]);
+  }, [
+    calendarEvents,
+    events,
+    availability.data,
+    from,
+    to,
+    selectedWeekdays,
+    showConfirmed,
+    showHeld,
+  ]);
 
   const availableDates = useMemo(() => availableDateKeys.map(formatDateChip), [availableDateKeys]);
 

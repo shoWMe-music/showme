@@ -14,6 +14,7 @@ import type { PostApiV1OffersBodyVideoUrl } from './postApiV1OffersBodyVideoUrl'
 
 export type PostApiV1OffersBody = {
   targetProfileId: string;
+  /** @pattern ^\d{4}-\d{2}-\d{2}$ */
   wantedDate: string;
   /** @pattern ^\d+$ */
   offerFeeMin?: string;

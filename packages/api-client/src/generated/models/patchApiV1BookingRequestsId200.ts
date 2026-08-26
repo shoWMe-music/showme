@@ -41,6 +41,8 @@ export type PatchApiV1BookingRequestsId200 = {
   /** @nullable */
   offerFeeMax: string | null;
   /** @nullable */
+  eventId: string | null;
+  /** @nullable */
   currency: string | null;
   createdAt: string;
 };
