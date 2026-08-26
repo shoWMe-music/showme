@@ -174,7 +174,7 @@ const overflowButtonStyle = {
   height: 34,
   border: "1px solid var(--border)",
   borderRadius: 10,
-  background: "var(--elevated)",
+  background: "var(--control-surface)",
   color: "var(--muted)",
   cursor: "pointer",
 } as const;

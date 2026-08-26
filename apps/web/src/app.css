@@ -46,6 +46,11 @@ body {
   --elevated: var(--ink-800);
   --border: rgba(255, 233, 184, 0.09);
   --border-strong: rgba(255, 233, 184, 0.16);
+  /* Control grounds are pinned too: in light mode they resolve to near-white,
+     which would paint the sign-out ghost button white-on-white inside this
+     always-dark panel. */
+  --button-surface: transparent;
+  --control-surface: var(--ink-800);
 }
 .app--collapsed .sidebar {
   width: 72px;
@@ -208,11 +213,11 @@ body {
   margin: 0;
   color: var(--text);
 }
-/* Pill search on --elevated (higher specificity than the base Input .wrap). */
+/* Pill search on the control surface (higher specificity than the base Input .wrap). */
 .topbar .topbar__search {
   flex: 0 0 260px;
   border-radius: 999px;
-  background: var(--elevated);
+  background: var(--control-surface);
   border-color: var(--border);
   padding: 8px 14px;
 }
@@ -222,7 +227,7 @@ body {
   flex-shrink: 0;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: var(--elevated);
+  background: var(--control-surface);
   color: var(--text);
   display: grid;
   place-items: center;

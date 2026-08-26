@@ -3,7 +3,7 @@
   padding: 6px 15px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: transparent;
+  background: var(--button-surface);
   color: var(--muted);
   font-family: inherit;
   font-size: 12px;

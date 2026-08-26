@@ -127,7 +127,7 @@ const navButtonStyle = {
   height: 28,
   border: "1px solid var(--border)",
   borderRadius: 8,
-  background: "transparent",
+  background: "var(--button-surface)",
   color: "var(--text)",
   cursor: "pointer",
 } as const;

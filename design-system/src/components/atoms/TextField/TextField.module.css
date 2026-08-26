@@ -16,7 +16,7 @@
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: var(--elevated);
+  background: var(--control-surface);
   color: var(--text);
   font-family: var(--font-sans);
   font-size: 13.5px;

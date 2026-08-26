@@ -7,6 +7,15 @@
   border: 1px dashed var(--border-strong);
   border-radius: 24px;
 }
+/* Light mode needs a real surface under the panel: on the warm paper background
+   a transparent panel reads as a hollow outline drawn on the page rather than a
+   placeholder for the content that belongs there. --card is the same white
+   surface Card/StatCard sit on, so the empty state matches the rows it replaces.
+   Dark is deliberately left transparent — the dark ground already reads as a
+   surface, and a fill there would be a change nobody asked for. */
+:global([data-theme="light"]) .wrap {
+  background: var(--card);
+}
 .icon {
   display: grid;
   place-items: center;

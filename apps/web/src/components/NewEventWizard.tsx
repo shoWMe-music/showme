@@ -492,7 +492,7 @@ const footerGhost = {
   padding: "11px 18px",
   borderRadius: 11,
   border: "1px solid var(--border)",
-  background: "transparent",
+  background: "var(--button-surface)",
   color: "var(--muted)",
   fontSize: 13.5,
   fontWeight: 500,

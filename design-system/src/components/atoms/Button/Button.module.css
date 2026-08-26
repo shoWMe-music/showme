@@ -38,13 +38,13 @@
 }
 .primary:active:not(:disabled) { box-shadow: 0 4px 14px -10px rgba(238, 87, 70, .6); }
 
-/* --- secondary: outline --- */
+/* --- secondary: bordered, on its own control surface --- */
 .secondary {
   gap: 7px;
   padding: 11px 17px;
   border-radius: 12px;
   border: 1px solid var(--border-strong);
-  background: transparent;
+  background: var(--button-surface);
   color: var(--text);
   font-size: 13px;
   font-weight: 600;
@@ -57,7 +57,7 @@
   padding: 9px 13px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: transparent;
+  background: var(--button-surface);
   color: var(--muted);
   font-size: 12.5px;
   font-weight: 500;

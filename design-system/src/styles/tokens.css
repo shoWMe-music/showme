@@ -55,6 +55,14 @@
   --dim: var(--ink-500);
   --border: rgba(255, 233, 184, .09);
   --border-strong: rgba(255, 233, 184, .16);
+  /* Interactive control grounds. Dark keeps exactly what each control already
+     had — outline buttons sit straight on the dark page, filled controls on
+     --elevated — so switching to these tokens changes nothing here. Light
+     remaps both to the near-white --surface: the light page is warm beige and
+     --elevated is barely a shade off it, so a transparent control reads as a
+     hollow outline instead of a raised, pressable surface. */
+  --button-surface: transparent;
+  --control-surface: var(--elevated);
   --accent: var(--brand-gold);
   --focus: rgba(255, 194, 102, .5);
   --card: linear-gradient(180deg, rgba(34, 24, 18, .66), rgba(17, 10, 7, .66));
@@ -68,6 +76,7 @@
   --bg: #FBF6EE; --surface: #FFFDF9; --elevated: #FFF9EF;
   --text: var(--ink-900); --muted: var(--ink-500); --dim: var(--ink-400);
   --border: rgba(90, 72, 60, .14); --border-strong: rgba(90, 72, 60, .26);
+  --button-surface: var(--surface); --control-surface: var(--surface);
   --accent: #B8791F; --focus: rgba(238, 87, 70, .4);
   --card: #FFFFFF;
   --shadow: 0 4px 14px -6px rgba(90, 50, 30, .15);
