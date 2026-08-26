@@ -34,6 +34,15 @@ export const PRESET_PERMISSION_SETS = {
     "settlement.finalize",
     "schedule.view",
     "schedule.edit",
+    // An operator sees every rider on their own event — `scopedEventRiders`
+    // already returns all of them, it was just reading `budget.view` as a proxy
+    // for "is an operator" because THIS LIST DID NOT CARRY THE CAPABILITY. That
+    // gap had a visible cost: the share dialog asked whether the sharer held
+    // `rider.view`, so an operator could never put a rider on a link — the
+    // tick-box was greyed out on every event. The capability now says what was
+    // already true. Scope is still decided at read time (operator → all riders;
+    // performer → their own, decisions #12), so this widens nothing.
+    "rider.view",
     "crew.manage",
     "agreement.manage",
     "agreement.confirm",

@@ -18,12 +18,30 @@ export interface EmailSink {
   sendEmail(message: EmailMessage): Promise<void>;
 }
 
-/** No-op sink for local/dev/test — logs the message instead of sending it. */
+/**
+ * No-op sink for local/dev/test — logs the message instead of sending it.
+ *
+ * IT LOGS THE BODY, and that is the point. It used to log only `to` and
+ * `subject`, which made every flow that is *gated on reading an email*
+ * untestable by a human on `pnpm dev`: the share OTP is a six-digit code that
+ * exists nowhere else — not in the response (the echo needs `SHARE_OTP_ECHO=1`
+ * or `NODE_ENV=test`, and the dev stack sets neither), not in the database in
+ * plaintext (it is stored salted + SHA256), and not in any mailbox, because
+ * nothing was sent. A developer opening their own share link got "a code is on
+ * its way" and then had nowhere to go. This is the local mail-catcher every
+ * project has; ours just prints.
+ *
+ * NEVER in production. This sink is reachable there only through the
+ * unconfigured-Brevo fallback in `createEmailSink`, and a verification code in
+ * Cloud Logging is a verification code anyone with log access can spend. In
+ * production the body is withheld and the fallback shouts instead.
+ */
 export function createNoopEmailSink(
   log: (message: EmailMessage) => void = (message) =>
-    console.info("[shoWMe] email sent (Brevo not configured):", {
+    console.info("[shoWMe] email NOT sent (Brevo not configured):", {
       to: message.to,
       subject: message.subject,
+      ...(process.env.NODE_ENV === "production" ? {} : { text: message.text }),
     }),
 ): EmailSink {
   return {
@@ -80,6 +98,18 @@ export function createEmailSink(config: {
 }): EmailSink {
   if (config.brevoApiKey && config.brevoSender) {
     return createBrevoEmailSink({ apiKey: config.brevoApiKey, sender: config.brevoSender });
+  }
+  // A silent downgrade to "log it and move on" is right on a laptop and wrong on a
+  // deployment: every invitation, share code and event notice is dropped, each
+  // route reports success, and nothing anywhere says so. `SHARE_JWT_SECRET` went
+  // unset in prod exactly this way (`docs/deployment-status.md`) and was not found
+  // by anyone noticing — it was found by someone going to look. One line at boot
+  // is the difference between a deployment state and a mystery.
+  if (process.env.NODE_ENV === "production") {
+    console.error(
+      "[shoWMe] BREVO_API_KEY / BREVO_SENDER are not both set — this deployment CANNOT send email. " +
+        "Share verification codes, invitations and event notices will be dropped silently.",
+    );
   }
   return createNoopEmailSink();
 }

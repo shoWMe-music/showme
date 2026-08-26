@@ -200,6 +200,32 @@ async function readViewerIdentity(
 }
 
 /**
+ * Why an invitation can no longer be answered — in the words of what actually
+ * happened to it.
+ *
+ * All three redemption routes used to refuse a non-pending invitation with "this
+ * invitation has already been used", whatever the reason. For a WITHDRAWN one
+ * that is simply false: nobody used it, the sender took it back, and telling the
+ * recipient otherwise sends them looking for a redemption they never made. The
+ * redemption page reads the offer and gets this right on its own; this is for
+ * every other caller, and for the moment the page's read and its answer race.
+ */
+function alreadyAnswered(status: string): string {
+  switch (status) {
+    case "accepted":
+      return "This invitation has already been accepted";
+    case "declined":
+      return "This invitation has already been declined";
+    case "revoked":
+      return "This invitation was withdrawn by the sender";
+    case "expired":
+      return "This invitation has expired";
+    default:
+      return "This invitation has already been used";
+  }
+}
+
+/**
  * THE RECIPIENT CHECK — the one thing the old app got right that this module did
  * not (`docs/old-app-analysis-flows-invite-settle.md` §4).
  *
@@ -689,7 +715,7 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
       const invitation = await loadInvitation(request, request.params.token);
       assertInvitationRecipient(request, invitation);
       if (invitation.status !== "pending") {
-        throw conflict("This invitation has already been used");
+        throw conflict(alreadyAnswered(invitation.status));
       }
 
       // Dispatch on what the invite actually grants. A `code` invite is a delivery
@@ -841,7 +867,7 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
       // stranger close someone else's slot quietly.
       assertInvitationRecipient(request, invitation);
       if (invitation.status !== "pending") {
-        throw conflict("This invitation is no longer pending");
+        throw conflict(alreadyAnswered(invitation.status));
       }
 
       const updated = await database.transaction(async (tx) => {
@@ -905,7 +931,7 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
       const invitedEmail = invitation.recipientEmail.trim().toLowerCase();
       assertInvitationRecipient(request, invitation);
       if (invitation.status !== "pending") {
-        throw conflict("This invitation has already been used");
+        throw conflict(alreadyAnswered(invitation.status));
       }
       if (!invitation.targetProfileId) {
         throw badRequest("Invitation does not link a profile to claim");

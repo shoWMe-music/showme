@@ -641,3 +641,23 @@ describe("riders — profile library + event instances (copy-on-attach)", () => 
     expect(after.json()).toHaveLength(0);
   });
 });
+
+
+/**
+ * The capability now says what was already true.
+ *
+ * `scopedEventRiders` has always returned every rider on an event to an
+ * operator — it just decided that by reading `budget.view` as a proxy for "is an
+ * operator", because `operator_full` did not carry `rider.view`. The gap was
+ * invisible until something asked the honest question: the share dialog checked
+ * whether the sharer held `rider.view`, so an operator could never put a rider
+ * on a share link, on any event.
+ *
+ * Scope is unchanged and already covered by the read-scoping tests above — this
+ * pins only the half that was missing.
+ */
+describe("rider.view — an operator holds the capability for the reach it already had", () => {
+  it("is in the operator preset", () => {
+    expect(PRESET_PERMISSION_SETS.operator_full).toContain("rider.view");
+  });
+});

@@ -1752,6 +1752,9 @@ describe("invitations — expiry and revocation", () => {
       headers: auth("revoke-ok-invitee"),
     });
     expect(accept.statusCode).toBe(409);
+    // The reason, not a generic one: nobody USED this invitation, and telling
+    // the recipient they did sends them hunting for a redemption they never made.
+    expect(accept.json().error.message).toBe("This invitation was withdrawn by the sender");
 
     // It leaves the roster, and leaves a trace in the event's history.
     const listed = await app.inject({

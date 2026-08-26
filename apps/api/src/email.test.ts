@@ -65,6 +65,43 @@ describe("email sink", () => {
     expect(log).toHaveBeenCalledTimes(1);
   });
 
+  it("prints the body locally so a code can be read, and never in production", async () => {
+    // The reported bug: on `pnpm dev` nothing is configured, so the OTP mail is
+    // never sent — and the sink logged only `to` and `subject`, so the six-digit
+    // code existed nowhere a developer could reach it (salted+hashed in the
+    // database, echoed only under SHARE_OTP_ECHO/NODE_ENV=test). The local flow
+    // could not be completed by a human at all.
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const previousNodeEnv = process.env.NODE_ENV;
+    try {
+      await createNoopEmailSink().sendEmail({
+        to: "a@example.com",
+        subject: "Your shoWMe verification code",
+        text: "Verification code: 123456",
+      });
+      expect(JSON.stringify(info.mock.calls)).toContain("123456");
+
+      // …and in production it is withheld: this sink is reachable there only
+      // through the unconfigured-Brevo fallback, and a live code in Cloud Logging
+      // is a code anyone with log access can spend. The fallback shouts instead of
+      // dropping every email in silence.
+      info.mockClear();
+      process.env.NODE_ENV = "production";
+      await createEmailSink({}).sendEmail({
+        to: "a@example.com",
+        subject: "Your shoWMe verification code",
+        text: "Verification code: 123456",
+      });
+      expect(JSON.stringify(info.mock.calls)).not.toContain("123456");
+      expect(JSON.stringify(error.mock.calls)).toContain("CANNOT send email");
+    } finally {
+      process.env.NODE_ENV = previousNodeEnv;
+      info.mockRestore();
+      error.mockRestore();
+    }
+  });
+
   it("the factory returns the real sink only when both key and sender are set", async () => {
     const fetchImplementation = vi.fn(async () => new Response("", { status: 200 }));
     // The real sink captures the global fetch at construction, so stub it first.

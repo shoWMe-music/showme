@@ -263,13 +263,15 @@ export function EventInlineDateChoice({
   /**
    * Which of the two holds the keyboard — the calendar, or the segments.
    *
-   * It starts in the segments (the field is what `useOpenWhileEditing` focused),
-   * and this flag is what keeps it there: the calendar follows whatever the
-   * field says, so without it every keystroke that completed a date would drag
-   * DOM focus onto the grid and out from under the caret. It moves to the
-   * calendar when the calendar is used — a day clicked, or Alt+Down, the
-   * standard "open the picker" chord — and comes back the moment the field is
-   * focused again.
+   * It starts in the segments (the field is what `useOpenWhileEditing` focused)
+   * and follows the focus after that: whichever half was touched last is the one
+   * that owns the arrows. Both directions are load-bearing. While the field has
+   * it, the calendar must not pull DOM focus when it follows a typed date, or
+   * every keystroke that changed the day would yank the caret out of the
+   * segments. While the GRID has it, the calendar must pull focus, because the
+   * arrow keys move a roving tabindex — the day the arrow moved to has to become
+   * the focused element or the next arrow press is read by a button that is no
+   * longer a tab stop, and focus falls to the document body.
    */
   const [calendarHoldsKeyboard, setCalendarHoldsKeyboard] = useState(false);
 
@@ -279,7 +281,16 @@ export function EventInlineDateChoice({
   };
 
   return (
-    <div ref={picker.wrapperRef} className={styles.choiceSlot}>
+    <div
+      ref={picker.wrapperRef}
+      className={styles.choiceSlot}
+      // Every control in this editor reports its focus HERE — React sends a
+      // portal's events up the tree that rendered it, not the one it was
+      // planted in — so one handler sees the field, the day grid, Cancel and
+      // Save alike, and the answer to "who has the keyboard" is simply "who was
+      // focused last".
+      onFocus={(focusEvent) => setCalendarHoldsKeyboard(focusEvent.target !== inputRef.current)}
+    >
       <ChoiceTabHandoff onCatch={() => handOffTo("last")} />
       <TextField
         ref={inputRef}
@@ -288,7 +299,6 @@ export function EventInlineDateChoice({
         value={typed.text}
         onChange={typed.handleChange}
         onKeyUp={typed.handleKeyUp}
-        onFocus={() => setCalendarHoldsKeyboard(false)}
         onKeyDown={(keyEvent) => {
           if (keyEvent.altKey && keyEvent.key === "ArrowDown") setCalendarHoldsKeyboard(true);
           // Enter IS the Save button, for someone who has just typed the date
