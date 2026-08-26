@@ -217,6 +217,23 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
       // never conflated with it.
       await assertEventCapAllows(database, before, fields.status);
 
+      // A-22's preconditions live on `POST /events/:id/publish`, which is the
+      // audited path and the one that writes an `event.published` history line.
+      // This route accepted `published: true` on a draft and set the flag —
+      // never an EXPOSURE (the read gate in routes/public.ts is the single gate,
+      // exactly as A-22 designed) but publishing intent could be recorded by a
+      // route that never checked it, and the bill would see no "published" line.
+      // The status a caller is moving TO in this same request is what counts, so
+      // confirming and publishing in one PATCH is allowed.
+      if (fields.published === true && before.published !== true) {
+        const nextStatus = fields.status ?? before.status;
+        const nextDate = fields.eventDate !== undefined ? fields.eventDate : before.eventDate;
+        if (nextStatus !== "confirmed") {
+          throw badRequest(`Only a confirmed event can be published (this one is ${nextStatus})`);
+        }
+        if (!nextDate) throw badRequest("An event needs a date before it can be published");
+      }
+
       const where =
         expectedVersion != null
           ? and(eq(schema.events.id, id), eq(schema.events.version, expectedVersion))
