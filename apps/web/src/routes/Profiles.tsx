@@ -207,15 +207,17 @@ export function Profiles() {
                     gap: 12,
                     borderRadius: 16,
                     minWidth: 180,
-                    // Selection reads as an OUTLINE, not a fill. The card keeps the
-                    // ordinary surface so the strip stays calm; what changes is a
-                    // 2px brand ring plus a soft halo, which is still unmistakable
-                    // at a glance without repainting a quarter of the screen.
+                    // Selection reads as an OUTLINE, not a fill — and a QUIET one.
+                    // Same 1px hairline every other card in the app uses, just
+                    // recoloured to the brand; no ring, no halo, no extra weight.
+                    // The strip sits above a page of 1px-bordered cards, so a
+                    // heavier treatment here reads as a different design language
+                    // rather than as "this one is selected".
                     background: "var(--card)",
-                    border: active ? "2px solid var(--brand-red)" : "1px solid var(--border)",
-                    // Compensate the extra border pixel so nothing shifts on select.
-                    padding: active ? "11px 15px" : "12px 16px",
-                    boxShadow: active ? "0 0 0 4px var(--brand-red-glow)" : "none",
+                    border: `1px solid ${active ? "var(--brand-red)" : "var(--border)"}`,
+                    // No padding compensation needed: the border width never changes,
+                    // so nothing shifts when selection moves.
+                    padding: "12px 16px",
                     transition:
                       "border-color .15s var(--ease-out), box-shadow .15s var(--ease-out)",
                   }}
