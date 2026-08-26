@@ -12,6 +12,8 @@ import {
 import { type ReactNode, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { KpiRow } from "../components";
+import { SettlementDetailModal } from "../components/SettlementDetailModal";
+import { settlementStatusToDisplay } from "../components/settlementDocument";
 import { ErrorState, LoadingState } from "../components/states";
 import { formatAmount, formatDate, formatMoney } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
@@ -52,26 +54,6 @@ function TileLabel({ status, children }: { status: Status; children: ReactNode }
  * Built per-render from the session rather than as a module constant, because the
  * answer depends on who is looking.
  */
-/** `settlement_status` → the design system's status vocabulary + a human label. */
-function settlementStatusToDisplay(status: string): { status: Status; label: string } {
-  switch (status) {
-    case "finalized":
-      return { status: "confirmed", label: "Finalized" };
-    case "paid":
-      return { status: "confirmed", label: "Paid" };
-    case "partly_paid":
-      return { status: "pending", label: "Partly paid" };
-    case "comments_received":
-      return { status: "pending", label: "Comments" };
-    case "revised":
-      return { status: "pending", label: "Revised" };
-    case "dispute":
-      return { status: "cancelled", label: "Dispute" };
-    default:
-      return { status: "task", label: "Pending review" };
-  }
-}
-
 function buildColumns(isSingleProfile: boolean): DataTableColumn<SettlementItem>[] {
   return [
     {
@@ -131,6 +113,8 @@ function buildColumns(isSingleProfile: boolean): DataTableColumn<SettlementItem>
 export function Settlements() {
   const { data, isPending, isError, error } = useGetApiV1Settlements();
   const [filter, setFilter] = useState<FilterKey>("all");
+  /** The settlement whose board is open over the list; null = overlay closed. */
+  const [openSettlement, setOpenSettlement] = useState<SettlementItem | null>(null);
   const { session } = useAuth();
 
   // One profile → the viewer is unambiguously the artist on every row.
@@ -221,10 +205,22 @@ export function Settlements() {
               }
             />
           ) : (
-            <DataTable columns={columns} rows={rows} getRowKey={(row) => row.id} />
+            // `onRowClick` renders each row as a real `<button>`, which is what makes
+            // the row keyboard-reachable for free. That is only available here
+            // because a settlement row holds no control of its own — the invoice
+            // ledger had to be hand-rolled precisely because its row carries an
+            // "Issue" button and a button inside a button is invalid HTML.
+            <DataTable
+              columns={columns}
+              rows={rows}
+              getRowKey={(row) => row.id}
+              onRowClick={setOpenSettlement}
+            />
           )}
         </div>
       )}
+
+      <SettlementDetailModal settlement={openSettlement} onClose={() => setOpenSettlement(null)} />
     </>
   );
 }
