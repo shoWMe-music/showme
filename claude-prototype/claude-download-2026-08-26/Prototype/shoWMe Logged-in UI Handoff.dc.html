@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@500,600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  doc-page:not(:defined){visibility:hidden}
+  h1,h2,h3{font-family:"Clash Display","Inter Tight",sans-serif;}
+  th,td{vertical-align:top;}
+</style>
+<script src="doc-page.js"></script>
+</helmet>
+
+<doc-page margin="0.7in" style="--doc-hdr-h:32px;--doc-ftr-h:32px;">
+
+<div slot="header" style="display:flex;justify-content:space-between;align-items:baseline;padding:10px 0 8px;border-bottom:1px solid rgba(90,72,60,.2);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#8C7A6C;">
+  <span>shoWMe · logged-in UI handoff</span>
+  <span>Operator · Performer · Professional · Agent</span>
+</div>
+<div slot="footer" style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0 10px;border-top:1px solid rgba(90,72,60,.2);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;color:#8C7A6C;">
+  <span>v1 · August 2026</span>
+  <span>Source of truth: Prototype/*.dc.html</span>
+</div>
+
+<div style="font-family:'Inter Tight',sans-serif;color:#18100C;font-size:14.5px;line-height:1.62;">
+
+<h1 style="font-weight:600;font-size:34px;line-height:1.06;letter-spacing:-.03em;margin:0 0 10px;">The logged-in UI, by account kind</h1>
+<p style="font-size:16px;line-height:1.55;color:#5A483C;margin:0 0 6px;max-width:62ch;">A build handoff for the four interactive demos: what the signed-in application looks like for an <b style="color:#18100C;">operator</b>, a <b style="color:#18100C;">performer</b>, a <b style="color:#18100C;">professional</b> (crew) and an <b style="color:#18100C;">agent</b> — one shell, four navigation sets, two role-specific surfaces.</p>
+
+<h2 style="font-weight:600;font-size:19px;letter-spacing:-.02em;margin:30px 0 8px;">1 · What ships in this handoff</h2>
+<p style="margin:0 0 12px;">Four demos, each a complete, clickable application in a single file. They share one shell and one component vocabulary; they differ in the sidebar routes they expose and in one screen each.</p>
+
+<table style="width:100%;border-collapse:collapse;font-size:13px;margin:0 0 8px;">
+  <thead><tr style="background:#F7F2EA;">
+    <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.22);font-weight:600;">Demo file</th>
+    <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.22);font-weight:600;">Account kind</th>
+    <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.22);font-weight:600;">Signed-in identity</th>
+    <th style="text-align:left;padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.22);font-weight:600;">Unique surface</th>
+  </tr></thead>
+  <tbody>
+    <tr><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">shoWMe Prototype</td><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">operator</td><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">Ran Kessler · Blackbird Presents</td><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">— (the reference build)</td></tr>
+    <tr><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">shoWMe Performer</td><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">performer</td><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">Ran Kessler · Blackbird Presents <span style="color:#D63D2C;">(unfixed)</span></td><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">My Agent</td></tr>
+    <tr><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">shoWMe Crew</td><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">professional</td><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">Ran Kessler · Blackbird Presents <span style="color:#D63D2C;">(unfixed)</span></td><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">— (reduced nav only)</td></tr>
+    <tr><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">shoWMe Agent</td><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">agent <span style="color:#D63D2C;">(new kind)</span></td><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">Sarah Voss · Paradigm Agency</td><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">Roster + representation flow</td></tr>
+    <tr><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">shoWMe All View</td><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">—</td><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">—</td><td style="padding:8px 10px;border-bottom:1px solid rgba(90,72,60,.1);">Every route in one file, for review</td></tr>
+  </tbody>
+</table>
+<p style="font-size:12px;color:#8C7A6C;margin:0 0 4px;">Table 1 — the demo set. All five live in <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">Prototype/</code> and open directly in a browser.</p>
+
+<h2 style="font-weight:600;font-size:19px;letter-spacing:-.02em;margin:30px 0 8px;">2 · The shell — identical for all four</h2>
+<p style="margin:0 0 12px;">Everything below is shared. Build it once; the account kind only decides what goes in the nav list and which role screen mounts.</p>
+
+<h3 style="font-weight:600;font-size:15px;margin:18px 0 6px;">Sidebar</h3>
+<ul style="margin:0 0 12px;padding-left:20px;">
+  <li style="margin-bottom:5px;">Fixed left, <b>250px expanded / 72px collapsed</b>, 0.2s width transition. Always dark — it does <i>not</i> follow the light theme (gradient <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">#140D09 → #0A0604</code>).</li>
+  <li style="margin-bottom:5px;">Logo mark + <span style="font-family:'Clash Display',sans-serif;font-weight:600;">shoWMe</span> wordmark; wordmark hides when collapsed.</li>
+  <li style="margin-bottom:5px;">Collapse toggle is a 28px circle floating on the sidebar's right edge (<code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">top:74px; right:-14px</code>), not a nav row.</li>
+  <li style="margin-bottom:5px;">Nav row: 18px icon + label, 11px radius, idle <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">#9E8E7F</code>. Active row gets text <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">#F5EDE2</code>, a horizontal red→gold tint, and a 3px red bar with glow bleeding into the sidebar gutter.</li>
+  <li style="margin-bottom:5px;">Count badge (mono, 10px, red pill) — currently only on <b>Incoming Requests</b>, counting requests not yet declined.</li>
+  <li style="margin-bottom:5px;">Footer identity chip: 34px gradient avatar with initials, name, organisation. Collapses to the avatar alone.</li>
+</ul>
+
+<h3 style="font-weight:600;font-size:15px;margin:18px 0 6px;">Top bar</h3>
+<p style="margin:0 0 12px;">Sticky, translucent (82% background + 16px blur), 16/30px padding. Left: a mono uppercase eyebrow in accent over a 22px display page title — both driven by one route→<code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">[crumb, title]</code> map (e.g. <i>Money → Settlements</i>, <i>Inbound → Incoming Requests</i>). Right: a 260px search pill, a 40px circular theme toggle, and the primary <b>New event</b> button. The bar hides on full-bleed screens (public event page).</p>
+
+<h3 style="font-weight:600;font-size:15px;margin:18px 0 6px;">Main region</h3>
+<p style="margin:0 0 12px;">30px padding, screens capped at 1180–1240px and centred. Every route change replays a 0.4s rise-and-fade on the screen wrapper. Theme is an attribute on the root (<code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">data-theme</code>) driving a single token set — light is the demo default, dark is the original design.</p>
+
+<h2 style="font-weight:600;font-size:19px;letter-spacing:-.02em;margin:30px 0 8px;">3 · Navigation matrix</h2>
+<p style="margin:0 0 12px;">The one thing that actually differs between the four demos. Order is the render order.</p>
+
+<table style="width:100%;border-collapse:collapse;font-size:12.5px;margin:0 0 8px;">
+  <thead><tr style="background:#F7F2EA;">
+    <th style="text-align:left;padding:7px 9px;border-bottom:1px solid rgba(90,72,60,.22);font-weight:600;">Route</th>
+    <th style="text-align:left;padding:7px 9px;border-bottom:1px solid rgba(90,72,60,.22);font-weight:600;">Operator</th>
+    <th style="text-align:left;padding:7px 9px;border-bottom:1px solid rgba(90,72,60,.22);font-weight:600;">Performer</th>
+    <th style="text-align:left;padding:7px 9px;border-bottom:1px solid rgba(90,72,60,.22);font-weight:600;">Professional</th>
+    <th style="text-align:left;padding:7px 9px;border-bottom:1px solid rgba(90,72,60,.22);font-weight:600;">Agent</th>
+  </tr></thead>
+  <tbody>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">dashboard</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Dashboard</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Dashboard</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Dashboard</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Dashboard</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">calendar</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Calendar</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Calendar</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Calendar</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Calendar</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">events</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Events</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Events</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Events</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Events</td></tr>
+    <tr style="background:#FDF6EC;"><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">representation</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);color:#8C7A6C;">—</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);"><b>My Agent</b></td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);color:#8C7A6C;">—</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);"><b>Roster</b></td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">tasks</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Tasks</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Tasks</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Tasks</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Tasks</td></tr>
+    <tr style="background:#FDF6EC;"><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">setlists</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Setlists</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Setlists</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);color:#8C7A6C;">—</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Setlists</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">settlements</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Settlements</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Settlements</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Settlements</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Settlements</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">projections</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Financial Projections</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Financial Projections</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Financial Projections</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Financial Projections</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">requests</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Incoming Requests</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Incoming Requests</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Incoming Requests</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Incoming Requests</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">bills</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Bills &amp; Invoices</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Bills &amp; Invoices</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Bills &amp; Invoices</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Bills &amp; Invoices</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">team</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Team</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Team</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Team</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Team</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">contacts</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Contacts</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Contacts</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Contacts</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Contacts</td></tr>
+    <tr style="background:#FDF6EC;"><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">audience</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Audience</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Audience</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Audience</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);color:#8C7A6C;">—</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">profiles</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">My Profiles</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">My Profiles</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">My Profiles</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">My Profiles</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">settings</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Settings</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Settings</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Settings</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Settings</td></tr>
+  </tbody>
+</table>
+<p style="font-size:12px;color:#8C7A6C;margin:0 0 4px;">Table 2 — routes by account kind. Highlighted rows are the only genuine differences: 14 items for operator, 15 for performer, 13 for professional, 14 for agent.</p>
+
+<p style="margin:14px 0 0;padding:12px 14px;border-left:3px solid #EE5746;background:#FDF3EF;border-radius:0 8px 8px 0;font-size:13px;break-inside:avoid;"><b>Build note.</b> The same <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">representation</code> route key carries two opposite screens — the agent's <i>Roster</i> and the performer's <i>My Agent</i>. Treat it as one relationship object rendered from two sides, not two features.</p>
+
+<h2 style="font-weight:600;font-size:19px;letter-spacing:-.02em;margin:30px 0 8px;">4 · Shared screens</h2>
+<p style="margin:0 0 12px;">Every route below renders the same in all four demos today.</p>
+<ul style="margin:0 0 12px;padding-left:20px;">
+  <li style="margin-bottom:5px;"><b>Dashboard</b> — time-based greeting with the first name in italic serif, an "N things need attention" line, an attention list (each row an icon tile + title + subtitle, click routes through), event and settlement KPI tiles, filter chips, recent settlements, top venues.</li>
+  <li style="margin-bottom:5px;"><b>Events</b> list → <b>Event workspace</b> (see §5). <b>Settlements</b> list → <b>Settlement detail</b> (see §6).</li>
+  <li style="margin-bottom:5px;"><b>Calendar</b>, <b>Tasks</b>, <b>Setlists</b>, <b>Financial Projections</b>, <b>Incoming Requests</b>, <b>Bills &amp; Invoices</b>, <b>Team</b>, <b>Contacts</b> (with contact profile modal), <b>Audience</b>, <b>My Profiles</b>.</li>
+  <li style="margin-bottom:5px;"><b>Public event page</b> — full-bleed, no top bar; the audience-facing view reachable from the event workspace.</li>
+  <li style="margin-bottom:5px;"><b>New event wizard</b> — five panels, plus event modals for invite, share and edit.</li>
+  <li style="margin-bottom:5px;"><b>Settings</b> — a second-level sidebar: General · Team Access · Notifications · Security · Appearance · Integrations · Billing.</li>
+</ul>
+
+<h2 style="font-weight:600;font-size:19px;letter-spacing:-.02em;margin:30px 0 8px;">5 · Event workspace</h2>
+<p style="margin:0 0 10px;">Underlined tab strip, red active tab. Tabs in order:</p>
+<p style="margin:0 0 12px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.9;">To&nbsp;Do · Budget&nbsp;Planner · Event&nbsp;Details · Agreement · Team&nbsp;/&nbsp;Crew · Settlement · Messages · Collaborators · Event&nbsp;History</p>
+<p style="margin:0 0 12px;">Header carries the event identity, a published toggle, and an overflow menu. <i>Event History</i> shows a count badge. The <i>Agreement</i> tab is the deal's paper side — per the data model, deal and agreement are one object, so this tab and the deal terms are two views of one record.</p>
+<p style="margin:14px 0 0;padding:12px 14px;border-left:3px solid #D63D2C;background:#FDF3EF;border-radius:0 8px 8px 0;font-size:13px;break-inside:avoid;"><b>Gap — this is the main thing to design next.</b> All nine tabs render identically for all four kinds. A performer must not see the Budget Planner or other parties' deals; a professional should land on schedule and their own deal only; an agent sees their artist's deal but not the operator's pool. The demos show the operator-grade workspace to everyone.</p>
+
+<h2 style="font-weight:600;font-size:19px;letter-spacing:-.02em;margin:30px 0 8px;">6 · Settlement detail</h2>
+<p style="margin:0 0 10px;">The flagship screen. Same tab pattern as the event workspace:</p>
+<p style="margin:0 0 12px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.9;">Overview · Deal&nbsp;Structure · Financials · Settlement · Payout</p>
+<p style="margin:0 0 12px;"><i>Overview</i> is an identity block — event ID, performer, venue, operator, date. The remaining tabs walk the reconciliation: what the deal entitles, what was collected and paid, the resulting net, and the payout. This maps directly onto the per-participant settlement in the data model — one settlement row per participant, each party seeing only their own slice.</p>
+
+<h2 style="font-weight:600;font-size:19px;letter-spacing:-.02em;margin:30px 0 8px;">7 · Role-specific surfaces</h2>
+
+<h3 style="font-weight:600;font-size:15px;margin:18px 0 6px;">Agent — Roster</h3>
+<ul style="margin:0 0 12px;padding-left:20px;">
+  <li style="margin-bottom:5px;">KPI strip: active roster size, YTD commission, commission owed, in-region deals.</li>
+  <li style="margin-bottom:5px;">Filter chips (all / active / proposed / ended) over a card grid of represented artists — avatar, genres, territory, rate, status badge. Status reads differently by origin: <i>Offer received</i> when the performer proposed, <i>Awaiting performer</i> when the agent did.</li>
+  <li style="margin-bottom:5px;">Roster → artist detail: the representation agreement (territory, rate, basis, who collects, term dates) plus deals in flight.</li>
+  <li style="margin-bottom:5px;">Propose-representation modal: pick which of your agent profiles signs → pick an existing performer profile or invite by email → terms (territory chips or worldwide, rate %, basis, collects, dates). Blocks on an overlapping active representation for the same artist and territory.</li>
+  <li style="margin-bottom:5px;">Counter-offer reuses the same modal; termination is a separate confirm step and is unilateral.</li>
+  <li style="margin-bottom:5px;">Copy is explicit that commission is private between agent and performer.</li>
+</ul>
+
+<h3 style="font-weight:600;font-size:15px;margin:18px 0 6px;">Performer — My Agent</h3>
+<p style="margin:0 0 12px;">The mirror: the performer's view of the same representation records, plus an invite-an-agent modal and accept / counter on an incoming offer. Same objects, same statuses, opposite actor.</p>
+
+<h3 style="font-weight:600;font-size:15px;margin:18px 0 6px;">Professional (crew)</h3>
+<p style="margin:0 0 12px;">No unique screen — the demo is the operator build with Setlists and representation removed. Everything a professional should actually get (their call time, their run-of-show, their own deal and settlement, and nothing else) is still to be designed.</p>
+
+<h2 style="font-weight:600;font-size:19px;letter-spacing:-.02em;margin:30px 0 8px;">8 · Visual tokens</h2>
+<p style="margin:0 0 12px;">One token set, remapped per theme. Sidebar stays dark in both.</p>
+
+<table style="width:100%;border-collapse:collapse;font-size:12.5px;margin:0 0 8px;">
+  <thead><tr style="background:#F7F2EA;">
+    <th style="text-align:left;padding:7px 9px;border-bottom:1px solid rgba(90,72,60,.22);font-weight:600;">Token</th>
+    <th style="text-align:left;padding:7px 9px;border-bottom:1px solid rgba(90,72,60,.22);font-weight:600;">Dark</th>
+    <th style="text-align:left;padding:7px 9px;border-bottom:1px solid rgba(90,72,60,.22);font-weight:600;">Light</th>
+    <th style="text-align:left;padding:7px 9px;border-bottom:1px solid rgba(90,72,60,.22);font-weight:600;">Use</th>
+  </tr></thead>
+  <tbody>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">--bg</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">#0A0604</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">#FBF6EE</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">App canvas</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">--surface / --elevated</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">#18100C / #221812</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">#FFFDF9 / #FFF9EF</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Panels, inputs, chips</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">--text / --muted / --dim</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">#F5EDE2 / #8C7A6C / #5A483C</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">#18100C / #5A483C / #8C7A6C</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Three-step text ramp</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">--accent</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">#FFC266</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">#B8791F</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Eyebrows, links, serif accents</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">#EE5746</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);" colspan="2">Fixed in both themes</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Primary action, active tab, badges</td></tr>
+  </tbody>
+</table>
+<p style="font-size:12px;color:#8C7A6C;margin:0 0 12px;">Table 3 — core tokens. Status hues (green confirmed, amber pending, blue info, purple performer) are fixed across themes.</p>
+
+<p style="margin:0 0 8px;"><b>Type.</b> <span style="font-family:'Clash Display',sans-serif;font-weight:600;">Clash Display</span> for page titles and headings; <b>Inter Tight</b> for all UI and body; <span style="font-family:'Instrument Serif',serif;font-style:italic;">Instrument Serif italic</span> for one accent word in a heading; <span style="font-family:'JetBrains Mono',monospace;font-size:13px;">JetBrains Mono</span> uppercase for eyebrows, IDs, counts and metadata.</p>
+<p style="margin:0 0 12px;"><b>Form.</b> Cards 16–18px radius, nav rows and buttons 11px, pills 999px. One hairline border token, one soft shadow. Icon-only buttons — modal close, back arrows — have no background and no border: just the glyph in a muted colour.</p>
+
+<h2 style="font-weight:600;font-size:19px;letter-spacing:-.02em;margin:30px 0 8px;">9 · Open decisions</h2>
+<ol style="margin:0 0 12px;padding-left:20px;">
+  <li style="margin-bottom:6px;"><b>Is “agent” a fifth account kind?</b> The data model locks kind to operator | performer | professional. The Agent demo adds a real fourth surface with its own object (a representation: performer, territory, rate, basis, term, status). Either kind gains a value, or agent becomes an operator-kind profile with a representation module — the UI works both ways, the plan does not.</li>
+  <li style="margin-bottom:6px;"><b>Per-kind gating of the event workspace and settlement.</b> Nothing is redacted yet (§5). This is the largest remaining design task and it is what the party-scoping rules in the plan exist to drive.</li>
+  <li style="margin-bottom:6px;"><b>Performer and professional demos still sign in as the operator</b> (Ran Kessler · Blackbird Presents). Their identity chip, dashboard greeting and profile set need replacing before these are shown as role demos.</li>
+  <li style="margin-bottom:6px;"><b>Audience for professionals, Setlists for agents.</b> Both are currently inherited rather than decided — a professional has no audience to hold, and an agent arguably reads setlists rather than authoring them.</li>
+  <li style="margin-bottom:6px;"><b>Where commission lives at settlement.</b> The Roster screen shows commission owed, but the settlement detail has no commission line — the data model carries it as a deal party role, so the UI should surface it inside the performer's settlement, not only in the agent's roster.</li>
+</ol>
+
+</div>
+</doc-page>
+</x-dc>
+</body>
+</html>

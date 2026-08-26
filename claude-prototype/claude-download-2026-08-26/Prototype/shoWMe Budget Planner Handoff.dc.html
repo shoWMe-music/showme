@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  doc-page:not(:defined){visibility:hidden}
+  h1,h2,h3{font-family:"Clash Display","Inter Tight",sans-serif;}
+  th,td{vertical-align:top;}
+</style>
+<script src="doc-page.js"></script>
+</helmet>
+
+<doc-page margin="0.7in" style="--doc-hdr-h:32px;--doc-ftr-h:32px;">
+
+<div slot="header" style="display:flex;justify-content:space-between;align-items:baseline;padding:10px 0 8px;border-bottom:1px solid rgba(90,72,60,.2);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#8C7A6C;">
+  <span>shoWMe · budget planner handoff</span>
+  <span>Event workspace · operator only</span>
+</div>
+<div slot="footer" style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0 10px;border-top:1px solid rgba(90,72,60,.2);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#8C7A6C;">
+  <span>v1 · August 2026</span>
+  <span>Source of truth: Prototype/shoWMe Agent.dc.html</span>
+</div>
+
+<div style="font-family:'Inter Tight',sans-serif;color:#18100C;font-size:14.5px;line-height:1.62;">
+
+<h1 style="font-weight:600;font-size:34px;line-height:1.06;letter-spacing:-.03em;margin:0 0 10px;">Budget Planner</h1>
+<p style="font-size:16px;line-height:1.55;color:#5A483C;margin:0 0 6px;max-width:62ch;">A build spec for the second tab of the event workspace: a live forecasting sheet that turns ticket tiers, bar spend and cost lines into revenue, profit and a break-even point. Every figure is derived on each keystroke — the planner stores <b>inputs only</b>, never totals.</p>
+<p style="margin:0 0 4px;padding:12px 14px;border-left:3px solid #EE5746;background:#FDF3EF;border-radius:0 8px 8px 0;font-size:13px;break-inside:avoid;"><b>Scope.</b> The planner is a <i>forecast</i>, not a ledger. It never moves money and never feeds Settlement — Settlement reconciles actuals from its own inputs. The screen carries a permanent banner saying so: <i>“This is an estimate only and should be reviewed before final decisions.”</i></p>
+
+<h2 style="font-weight:600;font-size:19px;letter-spacing:-.02em;margin:30px 0 8px;">1 · The design, as built</h2>
+<p style="margin:0 0 12px;">Captured from the operator build (<code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">Prototype/shoWMe Agent.dc.html</code> → Events → an event → Budget Planner), light theme. The screen ships in both themes; only the token values change. Every crop below is the live component, not a mock — treat it as the reference for spacing, field widths and colour roles.</p>
+<div style="break-inside:avoid;margin:0 0 4px;">
+  <img src="assets/budget-head.png" alt="Event workspace header, tab strip, estimate banner, action row and KPI strip" style="display:block;width:100%;border:1px solid rgba(90,72,60,.18);border-radius:10px;">
+</div>
+<p style="font-size:12px;color:#8C7A6C;margin:0 0 12px;">Figure 1 — the tab in context: event identity, step rail, tab strip, then the planner’s first three blocks (estimate banner, action row, KPI strip). The five blocks below the fold follow in Figures 3–7. Sample event is a €50,000 guarantee at a 1,600-cap venue.</p>
+
+<h2 style="font-weight:600;font-size:19px;letter-spacing:-.02em;margin:30px 0 8px;">2 · The input object</h2>
+<p style="margin:0 0 12px;">One object per event. Nothing here is computed; nothing computed is persisted.</p>
+
+<table style="width:100%;border-collapse:collapse;font-size:12.5px;margin:0 0 6px;break-inside:avoid;">
+  <thead><tr style="background:#F5EFE9;">
+    <th style="text-align:left;padding:7px 9px;font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#5A483C;">Field</th>
+    <th style="text-align:left;padding:7px 9px;font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#5A483C;">Shape</th>
+    <th style="text-align:left;padding:7px 9px;font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#5A483C;">Seeded from</th>
+  </tr></thead>
+  <tbody>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">ticketTypes[]</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">{ name, price, qty } — addable, removable, never empty (removing the last row re-seeds a blank one)</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">one “General Admission” row at 80% of capacity</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">capacity</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">int — drives bar revenue and per-guest metrics</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">venue capacity</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">avgBar</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">money — average bar / F&amp;B spend per guest</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">0</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">otherRev</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">money — merch, sponsorship, grants</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">0</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">performerFee, production, staff, marketing, venueCost, otherCost</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">money ×6 — the fixed cost fields, fixed labels, fixed order</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">deal guarantee → performerFee; venue rental → venueCost; event production cost → production</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">ppFeePct, ppFeeFlat</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">percent of ticket revenue + flat amount per ticket</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">1.5% + 0</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);font-family:'JetBrains Mono',monospace;font-size:11.5px;">customRev[], customCost[]</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">{ name, type, amount } — operator-defined lines, added through a small modal, removable inline</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">empty</td></tr>
+  </tbody>
+</table>
+<p style="font-size:12px;color:#8C7A6C;margin:0 0 4px;">Table 1 — the planner’s input surface. Every numeric field passes through a coerce-to-number helper: blank, non-numeric and <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">NaN</code> all read as <b>0</b>, so a half-typed field never breaks the sheet.</p>
+
+<h2 style="font-weight:600;font-size:19px;letter-spacing:-.02em;margin:30px 0 8px;">3 · The math</h2>
+<p style="margin:0 0 12px;">One pure function, no side effects, no persistence, no async. Port it verbatim and unit-test it in isolation.</p>
+
+<pre style="margin:0 0 6px;padding:14px 16px;background:#F5EFE9;border:1px solid rgba(90,72,60,.15);border-radius:10px;font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.75;white-space:pre-wrap;break-inside:avoid;color:#18100C;">ticketRev        ≔ Σ (price × qty)                       over ticketTypes
+soldTickets      ≔ Σ qty                                 over ticketTypes
+barRev           ≔ avgBar × capacity
+customRevTotal   ≔ Σ amount                              over customRev
+customCostTotal  ≔ Σ amount                              over customCost
+
+totalRev         ≔ ticketRev + barRev + otherRev + customRevTotal
+
+ppFees           ≔ ticketRev × ppFeePct/100 + ppFeeFlat × soldTickets
+fixedCost        ≔ performerFee + production + staff + marketing
+                 + venueCost + otherCost + customCostTotal
+totalCost        ≔ fixedCost + ppFees
+
+profit           ≔ totalRev − totalCost
+margin           ≔ totalRev &gt; 0 ? profit / totalRev × 100 : 0
+
+avgTicket        ≔ soldTickets &gt; 0 ? ticketRev / soldTickets : 0
+breakEven        ≔ avgTicket &gt; 0
+                 ? ceil((totalCost − barRev − otherRev) / avgTicket)
+                 : 0                                     clamped to ≥ 0
+
+revPerGuest      ≔ totalRev  / max(capacity, 1)
+costPerGuest     ≔ totalCost / max(capacity, 1)</pre>
+<p style="font-size:12px;color:#8C7A6C;margin:0 0 12px;">Figure 2 — <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">computeBudget()</code>. <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">≔</code> is assignment. Returns { ticketRev, barRev, soldTickets, totalRev, totalCost, ppFees, profit, breakEven, margin, revPerGuest, costPerGuest }.</p>
+
+<p style="margin:0 0 12px;">Three deliberate choices, all worth confirming before the rebuild:</p>
+<ul style="margin:0 0 12px;padding-left:20px;">
+  <li style="margin-bottom:5px;"><b>Break-even nets non-ticket revenue off cost</b> rather than treating it as a second revenue line — bar and other revenue reduce the tickets you must sell, they don’t scale with them.</li>
+  <li style="margin-bottom:5px;"><b>Bar revenue is modelled off capacity, not tickets sold</b>, so it does not move with attendance. A sold-tickets basis would be the more honest forecast.</li>
+  <li style="margin-bottom:5px;"><b>Custom revenue lines are excluded from break-even</b> (only <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">barRev</code> and <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">otherRev</code> offset cost) — an inconsistency, not a decision.</li>
+</ul>
+
+<h2 style="font-weight:600;font-size:19px;letter-spacing:-.02em;margin:30px 0 8px;">4 · Screen layout</h2>
+<p style="margin:0 0 12px;">Top to bottom, all cards <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">16px</code> radius on <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">--card</code> with the one hairline border and one soft shadow. <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">16px</code> gap between blocks.</p>
+<ol style="margin:0 0 12px;padding-left:20px;">
+  <li style="margin-bottom:6px;"><b>Estimate banner</b> — accent-tinted strip, info glyph, 12.5px muted text.</li>
+  <li style="margin-bottom:6px;"><b>Action row</b> — Load Template · Save as Template · CSV · PDF · Share. Outlined 9px-radius buttons, 12.5px. <i>All five are stubs in the prototype.</i></li>
+  <li style="margin-bottom:6px;"><b>KPI strip</b> — 4 equal columns, each a tinted card (10% of its own hue): Total Revenue (green), Total Costs (red), Profit / Loss (green or red by sign, signed format), Break-even Tickets (amber). Value in 24px display weight 600.</li>
+  <li style="margin-bottom:6px;"><b>Revenue / Costs</b> — two columns, <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">1fr 1fr</code>, top-aligned. Left card headed green, right headed red.</li>
+  <li style="margin-bottom:6px;"><b>Results</b> — full-width card, 4-column grid of 7 flat inset tiles: total revenue, total costs, profit/loss, break-even ticket count, profit margin % (1 decimal), revenue per guest, cost per guest.</li>
+  <li style="margin-bottom:6px;"><b>Break-even Analysis</b> — full-width chart card (§4).</li>
+  <li style="margin-bottom:6px;"><b>Revenue Sources / Cost Breakdown</b> — two columns of horizontal bars.</li>
+  <li style="margin-bottom:6px;"><b>PRO fee estimate</b> — half-width card, big 28px figure, “Estimate only” pill, caption “≈ 6% of ticket revenue”.</li>
+</ol>
+
+<div style="break-inside:avoid;margin:0 0 4px;">
+  <img src="assets/budget-results.png" alt="Results grid" style="display:block;width:100%;border:1px solid rgba(90,72,60,.18);border-radius:10px;">
+</div>
+<p style="font-size:12px;color:#8C7A6C;margin:0 0 12px;">Figure 3 — Results. Seven tiles in a four-column grid, so the last row is short by design.</p>
+
+<h3 style="font-weight:600;font-size:15px;margin:18px 0 6px;">Revenue card</h3>
+<p style="margin:0 0 12px;">Mono uppercase eyebrow “Ticket revenue”, then one row per tier: name input (flex), € price input (92px, right-aligned mono), qty input (74px, right-aligned mono), trash button — background-free, border-free, muted glyph. A hairline totals row shows <b>Total ticket revenue</b> in green mono. Below it a dashed “+ Add ticket type” button, then three label-and-field rows (Capacity, Average bar spend per guest, Other revenue) with a hairline <b>Bar revenue</b> readout between the second and third. Custom revenue lines render as the same label/field row plus a type pill and an × remove; a dashed “+ Add Field” closes the card.</p>
+
+<h3 style="font-weight:600;font-size:15px;margin:18px 0 6px;">Costs card</h3>
+<p style="margin:0 0 12px;">Six identical label-and-€-field rows in fixed order (Performer fee, Production, Staff, Marketing, Venue, Other), fields 140px. Then a hairline-separated <b>Payment processing fees</b> group: a % field, a “+”, a € field, and the caption “/ ticket”. Custom cost lines and the dashed “+ Add Field” button follow.</p>
+
+<div style="break-inside:avoid;margin:0 0 4px;">
+  <img src="assets/budget-revcost.png" alt="Revenue and Costs cards side by side" style="display:block;width:100%;border:1px solid rgba(90,72,60,.18);border-radius:10px;">
+</div>
+<p style="font-size:12px;color:#8C7A6C;margin:0 0 12px;">Figure 4 — the two input cards. Note the asymmetry: revenue mixes repeatable rows with single fields, costs are a flat list; both close with the same dashed “+ Add Field”.</p>
+
+<h3 style="font-weight:600;font-size:15px;margin:18px 0 6px;">Bar lists</h3>
+<p style="margin:0 0 12px;">Each row is a label, a mono <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">amount · pct</code> pair, and a 7px pill track. <b>The percentage is share of total; the bar width is share of the largest line</b> — so the biggest line always fills the track. Zero-value lines are dropped entirely; when nothing remains the card shows a centred “No revenue data yet” / “No cost data yet”. Revenue slices: ticket sales, bar / F&amp;B, other. Cost slices: the six fixed fields plus <b>Processing</b>, which appears here even though it has no input row of its own.</p>
+
+<div style="break-inside:avoid;margin:0 0 4px;">
+  <img src="assets/budget-bars.png" alt="Revenue Sources and Cost Breakdown bar lists" style="display:block;width:100%;border:1px solid rgba(90,72,60,.18);border-radius:10px;">
+</div>
+<p style="font-size:12px;color:#8C7A6C;margin:0 0 12px;">Figure 5 — bar lists. Zero lines are absent, not greyed; the largest line always fills its track.</p>
+
+<div style="break-inside:avoid;margin:0 0 4px;">
+  <img src="assets/budget-pro.png" alt="PRO fee estimate card" style="display:block;width:100%;border:1px solid rgba(90,72,60,.18);border-radius:10px;">
+</div>
+<p style="font-size:12px;color:#8C7A6C;margin:0 0 12px;">Figure 6 — the PRO estimate, half-width and paired with an empty column. Its figure is advisory and excluded from total costs (see §8).</p>
+
+<h2 style="font-weight:600;font-size:19px;letter-spacing:-.02em;margin:30px 0 8px;">5 · Break-even chart</h2>
+<p style="margin:0 0 12px;">A 460×180 SVG stretched to full width (<code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">preserveAspectRatio="none"</code>, 190px tall), 8px side and 10px vertical padding. X axis is tickets sold, 0 → capacity; Y is money, 0 → 110% of the greater of revenue-at-capacity and total cost.</p>
+<ul style="margin:0 0 12px;padding-left:20px;">
+  <li style="margin-bottom:5px;"><b>Revenue</b> — solid 2.5px green line from <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">(0, nonTicketRev)</code> to <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">(cap, avgTicket×cap + nonTicketRev)</code>, where <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">nonTicketRev = barRev + otherRev</code>.</li>
+  <li style="margin-bottom:5px;"><b>Total cost</b> — flat 2px red dashed line (5 4) at <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">totalCost</code>.</li>
+  <li style="margin-bottom:5px;"><b>Crossing</b> — solved as <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">(totalCost − nonTicketRev) / avgTicket</code>, clamped to [0, cap]. Marked with a vertical hairline and a 4.5px amber dot ringed in the card colour; the green area left of it is filled at 12%.</li>
+  <li style="margin-bottom:5px;"><b>Axis strip</b> below the chart: <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">0</code> · amber “Break-even ≈ N tickets” · “N cap”, then a two-swatch legend.</li>
+</ul>
+<p style="margin:0 0 12px;">Fallbacks: capacity falls back to sold tickets, then to 1000; average ticket price falls back to the first tier’s price when nothing is sold. Non-finite results resolve to 0.</p>
+
+<div style="break-inside:avoid;margin:0 0 4px;">
+  <img src="assets/budget-chart.png" alt="Break-even analysis chart" style="display:block;width:100%;border:1px solid rgba(90,72,60,.18);border-radius:10px;">
+</div>
+<p style="font-size:12px;color:#8C7A6C;margin:0 0 12px;">Figure 7 — the break-even card. With bar and other revenue at zero the green line starts at the origin; add either and it lifts off the axis.</p>
+
+<h2 style="font-weight:600;font-size:19px;letter-spacing:-.02em;margin:30px 0 8px;">6 · Tokens used here</h2>
+<p style="margin:0 0 12px;">The planner introduces no tokens of its own. It uses the shell set (<code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">--card --elevated --border --border-strong --text --muted --dim --shadow --accent</code>) plus the fixed semantic hues, which do <i>not</i> flip with the theme:</p>
+<p style="margin:0 0 12px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.9;">#6FC97A revenue / positive · #EE5746 cost / negative · #F4A046 break-even &amp; bar · #6FA8E0 other · #B58BE0 marketing · #8C7A6C other cost · #E6D9CB processing</p>
+<p style="margin:0 0 12px;"><b>Numbers are always mono</b>, right-aligned in inputs and in every readout. Money renders as <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">€</code> + thousands-grouped integer — <b>rounded, never with decimals</b>; profit/loss uses a signed variant that puts the minus before the symbol. Inputs are 9px radius on <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">--elevated</code>, 13px text, no focus ring beyond the border.</p>
+
+<h2 style="font-weight:600;font-size:19px;letter-spacing:-.02em;margin:30px 0 8px;">7 · Mapping onto the Postgres model</h2>
+<p style="margin:0 0 12px;">The prototype’s flat single-currency object is a UI convenience. In the rebuild the planner writes <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">budgets</code> + <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">budget_lines</code>, and the sheet above becomes a projection of them.</p>
+<table style="width:100%;border-collapse:collapse;font-size:12.5px;margin:0 0 6px;break-inside:avoid;">
+  <thead><tr style="background:#F5EFE9;">
+    <th style="text-align:left;padding:7px 9px;font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#5A483C;">Prototype</th>
+    <th style="text-align:left;padding:7px 9px;font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#5A483C;">Becomes</th>
+  </tr></thead>
+  <tbody>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">one budget per event</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);"><code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">budgets(scope shared|private, owner_profile_id)</code> — co-operators share one, each operator may keep a private one</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">ticket tiers, bar, other, custom revenue</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);"><code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">budget_lines(kind='revenue', collected_by)</code> — who actually receives the cash</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">six fixed cost fields + custom costs</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);"><code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">budget_lines(kind='cost', paid_by, payee_participant_id, cost_split, deal_id)</code> — labels stop being an enum</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">performer fee as a cost field</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">a <b>deal entitlement</b>, not a budget line — assign the line to the deal via <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">deal_id</code> so it is never double-counted</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">everything in €</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">per-line currency, converted to <code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">events.base_currency</code> at a locked FX rate before summing</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">“profit”</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">the operator’s <b>residual</b> in settlement (pool − Σ other entitlements). The planner keeps calling it profit; Settlement owns the real figure</td></tr>
+    <tr><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);">Load / Save Template</td><td style="padding:6px 9px;border-bottom:1px solid rgba(90,72,60,.1);"><code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;">templates(category='budget', payload jsonb)</code>, profile-scoped</td></tr>
+  </tbody>
+</table>
+<p style="font-size:12px;color:#8C7A6C;margin:0 0 12px;">Table 2 — planner → schema. <b>Visibility:</b> the whole screen is operator-only. Performers and crew never see a budget, not even inside a shared event; there is no redacted variant to design.</p>
+
+<h2 style="font-weight:600;font-size:19px;letter-spacing:-.02em;margin:30px 0 8px;">8 · Open decisions</h2>
+<ol style="margin:0 0 12px;padding-left:20px;">
+  <li style="margin-bottom:6px;"><b>Is the PRO estimate a cost?</b> Today it is a 6%-of-ticket-revenue display figure excluded from total costs — so profit ignores a real expense. Either fold it in as a cost line or keep it advisory and say so on the card.</li>
+  <li style="margin-bottom:6px;"><b>Does bar revenue scale with attendance?</b> Capacity basis overstates it for any show that doesn’t sell out. Recommendation: switch to sold tickets, keep capacity for the per-guest metrics.</li>
+  <li style="margin-bottom:6px;"><b>Forecast vs actuals.</b> Nothing currently carries a planned figure into Settlement. Decide whether the planner seeds settlement lines, sits beside them as a variance column, or stays fully separate.</li>
+  <li style="margin-bottom:6px;"><b>Fixed cost fields, or free lines?</b> The schema wants arbitrary labelled lines; the UI’s six fixed rows are what makes the sheet fast to fill. Likely answer: keep the six as a default template, everything else a line.</li>
+  <li style="margin-bottom:6px;"><b>Rounding.</b> Display rounds to whole units per figure, so column sums can be a unit off. Store minor units, round only at render.</li>
+</ol>
+
+</div>
+</doc-page>
+
+</x-dc>
+</body>
+</html>
