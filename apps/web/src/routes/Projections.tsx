@@ -80,6 +80,46 @@ function marginLabel(margin: number | null): string {
   return `${Math.round(margin * 100)}%`;
 }
 
+function pluralEvents(count: number): string {
+  return count === 1 ? "event" : "events";
+}
+
+/**
+ * How much of the filtered pipeline the projected figures actually cover. A budget
+ * is optional, so a scope can match events that have nothing to project — and a
+ * figure summed over the budgeted subset must never be captioned with the matched
+ * count, or the card claims to describe events it silently left out.
+ */
+interface BudgetCoverage {
+  /** Events matching the selected scope. */
+  matched: number;
+  /** Of those, the ones carrying a budget — the set every figure is summed over. */
+  budgeted: number;
+  isPartial: boolean;
+}
+
+/** Caption for a stat card: names the set the figure above it was summed over. */
+function coverageHint(coverage: BudgetCoverage): string {
+  if (coverage.isPartial) return `${coverage.budgeted} of ${coverage.matched} events budgeted`;
+  return `${coverage.budgeted} ${pluralEvents(coverage.budgeted)} budgeted`;
+}
+
+/** One honest line for the partial case: totals over a subset need saying so. */
+function partialCoverageNote(coverage: BudgetCoverage): string {
+  const missing = coverage.matched - coverage.budgeted;
+  const missingClause = missing === 1 ? "1 event has none yet" : `${missing} events have none yet`;
+  return `Figures cover the ${coverage.budgeted} of ${coverage.matched} events in this view that have a budget — ${missingClause}, so they show as —.`;
+}
+
+/** Why the screen is empty when the filter did match events: no budgets on them. */
+function noBudgetDescription(matched: number): string {
+  const subject =
+    matched === 1
+      ? "The event in this view has no budget yet"
+      : `None of the ${matched} events in this view has a budget yet`;
+  return `${subject}. A projection is computed from an event's budget lines, so there is nothing to project until one is added.`;
+}
+
 function scopeMatches(event: EventItem, scope: Scope, now: number): boolean {
   if (scope === "confirmed") return event.status.toLowerCase() === "confirmed";
   if (scope === "upcoming") {
@@ -133,12 +173,20 @@ function ProjectionsScreen() {
   const avgProfitMinor = hasProjection ? totalProfitMinor / withBudget.length : null;
   const maxRevenueMinor = withBudget.reduce((max, row) => Math.max(max, row.revenueMinor), 0);
 
+  const coverage: BudgetCoverage = {
+    matched: projections.length,
+    budgeted: withBudget.length,
+    isPartial: withBudget.length > 0 && withBudget.length < projections.length,
+  };
+
   const dash = "—";
   const kpiItems = [
     {
       label: "Projected Revenue",
+      // The figure is summed over the budgeted events, so the caption counts those
+      // — not the scope match, which is what made an empty card read as a bug.
       value: hasProjection ? formatMoney(totalRevenueMinor, currency) : dash,
-      hint: `${projections.length} ${projections.length === 1 ? "event" : "events"}`,
+      hint: budgetsPending ? "Loading budgets…" : coverageHint(coverage),
       tone: "green" as const,
     },
     {
@@ -219,15 +267,17 @@ function ProjectionsScreen() {
     },
   ];
 
+  // The realized figures come from settled history, which the scope toggle does not
+  // filter — sitting silently under filtered projections they read as the same set,
+  // so the scope difference is stated rather than left to be inferred.
   const realizedNote =
     revenue.data && summary.data ? (
       <div style={{ color: "var(--muted)", fontSize: 12.5 }}>
-        Realized revenue to date{" "}
+        All time, ignoring the filter above: realized revenue{" "}
         <span style={{ fontFamily: "var(--font-mono)", color: "var(--text)" }}>
           {formatMoney(revenue.data.totalRevenue, currency)}
         </span>{" "}
-        across {summary.data.eventsHosted} {summary.data.eventsHosted === 1 ? "event" : "events"}{" "}
-        hosted. Projections above are computed from each event's budget lines.
+        across {summary.data.eventsHosted} {pluralEvents(summary.data.eventsHosted)} hosted.
       </div>
     ) : null;
 
@@ -259,9 +309,31 @@ function ProjectionsScreen() {
           title="No events to project"
           description="Once you have events with budgets, their projected P&L rolls up here."
         />
+      ) : projections.length === 0 ? (
+        <EmptyState
+          icon={<Icon name="trending-up" />}
+          title="No events match this filter"
+          description="Nothing in your pipeline fits this scope — switch the filter above to see the rest of it."
+        />
+      ) : !hasProjection && !budgetsPending ? (
+        // The filter matched, the budgets are in, and every one of them is missing:
+        // say that, rather than showing four dashes the user has to interpret.
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <EmptyState
+            icon={<Icon name="trending-up" />}
+            title="Nothing to project on these events yet"
+            description={noBudgetDescription(projections.length)}
+          />
+          {realizedNote}
+        </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <KpiRow items={kpiItems} />
+          {coverage.isPartial && !budgetsPending && (
+            <div style={{ color: "var(--muted)", fontSize: 12.5 }}>
+              {partialCoverageNote(coverage)}
+            </div>
+          )}
           {realizedNote}
 
           <div
@@ -284,64 +356,58 @@ function ProjectionsScreen() {
               >
                 Revenue by Event
               </span>
-              {projections.length === 0 ? (
-                <span style={{ color: "var(--muted)", fontSize: 13 }}>
-                  No events match this filter.
-                </span>
-              ) : (
-                projections.map((row) => {
-                  const denominator = maxRevenueMinor > 0 ? maxRevenueMinor : 1;
-                  const percent = row.hasBudget
-                    ? Math.max(0, Math.min(100, (row.revenueMinor / denominator) * 100))
-                    : 0;
-                  return (
+              {projections.map((row) => {
+                const denominator = maxRevenueMinor > 0 ? maxRevenueMinor : 1;
+                const percent = row.hasBudget
+                  ? Math.max(0, Math.min(100, (row.revenueMinor / denominator) * 100))
+                  : 0;
+                return (
+                  <div
+                    key={row.event.id}
+                    style={{ display: "flex", flexDirection: "column", gap: 6 }}
+                  >
                     <div
-                      key={row.event.id}
-                      style={{ display: "flex", flexDirection: "column", gap: 6 }}
+                      style={{
+                        display: "flex",
+                        alignItems: "baseline",
+                        justifyContent: "space-between",
+                        gap: 12,
+                      }}
+                    >
+                      <span style={{ color: "var(--text)", fontSize: 14 }}>
+                        {row.event.title || "Untitled event"}
+                      </span>
+                      <span
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          color: row.hasBudget ? "var(--text)" : "var(--dim)",
+                          fontSize: 14,
+                        }}
+                      >
+                        {row.hasBudget ? formatMoney(row.revenueMinor, currency) : dash}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        height: 8,
+                        borderRadius: 999,
+                        background: "var(--elevated)",
+                        overflow: "hidden",
+                      }}
                     >
                       <div
                         style={{
-                          display: "flex",
-                          alignItems: "baseline",
-                          justifyContent: "space-between",
-                          gap: 12,
-                        }}
-                      >
-                        <span style={{ color: "var(--text)", fontSize: 14 }}>
-                          {row.event.title || "Untitled event"}
-                        </span>
-                        <span
-                          style={{
-                            fontFamily: "var(--font-mono)",
-                            color: row.hasBudget ? "var(--text)" : "var(--dim)",
-                            fontSize: 14,
-                          }}
-                        >
-                          {row.hasBudget ? formatMoney(row.revenueMinor, currency) : dash}
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          height: 8,
+                          width: `${percent}%`,
+                          height: "100%",
                           borderRadius: 999,
-                          background: "var(--elevated)",
-                          overflow: "hidden",
+                          background:
+                            "linear-gradient(90deg, var(--brand-amber), var(--brand-red))",
                         }}
-                      >
-                        <div
-                          style={{
-                            width: `${percent}%`,
-                            height: "100%",
-                            borderRadius: 999,
-                            background:
-                              "linear-gradient(90deg, var(--brand-amber), var(--brand-red))",
-                          }}
-                        />
-                      </div>
+                      />
                     </div>
-                  );
-                })
-              )}
+                  </div>
+                );
+              })}
             </Card>
 
             <DataTable
