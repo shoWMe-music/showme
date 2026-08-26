@@ -1,5 +1,6 @@
 import { Button, Modal, Select, TextField } from "@showme/design-system";
 import type { ReactNode } from "react";
+import { InviteNameFields } from "./InviteNameFields";
 import { Eyebrow } from "./primitives";
 import {
   EVENT_COLLABORATOR_ROLES,
@@ -125,11 +126,11 @@ export function EventCollaboratorInviteModal({
             onChange={(changeEvent) => invite.setEmail(changeEvent.target.value)}
             autoFocus
           />
-          <TextField
-            label="Name (optional)"
-            value={invite.name}
-            placeholder="Who are they?"
-            onChange={(changeEvent) => invite.setName(changeEvent.target.value)}
+          <InviteNameFields
+            firstName={invite.firstName}
+            lastName={invite.lastName}
+            onFirstNameChange={invite.setFirstName}
+            onLastNameChange={invite.setLastName}
           />
           <div style={fieldGroupStyle}>
             <Eyebrow>Role on this event</Eyebrow>

@@ -30,6 +30,7 @@ import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { type CSSProperties, type FormEvent, type ReactNode, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { GroupCard } from "../components";
+import { ConfirmDialog, useConfirmDialog } from "../components/ConfirmDialog";
 import { TeamInviteMemberModal } from "../components/TeamInviteMemberModal";
 import { TeamMemberEditModal, type TeamMemberEditTarget } from "../components/TeamMemberEditModal";
 import { Eyebrow } from "../components/primitives";
@@ -294,13 +295,25 @@ export function Team() {
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
+  /**
+   * The group create/rename panel. `open` is a field rather than the whole state
+   * being nulled on close, because the Modal keeps rendering through its exit
+   * tween: clearing the mode at close time re-titled the still-visible "Rename
+   * group" panel to "New group" for the length of the animation. What the modal
+   * says is owned by whatever opened it, and is therefore reset on OPEN — the
+   * same rule the invite and edit modals already follow.
+   */
   const [groupModal, setGroupModal] = useState<{
+    open: boolean;
     mode: "create" | "rename";
     groupId?: string;
-  } | null>(null);
+  }>({ open: false, mode: "create" });
   const [groupName, setGroupName] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamMemberEditTarget | null>(null);
+  const confirmation = useConfirmDialog();
+
+  const closeGroupModal = () => setGroupModal((current) => ({ ...current, open: false }));
 
   const invalidateGroups = () =>
     queryClient.invalidateQueries({ queryKey: getGetApiV1GroupsQueryKey() });
@@ -310,8 +323,9 @@ export function Team() {
       onSuccess: (group) => {
         toast.success(`"${group.name}" created`);
         invalidateGroups();
-        setGroupModal(null);
-        setGroupName("");
+        // Only the open flag: the typed name is cleared by the next open, so the
+        // field does not blank itself while the panel is still animating away.
+        closeGroupModal();
       },
       onError: (error) => toast.error(errorMessage(error, "Couldn't create the group.")),
     },
@@ -321,8 +335,7 @@ export function Team() {
       onSuccess: () => {
         toast.success("Group renamed");
         invalidateGroups();
-        setGroupModal(null);
-        setGroupName("");
+        closeGroupModal();
       },
       onError: (error) => toast.error(errorMessage(error, "Couldn't rename the group.")),
     },
@@ -374,26 +387,32 @@ export function Team() {
 
   function openCreateGroup() {
     setGroupName("");
-    setGroupModal({ mode: "create" });
+    setGroupModal({ open: true, mode: "create" });
   }
   function openRenameGroup(group: Group) {
     setGroupName(group.name);
-    setGroupModal({ mode: "rename", groupId: group.id });
+    setGroupModal({ open: true, mode: "rename", groupId: group.id });
   }
   function submitGroup(formEvent: FormEvent) {
     formEvent.preventDefault();
     const name = groupName.trim();
     if (!name) return;
-    if (groupModal?.mode === "rename" && groupModal.groupId) {
+    if (groupModal.mode === "rename" && groupModal.groupId) {
       renameGroup.mutate({ gid: groupModal.groupId, data: { name } });
     } else {
       createGroup.mutate({ data: { name } });
     }
   }
   function removeGroup(group: Group) {
-    if (!window.confirm(`Remove the "${group.name}" group? Members stay in any other groups.`))
-      return;
-    deleteGroup.mutate({ gid: group.id });
+    confirmation.ask({
+      title: "Remove group",
+      // Says what will happen AND what will not: the group is a reusable bundle,
+      // so deleting it must not read as deleting the people on it.
+      body: `Remove the "${group.name}" group? Members stay in any other groups.`,
+      confirmLabel: "Remove group",
+      destructive: true,
+      onConfirm: () => deleteGroup.mutate({ gid: group.id }),
+    });
   }
 
   // Managing the roster is owner/admin only — the same gate the API applies
@@ -443,13 +462,25 @@ export function Team() {
       setOpenMenuKey(null);
       // Losing account access is not undoable from this screen — it takes a
       // fresh invitation to put back — so it asks first.
-      if (!window.confirm(`Remove ${name} from this account? They lose all access to it.`)) return;
-      removeMember.mutate({ id: membership.profileId, mid: membership.memberId });
+      confirmation.ask({
+        title: "Remove member",
+        body: `Remove ${name} from this account? They lose all access to it.`,
+        confirmLabel: "Remove member",
+        destructive: true,
+        onConfirm: () =>
+          removeMember.mutate({ id: membership.profileId, mid: membership.memberId }),
+      });
     },
     onLeaveGroup: (membership: GroupMembership, name: string) => {
       setOpenMenuKey(null);
-      if (!window.confirm(`Take ${name} off the "${membership.groupName}" group?`)) return;
-      removeGroupMember.mutate({ gid: membership.groupId, mid: membership.memberId });
+      confirmation.ask({
+        title: "Remove from group",
+        body: `Take ${name} off the "${membership.groupName}" group?`,
+        confirmLabel: "Remove from group",
+        destructive: true,
+        onConfirm: () =>
+          removeGroupMember.mutate({ gid: membership.groupId, mid: membership.memberId }),
+      });
     },
   };
 
@@ -627,13 +658,13 @@ export function Team() {
       )}
 
       <Modal
-        open={groupModal !== null}
-        onClose={() => setGroupModal(null)}
-        title={groupModal?.mode === "rename" ? "Rename group" : "New group"}
+        open={groupModal.open}
+        onClose={closeGroupModal}
+        title={groupModal.mode === "rename" ? "Rename group" : "New group"}
         width={440}
         footer={
           <>
-            <Button variant="ghost" onClick={() => setGroupModal(null)}>
+            <Button variant="ghost" onClick={closeGroupModal}>
               Cancel
             </Button>
             <Button
@@ -641,7 +672,7 @@ export function Team() {
               onClick={submitGroup}
               disabled={groupName.trim().length === 0 || groupModalBusy}
             >
-              {groupModalBusy ? "Saving…" : groupModal?.mode === "rename" ? "Save" : "Create group"}
+              {groupModalBusy ? "Saving…" : groupModal.mode === "rename" ? "Save" : "Create group"}
             </Button>
           </>
         }
@@ -680,6 +711,8 @@ export function Team() {
           refreshRoster(profileId);
         }}
       />
+
+      <ConfirmDialog {...confirmation.dialogProps} />
     </>
   );
 }

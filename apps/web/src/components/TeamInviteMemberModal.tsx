@@ -2,6 +2,7 @@ import { usePostApiV1GroupsGidMembers, usePostApiV1Invitations } from "@showme/a
 import { Button, Modal, Select, TextField } from "@showme/design-system";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { errorMessage } from "../lib/errors";
+import { InviteNameFields, combineName } from "./InviteNameFields";
 import { Eyebrow } from "./primitives";
 
 /**
@@ -85,7 +86,8 @@ function useTeamMemberInvite({
 }: Pick<TeamInviteMemberModalProps, "open" | "profiles" | "defaultProfileId" | "onInvited">) {
   const [profileId, setProfileId] = useState("");
   const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [role, setRole] = useState(DEFAULT_ROLE);
   const [groupId, setGroupId] = useState(NO_GROUP);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -103,7 +105,8 @@ function useTeamMemberInvite({
     if (!open) return;
     setProfileId(fallbackProfileId);
     setEmail("");
-    setName("");
+    setFirstName("");
+    setLastName("");
     setRole(DEFAULT_ROLE);
     setGroupId(NO_GROUP);
     setRefusal(null);
@@ -118,7 +121,9 @@ function useTeamMemberInvite({
     setRefusal(null);
     setGroupProblem(null);
 
-    const recipientName = name.trim();
+    // Two fields, one column: `invitations.recipient_name` stores the whole name
+    // (see InviteNameFields — the split is presentational).
+    const recipientName = combineName(firstName, lastName);
     try {
       await createInvitation.mutateAsync({
         data: {
@@ -153,7 +158,8 @@ function useTeamMemberInvite({
 
   function inviteAnother() {
     setEmail("");
-    setName("");
+    setFirstName("");
+    setLastName("");
     setSentTo(null);
     setGroupProblem(null);
   }
@@ -163,8 +169,10 @@ function useTeamMemberInvite({
     setProfileId,
     email,
     setEmail,
-    name,
-    setName,
+    firstName,
+    setFirstName,
+    lastName,
+    setLastName,
     role,
     setRole,
     groupId,
@@ -262,11 +270,11 @@ export function TeamInviteMemberModal({
             onChange={(changeEvent) => invite.setEmail(changeEvent.target.value)}
             autoFocus
           />
-          <TextField
-            label="Name (optional)"
-            value={invite.name}
-            placeholder="Who are they?"
-            onChange={(changeEvent) => invite.setName(changeEvent.target.value)}
+          <InviteNameFields
+            firstName={invite.firstName}
+            lastName={invite.lastName}
+            onFirstNameChange={invite.setFirstName}
+            onLastNameChange={invite.setLastName}
           />
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <Eyebrow>Role</Eyebrow>

@@ -1,6 +1,7 @@
 import { usePostApiV1Invitations } from "@showme/api-client";
 import { type FormEvent, useEffect, useState } from "react";
 import { errorMessage } from "../lib/errors";
+import { combineName } from "./InviteNameFields";
 
 /**
  * Inviting a person onto ONE EVENT — the third of the three layers in
@@ -99,7 +100,8 @@ export function useEventCollaboratorInvite({
   fullControlPermissionSetId,
 }: UseEventCollaboratorInviteOptions) {
   const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [role, setRole] = useState(DEFAULT_ROLE);
   const [access, setAccess] = useState<EventCollaboratorAccess>("standard");
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -112,7 +114,8 @@ export function useEventCollaboratorInvite({
   useEffect(() => {
     if (!open) return;
     setEmail("");
-    setName("");
+    setFirstName("");
+    setLastName("");
     setRole(DEFAULT_ROLE);
     setAccess("standard");
     setRefusal(null);
@@ -130,7 +133,9 @@ export function useEventCollaboratorInvite({
     if (!recipientEmail) return;
     setRefusal(null);
 
-    const recipientName = name.trim();
+    // Two fields, one column: `invitations.recipient_name` stores the whole name
+    // (see InviteNameFields — the split is presentational).
+    const recipientName = combineName(firstName, lastName);
     const permissionSetId =
       effectiveAccess === "full_control" ? (fullControlPermissionSetId ?? undefined) : undefined;
 
@@ -159,15 +164,18 @@ export function useEventCollaboratorInvite({
 
   function inviteAnother() {
     setEmail("");
-    setName("");
+    setFirstName("");
+    setLastName("");
     setSentTo(null);
   }
 
   return {
     email,
     setEmail,
-    name,
-    setName,
+    firstName,
+    setFirstName,
+    lastName,
+    setLastName,
     role,
     setRole,
     access: effectiveAccess,
