@@ -3,9 +3,11 @@ import {
   type User,
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
+  getRedirectResult,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   updateProfile,
 } from "firebase/auth";
 import { type ReactNode, createContext, useContext, useEffect, useMemo, useState } from "react";
@@ -58,6 +60,40 @@ async function fetchSession(): Promise<Session | null> {
   }
 }
 
+/**
+ * The popup failures that mean "this browser will not complete a popup
+ * handshake", as opposed to "the person changed their mind".
+ *
+ * A popup sign-in is a cross-document conversation: the handler authenticates on
+ * the auth domain and hands the credential back to the opener. Browsers that
+ * partition or block third-party storage (Safari, Brave, Firefox in strict mode,
+ * Chrome with third-party cookies off) can let the sign-in SUCCEED upstream —
+ * Firebase records the login — while the credential never reaches this window.
+ * The person is then left staring at a sign-in screen having just signed in,
+ * which is exactly the report that led here.
+ *
+ * `authDomain` is now the app's own origin, which removes the cross-site step
+ * entirely; this fallback covers what is left, including plain popup blockers.
+ */
+const POPUP_UNAVAILABLE_CODES = new Set([
+  "auth/popup-blocked",
+  "auth/popup-closed-by-user",
+  "auth/cancelled-popup-request",
+  "auth/operation-not-supported-in-this-environment",
+  "auth/web-storage-unsupported",
+  "auth/internal-error",
+]);
+
+function popupCannotComplete(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof (error as { code: unknown }).code === "string" &&
+    POPUP_UNAVAILABLE_CODES.has((error as { code: string }).code)
+  );
+}
+
 function statusForSession(session: Session | null): Status {
   if (!session) return "onboarding"; // authenticated, but no Postgres account yet
   if (session.memberships.length === 0) return "onboarding"; // account, but no profile
@@ -68,6 +104,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Status>("loading");
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+
+  // Collect a redirect sign-in that finished while this app was unloaded. It
+  // must run before anything can conclude the visitor is anonymous: on the way
+  // back from the provider there is a credential waiting that no listener has
+  // consumed yet. A rejection here is not fatal — `onAuthStateChanged` below is
+  // still the authority on whether anyone is signed in.
+  useEffect(() => {
+    getRedirectResult(auth).catch((error) => {
+      console.error("[auth] redirect sign-in did not complete", error);
+    });
+  }, []);
 
   useEffect(() => {
     // Fires on load (persisted session) and on every sign-in / sign-out.
@@ -111,7 +158,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // onAuthStateChanged → fetchSession → onboarding (no account yet).
       },
       async signInGoogle() {
-        await signInWithPopup(auth, googleProvider);
+        try {
+          await signInWithPopup(auth, googleProvider);
+        } catch (error) {
+          if (!popupCannotComplete(error)) throw error;
+          // Same tab, no second window, no cross-document handoff. The result is
+          // collected by `getRedirectResult` when the browser comes back.
+          await signInWithRedirect(auth, googleProvider);
+        }
       },
       async signOut() {
         await firebaseSignOut(auth);
