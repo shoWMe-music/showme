@@ -19,6 +19,7 @@ import {
   useToast,
 } from "@showme/design-system";
 import { type FormEvent, useEffect, useState } from "react";
+import { DateTimeField } from "../components/DateTimeField";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
 import {
@@ -45,7 +46,13 @@ const SCOPE_META: Record<TaskScope, { label: string; status: Status }> = {
 
 /** "Jul 18, 2026 12:00" when the due date carries a time, else "Jul 18, 2026". */
 function formatDueDateTime(iso: string): string {
-  const date = new Date(iso);
+  // `tasks.due_date` is a DATE column, so the API sends a bare "yyyy-mm-dd".
+  // `new Date()` reads that as UTC midnight, which renders as the PREVIOUS day
+  // for anyone west of Greenwich — so build the day from its own parts instead.
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  const date = dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    : new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   const day = date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
   const hasTime = /\d{2}:\d{2}/.test(iso) && !iso.includes("T00:00:00");
@@ -498,7 +505,8 @@ function TaskFormModal({
     if (!open) return;
     setTitle(task?.title ?? "");
     setDescription(task?.description ?? "");
-    setDueDate(task?.dueDate ? task.dueDate.slice(0, 16) : "");
+    // "yyyy-mm-dd" — the exact shape a `type="date"` input round-trips.
+    setDueDate(task?.dueDate ? task.dueDate.slice(0, 10) : "");
     setGroupId(task?.groupId ?? "");
   }, [open, task]);
 
@@ -522,7 +530,10 @@ function TaskFormModal({
   });
 
   const submitting = create.isPending || patch.isPending;
-  const iso = dueDate ? new Date(dueDate).toISOString() : undefined;
+  // Send the calendar day the user picked, verbatim. Converting to a UTC instant
+  // used to shift it: `tasks.due_date` is a DATE, so an evening pick east of
+  // Greenwich (or a small-hours pick west of it) landed on the wrong day.
+  const due = dueDate || undefined;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -533,7 +544,7 @@ function TaskFormModal({
         data: {
           title: title.trim(),
           description: description.trim() || null,
-          dueDate: iso ?? null,
+          dueDate: due ?? null,
           groupId: groupId || null,
         },
       });
@@ -542,7 +553,7 @@ function TaskFormModal({
         data: {
           title: title.trim(),
           ...(description.trim() ? { description: description.trim() } : {}),
-          ...(iso ? { dueDate: iso } : {}),
+          ...(due ? { dueDate: due } : {}),
           ...(groupId ? { groupId } : {}),
         },
       });
@@ -612,9 +623,9 @@ function TaskFormModal({
             }}
           />
         </label>
-        <TextField
+        <DateTimeField
           label="Due"
-          type="datetime-local"
+          type="date"
           value={dueDate}
           onChange={(event) => setDueDate(event.target.value)}
         />
