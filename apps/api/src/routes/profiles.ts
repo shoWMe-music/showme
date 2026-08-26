@@ -1,14 +1,15 @@
 import { schema } from "@showme/db";
+import { isProfileTypeForKind, profileTypesForKind } from "@showme/shared";
 import { and, asc, eq, ilike, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
-import { writeAudit } from "../lib/audit";
+import { type Transaction, writeAudit } from "../lib/audit";
 import { requireProfileRole } from "../lib/authorize";
 import { assertProfileAdminGrantAllows } from "../lib/entitlements";
 import { withIdempotency } from "../plugins/idempotency";
-import { serializeProfile } from "../serialize/profile";
+import { type ProfileRelations, serializeProfile } from "../serialize/profile";
 
 const ProfileParams = z.object({ id: z.string().uuid() });
 const MemberParams = z.object({ id: z.string().uuid(), mid: z.string().uuid() });
@@ -27,8 +28,46 @@ const templateCategory = z.enum([
   "settlement_deal",
 ]);
 
+/**
+ * A profile's location, as the owner edits it. City and country travel together
+ * because they describe one place — `country` is the ISO code the territory and
+ * timezone engines read, so it is not free text.
+ */
+const ProfileLocationBody = z.object({
+  city: z.string().max(200).nullable().optional(),
+  country: z.string().max(2).nullable().optional(),
+});
+
+/**
+ * The venue facts. Amenities and deal types are plain strings, not enums: the
+ * offered vocabulary lives in `@showme/shared`, but a venue may always type its
+ * own (the previous app's real data is full of "Green Room" and "Loading Dock"),
+ * and rejecting those would lose the very information the field exists to hold.
+ * They are bounded and de-duplicated instead.
+ */
+const VenueDetailsBody = z.object({
+  capacity: z.number().int().min(0).max(5_000_000).nullable().optional(),
+  soundSystem: z.string().max(200).nullable().optional(),
+  curfew: z.string().max(50).nullable().optional(),
+  amenities: z.array(z.string().min(1).max(100)).max(100).optional(),
+  dealTypes: z.array(z.string().min(1).max(100)).max(50).optional(),
+  cateringNotes: z.string().max(5000).nullable().optional(),
+  accommodationNotes: z.string().max(5000).nullable().optional(),
+  artistLogisticsNotes: z.string().max(5000).nullable().optional(),
+  audienceLogisticsNotes: z.string().max(5000).nullable().optional(),
+  contactEmail: z.string().email().max(254).nullable().optional(),
+  contactPhone: z.string().max(50).nullable().optional(),
+});
+
+/**
+ * `kind` is NOT accepted here. An account's kind is fixed at signup and one per
+ * account (CLAUDE.md, story.md), and a profile inherits its owner's — so it was
+ * never a choice on this form. It used to be accepted and then checked for
+ * equality with the user's kind, which is the same rule stated as a rejection
+ * instead of an inference; asking for a value whose only legal answer is already
+ * known is how a UI ends up offering "Performer" to a venue.
+ */
 const CreateProfileBody = z.object({
-  kind: accountKind,
   type: z.string().min(1).optional(),
   name: z.string().min(1),
   slug: z.string().min(1),
@@ -42,6 +81,8 @@ const UpdateProfileBody = z.object({
   avatarUrl: z.string().nullable().optional(),
   bannerUrl: z.string().nullable().optional(),
   details: z.unknown().optional(),
+  location: ProfileLocationBody.optional(),
+  venueDetails: VenueDetailsBody.optional(),
 });
 
 const CreateMemberBody = z
@@ -78,6 +119,25 @@ const UpdateTemplateBody = z.object({
   payload: z.unknown().optional(),
 });
 
+const ProfileLocationResponse = z.object({
+  city: z.string().nullable(),
+  country: z.string().nullable(),
+});
+
+const VenueDetailsResponse = z.object({
+  capacity: z.number().nullable(),
+  soundSystem: z.string().nullable(),
+  curfew: z.string().nullable(),
+  amenities: z.array(z.string()),
+  dealTypes: z.array(z.string()),
+  cateringNotes: z.string().nullable(),
+  accommodationNotes: z.string().nullable(),
+  artistLogisticsNotes: z.string().nullable(),
+  audienceLogisticsNotes: z.string().nullable(),
+  contactEmail: z.string().nullable(),
+  contactPhone: z.string().nullable(),
+});
+
 const ProfileResponse = z.object({
   id: z.string(),
   kind: z.string(),
@@ -90,6 +150,10 @@ const ProfileResponse = z.object({
   avatarUrl: z.string().nullable(),
   bannerUrl: z.string().nullable(),
   details: z.unknown().optional(),
+  // Nullable AND optional, and the difference carries meaning: absent = this
+  // route does not load it, null = loaded and nothing is recorded.
+  location: ProfileLocationResponse.nullable().optional(),
+  venueDetails: VenueDetailsResponse.nullable().optional(),
   billing: z.unknown().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -197,6 +261,112 @@ const ProfileSearchResponse = z.object({
   hasMore: z.boolean(),
 });
 
+// Reads run on either the request's database or an open transaction — the PATCH
+// re-reads inside its own transaction so the audit records what it actually
+// wrote, not a value another request could have changed in between.
+type Database = FastifyInstance["database"] | Transaction;
+
+/**
+ * Load the two rows a full profile projection needs. Both are optional 1:1
+ * extensions, so both may legitimately be missing — the caller gets `null`, which
+ * the serializer turns into "loaded, nothing recorded" rather than "not loaded".
+ *
+ * `is_primary` picks the location because a profile may hold several (a promoter
+ * with two cities, a seasonal open-air with dated rows); the primary is the one
+ * every other reader of this table already uses.
+ */
+async function loadProfileRelations(
+  database: Database,
+  profileId: string,
+): Promise<Required<ProfileRelations>> {
+  const [locations, venues] = await Promise.all([
+    database
+      .select()
+      .from(schema.profileLocations)
+      .where(
+        and(
+          eq(schema.profileLocations.profileId, profileId),
+          eq(schema.profileLocations.isPrimary, true),
+        ),
+      ),
+    database.select().from(schema.venueDetails).where(eq(schema.venueDetails.profileId, profileId)),
+  ]);
+  return { location: locations[0] ?? null, venueDetails: venues[0] ?? null };
+}
+
+/**
+ * The same two joins for a whole list, in two queries instead of 2N. The list
+ * screen renders a location on every card, so N+1 here would be a round trip per
+ * profile the moment anyone holds more than a couple.
+ */
+async function loadProfileRelationsBatch(
+  database: Database,
+  profileIds: string[],
+): Promise<Map<string, Required<ProfileRelations>>> {
+  const byProfile = new Map<string, Required<ProfileRelations>>(
+    profileIds.map((profileId) => [profileId, { location: null, venueDetails: null }]),
+  );
+  if (profileIds.length === 0) return byProfile;
+
+  const [locations, venues] = await Promise.all([
+    database
+      .select()
+      .from(schema.profileLocations)
+      .where(
+        and(
+          inArray(schema.profileLocations.profileId, profileIds),
+          eq(schema.profileLocations.isPrimary, true),
+        ),
+      ),
+    database
+      .select()
+      .from(schema.venueDetails)
+      .where(inArray(schema.venueDetails.profileId, profileIds)),
+  ]);
+  for (const location of locations) {
+    const entry = byProfile.get(location.profileId);
+    if (entry) entry.location = location;
+  }
+  for (const venue of venues) {
+    const entry = byProfile.get(venue.profileId);
+    if (entry) entry.venueDetails = venue;
+  }
+  return byProfile;
+}
+
+/**
+ * Reject a profile type its account kind cannot create. The legal pairs live in
+ * `@showme/shared` (`PROFILE_TYPES_BY_KIND`), sourced from story.md's definition
+ * of each kind — an operator is "a venue, promoter, organizer, or festival", so
+ * `band` is not a thing an operator profile can be.
+ *
+ * This is validated in code rather than as a Postgres enum on `profiles.type` on
+ * purpose: the constraint that matters is the PAIRING of kind and type, and a
+ * flat enum cannot express it — it would accept `band` on an operator profile
+ * and enforce precisely nothing we care about. Existing untyped profiles stay
+ * legal (`type` has been nullable free text since 0000).
+ */
+function assertProfileTypeAllowed(kind: string, type: string | null | undefined): void {
+  if (isProfileTypeForKind(kind, type)) return;
+  const allowed = profileTypesForKind(kind)
+    .map((option) => option.key)
+    .join(", ");
+  throw badRequest(`A ${kind} profile cannot be of type "${type}". Allowed: ${allowed}`);
+}
+
+/** Drop blanks and duplicates from a chip list, preserving the order given. */
+function normalizeStringList(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (trimmed === "" || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+  return result;
+}
+
 export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -290,7 +460,15 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
       const roleByProfile = new Map(
         principal.memberships.map((membership) => [membership.profileId, membership.role]),
       );
-      return rows.map((row) => serializeProfile(row, roleByProfile.get(row.id)));
+      // The cards on this screen show a location and a capacity, so the list has
+      // to carry them — batched, not per row.
+      const relations = await loadProfileRelationsBatch(
+        database,
+        rows.map((row) => row.id),
+      );
+      return rows.map((row) =>
+        serializeProfile(row, roleByProfile.get(row.id), relations.get(row.id)),
+      );
     },
   );
 
@@ -309,9 +487,10 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
         .from(schema.users)
         .where(eq(schema.users.id, principal.userId));
       if (!user) throw new Error("user row missing for authenticated principal");
-      if (request.body.kind !== user.kind) {
-        throw badRequest("A profile's kind must match your account kind");
-      }
+      // The kind is the account's, full stop — inherited, never submitted. The
+      // caller only chooses the finer type, and only from that kind's vocabulary.
+      const kind = user.kind;
+      assertProfileTypeAllowed(kind, request.body.type);
 
       const { statusCode, body } = await withIdempotency(request, "POST /profiles", async () => {
         let created: z.infer<typeof ProfileResponse>;
@@ -320,7 +499,7 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
             const [profile] = await tx
               .insert(schema.profiles)
               .values({
-                kind: request.body.kind,
+                kind,
                 type: request.body.type ?? null,
                 ownerUserId: principal.userId,
                 createdBy: principal.userId,
@@ -339,7 +518,10 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
               addedBy: principal.userId,
             });
 
-            const serialized = serializeProfile(profile, "owner");
+            const serialized = serializeProfile(profile, "owner", {
+              location: null,
+              venueDetails: null,
+            });
             await writeAudit(tx, request, {
               capability: "profile.edit",
               action: "profile.create",
@@ -374,7 +556,8 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
         .from(schema.profiles)
         .where(eq(schema.profiles.id, id));
       if (!profile) throw notFound("Profile not found");
-      return serializeProfile(profile, membership.role);
+      const relations = await loadProfileRelations(database, id);
+      return serializeProfile(profile, membership.role, relations);
     },
   );
 
@@ -399,6 +582,12 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
         .where(eq(schema.profiles.id, id));
       if (!before) throw notFound("Profile not found");
 
+      // The type must stay inside the account kind's vocabulary. `kind` itself is
+      // not editable here at all — it is the account's and is not on the body.
+      if (request.body.type !== undefined) {
+        assertProfileTypeAllowed(before.kind, request.body.type);
+      }
+
       const fields: Partial<typeof schema.profiles.$inferInsert> = {};
       if (request.body.name !== undefined) fields.name = request.body.name;
       if (request.body.bio !== undefined) fields.bio = request.body.bio;
@@ -408,6 +597,8 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
       if (request.body.bannerUrl !== undefined) fields.bannerUrl = request.body.bannerUrl;
       if (request.body.details !== undefined) fields.details = request.body.details;
 
+      const relationsBefore = await loadProfileRelations(database, id);
+
       const updated = await database.transaction(async (tx) => {
         const [after] = await tx
           .update(schema.profiles)
@@ -415,13 +606,77 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
           .where(eq(schema.profiles.id, id))
           .returning();
         if (!after) throw notFound("Profile not found");
-        const serialized = serializeProfile(after, membership.role);
+
+        // ---- Location ------------------------------------------------------
+        // Written to `profile_locations`, the table every other reader already
+        // joins (event timezone, agent territory, deal authority, search). The
+        // editor used to put a free-text string in `details.location` instead,
+        // which is why a seeded venue with a Stockholm row rendered "No location
+        // set" — two sources, one of them invisible to every query.
+        if (request.body.location !== undefined) {
+          const { city = null, country = null } = request.body.location;
+          // Uppercased because the territory checks compare ISO codes literally.
+          const countryCode = country ? country.toUpperCase() : null;
+          const existing = relationsBefore.location;
+          if (existing) {
+            await tx
+              .update(schema.profileLocations)
+              .set({ city, country: countryCode })
+              .where(eq(schema.profileLocations.id, existing.id));
+          } else if (city !== null || countryCode !== null) {
+            // Only create a row when there is something to say — an empty
+            // location row would make `location` non-null and claim otherwise.
+            await tx
+              .insert(schema.profileLocations)
+              .values({ profileId: id, city, country: countryCode, isPrimary: true });
+          }
+        }
+
+        // ---- Venue details -------------------------------------------------
+        // Upserted, because the row is created lazily: a profile has no
+        // venue_details until someone first fills one in.
+        if (request.body.venueDetails !== undefined) {
+          const body = request.body.venueDetails;
+          const venueFields: Partial<typeof schema.venueDetails.$inferInsert> = {};
+          if (body.capacity !== undefined) venueFields.capacity = body.capacity;
+          if (body.soundSystem !== undefined) venueFields.soundSystem = body.soundSystem;
+          if (body.curfew !== undefined) venueFields.curfew = body.curfew;
+          if (body.amenities !== undefined) {
+            venueFields.amenities = normalizeStringList(body.amenities);
+          }
+          if (body.dealTypes !== undefined) {
+            venueFields.dealTypes = normalizeStringList(body.dealTypes);
+          }
+          if (body.cateringNotes !== undefined) venueFields.cateringNotes = body.cateringNotes;
+          if (body.accommodationNotes !== undefined) {
+            venueFields.accommodationNotes = body.accommodationNotes;
+          }
+          if (body.artistLogisticsNotes !== undefined) {
+            venueFields.artistLogisticsNotes = body.artistLogisticsNotes;
+          }
+          if (body.audienceLogisticsNotes !== undefined) {
+            venueFields.audienceLogisticsNotes = body.audienceLogisticsNotes;
+          }
+          if (body.contactEmail !== undefined) venueFields.contactEmail = body.contactEmail;
+          if (body.contactPhone !== undefined) venueFields.contactPhone = body.contactPhone;
+
+          await tx
+            .insert(schema.venueDetails)
+            .values({ profileId: id, ...venueFields })
+            .onConflictDoUpdate({
+              target: schema.venueDetails.profileId,
+              set: { ...venueFields, updatedAt: new Date() },
+            });
+        }
+
+        const relationsAfter = await loadProfileRelations(tx, id);
+        const serialized = serializeProfile(after, membership.role, relationsAfter);
         await writeAudit(tx, request, {
           capability: "profile.edit",
           action: "profile.update",
           targetKind: "profile",
           targetId: id,
-          before: serializeProfile(before, membership.role),
+          before: serializeProfile(before, membership.role, relationsBefore),
           after: serialized,
         });
         return serialized;

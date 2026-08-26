@@ -233,3 +233,66 @@ export const representations = pgTable("representations", {
   terminatedEffectiveAt: timestamp("terminated_effective_at", { withTimezone: true }),
   terminatedBy: text("terminated_by").references(() => users.id),
 });
+
+/**
+ * The venue-specific facts about a place profile — capacity, what the room
+ * offers, and the logistics a booked party needs. PLAN.md:346 puts exactly these
+ * here: "Venue-heavy queryable fields (capacity, amenities, sub-venues/rooms,
+ * setups) → a `venue_details` extension table", and the data-model rule is
+ * normalize what is queried across. A promoter hunting for a room filters on
+ * capacity and amenities together with `profile_locations.city`, so these are
+ * columns with indexes, not a `details` jsonb blob nothing can search.
+ *
+ * Sub-venues/rooms are NOT here: this schema already models them as `stages`
+ * (`events.ts`), keyed by `venue_profile_id`, so a second rooms list would be a
+ * competing source of truth for the same thing.
+ *
+ * The PRIVACY LINE runs through this table, and it is deliberate. `decisions.md`
+ * #16.7 splits logistics in two — "Artist logistics on the venue profile + event;
+ * audience logistics on the public page". `artist_logistics_notes` (load-in,
+ * back entrance, artist parking, travel party) is for parties who are actually
+ * booked; `audience_logistics_notes` (how the public gets in and parks) is the
+ * one that may be published. Contact details are private for the same reason:
+ * an unauthenticated page must never hand a scraper a booker's mailbox.
+ */
+export const venueDetails = pgTable(
+  "venue_details",
+  {
+    // One row per profile — the extension-table relation is 1:1, so the foreign
+    // key IS the primary key. No surrogate id to get out of sync.
+    profileId: uuid("profile_id")
+      .primaryKey()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    capacity: integer("capacity"), // total, when the venue is not split into stages
+    /** House PA, as a venue writes it: "Funktion-One", "d&b audiotechnik". Free
+     * text on purpose — it is a make and model, not a category. Prototype
+     * "Venue Specs" card (shoWMe All View.dc.html:3351). */
+    soundSystem: text("sound_system"),
+    /** House curfew as local wall-clock ("02:00") — a standing house rule, not a
+     * moment in time, so it is not a timestamp. Prototype Venue Specs:3352. */
+    curfew: text("curfew"),
+    /** Stable amenity keys (`@showme/shared` VENUE_AMENITIES) plus the venue's own
+     * free-text entries. Not an enum: real venues type their own. */
+    amenities: text("amenities").array().notNull().default([]),
+    /** Deal shapes this venue will sign — advertised preference, never terms. */
+    dealTypes: text("deal_types").array().notNull().default([]),
+    cateringNotes: text("catering_notes"),
+    accommodationNotes: text("accommodation_notes"),
+    artistLogisticsNotes: text("artist_logistics_notes"), // PRIVATE (decisions #16.7)
+    audienceLogisticsNotes: text("audience_logistics_notes"), // publishable
+    contactEmail: text("contact_email"), // PRIVATE — booking contact, never public
+    contactPhone: text("contact_phone"), // PRIVATE
+    /** Named seating/standing configurations, read only with the parent row and
+     * never filtered on — the one leaf here that earns jsonb. */
+    capacitySetups: jsonb("capacity_setups"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // "A room for 400" is a range scan. The amenity half of that search is a GIN
+    // index on the array, declared in the migration SQL — drizzle-kit has no
+    // expression for `USING gin` on a text[] here, and a container query
+    // (`amenities @> ARRAY['pa_system']`) is useless without it.
+    index("venue_details_capacity_idx").on(table.capacity),
+  ],
+);

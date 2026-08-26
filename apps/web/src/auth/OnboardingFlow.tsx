@@ -214,7 +214,10 @@ export function OnboardingFlow() {
       if (!hasAccount) await provisionAccount(activeKind, fullName);
       for (const profile of pendingProfiles) {
         await postApiV1Profiles({
-          kind: activeKind,
+          // No `kind` here: the account was just provisioned with `activeKind`
+          // above, and a profile inherits its owner's kind server-side. Sending
+          // it would be asking a question whose only legal answer is already
+          // known.
           type: profile.type || undefined,
           name: profile.name,
           slug: slugify(profile.name),

@@ -98,15 +98,149 @@ describe("profiles — authorize + serialize + audit", () => {
     expect(audit[0]?.actorUserId).toBe("create-op");
   });
 
-  it("rejects a profile whose kind differs from the user's kind", async () => {
-    await seedUser("mismatch-perf", "performer");
+  it("inherits the account's kind and ignores any kind in the body", async () => {
+    // The kind is fixed per account (CLAUDE.md, story.md), so it is not a field
+    // on this form. A performer who submits `kind: operator` — by an old client
+    // or by hand — does not get a 400 and does NOT get an operator profile; the
+    // value is not read at all and the account's own kind is used.
+    await seedUser("infer-perf", "performer");
     const response = await app.inject({
       method: "POST",
       url: "/api/v1/profiles",
-      headers: auth("mismatch-perf"),
-      payload: { kind: "operator", name: "Wrong Kind", slug: "mismatch-wrong" },
+      headers: auth("infer-perf"),
+      payload: { kind: "operator", name: "Inferred Kind", slug: "infer-perf-profile" },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(response.json().kind).toBe("performer");
+
+    const [stored] = await harness.db
+      .select()
+      .from(schema.profiles)
+      .where(eq(schema.profiles.id, response.json().id));
+    expect(stored?.kind).toBe("performer");
+  });
+
+  it("refuses a profile type the account kind cannot create", async () => {
+    await seedUser("type-op", "operator");
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/profiles",
+      headers: auth("type-op"),
+      payload: { type: "band", name: "Not A Band", slug: "type-op-band" },
     });
     expect(response.statusCode).toBe(400);
+    // Assert the REASON, not the bare status — a 400 here could just as easily be
+    // a body-shape complaint, which would prove nothing about the rule.
+    expect(response.json().error.message).toContain("cannot be of type");
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/api/v1/profiles",
+      headers: auth("type-op"),
+      payload: { type: "venue", name: "A Venue", slug: "type-op-venue" },
+    });
+    expect(accepted.statusCode).toBe(201);
+    expect(accepted.json().type).toBe("venue");
+  });
+
+  it("stores venue details and the location where every other query reads them", async () => {
+    const { profileId } = await seedProfileOwner("venue-details", "operator");
+
+    // Nothing recorded yet — and the route says so with an explicit null rather
+    // than an absent key, so the screen can tell "empty" from "not loaded".
+    const before = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth("venue-details-owner"),
+    });
+    expect(before.statusCode).toBe(200);
+    expect(before.json().venueDetails).toBeNull();
+    expect(before.json().location).toBeNull();
+
+    const saved = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth("venue-details-owner"),
+      payload: {
+        location: { city: "Stockholm", country: "se" },
+        venueDetails: {
+          capacity: 400,
+          soundSystem: "Funktion-One",
+          curfew: "02:00",
+          // Blank and duplicate entries are dropped, and a venue's own wording
+          // survives beside the standard keys.
+          amenities: ["pa_system", "pa_system", "  ", "Green Room"],
+          dealTypes: ["door_split"],
+          contactEmail: "book@lantern.example",
+        },
+      },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().venueDetails.amenities).toEqual(["pa_system", "Green Room"]);
+    expect(saved.json().venueDetails.capacity).toBe(400);
+    expect(saved.json().location).toEqual({ city: "Stockholm", country: "SE" });
+
+    // The state, not just the response: the location must land in
+    // `profile_locations` (what timezone/territory/search join), not in a jsonb
+    // blob only the profile screen can see.
+    const [locationRow] = await harness.db
+      .select()
+      .from(schema.profileLocations)
+      .where(eq(schema.profileLocations.profileId, profileId));
+    expect(locationRow?.city).toBe("Stockholm");
+    expect(locationRow?.country).toBe("SE");
+    expect(locationRow?.isPrimary).toBe(true);
+
+    const [venueRow] = await harness.db
+      .select()
+      .from(schema.venueDetails)
+      .where(eq(schema.venueDetails.profileId, profileId));
+    expect(venueRow?.capacity).toBe(400);
+    expect(venueRow?.soundSystem).toBe("Funktion-One");
+    expect(venueRow?.contactEmail).toBe("book@lantern.example");
+
+    // A second save must UPDATE the same rows, not stack up duplicates — the
+    // location row is upserted by profile, the venue row by primary key.
+    const again = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth("venue-details-owner"),
+      payload: {
+        location: { city: "Göteborg", country: "SE" },
+        venueDetails: { capacity: 250 },
+      },
+    });
+    expect(again.statusCode).toBe(200);
+    expect(again.json().location).toEqual({ city: "Göteborg", country: "SE" });
+    // An unmentioned field is left alone, not blanked.
+    expect(again.json().venueDetails.soundSystem).toBe("Funktion-One");
+
+    const locationRows = await harness.db
+      .select()
+      .from(schema.profileLocations)
+      .where(eq(schema.profileLocations.profileId, profileId));
+    expect(locationRows).toHaveLength(1);
+  });
+
+  it("refuses venue details from a member who may not manage the profile", async () => {
+    const { profileId } = await seedProfileOwner("venue-viewer", "operator");
+    await seedMember(profileId, "venue-viewer-watcher", "operator", "viewer");
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth("venue-viewer-watcher"),
+      payload: { venueDetails: { capacity: 999 } },
+    });
+    expect(response.statusCode).toBe(403);
+
+    // And nothing was written — a refusal that still wrote would be worse than
+    // no refusal at all.
+    const rows = await harness.db
+      .select()
+      .from(schema.venueDetails)
+      .where(eq(schema.venueDetails.profileId, profileId));
+    expect(rows).toHaveLength(0);
   });
 
   it("404s a GET from a non-member (no existence leak)", async () => {

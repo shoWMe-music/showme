@@ -4,6 +4,8 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { GetApiV1Profiles200ItemLocation } from './getApiV1Profiles200ItemLocation';
+import type { GetApiV1Profiles200ItemVenueDetails } from './getApiV1Profiles200ItemVenueDetails';
 
 export type GetApiV1Profiles200Item = {
   id: string;
@@ -21,6 +23,10 @@ export type GetApiV1Profiles200Item = {
   /** @nullable */
   bannerUrl: string | null;
   details?: unknown;
+  /** @nullable */
+  location?: GetApiV1Profiles200ItemLocation;
+  /** @nullable */
+  venueDetails?: GetApiV1Profiles200ItemVenueDetails;
   billing?: unknown;
   createdAt: string;
   updatedAt: string;

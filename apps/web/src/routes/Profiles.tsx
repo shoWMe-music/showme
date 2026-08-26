@@ -15,11 +15,21 @@ import {
   Icon,
   Modal,
   SectionHeader,
+  Select,
   TextField,
+  Toggle,
   useToast,
 } from "@showme/design-system";
+import { COUNTRY_CODES, isPlaceProfile, profileTypesForKind } from "@showme/shared";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { SegmentedToggle } from "../components";
+import {
+  EMPTY_VENUE_DETAILS,
+  type VenueDetailsDraft,
+  VenueDetailsFields,
+} from "../components/VenueDetailsFields";
+import { VenueNotesField } from "../components/VenueNotesField";
+import { VenueSpecsCard } from "../components/VenueSpecsCard";
 import { ErrorState, LoadingState } from "../components/states";
 import { useAllEvents } from "../hooks/useEventList";
 import { getActiveProfileId, setActiveProfileId } from "../lib/activeProfile";
@@ -28,7 +38,6 @@ import { apiStatusToDisplay } from "../lib/status";
 
 type Profile = Awaited<ReturnType<typeof getApiV1Profiles>>[number];
 type ProfileDetail = Awaited<ReturnType<typeof getApiV1ProfilesId>>;
-type Kind = "operator" | "performer" | "team_and_crew" | "agent";
 type ViewMode = "public" | "private";
 
 const CHIP_TONES: AvatarTone[] = ["brand", "green", "blue", "purple", "amber"];
@@ -57,18 +66,35 @@ function slugify(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-/** `details` is untyped jsonb (social/media/custom). Read the two public-page
- * fields we know about defensively — anything absent renders an empty state. */
-function readDetails(details: unknown): { location: string | null; genres: string[] } {
+/** `details` is untyped jsonb (social/media/custom). Read the fields we know
+ * about defensively — anything absent renders an empty state.
+ *
+ * `location` is deliberately NOT read here any more. It used to be, and that was
+ * the bug: the editor wrote a string into this blob while the seed (and every
+ * query in the API) used the `profile_locations` table, so a venue with a
+ * location rendered "No location set". The profile route now returns
+ * `profile.location` from that table, and migration 0010 moved any stray strings
+ * into it. */
+function readDetails(details: unknown): { genres: string[] } {
   if (details && typeof details === "object") {
     const record = details as Record<string, unknown>;
-    const location = typeof record.location === "string" ? record.location : null;
     const genres = Array.isArray(record.genres)
       ? record.genres.filter((genre): genre is string => typeof genre === "string")
       : [];
-    return { location, genres };
+    return { genres };
   }
-  return { location: null, genres: [] };
+  return { genres: [] };
+}
+
+/** "Stockholm, SE" — whichever halves the profile actually has, or null. */
+function formatLocation(
+  location: { city: string | null; country: string | null } | null | undefined,
+): string | null {
+  if (!location) return null;
+  const parts = [location.city, location.country].filter(
+    (part): part is string => typeof part === "string" && part.trim() !== "",
+  );
+  return parts.length > 0 ? parts.join(", ") : null;
 }
 
 function formatEventDate(iso: string): string {
@@ -179,12 +205,19 @@ export function Profiles() {
                     display: "flex",
                     alignItems: "center",
                     gap: 12,
-                    padding: "12px 16px",
                     borderRadius: 16,
                     minWidth: 180,
-                    background: active ? "var(--brand-red-glow)" : "var(--card)",
-                    border: active ? "1.5px solid var(--brand-red)" : "1px solid var(--border)",
-                    transition: "border-color .15s var(--ease-out)",
+                    // Selection reads as an OUTLINE, not a fill. The card keeps the
+                    // ordinary surface so the strip stays calm; what changes is a
+                    // 2px brand ring plus a soft halo, which is still unmistakable
+                    // at a glance without repainting a quarter of the screen.
+                    background: "var(--card)",
+                    border: active ? "2px solid var(--brand-red)" : "1px solid var(--border)",
+                    // Compensate the extra border pixel so nothing shifts on select.
+                    padding: active ? "11px 15px" : "12px 16px",
+                    boxShadow: active ? "0 0 0 4px var(--brand-red-glow)" : "none",
+                    transition:
+                      "border-color .15s var(--ease-out), box-shadow .15s var(--ease-out)",
                   }}
                 >
                   <Avatar
@@ -248,6 +281,9 @@ export function Profiles() {
 
       <NewProfileModal
         open={creating}
+        // Every profile inherits the account's kind, so any one of them is an
+        // exact source for it. (`GET /me` does not return `kind` today.)
+        accountKind={list[0]?.kind ?? null}
         onClose={() => setCreating(false)}
         onCreated={(created) => {
           setCreating(false);
@@ -276,7 +312,11 @@ function PublicProfile({
   comingEvents: ComingEvent[];
   eventsPending: boolean;
 }) {
-  const { location, genres } = readDetails(profile.details);
+  const { genres } = readDetails(profile.details);
+  // From `profile_locations` via the API, not from the `details` blob — see
+  // readDetails. `undefined` would mean "this route doesn't carry it"; this one
+  // always does.
+  const location = formatLocation(profile.location);
   const tone = CHIP_TONES[toneIndex % CHIP_TONES.length];
 
   return (
@@ -433,6 +473,12 @@ function PublicProfile({
         </Card>
       </div>
 
+      {/* What the room actually offers. Absent for a profile with nothing
+          recorded, and for every non-venue profile — a booking agency has no
+          curfew. Artist logistics and the booking contact are NOT in this card;
+          they are private (decisions.md #16.7). */}
+      {profile.venueDetails && <VenueSpecsCard venue={profile.venueDetails} />}
+
       {/* Photos */}
       <Card>
         <CardHeading icon={<ImageIcon />} title="Photos" />
@@ -440,6 +486,53 @@ function PublicProfile({
       </Card>
     </div>
   );
+}
+
+/** API shape → form draft. Every field becomes a string the input can hold; a
+ * missing `venueDetails` (this profile has none recorded) becomes empty fields
+ * rather than a disabled form. */
+function toVenueDraft(venueDetails: ProfileDetail["venueDetails"]): VenueDetailsDraft {
+  if (!venueDetails) return EMPTY_VENUE_DETAILS;
+  return {
+    capacity: venueDetails.capacity === null ? "" : String(venueDetails.capacity),
+    soundSystem: venueDetails.soundSystem ?? "",
+    curfew: venueDetails.curfew ?? "",
+    amenities: venueDetails.amenities ?? [],
+    dealTypes: venueDetails.dealTypes ?? [],
+    cateringNotes: venueDetails.cateringNotes ?? "",
+    accommodationNotes: venueDetails.accommodationNotes ?? "",
+    artistLogisticsNotes: venueDetails.artistLogisticsNotes ?? "",
+    audienceLogisticsNotes: venueDetails.audienceLogisticsNotes ?? "",
+    contactEmail: venueDetails.contactEmail ?? "",
+    contactPhone: venueDetails.contactPhone ?? "",
+  };
+}
+
+/** Form draft → API body. An emptied field is sent as `null`, not as `""`:
+ * "" would be a value the venue never chose, and the read side distinguishes
+ * "no curfew recorded" from "the curfew is the empty string". */
+function blankToNull(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+function fromVenueDraft(draft: VenueDetailsDraft) {
+  const capacity = draft.capacity.trim();
+  const parsedCapacity = capacity === "" ? null : Number.parseInt(capacity, 10);
+  return {
+    // A number input can still hold something unparseable; never send NaN.
+    capacity: parsedCapacity !== null && Number.isFinite(parsedCapacity) ? parsedCapacity : null,
+    soundSystem: blankToNull(draft.soundSystem),
+    curfew: blankToNull(draft.curfew),
+    amenities: draft.amenities,
+    dealTypes: draft.dealTypes,
+    cateringNotes: blankToNull(draft.cateringNotes),
+    accommodationNotes: blankToNull(draft.accommodationNotes),
+    artistLogisticsNotes: blankToNull(draft.artistLogisticsNotes),
+    audienceLogisticsNotes: blankToNull(draft.audienceLogisticsNotes),
+    contactEmail: blankToNull(draft.contactEmail),
+    contactPhone: blankToNull(draft.contactPhone),
+  };
 }
 
 function ProfileEditor({
@@ -453,18 +546,29 @@ function ProfileEditor({
   const initial = readDetails(profile.details);
   const [name, setName] = useState(profile.name);
   const [bio, setBio] = useState(profile.bio ?? "");
-  const [location, setLocation] = useState(initial.location ?? "");
+  const [city, setCity] = useState(profile.location?.city ?? "");
+  const [country, setCountry] = useState(profile.location?.country ?? "");
   const [genres, setGenres] = useState(initial.genres.join(", "));
   const [isPublic, setIsPublic] = useState(profile.isPublic);
+  const [profileType, setProfileType] = useState(profile.type ?? "");
+  const [venue, setVenue] = useState<VenueDetailsDraft>(() => toVenueDraft(profile.venueDetails));
+
+  // Only a place has a capacity and a curfew — a promoter or a booking agency is
+  // an organisation, not a room.
+  const showsVenueFields = isPlaceProfile(profile.kind, profile.type);
+  const typeOptions = profileTypesForKind(profile.kind);
 
   // Re-seed the form whenever a different profile is selected.
   useEffect(() => {
     const details = readDetails(profile.details);
     setName(profile.name);
     setBio(profile.bio ?? "");
-    setLocation(details.location ?? "");
+    setCity(profile.location?.city ?? "");
+    setCountry(profile.location?.country ?? "");
     setGenres(details.genres.join(", "));
     setIsPublic(profile.isPublic);
+    setProfileType(profile.type ?? "");
+    setVenue(toVenueDraft(profile.venueDetails));
   }, [profile]);
 
   const patch = usePatchApiV1ProfilesId({
@@ -493,11 +597,15 @@ function ProfileEditor({
         name: name.trim(),
         bio: bio.trim() ? bio.trim() : null,
         isPublic,
-        details: {
-          ...baseDetails,
-          location: location.trim() ? location.trim() : null,
-          genres: genreList,
+        ...(profileType ? { type: profileType } : {}),
+        // The location goes to `profile_locations` through its own field, NOT
+        // into `details` — that split is the whole point of the fix.
+        location: {
+          city: city.trim() ? city.trim() : null,
+          country: country.trim() ? country.trim() : null,
         },
+        details: { ...baseDetails, genres: genreList },
+        ...(showsVenueFields ? { venueDetails: fromVenueDraft(venue) } : {}),
       },
     });
   };
@@ -510,46 +618,71 @@ function ProfileEditor({
         style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 14 }}
       >
         <TextField label="Name" value={name} onChange={(event) => setName(event.target.value)} />
-        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ fontSize: 13, color: "var(--muted)" }}>Bio</span>
-          <textarea
-            value={bio}
-            onChange={(event) => setBio(event.target.value)}
-            rows={4}
-            placeholder="Tell people what this profile is about"
-            style={{
-              fontFamily: "var(--font-sans)",
-              fontSize: 14.5,
-              lineHeight: 1.6,
-              color: "var(--text)",
-              background: "var(--elevated)",
-              border: "1px solid var(--border)",
-              borderRadius: 12,
-              padding: "10px 12px",
-              resize: "vertical",
-            }}
+
+        {typeOptions.length > 0 && (
+          <Select
+            label="Type"
+            value={profileType}
+            onChange={setProfileType}
+            // Constrained to what this ACCOUNT KIND may be. The kind itself is
+            // fixed at signup and inherited — it is not editable here at all.
+            options={typeOptions.map((option) => ({ value: option.key, label: option.label }))}
+            placeholder="Choose a type…"
           />
-        </label>
-        <TextField
-          label="Location"
-          value={location}
-          placeholder="e.g. Berlin / London"
-          onChange={(event) => setLocation(event.target.value)}
+        )}
+
+        <VenueNotesField
+          label="Bio"
+          value={bio}
+          rows={4}
+          placeholder="Tell people what this profile is about"
+          onChange={setBio}
         />
+
+        {/* City and country are two fields because they are two columns in
+            `profile_locations`, and `country` is the ISO code that decides the
+            event timezone and an agent's territory — it cannot be prose. */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "2fr 1fr",
+            gap: 14,
+          }}
+        >
+          <TextField
+            label="City"
+            value={city}
+            placeholder="e.g. Stockholm"
+            onChange={(event) => setCity(event.target.value)}
+          />
+          <Select
+            label="Country"
+            value={country}
+            onChange={setCountry}
+            options={[...COUNTRY_CODES]}
+            placeholder="—"
+          />
+        </div>
+
         <TextField
           label="Genres (comma-separated)"
           value={genres}
           placeholder="e.g. Live, Club, Concert"
           onChange={(event) => setGenres(event.target.value)}
         />
-        <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14 }}>
-          <input
-            type="checkbox"
-            checked={isPublic}
-            onChange={(event) => setIsPublic(event.target.checked)}
-          />
-          <span style={{ color: "var(--text)" }}>Publish this profile publicly</span>
-        </label>
+
+        {showsVenueFields && (
+          <>
+            <hr style={{ border: 0, borderTop: "1px solid var(--border)", margin: "4px 0" }} />
+            <VenueDetailsFields value={venue} onChange={setVenue} />
+            <hr style={{ border: 0, borderTop: "1px solid var(--border)", margin: "4px 0" }} />
+          </>
+        )}
+
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <Toggle checked={isPublic} onChange={setIsPublic} label="Publish this profile publicly" />
+          <span style={{ color: "var(--text)", fontSize: 14 }}>Publish this profile publicly</span>
+        </div>
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <Button
             variant="primary"
@@ -650,15 +783,20 @@ function NewProfileModal({
   open,
   onClose,
   onCreated,
+  accountKind,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: (createdId?: string) => void;
+  /** The account's kind, read off a profile the user already owns (every
+   * profile inherits it). Null only before the first profile exists, in which
+   * case the type picker is hidden — the server still infers the kind. */
+  accountKind: string | null;
 }) {
   const toast = useToast();
   const [name, setName] = useState("");
   const [type, setType] = useState("");
-  const [kind, setKind] = useState<Kind>("operator");
+  const typeOptions = accountKind ? profileTypesForKind(accountKind) : [];
 
   const create = usePostApiV1Profiles({
     mutation: {
@@ -667,7 +805,6 @@ function NewProfileModal({
         onCreated(created?.id);
         setName("");
         setType("");
-        setKind("operator");
       },
       onError: (mutationError) =>
         toast.error(errorMessage(mutationError, "Couldn't create the profile.")),
@@ -681,10 +818,11 @@ function NewProfileModal({
     if (!canSubmit) return;
     create.mutate({
       data: {
-        kind,
+        // `kind` is NOT sent. It is fixed per account and inherited from the
+        // owner (CLAUDE.md, story.md); the API reads it from the user row.
         name: name.trim(),
         slug: slugify(name),
-        ...(type.trim() ? { type: type.trim() } : {}),
+        ...(type ? { type } : {}),
       },
     });
   };
@@ -718,26 +856,18 @@ function NewProfileModal({
           onChange={(changeEvent) => setName(changeEvent.target.value)}
           autoFocus
         />
-        <TextField
-          label="Type (optional)"
-          value={type}
-          placeholder="e.g. venue, promoter"
-          onChange={(changeEvent) => setType(changeEvent.target.value)}
-        />
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ fontSize: 13, color: "var(--muted)" }}>Account kind</span>
-          <SegmentedToggle<Kind>
-            aria-label="Account kind"
-            value={kind}
-            onChange={setKind}
-            options={[
-              { value: "operator", label: "Operator" },
-              { value: "performer", label: "Performer" },
-              { value: "team_and_crew", label: "Team and Crew" },
-              { value: "agent", label: "Agent" },
-            ]}
+        {typeOptions.length > 0 && (
+          <Select
+            label="Type"
+            value={type}
+            onChange={setType}
+            // Only the types THIS account kind can create. An operator account
+            // makes venues and promoters; it can never make a band, so the
+            // option is not offered rather than offered and then rejected.
+            options={typeOptions.map((option) => ({ value: option.key, label: option.label }))}
+            placeholder="Choose a type…"
           />
-        </div>
+        )}
         <button type="submit" hidden aria-hidden />
       </form>
     </Modal>

@@ -4,6 +4,8 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PatchApiV1ProfilesId200Location } from './patchApiV1ProfilesId200Location';
+import type { PatchApiV1ProfilesId200VenueDetails } from './patchApiV1ProfilesId200VenueDetails';
 
 export type PatchApiV1ProfilesId200 = {
   id: string;
@@ -21,6 +23,10 @@ export type PatchApiV1ProfilesId200 = {
   /** @nullable */
   bannerUrl: string | null;
   details?: unknown;
+  /** @nullable */
+  location?: PatchApiV1ProfilesId200Location;
+  /** @nullable */
+  venueDetails?: PatchApiV1ProfilesId200VenueDetails;
   billing?: unknown;
   createdAt: string;
   updatedAt: string;

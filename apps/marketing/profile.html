@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Profile · shoWMe</title>
+  <meta name="description" content="A public profile on shoWMe.">
+  <!-- Indexable, unlike the shared-availability page. This one is a venue's or
+       performer's own public page, published deliberately by its owner
+       (`profiles.is_public`), and being findable is the point of it. The title
+       and description are rewritten from the API response once it lands. -->
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/src/styles/profile.css">
+</head>
+<body>
+  <header class="page-header">
+    <a href="index.html" class="brand" aria-label="shoWMe home">
+      <span class="brand__mark" aria-hidden="true">
+        <svg viewBox="0 0 100 100" fill="none">
+          <path d="M8 48 A42 42 0 0 1 92 48 L92 92 L8 92 Z" fill="#EE5746"></path>
+          <path d="M50 14 L82 76 L18 76 Z" fill="#FFE1A0"></path>
+          <circle cx="50" cy="76" r="6" fill="#EE5746"></circle>
+          <circle cx="34" cy="76" r="5" fill="#EE5746"></circle>
+          <circle cx="66" cy="76" r="5" fill="#EE5746"></circle>
+          <circle cx="22" cy="76" r="4" fill="#EE5746"></circle>
+          <circle cx="78" cy="76" r="4" fill="#EE5746"></circle>
+        </svg>
+      </span>
+      <span>shoWMe</span>
+    </a>
+    <button type="button" class="theme-toggle" id="theme-toggle" aria-pressed="false">
+      Light mode
+    </button>
+  </header>
+
+  <main class="profile" id="profile" aria-live="polite">
+    <!-- Rendered by src/profile.ts from `GET /public/profiles/:slug`. Nothing is
+         server-rendered here because this bundle has no session and no
+         authenticated client — see the module docstring. -->
+    <p class="profile__loading">Loading profile…</p>
+  </main>
+
+  <footer class="page-footer">
+    <p>Booking and settlement for live events. <a href="index.html">shoWMe</a></p>
+    <p><a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></p>
+  </footer>
+
+<script type="module" src="/src/profile.ts"></script>
+</body></html>

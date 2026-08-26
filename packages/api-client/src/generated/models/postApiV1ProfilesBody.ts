@@ -4,10 +4,8 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
-import type { PostApiV1ProfilesBodyKind } from './postApiV1ProfilesBodyKind';
 
 export type PostApiV1ProfilesBody = {
-  kind: PostApiV1ProfilesBodyKind;
   /** @minLength 1 */
   type?: string;
   /** @minLength 1 */
