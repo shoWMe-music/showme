@@ -14,19 +14,22 @@ import {
   Icon,
   Modal,
   Select,
-  type Status,
   TextField,
   useToast,
 } from "@showme/design-system";
 import { type FormEvent, useEffect, useState } from "react";
 import { DateTimeField } from "../components/DateTimeField";
+import { SegmentedToggle } from "../components/SegmentedToggle";
+import { TaskBoard } from "../components/TaskBoard";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
 import {
   type Group,
+  SCOPE_META,
   type Task,
   type TaskFilterKey,
-  type TaskScope,
+  type TaskView,
+  formatTaskDueDate,
   scopeOf,
   useTaskBoard,
 } from "../hooks/useTaskBoard";
@@ -36,40 +39,73 @@ import { errorMessage } from "../lib/errors";
  * Tasks are grouped by **named work-group** — the reusable rosters (Door,
  * Marketing, Sound…) shared with Team, linked via `task.groupId`. Tasks with no
  * group fall into "Ungrouped". The task's scope (event / profile / personal)
- * stays as a filter chip, not the primary grouping.
+ * stays as a filter chip, not the primary grouping. The List/Board toggle picks
+ * how those same filtered tasks are laid out; it never changes which they are.
  */
-const SCOPE_META: Record<TaskScope, { label: string; status: Status }> = {
-  event: { label: "Event", status: "task" },
-  profile: { label: "Profile", status: "suggested" },
-  personal: { label: "Personal", status: "pending" },
-};
 
-/** "Jul 18, 2026 12:00" when the due date carries a time, else "Jul 18, 2026". */
-function formatDueDateTime(iso: string): string {
-  // `tasks.due_date` is a DATE column, so the API sends a bare "yyyy-mm-dd".
-  // `new Date()` reads that as UTC midnight, which renders as the PREVIOUS day
-  // for anyone west of Greenwich — so build the day from its own parts instead.
-  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-  const date = dateOnly
-    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
-    : new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  const day = date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-  const hasTime = /\d{2}:\d{2}/.test(iso) && !iso.includes("T00:00:00");
-  if (!hasTime) return day;
-  const time = date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  return `${day} ${time}`;
-}
-
-const FILTERS: { key: TaskFilterKey; label: string; disabled?: boolean }[] = [
+/** The chip row. Every chip narrows the complete list in the browser — see the
+ * note in `useTaskBoard` for why this screen does not filter server-side. */
+const FILTERS: { key: TaskFilterKey; label: string; title?: string }[] = [
   { key: "all", label: "All" },
-  { key: "mine", label: "My Tasks", disabled: true },
+  {
+    key: "mine",
+    label: "My Tasks",
+    // The chip used to be permanently disabled ("assignees aren't in the data
+    // model yet"), which is why it looked broken. Ownership IS in the model and
+    // in the payload — `ownerUserId` — so the chip now answers the question the
+    // data can actually answer, and the tooltip says which question that is.
+    title: "Tasks filed under you personally — not your profile's shared pile.",
+  },
   { key: "open", label: "Open" },
   { key: "done", label: "Done" },
   { key: "event", label: "Event" },
   { key: "profile", label: "Profile" },
   { key: "personal", label: "Personal" },
 ];
+
+const VIEW_OPTIONS: { value: TaskView; label: string }[] = [
+  { value: "list", label: "List" },
+  { value: "board", label: "Board" },
+];
+
+/**
+ * Why a view came back empty. A blank screen saying "you're all caught up" when
+ * the reader asked for *their* tasks reads as a broken filter, not as an answer —
+ * so each chip explains its own emptiness in its own words.
+ */
+function emptyForFilter(
+  filter: TaskFilterKey,
+  groupName: string | undefined,
+): { title: string; description: string } {
+  const inGroup = groupName ? ` in ${groupName}` : "";
+  switch (filter) {
+    case "mine":
+      return {
+        title: `Nothing is filed under you${inGroup}`,
+        description:
+          "My Tasks shows tasks owned by you personally. Everything else here belongs to a profile you are a member of, so it is shared with the whole team.",
+      };
+    case "open":
+      return { title: `No open tasks${inGroup}`, description: "Everything here is done." };
+    case "done":
+      return {
+        title: `Nothing completed${inGroup}`,
+        description: "Tasks you tick off collect here.",
+      };
+    case "event":
+    case "profile":
+    case "personal":
+      return {
+        title: `No ${SCOPE_META[filter].label.toLowerCase()} tasks${inGroup}`,
+        description: "Nothing in this view hangs off that scope.",
+      };
+    default:
+      return {
+        title: `No tasks${inGroup}`,
+        description: "Nothing matches the current selection.",
+      };
+  }
+}
 
 export function Tasks() {
   const toast = useToast();
@@ -80,11 +116,15 @@ export function Tasks() {
   const {
     filter,
     setFilter,
+    view,
+    setView,
     groupFilter,
     toggleGroupFilter,
     tasks,
     groups,
     buckets,
+    visible,
+    boardColumns,
     doneTasks,
     openVisibleCount,
     openTasksIn,
@@ -116,8 +156,13 @@ export function Tasks() {
     },
   });
 
+  // Both views move a task the same way: the ONLY status the model stores is the
+  // `completed` boolean, so a checkbox tick and a drag across the board write the
+  // same field through the same route, and both refetch rather than assume.
   const toggle = (task: Task, next: boolean) =>
     patch.mutate({ id: task.id, data: { completed: next } });
+
+  const selectedGroupName = buckets.find((bucket) => bucket.id === groupFilter)?.name;
 
   const openNew = () => {
     setEditing(null);
@@ -283,18 +328,33 @@ export function Tasks() {
             </div>
           )}
 
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {FILTERS.map((option) => (
-              <Chip
-                key={option.key}
-                active={filter === option.key}
-                disabled={option.disabled}
-                title={option.disabled ? "Assignees aren't in the data model yet." : undefined}
-                onClick={() => !option.disabled && setFilter(option.key)}
-              >
-                {option.label}
-              </Chip>
-            ))}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {FILTERS.map((option) => (
+                <Chip
+                  key={option.key}
+                  active={filter === option.key}
+                  title={option.title}
+                  onClick={() => setFilter(option.key)}
+                >
+                  {option.label}
+                </Chip>
+              ))}
+            </div>
+            <SegmentedToggle<TaskView>
+              aria-label="Task view"
+              options={VIEW_OPTIONS}
+              value={view}
+              onChange={setView}
+            />
           </div>
 
           {tasks.length === 0 ? (
@@ -302,6 +362,18 @@ export function Tasks() {
               icon={<Icon name="check" />}
               title="You're all caught up"
               description="New tasks show up here, grouped by work-group."
+            />
+          ) : visible.length === 0 ? (
+            <EmptyState
+              icon={<Icon name="check" />}
+              {...emptyForFilter(filter, selectedGroupName)}
+            />
+          ) : view === "board" ? (
+            <TaskBoard
+              columns={boardColumns}
+              onMove={toggle}
+              onEdit={openEdit}
+              isMoving={patch.isPending}
             />
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -440,7 +512,7 @@ function TaskRow({
             }}
           >
             <Icon name="clock" size={13} />
-            {formatDueDateTime(task.dueDate)}
+            {formatTaskDueDate(task.dueDate)}
           </span>
         )}
         {task.description && (
