@@ -9,6 +9,7 @@ import { writeActivity } from "../lib/activity";
 import { autoAssignAgentOnPerformerJoin } from "../lib/agent-assignment";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
+import { renderOffPlatformPerformerEmail } from "../lib/email-templates";
 import { assertGrantAdminAllows } from "../lib/entitlements";
 import { notifyProfileMembers } from "../lib/notify";
 import { createPerformerStub } from "../lib/off-platform";
@@ -366,12 +367,24 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
         return participant;
       });
 
-      // Best-effort "you were added — sign up to claim your events" email.
+      // Best-effort "you were added — sign up to claim your events" email. The
+      // handler never needed the event row itself, but the recipient cannot tell
+      // WHICH booking this is about without it, so read the three public-facing
+      // columns here, inside the best-effort path: if this read fails the email
+      // is simply skipped, exactly as a send failure already is.
       try {
+        const [event] = await database
+          .select({
+            id: schema.events.id,
+            title: schema.events.title,
+            eventDate: schema.events.eventDate,
+            venueName: schema.events.venueName,
+          })
+          .from(schema.events)
+          .where(eq(schema.events.id, id));
         await request.server.emailSink.sendEmail({
           to: performerEmail,
-          subject: "You've been added to a shoWMe event",
-          text: `Hi ${performerName}, you've been added to an event on shoWMe. Create an account with this email address to claim your profile and see all of your events.`,
+          ...renderOffPlatformPerformerEmail({ performerName, event }),
         });
       } catch (error) {
         request.log.error({ error }, "off-platform performer email failed");

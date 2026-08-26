@@ -28,6 +28,13 @@ const EnvSchema = z.object({
   // logged instead of sent (see lib/email.ts). Real send needs BOTH.
   BREVO_API_KEY: z.string().optional(),
   BREVO_SENDER: z.string().optional(),
+  // The public origin of the web app — the base every link in a transactional
+  // email is built from (`lib/email-templates.ts`, which reads it straight from
+  // the environment so the templates stay plain, Fastify-free TypeScript).
+  // Validated here so a malformed value fails at boot rather than in an email.
+  // Optional: unset means a developer's laptop, so it defaults to the local Vite
+  // dev server (DEFAULT_PUBLIC_APP_BASE_URL). Production MUST set it.
+  PUBLIC_APP_BASE_URL: z.string().url().optional(),
   // Comma-separated origins allowed to POST the public lead form (the marketing
   // site). Defaults to the local dev origins when unset (see app.ts).
   LEADS_ALLOWED_ORIGINS: z.string().optional(),

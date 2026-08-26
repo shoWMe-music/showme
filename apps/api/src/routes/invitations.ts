@@ -1,5 +1,5 @@
 import { randomBytes, randomInt } from "node:crypto";
-import { schema } from "@showme/db";
+import { type Database, schema } from "@showme/db";
 import { eq, or } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -7,6 +7,7 @@ import { z } from "zod";
 import { badRequest, conflict, notFound } from "../errors";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
+import { renderInvitationEmail } from "../lib/email-templates";
 import { assertGrantAdminAllows, assertProfileAdminGrantAllows } from "../lib/entitlements";
 import { notifyUsers } from "../lib/notify";
 import { withIdempotency } from "../plugins/idempotency";
@@ -70,6 +71,33 @@ function serializeInvitation(invitation: InvitationRow): z.infer<typeof Invitati
     role: invitation.role,
     permissionSetId: invitation.permissionSetId,
   };
+}
+
+/**
+ * The display name of whatever the invitation grants access to — the event's
+ * title or the account's name. Used only to write the invitation email, which is
+ * why it reads a single column and tolerates a missing row: an unnamed target
+ * degrades the copy, it must never fail the send.
+ */
+async function loadInvitationTargetName(
+  database: Database,
+  invitation: { targetEventId: string | null; targetProfileId: string | null },
+): Promise<string | undefined> {
+  if (invitation.targetEventId) {
+    const [event] = await database
+      .select({ name: schema.events.title })
+      .from(schema.events)
+      .where(eq(schema.events.id, invitation.targetEventId));
+    return event?.name;
+  }
+  if (invitation.targetProfileId) {
+    const [profile] = await database
+      .select({ name: schema.profiles.name })
+      .from(schema.profiles)
+      .where(eq(schema.profiles.id, invitation.targetProfileId));
+    return profile?.name;
+  }
+  return undefined;
 }
 
 /** Postgres unique-violation — a `(profile_id, user_id)` membership already exists. */
@@ -212,14 +240,25 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
       // so only when we have an address; a mail failure is logged, never surfaced —
       // the invitation is already persisted and redeemable.
       if (result.recipientEmail) {
-        const redeemHint = result.code
-          ? `Your invitation code is ${result.code}.`
-          : `Open your invitation link with this token: ${result.token}.`;
         try {
+          // "Invited to collaborate" is meaningless without naming what. The
+          // grant already points at exactly one target, so read that one name
+          // here, inside the best-effort path — a failure skips the email, it
+          // never touches the persisted invitation.
+          const targetName = await loadInvitationTargetName(database, result);
+
           await request.server.emailSink.sendEmail({
             to: result.recipientEmail,
-            subject: "You have been invited to shoWMe",
-            text: `${result.recipientName ? `Hi ${result.recipientName}, ` : ""}you have been invited to collaborate on shoWMe. ${redeemHint}`,
+            ...renderInvitationEmail({
+              recipientName: result.recipientName,
+              // The inviter's display name off the verified token — no extra
+              // query, and it is the name they use everywhere else in the app.
+              inviterName: request.firebaseUser?.name,
+              targetName,
+              targetKind: result.targetEventId ? "event" : "profile",
+              code: result.code,
+              token: result.token,
+            }),
           });
         } catch (error) {
           request.log.error({ error }, "invitation email failed");

@@ -1,0 +1,417 @@
+/**
+ * Transactional email templates — the copy and markup for every message shoWMe
+ * sends. Plain framework-agnostic TypeScript: no Fastify, no database, no design
+ * system import (the API must not depend on `design-system/`, so the handful of
+ * brand values it needs are duplicated as literals below and kept in sync by
+ * hand). Routes stay thin — they gather the facts, call one render function, and
+ * hand the result straight to the `EmailSink`.
+ *
+ * Every message renders BOTH parts: `html` for the majority of clients and a
+ * real `text` alternative, which plain-text readers need and which spam filters
+ * read as a signal of a legitimately-composed message.
+ *
+ * The HTML deliberately targets 2003-era email clients, not browsers: a nested
+ * `<table>` skeleton, inline styles only, no stylesheet, no web font, no
+ * flexbox/grid, no JavaScript. Outlook renders through Word and silently drops
+ * anything more modern.
+ */
+
+/** Brand values, copied from `design-system/src/styles/tokens.css`. */
+const BRAND = {
+  /** `--ink-1000` — the page ground. */
+  ground: "#0A0604",
+  /** `--ink-900` — the card the message sits on. */
+  surface: "#18100C",
+  /** `--ink-700` — hairline borders. */
+  border: "#2E2118",
+  /** `--ink-100` — body copy. */
+  text: "#F5EDE2",
+  /** `--ink-300` — secondary copy and the footer. */
+  muted: "#B8A99B",
+  /** `--brand-red` — the primary. */
+  accent: "#EE5746",
+  accentText: "#FFFFFF",
+} as const;
+
+// The brand faces (Clash Display / Inter Tight) are web fonts; email clients do
+// not load them, so the wordmark and the copy use the safest system stack there
+// is rather than falling back unpredictably.
+const FONT_STACK = "'Helvetica Neue', Helvetica, Arial, sans-serif";
+
+/** Where the web app is served from, with no trailing slash. */
+export const DEFAULT_PUBLIC_APP_BASE_URL = "http://localhost:5174";
+
+/**
+ * The public origin of the web app, used to build the links in these messages.
+ * Read from `PUBLIC_APP_BASE_URL` (declared in `config.ts`) and defaulted to the
+ * local Vite dev server, matching how `LEADS_ALLOWED_ORIGINS` defaults — an
+ * unconfigured environment is a developer's laptop. Production MUST set it; a
+ * domain is never hardcoded into a template.
+ */
+export function resolvePublicAppBaseUrl(environment: NodeJS.ProcessEnv = process.env): string {
+  const configured = environment.PUBLIC_APP_BASE_URL?.trim();
+  const base = configured && configured.length > 0 ? configured : DEFAULT_PUBLIC_APP_BASE_URL;
+  return base.replace(/\/+$/, "");
+}
+
+/** Join a relative app path onto the public base URL, yielding an absolute URL. */
+export function buildApplicationUrl(path: string, baseUrl = resolvePublicAppBaseUrl()): string {
+  return new URL(path, `${baseUrl}/`).toString();
+}
+
+/** The rendered message body — both parts, always. */
+export interface RenderedEmail {
+  subject: string;
+  html: string;
+  text: string;
+}
+
+/** The event facts a recipient needs to recognize which show is meant. */
+export interface EventSummary {
+  id: string;
+  title: string;
+  /** `yyyy-mm-dd` from the `date` column, or null when the show is not dated yet. */
+  eventDate?: string | null;
+  venueName?: string | null;
+}
+
+/** Recipient- and title-safe HTML. Every interpolated value passes through here. */
+export function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// `en-GB` and an explicit UTC zone: `events.event_date` is an offset-free
+// calendar date, so formatting it in the server's local zone would shift the
+// show a day either way depending on where Cloud Run happens to run it.
+const EVENT_DATE_FORMAT = new Intl.DateTimeFormat("en-GB", {
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+/** `2026-09-12` → `Saturday 12 September 2026`. Null when absent or unparseable. */
+export function formatEventDate(eventDate: string | null | undefined): string | null {
+  if (!eventDate) return null;
+  const parsed = new Date(`${eventDate}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return EVENT_DATE_FORMAT.format(parsed);
+}
+
+/** One labelled fact in the detail block ("Event", "Date", "Venue"). */
+interface DetailRow {
+  label: string;
+  value: string;
+}
+
+/** The one shape every message is poured into. */
+interface EmailLayout {
+  subject: string;
+  /** The line inbox previews show after the subject — write it, or clients pick a random fragment. */
+  preheader: string;
+  heading: string;
+  /** Body copy, one entry per paragraph. Plain strings; escaped on render. */
+  paragraphs: string[];
+  details?: DetailRow[];
+  /** A short value the recipient reads and types back (an OTP, an invite code). */
+  callout?: { label: string; value: string };
+  action?: { label: string; url: string };
+  footerNote: string;
+}
+
+function renderDetailsHtml(details: DetailRow[]): string {
+  const rows = details
+    .map(
+      (detail) => `
+              <tr>
+                <td style="padding:0 0 6px 0;font-family:${FONT_STACK};font-size:12px;line-height:16px;color:${BRAND.muted};text-transform:uppercase;letter-spacing:.06em;">${escapeHtml(detail.label)}</td>
+              </tr>
+              <tr>
+                <td style="padding:0 0 14px 0;font-family:${FONT_STACK};font-size:16px;line-height:22px;color:${BRAND.text};font-weight:700;">${escapeHtml(detail.value)}</td>
+              </tr>`,
+    )
+    .join("");
+  return `
+          <tr>
+            <td style="padding:6px 0 22px 0;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;background-color:${BRAND.ground};border:1px solid ${BRAND.border};border-radius:8px;">
+                <tr>
+                  <td style="padding:18px 20px 4px 20px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">${rows}
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>`;
+}
+
+function renderCalloutHtml(callout: { label: string; value: string }): string {
+  return `
+          <tr>
+            <td align="center" style="padding:6px 0 22px 0;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;background-color:${BRAND.ground};border:1px solid ${BRAND.border};border-radius:8px;">
+                <tr>
+                  <td align="center" style="padding:18px 32px;font-family:${FONT_STACK};font-size:12px;line-height:16px;color:${BRAND.muted};text-transform:uppercase;letter-spacing:.06em;">${escapeHtml(callout.label)}</td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding:0 32px 20px 32px;font-family:${FONT_STACK};font-size:34px;line-height:38px;font-weight:700;letter-spacing:.18em;color:${BRAND.accent};">${escapeHtml(callout.value)}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>`;
+}
+
+function renderActionHtml(action: { label: string; url: string }): string {
+  const url = escapeHtml(action.url);
+  return `
+          <tr>
+            <td style="padding:6px 0 20px 0;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+                <tr>
+                  <td bgcolor="${BRAND.accent}" style="border-radius:6px;">
+                    <a href="${url}" style="display:inline-block;padding:13px 26px;font-family:${FONT_STACK};font-size:15px;line-height:18px;font-weight:700;color:${BRAND.accentText};text-decoration:none;border-radius:6px;">${escapeHtml(action.label)}</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 0 22px 0;font-family:${FONT_STACK};font-size:12px;line-height:18px;color:${BRAND.muted};">
+              If the button does not work, copy this link into your browser:<br />
+              <a href="${url}" style="color:${BRAND.accent};text-decoration:underline;word-break:break-all;">${url}</a>
+            </td>
+          </tr>`;
+}
+
+/** Pour a layout into the table skeleton. The only place markup is written. */
+function renderHtml(layout: EmailLayout): string {
+  const paragraphs = layout.paragraphs
+    .map(
+      (paragraph) => `
+          <tr>
+            <td style="padding:0 0 16px 0;font-family:${FONT_STACK};font-size:15px;line-height:23px;color:${BRAND.text};">${escapeHtml(paragraph)}</td>
+          </tr>`,
+    )
+    .join("");
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${escapeHtml(layout.subject)}</title>
+</head>
+<body style="margin:0;padding:0;background-color:${BRAND.ground};">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;color:${BRAND.ground};font-size:1px;line-height:1px;">${escapeHtml(layout.preheader)}</span>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;background-color:${BRAND.ground};">
+  <tr>
+    <td align="center" style="padding:32px 16px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560" style="border-collapse:collapse;width:100%;max-width:560px;">
+        <tr>
+          <td style="padding:0 0 20px 0;font-family:${FONT_STACK};font-size:22px;line-height:26px;font-weight:700;letter-spacing:.02em;color:${BRAND.text};">sho<span style="color:${BRAND.accent};">WM</span>e</td>
+        </tr>
+        <tr>
+          <td style="background-color:${BRAND.surface};border:1px solid ${BRAND.border};border-radius:12px;padding:28px 28px 10px 28px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">
+              <tr>
+                <td style="padding:0 0 14px 0;font-family:${FONT_STACK};font-size:20px;line-height:26px;font-weight:700;color:${BRAND.text};">${escapeHtml(layout.heading)}</td>
+              </tr>${paragraphs}${layout.details?.length ? renderDetailsHtml(layout.details) : ""}${layout.callout ? renderCalloutHtml(layout.callout) : ""}${layout.action ? renderActionHtml(layout.action) : ""}
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:20px 4px 0 4px;font-family:${FONT_STACK};font-size:12px;line-height:18px;color:${BRAND.muted};">${escapeHtml(layout.footerNote)}<br />shoWMe — booking and settlement for live events.</td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>`;
+}
+
+/** The same layout as plain text — not a stripped copy, a written alternative. */
+function renderText(layout: EmailLayout): string {
+  const blocks: string[] = [
+    "shoWMe",
+    "",
+    layout.heading,
+    "",
+    // A blank line between paragraphs — plain text has no other way to show one.
+    ...layout.paragraphs.flatMap((paragraph, index) =>
+      index === 0 ? [paragraph] : ["", paragraph],
+    ),
+  ];
+  if (layout.details?.length) {
+    blocks.push("", ...layout.details.map((detail) => `${detail.label}: ${detail.value}`));
+  }
+  if (layout.callout) {
+    blocks.push("", `${layout.callout.label}: ${layout.callout.value}`);
+  }
+  if (layout.action) {
+    blocks.push("", `${layout.action.label}:`, layout.action.url);
+  }
+  blocks.push("", "--", layout.footerNote, "shoWMe — booking and settlement for live events.");
+  return blocks.join("\n");
+}
+
+function render(layout: EmailLayout): RenderedEmail {
+  return { subject: layout.subject, html: renderHtml(layout), text: renderText(layout) };
+}
+
+/** The detail rows for a show, skipping the facts the event does not carry yet. */
+function eventDetails(event: EventSummary): DetailRow[] {
+  const details: DetailRow[] = [{ label: "Event", value: event.title }];
+  const eventDate = formatEventDate(event.eventDate);
+  if (eventDate) details.push({ label: "Date", value: eventDate });
+  if (event.venueName) details.push({ label: "Venue", value: event.venueName });
+  return details;
+}
+
+/**
+ * 1. The off-platform share verification code (`POST /shares/:token/otp`).
+ *
+ * Deliberately the barest message shoWMe sends, and deliberately the ONLY one
+ * with no link: the code exists to prove the reader controls this mailbox, and
+ * pairing it with the share URL in the same email would hand a forwarded or
+ * intercepted copy everything needed to walk in. It names no share, no event, no
+ * sharer — the recipient already holds the link they requested it from.
+ */
+export function renderShareVerificationCodeEmail(input: {
+  code: string;
+  expiresInMinutes: number;
+}): RenderedEmail {
+  return render({
+    subject: "Your shoWMe verification code",
+    preheader: `This code expires in ${input.expiresInMinutes} minutes.`,
+    heading: "Your verification code",
+    paragraphs: [
+      `Enter this code on the page you requested it from. It expires in ${input.expiresInMinutes} minutes.`,
+    ],
+    callout: { label: "Verification code", value: input.code },
+    footerNote:
+      "If you did not request this code, you can ignore this email — nothing was shared with you.",
+  });
+}
+
+/**
+ * 2. A performer who is not on shoWMe yet was added to an event
+ * (`POST /events/:id/participants/off-platform`).
+ *
+ * Names the show so the recipient can tell which booking this is about, and
+ * nothing else: no fee, no deal terms, no budget, no other participants. They
+ * are not yet a party to any of it.
+ */
+export function renderOffPlatformPerformerEmail(input: {
+  performerName?: string | null;
+  event?: EventSummary | null;
+  baseUrl?: string;
+}): RenderedEmail {
+  const greeting = input.performerName ? `Hi ${input.performerName},` : "Hi,";
+  const subject = input.event
+    ? `You've been added to ${input.event.title} on shoWMe`
+    : "You've been added to a shoWMe event";
+  return render({
+    subject,
+    preheader: "Create an account with this email address to claim your profile.",
+    heading: "You've been added to an event",
+    paragraphs: [
+      `${greeting} you have been added as a performer on an event on shoWMe.`,
+      "Create an account with this email address to claim your profile — this event, and any other you have been added to, will be waiting for you.",
+    ],
+    details: input.event ? eventDetails(input.event) : undefined,
+    action: { label: "Claim your profile", url: buildApplicationUrl("/", input.baseUrl) },
+    footerNote: "You received this because an organizer added this email address to their event.",
+  });
+}
+
+/**
+ * 3. An invitation to collaborate (`POST /invitations`).
+ *
+ * `code` invitations are redeemed by typing the code; `token` invitations by
+ * opening a link. Both get an actionable destination — the raw token is never
+ * printed on its own, because a string with no URL around it is not something a
+ * human can act on.
+ *
+ * Carries who invited them and to what, and stops there: no permission-set
+ * detail, no event money, no list of the other collaborators.
+ */
+export function renderInvitationEmail(input: {
+  recipientName?: string | null;
+  /** The inviter's display name, when the token carried one. */
+  inviterName?: string | null;
+  /** The event or account they are being invited onto, when known. */
+  targetName?: string | null;
+  /** Whether `targetName` is an event or an account, for the copy. */
+  targetKind?: "event" | "profile";
+  code?: string | null;
+  token?: string | null;
+  baseUrl?: string;
+}): RenderedEmail {
+  const greeting = input.recipientName ? `Hi ${input.recipientName},` : "Hi,";
+  const inviter = input.inviterName ?? "Someone";
+  const target = input.targetName
+    ? input.targetKind === "event"
+      ? `the event ${input.targetName}`
+      : input.targetName
+    : "shoWMe";
+  const subject = input.targetName
+    ? `${inviter} invited you to ${input.targetName} on shoWMe`
+    : "You have been invited to shoWMe";
+
+  // A code invitation is redeemed by typing the code, so the link lands on the
+  // app rather than carrying the secret in a URL; a token invitation carries it.
+  const url = input.code
+    ? buildApplicationUrl("/", input.baseUrl)
+    : buildApplicationUrl(`/?invitation=${encodeURIComponent(input.token ?? "")}`, input.baseUrl);
+
+  return render({
+    subject,
+    preheader: `${inviter} invited you to collaborate on shoWMe.`,
+    heading: "You have been invited",
+    paragraphs: [
+      `${greeting} ${inviter} has invited you to collaborate on ${target}.`,
+      input.code
+        ? "Open shoWMe, sign in or create an account with this email address, and enter the invitation code below."
+        : "Open the link below and sign in — or create an account with this email address — to accept.",
+    ],
+    callout: input.code ? { label: "Invitation code", value: input.code } : undefined,
+    action: { label: "Open shoWMe", url },
+    footerNote: "You received this because someone invited this email address to collaborate.",
+  });
+}
+
+/**
+ * 4. The event info notice (`POST /events/:id/notify`).
+ *
+ * Goes to every reachable member of every participating profile, so it says
+ * which show changed and links to it — and nothing about the change itself. The
+ * event page already shows each reader only their own slice; an email cannot,
+ * so it does not try.
+ */
+export function renderEventNotificationEmail(input: {
+  event: EventSummary;
+  baseUrl?: string;
+}): RenderedEmail {
+  return render({
+    subject: `Event update: ${input.event.title}`,
+    preheader: "Open the event in shoWMe to see what changed.",
+    heading: "There's an update to your event",
+    paragraphs: [
+      `The details of ${input.event.title} have been updated. Open the event in shoWMe to see the current schedule, line-up and your own deal.`,
+    ],
+    details: eventDetails(input.event),
+    action: {
+      label: "Open the event",
+      url: buildApplicationUrl(`/events/${encodeURIComponent(input.event.id)}`, input.baseUrl),
+    },
+    footerNote: "You received this because you are part of this event on shoWMe.",
+  });
+}

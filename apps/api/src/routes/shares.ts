@@ -7,6 +7,7 @@ import { z } from "zod";
 import { HttpError, badRequest, notFound, unauthorized } from "../errors";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
+import { renderShareVerificationCodeEmail } from "../lib/email-templates";
 import {
   MAX_VERIFY_ATTEMPTS,
   OTP_TTL_MS,
@@ -275,8 +276,12 @@ export async function shareRoutes(fastify: FastifyInstance): Promise<void> {
       try {
         await request.server.emailSink.sendEmail({
           to: email,
-          subject: "Your shoWMe verification code",
-          text: `Your verification code is ${code}. It expires in 10 minutes.`,
+          // The TTL in the copy is derived from the constant that actually
+          // stamped `expiresAt` above, so the two can never drift apart.
+          ...renderShareVerificationCodeEmail({
+            code,
+            expiresInMinutes: Math.round(OTP_TTL_MS / 60_000),
+          }),
         });
       } catch (error) {
         request.log.error({ error }, "share OTP email failed");

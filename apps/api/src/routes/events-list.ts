@@ -6,6 +6,7 @@ import { z } from "zod";
 import { badRequest, conflict, notFound } from "../errors";
 import { writeAudit } from "../lib/audit";
 import { eventCapabilities, requireEventCapability } from "../lib/authorize";
+import { renderEventNotificationEmail } from "../lib/email-templates";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
 import { serializeEvent } from "../serialize/event";
 
@@ -296,11 +297,14 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
           ),
         );
 
-      const subject = `Event update: ${event.title}`;
-      const text = `There is an update to the event "${event.title}". Sign in to shoWMe to view the details.`;
+      // Rendered ONCE — every recipient gets the identical notice. It names the
+      // show and links to it; what actually changed is deliberately not in the
+      // email, because these addresses span every participating profile and the
+      // event page is the only surface that can show each reader their own slice.
+      const message = renderEventNotificationEmail({ event });
       for (const recipient of recipients) {
         try {
-          await request.server.emailSink.sendEmail({ to: recipient.email, subject, text });
+          await request.server.emailSink.sendEmail({ to: recipient.email, ...message });
         } catch (error) {
           request.log.error({ error }, "event notify email failed");
         }
