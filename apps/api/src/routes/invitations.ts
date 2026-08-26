@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { badRequest, conflict, notFound } from "../errors";
+import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
 import { renderInvitationEmail } from "../lib/email-templates";
@@ -230,6 +231,21 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
               eventId: body.targetEventId,
               after: invitation,
             });
+            // Only an EVENT invite has an event history to appear in — a
+            // profile-member invite belongs to the account, not to any booking, and
+            // an activity row with a null `event_id` is unreachable from every feed
+            // this route serves. The recipient's EMAIL is deliberately left out: it
+            // is contact detail the inviter holds, not something the rest of the
+            // bill is entitled to read off the timeline.
+            if (invitation.targetEventId) {
+              await writeActivity(tx, request, {
+                eventId: invitation.targetEventId,
+                type: "invitation.sent",
+                targetKind: "invitation",
+                targetId: invitation.id,
+                summary: { recipientName: invitation.recipientName, role: invitation.role },
+              });
+            }
             return invitation;
           });
           return { statusCode: 201, body: serializeInvitation(created) };
@@ -379,6 +395,24 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
             before: invitation,
             after,
           });
+          // The acceptance is the moment somebody actually joined the bill, and this
+          // path inserts the `event_participants` row WITHOUT going through
+          // `POST /events/:id/participants` — so without this write, a booking made
+          // by invitation leaves no trace at all in the history that a booking made
+          // by direct add does.
+          if (after.targetEventId) {
+            await writeActivity(tx, request, {
+              eventId: after.targetEventId,
+              type: "invitation.accepted",
+              targetKind: "invitation",
+              targetId: after.id,
+              summary: {
+                recipientName: after.recipientName,
+                role: after.role,
+                profileId: principal.actingProfileId,
+              },
+            });
+          }
           return after;
         });
       } catch (error) {
@@ -440,6 +474,17 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
           before: invitation,
           after,
         });
+        // A refusal closes the slot as surely as an acceptance fills it — the
+        // operator waiting on an answer needs the "no" in the same timeline.
+        if (after.targetEventId) {
+          await writeActivity(tx, request, {
+            eventId: after.targetEventId,
+            type: "invitation.declined",
+            targetKind: "invitation",
+            targetId: after.id,
+            summary: { recipientName: after.recipientName, role: after.role },
+          });
+        }
         return after;
       });
 

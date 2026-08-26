@@ -11,6 +11,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { forbidden, notFound } from "../errors";
+import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import { assertEventCapAllows } from "../lib/entitlements";
@@ -183,6 +184,16 @@ export async function holdRoutes(fastify: FastifyInstance): Promise<void> {
           before: { holdRank: event.holdRank },
           after: { holdRank: request.body.holdRank, updates },
         });
+        // Kind `hold`, NOT `event`: where an act sits in the hold pool is the
+        // operator's private competitive information — `serialize/event.ts` keeps
+        // `holdRank` behind `event.edit`, and the feed keeps the same line.
+        await writeActivity(tx, request, {
+          eventId: event.id,
+          type: "hold.ranked",
+          targetKind: "hold",
+          targetId: event.id,
+          summary: { from: event.holdRank, to: request.body.holdRank },
+        });
       });
 
       const ranked = await loadSiblings(request, event, true);
@@ -248,6 +259,26 @@ export async function holdRoutes(fastify: FastifyInstance): Promise<void> {
           before: { status: event.status },
           after: { status: "confirmed", cancelled: cancelledIds },
         });
+        await writeActivity(tx, request, {
+          eventId: event.id,
+          type: "hold.confirmed",
+          targetKind: "event",
+          targetId: event.id,
+          summary: { from: event.status, to: "confirmed" },
+        });
+        // The losing holds are separate EVENTS, each with its own history, and each
+        // just got cancelled out from under its participants. The count of siblings
+        // is deliberately absent: an operator's other pencils are not this event's
+        // business, only the fact that this one lost the date.
+        for (const cancelledId of cancelledIds) {
+          await writeActivity(tx, request, {
+            eventId: cancelledId,
+            type: "hold.lost",
+            targetKind: "event",
+            targetId: cancelledId,
+            summary: { to: "cancelled" },
+          });
+        }
       });
 
       // Realtime + feed: a hold confirmation resolves a date for everyone waiting on
@@ -330,6 +361,24 @@ export async function holdRoutes(fastify: FastifyInstance): Promise<void> {
           before: { status: event.status, holdRank: event.holdRank },
           after: { status: "cancelled", promoted: promotions },
         });
+        await writeActivity(tx, request, {
+          eventId: event.id,
+          type: "hold.declined",
+          targetKind: "event",
+          targetId: event.id,
+          summary: { from: event.status, to: "cancelled" },
+        });
+        // A promotion is a rank move on ANOTHER event — operator-only there, for the
+        // same reason the rank route is.
+        for (const promotion of promotions) {
+          await writeActivity(tx, request, {
+            eventId: promotion.id,
+            type: "hold.promoted",
+            targetKind: "hold",
+            targetId: promotion.id,
+            summary: { to: promotion.holdRank },
+          });
+        }
       });
 
       return { id: event.id, status: "cancelled", promoted: promotions };

@@ -476,6 +476,15 @@ export async function groupRoutes(fastify: FastifyInstance): Promise<void> {
           eventId,
           after: { groupId: gid, removed: count },
         });
+        // The mirror of `group.assigned` — a crew roster leaving is exactly as
+        // much event news as one arriving.
+        await writeActivity(tx, request, {
+          eventId,
+          type: "group.unassigned",
+          targetKind: "event",
+          targetId: eventId,
+          summary: { count },
+        });
         return count;
       });
 

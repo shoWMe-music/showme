@@ -1,7 +1,7 @@
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
 import { isRepresentationActiveAt } from "@showme/shared";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 
 /**
  * Which delegations on one event are LIVE right now.
@@ -40,8 +40,27 @@ export async function liveEventDelegations(
   eventId: string,
   now: Date = new Date(),
 ): Promise<LiveDelegation[]> {
+  const byEvent = await liveEventDelegationsForEvents(db, [eventId], now);
+  return byEvent.get(eventId) ?? [];
+}
+
+/**
+ * The same question asked of MANY events in one round trip, for callers that
+ * compose capabilities across a whole feed (the activity feed's visibility
+ * filter). Keyed by `event_id` exactly as the single-event form — that one is
+ * now a thin wrapper over this, so there is only ever one copy of the rule.
+ */
+export async function liveEventDelegationsForEvents(
+  db: Database,
+  eventIds: readonly string[],
+  now: Date = new Date(),
+): Promise<Map<string, LiveDelegation[]>> {
+  const byEvent = new Map<string, LiveDelegation[]>();
+  if (eventIds.length === 0) return byEvent;
+
   const rows = await db
     .select({
+      eventId: schema.eventParticipants.eventId,
       performerParticipantId: schema.eventParticipants.id,
       performerProfileId: schema.eventParticipants.profileId,
       agentProfileId: schema.representations.agentProfileId,
@@ -58,7 +77,7 @@ export async function liveEventDelegations(
     )
     .where(
       and(
-        eq(schema.eventParticipants.eventId, eventId),
+        inArray(schema.eventParticipants.eventId, [...eventIds]),
         ne(schema.eventParticipants.status, "removed"),
         // The SQL prefilter only — a row can be `active` and already past its
         // agreed effective moment. `isRepresentationActiveAt` is the answer.
@@ -66,11 +85,16 @@ export async function liveEventDelegations(
       ),
     );
 
-  return rows
-    .filter((row) => isRepresentationActiveAt(row, now))
-    .map((row) => ({
+  for (const row of rows) {
+    if (!isRepresentationActiveAt(row, now)) continue;
+    const bucket = byEvent.get(row.eventId);
+    const delegation: LiveDelegation = {
       performerParticipantId: row.performerParticipantId,
       performerProfileId: row.performerProfileId,
       agentProfileId: row.agentProfileId,
-    }));
+    };
+    if (bucket) bucket.push(delegation);
+    else byEvent.set(row.eventId, [delegation]);
+  }
+  return byEvent;
 }

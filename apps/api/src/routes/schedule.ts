@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { notFound } from "../errors";
+import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 
@@ -164,6 +165,16 @@ export async function scheduleRoutes(fastify: FastifyInstance): Promise<void> {
           eventId,
           after: item,
         });
+        // Kind `schedule`, NOT `event`: a `view_only` participant may view the
+        // event but holds no `schedule.view`, and the timeline must not be the
+        // back door into a running order they cannot open.
+        await writeActivity(tx, request, {
+          eventId,
+          type: "schedule.created",
+          targetKind: "schedule",
+          targetId: item.id,
+          summary: { label: item.label, localDateTime: item.localDateTime },
+        });
         return item;
       });
 
@@ -205,6 +216,20 @@ export async function scheduleRoutes(fastify: FastifyInstance): Promise<void> {
           before,
           after,
         });
+        // "Soundcheck moved to 15:30" is the single most actionable line a crew
+        // member can read, so the times themselves are carried — everyone admitted
+        // by `schedule.view` can already read them off the schedule tab.
+        await writeActivity(tx, request, {
+          eventId,
+          type: "schedule.updated",
+          targetKind: "schedule",
+          targetId: sid,
+          summary: {
+            label: after.label,
+            localDateTime: after.localDateTime,
+            timeChanged: before.localDateTime !== after.localDateTime,
+          },
+        });
         return after;
       });
 
@@ -237,6 +262,15 @@ export async function scheduleRoutes(fastify: FastifyInstance): Promise<void> {
           targetId: sid,
           eventId,
           before,
+        });
+        // The row is gone, so the timeline is the only place the removal survives —
+        // and a slot vanishing off the day sheet is what people ask about.
+        await writeActivity(tx, request, {
+          eventId,
+          type: "schedule.deleted",
+          targetKind: "schedule",
+          targetId: sid,
+          summary: { label: before.label, localDateTime: before.localDateTime },
         });
       });
 

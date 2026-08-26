@@ -6,6 +6,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
+import { changedFieldNames, writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import { assertEventCapAllows } from "../lib/entitlements";
@@ -161,6 +162,15 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
             eventId: event.id,
             after: event,
           });
+          // The first line of the event's story. Only the host can read it today,
+          // but everyone added later reads it as the beginning of the history.
+          await writeActivity(tx, request, {
+            eventId: event.id,
+            type: "event.created",
+            targetKind: "event",
+            targetId: event.id,
+            summary: { status: event.status },
+          });
           return event;
         });
         return { statusCode: 201, body: serializeEvent(created, OPERATOR_CAPABILITIES) };
@@ -247,6 +257,27 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
           before,
           after,
         });
+
+        // History, not audit: a PATCH that changed nothing is a real request the
+        // audit trail must keep, and a line the timeline must not grow — the web
+        // app saves the whole form, so most fields arrive unchanged every time.
+        const changed = changedFieldNames(before, fields);
+        if (changed.length > 0) {
+          // A status move is the headline (`draft` → `confirmed` is the booking
+          // itself), so it gets its own type and carries its values: `status` is
+          // event-public in `serialize/event.ts`. Every other field is named but
+          // not valued — `extras` is the operator's guest list.
+          const statusChanged = changed.includes("status");
+          await writeActivity(tx, request, {
+            eventId: id,
+            type: statusChanged ? "event.status_changed" : "event.updated",
+            targetKind: "event",
+            targetId: id,
+            summary: statusChanged
+              ? { from: before.status, to: after.status, fields: changed }
+              : { fields: changed },
+          });
+        }
         return after;
       });
 

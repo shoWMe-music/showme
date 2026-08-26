@@ -1695,3 +1695,145 @@ describe("settlement — an unattributed budget line is diagnosable (A-14)", () 
     expect(response.json().pool).toBe("850000");
   });
 });
+
+/**
+ * Settlement is where the audit/activity split bites hardest. `compute` is a
+ * recalculation the operator runs a dozen times while the budget moves — audited
+ * every time, and never history. `finalize`, an approval and a payment are
+ * decisions, and they are the story. No row carries a figure.
+ */
+describe("settlement — what reaches an event's history", () => {
+  it("records finalize, confirm and payment — never a recompute, and never an amount", async () => {
+    const seed = await seedWorkedExample("act-hist");
+    const activityFor = async (eventId: string) =>
+      (
+        await harness.db
+          .select()
+          .from(schema.activityLog)
+          .where(eq(schema.activityLog.eventId, eventId))
+      ).sort((left, right) => left.type.localeCompare(right.type));
+
+    // Three computes → three audit rows, no history at all.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const compute = await app.inject({
+        method: "POST",
+        url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+        headers: auth(seed.operator.userId),
+      });
+      expect(compute.statusCode).toBe(200);
+    }
+    const computeAudits = await harness.db
+      .select()
+      .from(schema.auditLog)
+      .where(
+        and(
+          eq(schema.auditLog.eventId, seed.event.id),
+          eq(schema.auditLog.action, "settlement.compute"),
+        ),
+      );
+    expect(computeAudits).toHaveLength(3);
+    expect(await activityFor(seed.event.id)).toHaveLength(0);
+
+    // The band approves their own line → one party-scoped row.
+    const bandSettlement = (
+      await harness.db
+        .select()
+        .from(schema.settlements)
+        .where(eq(schema.settlements.participantId, seed.bPart))
+    )[0];
+    if (!bandSettlement) throw new Error("band settlement missing");
+    const confirmed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlements/${bandSettlement.id}/confirm`,
+      headers: auth(seed.band.userId),
+    });
+    expect(confirmed.statusCode).toBe(200);
+
+    const finalized = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(finalized.statusCode).toBe(200);
+
+    const transfer = (
+      await harness.db
+        .select()
+        .from(schema.settlementTransfers)
+        .where(eq(schema.settlementTransfers.eventId, seed.event.id))
+    )[0];
+    if (!transfer) throw new Error("transfer missing");
+    const paid = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.event.id}/transfers/${transfer.id}`,
+      headers: auth(seed.operator.userId),
+      payload: { state: "paid" },
+    });
+    expect(paid.statusCode).toBe(200);
+
+    const rows = await activityFor(seed.event.id);
+    expect(rows.map((row) => row.type)).toEqual([
+      "settlement.confirmed",
+      "settlement.finalized",
+      "transfer.state_changed",
+    ]);
+    // Tiers: the approval is party-scoped to that settlement, finalize is
+    // event-level (the figures stopped moving, which is everyone's news), the
+    // payment is scoped to the transfer's two ends.
+    expect(rows.map((row) => row.targetKind)).toEqual(["settlement", "event", "transfer"]);
+    expect(rows.find((row) => row.type === "settlement.confirmed")?.targetId).toBe(
+      bandSettlement.id,
+    );
+    // Not one figure anywhere in the summaries.
+    const summaries = JSON.stringify(rows.map((row) => row.summary));
+    expect(summaries).not.toContain("300000");
+    expect(summaries).not.toMatch(/\d{5,}/);
+  });
+
+  it("never writes history for a private agent↔performer commission transfer", async () => {
+    const seed = await seedWorkedExample("act-comm");
+    const rep = await seedAgentRepresentation("act-comm", seed);
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const commission = (
+      await harness.db
+        .select()
+        .from(schema.settlementTransfers)
+        .where(eq(schema.settlementTransfers.representationId, rep.representation.id))
+    )[0];
+    if (!commission) throw new Error("commission transfer missing");
+
+    // The band marks their own commission paid — allowed, and audited.
+    const paid = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.event.id}/transfers/${commission.id}`,
+      headers: auth(seed.band.userId),
+      payload: { state: "paid" },
+    });
+    expect(paid.statusCode).toBe(200);
+
+    const audited = await harness.db
+      .select()
+      .from(schema.auditLog)
+      .where(
+        and(
+          eq(schema.auditLog.eventId, seed.event.id),
+          eq(schema.auditLog.action, "transfer.update"),
+        ),
+      );
+    expect(audited).toHaveLength(1);
+
+    // …and NOTHING in the feed. The operator sees every row on their own event,
+    // so the only way to keep a commission out of their timeline is to never
+    // write one (decisions #14, audit A-10).
+    const rows = await harness.db
+      .select()
+      .from(schema.activityLog)
+      .where(eq(schema.activityLog.eventId, seed.event.id));
+    expect(rows.filter((row) => row.targetKind === "transfer")).toHaveLength(0);
+  });
+});

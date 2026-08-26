@@ -16,6 +16,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { type HttpError, badRequest, conflict, forbidden, notFound } from "../errors";
+import { writeActivity } from "../lib/activity";
 import type { Transaction } from "../lib/audit";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
@@ -788,6 +789,17 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           before,
           after,
         });
+        // A hand-correction to somebody's money. Party-scoped to that settlement,
+        // and carrying NO figures: the party is told their line was adjusted and
+        // reads the new number off the settlement itself, where the serializer
+        // decides what they may see.
+        await writeActivity(tx, request, {
+          eventId: id,
+          type: "settlement.overridden",
+          targetKind: "settlement",
+          targetId: sid,
+          summary: { overrideCount: Array.isArray(manualOverrides) ? manualOverrides.length : 0 },
+        });
         return after;
       });
 
@@ -847,6 +859,16 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           targetId: sid,
           eventId: id,
           after: row,
+        });
+        // An approval is a signature — the one settlement step that is a decision
+        // rather than a calculation, and the operator's answer to "has everyone
+        // signed off yet?".
+        await writeActivity(tx, request, {
+          eventId: id,
+          type: "settlement.confirmed",
+          targetKind: "settlement",
+          targetId: sid,
+          summary: { approved: row.approved },
         });
         return row;
       });
@@ -992,6 +1014,17 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
               eventId: id,
               after: { version: nextVersion, status: "finalized", lockedRates },
             });
+            // Event-level, unlike every other settlement row: finalizing is the
+            // moment the figures and the FX STOP MOVING, which is news to everyone
+            // on the bill even though what each of them is owed is not. The snapshot
+            // version is the only number here — no amounts, no rates.
+            await writeActivity(tx, request, {
+              eventId: id,
+              type: "settlement.finalized",
+              targetKind: "event",
+              targetId: id,
+              summary: { version: nextVersion },
+            });
             return row;
           });
           return {
@@ -1102,6 +1135,21 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           before: serializeTransfer(before),
           after: serializeTransfer(after),
         });
+        // "Paid" is the last thing that happens to a booking, so it belongs in the
+        // history — but ONLY for an event transfer. A private agent↔performer
+        // commission is its two parties' business alone and 404s for everybody else
+        // (decisions #14, audit A-10); the operator sees every row on their own
+        // event, so the only way to keep a commission out of their timeline is to
+        // never write one. The amount stays out either way.
+        if (!before.representationId) {
+          await writeActivity(tx, request, {
+            eventId: id,
+            type: "transfer.state_changed",
+            targetKind: "transfer",
+            targetId: tid,
+            summary: { from: before.state, to: after.state },
+          });
+        }
         return after;
       });
 

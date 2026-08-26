@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { HttpError, badRequest, notFound, unauthorized } from "../errors";
+import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import { renderShareVerificationCodeEmail } from "../lib/email-templates";
@@ -181,6 +182,21 @@ export async function shareRoutes(fastify: FastifyInstance): Promise<void> {
           targetId: share.id,
           eventId: id,
           after: { access: share.access, targetKind: share.targetKind },
+        });
+        // Handing event data to someone OUTSIDE the platform is the operator's
+        // decision and the operator's record — kind `share` keeps it behind
+        // `event.edit`. The token is never summarised: a feed row is not a way to
+        // hand the link to a participant who was not given it.
+        await writeActivity(tx, request, {
+          eventId: id,
+          type: "share.created",
+          targetKind: "share",
+          targetId: share.id,
+          summary: {
+            access: share.access,
+            sharedKind: share.targetKind,
+            recipientCount: recipients?.length ?? 0,
+          },
         });
         return share;
       });

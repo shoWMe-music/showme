@@ -461,6 +461,20 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
           before,
           after,
         });
+        // Who someone is on this event, and what they may touch, is event-level
+        // news — the same tier as the add that put them there.
+        await writeActivity(tx, request, {
+          eventId: id,
+          type: "participant.updated",
+          targetKind: "event",
+          targetId: id,
+          summary: {
+            profileId: after.profileId,
+            role: after.role,
+            roleChanged: before.role !== after.role,
+            permissionSetChanged: before.permissionSetId !== after.permissionSetId,
+          },
+        });
         return after;
       });
 
@@ -504,6 +518,15 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
           eventId: id,
           before,
           after,
+        });
+        // Somebody dropping off the bill is the change other participants most
+        // need explained, and the soft-remove leaves nothing else to see.
+        await writeActivity(tx, request, {
+          eventId: id,
+          type: "participant.removed",
+          targetKind: "event",
+          targetId: id,
+          summary: { profileId: before.profileId, role: before.role },
         });
         return after;
       });

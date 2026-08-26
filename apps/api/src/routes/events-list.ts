@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { badRequest, conflict, notFound } from "../errors";
+import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { eventCapabilities, requireEventCapability } from "../lib/authorize";
 import { renderEventNotificationEmail } from "../lib/email-templates";
@@ -247,6 +248,14 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
           before,
           after,
         });
+        // Going public is a promise to the world — everyone on the bill should be
+        // able to see the moment it was made, and by whom.
+        await writeActivity(tx, request, {
+          eventId: id,
+          type: "event.published",
+          targetKind: "event",
+          targetId: id,
+        });
         return after;
       });
 
@@ -276,6 +285,15 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
           targetKind: "event",
           targetId: id,
           eventId: id,
+        });
+        // Everyone reachable on the event receives this mail, so everyone may read
+        // that it was sent — and "did anyone tell the crew?" is exactly the
+        // question a history tab exists to answer.
+        await writeActivity(tx, request, {
+          eventId: id,
+          type: "event.info_email_sent",
+          targetKind: "event",
+          targetId: id,
         });
       });
 

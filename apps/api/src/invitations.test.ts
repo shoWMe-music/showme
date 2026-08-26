@@ -1,7 +1,7 @@
 import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
@@ -700,5 +700,146 @@ describe("invitations — the PROFILE-level grant_admin gate (A-37)", () => {
       );
     expect(member?.role).toBe("editor");
     expect(member?.seatConsumed).toBe(false);
+  });
+});
+
+/**
+ * An invitation is audited either way; only an EVENT invitation is history. The
+ * profile-level sibling has no event to have a history, and a row with a null
+ * `event_id` is unreachable from every feed — so it is deliberately not written.
+ */
+describe("invitations — what reaches an event's history", () => {
+  async function seedOwner(id: string) {
+    const { db } = harness;
+    await seedUser(id, "operator");
+    const [profile] = await db
+      .insert(schema.profiles)
+      .values({ kind: "operator", ownerUserId: id, name: id, slug: id, claimedAt: new Date() })
+      .returning();
+    if (!profile) throw new Error("profile seed failed");
+    await db
+      .insert(schema.profileMembers)
+      .values({ profileId: profile.id, userId: id, role: "owner", status: "active" });
+    // Two sets: the host's own operator bundle (which carries
+    // `participants.manage`, so they may invite at all) and the view-only bundle
+    // the invitee is granted — an admin-grade grant would trip the paid-plan gate.
+    const [operatorSet] = await db
+      .insert(schema.permissionSets)
+      .values({
+        profileId: profile.id,
+        name: "operator_full",
+        capabilities: [...PRESET_PERMISSION_SETS.operator_full],
+      })
+      .returning();
+    const [performerSet] = await db
+      .insert(schema.permissionSets)
+      .values({
+        profileId: profile.id,
+        name: "performer",
+        capabilities: [...PRESET_PERMISSION_SETS.performer],
+      })
+      .returning();
+    if (!operatorSet || !performerSet) throw new Error("permission set seed failed");
+    return {
+      profileId: profile.id,
+      permissionSetId: operatorSet.id,
+      granteeSetId: performerSet.id,
+    };
+  }
+
+  it("writes activity for an EVENT invite and its acceptance, and none for a PROFILE invite", async () => {
+    const { db } = harness;
+    const host = await seedOwner("inv-act-host");
+    await seedUser("inv-act-rec", "performer");
+    const [recipientProfile] = await db
+      .insert(schema.profiles)
+      .values({
+        kind: "performer",
+        ownerUserId: "inv-act-rec",
+        name: "inv-act-rec",
+        slug: "inv-act-rec",
+      })
+      .returning();
+    if (!recipientProfile) throw new Error("profile seed failed");
+    await db.insert(schema.profileMembers).values({
+      profileId: recipientProfile.id,
+      userId: "inv-act-rec",
+      role: "owner",
+      status: "active",
+    });
+
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: host.profileId,
+        title: "Invite History",
+        baseCurrency: "SEK",
+        createdBy: "inv-act-host",
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: host.profileId,
+      role: "host",
+      permissionSetId: host.permissionSetId,
+      status: "confirmed",
+    });
+
+    const invited = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("inv-act-host"), "x-profile-id": host.profileId },
+      payload: {
+        type: "event_participant",
+        source: "collaborator",
+        recipientEmail: "inv-act-rec@example.com",
+        recipientName: "Ada Act",
+        targetEventId: event.id,
+        role: "performer",
+        permissionSetId: host.granteeSetId,
+      },
+    });
+    expect(invited.statusCode).toBe(201);
+    const token = invited.json().token as string;
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${token}/accept`,
+      headers: { ...auth("inv-act-rec"), "x-profile-id": recipientProfile.id },
+    });
+    expect(accepted.statusCode).toBe(200);
+
+    const rows = await db
+      .select()
+      .from(schema.activityLog)
+      .where(eq(schema.activityLog.eventId, event.id));
+    expect(rows.map((row) => row.type).sort()).toEqual(["invitation.accepted", "invitation.sent"]);
+    // Both sit at the event-level `invitation` tier, and neither carries the
+    // recipient's email address.
+    expect(rows.every((row) => row.targetKind === "invitation")).toBe(true);
+    expect(JSON.stringify(rows.map((row) => row.summary))).not.toContain("@example.com");
+    // The acceptance is recorded against the person who accepted, not the inviter.
+    expect(rows.find((row) => row.type === "invitation.accepted")?.actorUserId).toBe("inv-act-rec");
+
+    // A PROFILE invite to the same account writes an audit row and no activity.
+    const profileInvite = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("inv-act-host"), "x-profile-id": host.profileId },
+      payload: {
+        type: "profile_member",
+        source: "collaborator",
+        recipientEmail: "someone-else@example.com",
+        targetProfileId: host.profileId,
+        role: "editor",
+      },
+    });
+    expect(profileInvite.statusCode).toBe(201);
+    const eventless = await db
+      .select()
+      .from(schema.activityLog)
+      .where(isNull(schema.activityLog.eventId));
+    expect(eventless).toHaveLength(0);
   });
 });

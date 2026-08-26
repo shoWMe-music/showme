@@ -691,3 +691,86 @@ describe("holds — the free-tier event cap (entitlement layer)", () => {
     expect((await readEvent(first)).status).toBe("cancelled");
   });
 });
+
+/**
+ * A hold decision is not one event's news. Confirming rank 1 cancels the siblings,
+ * and each of those is a separate booking whose own participants are owed an
+ * explanation — so the write fans across events, inside the one transaction.
+ */
+describe("holds — what reaches each event's history", () => {
+  it("writes the win on the confirmed event and the loss on every cancelled sibling", async () => {
+    const operator = await seedMemberWithSet(
+      "hist-hold-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "hist-hold-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const [first, second, third] = await seedHoldPool(
+      "hist-hold",
+      "hist-hold-op",
+      operator,
+      performer,
+      3,
+    );
+    if (!first || !second || !third) throw new Error("seed failed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/confirm`,
+      headers: auth("hist-hold-perf"),
+    });
+    expect(response.statusCode).toBe(200);
+
+    const historyOf = async (eventId: string) =>
+      (
+        await harness.db
+          .select()
+          .from(schema.activityLog)
+          .where(eq(schema.activityLog.eventId, eventId))
+      ).map((row) => ({ type: row.type, targetKind: row.targetKind }));
+
+    expect(await historyOf(first)).toEqual([{ type: "hold.confirmed", targetKind: "event" }]);
+    // The losers learn they lost — but not how many rivals there were, nor which.
+    for (const sibling of [second, third]) {
+      expect(await historyOf(sibling)).toEqual([{ type: "hold.lost", targetKind: "event" }]);
+    }
+  });
+
+  it("keeps a rank change behind `event.edit`, where the rank itself lives", async () => {
+    const operator = await seedMemberWithSet(
+      "hist-rank-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "hist-rank-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const [, second] = await seedHoldPool("hist-rank", "hist-rank-op", operator, performer, 3);
+    if (!second) throw new Error("seed failed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${second}/hold/rank`,
+      headers: auth("hist-rank-op"),
+      payload: { holdRank: 1 },
+    });
+    expect(response.statusCode).toBe(200);
+
+    const rows = await harness.db
+      .select()
+      .from(schema.activityLog)
+      .where(eq(schema.activityLog.eventId, second));
+    expect(rows).toHaveLength(1);
+    // Kind `hold`, not `event`: the performer holding this date must not read
+    // their own position in the operator's pool off the timeline.
+    expect(rows[0]?.targetKind).toBe("hold");
+    expect(rows[0]?.type).toBe("hold.ranked");
+    expect(rows[0]?.summary).toEqual({ from: 2, to: 1 });
+  });
+});

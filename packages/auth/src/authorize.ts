@@ -1,8 +1,8 @@
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
 import type { Capability } from "@showme/shared";
-import { and, eq, ne } from "drizzle-orm";
-import { liveEventDelegations } from "./delegation";
+import { and, eq, inArray, ne } from "drizzle-orm";
+import { liveEventDelegationsForEvents } from "./delegation";
 import {
   type EventRole,
   type ProfileRole,
@@ -33,7 +33,7 @@ function delegatedToAgentProfileId(details: unknown): string | null {
  * unchanged, but two of its inputs are not taken from the participant row itself:
  * a performer is `delegated` — and an `agent` participation counts at all — only
  * while a representation still BACKS it, live at `now`. So there is a second keyed
- * query, `liveEventDelegations` (also by `event_id`), and the join above no longer
+ * query, `liveEventDelegationsForEvents` (also by `event_id`), and the join above no longer
  * tells the whole story. The reason is the notice period: an effective-dated
  * termination leaves the `delegatedToAgentProfileId` projection in place until the
  * `apps/jobs` sweep runs, and reading it raw would keep a fired agent on the event
@@ -46,8 +46,32 @@ export async function effectiveEventCapabilities(
   eventId: string,
   now: Date = new Date(),
 ): Promise<Set<Capability>> {
+  const byEvent = await effectiveEventCapabilitiesForEvents(db, principal, [eventId], now);
+  return byEvent.get(eventId) ?? new Set();
+}
+
+/**
+ * The same composition asked of MANY events in ONE round trip. The activity feed
+ * needs it: its visibility filter is "which capabilities does the viewer hold on
+ * each event they can reach", and answering that per event would be an N+1 on a
+ * paginated read. Two queries total, whatever the number of events.
+ *
+ * This is the single implementation — `effectiveEventCapabilities` above is a
+ * one-element wrapper over it, so the rule can never fork between the route that
+ * gates a resource and the feed that decides whether to mention it.
+ */
+export async function effectiveEventCapabilitiesForEvents(
+  db: Database,
+  principal: Principal,
+  eventIds: readonly string[],
+  now: Date = new Date(),
+): Promise<Map<string, Set<Capability>>> {
+  const byEvent = new Map<string, Set<Capability>>();
+  if (eventIds.length === 0) return byEvent;
+
   const rows = await db
     .select({
+      eventId: schema.eventParticipants.eventId,
       profileId: schema.eventParticipants.profileId,
       capabilities: schema.permissionSets.capabilities,
       profileRole: schema.profileMembers.role,
@@ -65,26 +89,37 @@ export async function effectiveEventCapabilities(
     )
     .where(
       and(
-        eq(schema.eventParticipants.eventId, eventId),
+        inArray(schema.eventParticipants.eventId, [...eventIds]),
         eq(schema.profileMembers.userId, principal.userId),
         eq(schema.profileMembers.status, "active"),
         ne(schema.eventParticipants.status, "removed"),
       ),
     );
 
-  if (rows.length === 0) return new Set();
+  if (rows.length === 0) return byEvent;
 
-  // Which delegations on this event a live representation still backs. Only loaded
-  // when the caller actually reaches the event through a delegated or agent row —
-  // the ordinary operator/performer/crew path pays nothing for the agent feature.
-  const touchesDelegation = rows.some(
-    (row) => row.eventRole === "agent" || delegatedToAgentProfileId(row.details) != null,
-  );
-  const delegations = touchesDelegation ? await liveEventDelegations(db, eventId, now) : [];
+  // Which delegations a live representation still backs, on the events the caller
+  // actually reaches through a delegated or agent row — the ordinary
+  // operator/performer/crew path pays nothing for the agent feature.
+  const delegatedEventIds = [
+    ...new Set(
+      rows
+        .filter(
+          (row) => row.eventRole === "agent" || delegatedToAgentProfileId(row.details) != null,
+        )
+        .map((row) => row.eventId),
+    ),
+  ];
+  const delegationsByEvent = await liveEventDelegationsForEvents(db, delegatedEventIds, now);
 
-  const effective = new Set<Capability>();
   for (const row of rows) {
     const eventRole = row.eventRole as EventRole;
+    const delegations = delegationsByEvent.get(row.eventId) ?? [];
+    let effective = byEvent.get(row.eventId);
+    if (!effective) {
+      effective = new Set<Capability>();
+      byEvent.set(row.eventId, effective);
+    }
 
     // An `agent` participation is the PROJECTION of a representation, never a
     // grant in its own right: it counts only while it still represents someone
@@ -120,7 +155,7 @@ export async function effectiveEventCapabilities(
       }
     }
   }
-  return effective;
+  return byEvent;
 }
 
 /**
