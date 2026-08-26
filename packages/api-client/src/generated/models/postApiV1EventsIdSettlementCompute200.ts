@@ -4,12 +4,14 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PostApiV1EventsIdSettlementCompute200Ladder } from './postApiV1EventsIdSettlementCompute200Ladder';
 import type { PostApiV1EventsIdSettlementCompute200BreakdownsItem } from './postApiV1EventsIdSettlementCompute200BreakdownsItem';
 import type { PostApiV1EventsIdSettlementCompute200TransfersItem } from './postApiV1EventsIdSettlementCompute200TransfersItem';
 
 export type PostApiV1EventsIdSettlementCompute200 = {
   baseCurrency: string;
   pool: string;
+  ladder: PostApiV1EventsIdSettlementCompute200Ladder;
   breakdowns: PostApiV1EventsIdSettlementCompute200BreakdownsItem[];
   transfers: PostApiV1EventsIdSettlementCompute200TransfersItem[];
 };

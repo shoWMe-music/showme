@@ -313,6 +313,75 @@ describe("settlement — visibility (decisions #4)", () => {
     // It holds `budget.view` — which is now no part of the answer.
     expect(PRESET_PERMISSION_SETS.operator_full).toContain("budget.view");
   });
+
+  /**
+   * The POOL, by whatever route it tries to leave.
+   *
+   * `ladder` is gated on `budget.view`, but the same figure rides inside every
+   * percentage line's `basis`: `pool` IS `ladder.splitPool`, and `door` divided by
+   * `basisPoints` reconstructs it. Gating one and serving the other is a ceiling
+   * that only looks closed, and story.md:44 makes no allowance for the difference —
+   * a performer sees "only their own slice — never the event budget/pool … even if
+   * an operator wanted to show them (an inviolable ceiling)".
+   *
+   * What a performer KEEPS is their own terms: which rule fired and their own
+   * percentage. The line still says what it is; it just cannot say what the whole
+   * room took.
+   */
+  it("redacts the pool from a performer's basis, not just from the ladder", async () => {
+    const seed = await seedWorkedExample("vis-pool");
+    // Put the band on a percentage of the door, so its basis carries a pool at all.
+    await harness.db
+      .update(schema.deals)
+      .set({ structure: "door_split", splitBasisPoints: 6000, guaranteeAmount: null })
+      .where(eq(schema.deals.eventId, seed.event.id));
+    await harness.db
+      .update(schema.deals)
+      .set({ structure: "rental", guaranteeAmount: 100000n, splitBasisPoints: null })
+      // Scoped to THIS event as well as the name: every `seedWorkedExample` calls its
+      // rental "Venue rental", and the suite shares one database.
+      .where(and(eq(schema.deals.eventId, seed.event.id), eq(schema.deals.name, "Venue rental")));
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    type Line = { basis: { kind: string; pool?: string; door?: string; basisPoints?: number } };
+    const linesOf = (body: { settlements: { computed: { lines?: Line[] } | null }[] }): Line[] =>
+      body.settlements.flatMap((row) => row.computed?.lines ?? []);
+
+    const asBand = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlements`,
+      headers: auth(seed.band.userId),
+    });
+    expect(asBand.statusCode).toBe(200);
+    const bandBody = asBand.json();
+    expect(bandBody.ladder).toBeNull();
+    const bandLines = linesOf(bandBody);
+    // The seed must actually produce a pool-bearing line, or this test proves nothing.
+    expect(bandLines.some((line) => line.basis.kind === "door_split")).toBe(true);
+    for (const line of bandLines) {
+      expect(line.basis.pool).toBeUndefined();
+      expect(line.basis.door).toBeUndefined();
+      // Their own term survives — the rule is still checkable, the base is not shown.
+      if (line.basis.kind === "door_split") expect(line.basis.basisPoints).toBe(6000);
+    }
+
+    // The operator, who may read the pool, still gets every operand.
+    const asOperator = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlements`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(asOperator.statusCode).toBe(200);
+    const operatorBody = asOperator.json();
+    expect(operatorBody.ladder).not.toBeNull();
+    const doorLine = linesOf(operatorBody).find((line) => line.basis.kind === "door_split");
+    expect(doorLine?.basis.pool).toBe(operatorBody.ladder.splitPool);
+  });
 });
 
 /**

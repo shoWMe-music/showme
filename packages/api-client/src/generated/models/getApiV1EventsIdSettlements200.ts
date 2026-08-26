@@ -7,9 +7,14 @@
 import type { GetApiV1EventsIdSettlements200SettlementsItem } from './getApiV1EventsIdSettlements200SettlementsItem';
 import type { GetApiV1EventsIdSettlements200TransfersItem } from './getApiV1EventsIdSettlements200TransfersItem';
 import type { GetApiV1EventsIdSettlements200CommissionsItem } from './getApiV1EventsIdSettlements200CommissionsItem';
+import type { GetApiV1EventsIdSettlements200Ladder } from './getApiV1EventsIdSettlements200Ladder';
+import type { GetApiV1EventsIdSettlements200ApprovalsItem } from './getApiV1EventsIdSettlements200ApprovalsItem';
 
 export type GetApiV1EventsIdSettlements200 = {
   settlements: GetApiV1EventsIdSettlements200SettlementsItem[];
   transfers: GetApiV1EventsIdSettlements200TransfersItem[];
   commissions: GetApiV1EventsIdSettlements200CommissionsItem[];
+  /** @nullable */
+  ladder: GetApiV1EventsIdSettlements200Ladder;
+  approvals: GetApiV1EventsIdSettlements200ApprovalsItem[];
 };

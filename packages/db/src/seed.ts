@@ -1,4 +1,4 @@
-import { serializeBreakdown } from "@showme/settlement";
+import { storeBreakdown } from "@showme/settlement";
 import { inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -712,14 +712,20 @@ async function main() {
           eventId: EVENT_IDS.springWarmup,
           participantId: PART.e2Host,
           status: "finalized",
-          computed: serializeBreakdown(breakdownFor(referenceResult, PART.e2Host)),
+          computed: storeBreakdown(
+            breakdownFor(referenceResult, PART.e2Host),
+            referenceResult.ladder,
+          ),
         },
         {
           id: SETTLEMENT_IDS.springPerformer,
           eventId: EVENT_IDS.springWarmup,
           participantId: PART.e2Perf,
           status: "finalized",
-          computed: serializeBreakdown(breakdownFor(referenceResult, PART.e2Perf)),
+          computed: storeBreakdown(
+            breakdownFor(referenceResult, PART.e2Perf),
+            referenceResult.ladder,
+          ),
         },
       ])
       .returning({ id: schema.settlements.id });

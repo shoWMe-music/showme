@@ -15,7 +15,7 @@ import {
   referenceSettlement,
 } from "@showme/db/reference-settlement";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
-import { dealEntitlement, serializeBreakdown } from "@showme/settlement";
+import { dealEntitlement, serializeBreakdown, storeBreakdown } from "@showme/settlement";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
@@ -207,13 +207,13 @@ async function seedReferenceEvent(prefix: string, settled: boolean): Promise<Ref
         eventId: event.id,
         participantId: hostParticipantId,
         status: "finalized",
-        computed: serializeBreakdown(breakdownFor(result, hostParticipantId)),
+        computed: storeBreakdown(breakdownFor(result, hostParticipantId), result.ladder),
       },
       {
         eventId: event.id,
         participantId: performerParticipantId,
         status: "finalized",
-        computed: serializeBreakdown(breakdownFor(result, performerParticipantId)),
+        computed: storeBreakdown(breakdownFor(result, performerParticipantId), result.ladder),
       },
     ]);
     await db.insert(schema.settlementTransfers).values(
@@ -288,6 +288,24 @@ describe("the seeded reference settlement (A-13)", () => {
       paid: "1080000",
       held: OPERATOR_HELD,
       net: `-${TRANSFER}`,
+      // The operator is on no deal of its own here — everything it keeps is the
+      // residual, and saying so is the difference between a figure and an answer.
+      lines: [],
+      commissionEarned: "0",
+      deductibles: "0",
+      residual: OPERATOR_ENTITLEMENT,
+    });
+
+    // The ladder — gross, costs, and the adjusted net the 70% was taken from. The
+    // operator holds `budget.view`, so it arrives; the performer's read below proves
+    // it does not travel any further.
+    expect(body.ladder).toEqual({
+      revenue: "7800000",
+      costs: "900000",
+      pool: POOL,
+      // No rental on this event, so the adjusted net IS the pool.
+      offTheTop: "0",
+      splitPool: POOL,
     });
 
     // The operator is the deal's payer, so it also sees the line it is paying.
@@ -323,8 +341,35 @@ describe("the seeded reference settlement (A-13)", () => {
       paid: "0",
       held: "0",
       net: TRANSFER,
+      // WHY she is owed it: her 70% beat the 18 000 floor, and the hotel the
+      // operator fronted came off afterwards.
+      //
+      // `pool` and `door` are ABSENT, and that is the point: they are the event's
+      // adjusted net, which story.md:44 keeps from a performer as an inviolable
+      // ceiling. Her own terms — that the door arm won, her percentage, her floor —
+      // all survive, so the line still says what rule paid her.
+      lines: [
+        {
+          dealId: settled.dealId,
+          dealTotal: "4830000",
+          amount: "4830000",
+          basis: {
+            kind: "guarantee_vs_door",
+            won: "door",
+            guarantee: "1800000",
+            basisPoints: 7000,
+          },
+        },
+      ],
+      commissionEarned: "0",
+      deductibles: "180000",
+      residual: "0",
     });
     expect(body.transfers[0].amount).toBe(TRANSFER);
+
+    // THE CEILING. The ladder is the whole night's takings and costs; a payee is
+    // told her own line and nothing about the pool it came out of (story.md).
+    expect(body.ladder).toBeNull();
   });
 
   it("lists the performer's payout on her own Settlements screen", async () => {

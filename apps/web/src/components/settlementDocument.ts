@@ -1,4 +1,7 @@
+import type { getApiV1EventsIdSettlements } from "@showme/api-client";
 import type { Status } from "@showme/design-system";
+import { basisPointsToPercent } from "@showme/shared";
+import { formatMoney } from "../lib/format";
 import type { SettlementStep } from "./SettlementStepper";
 import type { TransferState } from "./WhoOwesWhomBoard";
 
@@ -122,4 +125,131 @@ export function initialsOf(label: string): string {
 export function isWholeBoard(nets: string[]): boolean {
   if (nets.length === 0) return false;
   return nets.reduce((total, net) => total + Number(net), 0) === 0;
+}
+
+/* ── The RULE behind a figure ─────────────────────────────────────────────────
+   A settlement that prints only amounts asks the parties to take it on trust.
+   Every number below arrives from the engine already decided — which arm of the
+   deal fired, what percentage, of which pool — and these readers turn that
+   decision into the sentence a person checks against their contract. They format
+   and compare; they never compute. */
+
+type EventSettlements = Awaited<ReturnType<typeof getApiV1EventsIdSettlements>>;
+type ComputedBreakdown = NonNullable<EventSettlements["settlements"][number]["computed"]>;
+
+/** One deal's contribution to a party's entitlement, as the API serves it. */
+export type EntitlementLine = NonNullable<ComputedBreakdown["lines"]>[number];
+
+/** Gross → adjusted net. Null for a party who may not read the pool. */
+export type PoolLadder = NonNullable<EventSettlements["ladder"]>;
+
+/** One party's sign-off on the roster. */
+export type SettlementApproval = EventSettlements["approvals"][number];
+
+/**
+ * The rule in words: *"70% door beats the €50,000 guarantee"*.
+ *
+ * One sentence per arm of `dealEntitlement()`, and the operands are the engine's
+ * own — `won` in particular is the engine's answer to which side of the
+ * comparison paid, not a comparison redone here against figures that may have
+ * been rounded for display.
+ */
+export function describeBasis(basis: EntitlementLine["basis"], currency: string): string {
+  switch (basis.kind) {
+    case "guarantee":
+      return `Guaranteed ${formatMoney(basis.guarantee, currency)}`;
+    case "rental":
+      return `Rental of ${formatMoney(basis.rental, currency)}, settled off the top`;
+    case "door_split":
+      // The pool is redacted for a party who may not read it (story.md:44), so the
+      // sentence names the RULE and drops the base rather than printing a hole.
+      // Their own percentage is theirs and is never redacted.
+      return basis.pool == null
+        ? `${basisPointsToPercent(basis.basisPoints)}% of the adjusted net`
+        : `${basisPointsToPercent(basis.basisPoints)}% of the adjusted net ${formatMoney(basis.pool, currency)}`;
+    case "guarantee_vs_door":
+      return basis.won === "door"
+        ? `${basisPointsToPercent(basis.basisPoints)}% of the adjusted net beats the ${formatMoney(basis.guarantee, currency)} guarantee`
+        : `The ${formatMoney(basis.guarantee, currency)} guarantee beats ${basisPointsToPercent(basis.basisPoints)}% of the adjusted net`;
+    default:
+      return "A paper agreement — nothing for the settlement to compute";
+  }
+}
+
+/** A label ↔ amount pair explaining one component of an entitlement. */
+export interface EntitlementRule {
+  key: string;
+  label: string;
+  value: string;
+  /** Money coming OFF the entitlement — rendered as a subtraction. */
+  negative?: boolean;
+}
+
+/**
+ * The four ways a party can be credited, in the order they read.
+ *
+ * The list is empty for a settlement snapshotted before the engine recorded any
+ * of this — which is honest, and the reason the card falls back to showing the
+ * bare entitlement rather than inventing an explanation for it.
+ */
+export function entitlementRules(computed: ComputedBreakdown, currency: string): EntitlementRule[] {
+  const rules: EntitlementRule[] = [];
+
+  for (const line of computed.lines ?? []) {
+    // A shared split pays the DEAL a total and this party a PORTION of it. Naming
+    // only the portion leaves a performer on a 60/40 unable to check the split they
+    // agreed, so when the two differ the sentence carries both. The comparison is
+    // against the portion BEFORE any commission came off it, which is the figure
+    // `allocate()` actually handed this line.
+    const portionBeforeCommission = BigInt(line.amount) + BigInt(line.commissionCharged ?? "0");
+    const isShared = portionBeforeCommission !== BigInt(line.dealTotal);
+    rules.push({
+      key: `deal-${line.dealId}`,
+      label: isShared
+        ? `${describeBasis(line.basis, currency)} — your share of ${formatMoney(line.dealTotal, currency)}`
+        : describeBasis(line.basis, currency),
+      value: formatMoney(line.amount, currency),
+    });
+    if (line.bonus != null && line.bonus !== "0") {
+      rules.push({
+        key: `bonus-${line.dealId}`,
+        label: line.escalatorApplied
+          ? "Includes the bonus and the escalator tier the night reached"
+          : "Includes the threshold bonus",
+        value: formatMoney(line.bonus, currency),
+      });
+    }
+    if (line.commissionCharged != null && line.commissionCharged !== "0") {
+      rules.push({
+        key: `commission-${line.dealId}`,
+        label: "Less the disclosed commission on this line",
+        value: formatMoney(line.commissionCharged, currency),
+        negative: true,
+      });
+    }
+  }
+
+  if (computed.commissionEarned != null && computed.commissionEarned !== "0") {
+    rules.push({
+      key: "commission-earned",
+      label: "Disclosed commission earned on other parties' lines",
+      value: formatMoney(computed.commissionEarned, currency),
+    });
+  }
+  if (computed.residual != null && computed.residual !== "0") {
+    rules.push({
+      key: "residual",
+      label: "What is left after every other party is paid",
+      value: formatMoney(computed.residual, currency),
+    });
+  }
+  if (computed.deductibles != null && computed.deductibles !== "0") {
+    rules.push({
+      key: "deductibles",
+      label: "Less costs somebody else fronted on your behalf",
+      value: formatMoney(computed.deductibles, currency),
+      negative: true,
+    });
+  }
+  return rules;
 }

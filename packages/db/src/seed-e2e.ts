@@ -1,7 +1,7 @@
 import {
-  serializeBreakdown,
   serializeCommissionSnapshot,
   settleRepresentation,
+  storeBreakdown,
 } from "@showme/settlement";
 import { E2E_ACCOUNTS } from "@showme/shared";
 import { inArray } from "drizzle-orm";
@@ -1015,14 +1015,20 @@ async function main() {
           eventId: EVENT_IDS.springWarmup,
           participantId: PART.springHost,
           status: "finalized",
-          computed: serializeBreakdown(breakdownFor(referenceResult, PART.springHost)),
+          computed: storeBreakdown(
+            breakdownFor(referenceResult, PART.springHost),
+            referenceResult.ladder,
+          ),
         },
         {
           id: SETTLEMENT_IDS.springPerformerA,
           eventId: EVENT_IDS.springWarmup,
           participantId: PART.springPerformerA,
           status: "finalized",
-          computed: serializeBreakdown(breakdownFor(referenceResult, PART.springPerformerA)),
+          computed: storeBreakdown(
+            breakdownFor(referenceResult, PART.springPerformerA),
+            referenceResult.ladder,
+          ),
         },
       ])
       .returning({ id: schema.settlements.id });

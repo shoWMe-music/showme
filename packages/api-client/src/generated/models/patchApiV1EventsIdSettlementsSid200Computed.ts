@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PatchApiV1EventsIdSettlementsSid200ComputedLinesItem } from './patchApiV1EventsIdSettlementsSid200ComputedLinesItem';
 
 /**
  * @nullable
@@ -15,4 +16,8 @@ export type PatchApiV1EventsIdSettlementsSid200Computed = {
   paid: string;
   held: string;
   net: string;
+  lines?: PatchApiV1EventsIdSettlementsSid200ComputedLinesItem[];
+  commissionEarned?: string;
+  deductibles?: string;
+  residual?: string;
 } | null;

@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
 import {
@@ -28,15 +29,78 @@ import { withIdempotency } from "../plugins/idempotency";
 import {
   type SerializedBreakdown,
   type SerializedSummary,
+  type StoredBreakdown,
+  ladderOf,
   serializeBreakdown,
   serializeCommission,
   serializeSettlement,
   serializeTransfer,
+  storeBreakdown,
 } from "../serialize/settlement";
 
 const EventParams = z.object({ id: z.string().uuid() });
 const SettlementParams = z.object({ id: z.string().uuid(), sid: z.string().uuid() });
 const TransferParams = z.object({ id: z.string().uuid(), tid: z.string().uuid() });
+
+/**
+ * WHY a party's entitlement is the figure it is — one arm per arm of
+ * `dealEntitlement()`, carrying the operands the engine actually compared.
+ *
+ * Structured rather than a sentence, deliberately. The engine decides which rule
+ * fired; how "70% of the adjusted net" reads in a given language and currency is
+ * the browser's job, and a string assembled here would be a second money
+ * formatter living on the server.
+ */
+const BasisResponse = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("guarantee"), guarantee: z.string() }),
+  z.object({ kind: z.literal("rental"), rental: z.string() }),
+  // `pool` and `door` are OPTIONAL because they are the pool, and a party row is
+  // redacted of it unless the route has checked the caller may read the pool
+  // (`redactPool` in `../serialize/settlement`). The party's own terms — the
+  // percentage, the guarantee, which side won — are never redacted, so the line
+  // still states its rule even when it cannot state the base.
+  z.object({
+    kind: z.literal("door_split"),
+    basisPoints: z.number(),
+    pool: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("guarantee_vs_door"),
+    won: z.enum(["guarantee", "door"]),
+    guarantee: z.string(),
+    door: z.string().optional(),
+    basisPoints: z.number(),
+    pool: z.string().optional(),
+  }),
+  z.object({ kind: z.literal("paper") }),
+]);
+
+/** One deal's contribution to one party's entitlement. */
+const EntitlementLineResponse = z.object({
+  dealId: z.string(),
+  /** What the whole agreement pays; `amount` is this party's portion of it. */
+  dealTotal: z.string(),
+  amount: z.string(),
+  basis: BasisResponse,
+  bonus: z.string().optional(),
+  escalatorApplied: z.boolean().optional(),
+  commissionCharged: z.string().optional(),
+});
+
+/**
+ * The gross → adjusted-net ladder. Event-level and OPERATOR-ONLY: it is the whole
+ * night's takings and costs, which the ceiling in `packages/auth`
+ * (`POOL_CAPABILITIES`) keeps away from every arm's-length party.
+ */
+const LadderResponse = z.object({
+  revenue: z.string(),
+  costs: z.string(),
+  pool: z.string(),
+  /** Σ of the rentals settled before the percentage deals divide what is left. */
+  offTheTop: z.string(),
+  /** `pool − offTheTop` — the adjusted net every percentage is a share of. */
+  splitPool: z.string(),
+});
 
 const BreakdownResponse = z.object({
   participantId: z.string(),
@@ -45,6 +109,22 @@ const BreakdownResponse = z.object({
   paid: z.string(),
   held: z.string(),
   net: z.string(),
+  /**
+   * What the entitlement is MADE OF. Optional because a settlement snapshotted
+   * before this existed carries none, and a finalized settlement is a legal
+   * record that is never rewritten to add it.
+   */
+  lines: z.array(EntitlementLineResponse).optional(),
+  commissionEarned: z.string().optional(),
+  deductibles: z.string().optional(),
+  residual: z.string().optional(),
+});
+
+/** One party's sign-off, as the roster shows it. */
+const ApprovalResponse = z.object({
+  participantId: z.string(),
+  approved: z.boolean(),
+  approvedAt: z.string().nullable(),
 });
 
 const TransferResponse = z.object({
@@ -72,6 +152,7 @@ const CommissionResponse = z.object({
 const SummaryResponse = z.object({
   baseCurrency: z.string(),
   pool: z.string(),
+  ladder: LadderResponse,
   breakdowns: z.array(BreakdownResponse),
   transfers: z.array(TransferResponse),
 });
@@ -127,6 +208,23 @@ const SettlementsResponse = z.object({
   transfers: z.array(TransferResponse),
   // Private agent↔performer commissions (decisions #14) — empty for the operator.
   commissions: z.array(CommissionResponse),
+  /**
+   * The pool ladder, or NULL for a caller who may not see the whole night's money.
+   * Gated on `budget.view`, which is the capability the auth ceiling already uses
+   * to mean "may read the pool" — reusing it is what keeps one answer to that
+   * question instead of two that can drift apart.
+   */
+  ladder: LadderResponse.nullable(),
+  /**
+   * WHO HAS SIGNED OFF — every visible party, not just the caller.
+   *
+   * `settlement_approvals` has always been written and was read back only for the
+   * caller's own participant, so the operator could not answer "who still owes me
+   * a signature" — the one question the whole review step exists to answer
+   * (`docs/old-app-analysis-flows-invite-settle.md` §3.2 step 5). Scoped to the
+   * same visible set as the settlements themselves, so it widens nothing.
+   */
+  approvals: z.array(ApprovalResponse),
 });
 
 const OverrideBody = z.object({
@@ -517,24 +615,48 @@ async function participantIdsOf(
   return new Set(rows.map((row) => row.id));
 }
 
-/** Which of `participantIds` have already approved their settlement on this event. */
-async function approvedParticipantIdsOf(
+/**
+ * Every visible party's sign-off, approved or not — the roster.
+ *
+ * `settlement_approvals` has no unique constraint (idempotency is enforced in the
+ * confirm route), so a party can in principle hold more than one row; the roster
+ * folds them with "approved once is approved", keeping the earliest timestamp, so
+ * a duplicate row can never read as a withdrawn signature.
+ */
+async function approvalRosterOf(
   database: Database,
   eventId: string,
   participantIds: Set<string>,
-): Promise<Set<string>> {
-  if (participantIds.size === 0) return new Set();
+): Promise<Map<string, { approved: boolean; approvedAt: Date | null }>> {
+  const roster = new Map<string, { approved: boolean; approvedAt: Date | null }>();
+  if (participantIds.size === 0) return roster;
   const rows = await database
-    .select({ participantId: schema.settlementApprovals.partyParticipantId })
+    .select({
+      participantId: schema.settlementApprovals.partyParticipantId,
+      approved: schema.settlementApprovals.approved,
+      approvedAt: schema.settlementApprovals.approvedAt,
+    })
     .from(schema.settlementApprovals)
     .where(
       and(
         eq(schema.settlementApprovals.eventId, eventId),
-        eq(schema.settlementApprovals.approved, true),
         inArray(schema.settlementApprovals.partyParticipantId, [...participantIds]),
       ),
     );
-  return new Set(rows.map((row) => row.participantId));
+  for (const row of rows) {
+    const seen = roster.get(row.participantId);
+    const approvedAt =
+      seen?.approvedAt && row.approvedAt
+        ? seen.approvedAt < row.approvedAt
+          ? seen.approvedAt
+          : row.approvedAt
+        : (seen?.approvedAt ?? row.approvedAt);
+    roster.set(row.participantId, {
+      approved: (seen?.approved ?? false) || row.approved,
+      approvedAt,
+    });
+  }
+  return roster;
 }
 
 /**
@@ -606,7 +728,7 @@ function assertNotFinalized(rows: { status: string }[]): void {
 }
 
 /** Compare two serialized breakdowns field by field (all six are string money). */
-function sameBreakdown(left: SerializedBreakdown | null, right: SerializedBreakdown): boolean {
+function sameBreakdown(left: StoredBreakdown | null, right: StoredBreakdown): boolean {
   return (
     left != null &&
     left.participantId === right.participantId &&
@@ -614,7 +736,18 @@ function sameBreakdown(left: SerializedBreakdown | null, right: SerializedBreakd
     left.collected === right.collected &&
     left.paid === right.paid &&
     left.held === right.held &&
-    left.net === right.net
+    left.net === right.net &&
+    // The composition as well as the total. Moving a guarantee that still loses to
+    // the door share leaves every figure above identical and changes what the
+    // settlement SAYS — and a row skipped here is a row that keeps explaining
+    // itself with last week's terms.
+    // Structural, and NOT `JSON.stringify` — `computed` comes back out of a `jsonb`
+    // column, which does not preserve key order. Stringifying would report every
+    // stored row as changed on the first read after Postgres reordered its keys,
+    // which is an infinite "the figures moved" and a settlement that can never be
+    // finalized. `isDeepStrictEqual` compares by value.
+    isDeepStrictEqual(left.lines ?? null, right.lines ?? null) &&
+    isDeepStrictEqual(left.ladder ?? null, right.ladder ?? null)
   );
 }
 
@@ -660,7 +793,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
             const unmatched = new Map(priorRows.map((row) => [row.participantId as string, row]));
 
             for (const breakdown of result.breakdowns) {
-              const computed = serializeBreakdown(breakdown);
+              const computed = storeBreakdown(breakdown, result.ladder);
               const prior = unmatched.get(breakdown.participantId);
               if (!prior) {
                 await tx.insert(schema.settlements).values({
@@ -671,7 +804,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
                 continue;
               }
               unmatched.delete(breakdown.participantId);
-              if (sameBreakdown(prior.computed as SerializedBreakdown | null, computed)) continue;
+              if (sameBreakdown(prior.computed as StoredBreakdown | null, computed)) continue;
               await tx
                 .update(schema.settlements)
                 .set({ computed, version: prior.version + 1, updatedAt: new Date() })
@@ -708,6 +841,13 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
             return {
               baseCurrency,
               pool: result.pool.toString(),
+              ladder: {
+                revenue: result.ladder.revenue.toString(),
+                costs: result.ladder.costs.toString(),
+                pool: result.ladder.pool.toString(),
+                offTheTop: result.ladder.offTheTop.toString(),
+                splitPool: result.ladder.splitPool.toString(),
+              },
               breakdowns: result.breakdowns.map(serializeBreakdown),
               transfers: result.transfers.map((transfer) => ({
                 fromParticipantId: transfer.fromParticipantId,
@@ -811,7 +951,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       const principal = request.principal;
       if (!principal) throw new Error("principal missing after authentication");
 
-      await requireEventCapability(request, id, "settlement.view.own");
+      const capabilities = await requireEventCapability(request, id, "settlement.view.own");
 
       const profileIds = principal.memberships.map((membership) => membership.profileId);
       const mine = await participantIdsOf(database, id, profileIds);
@@ -840,18 +980,30 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         );
       };
 
-      // Which of the caller's OWN lines they have already signed off. Read only for
-      // `mine` — another party's approval is that party's business.
-      const myApprovals = await approvedParticipantIdsOf(database, id, mine);
+      // WHO HAS SIGNED OFF, across every party the caller can already see. The set
+      // is `visible`, not `mine`, and that is the whole change: an operator waiting
+      // on three signatures could previously read only its own. It widens nothing —
+      // a party outside `visible` is outside the roster too, so a performer still
+      // learns nothing about anyone but themselves.
+      const roster = await approvalRosterOf(database, id, visible);
+      const visibleSettlements = settlementRows.filter(
+        (row) => row.participantId != null && visible.has(row.participantId),
+      );
 
       return {
-        settlements: settlementRows
-          .filter((row) => row.participantId != null && visible.has(row.participantId))
-          .map((row) => ({
-            ...serializeSettlement(row),
-            isYours: mine.has(row.participantId as string),
-            approvedByYou: myApprovals.has(row.participantId as string),
-          })),
+        settlements: visibleSettlements.map((row) => ({
+          // Same gate as `ladder` below, for the same figure: `basis.pool` IS
+          // `ladder.splitPool`, and `door / basisPoints` recovers it. Withholding
+          // one while serving the other would be a ceiling that only looks closed.
+          ...serializeSettlement(row, { includePool: capabilities.has("budget.view") }),
+          isYours: mine.has(row.participantId as string),
+          // Still the CALLER's own signature, never the roster's. The roster now
+          // covers every visible party, and reading it here would tell an operator
+          // it had signed the performer's line the moment the performer did.
+          approvedByYou:
+            mine.has(row.participantId as string) &&
+            (roster.get(row.participantId as string)?.approved ?? false),
+        })),
         transfers: transferRows
           .filter((row) =>
             row.representationId
@@ -861,6 +1013,20 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           )
           .map(serializeTransfer),
         commissions: settlementRows.filter(isMyCommission).map(serializeCommission),
+        // The whole night's takings and costs. `budget.view` is the capability the
+        // ceiling already draws around pool figures (`POOL_CAPABILITIES` in
+        // `packages/auth`), so asking it here means the settlement screen and the
+        // budget planner can never disagree about who may read the pool.
+        ladder: capabilities.has("budget.view") ? ladderOf(visibleSettlements) : null,
+        approvals: visibleSettlements.map((row) => {
+          const participantId = row.participantId as string;
+          const signed = roster.get(participantId);
+          return {
+            participantId,
+            approved: signed?.approved ?? false,
+            approvedAt: signed?.approvedAt?.toISOString() ?? null,
+          };
+        }),
       };
     },
   );
@@ -945,7 +1111,9 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         return after;
       });
 
-      return serializeSettlement(updated);
+      // This route already required `settlement.edit`, which the ceiling grants only
+      // to a managing operator (`POOL_CAPABILITIES`), so the pool is theirs to read.
+      return serializeSettlement(updated, { includePool: true });
     },
   );
 
@@ -1024,7 +1192,12 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           targetKind: "settlement",
           targetId: sid,
           eventId: id,
-          before: serializeSettlement(settlement),
+          // FULL fidelity, pool included: an audit row is a reconstruction record
+          // and is never served to a party. Redacting it would make the trail
+          // thinner than the `settlements` row it was copied from, which buys no
+          // privacy — the pool is still sitting in that row — and costs the audit
+          // the ability to say what the figures actually were.
+          before: serializeSettlement(settlement, { includePool: true }),
           after: row,
         });
         // An approval is a signature — the one settlement step that is a decision
@@ -1102,7 +1275,10 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
             const freshByParticipant = new Map(
               result.breakdowns.map((breakdown) => [
                 breakdown.participantId,
-                serializeBreakdown(breakdown),
+                // The STORED shape, ladder included — the same thing compute wrote.
+                // Comparing a stored row against a ladder-less serialization would
+                // report a mismatch on every event and refuse every finalize.
+                storeBreakdown(breakdown, result.ladder),
               ]),
             );
             const figuresMatch =
@@ -1110,7 +1286,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
               participantRows.every((row) => {
                 const fresh = freshByParticipant.get(row.participantId as string);
                 return (
-                  fresh != null && sameBreakdown(row.computed as SerializedBreakdown | null, fresh)
+                  fresh != null && sameBreakdown(row.computed as StoredBreakdown | null, fresh)
                 );
               });
 
@@ -1172,7 +1348,11 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
                 eventId: id,
                 version: nextVersion,
                 data: {
-                  settlements: finalizedRows.map(serializeSettlement),
+                  // The frozen legal record — pool included, and an explicit arrow so
+                  // `map`'s index cannot land in the options slot and silently redact it.
+                  settlements: finalizedRows.map((row) =>
+                    serializeSettlement(row, { includePool: true }),
+                  ),
                   transfers: transferRows.map(serializeTransfer),
                   lockedRates,
                 },

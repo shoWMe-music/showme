@@ -648,3 +648,164 @@ describe("reconcile — disclosed commissions (analysis case 8)", () => {
     );
   });
 });
+
+describe("reconcile — the ladder and the rule behind each figure", () => {
+  // The shape the design prototype's settlement screen renders: gross revenue,
+  // deductions, a venue rental off the top, and the ADJUSTED NET every percentage
+  // below it is a share of. Without those four the parties see a set of figures
+  // with nothing to check them against.
+  const input: SettlementInput = {
+    baseCurrency: "EUR",
+    participants: [
+      { participantId: "operator", isOperator: true },
+      { participantId: "venue" },
+      { participantId: "performer" },
+    ],
+    deals: [
+      {
+        dealId: "room",
+        structure: "rental",
+        payeeParticipantIds: ["venue"],
+        guaranteeAmount: eur(4000),
+      },
+      {
+        dealId: "booking",
+        structure: "guarantee_vs_door",
+        payeeParticipantIds: ["performer"],
+        guaranteeAmount: eur(50000),
+        splitBasisPoints: 7000,
+      },
+    ],
+    budgetLines: [
+      { kind: "revenue", amount: eur(100200), collectedBy: "operator" },
+      { kind: "cost", amount: eur(23700), paidBy: "operator" },
+    ],
+  };
+
+  it("reports revenue, costs, the rental off the top, and the adjusted net", () => {
+    const { ladder } = reconcile(input);
+    expect(ladder.revenue).toBe(eur(100200));
+    expect(ladder.costs).toBe(eur(23700));
+    expect(ladder.pool).toBe(eur(76500));
+    expect(ladder.offTheTop).toBe(eur(4000));
+    // The prototype's "Adjusted net": revenue − deductions − venue rental.
+    expect(ladder.splitPool).toBe(eur(72500));
+  });
+
+  it("says WHICH side of a guarantee-vs-door comparison won, and what it beat", () => {
+    const result = reconcile(input);
+    const performer = result.breakdowns.find((party) => party.participantId === "performer");
+    expect(performer?.lines).toHaveLength(1);
+    const [line] = performer?.lines ?? [];
+    expect(line?.basis).toEqual({
+      kind: "guarantee_vs_door",
+      won: "door",
+      guarantee: eur(50000),
+      // 70% of the ADJUSTED net (72,500), not of the pool.
+      door: eur(50750),
+      basisPoints: 7000,
+      pool: eur(72500),
+    });
+    expect(line?.amount).toBe(eur(50750));
+  });
+
+  it("gives the venue its rental as its own line, priced off the top", () => {
+    const result = reconcile(input);
+    const venue = result.breakdowns.find((party) => party.participantId === "venue");
+    expect(venue?.lines).toEqual([
+      {
+        dealId: "room",
+        dealTotal: eur(4000),
+        amount: eur(4000),
+        basis: { kind: "rental", rental: eur(4000) },
+      },
+    ]);
+  });
+
+  it("names the operator's share as a residual rather than an unexplained figure", () => {
+    const result = reconcile(input);
+    const operator = result.breakdowns.find((party) => party.participantId === "operator");
+    expect(operator?.lines).toEqual([]);
+    expect(operator?.residual).toBe(eur(76500) - eur(4000) - eur(50750));
+    expect(operator?.entitlement).toBe(operator?.residual);
+  });
+
+  it("adds up: entitlement = Σ lines + commission earned + residual − deductibles", () => {
+    const withDeductible = reconcile({
+      ...input,
+      budgetLines: [
+        ...input.budgetLines,
+        // The operator fronts the performer's hotel — a deductible on the performer.
+        { kind: "cost", amount: eur(900), paidBy: "operator", payeeParticipantId: "performer" },
+      ],
+    });
+    for (const party of withDeductible.breakdowns) {
+      const fromLines = party.lines.reduce((total, line) => total + line.amount, 0n);
+      expect(party.entitlement).toBe(
+        fromLines + party.commissionEarned + party.residual - party.deductibles,
+      );
+    }
+    expect(
+      withDeductible.breakdowns.find((party) => party.participantId === "performer")?.deductibles,
+    ).toBe(eur(900));
+    assertBalanced(withDeductible);
+  });
+
+  it("shows each split member the whole deal AND its own portion of it", () => {
+    const result = reconcile({
+      baseCurrency: "EUR",
+      participants: [
+        { participantId: "operator", isOperator: true },
+        { participantId: "headliner" },
+        { participantId: "support" },
+      ],
+      deals: [
+        {
+          dealId: "shared",
+          structure: "door_split",
+          payeeParticipantIds: ["headliner", "support"],
+          splitBasisPoints: 5000,
+          partyShares: { headliner: 6000, support: 4000 },
+        },
+      ],
+      budgetLines: [{ kind: "revenue", amount: eur(10000), collectedBy: "operator" }],
+    });
+    const headliner = result.breakdowns.find((party) => party.participantId === "headliner");
+    const support = result.breakdowns.find((party) => party.participantId === "support");
+    expect(headliner?.lines[0]?.dealTotal).toBe(eur(5000));
+    expect(headliner?.lines[0]?.amount).toBe(eur(3000));
+    expect(support?.lines[0]?.dealTotal).toBe(eur(5000));
+    expect(support?.lines[0]?.amount).toBe(eur(2000));
+    expect(headliner?.lines[0]?.basis).toEqual({
+      kind: "door_split",
+      basisPoints: 5000,
+      pool: eur(10000),
+    });
+  });
+
+  it("records the commission charged against a payee's own line", () => {
+    const result = reconcile({
+      baseCurrency: "EUR",
+      participants: [
+        { participantId: "operator", isOperator: true },
+        { participantId: "performer" },
+        { participantId: "broker" },
+      ],
+      deals: [
+        {
+          dealId: "booking",
+          structure: "guarantee",
+          payeeParticipantIds: ["performer"],
+          guaranteeAmount: eur(1000),
+          commissions: [{ participantId: "broker", basisPoints: 2000 }],
+        },
+      ],
+      budgetLines: [{ kind: "revenue", amount: eur(5000), collectedBy: "operator" }],
+    });
+    const performer = result.breakdowns.find((party) => party.participantId === "performer");
+    expect(performer?.lines[0]?.commissionCharged).toBe(eur(200));
+    expect(performer?.lines[0]?.amount).toBe(eur(800));
+    const broker = result.breakdowns.find((party) => party.participantId === "broker");
+    expect(broker?.commissionEarned).toBe(eur(200));
+  });
+});

@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PostApiV1EventsIdSettlementCompute200BreakdownsItemLinesItem } from './postApiV1EventsIdSettlementCompute200BreakdownsItemLinesItem';
 
 export type PostApiV1EventsIdSettlementCompute200BreakdownsItem = {
   participantId: string;
@@ -12,4 +13,8 @@ export type PostApiV1EventsIdSettlementCompute200BreakdownsItem = {
   paid: string;
   held: string;
   net: string;
+  lines?: PostApiV1EventsIdSettlementCompute200BreakdownsItemLinesItem[];
+  commissionEarned?: string;
+  deductibles?: string;
+  residual?: string;
 };

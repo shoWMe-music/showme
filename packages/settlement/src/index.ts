@@ -1,5 +1,10 @@
 export { reconcile, assertBalanced } from "./reconcile";
-export { dealEntitlement, splitBasisPointsForSales } from "./entitlement";
+export {
+  dealEntitlement,
+  dealEntitlementDetailed,
+  splitBasisPointsForSales,
+  type DealEntitlement,
+} from "./entitlement";
 export { costBearingOf, type CostBearing } from "./cost-bearing";
 export { isOffTheTop } from "./deal-order";
 export {
@@ -11,8 +16,14 @@ export { greedyTransfers } from "./transfers";
 export {
   serializeBreakdown,
   serializeCommissionSnapshot,
+  serializeLadder,
+  storeBreakdown,
+  type SerializedBasis,
   type SerializedBreakdown,
   type SerializedCommissionSnapshot,
+  type SerializedEntitlementLine,
+  type SerializedLadder,
+  type StoredBreakdown,
 } from "./snapshot";
 export { type TicketingSource, type TicketingSync, manualTicketing } from "./ticketing";
 export {
@@ -23,6 +34,8 @@ export {
 } from "./representation";
 export type {
   DealStructure,
+  EntitlementBasis,
+  EntitlementLine,
   EscalatorTier,
   DisclosedCommission,
   SettlementParticipant,
@@ -30,6 +43,7 @@ export type {
   SettlementBudgetLine,
   SettlementInput,
   PartyBreakdown,
+  PoolLadder,
   Transfer,
   SettlementResult,
 } from "./types";

@@ -1,4 +1,4 @@
-import type { PartyBreakdown } from "./types";
+import type { EntitlementBasis, EntitlementLine, PartyBreakdown, PoolLadder } from "./types";
 
 /**
  * One party's settlement line as it is **persisted and transported** — money as
@@ -19,6 +19,112 @@ export interface SerializedBreakdown {
   paid: string;
   held: string;
   net: string;
+  /**
+   * WHY the entitlement is what it is. Optional on the way IN because rows
+   * snapshotted before this existed do not carry it and must keep reading back —
+   * a settlement already finalized is a legal record and is never rewritten.
+   * Everything `reconcile()` produces from now on carries all four.
+   */
+  lines?: SerializedEntitlementLine[];
+  commissionEarned?: string;
+  deductibles?: string;
+  residual?: string;
+}
+
+/** One deal's contribution to a party's entitlement, money as STRING. */
+export interface SerializedEntitlementLine {
+  dealId: string;
+  dealTotal: string;
+  amount: string;
+  basis: SerializedBasis;
+  bonus?: string;
+  escalatorApplied?: boolean;
+  commissionCharged?: string;
+}
+
+/**
+ * `EntitlementBasis` with its money as strings — same discriminants.
+ *
+ * `pool` and `door` are OPTIONAL, and only because this type is transported as
+ * well as persisted. As WRITTEN they are always present — `serializeBasis` below
+ * fills every operand the engine compared. On the way OUT to a party who may not
+ * read the pool, the API redacts exactly these two (`redactPool` in
+ * `apps/api/src/serialize/settlement.ts`): `pool` IS the adjusted net, and
+ * `door / basisPoints` hands it straight back. A reader must therefore cope with
+ * their absence, which is what making them optional says.
+ */
+export type SerializedBasis =
+  | { kind: "guarantee"; guarantee: string }
+  | { kind: "rental"; rental: string }
+  | { kind: "door_split"; basisPoints: number; pool?: string }
+  | {
+      kind: "guarantee_vs_door";
+      won: "guarantee" | "door";
+      guarantee: string;
+      door?: string;
+      basisPoints: number;
+      pool?: string;
+    }
+  | { kind: "paper" };
+
+/** The gross → adjusted-net ladder, money as STRING. */
+export interface SerializedLadder {
+  revenue: string;
+  costs: string;
+  pool: string;
+  offTheTop: string;
+  splitPool: string;
+}
+
+/** Turn the pool ladder into its JSON-safe (string money) form. */
+export function serializeLadder(ladder: PoolLadder): SerializedLadder {
+  return {
+    revenue: ladder.revenue.toString(),
+    costs: ladder.costs.toString(),
+    pool: ladder.pool.toString(),
+    offTheTop: ladder.offTheTop.toString(),
+    splitPool: ladder.splitPool.toString(),
+  };
+}
+
+function serializeBasis(basis: EntitlementBasis): SerializedBasis {
+  switch (basis.kind) {
+    case "guarantee":
+      return { kind: "guarantee", guarantee: basis.guarantee.toString() };
+    case "rental":
+      return { kind: "rental", rental: basis.rental.toString() };
+    case "door_split":
+      return {
+        kind: "door_split",
+        basisPoints: basis.basisPoints,
+        pool: basis.pool.toString(),
+      };
+    case "guarantee_vs_door":
+      return {
+        kind: "guarantee_vs_door",
+        won: basis.won,
+        guarantee: basis.guarantee.toString(),
+        door: basis.door.toString(),
+        basisPoints: basis.basisPoints,
+        pool: basis.pool.toString(),
+      };
+    default:
+      return { kind: "paper" };
+  }
+}
+
+function serializeLine(line: EntitlementLine): SerializedEntitlementLine {
+  return {
+    dealId: line.dealId,
+    dealTotal: line.dealTotal.toString(),
+    amount: line.amount.toString(),
+    basis: serializeBasis(line.basis),
+    ...(line.bonus != null ? { bonus: line.bonus.toString() } : {}),
+    ...(line.escalatorApplied ? { escalatorApplied: true } : {}),
+    ...(line.commissionCharged != null
+      ? { commissionCharged: line.commissionCharged.toString() }
+      : {}),
+  };
 }
 
 /** Turn one engine breakdown into its JSON-safe (string money) form. */
@@ -30,6 +136,10 @@ export function serializeBreakdown(breakdown: PartyBreakdown): SerializedBreakdo
     paid: breakdown.paid.toString(),
     held: breakdown.held.toString(),
     net: breakdown.net.toString(),
+    lines: breakdown.lines.map(serializeLine),
+    commissionEarned: breakdown.commissionEarned.toString(),
+    deductibles: breakdown.deductibles.toString(),
+    residual: breakdown.residual.toString(),
   };
 }
 
@@ -64,4 +174,32 @@ export function serializeCommissionSnapshot(input: {
     commission: input.commission.toString(),
     agentCollects: input.agentCollects,
   };
+}
+
+/**
+ * What actually goes into `settlements.computed` (jsonb) — one party's breakdown,
+ * plus a copy of the event-level POOL LADDER that produced it.
+ *
+ * The ladder is a fact about the night, not about the party, so duplicating it
+ * onto every row looks wrong until you ask where else it could live: `settlements`
+ * is per participant or per representation by CHECK, so there is no event-level row
+ * to hang it on, and recomputing it on read would show figures that disagree with
+ * the frozen ones the moment a budget line moved. A snapshot repeating a shared
+ * header is the ordinary shape of a snapshot.
+ *
+ * It lives here, beside `serializeBreakdown`, for the reason that comment gives:
+ * the route and the seeds both write this column, and audit A-13 is what a second
+ * hand-written copy of the shape costs.
+ *
+ * **It is never SERVED from a party row.** The API's `serializeSettlement` strips
+ * the ladder every time and hands it back only at the top level of a response, to
+ * a caller the route has just checked may read the pool.
+ */
+export interface StoredBreakdown extends SerializedBreakdown {
+  ladder?: SerializedLadder;
+}
+
+/** A party's breakdown plus the ladder, as a snapshot writer persists it. */
+export function storeBreakdown(breakdown: PartyBreakdown, ladder: PoolLadder): StoredBreakdown {
+  return { ...serializeBreakdown(breakdown), ladder: serializeLadder(ladder) };
 }

@@ -9,6 +9,12 @@ open product decisions were made and built (A-36, A-37). What is struck through 
 finished; what is left says so plainly. The one item that is written but NOT live is
 the job schedule — it needs a decision and credentials, not more code.
 
+**Work in flight, not in this file:** the **Settlement screen** is half-built and the
+tree is dirty because of it — engine and API done, no UI yet. It has its own handoff:
+**[handoff-2026-08-26-settlement-screen.md](./handoff-2026-08-26-settlement-screen.md)**.
+Read that before touching `packages/settlement`, `apps/api/src/routes/settlement.ts`
+or anything under Settlement in the web app.
+
 The *why* still lives in `PLAN.md`, `docs/decisions.md` and `docs/story.md`. The
 per-finding detail lives in `docs/audit-2026-08-23.md`. What is deployed where lives
 in `docs/deployment-status.md`. This file is only the **to-do list**.

@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { GetApiV1EventsIdSettlements200SettlementsItemComputedLinesItem } from './getApiV1EventsIdSettlements200SettlementsItemComputedLinesItem';
 
 /**
  * @nullable
@@ -15,4 +16,8 @@ export type GetApiV1EventsIdSettlements200SettlementsItemComputed = {
   paid: string;
   held: string;
   net: string;
+  lines?: GetApiV1EventsIdSettlements200SettlementsItemComputedLinesItem[];
+  commissionEarned?: string;
+  deductibles?: string;
+  residual?: string;
 } | null;

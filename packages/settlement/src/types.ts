@@ -83,6 +83,23 @@ export interface PartyBreakdown {
   paid: bigint;
   held: bigint; // collected − paid
   net: bigint; // entitlement − held (+ owed to them, − holding too much)
+  /**
+   * What `entitlement` is MADE OF, and it adds up exactly:
+   *   entitlement = Σ lines.amount + commissionEarned + residual − deductibles
+   *
+   * The four members are the four ways `reconcile()` credits a party, kept apart
+   * because they answer different questions. A performer asks which agreement
+   * paid them and under which rule (`lines`); an operator asks what was left after
+   * everyone else (`residual`); a party whose hotel somebody else fronted asks why
+   * their line is short (`deductibles`).
+   */
+  lines: EntitlementLine[];
+  /** Disclosed commissions this party EARNED on other parties' lines. */
+  commissionEarned: bigint;
+  /** Costs borne on this party's behalf, deducted from what it is owed. */
+  deductibles: bigint;
+  /** An operator's share of `pool − Σ deal entitlements`. Zero for everyone else. */
+  residual: bigint;
 }
 
 /** A single money movement, greedily matched to minimize the transfer count. */
@@ -96,6 +113,92 @@ export interface Transfer {
 export interface SettlementResult {
   baseCurrency: string;
   pool: bigint;
+  /**
+   * Gross → adjusted net, the operator's ladder. `ladder.pool === pool`; the
+   * scalar stays because every existing caller reads it and because the pool is
+   * the number the conservation law is stated against.
+   */
+  ladder: PoolLadder;
   breakdowns: PartyBreakdown[];
   transfers: Transfer[];
+}
+
+/**
+ * HOW a party's entitlement was arrived at — the RULE behind the number.
+ *
+ * A settlement that shows only figures looks arbitrary, and the parties reading
+ * it cannot check it against the contract they signed. Every branch below is one
+ * arm of `dealEntitlement()`, carrying the operands the branch actually compared
+ * so the reader can redo the comparison: which of a guarantee and a door share
+ * won, what percentage was applied, and to which pool.
+ *
+ * It is STRUCTURED, not a sentence. The engine decides which rule fired; how that
+ * reads in a given language and currency is the UI's job, and a string baked here
+ * would be a second money formatter living in a framework-agnostic module.
+ */
+export type EntitlementBasis =
+  /** A fixed amount, whatever the night did. */
+  | { kind: "guarantee"; guarantee: bigint }
+  /** A fixed amount for the room — settled OFF THE TOP (`deal-order.ts`). */
+  | { kind: "rental"; rental: bigint }
+  /** A share of the pool the percentage deals divide. */
+  | { kind: "door_split"; basisPoints: number; pool: bigint }
+  /** Whichever of the two was larger, and which one won. */
+  | {
+      kind: "guarantee_vs_door";
+      won: "guarantee" | "door";
+      guarantee: bigint;
+      door: bigint;
+      basisPoints: number;
+      pool: bigint;
+    }
+  /** A paper-only agreement: signed, recorded, never computed. */
+  | { kind: "paper" };
+
+/**
+ * One deal's contribution to one party's entitlement.
+ *
+ * `dealTotal` is what the whole agreement pays; `amount` is this party's portion
+ * of it after `allocate()` split it across the deal's payees. On a single-payee
+ * deal they are equal — keeping both is what lets a performer on a 60/40 shared
+ * split see that the deal paid 10 000 and that 6 000 of it is theirs, which is
+ * the one thing a split line has to say.
+ */
+export interface EntitlementLine {
+  dealId: string;
+  dealTotal: bigint;
+  amount: bigint;
+  basis: EntitlementBasis;
+  /** The threshold bonus, already included in `dealTotal` and `amount`. */
+  bonus?: bigint;
+  /** Set when ticket sales reached a tier that replaced the deal's base split. */
+  escalatorApplied?: boolean;
+  /** Disclosed commissions charged against this party's own portion. */
+  commissionCharged?: bigint;
+}
+
+/**
+ * The ladder from gross money to the pool the percentage deals actually divide —
+ * the operator's view of the night, and the number every percentage below it is
+ * taken from.
+ *
+ * `splitPool` is what the industry calls **adjusted net** and what the reference
+ * app called `adjustedNet` (`../showme-settle-fast/src/lib/models.ts:368`). It is
+ * derived inside `reconcile()` either way; returning it is what stops a settlement
+ * reading as an arbitrary set of figures, because a 20% line that does not name
+ * the number it is 20% OF cannot be checked by the party being paid it.
+ *
+ * `costs` is only the share of the cost lines that nobody was charged for.
+ * Costs borne by a named party never touch the pool — they come off that party's
+ * own entitlement as a deductible (`cost-bearing.ts`), and show on its line.
+ */
+export interface PoolLadder {
+  revenue: bigint;
+  costs: bigint;
+  /** `revenue − costs`. */
+  pool: bigint;
+  /** Σ of the off-the-top deals (rentals), settled before the rest divide. */
+  offTheTop: bigint;
+  /** `pool − offTheTop` — the adjusted net every percentage deal is a share of. */
+  splitPool: bigint;
 }

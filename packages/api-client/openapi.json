@@ -4744,6 +4744,28 @@
                     "pool": {
                       "type": "string"
                     },
+                    "ladder": {
+                      "type": "object",
+                      "properties": {
+                        "revenue": {
+                          "type": "string"
+                        },
+                        "costs": {
+                          "type": "string"
+                        },
+                        "pool": {
+                          "type": "string"
+                        },
+                        "offTheTop": {
+                          "type": "string"
+                        },
+                        "splitPool": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["revenue", "costs", "pool", "offTheTop", "splitPool"],
+                      "additionalProperties": false
+                    },
                     "breakdowns": {
                       "type": "array",
                       "items": {
@@ -4765,6 +4787,130 @@
                             "type": "string"
                           },
                           "net": {
+                            "type": "string"
+                          },
+                          "lines": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "dealId": {
+                                  "type": "string"
+                                },
+                                "dealTotal": {
+                                  "type": "string"
+                                },
+                                "amount": {
+                                  "type": "string"
+                                },
+                                "basis": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": ["guarantee"]
+                                        },
+                                        "guarantee": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": ["kind", "guarantee"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": ["rental"]
+                                        },
+                                        "rental": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": ["kind", "rental"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": ["door_split"]
+                                        },
+                                        "basisPoints": {
+                                          "type": "number"
+                                        },
+                                        "pool": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": ["kind", "basisPoints"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": ["guarantee_vs_door"]
+                                        },
+                                        "won": {
+                                          "type": "string",
+                                          "enum": ["guarantee", "door"]
+                                        },
+                                        "guarantee": {
+                                          "type": "string"
+                                        },
+                                        "door": {
+                                          "type": "string"
+                                        },
+                                        "basisPoints": {
+                                          "type": "number"
+                                        },
+                                        "pool": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": ["kind", "won", "guarantee", "basisPoints"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": ["paper"]
+                                        }
+                                      },
+                                      "required": ["kind"],
+                                      "additionalProperties": false
+                                    }
+                                  ]
+                                },
+                                "bonus": {
+                                  "type": "string"
+                                },
+                                "escalatorApplied": {
+                                  "type": "boolean"
+                                },
+                                "commissionCharged": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": ["dealId", "dealTotal", "amount", "basis"],
+                              "additionalProperties": false
+                            }
+                          },
+                          "commissionEarned": {
+                            "type": "string"
+                          },
+                          "deductibles": {
+                            "type": "string"
+                          },
+                          "residual": {
                             "type": "string"
                           }
                         },
@@ -4812,7 +4958,7 @@
                       }
                     }
                   },
-                  "required": ["baseCurrency", "pool", "breakdowns", "transfers"],
+                  "required": ["baseCurrency", "pool", "ladder", "breakdowns", "transfers"],
                   "additionalProperties": false
                 }
               }
@@ -4960,6 +5106,130 @@
                               },
                               "net": {
                                 "type": "string"
+                              },
+                              "lines": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "dealId": {
+                                      "type": "string"
+                                    },
+                                    "dealTotal": {
+                                      "type": "string"
+                                    },
+                                    "amount": {
+                                      "type": "string"
+                                    },
+                                    "basis": {
+                                      "anyOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": ["guarantee"]
+                                            },
+                                            "guarantee": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": ["kind", "guarantee"],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": ["rental"]
+                                            },
+                                            "rental": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": ["kind", "rental"],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": ["door_split"]
+                                            },
+                                            "basisPoints": {
+                                              "type": "number"
+                                            },
+                                            "pool": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": ["kind", "basisPoints"],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": ["guarantee_vs_door"]
+                                            },
+                                            "won": {
+                                              "type": "string",
+                                              "enum": ["guarantee", "door"]
+                                            },
+                                            "guarantee": {
+                                              "type": "string"
+                                            },
+                                            "door": {
+                                              "type": "string"
+                                            },
+                                            "basisPoints": {
+                                              "type": "number"
+                                            },
+                                            "pool": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": ["kind", "won", "guarantee", "basisPoints"],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": ["paper"]
+                                            }
+                                          },
+                                          "required": ["kind"],
+                                          "additionalProperties": false
+                                        }
+                                      ]
+                                    },
+                                    "bonus": {
+                                      "type": "string"
+                                    },
+                                    "escalatorApplied": {
+                                      "type": "boolean"
+                                    },
+                                    "commissionCharged": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": ["dealId", "dealTotal", "amount", "basis"],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "commissionEarned": {
+                                "type": "string"
+                              },
+                              "deductibles": {
+                                "type": "string"
+                              },
+                              "residual": {
+                                "type": "string"
                               }
                             },
                             "required": [
@@ -5073,9 +5343,52 @@
                         ],
                         "additionalProperties": false
                       }
+                    },
+                    "ladder": {
+                      "type": "object",
+                      "properties": {
+                        "revenue": {
+                          "type": "string"
+                        },
+                        "costs": {
+                          "type": "string"
+                        },
+                        "pool": {
+                          "type": "string"
+                        },
+                        "offTheTop": {
+                          "type": "string"
+                        },
+                        "splitPool": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["revenue", "costs", "pool", "offTheTop", "splitPool"],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
+                    "approvals": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "participantId": {
+                            "type": "string"
+                          },
+                          "approved": {
+                            "type": "boolean"
+                          },
+                          "approvedAt": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": ["participantId", "approved", "approvedAt"],
+                        "additionalProperties": false
+                      }
                     }
                   },
-                  "required": ["settlements", "transfers", "commissions"],
+                  "required": ["settlements", "transfers", "commissions", "ladder", "approvals"],
                   "additionalProperties": false
                 }
               }
@@ -5164,6 +5477,130 @@
                           "type": "string"
                         },
                         "net": {
+                          "type": "string"
+                        },
+                        "lines": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "dealId": {
+                                "type": "string"
+                              },
+                              "dealTotal": {
+                                "type": "string"
+                              },
+                              "amount": {
+                                "type": "string"
+                              },
+                              "basis": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "enum": ["guarantee"]
+                                      },
+                                      "guarantee": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["kind", "guarantee"],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "enum": ["rental"]
+                                      },
+                                      "rental": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["kind", "rental"],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "enum": ["door_split"]
+                                      },
+                                      "basisPoints": {
+                                        "type": "number"
+                                      },
+                                      "pool": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["kind", "basisPoints"],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "enum": ["guarantee_vs_door"]
+                                      },
+                                      "won": {
+                                        "type": "string",
+                                        "enum": ["guarantee", "door"]
+                                      },
+                                      "guarantee": {
+                                        "type": "string"
+                                      },
+                                      "door": {
+                                        "type": "string"
+                                      },
+                                      "basisPoints": {
+                                        "type": "number"
+                                      },
+                                      "pool": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["kind", "won", "guarantee", "basisPoints"],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "enum": ["paper"]
+                                      }
+                                    },
+                                    "required": ["kind"],
+                                    "additionalProperties": false
+                                  }
+                                ]
+                              },
+                              "bonus": {
+                                "type": "string"
+                              },
+                              "escalatorApplied": {
+                                "type": "boolean"
+                              },
+                              "commissionCharged": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["dealId", "dealTotal", "amount", "basis"],
+                            "additionalProperties": false
+                          }
+                        },
+                        "commissionEarned": {
+                          "type": "string"
+                        },
+                        "deductibles": {
+                          "type": "string"
+                        },
+                        "residual": {
                           "type": "string"
                         }
                       },

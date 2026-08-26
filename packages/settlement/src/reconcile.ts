@@ -2,9 +2,15 @@ import { allocate } from "@showme/shared";
 import { applyCommissions } from "./commissions";
 import { costBearingOf } from "./cost-bearing";
 import { isOffTheTop } from "./deal-order";
-import { dealEntitlement } from "./entitlement";
+import { dealEntitlementDetailed } from "./entitlement";
 import { greedyTransfers } from "./transfers";
-import type { PartyBreakdown, SettlementDeal, SettlementInput, SettlementResult } from "./types";
+import type {
+  EntitlementLine,
+  PartyBreakdown,
+  SettlementDeal,
+  SettlementInput,
+  SettlementResult,
+} from "./types";
 
 const sumBigint = (values: bigint[]): bigint =>
   values.reduce((running, value) => running + value, 0n);
@@ -53,10 +59,24 @@ export function reconcile(input: SettlementInput): SettlementResult {
     entitlement.set(participantId, (entitlement.get(participantId) ?? 0n) + amount);
   };
 
+  // The same credits, kept apart by WHY they were made, so a party's line can say
+  // what it is made of instead of arriving as one unexplained figure. None of this
+  // participates in the arithmetic — `entitlement` above is still the only total.
+  const lines = new Map<string, EntitlementLine[]>(
+    participants.map((party) => [party.participantId, []]),
+  );
+  const commissionEarned = new Map<string, bigint>();
+  const deductibles = new Map<string, bigint>();
+  const residualOf = new Map<string, bigint>();
+  const addTo = (map: Map<string, bigint>, participantId: string, amount: bigint) => {
+    map.set(participantId, (map.get(participantId) ?? 0n) + amount);
+  };
+
   /** Settle one deal against the pool it divides; returns what it claims in total. */
   const settleDeal = (deal: SettlementDeal, poolForDeal: bigint): bigint => {
     if (deal.payeeParticipantIds.length === 0) return 0n;
-    const total = dealEntitlement(deal, poolForDeal, ticketsSold);
+    const settled = dealEntitlementDetailed(deal, poolForDeal, ticketsSold);
+    const total = settled.amount;
     const weights = deal.payeeParticipantIds.map((payee) => {
       const share = deal.partyShares?.[payee];
       return share != null ? BigInt(share) : 1n;
@@ -67,6 +87,16 @@ export function reconcile(input: SettlementInput): SettlementResult {
       // payee on a split deal carries only the commission on its own portion.
       const { payeeAmount, charges } = applyCommissions(portions[index] ?? 0n, deal.commissions);
       credit(payee, payeeAmount);
+      const charged = (portions[index] ?? 0n) - payeeAmount;
+      lines.get(payee)?.push({
+        dealId: deal.dealId,
+        dealTotal: total,
+        amount: payeeAmount,
+        basis: settled.basis,
+        ...(settled.bonus > 0n ? { bonus: settled.bonus } : {}),
+        ...(settled.escalatorApplied ? { escalatorApplied: true } : {}),
+        ...(charged > 0n ? { commissionCharged: charged } : {}),
+      });
       for (const charge of charges) {
         // A commission credited to somebody who is not a participant on this event
         // would leave the books short by exactly that amount — visible only as an
@@ -77,6 +107,7 @@ export function reconcile(input: SettlementInput): SettlementResult {
           );
         }
         credit(charge.participantId, charge.amount);
+        addTo(commissionEarned, charge.participantId, charge.amount);
       }
     });
     return total;
@@ -103,7 +134,10 @@ export function reconcile(input: SettlementInput): SettlementResult {
   if (operators.length > 0) {
     const weights = operators.map((operator) => BigInt(operator.operatorResidualShare ?? 1));
     const parts = allocate(residual, weights);
-    operators.forEach((operator, index) => credit(operator.participantId, parts[index] ?? 0n));
+    operators.forEach((operator, index) => {
+      credit(operator.participantId, parts[index] ?? 0n);
+      addTo(residualOf, operator.participantId, parts[index] ?? 0n);
+    });
   }
 
   // 3. Deductibles — the borne half of each cost lowers those parties' entitlements.
@@ -112,6 +146,7 @@ export function reconcile(input: SettlementInput): SettlementResult {
   for (const bearing of bearings) {
     for (const [participantId, amount] of bearing.borne) {
       credit(participantId, -amount);
+      addTo(deductibles, participantId, amount);
     }
   }
 
@@ -140,6 +175,10 @@ export function reconcile(input: SettlementInput): SettlementResult {
       paid: fronted,
       held,
       net: owed - held,
+      lines: lines.get(party.participantId) ?? [],
+      commissionEarned: commissionEarned.get(party.participantId) ?? 0n,
+      deductibles: deductibles.get(party.participantId) ?? 0n,
+      residual: residualOf.get(party.participantId) ?? 0n,
     };
   });
 
@@ -147,6 +186,13 @@ export function reconcile(input: SettlementInput): SettlementResult {
   return {
     baseCurrency,
     pool,
+    ladder: {
+      revenue,
+      costs: externalCosts,
+      pool,
+      offTheTop: pool - splitPool,
+      splitPool,
+    },
     breakdowns,
     transfers: greedyTransfers(breakdowns),
   };
