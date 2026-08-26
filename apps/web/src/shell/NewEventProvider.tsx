@@ -5,6 +5,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, createContext, useContext, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { NewEventWizard } from "../components";
+import type { NewEventInitialStatus } from "../components/NewEventWizard";
 
 /**
  * One Create-Event wizard for the whole app. Any "New event" button — topbar,
@@ -17,6 +18,14 @@ interface NewEventOptions {
   /** `YYYY-MM-DD` to prefill the wizard's Date field with, when the caller
    * already knows which day the user meant (e.g. the calendar's day popover). */
   initialDate?: string;
+  /**
+   * What the caller is creating, defaulting to the ordinary event. `on_hold`
+   * asks for a HOLD: same wizard, plus a priority for the date, and the created
+   * event really is moved to `status = 'on_hold'` (`components/HoldPlacement`).
+   * A hold IS an event — that is why it is a mode of this wizard rather than a
+   * screen of its own.
+   */
+  initialStatus?: NewEventInitialStatus;
 }
 
 interface NewEventContextValue {
@@ -40,6 +49,7 @@ export function NewEventProvider({ children }: { children: ReactNode }) {
    */
   const [openCount, setOpenCount] = useState(0);
   const [initialDate, setInitialDate] = useState<string | undefined>(undefined);
+  const [initialStatus, setInitialStatus] = useState<NewEventInitialStatus>("draft");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -49,6 +59,10 @@ export function NewEventProvider({ children }: { children: ReactNode }) {
         // Set BEFORE the key bump: the remount below is what turns this into the
         // wizard's initial form state, so it has to be in place for that render.
         setInitialDate(options?.initialDate);
+        // Same reason as the date: the wizard reads its mode as initial state on
+        // the remount below, so a caller asking for a hold this time must not be
+        // left with the previous caller's mode.
+        setInitialStatus(options?.initialStatus ?? "draft");
         setOpenCount((count) => count + 1);
         setOpen(true);
       },
@@ -64,6 +78,7 @@ export function NewEventProvider({ children }: { children: ReactNode }) {
         key={openCount}
         open={open}
         initialDate={initialDate}
+        initialStatus={initialStatus}
         onClose={() => setOpen(false)}
         onCreated={(id) => {
           setOpen(false);

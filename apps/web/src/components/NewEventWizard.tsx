@@ -5,6 +5,12 @@ import { createPortal } from "react-dom";
 import { setActiveProfileId } from "../lib/activeProfile";
 import { errorMessage } from "../lib/errors";
 import { DateTimeField } from "./DateTimeField";
+import {
+  type HoldPlacement,
+  HoldPriorityField,
+  holdOrdinal,
+  useHoldPlacement,
+} from "./HoldPlacement";
 import { PerformerSearch, type PerformerSelection } from "./PerformerSearch";
 import { GlyphButton, GradientButton, XIcon, fieldStyle } from "./eventUi";
 
@@ -44,7 +50,16 @@ export interface NewEventWizardProps {
    * provider remounts the wizard on every open, so a later change of day always
    * arrives as a fresh mount rather than needing to be synced into the form. */
   initialDate?: string;
+  /**
+   * What the caller is creating. `on_hold` puts the wizard in HOLD mode — a hold
+   * IS an event, so it is the same three steps plus a priority, and the result
+   * really is `status = 'on_hold'` (see `./HoldPlacement`). Anything else is the
+   * ordinary create, which lands on the `draft` the API defaults to.
+   */
+  initialStatus?: NewEventInitialStatus;
 }
+
+export type NewEventInitialStatus = "draft" | "on_hold";
 
 type Profile = Awaited<ReturnType<typeof getApiV1Profiles>>[number];
 
@@ -100,8 +115,15 @@ const bigField = {
   fontSize: 14,
 };
 
-export function NewEventWizard({ open, onClose, onCreated, initialDate }: NewEventWizardProps) {
+export function NewEventWizard({
+  open,
+  onClose,
+  onCreated,
+  initialDate,
+  initialStatus = "draft",
+}: NewEventWizardProps) {
   const toast = useToast();
+  const isHold = initialStatus === "on_hold";
   const profilesQuery = useGetApiV1Profiles();
   // Only operator profiles can host events, so those are the "roles" on offer.
   const operatorProfiles = (profilesQuery.data ?? []).filter(
@@ -132,15 +154,56 @@ export function NewEventWizard({ open, onClose, onCreated, initialDate }: NewEve
   const [venueRental, setVenueRental] = useState("");
   const [rentalPaidBy, setRentalPaidBy] = useState("promoter");
 
+  // Declared above the early return (and above the hook below) so the hook order
+  // is identical on every render — the wizard's own rule, see the Escape effect.
+  const selectedProfile =
+    operatorProfiles.find((profile) => profile.id === selectedProfileId) ?? operatorProfiles[0];
+
+  // Hold mode only: the queue for the chosen date, the plan's slot counter, and
+  // the create → on_hold → rank sequence. Idle (`enabled: false`) otherwise, so
+  // an ordinary create fires not one extra request.
+  const holdPlacement = useHoldPlacement({
+    enabled: open && isHold,
+    eventDate: date,
+    hostProfileId: selectedProfile?.id,
+  });
+
   const create = usePostApiV1Events({
     mutation: {
-      onSuccess: (event) => {
-        toast.success(`"${event.title}" created`);
+      onSuccess: async (event) => {
+        if (!isHold) {
+          toast.success(`"${event.title}" created`);
+          reset();
+          onCreated(event.id);
+          return;
+        }
+        // The event exists as a draft at this point. Whatever the second step
+        // does, the outcome is stated in the operator's own terms and the event
+        // is opened — a half-placed hold must never end as a silent draft.
+        const outcome = await holdPlacement.placeOnHold({ id: event.id, version: event.version });
+        if (outcome.kind === "on_hold") {
+          toast.success(`"${event.title}" is on hold — ${holdOrdinal(outcome.holdRank)} hold`);
+        } else if (outcome.kind === "on_hold_without_rank") {
+          toast.warning(
+            `"${event.title}" is on hold, but its priority couldn't be set (${outcome.message}) — it counts as the 1st hold until you rank it.`,
+            { duration: 12000 },
+          );
+        } else {
+          toast.error(
+            `"${event.title}" was created but couldn't be put on hold (${outcome.message}). It is saved as a draft — set its status to On hold when you're ready.`,
+            { duration: 12000 },
+          );
+        }
         reset();
         onCreated(event.id);
       },
       onError: (mutationError) =>
-        toast.error(errorMessage(mutationError, "Couldn't create the event.")),
+        toast.error(
+          errorMessage(
+            mutationError,
+            isHold ? "Couldn't place the hold." : "Couldn't create the event.",
+          ),
+        ),
     },
   });
 
@@ -187,8 +250,6 @@ export function NewEventWizard({ open, onClose, onCreated, initialDate }: NewEve
   // `will-change: transform`, which makes it a containing block for
   // position:fixed — so an in-tree overlay would clip to the content column.
 
-  const selectedProfile =
-    operatorProfiles.find((profile) => profile.id === selectedProfileId) ?? operatorProfiles[0];
   const clampedIndex = Math.min(stepIndex, stepKeys.length - 1);
   const currentKey = stepKeys[clampedIndex];
   const isLast = clampedIndex === stepKeys.length - 1;
@@ -196,12 +257,32 @@ export function NewEventWizard({ open, onClose, onCreated, initialDate }: NewEve
   const dealIsGuarantee = dealType === "guarantee";
   const splitTotal = Number(artistSplit) + Number(promoterSplit) + Number(venueSplit);
   const artistLabel = multiPerformer ? "Festival / event name" : "Artist / performer";
+  // A hold is a claim on a DATE — the API pools competing holds by
+  // `(event_date, venue, stage)`, so a dateless hold competes with nothing and
+  // means nothing. That is why hold mode requires the date the ordinary create
+  // leaves optional, and why it waits for the queue to load: a rank picked
+  // before the pool is known would be a guess, and submitting it could demote
+  // someone else's hold on evidence we did not have.
   const stepValid =
     currentKey === "role"
       ? Boolean(selectedProfile)
       : currentKey === "details"
-        ? artist.trim() !== "" && venue.trim() !== "" && (!multiPerformer || performers.length > 0)
+        ? artist.trim() !== "" &&
+          venue.trim() !== "" &&
+          (!multiPerformer || performers.length > 0) &&
+          (!isHold || (date !== "" && !holdPlacement.poolIsPending))
         : true;
+
+  // Hold mode stays busy through BOTH writes (create, then the status move), so
+  // the button never reads "done" while the second half is still in flight.
+  const isSubmitting = create.isPending || holdPlacement.isPlacing;
+  const submitLabel = isHold
+    ? isSubmitting
+      ? "Placing hold…"
+      : "Place Hold"
+    : isSubmitting
+      ? "Creating…"
+      : "Create Event";
 
   const addSelection = (selection: PerformerSelection) => {
     setPerformers((list) => {
@@ -298,7 +379,7 @@ export function NewEventWizard({ open, onClose, onCreated, initialDate }: NewEve
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Create new event"
+      aria-label={isHold ? "Place a hold" : "Create new event"}
       style={{
         position: "fixed",
         inset: 0,
@@ -343,10 +424,12 @@ export function NewEventWizard({ open, onClose, onCreated, initialDate }: NewEve
                 letterSpacing: "-.02em",
               }}
             >
-              Create New Event
+              {isHold ? "Place a Hold" : "Create New Event"}
             </h2>
             <p style={{ color: "var(--muted)", fontSize: 13, margin: "4px 0 0" }}>
-              Set up an event in three quick steps.
+              {isHold
+                ? "A hold is an event you pencil in — the act confirms or declines the date."
+                : "Set up an event in three quick steps."}
             </p>
           </div>
           <button
@@ -426,6 +509,7 @@ export function NewEventWizard({ open, onClose, onCreated, initialDate }: NewEve
                   setTicketing={setTicketing}
                   currency={currency}
                   setCurrency={setCurrency}
+                  holdPlacement={isHold ? holdPlacement : undefined}
                 />
               )}
               {currentKey === "deal" && (
@@ -480,10 +564,15 @@ export function NewEventWizard({ open, onClose, onCreated, initialDate }: NewEve
             </button>
             <GradientButton
               onClick={advance}
-              disabled={!stepValid || create.isPending || operatorProfiles.length === 0}
+              disabled={
+                !stepValid ||
+                create.isPending ||
+                holdPlacement.isPlacing ||
+                operatorProfiles.length === 0
+              }
               style={{ padding: "11px 20px", borderRadius: 11, fontSize: 13.5 }}
             >
-              {isLast ? (create.isPending ? "Creating…" : "Create Event") : "Continue"}
+              {isLast ? submitLabel : "Continue"}
             </GradientButton>
           </div>
         </div>
@@ -667,8 +756,11 @@ function DetailsStep(props: {
   setTicketing: (v: string) => void;
   currency: string;
   setCurrency: (v: string) => void;
+  /** Present only in hold mode — the queue for the date and the plan's truth. */
+  holdPlacement?: HoldPlacement;
 }) {
   const dateFieldId = useId();
+  const isHold = Boolean(props.holdPlacement);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 15 }}>
@@ -790,7 +882,7 @@ function DetailsStep(props: {
             inside a <label> that could forward its click to the input. */}
         <div>
           <label htmlFor={dateFieldId} style={labelStyle}>
-            Date
+            {isHold ? "Date *" : "Date"}
           </label>
           <DateTimeField
             id={dateFieldId}
@@ -811,6 +903,10 @@ function DetailsStep(props: {
           />
         </label>
       </div>
+
+      {props.holdPlacement && (
+        <HoldPriorityField placement={props.holdPlacement} eventDate={props.date} />
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <label>
