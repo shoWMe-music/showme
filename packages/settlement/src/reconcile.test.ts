@@ -236,3 +236,108 @@ describe("reconcile — conservation property (Σ net = 0, EXACT)", () => {
     }
   });
 });
+
+describe("cost bearing — the meeting's 'either a cost split or a single payer'", () => {
+  /**
+   * The operator fronts a €1,000 marketing bill that the contract says the venue
+   * and the operator share 50/50 (01:02:58–01:06:31). Half must land on the
+   * venue's entitlement; the other half stays a pool cost the operator absorbs
+   * through its residual — and the books must still close to zero.
+   */
+  const splitInput: SettlementInput = {
+    baseCurrency: "EUR",
+    participants: [{ participantId: "P", isOperator: true }, { participantId: "V" }],
+    deals: [
+      {
+        dealId: "rental",
+        structure: "rental",
+        payeeParticipantIds: ["V"],
+        guaranteeAmount: eur(2000),
+      },
+    ],
+    budgetLines: [
+      { kind: "revenue", amount: eur(10000), collectedBy: "P" },
+      {
+        kind: "cost",
+        amount: eur(1000),
+        paidBy: "P",
+        costSplit: { P: 5000, V: 5000 },
+      },
+    ],
+  };
+
+  it("charges each named party its stated share and balances", () => {
+    const result = reconcile(splitInput);
+    // Only the unallocated remainder lowers the pool; here nothing is unallocated.
+    expect(result.pool).toBe(eur(10000));
+    const venue = result.breakdowns.find((party) => party.participantId === "V");
+    // 2,000 rental − 500 (half the marketing bill it agreed to carry).
+    expect(venue?.entitlement).toBe(eur(1500));
+    expect(venue?.net).toBe(eur(1500));
+    // The operator fronted the whole 1,000 and carries its own half.
+    expect(netOf(result, "P")).toBe(eur(-1500));
+    assertBalanced(result);
+  });
+
+  it("keeps an unallocated remainder as a pool cost", () => {
+    const result = reconcile({
+      ...splitInput,
+      budgetLines: [
+        { kind: "revenue", amount: eur(10000), collectedBy: "P" },
+        { kind: "cost", amount: eur(1000), paidBy: "P", costSplit: { V: 6000 } },
+      ],
+    });
+    // 60% is the venue's; the remaining 40% nobody was charged for lowers the pool.
+    expect(result.pool).toBe(eur(9600));
+    const venue = result.breakdowns.find((party) => party.participantId === "V");
+    expect(venue?.entitlement).toBe(eur(1400));
+    assertBalanced(result);
+  });
+
+  it("splits an odd amount exactly — no minor unit created or lost", () => {
+    const result = reconcile({
+      baseCurrency: "EUR",
+      participants: [
+        { participantId: "P", isOperator: true },
+        { participantId: "A" },
+        { participantId: "B" },
+        { participantId: "C" },
+      ],
+      deals: [],
+      budgetLines: [
+        { kind: "revenue", amount: eur(10000), collectedBy: "P" },
+        {
+          kind: "cost",
+          amount: 100n, // €1.00 across three parties
+          paidBy: "P",
+          costSplit: { A: 3333, B: 3333, C: 3334 },
+        },
+      ],
+    });
+    const borne = ["A", "B", "C"].map(
+      (id) => result.breakdowns.find((party) => party.participantId === id)?.entitlement ?? 0n,
+    );
+    expect(borne.reduce((running, value) => running + value, 0n)).toBe(-100n);
+    assertBalanced(result);
+  });
+
+  it("treats a single payee as a 100% split — the old deductible, unchanged", () => {
+    const asPayee = reconcile({
+      ...splitInput,
+      budgetLines: [
+        { kind: "revenue", amount: eur(10000), collectedBy: "P" },
+        { kind: "cost", amount: eur(1000), paidBy: "P", payeeParticipantId: "V" },
+      ],
+    });
+    const asSplit = reconcile({
+      ...splitInput,
+      budgetLines: [
+        { kind: "revenue", amount: eur(10000), collectedBy: "P" },
+        { kind: "cost", amount: eur(1000), paidBy: "P", costSplit: { V: 10000 } },
+      ],
+    });
+    expect(netOf(asSplit, "V")).toBe(netOf(asPayee, "V"));
+    expect(netOf(asSplit, "P")).toBe(netOf(asPayee, "P"));
+    assertBalanced(asSplit);
+  });
+});

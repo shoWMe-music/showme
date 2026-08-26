@@ -3,6 +3,7 @@ import {
   getGetApiV1EventsIdBudgetsQueryKey,
   useDeleteApiV1EventsIdBudgetsBidLinesLid,
   useGetApiV1EventsIdBudgets,
+  useGetApiV1EventsIdDeals,
   useGetApiV1EventsIdParticipants,
   usePatchApiV1EventsIdBudgetsBid,
   usePatchApiV1EventsIdBudgetsBidLinesLid,
@@ -24,6 +25,34 @@ import {
 
 type Budget = Awaited<ReturnType<typeof getApiV1EventsIdBudgets>>[number];
 
+/**
+ * WHO CARRIES A COST — the "defined cost rule" the 2026-08 settlements meeting
+ * made mandatory (01:06:31: *"the production system requires a defined rule:
+ * either a cost split or a single payer"*).
+ *
+ * Three settings of one mechanism, and the settlement engine reads all three
+ * through `costBearingOf` in `packages/settlement`:
+ *
+ * - **shared** — nobody is charged; the line lowers the pool, so the operator's
+ *   residual absorbs it. The default, because it is what an unqualified cost means.
+ * - **participant** — a *deduction*: one party's cut is reduced by the whole line
+ *   (the venue books the band's hotel and takes it back at settlement). This is
+ *   the meeting's "add deduction", distinct from "add cost" (01:08:30).
+ * - **split** — the parties named carry the stated percentages between them;
+ *   anything unallocated stays a shared cost.
+ *
+ * Deliberately NOT the same question as `paidBy`. Who *fronted* the cash and who
+ * *ultimately bears* it are different facts, and conflating them is what makes a
+ * settlement unarguable-looking and wrong: the operator pays the marketing
+ * invoice (paidBy) under a contract that splits it 50/50 (bearing).
+ */
+export type CostBearing =
+  | { kind: "shared" }
+  | { kind: "participant"; participantId: string }
+  | { kind: "split"; shares: Record<string, number> };
+
+export const SHARED_COST_BEARING: CostBearing = { kind: "shared" };
+
 /** A ticket tier as the planner edits it — major-unit strings, controlled. */
 export interface TicketTierDraft {
   /** The line id, or a `new:` placeholder for a tier not yet written. */
@@ -31,6 +60,13 @@ export interface TicketTierDraft {
   name: string;
   price: string;
   quantity: string;
+  /**
+   * The participant who RECEIVES this money (2026-08 meeting, 01:27:49). Absent
+   * on a row that has not been attributed — the flush then falls back to the
+   * operator doing the planning, which is what every line silently assumed before
+   * the selector existed.
+   */
+  collectedBy?: string;
 }
 
 export interface CostDraft {
@@ -46,6 +82,20 @@ export interface CostDraft {
   isCustom: boolean;
   /** Set on custom rows only; the standing headings are always flat figures. */
   type?: CustomFieldType;
+  /** The participant who FRONTED the cash (2026-08 meeting, 01:29:46). */
+  paidBy?: string;
+  /** Who ultimately carries it. Absent reads as `shared`. */
+  bearing?: CostBearing;
+  /**
+   * The agreement this cost belongs to — accountability per deal (2026-08
+   * meeting: *"all project costs to be assigned to specific deals"*).
+   *
+   * It also settles the planner's oldest double-count: a "Performer fee" row that
+   * is really the deal's guarantee is counted once as a pool cost and again as the
+   * deal's entitlement. Assigned to the deal, the settlement takes the figure from
+   * the agreement and ignores the line (the API drops it at the engine boundary).
+   */
+  dealId?: string;
 }
 
 /**
@@ -79,6 +129,8 @@ export interface CustomRevenueDraft {
   /** For `per_guest`, the amount PER HEAD; for `manual`, the whole figure. */
   value: string;
   type: CustomFieldType;
+  /** The participant who RECEIVES this money (2026-08 meeting, 01:27:49). */
+  collectedBy?: string;
 }
 
 /**
@@ -118,6 +170,11 @@ const LEGACY_COST_HEADINGS: Record<string, string> = {
   Venue: "Venue cost",
   Other: "Other cost",
 };
+
+/** A participant's event role in the planner's words ("Co host" → "Co host"). */
+function participantRoleLabel(role: string): string {
+  return role.replace(/_/g, " ").replace(/^\w/, (character) => character.toUpperCase());
+}
 
 /** The heading a stored cost line belongs under, old wording or new. */
 function costHeadingOf(label: string): string {
@@ -192,15 +249,86 @@ function customDraftFrom(
   };
 }
 
+/**
+ * The bearing rule a stored line carries, read back for the planner's selector.
+ * `cost_split` wins over `payee_participant_id` in the unlikely event a row has
+ * both — it is the more specific statement, and the API refuses to write both
+ * together, so this only ever matters for rows edited outside the app.
+ */
+function bearingFrom(line: {
+  costSplit?: Record<string, number> | null;
+  payeeParticipantId?: string | null;
+}): CostBearing {
+  if (line.costSplit && Object.keys(line.costSplit).length > 0) {
+    return { kind: "split", shares: line.costSplit };
+  }
+  if (line.payeeParticipantId) {
+    return { kind: "participant", participantId: line.payeeParticipantId };
+  }
+  return SHARED_COST_BEARING;
+}
+
+/** Two bearing rules that say the same thing — so a debounced flush can skip a write. */
+function sameBearing(left: CostBearing, right: CostBearing): boolean {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === "participant" && right.kind === "participant") {
+    return left.participantId === right.participantId;
+  }
+  if (left.kind === "split" && right.kind === "split") {
+    const leftKeys = Object.keys(left.shares).sort();
+    const rightKeys = Object.keys(right.shares).sort();
+    return (
+      leftKeys.length === rightKeys.length &&
+      leftKeys.every((key, index) => key === rightKeys[index]) &&
+      leftKeys.every((key) => left.shares[key] === right.shares[key])
+    );
+  }
+  return true;
+}
+
+/** The two `budget_lines` columns a bearing rule writes, in the shape the API takes. */
+function bearingFields(bearing: CostBearing): {
+  payeeParticipantId: string | null;
+  costSplit: Record<string, number> | null;
+} {
+  if (bearing.kind === "participant") {
+    return { payeeParticipantId: bearing.participantId, costSplit: null };
+  }
+  if (bearing.kind === "split") {
+    return { payeeParticipantId: null, costSplit: bearing.shares };
+  }
+  return { payeeParticipantId: null, costSplit: null };
+}
+
 /** Which budget the planner opens on: the joint book if this event is co-hosted. */
 function preferredBudget(budgets: Budget[]): Budget | undefined {
   return budgets.find((budget) => budget.scope === "shared") ?? budgets[0];
+}
+
+/** One party a line's money can be attributed to, named as the planner shows them. */
+export interface BudgetAttributionOption {
+  /** An `event_participants` id — what the budget-line columns store. */
+  id: string;
+  label: string;
+  roleLabel: string;
+}
+
+/** One agreement a cost can be booked against. */
+export interface BudgetDealOption {
+  id: string;
+  name: string;
 }
 
 export interface BudgetEditor {
   isPending: boolean;
   isError: boolean;
   error: unknown;
+  /** Everyone on the event, for the collected-by / paid-by / borne-by selectors. */
+  participants: BudgetAttributionOption[];
+  /** The event's agreements, for assigning a cost to one. */
+  deals: BudgetDealOption[];
+  /** The caller's own participant row — what an unattributed line falls back to. */
+  defaultParticipantId: string | null;
   /** Every budget the viewer may open — their private book, plus any shared one. */
   budgets: Budget[];
   selectedBudgetId: string | null;
@@ -218,12 +346,38 @@ export interface BudgetEditor {
   isSaving: boolean;
   /** Set when the budget cannot be written to — the reason is shown, not hidden. */
   readOnlyReason: string | null;
-  changeTier: (id: string, field: "name" | "price" | "quantity", value: string) => void;
+  changeTier: (
+    id: string,
+    field: "name" | "price" | "quantity" | "collectedBy",
+    value: string,
+  ) => void;
   addTier: () => void;
   removeTier: (id: string) => void;
+  /** Who receives the bar take and who receives "Other revenue". */
+  barCollectedBy: string;
+  otherRevenueCollectedBy: string;
+  changeBarCollectedBy: (participantId: string) => void;
+  changeOtherRevenueCollectedBy: (participantId: string) => void;
+  changeCustomRevenueCollectedBy: (id: string, participantId: string) => void;
   changeCost: (key: string, value: string) => void;
-  /** Add a cost row of the operator's own, named and typed in the "+ Add Field" modal. */
-  addCustomCost: (label: string, amount: string, type: CustomFieldType) => void;
+  /** Who FRONTED a cost — cash attribution, not who carries it. */
+  changeCostPaidBy: (key: string, participantId: string) => void;
+  /** The cost rule: shared, a single bearer, or a split (2026-08 meeting, 01:06:31). */
+  changeCostBearing: (key: string, bearing: CostBearing) => void;
+  /** Book a cost against one of the event's agreements, or "" to unassign it. */
+  changeCostDeal: (key: string, dealId: string) => void;
+  /**
+   * Add a cost row of the operator's own, named and typed in the "+ Add Field"
+   * modal. `bearing` is what makes "add deduction" a different act from "add
+   * cost" (2026-08 meeting, 01:08:30) — a deduction arrives already naming the
+   * party it comes out of.
+   */
+  addCustomCost: (
+    label: string,
+    amount: string,
+    type: CustomFieldType,
+    bearing?: CostBearing,
+  ) => void;
   /** Remove a custom cost row. The six standing headings are never removable. */
   removeCost: (key: string) => void;
   /** The free-form revenue rows ("+ Add Field" on the Revenue card). */
@@ -272,6 +426,10 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   const queryClient = useQueryClient();
   const budgetsQuery = useGetApiV1EventsIdBudgets(eventId);
   const participantsQuery = useGetApiV1EventsIdParticipants(eventId);
+  // The agreements a cost can be booked against. Serialized party-scoped, so an
+  // operator sees them all and nobody else sees more than they should — this list
+  // is the server's answer, never a filter applied here.
+  const dealsQuery = useGetApiV1EventsIdDeals(eventId);
 
   const budgets = useMemo(() => budgetsQuery.data ?? [], [budgetsQuery.data]);
   const [selectedBudgetId, setSelectedBudgetId] = useState<string | null>(null);
@@ -284,6 +442,24 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   const myParticipantId =
     (participantsQuery.data ?? []).find((participant) => participant.profileId === activeProfileId)
       ?.id ?? null;
+
+  // Everyone the money can be attributed to, and every agreement a cost can be
+  // booked against. Both come straight off the event — the planner names parties
+  // and deals, it never invents them.
+  const attributionOptions = useMemo<BudgetAttributionOption[]>(
+    () =>
+      (participantsQuery.data ?? []).map((participant) => ({
+        id: participant.id,
+        label:
+          participant.name ?? participant.performerTag ?? participantRoleLabel(participant.role),
+        roleLabel: participantRoleLabel(participant.role),
+      })),
+    [participantsQuery.data],
+  );
+  const dealOptions = useMemo<BudgetDealOption[]>(
+    () => (dealsQuery.data ?? []).map((deal) => ({ id: deal.id, name: deal.name })),
+    [dealsQuery.data],
+  );
 
   const invalidate = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: getGetApiV1EventsIdBudgetsQueryKey(eventId) });
@@ -321,6 +497,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
           // `details`; read it as a single unit at its full amount.
           price: toMajorUnits(line.details?.unitAmount ?? line.amount),
           quantity: (line.details?.quantity ?? 1).toString(),
+          collectedBy: line.collectedBy ?? undefined,
         })),
     [lines],
   );
@@ -345,7 +522,10 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     () =>
       lines
         .filter((line) => line.kind === "revenue" && line.details?.basis === "custom_revenue")
-        .map((line) => customDraftFrom(line.id, line.label, line.amount, line.details)),
+        .map((line) => ({
+          ...customDraftFrom(line.id, line.label, line.amount, line.details),
+          collectedBy: line.collectedBy ?? undefined,
+        })),
     [lines],
   );
 
@@ -370,6 +550,9 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
             ? toMajorUnits(fallback)
             : "",
         isCustom: false,
+        paidBy: line?.paidBy ?? undefined,
+        bearing: line ? bearingFrom(line) : SHARED_COST_BEARING,
+        dealId: line?.dealId ?? undefined,
       };
     });
     // Anything budgeted under a heading of the operator's own is kept too —
@@ -385,6 +568,9 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
           value: draft.value,
           isCustom: true,
           type: draft.type,
+          paidBy: line.paidBy ?? undefined,
+          bearing: bearingFrom(line),
+          dealId: line.dealId ?? undefined,
         };
       });
     return [...standard, ...custom];
@@ -438,6 +624,8 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
         ? toPercentText(processing.percentBasisPoints)
         : DEFAULT_PROCESSING_PERCENT,
       processingFlatPerTicket: processing ? toMajorUnits(processing.flatPerTicket) : "",
+      barCollectedBy: barLine?.collectedBy ?? "",
+      otherRevenueCollectedBy: otherRevenueLine?.collectedBy ?? "",
     };
   }, [
     budgetId,
@@ -460,6 +648,10 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   const [processingFlatPerTicket, setProcessingFlatPerTicket] = useState(
     seed.processingFlatPerTicket,
   );
+  const [barCollectedBy, setBarCollectedBy] = useState(seed.barCollectedBy);
+  const [otherRevenueCollectedBy, setOtherRevenueCollectedBy] = useState(
+    seed.otherRevenueCollectedBy,
+  );
 
   // Re-seed from the server only while the person is not mid-edit, so a
   // background refetch cannot yank a half-typed figure out from under them.
@@ -474,6 +666,8 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     setOtherRevenue(seed.otherRevenue);
     setProcessingPercent(seed.processingPercent);
     setProcessingFlatPerTicket(seed.processingFlatPerTicket);
+    setBarCollectedBy(seed.barCollectedBy);
+    setOtherRevenueCollectedBy(seed.otherRevenueCollectedBy);
   }, [seed]);
 
   // ---- draft → server -----------------------------------------------------
@@ -511,6 +705,10 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     pendingRef.current = false;
     if (!budgetId || !myParticipantId) return;
     const target = { id: eventId, bid: budgetId };
+    // A row the operator has not attributed is attributed to them — the same
+    // assumption every line made before the selectors existed, now stated once
+    // here instead of being hard-coded at five call sites.
+    const collector = (chosen: string | undefined) => chosen || myParticipantId;
 
     for (const tier of tiers) {
       const amount = toMinorUnits((numeric(tier.price) * numeric(tier.quantity)).toString());
@@ -527,7 +725,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
             kind: "revenue",
             label: tier.name.trim(),
             amount,
-            collectedBy: myParticipantId,
+            collectedBy: collector(tier.collectedBy),
             details,
           },
         });
@@ -535,16 +733,18 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       }
       const before = lines.find((line) => line.id === tier.id);
       if (!before) continue;
+      const collectedBy = collector(tier.collectedBy);
       const unchanged =
         before.label === tier.name.trim() &&
         before.amount === amount &&
+        before.collectedBy === collectedBy &&
         before.details?.unitAmount === details.unitAmount &&
         before.details?.quantity === details.quantity;
       if (unchanged) continue;
       updateLine.mutate({
         ...target,
         lid: tier.id,
-        data: { label: tier.name.trim() || before.label, amount, details },
+        data: { label: tier.name.trim() || before.label, amount, collectedBy, details },
       });
     }
 
@@ -561,6 +761,10 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       const details = cost.isCustom
         ? { basis: "custom_cost" as const, unitAmount, quantity }
         : undefined;
+      // The cost rule, as the two columns the API stores it in. Derived once —
+      // the create and the update paths must never disagree about what "shared"
+      // writes, or a rule would clear on one path and persist on the other.
+      const bearing = bearingFields(cost.bearing ?? SHARED_COST_BEARING);
 
       if (cost.key.startsWith(NEW_ROW_PREFIX)) {
         // A standing heading becomes a line when it is given a FIGURE; a custom
@@ -575,7 +779,12 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
             kind: "cost",
             label: cost.label.trim(),
             amount,
-            paidBy: myParticipantId,
+            paidBy: collector(cost.paidBy),
+            ...(bearing.payeeParticipantId
+              ? { payeeParticipantId: bearing.payeeParticipantId }
+              : {}),
+            ...(bearing.costSplit ? { costSplit: bearing.costSplit } : {}),
+            ...(cost.dealId ? { dealId: cost.dealId } : {}),
             ...(details ? { details } : {}),
           },
         });
@@ -588,16 +797,31 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       // catching up with the row it is displayed in surprises nobody.
       const label = cost.label.trim() || before.label;
       const relabelled = before.label !== label ? { label } : {};
+      const paidBy = collector(cost.paidBy);
       const unchanged =
         before.amount === amount &&
         before.label === label &&
+        before.paidBy === paidBy &&
+        (before.dealId ?? undefined) === (cost.dealId || undefined) &&
+        sameBearing(bearingFrom(before), cost.bearing ?? SHARED_COST_BEARING) &&
         (!details ||
           (before.details?.unitAmount === unitAmount && before.details?.quantity === quantity));
       if (unchanged) continue;
       updateLine.mutate({
         ...target,
         lid: cost.key,
-        data: { amount, ...relabelled, ...(details ? { details } : {}) },
+        data: {
+          amount,
+          ...relabelled,
+          paidBy,
+          // Explicitly nulled rather than omitted: clearing a rule back to
+          // "shared" has to erase the stored columns, and an omitted field
+          // would leave the old bearer silently in place.
+          payeeParticipantId: bearing.payeeParticipantId,
+          costSplit: bearing.costSplit,
+          dealId: cost.dealId || null,
+          ...(details ? { details } : {}),
+        },
       });
     }
 
@@ -616,16 +840,21 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
             kind: "revenue",
             label: "Bar and merchandise",
             amount,
-            collectedBy: myParticipantId,
+            collectedBy: collector(barCollectedBy),
             details,
           },
         });
       } else if (
         barLine.amount !== amount ||
+        barLine.collectedBy !== collector(barCollectedBy) ||
         barLine.details?.unitAmount !== perHead ||
         barLine.details?.quantity !== heads
       ) {
-        updateLine.mutate({ ...target, lid: barLine.id, data: { amount, details } });
+        updateLine.mutate({
+          ...target,
+          lid: barLine.id,
+          data: { amount, collectedBy: collector(barCollectedBy), details },
+        });
       }
     }
 
@@ -642,12 +871,19 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
             kind: "revenue",
             label: OTHER_REVENUE_LABEL,
             amount,
-            collectedBy: myParticipantId,
+            collectedBy: collector(otherRevenueCollectedBy),
             details,
           },
         });
-      } else if (otherRevenueLine.amount !== amount) {
-        updateLine.mutate({ ...target, lid: otherRevenueLine.id, data: { amount, details } });
+      } else if (
+        otherRevenueLine.amount !== amount ||
+        otherRevenueLine.collectedBy !== collector(otherRevenueCollectedBy)
+      ) {
+        updateLine.mutate({
+          ...target,
+          lid: otherRevenueLine.id,
+          data: { amount, collectedBy: collector(otherRevenueCollectedBy), details },
+        });
       }
     }
 
@@ -672,7 +908,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
             kind: "revenue",
             label: row.label.trim(),
             amount,
-            collectedBy: myParticipantId,
+            collectedBy: collector(row.collectedBy),
             details,
           },
         });
@@ -680,16 +916,18 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       }
       const before = lines.find((line) => line.id === row.id);
       if (!before) continue;
+      const collectedBy = collector(row.collectedBy);
       const unchanged =
         before.amount === amount &&
         before.label === row.label.trim() &&
+        before.collectedBy === collectedBy &&
         before.details?.unitAmount === unitAmount &&
         before.details?.quantity === quantity;
       if (unchanged) continue;
       updateLine.mutate({
         ...target,
         lid: row.id,
-        data: { label: row.label.trim() || before.label, amount, details },
+        data: { label: row.label.trim() || before.label, amount, collectedBy, details },
       });
     }
 
@@ -726,7 +964,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
 
   // ---- handlers -----------------------------------------------------------
   const changeTier = useCallback(
-    (id: string, field: "name" | "price" | "quantity", value: string) => {
+    (id: string, field: "name" | "price" | "quantity" | "collectedBy", value: string) => {
       setTiers((rows) => rows.map((row) => (row.id === id ? { ...row, [field]: value } : row)));
       scheduleFlush();
     },
@@ -771,6 +1009,56 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     [scheduleFlush],
   );
 
+  /** One writer for the three attribution fields a cost row carries. */
+  const patchCost = useCallback(
+    (key: string, patch: Partial<CostDraft>) => {
+      setCosts((rows) => rows.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+      scheduleFlush();
+    },
+    [scheduleFlush],
+  );
+
+  const changeCostPaidBy = useCallback(
+    (key: string, participantId: string) => patchCost(key, { paidBy: participantId }),
+    [patchCost],
+  );
+
+  const changeCostBearing = useCallback(
+    (key: string, bearing: CostBearing) => patchCost(key, { bearing }),
+    [patchCost],
+  );
+
+  const changeCostDeal = useCallback(
+    (key: string, dealId: string) => patchCost(key, { dealId }),
+    [patchCost],
+  );
+
+  const changeBarCollectedBy = useCallback(
+    (participantId: string) => {
+      setBarCollectedBy(participantId);
+      scheduleFlush();
+    },
+    [scheduleFlush],
+  );
+
+  const changeOtherRevenueCollectedBy = useCallback(
+    (participantId: string) => {
+      setOtherRevenueCollectedBy(participantId);
+      scheduleFlush();
+    },
+    [scheduleFlush],
+  );
+
+  const changeCustomRevenueCollectedBy = useCallback(
+    (id: string, participantId: string) => {
+      setCustomRevenue((rows) =>
+        rows.map((row) => (row.id === id ? { ...row, collectedBy: participantId } : row)),
+      );
+      scheduleFlush();
+    },
+    [scheduleFlush],
+  );
+
   /**
    * Add a cost row under a heading of the operator's own. It becomes a
    * `budget_lines` cost row on the next flush — the SAME path a standing heading
@@ -781,7 +1069,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
    * LABEL, not the key), so the row index cannot collide with a heading's key.
    */
   const addCustomCost = useCallback(
-    (label: string, amount: string, type: CustomFieldType) => {
+    (label: string, amount: string, type: CustomFieldType, bearing?: CostBearing) => {
       const trimmed = label.trim();
       if (trimmed === "") return;
       setCosts((rows) => [
@@ -795,6 +1083,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
           value: amount,
           isCustom: true,
           type,
+          bearing: bearing ?? SHARED_COST_BEARING,
         },
       ]);
       scheduleFlush();
@@ -914,6 +1203,9 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     isPending: budgetsQuery.isPending || participantsQuery.isPending,
     isError: budgetsQuery.isError,
     error: budgetsQuery.error,
+    participants: attributionOptions,
+    deals: dealOptions,
+    defaultParticipantId: myParticipantId,
     budgets,
     selectedBudgetId: budgetId,
     selectBudget: setSelectedBudgetId,
@@ -933,7 +1225,15 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     changeTier,
     addTier,
     removeTier,
+    barCollectedBy,
+    otherRevenueCollectedBy,
+    changeBarCollectedBy,
+    changeOtherRevenueCollectedBy,
+    changeCustomRevenueCollectedBy,
     changeCost,
+    changeCostPaidBy,
+    changeCostBearing,
+    changeCostDeal,
     addCustomCost,
     removeCost,
     customRevenue,

@@ -1,6 +1,5 @@
 import {
   type getApiV1EventsId,
-  type getApiV1EventsIdDeals,
   type getApiV1EventsIdInvitations,
   type getApiV1EventsIdParticipants,
   type getApiV1EventsIdRiders,
@@ -8,7 +7,6 @@ import {
   getGetApiV1EventsIdInvitationsQueryKey,
   getGetApiV1EventsIdQueryKey,
   useGetApiV1EventsId,
-  useGetApiV1EventsIdDeals,
   useGetApiV1EventsIdInvitations,
   useGetApiV1EventsIdParticipants,
   useGetApiV1EventsIdRiders,
@@ -43,9 +41,10 @@ import {
 } from "../components";
 import { BudgetCustomFieldModal, type CustomFieldKind } from "../components/BudgetCustomFieldModal";
 import { BudgetTemplateDialogs } from "../components/BudgetTemplateDialogs";
-import { EventAgreementTab } from "../components/EventAgreementTab";
+import { CostSplitModal } from "../components/CostSplitModal";
 import { EventCollaboratorInviteModal } from "../components/EventCollaboratorInviteModal";
 import { EventCrewPanel } from "../components/EventCrewPanel";
+import { EventDealsTab } from "../components/EventDealsTab";
 import { EventSettlementTab } from "../components/EventSettlementTab";
 import { EventStatusControl } from "../components/EventStatusControl";
 import { budgetPlannerViewFrom } from "../components/budgetPlannerView";
@@ -60,13 +59,12 @@ import { ErrorState, LoadingState } from "../components/states";
 import { useBudgetEditor } from "../components/useBudgetEditor";
 import { useBudgetSeed } from "../components/useBudgetSeed";
 import { useBudgetToolbar } from "../components/useBudgetToolbar";
-import { formatDate, formatMoney } from "../lib/format";
+import { formatDate } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
 
 type EventDetailData = Awaited<ReturnType<typeof getApiV1EventsId>>;
 type Participant = Awaited<ReturnType<typeof getApiV1EventsIdParticipants>>[number];
 type EventInvitation = Awaited<ReturnType<typeof getApiV1EventsIdInvitations>>[number];
-type Deal = Awaited<ReturnType<typeof getApiV1EventsIdDeals>>[number];
 type ScheduleItem = Awaited<ReturnType<typeof getApiV1EventsIdSchedule>>[number];
 type Rider = Awaited<ReturnType<typeof getApiV1EventsIdRiders>>[number];
 
@@ -159,11 +157,21 @@ export function EventDetail() {
 
   const stageIndex = STATUS_STAGE_INDEX[event.status] ?? 0;
 
+  // The planner is operator-only — `budget.view` is a ceiling in the auth engine
+  // and `GET /events/:id/budgets` 403s for everyone else, so offering the tab to a
+  // performer offered a door onto an error. (design-handoff-budget-planner §Scope:
+  // "the whole screen is operator-only… there is no redacted variant to design".)
+  const canSeeBudget = (event.capabilities ?? []).includes("budget.view");
+
   const tabs: EventTab[] = [
     { key: "todo", label: "To Do" },
-    { key: "budget", label: "Budget Planner" },
+    ...(canSeeBudget ? [{ key: "budget", label: "Budget Planner" }] : []),
     { key: "details", label: "Event Details" },
-    { key: "agreement", label: "Agreement" },
+    // One tab for every specific financial and contractual arrangement on the
+    // event — agreements, what each one costs, and what the parties are given
+    // (2026-08 settlements meeting, 01:53:36/01:57:22). Event Details keeps the
+    // general information; the old "Agreement" tab is folded in here.
+    { key: "deals", label: "Deals" },
     { key: "crew", label: "Team / Crew" },
     { key: "settlement", label: "Settlement" },
     { key: "messages", label: "Messages" },
@@ -311,7 +319,7 @@ export function EventDetail() {
       <EventTabsBar tabs={tabs} value={tab} onChange={setTab} />
 
       {tab === "todo" && <EventTodoTab eventId={eventId} />}
-      {tab === "budget" && (
+      {tab === "budget" && canSeeBudget && (
         <BudgetTab
           eventId={eventId}
           currency={currency}
@@ -331,8 +339,8 @@ export function EventDetail() {
           onSaveExtras={saveExtras}
         />
       )}
-      {tab === "agreement" && (
-        <EventAgreementTab
+      {tab === "deals" && (
+        <EventDealsTab
           eventId={eventId}
           eventTitle={event.title}
           eventDate={event.eventDate}
@@ -345,6 +353,12 @@ export function EventDetail() {
           baseCurrency={event.baseCurrency}
           venueLabel={venueLabel}
           operatorName={operatorName}
+          event={{
+            id: event.id,
+            version: event.version,
+            extras: event.extras as Record<string, unknown> | null | undefined,
+          }}
+          canEdit={canEdit}
         />
       )}
       {tab === "crew" && (
@@ -462,7 +476,6 @@ function DetailsTab({
   onSaveExtras: (next: EventExtras) => void;
 }) {
   const schedule = useGetApiV1EventsIdSchedule(event.id);
-  const deals = useGetApiV1EventsIdDeals(event.id);
   const riders = useGetApiV1EventsIdRiders(event.id);
 
   const scheduleEntries: DetailsScheduleEntry[] = toScheduleEntries(schedule.data ?? []);
@@ -471,7 +484,6 @@ function DetailsTab({
     name: rider.name,
     type: statusLabel(rider.type),
   }));
-  const deal = firstDealSummary(deals.data ?? [], currency);
 
   return (
     <EventDetailsTab
@@ -496,30 +508,11 @@ function DetailsTab({
       performers={performers}
       riders={riderRows}
       schedule={scheduleEntries}
-      deal={deal}
       currency={currency}
       canEdit={canEdit}
       onSaveExtras={onSaveExtras}
     />
   );
-}
-
-function firstDealSummary(deals: Deal[], currency: string) {
-  const deal = deals[0];
-  if (!deal) return null;
-  const costSplit =
-    deal.splitBasisPoints != null
-      ? `${(deal.splitBasisPoints / 100).toFixed(0)}% split`
-      : deal.structure
-        ? statusLabel(deal.structure)
-        : null;
-  return {
-    dealTypeLabel: statusLabel(deal.structure ?? deal.type),
-    costSplit,
-    guarantee: deal.guaranteeAmount
-      ? formatMoney(deal.guaranteeAmount, deal.currency ?? currency)
-      : null,
-  };
 }
 
 function toScheduleEntries(items: ScheduleItem[]): ScheduleEntry[] {
@@ -571,6 +564,8 @@ function BudgetTab({
   const toolbar = useBudgetToolbar(editor, eventTitle, currency);
   // Which card the "+ Add Field" modal is adding to, or null when it is closed.
   const [customFieldKind, setCustomFieldKind] = useState<CustomFieldKind>(null);
+  // The cost row whose split is being written, or null when the dialog is closed.
+  const [splitTargetKey, setSplitTargetKey] = useState<string | null>(null);
 
   if (editor.isPending) return <LoadingState label="Loading budget" />;
   if (editor.isError) return <ErrorState error={editor.error} title="Couldn't load the budget" />;
@@ -579,6 +574,7 @@ function BudgetTab({
   // and the unit boundary is `budgetPlannerView`'s (CLAUDE.md: business logic is
   // plain, framework-agnostic TS) — this screen picks a currency and renders.
   const view = budgetPlannerViewFrom(editor, currency);
+  const splitTargetRow = editor.costs.find((cost) => cost.key === splitTargetKey);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -598,11 +594,24 @@ function BudgetTab({
         revenueSources={view.revenueSources}
         costBreakdown={view.costBreakdown}
         performingRights={view.performingRights}
+        participants={editor.participants}
+        deals={editor.deals}
+        defaultParticipantId={editor.defaultParticipantId}
+        barCollectedBy={editor.barCollectedBy}
+        otherRevenueCollectedBy={editor.otherRevenueCollectedBy}
+        onBarCollectedByChange={editor.changeBarCollectedBy}
+        onOtherRevenueCollectedByChange={editor.changeOtherRevenueCollectedBy}
+        onCustomRevenueCollectedByChange={editor.changeCustomRevenueCollectedBy}
+        onCostPaidByChange={editor.changeCostPaidBy}
+        onCostBearingChange={editor.changeCostBearing}
+        onCostDealChange={editor.changeCostDeal}
+        onEditCostSplit={setSplitTargetKey}
         ticketTypes={editor.ticketTiers.map((tier) => ({
           id: tier.id,
           name: tier.name,
           price: tier.price,
           quantity: tier.quantity,
+          collectedBy: tier.collectedBy,
         }))}
         ticketRevenueTotal={view.ticketRevenueTotal}
         capacity={editor.capacity}
@@ -631,12 +640,27 @@ function BudgetTab({
       <BudgetCustomFieldModal
         kind={customFieldKind}
         currencySymbol={currencySymbol(currency)}
+        participants={editor.participants}
         onClose={() => setCustomFieldKind(null)}
-        onSubmit={(kind, label, amount, type) =>
+        onSubmit={(kind, label, amount, type, bearing) =>
           kind === "cost"
-            ? editor.addCustomCost(label, amount, type)
+            ? editor.addCustomCost(label, amount, type, bearing)
             : editor.addCustomRevenue(label, amount, type)
         }
+      />
+      <CostSplitModal
+        target={
+          splitTargetRow
+            ? {
+                key: splitTargetRow.key,
+                label: splitTargetRow.label,
+                bearing: splitTargetRow.bearing ?? { kind: "shared" },
+              }
+            : null
+        }
+        participants={editor.participants}
+        onClose={() => setSplitTargetKey(null)}
+        onSubmit={editor.changeCostBearing}
       />
       <BudgetTemplateDialogs toolbar={toolbar} />
     </div>

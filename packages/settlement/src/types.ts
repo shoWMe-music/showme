@@ -51,6 +51,13 @@ export interface SettlementBudgetLine {
   collectedBy?: string; // participantId who received the revenue
   paidBy?: string; // participantId who fronted the cost
   payeeParticipantId?: string; // cost on behalf of this party; undefined = external supplier
+  /**
+   * The cost SPLIT rule — participantId → basis points of this line that party
+   * bears. The generalisation of `payeeParticipantId` (which is a split of 100%
+   * to one party); anything left unallocated stays a pool cost. See
+   * `cost-bearing.ts` for why the two halves must always sum to the line.
+   */
+  costSplit?: Record<string, number>;
 }
 
 /** Everything the engine needs to reconcile one event. */

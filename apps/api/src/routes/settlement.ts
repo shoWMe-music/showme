@@ -217,6 +217,8 @@ type BudgetLineReference = {
   budgetId: string;
   label: string;
   kind: "revenue" | "cost";
+  /** The cost-split bearers name participants as KEYS — same check applies. */
+  costSplit?: unknown;
 } & Partial<Record<(typeof PARTICIPANT_REFERENCE_FIELDS)[number], string | null>>;
 
 /** How a guard tells the operator which row is at fault and how to be rid of it. */
@@ -255,6 +257,20 @@ function assertBudgetLinesAreEventScoped(
           line,
           `has ${field} ${value}, which is not a participant on this event, so its cash belongs to nobody`,
         );
+      }
+    }
+    // A cost split reaches the engine as deductions against named parties, so a
+    // bearer from another event breaks the conservation law exactly as a foreign
+    // `payee_participant_id` does — and deserves the same legible refusal.
+    if (typeof line.costSplit === "object" && line.costSplit !== null) {
+      for (const participantId of Object.keys(line.costSplit as Record<string, unknown>)) {
+        if (!participantIdsOnEvent.has(participantId)) {
+          throw unsettlableLine(
+            eventId,
+            line,
+            `has a cost split naming ${participantId}, which is not a participant on this event, so part of it is charged to nobody`,
+          );
+        }
       }
     }
   }
@@ -339,6 +355,8 @@ async function reconcileEvent(
       collectedBy: schema.budgetLines.collectedBy,
       paidBy: schema.budgetLines.paidBy,
       payeeParticipantId: schema.budgetLines.payeeParticipantId,
+      costSplit: schema.budgetLines.costSplit,
+      dealId: schema.budgetLines.dealId,
     })
     .from(schema.budgetLines)
     .innerJoin(schema.budgets, eq(schema.budgets.id, schema.budgetLines.budgetId))
@@ -401,13 +419,28 @@ async function reconcileEvent(
     };
   });
 
-  const budgetLines: SettlementBudgetLine[] = lineRows.map((line) => ({
-    kind: line.kind,
-    amount: toBase(line.amount, line.currency),
-    collectedBy: line.collectedBy ?? undefined,
-    paidBy: line.paidBy ?? undefined,
-    payeeParticipantId: line.payeeParticipantId ?? undefined,
-  }));
+  const budgetLines: SettlementBudgetLine[] = lineRows
+    // A cost line ASSIGNED TO A DEAL is the deal's own entitlement written down in
+    // the planner — a forecast of what that agreement will pay, not cash that
+    // moved (design-handoff-budget-planner §6: *"performer fee as a cost field →
+    // a deal ENTITLEMENT, not a budget line — assign the line to the deal via
+    // `deal_id` so it is never double-counted"*).
+    //
+    // Left in, it is counted twice: once lowering the pool as an external cost and
+    // again as the deal's entitlement, so the operator's residual comes out short
+    // by the whole fee. It cannot be netted out inside `reconcile()` either — every
+    // cost is partitioned into pool share and borne shares there, and a third
+    // "ignore" bucket would break `Σ net = 0`. So it is dropped at the boundary:
+    // the deal is the authority on what the deal pays.
+    .filter((line) => !(line.kind === "cost" && line.dealId))
+    .map((line) => ({
+      kind: line.kind,
+      amount: toBase(line.amount, line.currency),
+      collectedBy: line.collectedBy ?? undefined,
+      paidBy: line.paidBy ?? undefined,
+      payeeParticipantId: line.payeeParticipantId ?? undefined,
+      costSplit: (line.costSplit as Record<string, number> | null) ?? undefined,
+    }));
 
   const input: SettlementInput = { baseCurrency, participants, deals, budgetLines };
   const result = reconcile(input);

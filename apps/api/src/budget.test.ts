@@ -1517,3 +1517,210 @@ describe("budget lines — the planner's custom revenue rows", () => {
     expect(rejected.statusCode).toBe(400);
   });
 });
+
+/**
+ * The cost-bearing rule — the 2026-08 settlements meeting's *"either a cost split
+ * or a single payer"* (01:06:31). `cost_split` has existed as a column since the
+ * schema was written and nothing read or wrote it; these are the rules that came
+ * with exposing it.
+ */
+describe("budgets — a cost is borne by a split OR a single payer, never both", () => {
+  async function seedBudget(prefix: string) {
+    const event = await seedEvent(prefix);
+    const budget = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.eventId}/budgets`,
+      headers: auth(event.operatorUid),
+      payload: { scope: "shared" },
+    });
+    expect(budget.statusCode).toBe(201);
+    return { ...event, budgetId: budget.json().id as string };
+  }
+
+  it("stores a split and reads it back", async () => {
+    const seed = await seedBudget("split-ok");
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.eventId}/budgets/${seed.budgetId}/lines`,
+      headers: auth(seed.operatorUid),
+      payload: {
+        kind: "cost",
+        label: "Marketing",
+        amount: "100000",
+        paidBy: seed.hostParticipantId,
+        costSplit: {
+          [seed.hostParticipantId]: 5000,
+          [seed.performerParticipantId]: 5000,
+        },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().costSplit).toEqual({
+      [seed.hostParticipantId]: 5000,
+      [seed.performerParticipantId]: 5000,
+    });
+
+    // …and the stored row really carries it, not just the response.
+    const [stored] = await harness.db
+      .select()
+      .from(schema.budgetLines)
+      .where(eq(schema.budgetLines.id, created.json().id));
+    expect(stored?.costSplit).toEqual({
+      [seed.hostParticipantId]: 5000,
+      [seed.performerParticipantId]: 5000,
+    });
+  });
+
+  it("refuses a split alongside a payee — the rule stated twice", async () => {
+    const seed = await seedBudget("split-both");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.eventId}/budgets/${seed.budgetId}/lines`,
+      headers: auth(seed.operatorUid),
+      payload: {
+        kind: "cost",
+        label: "Hotel",
+        amount: "50000",
+        paidBy: seed.hostParticipantId,
+        payeeParticipantId: seed.performerParticipantId,
+        costSplit: { [seed.performerParticipantId]: 10000 },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toContain("either by a split or by a single payer");
+  });
+
+  it("refuses a split over 100% but allows one under it", async () => {
+    const seed = await seedBudget("split-total");
+
+    const over = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.eventId}/budgets/${seed.budgetId}/lines`,
+      headers: auth(seed.operatorUid),
+      payload: {
+        kind: "cost",
+        label: "Security",
+        amount: "50000",
+        paidBy: seed.hostParticipantId,
+        costSplit: {
+          [seed.hostParticipantId]: 6000,
+          [seed.performerParticipantId]: 6000,
+        },
+      },
+    });
+    expect(over.statusCode).toBe(400);
+    expect(over.json().error.message).toContain("charges out more than the line is worth");
+
+    // The positive control, same body shape: under 100% is a real arrangement.
+    const under = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.eventId}/budgets/${seed.budgetId}/lines`,
+      headers: auth(seed.operatorUid),
+      payload: {
+        kind: "cost",
+        label: "Security",
+        amount: "50000",
+        paidBy: seed.hostParticipantId,
+        costSplit: { [seed.performerParticipantId]: 6000 },
+      },
+    });
+    expect(under.statusCode).toBe(201);
+  });
+
+  it("refuses a split on a revenue line — revenue has a collector, not bearers", async () => {
+    const seed = await seedBudget("split-revenue");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.eventId}/budgets/${seed.budgetId}/lines`,
+      headers: auth(seed.operatorUid),
+      payload: {
+        kind: "revenue",
+        label: "Merch",
+        amount: "50000",
+        collectedBy: seed.hostParticipantId,
+        costSplit: { [seed.performerParticipantId]: 5000 },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toContain("belongs only on a cost line");
+  });
+
+  it("refuses a split naming a participant from another event", async () => {
+    const seed = await seedBudget("split-foreign");
+    const elsewhere = await seedEvent("split-foreign-away");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.eventId}/budgets/${seed.budgetId}/lines`,
+      headers: auth(seed.operatorUid),
+      payload: {
+        kind: "cost",
+        label: "Backline",
+        amount: "50000",
+        paidBy: seed.hostParticipantId,
+        costSplit: { [elsewhere.hostParticipantId]: 5000 },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toContain("costSplit names");
+  });
+
+  it("clears a split back to a shared cost on PATCH", async () => {
+    const seed = await seedBudget("split-clear");
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.eventId}/budgets/${seed.budgetId}/lines`,
+      headers: auth(seed.operatorUid),
+      payload: {
+        kind: "cost",
+        label: "Production",
+        amount: "80000",
+        paidBy: seed.hostParticipantId,
+        costSplit: { [seed.performerParticipantId]: 5000 },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.eventId}/budgets/${seed.budgetId}/lines/${created.json().id}`,
+      headers: auth(seed.operatorUid),
+      payload: { costSplit: null },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().costSplit).toBeNull();
+  });
+
+  it("refuses a PATCH that would leave a line carrying both rules", async () => {
+    const seed = await seedBudget("split-patch-both");
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.eventId}/budgets/${seed.budgetId}/lines`,
+      headers: auth(seed.operatorUid),
+      payload: {
+        kind: "cost",
+        label: "Hotel",
+        amount: "50000",
+        paidBy: seed.hostParticipantId,
+        payeeParticipantId: seed.performerParticipantId,
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    // The patch names only the split; the payee is already on the row, and the
+    // check has to validate the row the edit WOULD PRODUCE.
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.eventId}/budgets/${seed.budgetId}/lines/${created.json().id}`,
+      headers: auth(seed.operatorUid),
+      payload: { costSplit: { [seed.performerParticipantId]: 5000 } },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toContain("either by a split or by a single payer");
+  });
+});

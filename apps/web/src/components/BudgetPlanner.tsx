@@ -1,6 +1,7 @@
 import { Button, Card, Icon, type IconName, Input, KeyValueRow } from "@showme/design-system";
 import { BudgetBreakEvenChart } from "./BudgetBreakEvenChart";
 import { BudgetBreakdownCard } from "./BudgetBreakdownCard";
+import { CostAttribution, DealAssignmentNote, RevenueAttribution } from "./BudgetLineAttribution";
 import { type KpiItem, KpiRow } from "./KpiRow";
 import { PerformingRightsEstimateCard } from "./PerformingRightsEstimateCard";
 import type {
@@ -9,6 +10,7 @@ import type {
   PerformingRightsDisplay,
 } from "./budgetPlannerView";
 import { Eyebrow } from "./primitives";
+import type { BudgetAttributionOption, BudgetDealOption, CostBearing } from "./useBudgetEditor";
 
 export interface TicketTypeRow {
   id: string;
@@ -17,6 +19,8 @@ export interface TicketTypeRow {
   price: string;
   /** Controlled quantity (string). */
   quantity: string;
+  /** The participant who receives it; "" falls back to the planning operator. */
+  collectedBy?: string;
 }
 
 export interface CostRow {
@@ -27,6 +31,12 @@ export interface CostRow {
   isCustom?: boolean;
   /** Printed as the row's pill. Custom rows only. */
   type?: "manual" | "per_guest";
+  /** Who fronted the cash; "" falls back to the planning operator. */
+  paidBy?: string;
+  /** Who ultimately carries it — shared, one bearer, or a split. */
+  bearing?: CostBearing;
+  /** The agreement this cost is booked against, or "". */
+  dealId?: string;
 }
 
 /** A free-form revenue row the operator named ("+ Add Field"). */
@@ -35,6 +45,8 @@ export interface CustomRevenueRow {
   label: string;
   value: string;
   type?: "manual" | "per_guest";
+  /** The participant who receives it; "" falls back to the planning operator. */
+  collectedBy?: string;
 }
 
 /** One button on the toolbar between the advisory banner and the KPI band. */
@@ -73,7 +85,33 @@ export interface BudgetPlannerProps {
   performingRights: PerformingRightsDisplay;
   currencySymbol?: string;
   advisory?: string;
-  onTicketChange?: (id: string, field: "name" | "price" | "quantity", value: string) => void;
+  /**
+   * Everyone on the event, for the collected-by / paid-by / borne-by selectors
+   * the 2026-08 settlements meeting made mandatory. Empty (or absent) draws no
+   * attribution strip at all — a planner on an event with no roster has nobody
+   * to attribute anything to, and one empty select per row would be noise.
+   */
+  participants?: BudgetAttributionOption[];
+  /** The event's agreements, so a cost can be booked against one. */
+  deals?: BudgetDealOption[];
+  /** Whose name an unattributed row carries — the operator doing the planning. */
+  defaultParticipantId?: string | null;
+  /** Who receives the bar take / "Other revenue". */
+  barCollectedBy?: string;
+  otherRevenueCollectedBy?: string;
+  onBarCollectedByChange?: (participantId: string) => void;
+  onOtherRevenueCollectedByChange?: (participantId: string) => void;
+  onCustomRevenueCollectedByChange?: (id: string, participantId: string) => void;
+  onCostPaidByChange?: (key: string, participantId: string) => void;
+  onCostBearingChange?: (key: string, bearing: CostBearing) => void;
+  onCostDealChange?: (key: string, dealId: string) => void;
+  /** Opens the split dialog for one cost row. */
+  onEditCostSplit?: (key: string) => void;
+  onTicketChange?: (
+    id: string,
+    field: "name" | "price" | "quantity" | "collectedBy",
+    value: string,
+  ) => void;
   onAddTicketType?: () => void;
   onRemoveTicketType?: (id: string) => void;
   onCapacityChange?: (value: string) => void;
@@ -117,6 +155,18 @@ export function BudgetPlanner({
   performingRights,
   currencySymbol = "€",
   advisory = "This is an estimate only and should be reviewed before final decisions.",
+  participants = [],
+  deals = [],
+  defaultParticipantId = null,
+  barCollectedBy = "",
+  otherRevenueCollectedBy = "",
+  onBarCollectedByChange,
+  onOtherRevenueCollectedByChange,
+  onCustomRevenueCollectedByChange,
+  onCostPaidByChange,
+  onCostBearingChange,
+  onCostDealChange,
+  onEditCostSplit,
   onTicketChange,
   onAddTicketType,
   onRemoveTicketType,
@@ -131,11 +181,17 @@ export function BudgetPlanner({
   onProcessingPercentChange,
   onProcessingFlatPerTicketChange,
 }: BudgetPlannerProps) {
-  const money = (value: string, onChange?: (value: string) => void) => (
+  // `label` names the field for assistive technology (and for a test that has to
+  // pick one row of ten). The rows print their heading as plain text beside the
+  // input, which the browser does not connect to it — and now that each row also
+  // carries three attribution selects, an unnamed money field is the only control
+  // on the row with nothing to call it.
+  const money = (value: string, onChange?: (value: string) => void, label?: string) => (
     <div style={{ width: 130 }}>
       <Input
         value={value}
         inputMode="decimal"
+        aria-label={label}
         leftIcon={<span style={{ color: "var(--muted)" }}>{currencySymbol}</span>}
         onChange={(event) => onChange?.(event.target.value)}
       />
@@ -188,33 +244,50 @@ export function BudgetPlanner({
           <Eyebrow style={{ color: "#6FC97A" }}>Revenue</Eyebrow>
           <Eyebrow>Ticket revenue</Eyebrow>
           {ticketTypes.map((ticket) => (
-            <div key={ticket.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ flex: 1 }}>
-                <Input
-                  value={ticket.name}
-                  placeholder="Ticket type"
-                  onChange={(event) => onTicketChange?.(ticket.id, "name", event.target.value)}
-                />
+            <div key={ticket.id} style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <Input
+                    value={ticket.name}
+                    placeholder="Ticket type"
+                    onChange={(event) => onTicketChange?.(ticket.id, "name", event.target.value)}
+                  />
+                </div>
+                {money(
+                  ticket.price,
+                  (value) => onTicketChange?.(ticket.id, "price", value),
+                  `${ticket.name || "Ticket type"} price`,
+                )}
+                <div style={{ width: 80 }}>
+                  <Input
+                    value={ticket.quantity}
+                    inputMode="numeric"
+                    placeholder="Qty"
+                    onChange={(event) =>
+                      onTicketChange?.(ticket.id, "quantity", event.target.value)
+                    }
+                  />
+                </div>
+                {onRemoveTicketType && (
+                  <button
+                    type="button"
+                    aria-label="Remove ticket type"
+                    onClick={() => onRemoveTicketType(ticket.id)}
+                    style={iconButtonStyle}
+                  >
+                    <Icon name="trash" size={15} />
+                  </button>
+                )}
               </div>
-              {money(ticket.price, (value) => onTicketChange?.(ticket.id, "price", value))}
-              <div style={{ width: 80 }}>
-                <Input
-                  value={ticket.quantity}
-                  inputMode="numeric"
-                  placeholder="Qty"
-                  onChange={(event) => onTicketChange?.(ticket.id, "quantity", event.target.value)}
-                />
-              </div>
-              {onRemoveTicketType && (
-                <button
-                  type="button"
-                  aria-label="Remove ticket type"
-                  onClick={() => onRemoveTicketType(ticket.id)}
-                  style={iconButtonStyle}
-                >
-                  <Icon name="trash" size={15} />
-                </button>
-              )}
+              <RevenueAttribution
+                participants={participants}
+                value={ticket.collectedBy ?? ""}
+                fallbackParticipantId={defaultParticipantId}
+                onChange={(participantId) =>
+                  onTicketChange?.(ticket.id, "collectedBy", participantId)
+                }
+                rowLabel={ticket.name || "this ticket type"}
+              />
             </div>
           ))}
           <KeyValueRow
@@ -247,28 +320,57 @@ export function BudgetPlanner({
             <span style={{ flex: 1, color: "var(--text)", fontSize: 14 }}>
               Average bar spend per guest
             </span>
-            {money(avgBarSpend, onAvgBarSpendChange)}
+            {money(avgBarSpend, onAvgBarSpendChange, "Average bar spend per guest")}
           </div>
           <KeyValueRow label="Bar revenue" value={barRevenue} mono valueColor="#6FC97A" />
+          <RevenueAttribution
+            participants={participants}
+            value={barCollectedBy}
+            fallbackParticipantId={defaultParticipantId}
+            onChange={(participantId) => onBarCollectedByChange?.(participantId)}
+            rowLabel="bar revenue"
+          />
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ flex: 1, color: "var(--text)", fontSize: 14 }}>Other revenue</span>
-            {money(otherRevenue, onOtherRevenueChange)}
+            {money(otherRevenue, onOtherRevenueChange, "Other revenue")}
           </div>
+          <RevenueAttribution
+            participants={participants}
+            value={otherRevenueCollectedBy}
+            fallbackParticipantId={defaultParticipantId}
+            onChange={(participantId) => onOtherRevenueCollectedByChange?.(participantId)}
+            rowLabel="other revenue"
+          />
           {customRevenue.map((row) => (
-            <div key={row.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ flex: 1, color: "var(--text)", fontSize: 14 }}>{row.label}</span>
-              <span style={typePillStyle}>{typeLabel(row.type)}</span>
-              {money(row.value, (value) => onCustomRevenueChange?.(row.id, value))}
-              {onRemoveCustomRevenue && (
-                <button
-                  type="button"
-                  aria-label={`Remove ${row.label}`}
-                  onClick={() => onRemoveCustomRevenue(row.id)}
-                  style={iconButtonStyle}
-                >
-                  <Icon name="x" size={14} />
-                </button>
-              )}
+            <div key={row.id} style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ flex: 1, color: "var(--text)", fontSize: 14 }}>{row.label}</span>
+                <span style={typePillStyle}>{typeLabel(row.type)}</span>
+                {money(
+                  row.value,
+                  (value) => onCustomRevenueChange?.(row.id, value),
+                  `${row.label} amount`,
+                )}
+                {onRemoveCustomRevenue && (
+                  <button
+                    type="button"
+                    aria-label={`Remove ${row.label}`}
+                    onClick={() => onRemoveCustomRevenue(row.id)}
+                    style={iconButtonStyle}
+                  >
+                    <Icon name="x" size={14} />
+                  </button>
+                )}
+              </div>
+              <RevenueAttribution
+                participants={participants}
+                value={row.collectedBy ?? ""}
+                fallbackParticipantId={defaultParticipantId}
+                onChange={(participantId) =>
+                  onCustomRevenueCollectedByChange?.(row.id, participantId)
+                }
+                rowLabel={row.label}
+              />
             </div>
           ))}
           {onAddCustomField && (
@@ -285,21 +387,45 @@ export function BudgetPlanner({
         <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <Eyebrow style={{ color: "#EE5746" }}>Costs</Eyebrow>
           {costs.map((cost) => (
-            <div key={cost.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ flex: 1, color: "var(--text)", fontSize: 14 }}>{cost.label}</span>
-              {/* Only a custom row is typed and removable — the six standing
+            <div key={cost.key} style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ flex: 1, color: "var(--text)", fontSize: 14 }}>{cost.label}</span>
+                {/* Only a custom row is typed and removable — the six standing
                   headings are fixed, because the screen promises to show them. */}
-              {cost.isCustom && <span style={typePillStyle}>{typeLabel(cost.type)}</span>}
-              {money(cost.value, (value) => onCostChange?.(cost.key, value))}
-              {cost.isCustom && onRemoveCost && (
-                <button
-                  type="button"
-                  aria-label={`Remove ${cost.label}`}
-                  onClick={() => onRemoveCost(cost.key)}
-                  style={iconButtonStyle}
-                >
-                  <Icon name="x" size={14} />
-                </button>
+                {cost.isCustom && <span style={typePillStyle}>{typeLabel(cost.type)}</span>}
+                {money(
+                  cost.value,
+                  (value) => onCostChange?.(cost.key, value),
+                  `${cost.label} amount`,
+                )}
+                {cost.isCustom && onRemoveCost && (
+                  <button
+                    type="button"
+                    aria-label={`Remove ${cost.label}`}
+                    onClick={() => onRemoveCost(cost.key)}
+                    style={iconButtonStyle}
+                  >
+                    <Icon name="x" size={14} />
+                  </button>
+                )}
+              </div>
+              <CostAttribution
+                participants={participants}
+                deals={deals}
+                paidBy={cost.paidBy ?? ""}
+                fallbackParticipantId={defaultParticipantId}
+                bearing={cost.bearing ?? { kind: "shared" }}
+                dealId={cost.dealId ?? ""}
+                onPaidByChange={(participantId) => onCostPaidByChange?.(cost.key, participantId)}
+                onBearingChange={(bearing) => onCostBearingChange?.(cost.key, bearing)}
+                onEditSplit={() => onEditCostSplit?.(cost.key)}
+                onDealChange={(dealId) => onCostDealChange?.(cost.key, dealId)}
+                rowLabel={cost.label}
+              />
+              {cost.dealId && (
+                <DealAssignmentNote
+                  dealName={deals.find((deal) => deal.id === cost.dealId)?.name ?? "this agreement"}
+                />
               )}
             </div>
           ))}

@@ -32,7 +32,6 @@ export type { EventDetailHeaderProps, EventParty } from "./EventDetailHeader";
 
 export { EventDetailsTab } from "./EventDetailsTab";
 export type {
-  DetailsDeal,
   DetailsEvent,
   DetailsPerformer,
   DetailsRider,

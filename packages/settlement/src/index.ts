@@ -1,5 +1,6 @@
 export { reconcile, assertBalanced } from "./reconcile";
 export { dealEntitlement, splitBasisPointsForSales } from "./entitlement";
+export { costBearingOf, type CostBearing } from "./cost-bearing";
 export { greedyTransfers } from "./transfers";
 export {
   serializeBreakdown,

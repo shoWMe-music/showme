@@ -1,4 +1,5 @@
 import { allocate, applyBasisPoints } from "@showme/shared";
+import { costBearingOf } from "./cost-bearing";
 import { dealEntitlement } from "./entitlement";
 import { greedyTransfers } from "./transfers";
 import type { PartyBreakdown, SettlementInput, SettlementResult } from "./types";
@@ -25,15 +26,18 @@ export function reconcile(input: SettlementInput): SettlementResult {
   const { baseCurrency, participants, deals, budgetLines } = input;
   const ticketsSold = input.ticketsSold ?? 0;
 
-  // 1. Pool — revenue less costs paid to external suppliers (payee-less lines).
+  // 1. Pool — revenue less the portion of each cost nobody is charged for.
+  //
+  //    Every cost line is partitioned by its BEARING RULE (`cost-bearing.ts`) into
+  //    the share that lowers the pool and the shares deducted from named parties in
+  //    step 3. The two halves always sum to the line, which is what keeps `Σ net = 0`
+  //    true whether a cost is shared, deducted from one party, or split between
+  //    several (the 2026-08 meeting's "either a cost split or a single payer").
   const revenue = sumBigint(
     budgetLines.filter((line) => line.kind === "revenue").map((line) => line.amount),
   );
-  const externalCosts = sumBigint(
-    budgetLines
-      .filter((line) => line.kind === "cost" && !line.payeeParticipantId)
-      .map((line) => line.amount),
-  );
+  const bearings = budgetLines.map((line) => costBearingOf(line));
+  const externalCosts = sumBigint(bearings.map((bearing) => bearing.poolShare));
   const pool = revenue - externalCosts;
 
   // 2a. Base entitlements from deals — split each deal across its payees with
@@ -74,10 +78,12 @@ export function reconcile(input: SettlementInput): SettlementResult {
     operators.forEach((operator, index) => credit(operator.participantId, parts[index] ?? 0n));
   }
 
-  // 3. Deductibles — a cost on behalf of a party lowers that party's entitlement.
-  for (const line of budgetLines) {
-    if (line.kind === "cost" && line.payeeParticipantId) {
-      credit(line.payeeParticipantId, -line.amount);
+  // 3. Deductibles — the borne half of each cost lowers those parties' entitlements.
+  //    One party at the whole amount is the classic deductible (a venue paying for
+  //    the band); several at stated percentages is the meeting's cost split.
+  for (const bearing of bearings) {
+    for (const [participantId, amount] of bearing.borne) {
+      credit(participantId, -amount);
     }
   }
 

@@ -1937,3 +1937,107 @@ describe("settlement — what reaches an event's history", () => {
     expect(rows.filter((row) => row.targetKind === "transfer")).toHaveLength(0);
   });
 });
+
+/**
+ * The two budget-line rules the 2026-08 settlements meeting added, proven through
+ * the API rather than only in the engine's own unit tests.
+ */
+describe("settlement — the cost rule and deal-assigned costs", () => {
+  it("charges a split cost to the parties that agreed to carry it", async () => {
+    const seed = await seedWorkedExample("cost-split");
+    const { db } = harness;
+
+    const [budget] = await db
+      .select()
+      .from(schema.budgets)
+      .where(eq(schema.budgets.eventId, seed.event.id));
+    if (!budget) throw new Error("budget lookup failed");
+
+    // A 1,000.00 marketing bill the operator fronts, split 50/50 with the band.
+    await db.insert(schema.budgetLines).values({
+      budgetId: budget.id,
+      kind: "cost",
+      label: "Marketing",
+      amount: 100000n,
+      paidBy: seed.pPart,
+      costSplit: { [seed.pPart]: 5000, [seed.bPart]: 5000 },
+    });
+
+    const computed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth("cost-split-op"),
+    });
+    expect(computed.statusCode).toBe(200);
+
+    const band = computed
+      .json()
+      .breakdowns.find((row: { participantId: string }) => row.participantId === seed.bPart);
+    // 3,000.00 guarantee less its half (500.00) of the marketing bill.
+    expect(band.entitlement).toBe("250000");
+
+    // Σ net = 0 is asserted by the engine, but assert it here too: the whole
+    // point of the split is that it cannot quietly unbalance the books.
+    const netSum = computed
+      .json()
+      .breakdowns.reduce((running: bigint, row: { net: string }) => running + BigInt(row.net), 0n);
+    expect(netSum).toBe(0n);
+  });
+
+  it("does not count a cost assigned to a deal twice", async () => {
+    const seed = await seedWorkedExample("deal-cost");
+    const { db } = harness;
+
+    const [budget] = await db
+      .select()
+      .from(schema.budgets)
+      .where(eq(schema.budgets.eventId, seed.event.id));
+    const [guarantee] = await db
+      .select()
+      .from(schema.deals)
+      .where(eq(schema.deals.name, "Band guarantee"));
+    if (!budget || !guarantee) throw new Error("lookup failed");
+
+    const before = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth("deal-cost-op"),
+    });
+    expect(before.statusCode).toBe(200);
+    const operatorBefore = before
+      .json()
+      .breakdowns.find((row: { participantId: string }) => row.participantId === seed.pPart);
+
+    // The planner's "Performer fee" row: the SAME 3,000.00 the deal already
+    // guarantees, written down as a forecast and booked against that deal.
+    await db.insert(schema.budgetLines).values({
+      budgetId: budget.id,
+      kind: "cost",
+      label: "Performer fee",
+      amount: 300000n,
+      paidBy: seed.pPart,
+      dealId: guarantee.id,
+    });
+
+    const after = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth("deal-cost-op"),
+    });
+    expect(after.statusCode).toBe(200);
+    const operatorAfter = after
+      .json()
+      .breakdowns.find((row: { participantId: string }) => row.participantId === seed.pPart);
+
+    // Nothing moved: the settlement takes the band's entitlement from the
+    // agreement, so the forecast line beside it changes no figure. Left in the
+    // pool it would have cut the operator's residual by the whole 3,000.00.
+    expect(operatorAfter.entitlement).toBe(operatorBefore.entitlement);
+    expect(operatorAfter.net).toBe(operatorBefore.net);
+
+    const netSum = after
+      .json()
+      .breakdowns.reduce((running: bigint, row: { net: string }) => running + BigInt(row.net), 0n);
+    expect(netSum).toBe(0n);
+  });
+});

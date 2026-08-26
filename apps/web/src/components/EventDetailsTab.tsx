@@ -14,7 +14,6 @@ import {
   InfoPairGrid,
   MonoPill,
   OutlineButton,
-  RemovableChip,
   SectionCard,
   XIcon,
 } from "./eventUi";
@@ -86,12 +85,6 @@ export interface DetailsScheduleEntry {
   time: string;
   label: string;
 }
-export interface DetailsDeal {
-  dealTypeLabel: string;
-  costSplit: string | null;
-  guarantee: string | null;
-}
-
 export interface EventDetailsTabProps {
   event: DetailsEvent;
   statusLabel: string;
@@ -100,7 +93,6 @@ export interface EventDetailsTabProps {
   riders: DetailsRider[];
   /** @deprecated The Event Schedule card loads and writes the schedule itself. */
   schedule?: DetailsScheduleEntry[];
-  deal: DetailsDeal | null;
   currency: string;
   /** @deprecated Superseded by `useEventExtrasEditor`, which tracks the event
    * version from each PATCH response instead of the last completed refetch —
@@ -117,7 +109,6 @@ export function EventDetailsTab({
   operatorName,
   performers,
   riders,
-  deal,
   currency,
   canEdit,
 }: EventDetailsTabProps) {
@@ -147,13 +138,6 @@ export function EventDetailsTab({
       <RidersDocumentsCard eventId={event.id} riders={riders} />
       <EventScheduleCard eventId={event.id} eventDate={event.eventDate} canEdit={canEdit} />
       {canSeeExtras && (
-        <AmenitiesCard
-          amenities={extras.amenities ?? []}
-          canEdit={canEdit}
-          onSave={(amenities) => extrasEditor.save({ ...extras, amenities })}
-        />
-      )}
-      {canSeeExtras && (
         <GuestListCard
           guestList={extras.guestList ?? {}}
           canEdit={canEdit}
@@ -162,7 +146,6 @@ export function EventDetailsTab({
           onCommit={extrasEditor.commit}
         />
       )}
-      {deal && <FinancialDealCard deal={deal} />}
       {canSeeExtras && (
         <TicketInformationCard
           tiers={extras.ticketTiers ?? []}
@@ -363,72 +346,6 @@ function VenueProfileLink({ event }: { event: DetailsEvent }) {
         {venue.isSaving ? " Saving…" : ""}
       </span>
     </div>
-  );
-}
-
-function AmenitiesCard({
-  amenities,
-  canEdit,
-  onSave,
-}: {
-  amenities: string[];
-  canEdit: boolean;
-  onSave: (next: string[]) => void;
-}) {
-  const [draft, setDraft] = useState("");
-  const add = () => {
-    const value = draft.trim();
-    if (!value) return;
-    // Adding the same amenity twice would collide on the render key and say
-    // nothing new — treat it as already added.
-    if (amenities.includes(value)) {
-      setDraft("");
-      return;
-    }
-    onSave([...amenities, value]);
-    setDraft("");
-  };
-  return (
-    <SectionCard>
-      <CardHeader icon={<Icon name="star" size={17} />} iconColor="#6FC97A" title="Amenities" />
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-        {amenities.length === 0 && (
-          <div style={{ color: "var(--dim)", fontSize: 13 }}>No amenities added yet.</div>
-        )}
-        {amenities.map((amenity, index) => (
-          <RemovableChip
-            key={amenity}
-            label={amenity}
-            onRemove={
-              canEdit
-                ? () => onSave(amenities.filter((_, position) => position !== index))
-                : undefined
-            }
-          />
-        ))}
-      </div>
-      {canEdit && (
-        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <TextField
-              aria-label="New amenity"
-              value={draft}
-              onChange={(changeEvent) => setDraft(changeEvent.target.value)}
-              onKeyDown={(keyEvent) => keyEvent.key === "Enter" && add()}
-              placeholder="Add amenity…"
-            />
-          </div>
-          <Button
-            variant="secondary"
-            aria-label="Add amenity"
-            onClick={add}
-            disabled={draft.trim() === ""}
-          >
-            + Add
-          </Button>
-        </div>
-      )}
-    </SectionCard>
   );
 }
 
@@ -652,21 +569,6 @@ function NumericField({
   );
 }
 
-function FinancialDealCard({ deal }: { deal: DetailsDeal }) {
-  return (
-    <SectionCard>
-      <CardHeader
-        icon={<Icon name="receipt" size={17} />}
-        iconColor="#6FC97A"
-        title="Financial Deal"
-      />
-      <Row label="Deal type" value={deal.dealTypeLabel} />
-      {deal.costSplit && <Row label="Cost split" value={deal.costSplit} />}
-      {deal.guarantee && <Row label="Guarantee" value={deal.guarantee} mono last />}
-    </SectionCard>
-  );
-}
-
 function TicketInformationCard({
   tiers,
   capacity,
@@ -881,41 +783,6 @@ function TicketInformationCard({
         </div>
       )}
     </SectionCard>
-  );
-}
-
-function Row({
-  label,
-  value,
-  mono,
-  last,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-  last?: boolean;
-}) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        padding: "11px 0",
-        fontSize: 13.5,
-        ...(last ? {} : rowBorder),
-      }}
-    >
-      <span style={{ color: "var(--muted)" }}>{label}</span>
-      <span
-        style={{
-          color: "var(--text)",
-          fontWeight: 500,
-          fontFamily: mono ? "var(--font-mono)" : undefined,
-        }}
-      >
-        {value}
-      </span>
-    </div>
   );
 }
 

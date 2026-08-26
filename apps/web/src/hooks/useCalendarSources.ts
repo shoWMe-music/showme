@@ -27,8 +27,25 @@ import { useMemo } from "react";
  * `GET /profiles/:id/stages`, which 404s for a non-member. So a performer booked
  * at a venue sees their own schedule and learns nothing about that venue's
  * rooms — a venue's internal geography is its own. A crew member employed BY the
- * venue does see them, which is the same line `authorize()` already draws: staff
- * of the house, not an arm's-length counterparty.
+ * venue does see them: staff of the house, not an arm's-length counterparty.
+ *
+ * WHY THAT LINE AND NOT A WIDER ONE. Rooms are not financials, so the founders'
+ * transparency rule (`docs/meeting-2026-08-settlements-and-deals.md`, 00:21:42
+ * and 00:25:48 — binding, and later than `docs/decisions.md`) does not govern
+ * this directly. But its SHAPE does, and it is the closest rule there is:
+ * disclosure is bounded by what you are a party to. An operator sees everything
+ * of theirs; a collaborator sees "only the portions relevant to their own
+ * deals". A venue's room roster is not a portion of anybody's deal — it is the
+ * standing inventory of a building, including rooms the reader has no booking in
+ * and may be competing for. So membership of the venue profile is the boundary,
+ * and it lands where that rule would: the house sees its own geography, a
+ * counterparty sees their own calendar.
+ *
+ * The one thing that rule DOES imply and this cannot yet deliver: the room of
+ * the event you are actually on is relevant to you, and a party who is not a
+ * venue member still reads "Assigned" rather than "Main Hall", because
+ * `serializeEvent` carries `stageId` and no name. Closing that means widening
+ * the event serializer, not this list.
  */
 
 type Profile = Awaited<ReturnType<typeof getApiV1Profiles>>[number];

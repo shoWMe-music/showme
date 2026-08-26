@@ -3322,6 +3322,15 @@
                               "type": "string",
                               "nullable": true
                             },
+                            "costSplit": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 10000
+                              },
+                              "nullable": true
+                            },
                             "dealId": {
                               "type": "string",
                               "nullable": true
@@ -3369,6 +3378,7 @@
                             "collectedBy",
                             "paidBy",
                             "payeeParticipantId",
+                            "costSplit",
                             "dealId",
                             "details",
                             "version"
@@ -3520,6 +3530,15 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "costSplit": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 10000
+                            },
+                            "nullable": true
+                          },
                           "dealId": {
                             "type": "string",
                             "nullable": true
@@ -3567,6 +3586,7 @@
                           "collectedBy",
                           "paidBy",
                           "payeeParticipantId",
+                          "costSplit",
                           "dealId",
                           "details",
                           "version"
@@ -3748,6 +3768,15 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "costSplit": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 10000
+                            },
+                            "nullable": true
+                          },
                           "dealId": {
                             "type": "string",
                             "nullable": true
@@ -3795,6 +3824,7 @@
                           "collectedBy",
                           "paidBy",
                           "payeeParticipantId",
+                          "costSplit",
                           "dealId",
                           "details",
                           "version"
@@ -3890,6 +3920,15 @@
                         "type": "string",
                         "nullable": true
                       },
+                      "costSplit": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 10000
+                        },
+                        "nullable": true
+                      },
                       "dealId": {
                         "type": "string",
                         "nullable": true
@@ -3937,6 +3976,7 @@
                       "collectedBy",
                       "paidBy",
                       "payeeParticipantId",
+                      "costSplit",
                       "dealId",
                       "details",
                       "version"
@@ -3992,6 +4032,15 @@
                   "payeeParticipantId": {
                     "type": "string",
                     "format": "uuid"
+                  },
+                  "costSplit": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 10000
+                    },
+                    "nullable": true
                   },
                   "dealId": {
                     "type": "string",
@@ -4097,6 +4146,15 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "costSplit": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10000
+                      },
+                      "nullable": true
+                    },
                     "dealId": {
                       "type": "string",
                       "nullable": true
@@ -4144,6 +4202,7 @@
                     "collectedBy",
                     "paidBy",
                     "payeeParticipantId",
+                    "costSplit",
                     "dealId",
                     "details",
                     "version"
@@ -4195,6 +4254,15 @@
                   "payeeParticipantId": {
                     "type": "string",
                     "format": "uuid",
+                    "nullable": true
+                  },
+                  "costSplit": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 10000
+                    },
                     "nullable": true
                   },
                   "dealId": {
@@ -4313,6 +4381,15 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "costSplit": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10000
+                      },
+                      "nullable": true
+                    },
                     "dealId": {
                       "type": "string",
                       "nullable": true
@@ -4360,6 +4437,7 @@
                     "collectedBy",
                     "paidBy",
                     "payeeParticipantId",
+                    "costSplit",
                     "dealId",
                     "details",
                     "version"

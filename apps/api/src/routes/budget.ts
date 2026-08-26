@@ -61,6 +61,19 @@ const LineDetails = z.object({
   quantity: z.number().int().min(0),
 });
 
+/**
+ * The cost-bearing rule on a line (2026-08 settlements meeting, 01:06:31):
+ * participant id → basis points of the line that party bears. The generalisation
+ * of `payeeParticipantId`, which is the same rule set to 100% for one party — so
+ * the two are mutually exclusive and `assertCostRuleIsCoherent` refuses both at
+ * once rather than letting the engine guess which the operator meant.
+ *
+ * The values are allowed to total LESS than 10 000: "the venue carries 60%, the
+ * event carries the rest" is a real arrangement and the remainder stays a pool
+ * cost. They may never total MORE — that would charge out more than the line.
+ */
+const CostSplit = z.record(z.string().uuid(), z.number().int().min(1).max(10_000));
+
 const CreateLineBody = z.object({
   kind: z.enum(["revenue", "cost"]),
   /** Provenance of a revenue line (decisions #15) — `manual` unless synced. */
@@ -72,6 +85,7 @@ const CreateLineBody = z.object({
   collectedBy: z.string().uuid().optional(),
   paidBy: z.string().uuid().optional(),
   payeeParticipantId: z.string().uuid().optional(),
+  costSplit: CostSplit.nullable().optional(),
   dealId: z.string().uuid().optional(),
   details: LineDetails.nullable().optional(),
 });
@@ -84,6 +98,7 @@ const UpdateLineBody = z.object({
   collectedBy: z.string().uuid().nullable().optional(),
   paidBy: z.string().uuid().nullable().optional(),
   payeeParticipantId: z.string().uuid().nullable().optional(),
+  costSplit: CostSplit.nullable().optional(),
   dealId: z.string().uuid().nullable().optional(),
   details: LineDetails.nullable().optional(),
   /** Expected version for optimistic locking (decisions #8); mismatch → 409. */
@@ -106,6 +121,7 @@ const BudgetLineResponse = z.object({
   collectedBy: z.string().nullable(),
   paidBy: z.string().nullable(),
   payeeParticipantId: z.string().nullable(),
+  costSplit: CostSplit.nullable(),
   dealId: z.string().nullable(),
   details: LineDetails.nullable(),
   version: z.number(),
@@ -212,6 +228,8 @@ type ParticipantReferenceField = (typeof PARTICIPANT_REFERENCE_FIELDS)[number];
 /** The reference-carrying half of a create/update line body. */
 type LineReferences = Partial<Record<ParticipantReferenceField, string | null>> & {
   dealId?: string | null;
+  /** Participant ids appear as the KEYS here, so they need the same event check. */
+  costSplit?: Record<string, number> | null;
 };
 
 /**
@@ -241,11 +259,15 @@ async function assertLineReferencesBelongToEvent(
   const { database } = request.server;
 
   const referencedParticipantIds = [
-    ...new Set(
-      PARTICIPANT_REFERENCE_FIELDS.map((field) => line[field]).filter(
+    ...new Set([
+      ...PARTICIPANT_REFERENCE_FIELDS.map((field) => line[field]).filter(
         (value): value is string => typeof value === "string",
       ),
-    ),
+      // A cost split names its bearers as object KEYS. They reach `reconcile()`
+      // exactly as `payeeParticipantId` does — a foreign id there breaks the
+      // conservation law by the same arithmetic, so it gets the same check.
+      ...Object.keys(line.costSplit ?? {}),
+    ]),
   ];
   if (referencedParticipantIds.length > 0) {
     const rows = await database
@@ -263,6 +285,13 @@ async function assertLineReferencesBelongToEvent(
       if (typeof value === "string" && !participantsOnThisEvent.has(value)) {
         throw badRequest(
           `${field} ${value} is not a participant on this event. Send a participant id from GET /events/${eventId}/participants — not a profile id.`,
+        );
+      }
+    }
+    for (const participantId of Object.keys(line.costSplit ?? {})) {
+      if (!participantsOnThisEvent.has(participantId)) {
+        throw badRequest(
+          `costSplit names ${participantId}, which is not a participant on this event. Send a participant id from GET /events/${eventId}/participants — not a profile id.`,
         );
       }
     }
@@ -311,6 +340,50 @@ function assertCashIsAttributed(line: {
   if (line.kind === "cost" && !line.paidBy) {
     throw badRequest(
       "A cost line must name paidBy — the participant who fronted the cash. A cost nobody paid lowers the pool while nobody is out of pocket, and the settlement can never balance.",
+    );
+  }
+}
+
+/**
+ * A cost bears ONE rule (2026-08 settlements meeting, 01:06:31: *"the production
+ * system requires a defined rule: either a cost split or a single payer"*).
+ *
+ * Three refusals, each protecting a different thing:
+ *
+ * 1. **A split and a payee together** — they are the same mechanism at two
+ *    settings (`cost-bearing.ts`), so a line carrying both states the rule twice
+ *    and the engine would have to guess which one the operator meant. It reads
+ *    the split, silently; a 400 says so instead.
+ * 2. **A split totalling over 100%** — charges out more than the line is worth.
+ *    The pool would have to make up the difference out of nothing, and `Σ net = 0`
+ *    would hold while the operator's residual quietly ate an amount nobody
+ *    entered. (Under 100% is fine and deliberate: the remainder stays a pool cost.)
+ * 3. **A split on a revenue line** — the rule says who BEARS a cost. Revenue has
+ *    a collector, not bearers; `reconcile()` never reads the column on a revenue
+ *    line, so accepting it would store a term that does nothing.
+ */
+function assertCostRuleIsCoherent(line: {
+  kind: "revenue" | "cost";
+  payeeParticipantId?: string | null;
+  costSplit?: Record<string, number> | null;
+}): void {
+  const split = line.costSplit;
+  if (!split || Object.keys(split).length === 0) return;
+
+  if (line.kind !== "cost") {
+    throw badRequest(
+      "costSplit says who BEARS a cost, so it belongs only on a cost line. Revenue names a collector (collectedBy), not bearers.",
+    );
+  }
+  if (line.payeeParticipantId) {
+    throw badRequest(
+      "A cost is borne either by a split or by a single payer, not both. Send costSplit on its own, or payeeParticipantId on its own (which is the same rule at 100% for one party).",
+    );
+  }
+  const total = Object.values(split).reduce((running, points) => running + points, 0);
+  if (total > 10_000) {
+    throw badRequest(
+      `The cost split adds up to ${(total / 100).toFixed(2)}%, which charges out more than the line is worth. It may total less than 100% — the remainder stays a shared cost — but never more.`,
     );
   }
 }
@@ -506,6 +579,7 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       // neither a foreign id nor an unattributed amount becomes a stored row.
       await assertLineReferencesBelongToEvent(request, id, body);
       assertCashIsAttributed(body);
+      assertCostRuleIsCoherent(body);
 
       const created = await database.transaction(async (tx) => {
         const [line] = await tx
@@ -521,6 +595,7 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
             collectedBy: body.collectedBy ?? null,
             paidBy: body.paidBy ?? null,
             payeeParticipantId: body.payeeParticipantId ?? null,
+            costSplit: body.costSplit ?? null,
             dealId: body.dealId ?? null,
             details: body.details ?? null,
           })
@@ -571,6 +646,20 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
         collectedBy:
           request.body.collectedBy !== undefined ? request.body.collectedBy : before.collectedBy,
         paidBy: request.body.paidBy !== undefined ? request.body.paidBy : before.paidBy,
+      });
+      // Same reasoning as the attribution check above: validate the row the edit
+      // WOULD PRODUCE. A patch that adds a split to a line that already carries a
+      // payee states the bearing rule twice, however it got into that state.
+      assertCostRuleIsCoherent({
+        kind: request.body.kind ?? before.kind,
+        payeeParticipantId:
+          request.body.payeeParticipantId !== undefined
+            ? request.body.payeeParticipantId
+            : before.payeeParticipantId,
+        costSplit:
+          request.body.costSplit !== undefined
+            ? request.body.costSplit
+            : (before.costSplit as Record<string, number> | null),
       });
 
       const { expectedVersion, amount, ...rest } = request.body;

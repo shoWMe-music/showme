@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { GetApiV1EventsIdBudgetsBidLines200ItemCostSplit } from './getApiV1EventsIdBudgetsBidLines200ItemCostSplit';
 import type { GetApiV1EventsIdBudgetsBidLines200ItemDetails } from './getApiV1EventsIdBudgetsBidLines200ItemDetails';
 
 export type GetApiV1EventsIdBudgetsBidLines200Item = {
@@ -23,6 +24,8 @@ export type GetApiV1EventsIdBudgetsBidLines200Item = {
   paidBy: string | null;
   /** @nullable */
   payeeParticipantId: string | null;
+  /** @nullable */
+  costSplit: GetApiV1EventsIdBudgetsBidLines200ItemCostSplit;
   /** @nullable */
   dealId: string | null;
   /** @nullable */

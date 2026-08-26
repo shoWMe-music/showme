@@ -123,10 +123,19 @@ export function DealAgreementCard({
 
       <AgreementView
         frozen={frozen}
+        // Frozen terms and a full set of signatures are two different claims, and
+        // this used to make the second one whenever the first was true. On a deal
+        // whose status reads `confirmed` while a party's line is still unsigned —
+        // the seeded Album Release is one — the card said "All 3 parties
+        // confirmed" directly above "Parties — 2 of 3 confirmed". Counted, it
+        // says what it can see; uncounted (a redacted slice), it reports only the
+        // status, which is the one rollup the server does compute across parties.
         confirmationLabel={
           seesEveryLine
-            ? `All ${signatories.length} parties confirmed`
-            : "Every party confirmed — terms frozen"
+            ? signed === signatories.length
+              ? `All ${signatories.length} parties confirmed`
+              : `Terms frozen — ${signed} of ${signatories.length} parties signed`
+            : "Terms frozen by the parties"
         }
         // Terms are live until every party signs, but "Draft" is only true before
         // they were sent — after that they are out for confirmation, not a draft.

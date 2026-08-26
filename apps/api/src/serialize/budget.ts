@@ -74,6 +74,27 @@ function budgetPlanningAssumptions(value: unknown): BudgetPlanningAssumptions | 
 }
 
 /**
+ * The cost SPLIT rule on a line: participant id → basis points of the line that
+ * party bears (2026-08 meeting, 01:06:31 — "either a cost split or a single
+ * payer"). `jsonb`, so it arrives as `unknown` and is narrowed here; anything
+ * that does not fit reads as `null`, which the engine treats as an ordinary
+ * pool cost rather than crashing on it.
+ */
+export type BudgetCostSplit = Record<string, number>;
+
+function budgetCostSplit(value: unknown): BudgetCostSplit | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const split: BudgetCostSplit = {};
+  for (const [participantId, basisPoints] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof basisPoints !== "number" || !Number.isFinite(basisPoints) || basisPoints <= 0) {
+      continue;
+    }
+    split[participantId] = Math.round(basisPoints);
+  }
+  return Object.keys(split).length > 0 ? split : null;
+}
+
+/**
  * A budget line at the JSON boundary. `amount` is bigint minor units in the DB
  * (money.md) and MUST cross the wire as a STRING — a JS number silently loses
  * precision past 2^53. This serializer is the single place that conversion lives.
@@ -90,6 +111,7 @@ export interface SerializedBudgetLine {
   collectedBy: string | null;
   paidBy: string | null;
   payeeParticipantId: string | null;
+  costSplit: BudgetCostSplit | null;
   dealId: string | null;
   details: BudgetLineDetails | null;
   version: number;
@@ -119,6 +141,7 @@ export function serializeBudgetLine(line: BudgetLineRow): SerializedBudgetLine {
     collectedBy: line.collectedBy,
     paidBy: line.paidBy,
     payeeParticipantId: line.payeeParticipantId,
+    costSplit: budgetCostSplit(line.costSplit),
     dealId: line.dealId,
     details: budgetLineDetails(line.details),
     version: line.version,

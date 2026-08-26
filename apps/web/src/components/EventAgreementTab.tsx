@@ -62,7 +62,16 @@ export function EventAgreementTab({
   const [composerOpen, setComposerOpen] = useState(false);
   const [reopening, setReopening] = useState<{ dealId: string; name: string } | null>(null);
   const [reopenReason, setReopenReason] = useState("");
-  const composer = useDealComposer(baseCurrency, agreements.agentParticipantIds, composerOpen);
+  const choices = partyChoices(agreements.roster);
+  // The roster, by name — an agreement with no name of its own takes the names of
+  // the parties it pays (2026-08 meeting: "deal naming uses the name of the person
+  // or entity on the agreement").
+  const composer = useDealComposer(
+    baseCurrency,
+    agreements.agentParticipantIds,
+    composerOpen,
+    choices,
+  );
 
   if (agreements.isPending) return <LoadingState label="Loading agreements" />;
   if (agreements.isError) {
@@ -76,7 +85,6 @@ export function EventAgreementTab({
   };
 
   const scheduleEntries = toScheduleEntries(schedule.data ?? []);
-  const choices = partyChoices(agreements.roster);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
