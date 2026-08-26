@@ -42,7 +42,7 @@ export interface TeamInviteMemberModalProps {
   onInvited: (invited: { email: string; profileId: string }) => void;
 }
 
-interface RoleOption {
+export interface RoleOption {
   value: string;
   label: string;
   description: string;
@@ -54,7 +54,7 @@ interface RoleOption {
  * seat — audit finding A-37 gates it behind a paid plan at BOTH invite and
  * redemption, so it is named as such here rather than discovered as a 403.
  */
-const ROLE_OPTIONS: RoleOption[] = [
+export const ROLE_OPTIONS = [
   { value: "viewer", label: "Viewer", description: "Reads the account. Changes nothing." },
   { value: "editor", label: "Editor", description: "Edits events — not money, not members." },
   { value: "crew", label: "Crew", description: "Event-assigned; sees only their own slice." },
@@ -64,7 +64,13 @@ const ROLE_OPTIONS: RoleOption[] = [
     description:
       "Everything the owner can do bar billing, ownership and deleting the account. Consumes a seat — paid plans only.",
   },
-];
+] as const satisfies readonly RoleOption[];
+
+/** The roles this UI may grant, as a union. `satisfies` above keeps the literal
+ * types, so this stays in step with the list rather than restating it — and it
+ * is what narrows a `<Select>`'s plain string back to something the API's enum
+ * accepts (the generated request models are not re-exported from the client). */
+export type MemberRole = (typeof ROLE_OPTIONS)[number]["value"];
 
 /** Least authority that still lets a team member do the work they were invited for. */
 const DEFAULT_ROLE = "editor";
@@ -312,7 +318,7 @@ export function TeamInviteMemberModal({
 }
 
 /** An inline explanation that stays put — a refusal the user must be able to read twice. */
-function Callout({ tone, children }: { tone: "danger" | "warning"; children: ReactNode }) {
+export function Callout({ tone, children }: { tone: "danger" | "warning"; children: ReactNode }) {
   const color = tone === "danger" ? "var(--brand-red)" : "#F4A046";
   return (
     <output

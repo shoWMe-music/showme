@@ -5,6 +5,8 @@ import {
   getGetApiV1ProfilesIdMembersQueryKey,
   getGetApiV1ProfilesIdMembersQueryOptions,
   useDeleteApiV1GroupsGid,
+  useDeleteApiV1GroupsGidMembersMid,
+  useDeleteApiV1ProfilesIdMembersMid,
   useGetApiV1Groups,
   useGetApiV1Profiles,
   usePatchApiV1GroupsGid,
@@ -26,8 +28,10 @@ import {
 } from "@showme/design-system";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { type CSSProperties, type FormEvent, type ReactNode, useMemo, useState } from "react";
+import { useAuth } from "../auth/AuthProvider";
 import { GroupCard } from "../components";
 import { TeamInviteMemberModal } from "../components/TeamInviteMemberModal";
+import { TeamMemberEditModal, type TeamMemberEditTarget } from "../components/TeamMemberEditModal";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
 import { errorMessage } from "../lib/errors";
@@ -84,6 +88,24 @@ function initials(label: string): string {
   return ((first[0] ?? "") + (last[0] ?? "")).toUpperCase();
 }
 
+/** One group this person sits on, and the `group_members` row that puts them
+ * there — the row a "remove from this group" must delete. */
+interface GroupMembership {
+  groupId: string;
+  groupName: string;
+  memberId: string;
+}
+
+/** The `profile_members` row behind an ACCOUNT member, and nothing else: a
+ * group-only person has no such row, which is exactly why the two menu actions
+ * mean different things for them (see `memberMenuItems`). */
+interface AccountMembership {
+  profileId: string;
+  memberId: string;
+  role: string;
+  displayName: string | null;
+}
+
 interface UniqueMember {
   key: string;
   name: string;
@@ -92,7 +114,8 @@ interface UniqueMember {
   onPlatform: boolean;
   roleTitle: string;
   accessLevel: string;
-  groupNames: string[];
+  accountMembership: AccountMembership | null;
+  groupMemberships: GroupMembership[];
 }
 
 /**
@@ -128,16 +151,27 @@ function collectMembers(
       onPlatform,
       roleTitle: ROLE_TITLES[entry.role] ?? entry.role,
       accessLevel: showAccountName ? entry.profileName : "Account member",
-      groupNames: [],
+      accountMembership: {
+        profileId: entry.profileId,
+        memberId: entry.id,
+        role: entry.role,
+        displayName: entry.displayName,
+      },
+      groupMemberships: [],
     });
   }
 
   for (const group of groups) {
     for (const member of group.members) {
       const key = member.userId ?? member.email ?? member.id;
+      const membership: GroupMembership = {
+        groupId: group.id,
+        groupName: group.name,
+        memberId: member.id,
+      };
       const existing = byKey.get(key);
       if (existing) {
-        existing.groupNames.push(group.name);
+        existing.groupMemberships.push(membership);
         continue;
       }
       byKey.set(key, {
@@ -148,7 +182,8 @@ function collectMembers(
         onPlatform: member.userId != null,
         roleTitle: member.roleLabel ?? "Crew",
         accessLevel: "Group only",
-        groupNames: [group.name],
+        accountMembership: null,
+        groupMemberships: [membership],
       });
     }
   }
@@ -156,7 +191,93 @@ function collectMembers(
   return [...byKey.values()];
 }
 
+/** One entry in a member row's overflow menu. An item is either live (it has an
+ * `onSelect`) or refused with a reason the reader can act on — never present and
+ * inert, which is what a silently dead menu item is. */
+interface MemberMenuItem {
+  key: string;
+  label: string;
+  onSelect?: () => void;
+  /** Why this action is not on offer. Rendered as the item's help text. */
+  refusal?: string;
+}
+
+/**
+ * What the overflow menu offers for one roster row.
+ *
+ * The two "member" actions are ACCOUNT actions — they touch the person's
+ * `profile_members` row — so they only exist for someone who has one. A
+ * group-only person sits on a reusable roster and holds no account access
+ * (`collectMembers`), so "remove" for them can only mean leaving a group, and
+ * there is no account role to edit. Offering "Remove member" there would delete
+ * the wrong row, or nothing at all.
+ *
+ * The owner row is refused outright because the API refuses it too
+ * (`PATCH`/`DELETE /profiles/:id/members/:mid` → 403 on `role === "owner"`).
+ */
+function memberMenuItems(
+  member: UniqueMember,
+  canManageAccount: boolean,
+  handlers: {
+    onEditMember: (membership: AccountMembership, name: string) => void;
+    onRemoveMember: (membership: AccountMembership, name: string) => void;
+    onLeaveGroup: (membership: GroupMembership, name: string) => void;
+  },
+): MemberMenuItem[] {
+  const items: MemberMenuItem[] = [];
+  const membership = member.accountMembership;
+
+  if (!membership) {
+    items.push({
+      key: "edit",
+      label: "Edit member",
+      refusal:
+        "They are only on a group roster, so there is no account role to change. Invite them to the account to give them one.",
+    });
+  } else if (membership.role === "owner") {
+    items.push({
+      key: "edit",
+      label: "Edit member",
+      refusal: "The account owner's membership cannot be changed.",
+    });
+    items.push({
+      key: "remove",
+      label: "Remove member",
+      refusal: "The account owner cannot be removed. Transfer ownership first.",
+    });
+  } else if (!canManageAccount) {
+    const refusal = "Only the account owner or an admin can manage members.";
+    items.push({ key: "edit", label: "Edit member", refusal });
+    items.push({ key: "remove", label: "Remove member", refusal });
+  } else {
+    items.push({
+      key: "edit",
+      label: "Edit member",
+      onSelect: () => handlers.onEditMember(membership, member.name),
+    });
+    items.push({
+      key: "remove",
+      label: "Remove member",
+      onSelect: () => handlers.onRemoveMember(membership, member.name),
+    });
+  }
+
+  // Group membership is a separate row in a separate table, so it gets its own
+  // action — named after the group, because someone on three of them needs to
+  // know which one they are being taken off.
+  for (const groupMembership of member.groupMemberships) {
+    items.push({
+      key: `group-${groupMembership.groupId}`,
+      label: `Remove from ${groupMembership.groupName}`,
+      onSelect: () => handlers.onLeaveGroup(groupMembership, member.name),
+    });
+  }
+
+  return items;
+}
+
 export function Team() {
+  const { session } = useAuth();
   const groupsQuery = useGetApiV1Groups();
   const profilesQuery = useGetApiV1Profiles();
   const queryClient = useQueryClient();
@@ -179,6 +300,7 @@ export function Team() {
   } | null>(null);
   const [groupName, setGroupName] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [editingMember, setEditingMember] = useState<TeamMemberEditTarget | null>(null);
 
   const invalidateGroups = () =>
     queryClient.invalidateQueries({ queryKey: getGetApiV1GroupsQueryKey() });
@@ -273,6 +395,63 @@ export function Team() {
       return;
     deleteGroup.mutate({ gid: group.id });
   }
+
+  // Managing the roster is owner/admin only — the same gate the API applies
+  // (`requireProfileRole(..., MANAGE_ROLES)`), read off the session so a viewer
+  // is told why rather than shown a button that 403s.
+  const manageableProfileIds = useMemo(
+    () =>
+      new Set(
+        (session?.memberships ?? [])
+          .filter((membership) => membership.role === "owner" || membership.role === "admin")
+          .map((membership) => membership.profileId),
+      ),
+    [session?.memberships],
+  );
+
+  const removeMember = useDeleteApiV1ProfilesIdMembersMid({
+    mutation: {
+      onSuccess: (_result, variables) => {
+        toast.success("Member removed");
+        refreshRoster(variables.id);
+      },
+      onError: (error) => toast.error(errorMessage(error, "Couldn't remove the member.")),
+    },
+  });
+  const removeGroupMember = useDeleteApiV1GroupsGidMembersMid({
+    mutation: {
+      onSuccess: () => {
+        toast.success("Removed from the group");
+        invalidateGroups();
+      },
+      onError: (error) => toast.error(errorMessage(error, "Couldn't remove them from the group.")),
+    },
+  });
+
+  const menuHandlers = {
+    onEditMember: (membership: AccountMembership, name: string) => {
+      setOpenMenuKey(null);
+      setEditingMember({
+        profileId: membership.profileId,
+        memberId: membership.memberId,
+        name,
+        role: membership.role,
+        displayName: membership.displayName,
+      });
+    },
+    onRemoveMember: (membership: AccountMembership, name: string) => {
+      setOpenMenuKey(null);
+      // Losing account access is not undoable from this screen — it takes a
+      // fresh invitation to put back — so it asks first.
+      if (!window.confirm(`Remove ${name} from this account? They lose all access to it.`)) return;
+      removeMember.mutate({ id: membership.profileId, mid: membership.memberId });
+    },
+    onLeaveGroup: (membership: GroupMembership, name: string) => {
+      setOpenMenuKey(null);
+      if (!window.confirm(`Take ${name} off the "${membership.groupName}" group?`)) return;
+      removeGroupMember.mutate({ gid: membership.groupId, mid: membership.memberId });
+    },
+  };
 
   const groupModalBusy = createGroup.isPending || renameGroup.isPending;
 
@@ -431,6 +610,12 @@ export function Team() {
                   member={member}
                   first={index === 0}
                   menuOpen={openMenuKey === member.key}
+                  menuItems={memberMenuItems(
+                    member,
+                    member.accountMembership != null &&
+                      manageableProfileIds.has(member.accountMembership.profileId),
+                    menuHandlers,
+                  )}
                   onToggleMenu={() =>
                     setOpenMenuKey((current) => (current === member.key ? null : member.key))
                   }
@@ -473,6 +658,17 @@ export function Team() {
         </form>
       </Modal>
 
+      <TeamMemberEditModal
+        open={editingMember !== null}
+        member={editingMember}
+        onClose={() => setEditingMember(null)}
+        onSaved={({ profileId }) => {
+          toast.success("Member updated");
+          refreshRoster(profileId);
+          setEditingMember(null);
+        }}
+      />
+
       <TeamInviteMemberModal
         open={inviteOpen}
         onClose={() => setInviteOpen(false)}
@@ -489,18 +685,22 @@ export function Team() {
 }
 
 /** A member row (list view): avatar + name + account badge + email + group
- * chips, with a right-aligned role/access and an overflow menu. */
+ * chips, with a right-aligned role/access and an overflow menu. Presentational:
+ * the parent decides what the menu offers and what each entry does. */
 function MemberRow({
   member,
   first,
   menuOpen,
+  menuItems,
   onToggleMenu,
 }: {
   member: UniqueMember;
   first: boolean;
   menuOpen: boolean;
+  menuItems: MemberMenuItem[];
   onToggleMenu: () => void;
 }) {
+  const [openUpward, setOpenUpward] = useState(false);
   return (
     <div
       style={{
@@ -522,11 +722,11 @@ function MemberRow({
         {member.email && (
           <div style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 2 }}>{member.email}</div>
         )}
-        {member.groupNames.length > 0 && (
+        {member.groupMemberships.length > 0 && (
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
-            {member.groupNames.map((name) => (
-              <Tag key={name} tone="muted">
-                {name}
+            {member.groupMemberships.map((membership) => (
+              <Tag key={membership.groupId} tone="muted">
+                {membership.groupName}
               </Tag>
             ))}
           </div>
@@ -542,19 +742,42 @@ function MemberRow({
         <button
           type="button"
           aria-label="Member menu"
-          onClick={onToggleMenu}
+          onClick={(clickEvent) => {
+            // A menu that opens past the bottom of the window cannot be reached
+            // — the roster's last row is exactly where these live — so measure
+            // the trigger and flip the panel above it when there is no room.
+            const rect = clickEvent.currentTarget.getBoundingClientRect();
+            setOpenUpward(rect.bottom + estimatedMenuHeight(menuItems) > window.innerHeight);
+            onToggleMenu();
+          }}
           style={menuButtonStyle}
         >
           <Icon name="dots-vertical" size={16} />
         </button>
         {menuOpen && (
-          <div style={menuPopoverStyle}>
-            <button type="button" disabled style={menuItemStyle} title="Coming soon">
-              Edit member
-            </button>
-            <button type="button" disabled style={menuItemStyle} title="Coming soon">
-              Remove member
-            </button>
+          <div style={menuPopoverStyle(openUpward)}>
+            {menuItems.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                disabled={!item.onSelect}
+                title={item.refusal}
+                onClick={item.onSelect}
+                style={menuItemStyle(!item.onSelect)}
+                onMouseEnter={(mouseEvent) => {
+                  if (item.onSelect) mouseEvent.currentTarget.style.background = "var(--elevated)";
+                }}
+                onMouseLeave={(mouseEvent) => {
+                  mouseEvent.currentTarget.style.background = "transparent";
+                }}
+              >
+                <span>{item.label}</span>
+                {/* The reason travels WITH the refused item: a title attribute
+                    alone is invisible to anyone who does not hover it, which is
+                    how a disabled item comes to read as a broken one. */}
+                {item.refusal && <span style={menuRefusalStyle}>{item.refusal}</span>}
+              </button>
+            ))}
           </div>
         )}
       </div>
@@ -593,11 +816,11 @@ function MemberCard({ member }: { member: UniqueMember }) {
           {member.roleTitle} · {member.accessLevel}
         </span>
       </div>
-      {member.groupNames.length > 0 && (
+      {member.groupMemberships.length > 0 && (
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-          {member.groupNames.map((name) => (
-            <Tag key={name} tone="muted">
-              {name}
+          {member.groupMemberships.map((membership) => (
+            <Tag key={membership.groupId} tone="muted">
+              {membership.groupName}
             </Tag>
           ))}
         </div>
@@ -731,28 +954,53 @@ const menuButtonStyle: CSSProperties = {
   cursor: "pointer",
 };
 
-const menuPopoverStyle: CSSProperties = {
-  position: "absolute",
-  top: "calc(100% + 4px)",
-  right: 0,
-  zIndex: 10,
-  minWidth: 160,
-  padding: 5,
-  borderRadius: 10,
-  background: "var(--card)",
-  border: "1px solid var(--border)",
-  boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
-};
+/** Roughly how tall the panel will be: a refused entry wraps its reason under
+ * the label and runs about twice the height of a plain one. Only ever used to
+ * choose a direction, so an estimate is enough. */
+function estimatedMenuHeight(items: MemberMenuItem[]): number {
+  return items.reduce((total, item) => total + (item.refusal ? 64 : 34), 10);
+}
 
-const menuItemStyle: CSSProperties = {
-  display: "flex",
-  width: "100%",
-  textAlign: "left",
-  padding: "9px 11px",
-  border: "none",
-  borderRadius: 8,
-  background: "transparent",
+function menuPopoverStyle(openUpward: boolean): CSSProperties {
+  return {
+    position: "absolute",
+    ...(openUpward ? { bottom: "calc(100% + 4px)" } : { top: "calc(100% + 4px)" }),
+    right: 0,
+    zIndex: 10,
+    minWidth: 240,
+    maxWidth: 300,
+    padding: 5,
+    borderRadius: 10,
+    background: "var(--card)",
+    border: "1px solid var(--border)",
+    boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+  };
+}
+
+/** A live menu entry reads as text you may click; a refused one is visibly
+ * greyed and wraps its reason underneath, so it never looks merely broken. */
+function menuItemStyle(refused: boolean): CSSProperties {
+  return {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: 2,
+    width: "100%",
+    textAlign: "left",
+    padding: "9px 11px",
+    border: "none",
+    borderRadius: 8,
+    background: "transparent",
+    color: refused ? "var(--dim)" : "var(--text)",
+    fontSize: 13,
+    cursor: refused ? "not-allowed" : "pointer",
+    opacity: refused ? 0.65 : 1,
+  };
+}
+
+const menuRefusalStyle: CSSProperties = {
   color: "var(--dim)",
-  fontSize: 13,
-  cursor: "not-allowed",
+  fontSize: 11,
+  lineHeight: 1.35,
+  whiteSpace: "normal",
 };

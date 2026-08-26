@@ -163,7 +163,11 @@ export function Events() {
             description="Events you create or join will show up here."
             action={
               canCreateEvent ? (
-                <Button variant="primary" leftIcon={<Icon name="plus" />} onClick={openNewEvent}>
+                <Button
+                  variant="primary"
+                  leftIcon={<Icon name="plus" />}
+                  onClick={() => openNewEvent()}
+                >
                   New event
                 </Button>
               ) : undefined

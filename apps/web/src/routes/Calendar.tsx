@@ -486,7 +486,7 @@ export function Calendar() {
             Import
           </button>
           {canCreateEvent && (
-            <button type="button" style={primaryButtonStyle()} onClick={openNewEvent}>
+            <button type="button" style={primaryButtonStyle()} onClick={() => openNewEvent()}>
               <Icon name="plus" size={15} />
               Create Event
             </button>
@@ -704,12 +704,19 @@ export function Calendar() {
           })}
           onClose={() => setCreateAt(null)}
           options={[
-            {
-              key: "event",
-              label: "Event",
-              icon: "calendar",
-              onSelect: () => navigate({ to: "/events" }),
-            },
+            // Same wizard as the topbar/"Create Event" CTA (see NewEventProvider),
+            // opened on the day that was clicked. Hidden for non-operators for the
+            // same reason the toolbar CTA is: only operators may create events.
+            ...(canCreateEvent
+              ? [
+                  {
+                    key: "event",
+                    label: "Event",
+                    icon: "calendar" as const,
+                    onSelect: () => openNewEvent({ initialDate: createAt.dayKey }),
+                  },
+                ]
+              : []),
             {
               key: "hold",
               label: "Hold",

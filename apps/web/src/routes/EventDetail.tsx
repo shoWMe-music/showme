@@ -205,9 +205,6 @@ export function EventDetail() {
           <span style={{ color: "var(--dim)" }}>/</span>
           <span style={{ color: "var(--text)", fontWeight: 500 }}>{event.title}</span>
         </div>
-        <button type="button" aria-label="Notifications" style={iconBoxStyle}>
-          <Icon name="bell" size={18} />
-        </button>
       </div>
 
       {/* Title + controls */}
@@ -305,9 +302,6 @@ export function EventDetail() {
           >
             Share &amp; Export
           </Button>
-          <button type="button" aria-label="More actions" style={iconBoxStyle}>
-            <Icon name="dots-vertical" size={18} />
-          </button>
         </div>
       </div>
 
@@ -362,18 +356,6 @@ export function EventDetail() {
     </>
   );
 }
-
-const iconBoxStyle = {
-  width: 38,
-  height: 38,
-  borderRadius: 10,
-  border: "1px solid var(--border)",
-  background: "var(--surface)",
-  display: "grid",
-  placeItems: "center",
-  cursor: "pointer",
-  color: "var(--muted)",
-} as const;
 
 function shortCode(id: string): string {
   return `EVT-${id

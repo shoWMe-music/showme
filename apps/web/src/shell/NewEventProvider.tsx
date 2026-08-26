@@ -13,8 +13,14 @@ import { NewEventWizard } from "../components";
  * `canCreateEvent` mirrors the API rule (only operators may create), so buttons
  * can hide themselves for non-operators.
  */
+interface NewEventOptions {
+  /** `YYYY-MM-DD` to prefill the wizard's Date field with, when the caller
+   * already knows which day the user meant (e.g. the calendar's day popover). */
+  initialDate?: string;
+}
+
 interface NewEventContextValue {
-  openNewEvent: () => void;
+  openNewEvent: (options?: NewEventOptions) => void;
   canCreateEvent: boolean;
 }
 
@@ -33,12 +39,16 @@ export function NewEventProvider({ children }: { children: ReactNode }) {
    * showing the last attempt's half-filled fields.
    */
   const [openCount, setOpenCount] = useState(0);
+  const [initialDate, setInitialDate] = useState<string | undefined>(undefined);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const value = useMemo<NewEventContextValue>(
     () => ({
-      openNewEvent: () => {
+      openNewEvent: (options) => {
+        // Set BEFORE the key bump: the remount below is what turns this into the
+        // wizard's initial form state, so it has to be in place for that render.
+        setInitialDate(options?.initialDate);
         setOpenCount((count) => count + 1);
         setOpen(true);
       },
@@ -53,6 +63,7 @@ export function NewEventProvider({ children }: { children: ReactNode }) {
       <NewEventWizard
         key={openCount}
         open={open}
+        initialDate={initialDate}
         onClose={() => setOpen(false)}
         onCreated={(id) => {
           setOpen(false);
@@ -75,7 +86,7 @@ export function TopbarNewEventButton() {
   const { openNewEvent, canCreateEvent } = useNewEvent();
   if (!canCreateEvent) return null;
   return (
-    <Button variant="cta" leftIcon={<Icon name="plus" />} onClick={openNewEvent}>
+    <Button variant="cta" leftIcon={<Icon name="plus" />} onClick={() => openNewEvent()}>
       New event
     </Button>
   );

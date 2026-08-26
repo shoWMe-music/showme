@@ -422,9 +422,17 @@ export function EventTabsBar({
       style={{
         display: "flex",
         alignItems: "center",
-        borderBottom: "1px solid var(--border)",
+        // The rule under the strip is drawn INSIDE the box rather than as a
+        // border, so the active tab's 2px underline can sit on top of it without
+        // a negative margin. A negative margin made each tab's border box hang
+        // 1px below the container's content box, and since `overflow-x: auto`
+        // promotes a `visible` overflow-y to `auto`, that 1px produced a real
+        // vertical scrollbar on a single-line tab strip.
+        boxShadow: "inset 0 -1px 0 var(--border)",
         margin: "18px 0 26px",
         overflowX: "auto",
+        // Pinned, so the promotion above can never bring the vertical bar back.
+        overflowY: "hidden",
       }}
     >
       {tabs.map((tab) => {
@@ -443,7 +451,6 @@ export function EventTabsBar({
               fontSize: 13.5,
               fontWeight: active ? 600 : 500,
               padding: "12px 14px",
-              marginBottom: -1,
               cursor: "pointer",
               whiteSpace: "nowrap",
             }}

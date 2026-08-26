@@ -194,11 +194,17 @@ export function AppShell() {
               {crumb && <div className="topbar__crumb">{crumb}</div>}
               {title && <h1 className="topbar__heading">{title}</h1>}
             </div>
+            {/* No global search endpoint exists yet — only `/profiles/search`,
+                which is the performer picker, not this. A field you can type
+                into that answers nothing is worse than one that says so, so it
+                stays visible and says so until the search is built. */}
             <Input
               className="topbar__search"
               leftIcon={<Icon name="search" size={15} />}
-              placeholder="Search events, artists…"
+              placeholder="Search — coming soon"
               aria-label="Search"
+              disabled
+              title="Searching across events and artists is not built yet."
             />
             <button
               type="button"

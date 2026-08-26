@@ -40,6 +40,10 @@ export interface NewEventWizardProps {
   open: boolean;
   onClose: () => void;
   onCreated: (id: string) => void;
+  /** `YYYY-MM-DD` the Date field starts on. Read once, as initial state: the
+   * provider remounts the wizard on every open, so a later change of day always
+   * arrives as a fresh mount rather than needing to be synced into the form. */
+  initialDate?: string;
 }
 
 type Profile = Awaited<ReturnType<typeof getApiV1Profiles>>[number];
@@ -96,7 +100,7 @@ const bigField = {
   fontSize: 14,
 };
 
-export function NewEventWizard({ open, onClose, onCreated }: NewEventWizardProps) {
+export function NewEventWizard({ open, onClose, onCreated, initialDate }: NewEventWizardProps) {
   const toast = useToast();
   const profilesQuery = useGetApiV1Profiles();
   // Only operator profiles can host events, so those are the "roles" on offer.
@@ -116,7 +120,7 @@ export function NewEventWizard({ open, onClose, onCreated }: NewEventWizardProps
   const [artist, setArtist] = useState("");
   const [venue, setVenue] = useState("");
   const [city, setCity] = useState("");
-  const [date, setDate] = useState("");
+  const [date, setDate] = useState(initialDate ?? "");
   const [cap, setCap] = useState("");
   const [ticketing, setTicketing] = useState("");
   const [currency, setCurrency] = useState("EUR");

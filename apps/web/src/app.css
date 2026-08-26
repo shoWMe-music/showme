@@ -228,6 +228,12 @@ body {
   border-color: var(--border);
   padding: 8px 14px;
 }
+/* The design system's Input has no disabled treatment of its own, and a field
+   that looks live but answers nothing reads as broken rather than unbuilt. */
+.topbar .topbar__search:has(input:disabled) {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .topbar__theme {
   width: 40px;
   height: 40px;
