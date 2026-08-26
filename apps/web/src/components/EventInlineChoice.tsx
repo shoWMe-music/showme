@@ -166,14 +166,22 @@ const HALF_TYPED_NOTE = "Finish the date — day, month and year — or pick one
  *
  * `<input type="date">` reports the same empty string for a field nobody has
  * touched and for one reading "12/09/____"; `validity.badInput` is the only
- * thing that tells them apart, and it is the only reason this hook exists. No
- * `change` event fires until the date is whole (or has been cleared segment by
- * segment), so a partial one never reaches the draft on its own — what is left
- * to decide is what the editor does meanwhile, and the answer is nothing at all.
- * The calendar stays on the month it was on, and **Save is off**: "2026-09-"
- * names no day, and both of the alternatives — guessing at the first of the
- * month, or quietly saving the day that was there before — are a write nobody
- * asked for.
+ * thing that tells them apart, and it is the only reason this hook exists.
+ *
+ * Both events matter, and for opposite reasons. Deleting one segment of a whole
+ * date DOES fire `change`, with an empty value — read at face value that is
+ * "the operator cleared the date", which it is not, and taking it at face value
+ * moved the calendar to today's month the moment a backspace landed. Typing the
+ * first digit INTO an empty field fires no `change` at all, because the value
+ * was empty before and is empty still — so keyup is what notices that. What both
+ * do is the same: nothing. The calendar stays on the month it was on, the draft
+ * keeps the day it had, and **Save is off** — "2026-09-" names no day, and both
+ * of the alternatives, guessing at the first of the month or quietly saving the
+ * day that was there before, are a write nobody asked for.
+ *
+ * A date cleared segment by segment until every one of them is empty is a
+ * different thing and is let through: `badInput` goes false, and clearing a date
+ * is a change an operator is allowed to save.
  *
  * The rendered value goes empty with it, and that half is not cosmetic. The
  * input is controlled: if React went on rendering the old day while the segments
@@ -188,13 +196,19 @@ function useTypedDay(value: string, onChange: (day: string) => void) {
     halfTyped,
     /** What the input renders: the draft, or nothing while it is being typed. */
     text: halfTyped ? "" : value,
-    /** Fires only on a WHOLE date (or an emptied one) — see above. */
+    /** A whole date, an emptied one — or one segment short of either. */
     handleChange: (changeEvent: ChangeEvent<HTMLInputElement>) => {
+      const input = changeEvent.currentTarget;
+      if (input.value === "" && input.validity.badInput) {
+        setHalfTyped(true);
+        return;
+      }
       setHalfTyped(false);
-      onChange(changeEvent.target.value);
+      onChange(input.value);
     },
-    /** Every keystroke, including the ones that leave the field incomplete —
-     * which is the state no other event reports. */
+    /** Every keystroke, including the ones that change nothing the input is
+     * willing to report — typing into an empty field, which stays empty until
+     * the last segment lands. */
     handleKeyUp: (keyEvent: KeyboardEvent<HTMLInputElement>) => {
       const input = keyEvent.currentTarget;
       setHalfTyped(input.value === "" && input.validity.badInput);
