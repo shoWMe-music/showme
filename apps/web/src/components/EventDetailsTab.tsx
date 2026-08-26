@@ -1,6 +1,7 @@
 import { Avatar, Icon } from "@showme/design-system";
 import { useState } from "react";
 import { formatMoney } from "../lib/format";
+import { EventInformationEditModal } from "./EventInformationEditModal";
 import {
   CardHeader,
   Eyebrow,
@@ -14,6 +15,7 @@ import {
   XIcon,
   fieldStyle,
 } from "./eventUi";
+import { useEventInformationEdit } from "./useEventInformationEdit";
 
 /** Local, decoupled shapes for the event-detail sections — kept minimal so this
  * file doesn't depend on the exact generated model names (structurally equal). */
@@ -118,6 +120,7 @@ export function EventDetailsTab({
         statusLabel={statusLabel}
         operatorName={operatorName}
         performers={performers}
+        canEdit={canEdit}
       />
       <RidersDocumentsCard riders={riders} />
       <div
@@ -153,12 +156,15 @@ function EventInformationCard({
   statusLabel,
   operatorName,
   performers,
+  canEdit,
 }: {
   event: DetailsEvent;
   statusLabel: string;
   operatorName: string;
   performers: DetailsPerformer[];
+  canEdit: boolean;
 }) {
+  const edit = useEventInformationEdit(event);
   const dateLabel = event.eventDate
     ? new Date(event.eventDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })
     : "—";
@@ -169,9 +175,13 @@ function EventInformationCard({
         iconColor="#EE5746"
         title="Event Information"
         action={
-          <OutlineButton>
-            <Icon name="settings" size={14} /> Edit
-          </OutlineButton>
+          // Only offered to a caller who actually holds `event.edit` — the same
+          // signal the API's PATCH gate uses, so the affordance can't outrun it.
+          canEdit ? (
+            <OutlineButton onClick={edit.open}>
+              <Icon name="settings" size={14} /> Edit
+            </OutlineButton>
+          ) : undefined
         }
       />
       <InfoPairGrid
@@ -247,6 +257,17 @@ function EventInformationCard({
           ))
         )}
       </div>
+      <EventInformationEditModal
+        open={edit.draft !== null}
+        draft={edit.draft}
+        onChange={edit.change}
+        onClose={edit.close}
+        onSave={edit.save}
+        onReload={edit.reload}
+        isSaving={edit.isSaving}
+        canSave={edit.canSave}
+        hasConflict={edit.hasConflict}
+      />
     </SectionCard>
   );
 }
