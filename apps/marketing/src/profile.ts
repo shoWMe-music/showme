@@ -112,6 +112,13 @@ interface PublicProfile {
   country: string | null;
   venueDetails: PublicVenueDetails | null;
   upcomingShows: PublicShow[];
+  socialLinks: PublicSocialLink[];
+}
+
+/** A platform the act publishes on — the design's row of round chips. */
+interface PublicSocialLink {
+  platform: string;
+  url: string;
 }
 
 /* -------------------------------------------------------------------- input */
@@ -204,7 +211,30 @@ function readProfile(value: unknown): PublicProfile | null {
     country: readString(location.country),
     venueDetails: readVenueDetails(source.venueDetails),
     upcomingShows: readShows(source.upcomingShows),
+    socialLinks: readSocialLinks(source.socialLinks),
   };
+}
+
+/**
+ * The platform links, each validated as http(s) before it can become an `href`.
+ *
+ * `readImageUrl` already does exactly this check for pictures; the same rule has
+ * to apply here, because a `javascript:` URL in a link a stranger clicks is the
+ * same hole as one in an `<img src>`. Resolved against the page origin so a
+ * relative value cannot smuggle a scheme past the test.
+ */
+function readSocialLinks(value: unknown): PublicSocialLink[] {
+  if (!Array.isArray(value)) return [];
+  const links: PublicSocialLink[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const source = entry as Record<string, unknown>;
+    const platform = readString(source.platform);
+    const url = readImageUrl(source.url);
+    if (!platform || !url) continue;
+    links.push({ platform, url });
+  }
+  return links;
 }
 
 /**
@@ -428,6 +458,68 @@ function renderShowRail(shows: PublicShow[]): HTMLElement {
   return list;
 }
 
+/**
+ * "Listen" — the platform links as a row of chips.
+ *
+ * Every chip is a real link the owner published. `rel="noopener noreferrer"`
+ * because these lead off-platform to addresses we do not control.
+ */
+function renderSocialChips(links: PublicSocialLink[]): HTMLElement {
+  const row = element("div", "chiprow");
+  for (const link of links) {
+    const chip = document.createElement("a");
+    chip.className = "chiprow__chip";
+    chip.href = link.url;
+    chip.target = "_blank";
+    chip.rel = "noopener noreferrer";
+    chip.textContent = humanize(link.platform);
+    row.append(chip);
+  }
+  return row;
+}
+
+/**
+ * The industry lane — the design's "quiet strip at the bottom", for the venues,
+ * promoters and crew rather than the fans above it.
+ *
+ * IT HAS NO BUTTONS, and that is the finding rather than an omission. The design
+ * puts three here — "Sign in for documents", "Request a date", "Full availability"
+ * — and not one can be made real from this bundle today:
+ *
+ *   Sign in. This page carries no Firebase SDK and no authenticated client, by
+ *   design (see the file header). A sign-in button that cannot sign anyone in is
+ *   the dead affordance STYLE-GUIDE §7 forbids.
+ *
+ *   Open dates. `GET /public/profiles/:slug/availability` EXISTS and is public —
+ *   but the only page that renders it, `availability.html`, reads its target from
+ *   `window.location.hash` as a signed share snapshot and has no `?slug=` entry
+ *   point at all. A link built from the slug lands on "This link doesn't look
+ *   right". Measured by following it, after writing exactly that link. The public
+ *   per-profile availability page is the missing piece, not the data.
+ *
+ *   Request a date. `POST /booking-requests` is public and real, but its form
+ *   lives on that same availability page, behind the same missing entry point.
+ *
+ * So the lane says the one thing that is true without a control behind it: what
+ * the documents are and who they are for. The design's own rule for this strip is
+ * that "the public sees that they exist, not what's in them" — and it claims no
+ * inventory, because this page cannot know whether a given act has filed a rider.
+ */
+function renderIndustryLane(kind: string): HTMLElement {
+  const lane = element("section", "lane");
+  lane.append(element("span", "lane__eyebrow", "Booking & industry"));
+  lane.append(
+    element(
+      "p",
+      "lane__prose",
+      kind === "operator"
+        ? "Riders, house tech specs and load-in notes are shared with signed-in artists and crew — never on the open web."
+        : "Riders, stage plots and hospitality notes are shared with signed-in venues, promoters and crew — never on the open web.",
+    ),
+  );
+  return lane;
+}
+
 function renderProfile(container: HTMLElement, profile: PublicProfile): void {
   container.replaceChildren();
 
@@ -487,6 +579,10 @@ function renderProfile(container: HTMLElement, profile: PublicProfile): void {
     );
   }
 
+  if (profile.socialLinks.length > 0) {
+    container.append(section("Listen", renderSocialChips(profile.socialLinks)));
+  }
+
   if (profile.bio) {
     container.append(section("About", element("p", "block__prose", profile.bio)));
   }
@@ -495,6 +591,10 @@ function renderProfile(container: HTMLElement, profile: PublicProfile): void {
     const venueCard = renderVenueDetails(profile.venueDetails);
     if (venueCard) container.append(venueCard);
   }
+
+  // Last, and quiet — the design keeps the industry lane below everything the
+  // fans came for, "present, but no longer competing with the tickets".
+  container.append(renderIndustryLane(profile.kind));
 
   document.title = `${profile.name} · shoWMe`;
   const description = document.querySelector('meta[name="description"]');

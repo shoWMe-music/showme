@@ -456,6 +456,32 @@ async function main() {
       isPrimary: true,
     });
 
+    // Platform links for the performer — the public page's "Listen" row, and the
+    // only thing that exercises it. Real, resolvable addresses: the page validates
+    // every one as http(s) before it becomes an href, so a placeholder like
+    // "spotify://" would silently render nothing and prove the row works when it
+    // does not.
+    await database.insert(schema.profileSocialLinks).values([
+      {
+        profileId: PROFILE_IDS.performerA,
+        platform: "spotify",
+        url: "https://open.spotify.com/artist/1vCWHaC5f2uS3yhpwWbIA6",
+        position: 0,
+      },
+      {
+        profileId: PROFILE_IDS.performerA,
+        platform: "bandcamp",
+        url: "https://bandcamp.com",
+        position: 1,
+      },
+      {
+        profileId: PROFILE_IDS.performerA,
+        platform: "instagram",
+        url: "https://www.instagram.com",
+        position: 2,
+      },
+    ]);
+
     // ── 4. Profile members — each owner user owns their own profile. ───────
     const members = await database
       .insert(schema.profileMembers)

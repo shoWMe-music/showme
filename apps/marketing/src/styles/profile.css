@@ -460,3 +460,75 @@ body {
     text-align: center;
   }
 }
+
+/* ---------- Listen: the platform chips ----------
+   The design's "row of round chips", built from our own tokens. */
+.chiprow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chiprow__chip {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13.5px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.chiprow__chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ---------- The industry lane ----------
+   Deliberately quieter than everything above it: no card, no shadow, just a rule
+   and muted type. The design's own note is that it should be "present, but no
+   longer competing with the tickets". */
+.lane {
+  margin-top: 30px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border);
+}
+
+.lane__eyebrow {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 8px;
+}
+
+.lane__prose {
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.6;
+  margin: 0 0 14px;
+  max-width: 60ch;
+}
+
+.lane__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.lane__cta {
+  padding: 9px 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 13.5px;
+  text-decoration: none;
+}
+
+.lane__cta:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
