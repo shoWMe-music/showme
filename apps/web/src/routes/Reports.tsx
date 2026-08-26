@@ -4,69 +4,26 @@ import {
   getGetApiV1EventsIdParticipantsQueryOptions,
   getGetApiV1EventsIdSetlistsQueryOptions,
 } from "@showme/api-client";
-import { Button, EmptyState, Icon, SectionHeader, useToast } from "@showme/design-system";
+import { Button, EmptyState, Icon, SectionHeader } from "@showme/design-system";
 import { useQueries } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
+import { ProFilingExportModal } from "../components/ProFilingExportModal";
 import { ErrorState, LoadingState } from "../components/states";
+import type { ProFilingTarget } from "../components/useProFilingExport";
 import { type EventItem, useAllEvents } from "../hooks/useEventList";
+import { parseSetlistWorks, societyLabel, totalDurationSeconds } from "../lib/proFilingExport";
+import { societyForTimezone } from "../lib/proSocieties";
 import { isDestinationForKind } from "../shell/navigation";
+
 type Setlist = Awaited<ReturnType<typeof getApiV1EventsIdSetlists>>[number];
 type Participant = Awaited<ReturnType<typeof getApiV1EventsIdParticipants>>[number];
 
-/**
- * The PRO (collecting society) is derived from where the show happens — the same
- * honest, location-driven mapping the prototype uses (STIM/GEMA/PRS). We derive it
- * from the event timezone (the only location signal on the event); unknown → null,
- * rendered as a neutral "PRO" so the chrome still reads correctly.
- */
-function proForEvent(event: EventItem): string | null {
-  const timezone = event.timezone ?? "";
-  if (/stockholm|sweden|helsinki|oslo|copenhagen/i.test(timezone)) return "STIM";
-  if (/berlin|germany|zurich|vienna/i.test(timezone)) return "GEMA";
-  if (/london/i.test(timezone)) return "PRS";
-  return null;
-}
-
-/** A setlist's `items` is an untyped jsonb array of songs — read it defensively. */
-function songTitle(item: unknown): string {
-  if (typeof item === "string") return item;
-  if (item && typeof item === "object") {
-    const record = item as Record<string, unknown>;
-    const title = record.title ?? record.name ?? record.song;
-    if (typeof title === "string" && title.trim()) return title;
-  }
-  return "Untitled";
-}
-
-/** Best-effort duration in seconds from a song entry; null when the data doesn't carry it. */
-function songSeconds(item: unknown): number | null {
-  if (!item || typeof item !== "object") return null;
-  const record = item as Record<string, unknown>;
-  const raw = record.duration ?? record.durationSeconds ?? record.seconds ?? record.length;
-  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
-  if (typeof raw === "string") {
-    const clock = raw.match(/^(\d+):(\d{2})$/);
-    if (clock) return Number(clock[1]) * 60 + Number(clock[2]);
-    const minutes = Number(raw);
-    if (!Number.isNaN(minutes)) return Math.round(minutes * 60);
-  }
-  return null;
-}
-
-function runtimeLabel(items: unknown[]): string {
-  let total = 0;
-  let known = false;
-  for (const item of items) {
-    const seconds = songSeconds(item);
-    if (seconds != null) {
-      total += seconds;
-      known = true;
-    }
-  }
-  if (!known) return "—";
-  return `${Math.round(total / 60)} min`;
+/** `16 min`, or an em dash when not one setlist entry carried a length. */
+function runtimeLabel(seconds: number | null): string {
+  if (seconds == null) return "—";
+  return `${Math.round(seconds / 60)} min`;
 }
 
 const NEUTRAL_PILL: React.CSSProperties = {
@@ -82,20 +39,26 @@ function ReportCard({
   setlist,
   event,
   participant,
-  onReport,
+  onExport,
 }: {
   setlist: Setlist;
   event: EventItem;
   participant: Participant | undefined;
-  onReport: (pro: string) => void;
+  onExport: (target: ProFilingTarget) => void;
 }) {
   const navigate = useNavigate();
   const items = Array.isArray(setlist.items) ? setlist.items : [];
-  const pro = proForEvent(event);
-  const proLabel = pro ?? "PRO";
-  const artist = participant?.performerTag?.trim();
-  const subtitle = [artist, event.title].filter(Boolean).join(" · ") || "Untitled event";
-  const songs = items.map(songTitle).join(" · ");
+  const works = parseSetlistWorks(items);
+  const proLabel = societyLabel(societyForTimezone(event.timezone));
+  // The ACT's name, never `performerTag` — that field holds the event role
+  // ("headliner"), and a society's report names the artist who performed.
+  const performerName = participant?.name?.trim() || null;
+  // The heading already carries the event title, so the line under it identifies
+  // WHO is being reported on: the act, and the slot they played.
+  const subtitle =
+    [performerName, participant?.performerTag?.trim()].filter(Boolean).join(" · ") ||
+    "Unknown performer";
+  const songs = works.map((work) => work.title).join(" · ");
 
   return (
     <div
@@ -131,10 +94,11 @@ function ReportCard({
           <div style={{ color: "var(--muted)", fontSize: 12.5 }}>{subtitle}</div>
           <div style={{ display: "flex", gap: 16, marginTop: 10 }}>
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text)" }}>
-              <span style={{ color: "var(--dim)" }}>Songs</span> {items.length}
+              <span style={{ color: "var(--dim)" }}>Songs</span> {works.length}
             </span>
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text)" }}>
-              <span style={{ color: "var(--dim)" }}>Runtime</span> {runtimeLabel(items)}
+              <span style={{ color: "var(--dim)" }}>Runtime</span>{" "}
+              {runtimeLabel(totalDurationSeconds(works))}
             </span>
           </div>
         </div>
@@ -166,8 +130,20 @@ function ReportCard({
           >
             Not filed
           </span>
-          <Button variant="cta" onClick={() => onReport(proLabel)}>
-            <Icon name="file" size={14} />
+          <Button
+            variant="cta"
+            onClick={() =>
+              onExport({
+                eventId: event.id,
+                eventTitle: event.title,
+                eventDate: event.eventDate,
+                timezone: event.timezone,
+                performerName,
+                works,
+              })
+            }
+          >
+            <Icon name="download" size={14} />
             Report to {proLabel}
           </Button>
         </div>
@@ -193,7 +169,7 @@ function ReportCard({
 
 function ReportsScreen() {
   const { session } = useAuth();
-  const toast = useToast();
+  const [exportTarget, setExportTarget] = useState<ProFilingTarget | null>(null);
   const profileId = session?.memberships[0]?.profileId ?? "";
 
   // Every event, not the first page: a report over page one is not a report.
@@ -229,12 +205,6 @@ function ReportsScreen() {
     }));
   });
 
-  const handleReport = (pro: string) => {
-    toast.info(
-      `Filing to ${pro} isn't connected yet — PRO submission goes live once the collecting-society integration lands.`,
-    );
-  };
-
   return (
     <>
       <SectionHeader
@@ -258,8 +228,9 @@ function ReportsScreen() {
         }}
       >
         <Icon name="alert" size={15} />
-        Each event's setlist becomes a royalty report. Writer shares and ISWC codes come from the
-        performer's repertoire.
+        Each event's setlist becomes a royalty report, addressed to the society that covers where
+        the show happened. Writer shares and ISWC codes aren't captured yet — the export marks them
+        so you can add them before you file.
       </div>
 
       {!profileId ? (
@@ -284,11 +255,14 @@ function ReportsScreen() {
               setlist={setlist}
               event={event}
               participant={participant}
-              onReport={handleReport}
+              onExport={setExportTarget}
             />
           ))}
         </div>
       )}
+
+      {/* Export only. Closing it changes nothing — no filing has been made. */}
+      <ProFilingExportModal target={exportTarget} onClose={() => setExportTarget(null)} />
     </>
   );
 }
