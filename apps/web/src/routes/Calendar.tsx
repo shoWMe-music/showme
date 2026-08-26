@@ -6,7 +6,10 @@ import { type CalendarEvent, type CalendarLabelMode, CalendarMonthGrid } from ".
 import { AvailabilityShareModal } from "../components/AvailabilityShareModal";
 import { CalendarCreatePopover } from "../components/CalendarCreatePopover";
 import { CalendarDayAgenda } from "../components/CalendarDayAgenda";
+import { CalendarFilterChip } from "../components/CalendarFilterChip";
+import { CalendarItemCreateModal } from "../components/CalendarItemCreateModal";
 import { CalendarWeekGrid } from "../components/CalendarWeekGrid";
+import { MarkUnavailableModal } from "../components/MarkUnavailableModal";
 import {
   type CalendarView,
   dayKey,
@@ -18,6 +21,9 @@ import {
 import { useCalendarPerformerNames } from "../components/calendarPerformers";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
+import { useCalendarIcsExport } from "../components/useCalendarIcsExport";
+import { type CalendarItemKind, useCalendarItemCreate } from "../components/useCalendarItemCreate";
+import { blocksOverlappingRange, useMarkUnavailable } from "../components/useMarkUnavailable";
 import { useAvailabilityShare } from "../hooks/useAvailabilityShare";
 import { type EventItem, useAllEvents } from "../hooks/useEventList";
 import { apiStatusToDisplay } from "../lib/status";
@@ -73,6 +79,23 @@ const LEGEND: { label: string; color: string }[] = [
   { label: "Note", color: "#D9B44A" },
 ];
 
+/**
+ * What the "Status" filter can hide, keyed by the entry's own `statusLabel`.
+ *
+ * Keyed on the LABEL rather than the `Status` tint on purpose: the palette is
+ * shared (an appointment is tinted like a task, a note like a draft), so
+ * filtering on the tint would silently take three kinds out together.
+ *
+ * `Draft` is here but NOT in `LEGEND`, which is verbatim from the prototype and
+ * omits it. A draft event is a real thing on the grid — every event starts as
+ * one — and a filter that cannot name a row on screen is a filter that hides it
+ * with no way back.
+ */
+const STATUS_FILTER_OPTIONS: { key: string; label: string; color: string }[] = [
+  ...LEGEND.map((entry) => ({ key: entry.label, label: entry.label, color: entry.color })),
+  { key: "Draft", label: "Draft", color: "#8C7A6C" },
+];
+
 /** The three "My Calendars" sources from the prototype, with their swatch. */
 const MY_CALENDARS: { id: string; label: string; color: string }[] = [
   { id: "promoter", label: "Promoter events", color: "#EE5746" },
@@ -80,9 +103,27 @@ const MY_CALENDARS: { id: string; label: string; color: string }[] = [
   { id: "venue", label: "Venue bookings", color: "#6FC97A" },
 ];
 
-function toDayKey(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso.slice(0, 10) : dayKey(date);
+/** Matches a bare calendar date — what a Postgres `date` column serialises to. */
+const BARE_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The day an entry belongs on.
+ *
+ * `events.event_date` and `calendar_items.date` are offset-free SQL `date`s and
+ * reach the browser as `"2026-09-12"`. `new Date("2026-09-12")` parses that as
+ * **UTC midnight** (ES spec: a date-only ISO form is UTC), and reading it back
+ * with local getters then returns the 11th anywhere west of Greenwich — so the
+ * whole calendar, and anything built from it, slid one day earlier for every
+ * user in the Americas. A bare date has no zone to convert FROM: it is already
+ * the day key, and is taken as written.
+ *
+ * Anything carrying an actual time still goes through `Date`, because that IS an
+ * instant and does need rendering in the reader's zone.
+ */
+function toDayKey(value: string): string {
+  if (BARE_DATE.test(value)) return value;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value.slice(0, 10) : dayKey(date);
 }
 
 /** A bordered secondary control matching the prototype's toolbar buttons. */
@@ -257,8 +298,14 @@ export function Calendar() {
   const [venueFilter, setVenueFilter] = useState("");
   const [dateJump, setDateJump] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
+  const [unavailableOpen, setUnavailableOpen] = useState(false);
   // The day "CREATE" popover: which day was clicked + the cell rect to anchor to.
   const [createAt, setCreateAt] = useState<{ dayKey: string; anchor: DOMRect } | null>(null);
+  // The appointment/note composer the day popover opens, and the day it is for.
+  const [newItem, setNewItem] = useState<{ kind: CalendarItemKind; dayKey: string } | null>(null);
+  /** Status LABELS the reader has switched off. Hidden rather than shown, so a
+   * kind that gains a label later starts visible instead of silently missing. */
+  const [hiddenStatuses, setHiddenStatuses] = useState<string[]>([]);
 
   // "My Calendars" toggles are a client-only view preference (calendar items
   // carry no source grouping yet), so they start on and persist in local state.
@@ -330,7 +377,9 @@ export function Calendar() {
   // Client-only text filters over the real events (no server filter endpoint).
   const performerNeedle = performerFilter.trim().toLowerCase();
   const venueNeedle = venueFilter.trim().toLowerCase();
+  const hiddenStatusSet = new Set(hiddenStatuses);
   const visibleEvents: CalendarEvent[] = namedEvents.filter((event) => {
+    if (event.statusLabel && hiddenStatusSet.has(event.statusLabel)) return false;
     if (!performerNeedle && !venueNeedle) return true;
     const haystack = `${event.performer ?? ""} ${event.eventName}`.toLowerCase();
     const matchesPerformer = !performerNeedle || haystack.includes(performerNeedle);
@@ -342,6 +391,47 @@ export function Calendar() {
   // free days from the real schedule, and builds the public link.
   const share = useAvailabilityShare(calendarEvents, events.items, MY_CALENDARS[0]?.label ?? "");
 
+  const periodTitle = viewTitle(view, anchorDate);
+
+  // Blocked dates for the acting profile. Read on every render (not only while
+  // the editor is open) so the rail can name what is blocked in this period.
+  const markUnavailable = useMarkUnavailable(unavailableOpen, () => {
+    setUnavailableOpen(false);
+    toast.success("Blocked dates saved.");
+  });
+  const blockedInView = blocksOverlappingRange(
+    markUnavailable.savedBlocks,
+    visibleRange.from,
+    visibleRange.to,
+  );
+
+  // End times never reach the grid (a chip has no room), but an export without
+  // them turns a 15:00–16:00 meeting into a zero-length blip — so they travel
+  // alongside, straight from the calendar feed.
+  const endTimeById = useMemo(() => {
+    const ends = new Map<string, string>();
+    for (const item of calendar.data ?? []) {
+      if (item.endTime) ends.set(item.id, item.endTime);
+    }
+    return ends;
+  }, [calendar.data]);
+
+  // Exports exactly what the grid is drawing, for exactly the period on screen.
+  const exportIcs = useCalendarIcsExport({
+    events: visibleEvents,
+    labelMode,
+    range: visibleRange,
+    periodTitle,
+    endTimeById,
+  });
+
+  const newItemCreate = useCalendarItemCreate(
+    Boolean(newItem),
+    newItem?.kind ?? "appointment",
+    newItem?.dayKey ?? dayKey(new Date()),
+    () => setNewItem(null),
+  );
+
   // The arrows step whatever is on screen: a month, a week, or a single day.
   const stepView = (offset: number) =>
     setAnchorDate((current) => stepByView(view, current, offset));
@@ -350,7 +440,13 @@ export function Calendar() {
   const onDateJump = (value: string) => {
     setDateJump(value);
     if (!value) return;
-    const parsed = new Date(value);
+    // `new Date("2026-08-29")` is UTC midnight, so anywhere west of Greenwich the
+    // anchor landed on the 28th and Day view showed the wrong day. The field's
+    // value is a LOCAL calendar date; build the Date from its parts so it stays
+    // one. (Same trap as `toDayKey` above.)
+    const [year, month, day] = value.split("-").map(Number);
+    if (!year || !month || !day) return;
+    const parsed = new Date(year, month - 1, day);
     if (!Number.isNaN(parsed.getTime())) setAnchorDate(parsed);
   };
 
@@ -369,7 +465,7 @@ export function Calendar() {
             margin: "0 0 16px",
           }}
         >
-          {viewTitle(view, anchorDate)}
+          {periodTitle}
         </h2>
 
         {/* Toolbar: navigation + view toggle + label toggle */}
@@ -460,7 +556,7 @@ export function Calendar() {
           <button
             type="button"
             style={toolbarButtonStyle()}
-            onClick={() => toast.info("Marking unavailability is coming soon.")}
+            onClick={() => setUnavailableOpen(true)}
           >
             <Icon name="calendar-check" size={15} />
             Mark Unavailable
@@ -472,7 +568,8 @@ export function Calendar() {
           <button
             type="button"
             style={toolbarButtonStyle()}
-            onClick={() => toast.info("ICS export is coming soon.")}
+            title={`Download ${periodTitle} as an .ics file`}
+            onClick={exportIcs}
           >
             <Icon name="download" size={15} />
             Export ICS
@@ -480,7 +577,17 @@ export function Calendar() {
           <button
             type="button"
             style={toolbarButtonStyle()}
-            onClick={() => toast.info("Calendar import is coming soon.")}
+            onClick={() =>
+              // Left as a stub deliberately. Reading an .ics is the easy half;
+              // the hard half is that an imported entry has to become something
+              // this app owns — an `event` (operator-only, venue, currency,
+              // participants, plan cap) or a `calendar_item` — and there is no
+              // API that takes a batch of either. Guessing would create rows
+              // nobody can settle.
+              toast.info(
+                "Import isn't built yet — there's no route that takes a batch of events, so an .ics has nowhere to land.",
+              )
+            }
           >
             <Icon name="upload" size={15} />
             Import
@@ -540,19 +647,42 @@ export function Calendar() {
           <button
             type="button"
             style={filterChipStyle()}
-            onClick={() => toast.info("Calendar-source filters are coming soon.")}
+            onClick={() =>
+              // Left as a stub deliberately. "Promoter events / Performer shows /
+              // Venue bookings" is a question about the ACTING PROFILE'S ROLE on
+              // each event, and `GET /events` returns the event spine only — no
+              // participant role for the caller. Deriving it means one
+              // `/events/:id/participants` request per event in the range, and it
+              // still says nothing about tasks or notes. A chip that toggled
+              // three boxes and changed nothing would be worse than this.
+              toast.info(
+                "Source filters need the events list to say what role you play on each event; it doesn't yet.",
+              )
+            }
           >
             <Icon name="grid" size={14} />
             Calendars
           </button>
-          <button
-            type="button"
+          <CalendarFilterChip
+            label="Status"
+            icon="eye"
             style={filterChipStyle()}
-            onClick={() => toast.info("Status filters are coming soon.")}
-          >
-            <Icon name="eye" size={14} />
-            Status
-          </button>
+            options={STATUS_FILTER_OPTIONS}
+            selected={STATUS_FILTER_OPTIONS.map((option) => option.key).filter(
+              (key) => !hiddenStatuses.includes(key),
+            )}
+            onToggle={(key) =>
+              setHiddenStatuses((current) =>
+                current.includes(key)
+                  ? current.filter((hidden) => hidden !== key)
+                  : [...current, key],
+              )
+            }
+            onSelectAll={() => setHiddenStatuses([])}
+            onSelectNone={() =>
+              setHiddenStatuses(STATUS_FILTER_OPTIONS.map((option) => option.key))
+            }
+          />
           <input
             value={performerFilter}
             onChange={(event) => setPerformerFilter(event.target.value)}
@@ -625,6 +755,52 @@ export function Calendar() {
               </div>
             </Card>
 
+            {/* What "Mark Unavailable" actually did, on the screen that offers
+                it. Read-only: the editor is the modal. */}
+            <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <Eyebrow>Unavailable</Eyebrow>
+              {blockedInView.length === 0 ? (
+                <p style={{ margin: 0, fontSize: 12.5, color: "var(--muted)" }}>
+                  {markUnavailable.savedBlocks.length === 0
+                    ? "Nothing blocked."
+                    : `Nothing blocked in ${periodTitle}.`}
+                </p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                  {blockedInView.map((block) => (
+                    <span
+                      key={block.id ?? `${block.startDate}-${block.endDate}`}
+                      style={{ display: "flex", flexDirection: "column", gap: 2 }}
+                    >
+                      <span style={{ fontSize: 12.5, color: "var(--text)" }}>
+                        {block.startDate === block.endDate
+                          ? block.startDate
+                          : `${block.startDate} → ${block.endDate}`}
+                      </span>
+                      {block.reason && (
+                        <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                          {block.reason}
+                        </span>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setUnavailableOpen(true)}
+                style={{
+                  all: "unset",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  color: "#EE5746",
+                  fontWeight: 500,
+                }}
+              >
+                Edit blocked dates
+              </button>
+            </Card>
+
             <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <Eyebrow>My calendars</Eyebrow>
               <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
@@ -695,6 +871,18 @@ export function Calendar() {
         onCopyLink={share.copyLink}
       />
 
+      <MarkUnavailableModal
+        open={unavailableOpen}
+        onClose={() => setUnavailableOpen(false)}
+        view={markUnavailable}
+      />
+
+      <CalendarItemCreateModal
+        open={Boolean(newItem)}
+        onClose={() => setNewItem(null)}
+        view={newItemCreate}
+      />
+
       {createAt && (
         <CalendarCreatePopover
           anchor={createAt.anchor}
@@ -721,7 +909,16 @@ export function Calendar() {
               key: "hold",
               label: "Hold",
               icon: "calendar-check",
-              onSelect: () => toast.info("Creating holds from the calendar is coming soon."),
+              onSelect: () =>
+                // Left as a stub deliberately. A hold IS an event — the `holds`
+                // routes rank/confirm/decline an EXISTING `on_hold` event and
+                // create nothing. `POST /events` has no `status` field by
+                // design (it keeps a fresh event off the plan cap), so putting
+                // one on hold is a second PATCH that charges the cap, and the
+                // create wizard has no way to ask for it.
+                toast.info(
+                  "Creating a hold needs the event wizard to offer it — a hold is an event, and creating one always starts as a draft.",
+                ),
             },
             {
               key: "task",
@@ -733,13 +930,13 @@ export function Calendar() {
               key: "appointment",
               label: "Appointment",
               icon: "clock",
-              onSelect: () => toast.info("Appointments are coming soon."),
+              onSelect: () => setNewItem({ kind: "appointment", dayKey: createAt.dayKey }),
             },
             {
               key: "note",
               label: "Note",
               icon: "file",
-              onSelect: () => toast.info("Notes are coming soon."),
+              onSelect: () => setNewItem({ kind: "note", dayKey: createAt.dayKey }),
             },
           ]}
         />
