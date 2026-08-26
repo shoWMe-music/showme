@@ -973,16 +973,14 @@ export function Calendar() {
               key: "hold",
               label: "Hold",
               icon: "calendar-check",
+              // A hold IS an event with `status: "on_hold"` — the same wizard,
+              // in hold mode, on the day that was clicked. Note the comment
+              // that used to live here was wrong about the cost:
+              // `CAP_COUNTING_EVENT_STATUSES` is confirmed|concluded, so going
+              // on hold charges NOTHING. The slot is spent when the act
+              // confirms, which is what the wizard's panel now says.
               onSelect: () =>
-                // Left as a stub deliberately. A hold IS an event — the `holds`
-                // routes rank/confirm/decline an EXISTING `on_hold` event and
-                // create nothing. `POST /events` has no `status` field by
-                // design (it keeps a fresh event off the plan cap), so putting
-                // one on hold is a second PATCH that charges the cap, and the
-                // create wizard has no way to ask for it.
-                toast.info(
-                  "Creating a hold needs the event wizard to offer it — a hold is an event, and creating one always starts as a draft.",
-                ),
+                openNewEvent({ initialDate: createAt.dayKey, initialStatus: "on_hold" }),
             },
             {
               key: "task",
