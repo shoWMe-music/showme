@@ -54,6 +54,7 @@ import {
   type Transfer,
   WhoOwesWhomBoard,
 } from "../components";
+import { EventCollaboratorInviteModal } from "../components/EventCollaboratorInviteModal";
 import { type EventTab, EventTabsBar, STATUS_STAGE_INDEX, StageRail } from "../components/eventUi";
 import { ErrorState, LoadingState } from "../components/states";
 import { formatDate, formatMoney } from "../lib/format";
@@ -105,6 +106,7 @@ export function EventDetail() {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState("details");
   const [displayCurrency, setDisplayCurrency] = useState<string | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
 
   const { data: event, isPending, isError, error } = useGetApiV1EventsId(eventId);
   const participants = useGetApiV1EventsIdParticipants(eventId);
@@ -122,6 +124,14 @@ export function EventDetail() {
   const currency = displayCurrency ?? event.baseCurrency;
   const roster = participants.data ?? [];
   const canEdit = event.holdAutoPromote !== undefined; // operator-only fields present
+
+  // The one admin-grade permission set the web app can name. There is no route to
+  // list or create permission sets, so the only bundle it can offer a collaborator
+  // is one already standing on this event — the HOST's, which is `operator_full`.
+  // `permissionSetId` is present on the row only for a caller who may manage the
+  // roster (`serializeParticipant`), so an absent id correctly hides the option.
+  const hostPermissionSetId =
+    roster.find((party) => party.role === "host")?.permissionSetId ?? null;
 
   const performerParty =
     roster.find((party) => party.role === "performer") ??
@@ -279,9 +289,15 @@ export function EventDetail() {
               aria-label="Display currency"
             />
           </div>
-          <Button variant="secondary" leftIcon={<Icon name="user" size={14} />}>
-            Invite Collaborator
-          </Button>
+          {canEdit && (
+            <Button
+              variant="secondary"
+              leftIcon={<Icon name="user" size={14} />}
+              onClick={() => setInviteOpen(true)}
+            >
+              Invite Collaborator
+            </Button>
+          )}
           <Button
             variant="secondary"
             leftIcon={<Icon name="share" size={14} />}
@@ -331,9 +347,18 @@ export function EventDetail() {
           isPending={participants.isPending}
           isError={participants.isError}
           error={participants.error}
+          onInvite={canEdit ? () => setInviteOpen(true) : undefined}
         />
       )}
       {tab === "history" && <EventHistoryTab eventId={eventId} />}
+
+      <EventCollaboratorInviteModal
+        open={inviteOpen}
+        onClose={() => setInviteOpen(false)}
+        eventId={eventId}
+        eventTitle={event.title}
+        fullControlPermissionSetId={hostPermissionSetId}
+      />
     </>
   );
 }
@@ -806,21 +831,50 @@ function CollaboratorsTab({
   isPending,
   isError,
   error,
+  onInvite,
 }: {
   roster: Participant[];
   isPending: boolean;
   isError: boolean;
   error: unknown;
+  /** Absent when this viewer may not manage the roster — then the tab is read-only. */
+  onInvite?: () => void;
 }) {
   if (isPending) return <LoadingState label="Loading collaborators" />;
   if (isError) return <ErrorState error={error} title="Couldn't load collaborators" />;
+
+  // The prototype puts an "+ Invite" beside the tab heading as well as in the
+  // header — the same action, reached from where you notice you need it. It opens
+  // the SAME modal (one flow, one component) rather than a second divergent one.
+  const heading = onInvite ? (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        marginBottom: 14,
+      }}
+    >
+      <span style={{ color: "var(--muted)", fontSize: 12.5 }}>
+        Profiles and parties connected to this event
+      </span>
+      <Button variant="primary" leftIcon={<Icon name="plus" size={14} />} onClick={onInvite}>
+        Invite
+      </Button>
+    </div>
+  ) : null;
+
   if (roster.length === 0) {
     return (
-      <EmptyState
-        icon={<Icon name="users" />}
-        title="No collaborators yet"
-        description="Profiles and parties connected to this event will appear here."
-      />
+      <>
+        {heading}
+        <EmptyState
+          icon={<Icon name="users" />}
+          title="No collaborators yet"
+          description="Profiles and parties connected to this event will appear here."
+        />
+      </>
     );
   }
 
@@ -838,38 +892,43 @@ function CollaboratorsTab({
   // look the same. Geometry is deliberately identical: `minmax(260px, 1fr)` and a
   // 14px gutter.
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-        gap: 14,
-      }}
-    >
-      {roster.map((party) => {
-        const name = participantName(party);
-        const state = apiStatusToDisplay(party.status);
-        return (
-          <Card
-            key={party.id}
-            padding="md"
-            style={{ display: "flex", flexDirection: "column", gap: 10 }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-              <Avatar initials={initials(name)} tone={roleTone(party.role)} size={40} />
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 600, color: "var(--text)", fontSize: 14 }}>{name}</div>
-                <div style={{ color: "var(--muted)", fontSize: 12 }}>{statusLabel(party.role)}</div>
+    <>
+      {heading}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+          gap: 14,
+        }}
+      >
+        {roster.map((party) => {
+          const name = participantName(party);
+          const state = apiStatusToDisplay(party.status);
+          return (
+            <Card
+              key={party.id}
+              padding="md"
+              style={{ display: "flex", flexDirection: "column", gap: 10 }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+                <Avatar initials={initials(name)} tone={roleTone(party.role)} size={40} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, color: "var(--text)", fontSize: 14 }}>{name}</div>
+                  <div style={{ color: "var(--muted)", fontSize: 12 }}>
+                    {statusLabel(party.role)}
+                  </div>
+                </div>
               </div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <Badge status={badgeStatusForParticipant(party.status)} dot>
-                {state.label}
-              </Badge>
-            </div>
-          </Card>
-        );
-      })}
-    </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <Badge status={badgeStatusForParticipant(party.status)} dot>
+                  {state.label}
+                </Badge>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
