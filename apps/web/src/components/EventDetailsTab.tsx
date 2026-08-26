@@ -1,20 +1,21 @@
-import { Avatar, Icon } from "@showme/design-system";
+import { Avatar, Button, Icon, Select, TextField } from "@showme/design-system";
 import { useState } from "react";
 import { formatMoney } from "../lib/format";
 import { EventInformationEditModal } from "./EventInformationEditModal";
+import { EventScheduleCard } from "./EventScheduleCard";
+import styles from "./eventDetailsFields.module.css";
 import {
   CardHeader,
   Eyebrow,
   GlyphButton,
-  GradientButton,
   InfoPairGrid,
   MonoPill,
   OutlineButton,
   RemovableChip,
   SectionCard,
   XIcon,
-  fieldStyle,
 } from "./eventUi";
+import { useEventExtrasEditor } from "./useEventExtrasEditor";
 import { useEventInformationEdit } from "./useEventInformationEdit";
 
 /** Local, decoupled shapes for the event-detail sections — kept minimal so this
@@ -72,6 +73,9 @@ export interface DetailsRider {
   name: string;
   type: string;
 }
+/** Pre-formatted schedule row. Superseded by `EventScheduleCard`, which reads
+ * `/events/:id/schedule` itself so it has the ids an edit needs; kept because
+ * the parent still composes and passes it. */
 export interface DetailsScheduleEntry {
   time: string;
   label: string;
@@ -88,11 +92,14 @@ export interface EventDetailsTabProps {
   operatorName: string;
   performers: DetailsPerformer[];
   riders: DetailsRider[];
-  schedule: DetailsScheduleEntry[];
+  /** @deprecated The Event Schedule card loads and writes the schedule itself. */
+  schedule?: DetailsScheduleEntry[];
   deal: DetailsDeal | null;
   currency: string;
-  /** Persist an updated extras object (read-modify-write against the event). */
-  onSaveExtras: (next: EventExtras) => void;
+  /** @deprecated Superseded by `useEventExtrasEditor`, which tracks the event
+   * version from each PATCH response instead of the last completed refetch —
+   * see the hook for the lost-update race this replaces. */
+  onSaveExtras?: (next: EventExtras) => void;
   canEdit: boolean;
 }
 
@@ -104,14 +111,23 @@ export function EventDetailsTab({
   operatorName,
   performers,
   riders,
-  schedule,
   deal,
   currency,
-  onSaveExtras,
   canEdit,
 }: EventDetailsTabProps) {
-  const extras = event.extras ?? {};
+  // One editor for every `extras` card on the tab: a single draft, a single
+  // write queue, and one authoritative version — so two edits in a row on two
+  // different cards can't overwrite each other.
+  const extrasEditor = useEventExtrasEditor(event);
+  const extras = extrasEditor.extras;
   const stack = { display: "flex", flexDirection: "column", gap: 16 } as const;
+
+  // `extras` is operator-only: the serializer omits the KEY entirely for a caller
+  // without `event.edit` (apps/api/src/serialize/event.ts), so an absent field —
+  // not an empty one — is the signal. Drawing the amenities / guest-list / ticket
+  // cards anyway would show a performer three empty shells and imply the operator
+  // has filled in nothing, when the truth is that they aren't allowed to look.
+  const canSeeExtras = event.extras !== undefined;
 
   return (
     <div style={stack}>
@@ -123,30 +139,36 @@ export function EventDetailsTab({
         canEdit={canEdit}
       />
       <RidersDocumentsCard riders={riders} />
-      <div
-        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}
-      >
-        <EventScheduleCard schedule={schedule} />
+      <EventScheduleCard eventId={event.id} eventDate={event.eventDate} canEdit={canEdit} />
+      {canSeeExtras && (
         <AmenitiesCard
           amenities={extras.amenities ?? []}
           canEdit={canEdit}
-          onChange={(amenities) => onSaveExtras({ ...extras, amenities })}
+          onSave={(amenities) => extrasEditor.save({ ...extras, amenities })}
         />
-      </div>
-      <GuestListCard
-        guestList={extras.guestList ?? {}}
-        canEdit={canEdit}
-        onChange={(guestList) => onSaveExtras({ ...extras, guestList })}
-      />
+      )}
+      {canSeeExtras && (
+        <GuestListCard
+          guestList={extras.guestList ?? {}}
+          canEdit={canEdit}
+          onSave={(guestList) => extrasEditor.save({ ...extras, guestList })}
+          onDraft={(guestList) => extrasEditor.change({ ...extras, guestList })}
+          onCommit={extrasEditor.commit}
+        />
+      )}
       {deal && <FinancialDealCard deal={deal} />}
-      <TicketInformationCard
-        tiers={extras.ticketTiers ?? []}
-        capacity={event.capacity}
-        ticketing={extras.ticketing ?? null}
-        currency={currency}
-        canEdit={canEdit}
-        onChange={(ticketTiers) => onSaveExtras({ ...extras, ticketTiers })}
-      />
+      {canSeeExtras && (
+        <TicketInformationCard
+          tiers={extras.ticketTiers ?? []}
+          capacity={event.capacity}
+          ticketing={extras.ticketing ?? null}
+          currency={currency}
+          canEdit={canEdit}
+          onSave={(ticketTiers) => extrasEditor.save({ ...extras, ticketTiers })}
+          onDraft={(ticketTiers) => extrasEditor.change({ ...extras, ticketTiers })}
+          onCommit={extrasEditor.commit}
+        />
+      )}
     </div>
   );
 }
@@ -280,9 +302,20 @@ function RidersDocumentsCard({ riders }: { riders: DetailsRider[] }) {
         iconColor="#EE5746"
         title="Riders & Documents"
         action={
-          <OutlineButton>
-            <Icon name="upload" size={14} /> Upload
-          </OutlineButton>
+          // Honestly disabled, not silently inert. Attaching a rider is
+          // `rider.submit` — a capability the operator preset deliberately does
+          // NOT hold (riders are the performer's artifact, decisions #12), and
+          // the flow behind it (upload a file → a library rider → attach it to
+          // the event) has no screen yet. A button that pretends otherwise is
+          // worse than one that says why it can't.
+          <Button
+            variant="ghost"
+            disabled
+            title="Riders are attached by the performer from their own rider library — coming to this screen with the rider-upload flow."
+            leftIcon={<Icon name="upload" size={14} />}
+          >
+            Upload
+          </Button>
         }
       />
       {riders.length === 0 ? (
@@ -314,61 +347,26 @@ function RidersDocumentsCard({ riders }: { riders: DetailsRider[] }) {
   );
 }
 
-function EventScheduleCard({ schedule }: { schedule: DetailsScheduleEntry[] }) {
-  return (
-    <SectionCard>
-      <CardHeader
-        icon={<Icon name="clock" size={17} />}
-        iconColor="#F4A046"
-        title="Event Schedule"
-      />
-      {schedule.length === 0 ? (
-        <div style={{ color: "var(--dim)", fontSize: 13 }}>No schedule yet.</div>
-      ) : (
-        schedule.map((entry) => (
-          <div
-            key={`${entry.time}-${entry.label}`}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 14,
-              padding: "9px 0",
-              ...rowBorder,
-            }}
-          >
-            <span
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 13,
-                color: "var(--muted)",
-                width: 50,
-              }}
-            >
-              {entry.time}
-            </span>
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#EE5746" }} />
-            <span style={{ flex: 1, color: "var(--text)", fontSize: 13.5 }}>{entry.label}</span>
-          </div>
-        ))
-      )}
-    </SectionCard>
-  );
-}
-
 function AmenitiesCard({
   amenities,
   canEdit,
-  onChange,
+  onSave,
 }: {
   amenities: string[];
   canEdit: boolean;
-  onChange: (next: string[]) => void;
+  onSave: (next: string[]) => void;
 }) {
   const [draft, setDraft] = useState("");
   const add = () => {
     const value = draft.trim();
     if (!value) return;
-    onChange([...amenities, value]);
+    // Adding the same amenity twice would collide on the render key and say
+    // nothing new — treat it as already added.
+    if (amenities.includes(value)) {
+      setDraft("");
+      return;
+    }
+    onSave([...amenities, value]);
     setDraft("");
   };
   return (
@@ -382,20 +380,33 @@ function AmenitiesCard({
           <RemovableChip
             key={amenity}
             label={amenity}
-            onRemove={canEdit ? () => onChange(amenities.filter((_, i) => i !== index)) : undefined}
+            onRemove={
+              canEdit
+                ? () => onSave(amenities.filter((_, position) => position !== index))
+                : undefined
+            }
           />
         ))}
       </div>
       {canEdit && (
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => event.key === "Enter" && add()}
-            placeholder="Add amenity…"
-            style={{ ...fieldStyle, flex: 1, minWidth: 0 }}
-          />
-          <OutlineButton onClick={add}>+ Add</OutlineButton>
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <TextField
+              aria-label="New amenity"
+              value={draft}
+              onChange={(changeEvent) => setDraft(changeEvent.target.value)}
+              onKeyDown={(keyEvent) => keyEvent.key === "Enter" && add()}
+              placeholder="Add amenity…"
+            />
+          </div>
+          <Button
+            variant="secondary"
+            aria-label="Add amenity"
+            onClick={add}
+            disabled={draft.trim() === ""}
+          >
+            + Add
+          </Button>
         </div>
       )}
     </SectionCard>
@@ -405,11 +416,15 @@ function AmenitiesCard({
 function GuestListCard({
   guestList,
   canEdit,
-  onChange,
+  onSave,
+  onDraft,
+  onCommit,
 }: {
   guestList: NonNullable<EventExtras["guestList"]>;
   canEdit: boolean;
-  onChange: (next: NonNullable<EventExtras["guestList"]>) => void;
+  onSave: (next: NonNullable<EventExtras["guestList"]>) => void;
+  onDraft: (next: NonNullable<EventExtras["guestList"]>) => void;
+  onCommit: () => void;
 }) {
   const guests = guestList.guests ?? [];
   const total = guests.reduce((sum, guest) => sum + (guest.tickets || 0), 0);
@@ -422,12 +437,14 @@ function GuestListCard({
     const count = Number(tickets);
     if (!trimmed || !Number.isFinite(count) || count < 1) return;
     const guest: Guest = {
-      id: `g-${guests.length}-${trimmed.replace(/\s+/g, "-").toLowerCase()}`,
+      // Time-stamped so removing a guest and re-adding the same name can't
+      // collide with a live row's id.
+      id: `guest-${Date.now()}-${trimmed.replace(/\s+/g, "-").toLowerCase()}`,
       name: trimmed,
       tickets: count,
       invitedBy,
     };
-    onChange({ ...guestList, guests: [...guests, guest] });
+    onSave({ ...guestList, guests: [...guests, guest] });
     setName("");
     setTickets("1");
   };
@@ -452,17 +469,21 @@ function GuestListCard({
           marginBottom: 16,
         }}
       >
-        <GuestLimit
+        <NumericField
           label="Limit list to total tickets"
-          value={guestList.limitTotal}
+          value={guestList.limitTotal ?? null}
           disabled={!canEdit}
-          onCommit={(limitTotal) => onChange({ ...guestList, limitTotal })}
+          placeholder="No limit"
+          onDraft={(limitTotal) => onDraft({ ...guestList, limitTotal })}
+          onCommit={onCommit}
         />
-        <GuestLimit
+        <NumericField
           label="Limit tickets per guest"
-          value={guestList.limitPerGuest}
+          value={guestList.limitPerGuest ?? null}
           disabled={!canEdit}
-          onCommit={(limitPerGuest) => onChange({ ...guestList, limitPerGuest })}
+          placeholder="No limit"
+          onDraft={(limitPerGuest) => onDraft({ ...guestList, limitPerGuest })}
+          onCommit={onCommit}
         />
       </div>
 
@@ -476,43 +497,41 @@ function GuestListCard({
             marginBottom: 12,
           }}
         >
-          <label style={{ flex: 1, minWidth: 140 }}>
-            <FieldLabel>Guest name</FieldLabel>
-            <input
+          <div style={{ flex: 1, minWidth: 140 }}>
+            <TextField
+              label="Guest name"
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(changeEvent) => setName(changeEvent.target.value)}
+              onKeyDown={(keyEvent) => keyEvent.key === "Enter" && add()}
               placeholder="Full name…"
-              style={{ ...fieldStyle, width: "100%" }}
             />
-          </label>
-          <label style={{ width: 90 }}>
-            <FieldLabel>Tickets</FieldLabel>
-            <input
+          </div>
+          <div style={{ width: 90 }}>
+            <TextField
+              label="Tickets"
               type="number"
               min={1}
+              className={styles.numeric}
               value={tickets}
-              onChange={(event) => setTickets(event.target.value)}
-              style={{
-                ...fieldStyle,
-                width: "100%",
-                textAlign: "center",
-                fontFamily: "var(--font-mono)",
-              }}
+              onChange={(changeEvent) => setTickets(changeEvent.target.value)}
             />
-          </label>
-          <label style={{ width: 150 }}>
-            <FieldLabel>Invited by</FieldLabel>
-            <select
+          </div>
+          <div style={{ width: 150 }}>
+            <Select
+              label="Invited by"
               value={invitedBy}
-              onChange={(event) => setInvitedBy(event.target.value)}
-              style={{ ...fieldStyle, width: "100%" }}
-            >
-              <option>Promoter</option>
-              <option>Performer</option>
-              <option>Venue</option>
-            </select>
-          </label>
-          <GradientButton onClick={add}>+ Add</GradientButton>
+              onChange={setInvitedBy}
+              options={["Promoter", "Performer", "Venue"]}
+            />
+          </div>
+          <Button
+            variant="primary"
+            aria-label="Add guest"
+            onClick={add}
+            disabled={name.trim() === ""}
+          >
+            + Add
+          </Button>
         </div>
       )}
 
@@ -550,7 +569,10 @@ function GuestListCard({
               <GlyphButton
                 ariaLabel={`Remove ${guest.name}`}
                 onClick={() =>
-                  onChange({ ...guestList, guests: guests.filter((_, i) => i !== index) })
+                  onSave({
+                    ...guestList,
+                    guests: guests.filter((_, position) => position !== index),
+                  })
                 }
               >
                 <XIcon />
@@ -563,34 +585,51 @@ function GuestListCard({
   );
 }
 
-function GuestLimit({
+/**
+ * A number that lives in the saved document: typed freely, held as text so a
+ * half-typed value survives, pushed into the draft on every change and
+ * persisted once on blur. Empty means "not set" (`null`) when the caller allows
+ * it, which is what "No limit" is.
+ */
+function NumericField({
   label,
   value,
   disabled,
+  placeholder,
+  emptyValue = null,
+  onDraft,
   onCommit,
+  ariaLabel,
 }: {
-  label: string;
-  value: number | null | undefined;
-  disabled: boolean;
-  onCommit: (next: number | null) => void;
+  label?: string;
+  value: number | null;
+  disabled?: boolean;
+  placeholder?: string;
+  /** What an emptied field means — `null` for a limit, `0` for a ticket count. */
+  emptyValue?: number | null;
+  onDraft: (next: number | null) => void;
+  onCommit: () => void;
+  ariaLabel?: string;
 }) {
-  const [draft, setDraft] = useState(value != null ? String(value) : "");
+  const [text, setText] = useState(value != null ? String(value) : "");
   return (
-    <label style={{ display: "block" }}>
-      <FieldLabel>{label}</FieldLabel>
-      <input
-        type="number"
-        value={draft}
-        disabled={disabled}
-        placeholder="No limit"
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => {
-          const parsed = draft.trim() === "" ? null : Number(draft);
-          onCommit(parsed != null && Number.isFinite(parsed) ? parsed : null);
-        }}
-        style={{ ...fieldStyle, width: "100%", fontFamily: "var(--font-mono)" }}
-      />
-    </label>
+    <TextField
+      label={label}
+      aria-label={ariaLabel}
+      type="number"
+      min={0}
+      className={styles.numeric}
+      value={text}
+      disabled={disabled}
+      placeholder={placeholder}
+      onChange={(changeEvent) => {
+        const raw = changeEvent.target.value;
+        setText(raw);
+        const parsed = Number(raw);
+        onDraft(raw.trim() === "" || !Number.isFinite(parsed) ? emptyValue : parsed);
+      }}
+      onBlur={onCommit}
+    />
   );
 }
 
@@ -615,26 +654,26 @@ function TicketInformationCard({
   ticketing,
   currency,
   canEdit,
-  onChange,
+  onSave,
+  onDraft,
+  onCommit,
 }: {
   tiers: TicketTier[];
   capacity: number | null;
   ticketing: EventExtras["ticketing"] | null;
   currency: string;
   canEdit: boolean;
-  onChange: (next: TicketTier[]) => void;
+  onSave: (next: TicketTier[]) => void;
+  onDraft: (next: TicketTier[]) => void;
+  onCommit: () => void;
 }) {
-  const invTotal = tiers.reduce((sum, tier) => sum + (tier.max || 0), 0);
-  const estTotal = tiers.reduce((sum, tier) => sum + (tier.est || 0), 0);
-  const overCap = capacity != null && invTotal > capacity;
+  const inventoryTotal = tiers.reduce((sum, tier) => sum + (tier.max || 0), 0);
+  const estimateTotal = tiers.reduce((sum, tier) => sum + (tier.est || 0), 0);
+  const overCapacity = capacity != null && inventoryTotal > capacity;
   const symbol = currencySymbol(currency);
 
-  const patch = (id: string, field: keyof TicketTier, value: string) => {
-    onChange(
-      tiers.map((tier) =>
-        tier.id === id ? { ...tier, [field]: field === "name" ? value : Number(value) || 0 } : tier,
-      ),
-    );
+  const draftTier = (id: string, field: keyof TicketTier, value: string | number) => {
+    onDraft(tiers.map((tier) => (tier.id === id ? { ...tier, [field]: value } : tier)));
   };
 
   return (
@@ -650,9 +689,19 @@ function TicketInformationCard({
                 {ticketing.provider} · synced {ticketing.syncedAt ?? "—"}
               </MonoPill>
             ) : (
-              <OutlineButton>
-                <Icon name="download" size={13} /> Sync from Ticketing Company
-              </OutlineButton>
+              // Ticketing stays an INTEGRATION, and it is explicitly later work
+              // (decisions #15: `source` + `provider_ref` exist, the
+              // `TicketingSync` port is a stub, no provider is wired). Shown
+              // disabled so the seam is visible without promising a sync that
+              // cannot happen.
+              <Button
+                variant="ghost"
+                disabled
+                title="Ticketing-provider sync isn't connected yet — enter tiers by hand for now."
+                leftIcon={<Icon name="download" size={13} />}
+              >
+                Sync from Ticketing Company
+              </Button>
             )}
             <MonoPill>
               {capacity != null ? `${capacity.toLocaleString("en-US")} capacity` : "no cap"}
@@ -675,7 +724,7 @@ function TicketInformationCard({
         }}
       >
         <span>Ticket type</span>
-        <span style={{ textAlign: "right" }}>Price</span>
+        <span style={{ textAlign: "right" }}>Price ({symbol})</span>
         <span style={{ textAlign: "right" }}>Max</span>
         <span style={{ textAlign: "right" }}>Est. sales</span>
         <span style={{ width: 28 }} />
@@ -697,60 +746,42 @@ function TicketInformationCard({
                 alignItems: "center",
               }}
             >
-              <input
+              <TextField
+                aria-label={`Ticket type name${tier.name ? ` (${tier.name})` : ""}`}
                 value={tier.name}
                 disabled={!canEdit}
-                onChange={(event) => patch(tier.id, "name", event.target.value)}
-                style={fieldStyle}
+                placeholder="e.g. Early bird"
+                onChange={(changeEvent) => draftTier(tier.id, "name", changeEvent.target.value)}
+                onBlur={onCommit}
               />
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  border: "1px solid var(--border)",
-                  background: "var(--elevated)",
-                  borderRadius: 9,
-                  padding: "0 8px",
-                }}
-              >
-                <span style={{ color: "var(--muted)", fontSize: 12 }}>{symbol}</span>
-                <input
-                  type="number"
-                  value={tier.price}
-                  disabled={!canEdit}
-                  onChange={(event) => patch(tier.id, "price", event.target.value)}
-                  style={{
-                    width: "100%",
-                    minWidth: 0,
-                    border: 0,
-                    background: "transparent",
-                    color: "var(--text)",
-                    fontSize: 13,
-                    padding: "9px 4px",
-                    outline: "none",
-                    textAlign: "right",
-                    fontFamily: "var(--font-mono)",
-                  }}
-                />
-              </div>
-              <input
-                type="number"
+              <NumericField
+                ariaLabel={`Price for ${tier.name || "this ticket type"}`}
+                value={tier.price}
+                disabled={!canEdit}
+                emptyValue={0}
+                onDraft={(price) => draftTier(tier.id, "price", price ?? 0)}
+                onCommit={onCommit}
+              />
+              <NumericField
+                ariaLabel={`Maximum for ${tier.name || "this ticket type"}`}
                 value={tier.max}
                 disabled={!canEdit}
-                onChange={(event) => patch(tier.id, "max", event.target.value)}
-                style={{ ...fieldStyle, textAlign: "right", fontFamily: "var(--font-mono)" }}
+                emptyValue={0}
+                onDraft={(max) => draftTier(tier.id, "max", max ?? 0)}
+                onCommit={onCommit}
               />
-              <input
-                type="number"
+              <NumericField
+                ariaLabel={`Estimated sales for ${tier.name || "this ticket type"}`}
                 value={tier.est}
                 disabled={!canEdit}
-                onChange={(event) => patch(tier.id, "est", event.target.value)}
-                style={{ ...fieldStyle, textAlign: "right", fontFamily: "var(--font-mono)" }}
+                emptyValue={0}
+                onDraft={(est) => draftTier(tier.id, "est", est ?? 0)}
+                onCommit={onCommit}
               />
               {canEdit ? (
                 <GlyphButton
-                  ariaLabel={`Remove ${tier.name}`}
-                  onClick={() => onChange(tiers.filter((row) => row.id !== tier.id))}
+                  ariaLabel={`Remove ${tier.name || "ticket type"}`}
+                  onClick={() => onSave(tiers.filter((row) => row.id !== tier.id))}
                   style={{
                     width: 28,
                     height: 28,
@@ -773,10 +804,7 @@ function TicketInformationCard({
         <button
           type="button"
           onClick={() =>
-            onChange([
-              ...tiers,
-              { id: `tier-${tiers.length}-${Date.now()}`, name: "", price: 0, max: 0, est: 0 },
-            ])
+            onSave([...tiers, { id: `tier-${Date.now()}`, name: "", price: 0, max: 0, est: 0 }])
           }
           style={{
             marginTop: 12,
@@ -808,11 +836,12 @@ function TicketInformationCard({
       >
         <span style={{ color: "var(--muted)" }}>Total inventory</span>
         <span style={{ fontFamily: "var(--font-mono)", color: "var(--text)" }}>
-          {invTotal.toLocaleString("en-US")} max · {estTotal.toLocaleString("en-US")} est.
+          {inventoryTotal.toLocaleString("en-US")} max · {estimateTotal.toLocaleString("en-US")}{" "}
+          est.
         </span>
       </div>
 
-      {overCap && (
+      {overCapacity && (
         <div
           style={{
             display: "flex",
@@ -868,14 +897,6 @@ function Row({
         {value}
       </span>
     </div>
-  );
-}
-
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <span style={{ display: "block", fontSize: 11, color: "var(--muted)", marginBottom: 5 }}>
-      {children}
-    </span>
   );
 }
 

@@ -1,0 +1,19 @@
+/* Field variants for the Event Details tab.
+
+   The fields themselves are design-system components (`TextField`, `Select`);
+   these classes only adjust ALIGNMENT inside the numeric columns of the ticket
+   and guest tables, where a right-aligned mono figure is what makes a column of
+   prices readable. Deliberately no border/background/padding here — those belong
+   to the design system, and overriding them inline is what broke the focus ring
+   and glyph spacing elsewhere in this app. */
+
+/* `className` lands on the component's wrapper, so reach the control inside. */
+.numeric input {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+/* A schedule/ticket row's time field: mono, but left-aligned like the label. */
+.mono input {
+  font-family: var(--font-mono);
+}
