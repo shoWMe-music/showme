@@ -365,3 +365,33 @@ Per the brief: a refactor that also fixes things is a refactor nobody can review
 
 Behaviour is unchanged, with the single documented exception of the `public.ts`
 `instanceof Error` widening in change 1.
+
+
+---
+
+## Added 2026-08-26 (later) — `Select` cannot be composed, so two rows re-built it
+
+**Finding.** `design-system`'s `Select` cannot be opened programmatically (no
+`defaultOpen`, no controlled `open`) and has no footer slot. The inline Event
+Information card needs both: a picked field must open its popover in the same
+commit the row is activated (one click, not two), and the popover has to carry
+the Cancel / Save pair. So `EventInlineChoice.tsx` composes
+`useDatePickerPopover` + `MiniMonthCalendar` + `PickerPopoverPanel` + `SelectCard`
+directly instead.
+
+**Verdict: do NOT add the props speculatively.** Two call sites, and the working
+component already exists — adding an API nothing consumes is the speculative
+reuse this document exists to refuse. Revisit when a THIRD picked field appears,
+at which point `defaultOpen` plus a footer slot would collapse
+`EventInlineChoice` to a thin wrapper and the bar is met.
+
+**Not thought wasted:** the `useSelect` dropdown-height fix (open on whichever
+side has more room; size to what is actually available, rather than a 160px floor
+the viewport could not honour) still applies to every real `Select` — the
+currency picker, the wizard, the filter selects. It simply no longer affects the
+inline card, because nothing there goes through `Select` any more.
+
+**Related, still open:** `input[type="date"]` measures 42px rather than the 40px
+`--control-height`, because Chromium ignores `line-height` on the date editor.
+The only fix short of a hard height belongs in the design system's shared field
+CSS, not in a component.
