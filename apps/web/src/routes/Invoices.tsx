@@ -5,25 +5,23 @@ import {
   usePostApiV1InvoicesIidIssue,
 } from "@showme/api-client";
 import {
-  Badge,
   Button,
-  Card,
-  DataTable,
-  type DataTableColumn,
   EmptyState,
   Icon,
   Modal,
   SectionHeader,
-  type Status,
   TextField,
   useToast,
 } from "@showme/design-system";
 import { type FormEvent, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { KpiRow, SegmentedToggle } from "../components";
+import { InvoiceDetailModal } from "../components/InvoiceDetailModal";
+import { InvoiceLedgerTable } from "../components/InvoiceLedgerTable";
+import { isInvoiceOverdue } from "../components/invoiceDocument";
 import { ErrorState, LoadingState } from "../components/states";
 import { errorMessage } from "../lib/errors";
-import { formatDate, formatMoney } from "../lib/format";
+import { formatMoney } from "../lib/format";
 
 type Invoice = Awaited<ReturnType<typeof getApiV1ProfilesIdInvoices>>[number];
 type Direction = "issued" | "received";
@@ -36,49 +34,13 @@ const TAB_DIRECTION: Record<Exclude<Tab, "recurring">, Direction> = {
   received: "received",
 };
 
-/** First line-item label, if the jsonb payload carries one — a real descriptor
- * of what the invoice is for (there is no separate event-name field). */
-function lineItemLabel(invoice: Invoice): string | null {
-  const items = invoice.lineItems;
-  if (Array.isArray(items) && items.length > 0) {
-    const label = (items[0] as { label?: unknown })?.label;
-    if (typeof label === "string" && label.trim()) return label.trim();
-  }
-  return null;
-}
-
-/** Invoice document state → design-system status pill. */
-const STATE_STATUS: Record<string, Status> = {
-  draft: "draft",
-  sent: "pending",
-  issued: "pending",
-  overdue: "cancelled",
-  paid: "confirmed",
-  void: "cancelled",
-};
-
-function stateLabel(state: string): string {
-  return state.replace(/_/g, " ").replace(/^\w/, (character) => character.toUpperCase());
-}
-
-/** An invoice is "overdue" when it's unpaid and its due date has passed. */
-function isOverdue(invoice: Invoice): boolean {
-  if (invoice.state === "paid" || invoice.state === "void") return false;
-  if (!invoice.dueDate) return false;
-  const due = new Date(invoice.dueDate).getTime();
-  return Number.isFinite(due) && due < Date.now();
-}
-
-function counterparty(invoice: Invoice): string {
-  const ref = invoice.direction === "issued" ? invoice.recipientRef : invoice.issuerRef;
-  return ref ?? "—";
-}
-
 export function Invoices() {
   const { session } = useAuth();
   const profileId = session?.memberships[0]?.profileId ?? "";
   const [tab, setTab] = useState<Tab>("received");
   const [creating, setCreating] = useState(false);
+  /** The invoice whose document is open over the ledger; null = overlay closed. */
+  const [openInvoiceId, setOpenInvoiceId] = useState<string | null>(null);
 
   const { data, isPending, isError, error, refetch } = useGetApiV1ProfilesIdInvoices(profileId, {
     query: { enabled: Boolean(profileId) },
@@ -105,7 +67,7 @@ export function Invoices() {
       const open = invoice.state !== "paid" && invoice.state !== "void";
       if (open && invoice.direction === "received") payable += amount;
       if (open && invoice.direction === "issued") receivable += amount;
-      if (isOverdue(invoice)) overdue += amount;
+      if (isInvoiceOverdue(invoice)) overdue += amount;
     }
     return { payable, overdue, receivable, currency };
   }, [invoices]);
@@ -201,10 +163,16 @@ export function Invoices() {
               }
             />
           ) : (
-            <LedgerTable rows={visible} onIssued={() => void refetch()} />
+            <LedgerTable
+              rows={visible}
+              onOpenInvoice={setOpenInvoiceId}
+              onIssued={() => void refetch()}
+            />
           )}
         </div>
       )}
+
+      <InvoiceDetailModal invoiceId={openInvoiceId} onClose={() => setOpenInvoiceId(null)} />
 
       <NewInvoiceModal
         open={creating}
@@ -220,7 +188,13 @@ export function Invoices() {
   );
 }
 
-function LedgerTable({ rows, onIssued }: { rows: Invoice[]; onIssued: () => void }) {
+/** Container for the ledger: owns the issue mutation and the toast; the table
+ * itself is presentational. */
+function LedgerTable({
+  rows,
+  onOpenInvoice,
+  onIssued,
+}: { rows: Invoice[]; onOpenInvoice: (invoiceId: string) => void; onIssued: () => void }) {
   const toast = useToast();
   const issue = usePostApiV1InvoicesIidIssue({
     mutation: {
@@ -232,81 +206,13 @@ function LedgerTable({ rows, onIssued }: { rows: Invoice[]; onIssued: () => void
     },
   });
 
-  const columns: DataTableColumn<Invoice>[] = [
-    {
-      header: "Vendor",
-      width: "1.6fr",
-      render: (invoice) => <b>{counterparty(invoice)}</b>,
-    },
-    {
-      header: "Event / Reference",
-      width: "1.6fr",
-      render: (invoice) => {
-        const reference = invoice.number ?? invoice.id.slice(0, 8);
-        const label = lineItemLabel(invoice);
-        return (
-          <div>
-            <div>{label ?? reference}</div>
-            {label && (
-              <div className="muted" style={{ fontSize: 12 }}>
-                {reference}
-              </div>
-            )}
-          </div>
-        );
-      },
-    },
-    {
-      // No category field on the invoice payload yet — honest placeholder.
-      header: "Category",
-      width: "1fr",
-      render: () => <span className="muted">—</span>,
-    },
-    {
-      header: "Due",
-      width: "1fr",
-      render: (invoice) => formatDate(invoice.dueDate),
-    },
-    {
-      header: "Amount",
-      width: "1fr",
-      align: "right",
-      render: (invoice) => formatMoney(invoice.total, invoice.currency ?? "EUR"),
-    },
-    {
-      header: "Status",
-      width: "1fr",
-      render: (invoice) => {
-        const overdue = isOverdue(invoice);
-        const state = overdue ? "overdue" : invoice.state;
-        return (
-          <Badge status={STATE_STATUS[state] ?? "draft"} dot>
-            {overdue ? "Overdue" : stateLabel(invoice.state)}
-          </Badge>
-        );
-      },
-    },
-    {
-      header: "",
-      width: "0.8fr",
-      align: "right",
-      render: (invoice) =>
-        invoice.state === "draft" ? (
-          <Button
-            variant="ghost"
-            onClick={() => issue.mutate({ iid: invoice.id })}
-            disabled={issue.isPending}
-          >
-            Issue
-          </Button>
-        ) : null,
-    },
-  ];
-
   return (
-    <Card padding="none">
-      <DataTable columns={columns} rows={rows} getRowKey={(invoice) => invoice.id} />
-    </Card>
+    <InvoiceLedgerTable
+      rows={rows}
+      onOpenInvoice={onOpenInvoice}
+      onIssueInvoice={(invoiceId) => issue.mutate({ iid: invoiceId })}
+      isIssuing={issue.isPending}
+    />
   );
 }
 
