@@ -13,7 +13,7 @@ import { type ReactNode, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { KpiRow } from "../components";
 import { SettlementDetailModal } from "../components/SettlementDetailModal";
-import { settlementStatusToDisplay } from "../components/settlementDocument";
+import { settlementStatusToDisplay, settlementTotals } from "../components/settlementDocument";
 import { ErrorState, LoadingState } from "../components/states";
 import { formatAmount, formatDate, formatMoney } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
@@ -129,26 +129,10 @@ export function Settlements() {
   const rows = settlements.filter((row) => filter === "all" || row.status === filter);
 
   // Tiles summarise the caller's OWN money, so they sum entitlements rather than
-  // counting rows — "outstanding" is the number that matters when it is yours.
-  const totals = useMemo(() => {
-    const sum = (predicate: (row: SettlementItem) => boolean) =>
-      settlements
-        .filter((row) => row.entitlement != null && predicate(row))
-        .reduce((total, row) => total + BigInt(row.entitlement as string), 0n);
-    const currency = settlements[0]?.currency ?? null;
-    const format = (amount: bigint) =>
-      settlements.length === 0
-        ? "—"
-        : currency
-          ? formatMoney(amount.toString(), currency)
-          : formatAmount(amount.toString());
-    return {
-      settled: format(sum((row) => row.status === "paid")),
-      pending: format(sum((row) => row.status === "open" || row.status === "comments_received")),
-      outstanding: format(sum((row) => row.status !== "paid")),
-      finalized: format(sum((row) => row.status === "finalized")),
-    };
-  }, [settlements]);
+  // counting rows — "outstanding" is the number that matters when it is yours. The
+  // summation itself lives in `settlementDocument` because the dashboard band shows
+  // the same four figures, and two implementations of it would drift.
+  const totals = useMemo(() => settlementTotals(settlements), [settlements]);
 
   return (
     <>

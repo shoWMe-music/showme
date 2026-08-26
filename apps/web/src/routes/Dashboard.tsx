@@ -2,14 +2,16 @@ import {
   useGetApiV1BookingRequests,
   useGetApiV1Events,
   useGetApiV1InsightsProfilesIdSummary,
+  useGetApiV1Settlements,
   useGetApiV1Tasks,
 } from "@showme/api-client";
-import { EmptyState, Icon, type IconName } from "@showme/design-system";
+import { Badge, EmptyState, Icon, type IconName } from "@showme/design-system";
 import { useNavigate } from "@tanstack/react-router";
 import type { CSSProperties, ReactNode } from "react";
 import { useAuth } from "../auth/AuthProvider";
+import { settlementStatusToDisplay, settlementTotals } from "../components/settlementDocument";
 import { ErrorState, LoadingState } from "../components/states";
-import { formatDate } from "../lib/format";
+import { formatAmount, formatDate, formatMoney } from "../lib/format";
 
 type TaskItem = { id: string; title: string; dueDate: string | null; completed: boolean };
 
@@ -137,6 +139,7 @@ export function Dashboard() {
     query: { enabled: Boolean(profileId) },
   });
   const requests = useGetApiV1BookingRequests({ limit: 5 });
+  const settlementList = useGetApiV1Settlements();
   const tasks = useGetApiV1Tasks({ limit: 5 });
 
   const firstName =
@@ -197,11 +200,39 @@ export function Dashboard() {
   const attentionShown = attention.slice(0, 5);
 
   // --- Event stat band (from the insights summary, falling back to the list). ---
+  //
+  // `/insights/profiles/:id/summary` counts events where `host_profile_id` is this
+  // profile — it is operator-facing analytics and says so. A PERFORMER hosts
+  // nothing; they join through `event_participants`. So the aggregate answers 0 for
+  // them however many events they are actually on, and `eventsByStatus` comes back
+  // `{}`.
+  //
+  // The fallbacks below were written for exactly that case and never fired: `??`
+  // passes on `0` because 0 is not nullish, and `{}` is truthy. A performer with two
+  // events read "Total events 0" on the dashboard while the Events screen listed
+  // both. So the test is whether this profile hosts anything at all — when it hosts
+  // nothing the aggregate is answering a different question, and the list is the
+  // honest source. An operator that genuinely hosts zero events falls back to a list
+  // that is also empty, so the fallback costs nothing there.
+  // Every settlement the caller is a party to — the same call the Settlements
+  // screen makes, so the band and that screen always agree.
+  const settlementRows = settlementList.data?.items ?? [];
+  const settlementFigures = settlementTotals(settlementRows);
+  // Most recent first. `eventDate` is nullable on the wire, and an undated event
+  // sorts last rather than being dropped — it is still the caller's money.
+  const recentSettlements = [...settlementRows]
+    .sort((left, right) => (right.event.eventDate ?? "").localeCompare(left.event.eventDate ?? ""))
+    .slice(0, 5);
+
+  const hostedCount = summary.data?.eventsHosted ?? 0;
+  const hostsNothing = hostedCount === 0;
   const countStatus = (...statuses: string[]) => {
-    if (eventsByStatus) return statuses.reduce((sum, key) => sum + (eventsByStatus[key] ?? 0), 0);
+    if (eventsByStatus && !hostsNothing) {
+      return statuses.reduce((sum, key) => sum + (eventsByStatus[key] ?? 0), 0);
+    }
     return eventList.filter((event) => statuses.includes(event.status)).length;
   };
-  const totalEvents = summary.data?.eventsHosted ?? eventList.length;
+  const totalEvents = hostsNothing ? eventList.length : hostedCount;
 
   return (
     <div
@@ -379,36 +410,42 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* Settlements band — no profile-level settlement aggregate endpoint yet, so the
-          figures are honest placeholders rather than fabricated numbers. */}
+      {/* Settlements band. This used to be four hardcoded em dashes, on the grounds
+          that no profile-level aggregate endpoint existed — but `GET /settlements`
+          does exist and already answers with every settlement the caller is a party
+          to, which is what the Settlements screen sums. So a performer with a
+          finalized 46 500 read "—" here and the real figure one click away, and the
+          panel below said "No settlements yet" over a settlement that existed. A
+          placeholder is honest; a denial is not. Same summation as that screen,
+          from `settlementTotals`. */}
       <div>
         <Eyebrow>Settlements</Eyebrow>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
           <KpiTile
             dot="#6FC97A"
             label="Total settled"
-            value="—"
+            value={settlementFigures.settled}
             valueSize={34}
             onClick={() => navigate({ to: "/settlements" })}
           />
           <KpiTile
             dot="#F4A046"
             label="Pending review"
-            value="—"
+            value={settlementFigures.pending}
             valueSize={34}
             onClick={() => navigate({ to: "/settlements" })}
           />
           <KpiTile
             dot="#6FA8E0"
             label="Outstanding"
-            value="—"
+            value={settlementFigures.outstanding}
             valueSize={34}
             onClick={() => navigate({ to: "/settlements" })}
           />
           <KpiTile
             dot="#E6D9CB"
             label="Finalized"
-            value="—"
+            value={settlementFigures.finalized}
             valueSize={34}
             onClick={() => navigate({ to: "/settlements" })}
           />
@@ -458,11 +495,61 @@ export function Dashboard() {
               See all
             </button>
           </div>
-          <EmptyState
-            icon={<Icon name="receipt" />}
-            title="No settlements yet"
-            description="Concluded events with a settlement will show here — with status and amount."
-          />
+          {recentSettlements.length === 0 ? (
+            <EmptyState
+              icon={<Icon name="receipt" />}
+              title="No settlements yet"
+              description="Concluded events with a settlement will show here — with status and amount."
+            />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {recentSettlements.map((row) => {
+                const display = settlementStatusToDisplay(row.status);
+                return (
+                  <button
+                    key={row.id}
+                    type="button"
+                    className="dash-recent-row"
+                    onClick={() => navigate({ to: "/settlements" })}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "11px 8px",
+                      border: 0,
+                      borderRadius: 10,
+                      background: "transparent",
+                      color: "var(--text)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                      <span style={{ fontWeight: 600, fontSize: 13.5 }}>{row.event.title}</span>
+                      <span className="muted" style={{ fontSize: 12 }}>
+                        {row.event.eventDate ? formatDate(row.event.eventDate) : "Date to come"}
+                      </span>
+                    </span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <Badge status={display.status} dot>
+                        {display.label}
+                      </Badge>
+                      <b style={{ fontSize: 13.5, whiteSpace: "nowrap" }}>
+                        {/* Null until the event has been computed — a real "not yet". */}
+                        {row.entitlement == null
+                          ? "—"
+                          : row.currency
+                            ? formatMoney(row.entitlement, row.currency)
+                            : formatAmount(row.entitlement)}
+                      </b>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div style={panelStyle}>

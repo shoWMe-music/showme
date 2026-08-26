@@ -1,7 +1,7 @@
-import type { getApiV1EventsIdSettlements } from "@showme/api-client";
+import type { getApiV1EventsIdSettlements, getApiV1Settlements } from "@showme/api-client";
 import type { Status } from "@showme/design-system";
 import { basisPointsToPercent } from "@showme/shared";
-import { formatMoney } from "../lib/format";
+import { formatAmount, formatMoney } from "../lib/format";
 import type { SettlementStep } from "./SettlementStepper";
 import type { TransferState } from "./WhoOwesWhomBoard";
 
@@ -252,4 +252,49 @@ export function entitlementRules(computed: ComputedBreakdown, currency: string):
     });
   }
   return rules;
+}
+
+/* ── The caller's own money, across every event ───────────────────────────────
+   Summed rather than counted: "outstanding" is the number that matters when it
+   is yours. Shared by the Settlements screen and the dashboard band so the two
+   can never disagree — a second summation in the other component is exactly the
+   drift this module exists to prevent. */
+
+/** One row of `GET /settlements` — every settlement the caller is a party to. */
+export type SettlementListItem = Awaited<ReturnType<typeof getApiV1Settlements>>["items"][number];
+
+/** The four headline figures, already formatted. */
+export interface SettlementTotals {
+  settled: string;
+  pending: string;
+  outstanding: string;
+  finalized: string;
+}
+
+/**
+ * Sum the caller's entitlements by status.
+ *
+ * `entitlement` is null until the event has been computed — a real "not yet" — so
+ * those rows are skipped rather than counted as zero. With no rows at all every
+ * figure is an em dash: nothing has settled, and "0" would assert a total that was
+ * never calculated.
+ */
+export function settlementTotals(settlements: SettlementListItem[]): SettlementTotals {
+  const sum = (predicate: (row: SettlementListItem) => boolean) =>
+    settlements
+      .filter((row) => row.entitlement != null && predicate(row))
+      .reduce((total, row) => total + BigInt(row.entitlement as string), 0n);
+  const currency = settlements[0]?.currency ?? null;
+  const format = (amount: bigint) =>
+    settlements.length === 0
+      ? "—"
+      : currency
+        ? formatMoney(amount.toString(), currency)
+        : formatAmount(amount.toString());
+  return {
+    settled: format(sum((row) => row.status === "paid")),
+    pending: format(sum((row) => row.status === "open" || row.status === "comments_received")),
+    outstanding: format(sum((row) => row.status !== "paid")),
+    finalized: format(sum((row) => row.status === "finalized")),
+  };
 }
