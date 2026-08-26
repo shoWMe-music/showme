@@ -20,6 +20,33 @@ a:hover { opacity: .85; }
 
 button, input, select, textarea { font-family: inherit; }
 
+/* No native stepper on number fields. Every number input in the app holds money
+   or a count (amount, capacity, fee, split percentage) and the browser's chrome
+   stacked arrows read as a foreign control against this design — and a stray
+   click on them silently edits an amount. The field stays `type="number"`, so
+   keyboard entry, ArrowUp/ArrowDown stepping, the mobile numeric keypad and
+   browser number validation all keep working; only the painted widget goes.
+   Which declarations are actually load-bearing was measured, not assumed
+   (Chromium 151 / WebKit 26 / Firefox 153, i.e. this repo's Vite target floor
+   of Chrome 107 / Safari 16 / Firefox 104 and newer):
+     - Blink and WebKit paint the stepper as ::-webkit-inner-spin-button and
+       ignore `appearance: textfield` on the input itself, so the pseudo-element
+       rule is the only thing that removes it there.
+     - Firefox has no such pseudo-element and honours `appearance: textfield`.
+   Deliberately NOT included: `-moz-appearance` (Firefox has understood the
+   unprefixed property since 80, well below our floor) and
+   ::-webkit-outer-spin-button (verified inert in both current engines — it has
+   painted nothing since the pre-2011 WebKit stepper). */
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0; /* WebKit reserves the stepper's margin even once it is hidden */
+}
+
+input[type="number"] {
+  appearance: textfield;
+}
+
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb {
   background: rgba(140, 122, 108, .3);
