@@ -229,6 +229,40 @@
   cursor: pointer;
 }
 
+/* The DAY's segments. A real `<input type="date">`, so the date can be typed as
+   well as picked — and held to the row's 20px line box like every other value
+   here, which is why §3's "one control height" is not the rule that applies:
+   these are values in a card, not controls in a form (the same exemption the
+   block above already takes, and the reason Chromium measuring a date editor at
+   42px never reaches this card).
+
+   The browser's own calendar glyph goes, exactly as it does in
+   `DatePickerField.module.css`: clicking it opens the NATIVE popup, which no CSS
+   reaches and no JavaScript can intercept, and this card has its own calendar
+   already open beside the field. */
+.choiceSlot input[type="date"]::-webkit-calendar-picker-indicator {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}
+
+/* Chromium pads the segment editor by a hair on each side; the value's right
+   edge has to sit on the column every other value lines up on. */
+.choiceSlot input[type="date"]::-webkit-datetime-edit {
+  padding: 0;
+}
+
+/* The two zero-size focus catchers either side of the segments (see
+   `ChoiceTabHandoff`). Absolutely positioned and zero by zero: they are in the
+   tab order and in no layout. */
+.tabHandoff {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  outline: none;
+}
+
 /* The venue picker draws its own shell (it holds an icon as well as an input);
    the shell is flattened through its `inputStyle` prop, and only the text needs
    aligning here. */

@@ -50,6 +50,16 @@ product rule isn't written down, **infer it from story.md's purpose/boundary**, 
 - **Authorization:** ReBAC via joins; `permission_sets.capabilities[]` × profile role; **entitlements** (plan limits) are a separate fresh-read layer.
 - **AI / assistant layer** (2026-07-24, `docs/decisions.md` #16.14–16.15): a Gemini in-app **assistant** + **agent-native** (bring-your-own-AI) surface, both built on the **`authorize(capability)` catalog exposed as tools** — build manual routes tool-shaped so it's a thin add-on. **Naming: `agent` = the booking-agent account kind ONLY; the AI is `assistant`/`ai`.** Platform is **territory-scoped** (`docs/decisions.md` #17): the boundary is **derived from location** — `country` stamp (tax/PRO/currency) + a configurable **`market`** grouping of countries — enforced softly in `authorize()`; re-drawable country→region→city without migration.
 
+## Verifying a test run — a pipe hides the answer
+`pnpm vitest run | tail -3` reports **exit code 0 on a failing suite**, because a pipeline's status is the
+LAST command's — `tail`'s — not vitest's. Worse, a short `tail` can show only the timing lines, so a red run
+looks like a quiet green one. Measured 2026-08-26: a deliberately failing test piped to `tail -3` printed no
+failure and exited 0; the same run unpiped exits 1.
+- **Read the summary line, never the exit code, when piping.** `grep -E "Tests |Test Files|×|FAIL"` keeps the
+  counts visible; `tail -N` may not.
+- **Or do not pipe** — redirect to a file and grep that, so the real status survives.
+- A count is only evidence if you also know the baseline. "784 passed" means nothing without "up from 770".
+
 ## Review gate — after every agent, before the work is accepted
 An agent finishing is not the work landing. Review its diff against the bar below **before** committing it,
 and fix or hand back what fails. This is cheapest at the moment of introduction, while the diff is small and

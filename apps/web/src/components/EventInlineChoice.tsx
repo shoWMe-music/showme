@@ -1,8 +1,17 @@
 import { Button, Select, type SelectOption, TextField } from "@showme/design-system";
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import styles from "./EventInlineField.module.css";
 import { MiniMonthCalendar } from "./MiniMonthCalendar";
-import { PickerPopoverPanel } from "./PickerPopoverPanel";
+import { PickerPopoverPanel, panelTabStops } from "./PickerPopoverPanel";
 import { useDatePickerPopover } from "./useDatePickerPopover";
 
 /**
@@ -61,19 +70,29 @@ interface PickerPopoverShell {
  * landing elsewhere. Mapping its `open` back to the row's editor is what turns
  * those three into one rule instead of three behaviours.
  *
- * It opens WITH the keyboard: the operator clicked the row, not a caret
- * position, so the panel — not the value behind it — is what they are looking
- * at, and arrows and Enter work in it from the first keystroke.
+ * **Where the keyboard lands.** A picker with nothing to type opens WITH the
+ * keyboard: the operator clicked the row, not a caret position, so the panel —
+ * not the value behind it — is what they are looking at, and arrows and Enter
+ * work in it from the first keystroke. A field that can also be TYPED passes its
+ * input instead, and the keyboard starts in the segments: the calendar is open
+ * either way and one click still opened it, so typing costs no second gesture —
+ * which is the whole reason the segments came back. The calendar is one Tab (or
+ * one click) away, and Alt+Down hands the keyboard to it.
  */
-function useOpenWhileEditing(popover: PickerPopoverShell, onCancel: () => void) {
+function useOpenWhileEditing(
+  popover: PickerPopoverShell,
+  onCancel: () => void,
+  typedField?: RefObject<HTMLInputElement | null>,
+) {
   const { open, openPopover } = popover;
   const wasOpen = useRef(false);
 
   useLayoutEffect(() => {
     // Layout, not passive: a passive effect paints one frame of the row with no
     // panel on it, which reads as a flicker on every open.
-    openPopover(true);
-  }, [openPopover]);
+    openPopover(typedField === undefined);
+    typedField?.current?.focus();
+  }, [openPopover, typedField]);
 
   useEffect(() => {
     if (open) {
@@ -92,7 +111,9 @@ interface EventInlineChoiceActionsProps {
    * the moment it matters and covers nothing — this used to float over the row
    * below and sit on top of it. */
   hint?: ReactNode;
-  /** What Save will ALSO do, when it does more than the field it is on. */
+  /** A sentence read BEFORE either button is pressed: what Save will ALSO do
+   * (the room, which moves the capacity with it), or why Save is off (the day,
+   * while its segments hold half a date). */
   consequence?: ReactNode;
   onCancel: () => void;
   onSave: () => void;
@@ -137,14 +158,90 @@ export interface EventInlineDateChoiceProps {
   onSave: () => void;
 }
 
+/** What the panel says instead of letting Save be pressed on half a date. */
+const HALF_TYPED_NOTE = "Finish the date — day, month and year — or pick one on the calendar.";
+
 /**
- * A day, chosen on a calendar that is already open.
+ * The day as it is TYPED, and the half-typed day, which is not a day at all.
  *
- * The value never leaves its `yyyy-mm-dd` string form: `MiniMonthCalendar` hands
- * back a local `dayKey`, it goes into the draft as-is and into the patch as-is.
- * No `Date` is built from it and `toISOString` is never called — an ISO date
- * parsed as an instant is UTC midnight, which reads back as the previous day
- * anywhere west of Greenwich (decisions #10).
+ * `<input type="date">` reports the same empty string for a field nobody has
+ * touched and for one reading "12/09/____"; `validity.badInput` is the only
+ * thing that tells them apart, and it is the only reason this hook exists. No
+ * `change` event fires until the date is whole (or has been cleared segment by
+ * segment), so a partial one never reaches the draft on its own — what is left
+ * to decide is what the editor does meanwhile, and the answer is nothing at all.
+ * The calendar stays on the month it was on, and **Save is off**: "2026-09-"
+ * names no day, and both of the alternatives — guessing at the first of the
+ * month, or quietly saving the day that was there before — are a write nobody
+ * asked for.
+ *
+ * The rendered value goes empty with it, and that half is not cosmetic. The
+ * input is controlled: if React went on rendering the old day while the segments
+ * held part of a new one, the next re-render for any reason at all — a refetch
+ * landing, a toast, a sibling field saving — would put the old day back over
+ * what was being typed.
+ */
+function useTypedDay(value: string, onChange: (day: string) => void) {
+  const [halfTyped, setHalfTyped] = useState(false);
+
+  return {
+    halfTyped,
+    /** What the input renders: the draft, or nothing while it is being typed. */
+    text: halfTyped ? "" : value,
+    /** Fires only on a WHOLE date (or an emptied one) — see above. */
+    handleChange: (changeEvent: ChangeEvent<HTMLInputElement>) => {
+      setHalfTyped(false);
+      onChange(changeEvent.target.value);
+    },
+    /** Every keystroke, including the ones that leave the field incomplete —
+     * which is the state no other event reports. */
+    handleKeyUp: (keyEvent: KeyboardEvent<HTMLInputElement>) => {
+      const input = keyEvent.currentTarget;
+      setHalfTyped(input.value === "" && input.validity.badInput);
+    },
+    /** A day off the calendar replaces whatever the segments were holding. */
+    chooseDay: (day: string) => {
+      setHalfTyped(false);
+      onChange(day);
+    },
+  };
+}
+
+/**
+ * A zero-size focus catcher, one on each side of the segments.
+ *
+ * The calendar is portalled to the end of `<body>`, so a Tab off the last
+ * segment would otherwise leave the editor entirely — which this card reads as
+ * Cancel, and the date somebody had just typed would be gone without a word.
+ * These catch that Tab and hand it to the panel instead, so the editor's Tab
+ * cycle is the value, the calendar, Cancel, Save, and back to the value. It is
+ * not a trap: Escape closes the editor from anywhere inside it.
+ *
+ * They take no space at all — absolutely positioned, zero by zero — so the row
+ * they sit in cannot notice them. The lint rule below is about elements dropped
+ * into the tab order with nothing to do in it; this one's whole job is to be
+ * there, for the one frame it takes to pass focus on.
+ */
+function ChoiceTabHandoff({ onCatch }: { onCatch: () => void }) {
+  // biome-ignore lint/a11y/noNoninteractiveTabindex: a focus guard, see above.
+  return <span tabIndex={0} className={styles.tabHandoff} onFocus={onCatch} />;
+}
+
+/**
+ * A day: typed in the segments, or picked on the calendar beside them.
+ *
+ * **Both, on one draft.** Type a whole date and the calendar moves to it (it
+ * follows the field's value); click a day and the segments show it. Neither is
+ * the "real" editor. A calendar alone is several clicks for a date eight months
+ * out and hopeless for one being copied off an email; segments alone give you
+ * nothing to look at when the question is which Friday.
+ *
+ * **The value never leaves its `yyyy-mm-dd` string form.** `MiniMonthCalendar`
+ * hands back a local `dayKey`, a date input's `.value` is `yyyy-mm-dd` whatever
+ * order its segments are drawn in, and both go into the draft and then into the
+ * patch as-is. No `Date` is built from either and `toISOString` is never called
+ * — an ISO date parsed as an instant is UTC midnight, which reads back as the
+ * previous day anywhere west of Greenwich (decisions #10).
  */
 export function EventInlineDateChoice({
   label,
@@ -158,34 +255,54 @@ export function EventInlineDateChoice({
   // `panelHasMoreStops`: Tab out of the day grid must reach Cancel and Save
   // rather than closing the panel.
   const picker = useDatePickerPopover({ value, inputRef, panelHasMoreStops: true });
-  useOpenWhileEditing(picker, onCancel);
+  useOpenWhileEditing(picker, onCancel, inputRef);
+  const typed = useTypedDay(value, onChange);
+  // Half a date is not a date, and Save says so by staying off.
+  const savable = canSave && !typed.halfTyped;
 
   /**
    * Which of the two holds the keyboard — the calendar, or the segments.
    *
-   * It starts on the calendar, because the row was clicked (or Entered), not a
-   * caret position. It moves to the field the moment the field is focused, and
-   * that hand-off is what makes typing possible at all: the calendar follows
-   * whatever the field says, so without it every keystroke that completed a date
-   * would drag DOM focus back onto the grid and out of the segments. Alt+Down —
-   * the standard "open the picker" chord — hands it back.
+   * It starts in the segments (the field is what `useOpenWhileEditing` focused),
+   * and this flag is what keeps it there: the calendar follows whatever the
+   * field says, so without it every keystroke that completed a date would drag
+   * DOM focus onto the grid and out from under the caret. It moves to the
+   * calendar when the calendar is used — a day clicked, or Alt+Down, the
+   * standard "open the picker" chord — and comes back the moment the field is
+   * focused again.
    */
-  const [calendarHoldsKeyboard, setCalendarHoldsKeyboard] = useState(true);
+  const [calendarHoldsKeyboard, setCalendarHoldsKeyboard] = useState(false);
+
+  const handOffTo = (edge: "first" | "last") => {
+    const stops = panelTabStops(picker.panelRef.current);
+    (edge === "first" ? stops.at(0) : stops.at(-1))?.focus();
+  };
 
   return (
     <div ref={picker.wrapperRef} className={styles.choiceSlot}>
+      <ChoiceTabHandoff onCatch={() => handOffTo("last")} />
       <TextField
         ref={inputRef}
         type="date"
         aria-label={label}
-        value={value}
-        onChange={(changeEvent) => onChange(changeEvent.target.value)}
+        value={typed.text}
+        onChange={typed.handleChange}
+        onKeyUp={typed.handleKeyUp}
         onFocus={() => setCalendarHoldsKeyboard(false)}
         onKeyDown={(keyEvent) => {
           if (keyEvent.altKey && keyEvent.key === "ArrowDown") setCalendarHoldsKeyboard(true);
+          // Enter IS the Save button, for someone who has just typed the date
+          // and has no reason to go looking for it. It does exactly what the
+          // button does, and nothing when the button is disabled.
+          if (keyEvent.key === "Enter") {
+            keyEvent.preventDefault();
+            if (savable) onSave();
+            return;
+          }
           picker.handleInputKeyDown(keyEvent);
         }}
       />
+      <ChoiceTabHandoff onCatch={() => handOffTo("first")} />
       {picker.open && picker.anchorRect && (
         <PickerPopoverPanel
           anchor={picker.anchorRect}
@@ -194,6 +311,7 @@ export function EventInlineDateChoice({
           estimatedHeight={CALENDAR_PANEL_HEIGHT}
           label={`Choose a ${label.toLowerCase()}`}
           containTab
+          fieldTabStop={inputRef}
         >
           <MiniMonthCalendar
             month={picker.visibleMonth}
@@ -202,14 +320,19 @@ export function EventInlineDateChoice({
             autoFocusDay={calendarHoldsKeyboard}
             onSelect={(day) => {
               setCalendarHoldsKeyboard(true);
-              onChange(day);
+              typed.chooseDay(day);
             }}
             onNavigate={picker.navigateMonth}
             onGridKeyDown={picker.handleGridKeyDown}
             style={{ boxShadow: "var(--shadow-lg)", background: "var(--surface)" }}
             footer={
               <div className={styles.choiceFooter}>
-                <EventInlineChoiceActions canSave={canSave} onCancel={onCancel} onSave={onSave} />
+                <EventInlineChoiceActions
+                  canSave={savable}
+                  consequence={typed.halfTyped ? HALF_TYPED_NOTE : undefined}
+                  onCancel={onCancel}
+                  onSave={onSave}
+                />
               </div>
             }
           />

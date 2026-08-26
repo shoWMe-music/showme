@@ -278,6 +278,17 @@ const MINIMUM_MENU_HEIGHT = 240;
     [filtered, onChange, close, closeOnSelect],
   );
 
+  /** The menu's own tab stops, in DOM order. `tabIndex >= 0` is what makes this
+   * work beside the roving listbox: an option is a `role="option"` div, never a
+   * stop, so this is the search box and whatever the footer holds. */
+  const panelStops = useCallback(
+    () =>
+      [...(panelRef.current?.querySelectorAll<HTMLElement>("button, input, [tabindex]") ?? [])].filter(
+        (element) => element.tabIndex >= 0 && !element.hasAttribute("disabled"),
+      ),
+    [],
+  );
+
   const step = useCallback(
     (from: number, direction: 1 | -1) => {
       const count = filtered.length;
@@ -318,20 +329,26 @@ const MINIMUM_MENU_HEIGHT = 240;
           return true;
         // Escape is deliberately absent: it is claimed in the capture phase on
         // `document` while the popover is open, so it never reaches here.
-        // Focus lives inside a portal, so the browser's own Tab order would
-        // jump to the end of the document. Close and hand focus back instead —
-        // unless there is a footer, which is where Tab should go next; the panel
-        // keeps it from escaping past the last button.
-        case "Tab":
-          if (hasFooter) return false;
+        // Focus lives inside a portal, so the browser's own Tab order would jump
+        // to the end of the document rather than into the menu hanging off this
+        // control. Close and hand focus back — or, when there is a footer, step
+        // into it, which is the only way to reach a Save button that lives in a
+        // portal. `onPanelKeyDown` closes the loop from the other end.
+        case "Tab": {
           keyEvent.preventDefault();
-          close();
+          if (!hasFooter) {
+            close();
+            return true;
+          }
+          const stops = panelStops();
+          (keyEvent.shiftKey ? stops.at(-1) : stops.at(0))?.focus();
           return true;
+        }
         default:
           return false;
       }
     },
-    [step, commit, activeIndex, close, hasFooter],
+    [step, commit, activeIndex, close, hasFooter, panelStops],
   );
 
   const onTriggerKeyDown = useCallback(
@@ -366,33 +383,23 @@ const MINIMUM_MENU_HEIGHT = 240;
   );
 
   /**
-   * Keep Tab inside the menu once it has a footer to walk into.
+   * Tab off either end of the footer goes back to the control the menu belongs
+   * to, making one small predictable loop: trigger → footer → trigger.
    *
-   * The menu is portalled to the end of `<body>`, so a Tab off its last button
-   * would land nowhere near the control it belongs to. Wrapping is not a trap:
-   * Escape closes the menu from anywhere inside it, and the roving list means
-   * the only stops are the search box and the footer's own controls.
+   * The menu is portalled to the end of `<body>`, so without this a Tab off the
+   * last button lands at the bottom of the document, nowhere near the control —
+   * and the menu stays open behind it, with the keyboard somewhere else.
    */
   const onPanelKeyDown = useCallback(
     (keyEvent: KeyboardEvent<HTMLDivElement>) => {
       if (!hasFooter || keyEvent.key !== "Tab") return;
-      const panel = panelRef.current;
-      if (!panel) return;
-      const stops = [...panel.querySelectorAll<HTMLElement>("button, input, [tabindex]")].filter(
-        (element) => element.tabIndex >= 0 && !element.hasAttribute("disabled"),
-      );
-      const first = stops.at(0);
-      const last = stops.at(-1);
-      if (!first || !last) return;
-      if (!keyEvent.shiftKey && document.activeElement === last) {
-        keyEvent.preventDefault();
-        first.focus();
-      } else if (keyEvent.shiftKey && document.activeElement === first) {
-        keyEvent.preventDefault();
-        last.focus();
-      }
+      const stops = panelStops();
+      const atEnd = document.activeElement === (keyEvent.shiftKey ? stops.at(0) : stops.at(-1));
+      if (!atEnd) return;
+      keyEvent.preventDefault();
+      triggerRef.current?.focus();
     },
-    [hasFooter],
+    [hasFooter, panelStops],
   );
 
   return {

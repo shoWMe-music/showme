@@ -15,9 +15,9 @@ import {
   tooManyRequests,
 } from "../errors";
 import { writeActivity } from "../lib/activity";
-import { renderInvitationEmail } from "../lib/email-templates";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
+import { renderInvitationEmail } from "../lib/email-templates";
 import { canUseFeature, entitlementRequired } from "../lib/entitlements";
 import { resolveEventTimezone } from "../lib/event-timezone";
 import { notifyProfileMembers } from "../lib/notify";

@@ -23,6 +23,17 @@ export interface PickerPopoverPanelProps {
    * (and only it) from anywhere inside.
    */
   containTab?: boolean;
+  /**
+   * One control OUTSIDE the panel that belongs to its Tab cycle: the field the
+   * panel is the editor FOR, when that field is one you can type into.
+   *
+   * Without it a contained panel is a closed loop, and a date you can type is
+   * exactly the case where that is wrong — the segments would be the one part of
+   * the editor a keyboard could never reach. With it the cycle is the editor's
+   * own reading order: the value, then the panel that changes it, then the value
+   * again.
+   */
+  fieldTabStop?: RefObject<HTMLElement | null>;
   children: ReactNode;
 }
 
@@ -41,6 +52,7 @@ export function PickerPopoverPanel({
   estimatedHeight,
   label,
   containTab = false,
+  fieldTabStop,
   children,
 }: PickerPopoverPanelProps) {
   const left = Math.max(
@@ -55,18 +67,21 @@ export function PickerPopoverPanel({
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDialogElement>) => {
     if (!containTab || event.key !== "Tab") return;
-    const stops = tabStops(panelRef.current);
+    const stops = panelTabStops(panelRef.current);
     if (stops.length === 0) return;
     const first = stops.at(0);
     const last = stops.at(-1);
     if (!first || !last) return;
+    // Where the cycle turns around. A typeable field is part of it, so Tab off
+    // either end goes back to the value rather than round the panel again.
+    const field = fieldTabStop?.current ?? null;
     const active = document.activeElement;
     if (!event.shiftKey && active === last) {
       event.preventDefault();
-      first.focus();
+      (field ?? first).focus();
     } else if (event.shiftKey && active === first) {
       event.preventDefault();
-      last.focus();
+      (field ?? last).focus();
     }
   };
 
@@ -101,8 +116,12 @@ export function PickerPopoverPanel({
 
 /** The panel's focusable controls in DOM order. `tabIndex >= 0` is the filter
  * that makes this work with the calendar's roving tabindex: only the one day
- * that currently holds the roving focus is a stop, the other 41 are not. */
-function tabStops(panel: HTMLDialogElement | null): HTMLElement[] {
+ * that currently holds the roving focus is a stop, the other 41 are not.
+ *
+ * Exported because a field that hands Tab INTO the panel needs the same answer
+ * the panel uses to hand it back — two readings of "which end is this" that
+ * disagreed would drop focus somewhere neither of them meant. */
+export function panelTabStops(panel: HTMLDialogElement | null): HTMLElement[] {
   if (!panel) return [];
   const candidates = panel.querySelectorAll<HTMLElement>("button, input, [tabindex]");
   return [...candidates].filter(
