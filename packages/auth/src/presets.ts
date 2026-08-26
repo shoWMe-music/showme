@@ -190,6 +190,14 @@ const DELEGATED_PERFORMER_FLOOR: readonly Capability[] = [
   // (and the ceiling refuses it to an `agent` event role anyway), so the setlist
   // would be unwritable for exactly the acts that have representation.
   "setlist.author",
+  // The rider is the ACT's own document too — its technical and hospitality
+  // requirements (decisions #12: "riders are the performer's artifact"), not a
+  // term anyone negotiates. Same argument as the setlist, and the same failure if
+  // it is dropped: the agent preset does not carry `rider.submit` either, so a
+  // represented performer had NOBODY who could attach their tech rider to the
+  // show. That is what "riders cannot upload" looked like for every act with an
+  // agent — a 403 on attach, from the party whose rider it is.
+  "rider.submit",
 ];
 
 /**

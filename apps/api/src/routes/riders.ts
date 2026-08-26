@@ -7,7 +7,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { forbidden, notFound } from "../errors";
 import { writeAudit } from "../lib/audit";
-import { requireEventCapability, requireProfileRole } from "../lib/authorize";
+import { eventCapabilities, requireEventCapability, requireProfileRole } from "../lib/authorize";
 
 const ProfileParams = z.object({ id: z.string().uuid() });
 const EventParams = z.object({ id: z.string().uuid() });
@@ -209,6 +209,41 @@ async function scopedEventRiders(
   return all.filter(
     (rider) => rider.ownerParticipantId != null && visibleOwners.has(rider.ownerParticipantId),
   );
+}
+
+/**
+ * May the caller read the BYTES behind `fileId` because a rider they can see
+ * points at it? The rider row is the thing whose visibility is designed
+ * (decisions #12, `scopedEventRiders` above); the file underneath it inherits
+ * that answer, and must not be authorized on its own weaker terms.
+ *
+ * Without this, `/files/:id/download-url` asked only "are you a member of the
+ * profile that owns this file", which gets a rider exactly backwards in both
+ * directions: the OPERATOR the rider was submitted TO could see the row and its
+ * `fileId` but never fetch the PDF, while the rule that decides who may see a
+ * rider at all — the sponsor-scoped one — was not consulted anywhere.
+ *
+ * Deliberately a widening only: a caller who fails here still falls back to
+ * ownership/membership, so this can never take access away.
+ */
+export async function riderFileVisibleToCaller(
+  request: FastifyRequest,
+  fileId: string,
+): Promise<boolean> {
+  const { database } = request.server;
+  const referencing = await database
+    .select({ id: schema.riders.id, eventId: schema.riders.eventId })
+    .from(schema.riders)
+    .where(eq(schema.riders.fileId, fileId));
+
+  for (const rider of referencing) {
+    if (!rider.eventId) continue; // library rider — ownership/membership decides
+    const capabilities = await eventCapabilities(request, rider.eventId);
+    if (!capabilities.has("event.view")) continue;
+    const visible = await scopedEventRiders(request, rider.eventId, capabilities);
+    if (visible.some((row) => row.id === rider.id)) return true;
+  }
+  return false;
 }
 
 export async function riderRoutes(fastify: FastifyInstance): Promise<void> {

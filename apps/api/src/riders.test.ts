@@ -5,6 +5,8 @@ import { and, eq, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
+import type { StorageSigner } from "./lib/storage";
+import { createFileRoutes } from "./routes/files";
 import { riderRoutes } from "./routes/riders";
 import { buildTestApp } from "./testing";
 
@@ -15,12 +17,30 @@ const fakeVerifier: TokenVerifier = {
   },
 };
 
+/** Deterministic signer — the bytes are irrelevant here; who gets a URL is not. */
+const fakeSigner: StorageSigner = {
+  async signUpload(path, contentType, maxBytes) {
+    return {
+      url: `signed-upload::${path}`,
+      headers: { "content-type": contentType, "x-goog-content-length-range": `0,${maxBytes}` },
+    };
+  },
+  async signDownload(path) {
+    return `signed-download::${path}`;
+  },
+};
+
 let harness: TestDatabase;
 let app: FastifyInstance;
 
 beforeAll(async () => {
   harness = await startTestDatabase();
-  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [riderRoutes]);
+  // The FILE routes ride along on purpose: who may download a rider's bytes is a
+  // rider question, and asserting it needs both halves in one app.
+  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [
+    riderRoutes,
+    createFileRoutes(fakeSigner),
+  ]);
   await app.ready();
 });
 
@@ -388,6 +408,176 @@ describe("riders — profile library + event instances (copy-on-attach)", () => 
     });
     expect(await namesFor("rg-agent")).toEqual(["A tech"]);
     expect(await namesFor("rg-crew")).toEqual(["A tech"]);
+  });
+
+  it("lets a performer whose participation is DELEGATED to their agent still attach their own rider", async () => {
+    // The bug behind "riders cannot upload": the delegated-performer FLOOR carried
+    // no `rider.submit`, and the agent preset carries none either — so an act with
+    // representation had nobody who could attach its tech rider. Delegation hands
+    // an agent BUSINESS authority (negotiate, confirm), never the act's own
+    // documents — the same rule that keeps `setlist.author` with the performer.
+    const { db } = harness;
+    const operator = await seedMemberWithSet(
+      "rdel-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "rdel-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const { event, participants } = await seedEvent(
+      operator,
+      [
+        { ...operator, role: "host" },
+        { ...performer, role: "performer" },
+      ],
+      "rdel-op",
+    );
+    const performerParticipant = participants.find((row) => row.profileId === performer.profileId);
+    if (!performerParticipant) throw new Error("participant seed failed");
+
+    // `seedMemberWithSet` takes the user's account kind; the AGENT event-role is
+    // what matters here, and it is set on the participant row below.
+    const agent = await seedMemberWithSet("rdel-agent", "performer", PRESET_PERMISSION_SETS.agent);
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: agent.profileId,
+      role: "agent",
+      permissionSetId: agent.permissionSetId,
+      status: "confirmed",
+    });
+    // The stamp is only a projection of this agreement — authority is resolved
+    // against the representation, so the fixture needs both to be a real state.
+    await db.insert(schema.representations).values({
+      agentProfileId: agent.profileId,
+      performerProfileId: performer.profileId,
+      isWorldwide: true,
+      commissionRate: 1000,
+      commissionableBasis: "deal_income",
+      proposedBy: "agent",
+      status: "active",
+      confirmedByAgent: true,
+      confirmedByPerformer: true,
+    });
+    await db
+      .update(schema.eventParticipants)
+      .set({ details: { delegatedToAgentProfileId: agent.profileId } })
+      .where(eq(schema.eventParticipants.id, performerParticipant.id));
+
+    const library = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${performer.profileId}/riders`,
+      headers: auth("rdel-perf"),
+      payload: { type: "tech", name: "Delegated act tech rider" },
+    });
+    expect(library.statusCode).toBe(201);
+
+    const attached = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/riders`,
+      headers: auth("rdel-perf"),
+      payload: { sourceRiderId: library.json().id },
+    });
+    expect(attached.statusCode).toBe(201);
+    expect(attached.json()).toMatchObject({
+      eventId: event.id,
+      ownerParticipantId: performerParticipant.id,
+      name: "Delegated act tech rider",
+    });
+  });
+
+  it("lets the OPERATOR download the bytes of a rider submitted to them, and a stranger not", async () => {
+    // The security shape of a rider: the performer owns the file, the operator is
+    // the party it was submitted TO. Authorizing the download on file OWNERSHIP
+    // alone gets that exactly backwards — the operator could read the rider's name
+    // over the API and never open the PDF, while the rule that actually decides who
+    // may see a rider (decisions #12) was consulted nowhere.
+    const { db } = harness;
+    const operator = await seedMemberWithSet(
+      "rfile-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "rfile-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const outsider = await seedMemberWithSet(
+      "rfile-stranger",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const { event } = await seedEvent(
+      operator,
+      [
+        { ...operator, role: "host" },
+        { ...performer, role: "performer" },
+      ],
+      "rfile-op",
+    );
+
+    // The performer uploads their rider PDF and attaches it to the show.
+    const issued = await app.inject({
+      method: "POST",
+      url: "/api/v1/files/upload-url",
+      headers: auth("rfile-perf"),
+      payload: {
+        path: `profiles/${performer.profileId}/riders/tech.pdf`,
+        contentType: "application/pdf",
+        kind: "document",
+        sizeBytes: 2048,
+        ownerProfileId: performer.profileId,
+      },
+    });
+    expect(issued.statusCode).toBe(201);
+    const { fileId } = issued.json();
+
+    const library = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${performer.profileId}/riders`,
+      headers: auth("rfile-perf"),
+      payload: { type: "tech", name: "Tech rider", fileId },
+    });
+    expect(library.statusCode).toBe(201);
+    const attached = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/riders`,
+      headers: auth("rfile-perf"),
+      payload: { sourceRiderId: library.json().id },
+    });
+    expect(attached.statusCode).toBe(201);
+
+    const downloadAs = (uid: string) =>
+      app.inject({
+        method: "GET",
+        url: `/api/v1/files/${fileId}/download-url`,
+        headers: auth(uid),
+      });
+
+    expect((await downloadAs("rfile-perf")).statusCode).toBe(200); // its author
+    expect((await downloadAs("rfile-op")).statusCode).toBe(200); // the party it was sent to
+    // Nobody else. A 404, not a 403 — the existence of the file is not news either.
+    expect((await downloadAs("rfile-stranger")).statusCode).toBe(404);
+    expect(outsider.profileId).toBeTruthy();
+
+    // And the reach is exactly the rider's: a crew member on the SAME event with
+    // only the schedule tier still cannot see the rider, so still cannot read it.
+    const crew = await seedMemberWithSet(
+      "rfile-crew",
+      "performer",
+      PRESET_PERMISSION_SETS.crew_schedule_only,
+    );
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: crew.profileId,
+      role: "crew",
+      permissionSetId: crew.permissionSetId,
+      status: "confirmed",
+    });
+    expect((await downloadAs("rfile-crew")).statusCode).toBe(404);
   });
 
   it("404s the profile library for a stranger to the profile (no leak)", async () => {
