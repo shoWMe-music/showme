@@ -5,8 +5,14 @@ import {
   chipLabel,
   formatStartTime,
 } from "./CalendarEventChip";
+import {
+  CalendarUnavailableMark,
+  dayCellBackground,
+  unavailableSuffix,
+} from "./CalendarUnavailableMark";
 import { type EventMenuItem, EventRowMenu, rowClickTargetStyle } from "./EventRowMenu";
 import { dayKey, dayTitle } from "./calendarGrid";
+import type { UnavailableDays } from "./useMarkUnavailable";
 
 /** One day of the Calendar screen (§2), read as an agenda rather than a grid.
  * Again NOT an hour ruler: events are dated, not timed, so the entries that know
@@ -16,6 +22,8 @@ import { dayKey, dayTitle } from "./calendarGrid";
 export interface CalendarDayAgendaProps {
   day: Date;
   events: CalendarEvent[];
+  /** Days the acting profile has blocked, keyed `yyyy-mm-dd`. */
+  unavailableDays?: UnavailableDays;
   labelMode?: CalendarLabelMode;
   onSelectDay?: (dayKey: string, anchor: DOMRect) => void;
   onSelectEvent?: (eventId: string) => void;
@@ -43,6 +51,7 @@ function sortByStartTime(events: CalendarEvent[]): CalendarEvent[] {
 export function CalendarDayAgenda({
   day,
   events,
+  unavailableDays,
   labelMode = "both",
   onSelectDay,
   onSelectEvent,
@@ -51,10 +60,13 @@ export function CalendarDayAgenda({
   const key = dayKey(day);
   const isToday = key === dayKey(new Date());
   const dayEvents = sortByStartTime(events.filter((event) => event.date === key));
+  const isUnavailable = unavailableDays?.has(key) ?? false;
+  const unavailableReason = unavailableDays?.get(key) ?? null;
 
   return (
     <Card padding="none" style={{ borderRadius: 16, overflow: "hidden" }}>
       <div
+        aria-label={`${dayTitle(day)}${unavailableSuffix(isUnavailable, unavailableReason)}`}
         style={{
           display: "flex",
           alignItems: "center",
@@ -62,13 +74,34 @@ export function CalendarDayAgenda({
           gap: 12,
           padding: "13px 16px",
           borderBottom: "1px solid var(--border)",
-          background: isToday
-            ? "color-mix(in srgb, var(--brand-red) 5%, transparent)"
-            : "transparent",
+          background: dayCellBackground(
+            isUnavailable,
+            isToday ? "color-mix(in srgb, var(--brand-red) 5%, transparent)" : "transparent",
+          ),
         }}
       >
-        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{dayTitle(day)}</span>
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--dim)" }}>
+        <span
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--text)",
+            textDecoration: isUnavailable ? "line-through" : undefined,
+          }}
+        >
+          {dayTitle(day)}
+        </span>
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 10,
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            color: "var(--dim)",
+          }}
+        >
+          {/* A one-day view has the most room of the three, so the reason shows. */}
+          {isUnavailable && <CalendarUnavailableMark reason={unavailableReason} showReason />}
           {dayEvents.length} {dayEvents.length === 1 ? "ENTRY" : "ENTRIES"}
         </span>
       </div>

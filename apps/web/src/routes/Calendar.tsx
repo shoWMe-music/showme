@@ -28,7 +28,12 @@ import { ErrorState, LoadingState } from "../components/states";
 import { useCalendarIcsExport } from "../components/useCalendarIcsExport";
 import { type CalendarItemKind, useCalendarItemCreate } from "../components/useCalendarItemCreate";
 import { useExternalCalendarEntries } from "../components/useExternalCalendarEntries";
-import { blocksOverlappingRange, useMarkUnavailable } from "../components/useMarkUnavailable";
+import {
+  type UnavailableDays,
+  blocksOverlappingRange,
+  unavailableDaysInRange,
+  useMarkUnavailable,
+} from "../components/useMarkUnavailable";
 import { useAvailabilityShare } from "../hooks/useAvailabilityShare";
 import { useCalendarSources } from "../hooks/useCalendarSources";
 import { useEventArchive } from "../hooks/useEventArchive";
@@ -294,6 +299,7 @@ function CalendarGridForView({
   view,
   anchorDate,
   events,
+  unavailableDays,
   labelMode,
   onSelectDay,
   onSelectEvent,
@@ -302,6 +308,7 @@ function CalendarGridForView({
   view: CalendarView;
   anchorDate: Date;
   events: CalendarEvent[];
+  unavailableDays: UnavailableDays;
   labelMode: CalendarLabelMode;
   onSelectDay: (dayKey: string, anchor: DOMRect) => void;
   onSelectEvent: (eventId: string) => void;
@@ -312,6 +319,7 @@ function CalendarGridForView({
       <CalendarWeekGrid
         week={anchorDate}
         events={events}
+        unavailableDays={unavailableDays}
         labelMode={labelMode}
         onSelectDay={onSelectDay}
         onSelectEvent={onSelectEvent}
@@ -324,6 +332,7 @@ function CalendarGridForView({
       <CalendarDayAgenda
         day={anchorDate}
         events={events}
+        unavailableDays={unavailableDays}
         labelMode={labelMode}
         onSelectDay={onSelectDay}
         onSelectEvent={onSelectEvent}
@@ -335,6 +344,7 @@ function CalendarGridForView({
     <CalendarMonthGrid
       month={anchorDate}
       events={events}
+      unavailableDays={unavailableDays}
       labelMode={labelMode}
       showLegend={false}
       onSelectDay={onSelectDay}
@@ -525,9 +535,14 @@ export function Calendar() {
 
   // Blocked dates for the acting profile. Read on every render (not only while
   // the editor is open) so the rail can name what is blocked in this period.
-  const markUnavailable = useMarkUnavailable(unavailableOpen, () => {
-    setUnavailableOpen(false);
-    toast.success("Blocked dates saved.");
+  const markUnavailable = useMarkUnavailable(unavailableOpen, {
+    onSaved: () => {
+      setUnavailableOpen(false);
+      toast.success("Blocked dates saved.");
+    },
+    onDayToggled: (day, isNowUnavailable) =>
+      toast.success(isNowUnavailable ? `${day} marked unavailable.` : `${day} is available again.`),
+    onDayToggleFailed: (message) => toast.error(message),
   });
   // The imported entries that touch what is on screen, plus the two writes the
   // rail card offers on each of them.
@@ -538,6 +553,15 @@ export function Calendar() {
     visibleRange.from,
     visibleRange.to,
   );
+
+  // The same blocks, one entry per day, so a grid cell can ask about ITSELF
+  // instead of scanning every range on every render.
+  const unavailableDays = useMemo(
+    () => unavailableDaysInRange(markUnavailable.savedBlocks, visibleRange.from, visibleRange.to),
+    [markUnavailable.savedBlocks, visibleRange.from, visibleRange.to],
+  );
+  // Which way the day popover's availability item points, for the day it is open on.
+  const selectedDayIsUnavailable = createAt ? unavailableDays.has(createAt.dayKey) : false;
 
   // End times never reach the grid (a chip has no room), but an export without
   // them turns a 15:00–16:00 meeting into a zero-length blip — so they travel
@@ -877,6 +901,7 @@ export function Calendar() {
               view={view}
               anchorDate={anchorDate}
               events={visibleEvents}
+              unavailableDays={unavailableDays}
               labelMode={labelMode}
               eventMenuItems={eventMenuItems}
               onSelectEvent={(eventId) => navigate({ to: "/events/$eventId", params: { eventId } })}
@@ -1014,6 +1039,25 @@ export function Calendar() {
             day: "numeric",
           })}
           onClose={() => setCreateAt(null)}
+          // Blocking a day is not creating anything, so it sits in its own group
+          // under the create list. Hidden entirely for a role the API would
+          // refuse (viewer/crew), rather than shown and then rejected.
+          secondaryGroup={
+            markUnavailable.canEdit
+              ? {
+                  heading: "Availability",
+                  options: [
+                    {
+                      key: "availability",
+                      label: selectedDayIsUnavailable ? "Available again" : "Mark unavailable",
+                      icon: selectedDayIsUnavailable ? ("check" as const) : ("x" as const),
+                      disabled: markUnavailable.togglingDay !== null,
+                      onSelect: () => markUnavailable.toggleDayUnavailable(createAt.dayKey),
+                    },
+                  ],
+                }
+              : undefined
+          }
           options={[
             // Same wizard as the topbar/"Create Event" CTA (see NewEventProvider),
             // opened on the day that was clicked. Hidden for non-operators for the

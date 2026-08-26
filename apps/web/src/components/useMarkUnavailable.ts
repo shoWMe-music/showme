@@ -66,6 +66,14 @@ function sortBlocks(blocks: UnavailabilityBlock[]): UnavailabilityBlock[] {
   return [...blocks].sort((left, right) => left.startDate.localeCompare(right.startDate));
 }
 
+/** `yyyy-mm-dd` `offset` days away from `key`, via a local-midnight Date so the
+ * month and year roll over correctly (and no timezone shifts the day west). */
+function shiftDay(key: string, offset: number): string {
+  const date = new Date(`${key}T00:00:00`);
+  date.setDate(date.getDate() + offset);
+  return dayKey(date);
+}
+
 function sameBlocks(left: UnavailabilityBlock[], right: UnavailabilityBlock[]): boolean {
   if (left.length !== right.length) return false;
   return left.every((block, index) => {
@@ -108,9 +116,30 @@ export interface MarkUnavailableView {
   addBlock: () => void;
   removeBlock: (index: number) => void;
   save: () => void;
+  /** Flip one day straight from its card in the grid, saved immediately — the
+   * modal's staged add/remove/Save is for ranges, this is for "not that night".
+   * A no-op for a role that may not write. */
+  toggleDayUnavailable: (day: string) => void;
+  /** The day a toggle is in flight for, so the screen can say so. */
+  togglingDay: string | null;
 }
 
-export function useMarkUnavailable(open: boolean, onSaved: () => void): MarkUnavailableView {
+/** What the screen is told after a day-card toggle. Passed in rather than read
+ * back out as state, because the answer belongs in a toast on the Calendar and
+ * not in a field only the modal renders. */
+export interface MarkUnavailableHandlers {
+  /** The modal's Save landed. */
+  onSaved: () => void;
+  /** One day was flipped from its card. */
+  onDayToggled?: (day: string, isNowUnavailable: boolean) => void;
+  /** The API refused a day-card toggle, verbatim. */
+  onDayToggleFailed?: (message: string) => void;
+}
+
+export function useMarkUnavailable(
+  open: boolean,
+  handlers: MarkUnavailableHandlers,
+): MarkUnavailableView {
   const { session } = useAuth();
   const queryClient = useQueryClient();
 
@@ -216,6 +245,50 @@ export function useMarkUnavailable(open: boolean, onSaved: () => void): MarkUnav
     setBlocks((current) => current.filter((_, position) => position !== index));
   };
 
+  const [togglingDay, setTogglingDay] = useState<string | null>(null);
+
+  /**
+   * WHY THIS WRITES FROM `serverBlocks` AND NOT FROM `blocks`. `blocks` is the
+   * modal's working copy and may hold unsaved edits; the PUT replaces the whole
+   * set, so flipping one day from the grid while a draft sat in the editor would
+   * silently commit that draft. The card acts on what is actually stored.
+   *
+   * Ownership is not decided here: the rows belong to the ACTIVE profile, and
+   * `PUT /profiles/:id/unavailability` re-checks the caller's role on that
+   * profile server-side. `canEdit` only keeps the affordance off a screen whose
+   * owner would be refused.
+   */
+  const toggleDayUnavailable = (day: string) => {
+    if (!activeProfileId || !canEdit || togglingDay) return;
+    const wasUnavailable = serverBlocks.some(
+      (block) => block.startDate <= day && block.endDate >= day,
+    );
+    const next = toggleDayInBlocks(serverBlocks, day);
+    setTogglingDay(day);
+    replaceUnavailability.mutate(
+      {
+        id: activeProfileId,
+        data: {
+          entries: next.map((block) => ({
+            startDate: block.startDate,
+            endDate: block.endDate,
+            reason: block.reason,
+          })),
+        },
+      },
+      {
+        onSuccess: () => {
+          void queryClient.invalidateQueries({
+            queryKey: getGetApiV1ProfilesIdUnavailabilityQueryKey(activeProfileId),
+          });
+          handlers.onDayToggled?.(day, !wasUnavailable);
+        },
+        onError: (error) => handlers.onDayToggleFailed?.(errorMessage(error)),
+        onSettled: () => setTogglingDay(null),
+      },
+    );
+  };
+
   const save = () => {
     if (!activeProfileId) return;
     setSaveError(null);
@@ -235,7 +308,7 @@ export function useMarkUnavailable(open: boolean, onSaved: () => void): MarkUnav
           void queryClient.invalidateQueries({
             queryKey: getGetApiV1ProfilesIdUnavailabilityQueryKey(activeProfileId),
           });
-          onSaved();
+          handlers.onSaved();
         },
         onError: (error) => setSaveError(errorMessage(error)),
       },
@@ -263,6 +336,8 @@ export function useMarkUnavailable(open: boolean, onSaved: () => void): MarkUnav
     addBlock,
     removeBlock,
     save,
+    toggleDayUnavailable,
+    togglingDay,
   };
 }
 
@@ -278,4 +353,80 @@ export function blocksOverlappingRange(
 ): UnavailabilityBlock[] {
   // Two inclusive ranges overlap iff each starts on or before the other ends.
   return blocks.filter((block) => block.startDate <= to && block.endDate >= from);
+}
+
+/** Blocked days keyed by `yyyy-mm-dd`, valued by the reason recorded for the
+ * block covering them (`null` when none was given). */
+export type UnavailableDays = ReadonlyMap<string, string | null>;
+
+/**
+ * The blocks flattened to one entry per day, clipped to `from`..`to`.
+ *
+ * The table stores RANGES and a calendar draws DAYS, so something has to expand
+ * one into the other before a cell can know whether it is blocked. Clipping to
+ * the visible window keeps that expansion bounded — a year-long block is 366
+ * rows of nothing if the reader is looking at one week.
+ *
+ * When two blocks overlap the same day, the FIRST one's reason wins (blocks are
+ * sorted by start date, so that is the earlier-starting block). The day is
+ * blocked either way; only the label shown differs.
+ */
+export function unavailableDaysInRange(
+  blocks: UnavailabilityBlock[],
+  from: string,
+  to: string,
+): UnavailableDays {
+  const days = new Map<string, string | null>();
+  for (const block of blocksOverlappingRange(blocks, from, to)) {
+    let cursor = block.startDate < from ? from : block.startDate;
+    const last = block.endDate > to ? to : block.endDate;
+    // Bounded by construction: `cursor` starts inside the window and the loop
+    // stops at its far edge.
+    while (cursor <= last) {
+      if (!days.has(cursor)) days.set(cursor, block.reason);
+      cursor = shiftDay(cursor, 1);
+    }
+  }
+  return days;
+}
+
+/**
+ * `blocks` with `day` flipped: blocked if it was free, free if it was blocked.
+ *
+ * Flipping a day OFF is the interesting half, because the storage is ranges. A
+ * day at either end of a range trims it; a day in the middle SPLITS the range in
+ * two; a one-day range simply disappears. The halves are returned without an
+ * `id` — they are new ranges, not edits of the old row, and `PUT
+ * /profiles/:id/unavailability` replaces the whole set anyway.
+ *
+ * The reason travels with both halves: "touring" still describes the days either
+ * side of the one night off.
+ */
+export function toggleDayInBlocks(
+  blocks: UnavailabilityBlock[],
+  day: string,
+): UnavailabilityBlock[] {
+  const covers = (block: UnavailabilityBlock) => block.startDate <= day && block.endDate >= day;
+  if (!blocks.some(covers)) {
+    return sortBlocks([...blocks, { startDate: day, endDate: day, reason: null }]);
+  }
+
+  const remaining: UnavailabilityBlock[] = [];
+  for (const block of blocks) {
+    if (!covers(block)) {
+      remaining.push(block);
+      continue;
+    }
+    if (block.startDate < day) {
+      remaining.push({
+        startDate: block.startDate,
+        endDate: shiftDay(day, -1),
+        reason: block.reason,
+      });
+    }
+    if (block.endDate > day) {
+      remaining.push({ startDate: shiftDay(day, 1), endDate: block.endDate, reason: block.reason });
+    }
+  }
+  return sortBlocks(remaining);
 }

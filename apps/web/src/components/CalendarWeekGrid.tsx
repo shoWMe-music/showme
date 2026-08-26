@@ -1,7 +1,13 @@
 import { Card } from "@showme/design-system";
 import { type CalendarEvent, CalendarEventChip, type CalendarLabelMode } from "./CalendarEventChip";
 import type { EventMenuItem } from "./EventRowMenu";
+import {
+  CalendarUnavailableMark,
+  dayCellBackground,
+  unavailableSuffix,
+} from "./CalendarUnavailableMark";
 import { WEEKDAYS_SHORT, buildWeekGrid, dayKey } from "./calendarGrid";
+import type { UnavailableDays } from "./useMarkUnavailable";
 
 /** One week of the Calendar screen (§2): the month grid's seven columns, one week
  * tall. Deliberately NOT an hour-ruled time grid — an event carries a date and no
@@ -14,6 +20,8 @@ export interface CalendarWeekGridProps {
   /** Any date within the week to render. */
   week: Date;
   events: CalendarEvent[];
+  /** Days the acting profile has blocked, keyed `yyyy-mm-dd`. */
+  unavailableDays?: UnavailableDays;
   labelMode?: CalendarLabelMode;
   onSelectDay?: (dayKey: string, anchor: DOMRect) => void;
   onSelectEvent?: (eventId: string) => void;
@@ -42,6 +50,7 @@ const CELL_RULE = "1px solid var(--border)";
 export function CalendarWeekGrid({
   week,
   events,
+  unavailableDays,
   labelMode = "both",
   onSelectDay,
   onSelectEvent,
@@ -67,9 +76,11 @@ export function CalendarWeekGrid({
       >
         {cells.map((cell, columnIndex) => {
           const isToday = cell.key === todayKey;
+          const isUnavailable = unavailableDays?.has(cell.key) ?? false;
           return (
             <div
               key={cell.key}
+              title={isUnavailable ? "Unavailable" : undefined}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -103,7 +114,12 @@ export function CalendarWeekGrid({
                   color: isToday ? "#fff" : "var(--muted)",
                 }}
               >
-                {cell.date.getDate()}
+                {/* Inline span, for the same reason as the month grid: this
+                    circle is `display: inline-grid`, which swallows a text
+                    decoration set on it. */}
+                <span style={{ textDecoration: isUnavailable ? "line-through" : undefined }}>
+                  {cell.date.getDate()}
+                </span>
               </span>
             </div>
           );
@@ -114,9 +130,12 @@ export function CalendarWeekGrid({
         {cells.map((cell, columnIndex) => {
           const dayEvents = byDay.get(cell.key) ?? [];
           const isToday = cell.key === todayKey;
+          const isUnavailable = unavailableDays?.has(cell.key) ?? false;
+          const unavailableReason = unavailableDays?.get(cell.key) ?? null;
           return (
             <div
               key={cell.key}
+              aria-label={`${cell.key}${unavailableSuffix(isUnavailable, unavailableReason)}`}
               // Same contract as the month cell: a click anywhere selects the day,
               // and the keyboard route is the day-number button in the header row
               // above rather than a role on this div, which already contains the
@@ -136,10 +155,13 @@ export function CalendarWeekGrid({
                 display: "flex",
                 flexDirection: "column",
                 borderRight: columnIndex === cells.length - 1 ? undefined : CELL_RULE,
-                background: isToday ? TODAY_TINT : "transparent",
+                background: dayCellBackground(isUnavailable, isToday ? TODAY_TINT : "transparent"),
                 cursor: onSelectDay ? "pointer" : "default",
               }}
             >
+              {/* A week column is 420px tall, so the reason fits inline here in a
+                  way it does not in a 104px month cell. */}
+              {isUnavailable && <CalendarUnavailableMark reason={unavailableReason} showReason />}
               {dayEvents.map((event) => (
                 <CalendarEventChip
                   key={event.id}

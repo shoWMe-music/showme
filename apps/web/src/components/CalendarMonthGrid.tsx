@@ -1,8 +1,14 @@
 import { Card, STATUSES, STATUS_LABEL, StatusDot } from "@showme/design-system";
 import { type CalendarEvent, CalendarEventChip, type CalendarLabelMode } from "./CalendarEventChip";
 import type { EventMenuItem } from "./EventRowMenu";
+import {
+  CalendarUnavailableMark,
+  dayCellBackground,
+  unavailableSuffix,
+} from "./CalendarUnavailableMark";
 import { WEEKDAYS_SHORT, buildMonthGrid, dayKey, trimTrailingWeeks } from "./calendarGrid";
 import { Eyebrow } from "./primitives";
+import type { UnavailableDays } from "./useMarkUnavailable";
 
 /** The full month grid for the Calendar screen (§2), matching the Claude Design
  * prototype: one rounded card with hairline dividers (not gapped cells), tall
@@ -17,6 +23,9 @@ export interface CalendarMonthGridProps {
   /** Any date within the month to render. */
   month: Date;
   events: CalendarEvent[];
+  /** Days the acting profile has blocked, keyed `yyyy-mm-dd`. Omit for a grid
+   * that has no availability to show (the mini month, a preview). */
+  unavailableDays?: UnavailableDays;
   labelMode?: CalendarLabelMode;
   /** Optional cap on chips per day (collapses to "+N more"). Omit to show all. */
   maxPerDay?: number;
@@ -52,6 +61,7 @@ const CELL_RULE = "1px solid var(--border)";
 export function CalendarMonthGrid({
   month,
   events,
+  unavailableDays,
   labelMode = "both",
   maxPerDay,
   showLegend = true,
@@ -119,6 +129,8 @@ export function CalendarMonthGrid({
             const visible = maxPerDay != null ? dayEvents.slice(0, maxPerDay) : dayEvents;
             const overflow = dayEvents.length - visible.length;
             const isToday = cell.key === todayKey;
+            const isUnavailable = unavailableDays?.has(cell.key) ?? false;
+            const unavailableReason = unavailableDays?.get(cell.key) ?? null;
 
             return (
               <div
@@ -146,7 +158,10 @@ export function CalendarMonthGrid({
                   display: "flex",
                   flexDirection: "column",
                   ...rules,
-                  background: isToday ? TODAY_TINT : "transparent",
+                  background: dayCellBackground(
+                    isUnavailable,
+                    isToday ? TODAY_TINT : "transparent",
+                  ),
                   cursor: onSelectDay ? "pointer" : "default",
                 }}
               >
@@ -156,7 +171,7 @@ export function CalendarMonthGrid({
                   // order, so selecting the day from it costs no extra tab stops and
                   // needs no ARIA. It measures the CELL's rectangle, not its own, so the
                   // popover lands where a click would have put it.
-                  aria-label={`Select ${cell.key}`}
+                  aria-label={`Select ${cell.key}${unavailableSuffix(isUnavailable, unavailableReason)}`}
                   onClick={(clickEvent) => {
                     clickEvent.stopPropagation();
                     const cellElement = clickEvent.currentTarget.parentElement;
@@ -181,8 +196,17 @@ export function CalendarMonthGrid({
                     color: isToday ? "#fff" : "var(--muted)",
                   }}
                 >
-                  {cell.date.getDate()}
+                  {/* The rule has to go on an INLINE span, not on the button:
+                      the button is `display: inline-grid`, and a text decoration
+                      set on a grid container does not paint on its grid items —
+                      the computed style said `line-through` while the screen
+                      showed a perfectly clean number. */}
+                  <span style={{ textDecoration: isUnavailable ? "line-through" : undefined }}>
+                    {cell.date.getDate()}
+                  </span>
                 </button>
+
+                {isUnavailable && <CalendarUnavailableMark reason={unavailableReason} />}
 
                 {visible.map((event) => (
                   <CalendarEventChip

@@ -6,7 +6,63 @@ export interface CreateOption {
   key: string;
   label: string;
   icon: IconName;
+  /** Greys the row out and refuses the click — used while a write is in flight. */
+  disabled?: boolean;
   onSelect: () => void;
+}
+
+function MenuHeading({ children }: { children: string }) {
+  return (
+    <div
+      style={{
+        fontFamily: "var(--font-mono)",
+        fontSize: 10.5,
+        letterSpacing: "0.12em",
+        textTransform: "uppercase",
+        color: "var(--muted)",
+        padding: "8px 10px 6px",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function MenuItem({ option, onClose }: { option: CreateOption; onClose: () => void }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={option.disabled}
+      onClick={() => {
+        option.onSelect();
+        onClose();
+      }}
+      style={{
+        all: "unset",
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        width: "100%",
+        boxSizing: "border-box",
+        padding: "9px 10px",
+        borderRadius: 9,
+        cursor: option.disabled ? "default" : "pointer",
+        color: option.disabled ? "var(--dim)" : "var(--text)",
+        fontSize: 13.5,
+      }}
+      onMouseEnter={(mouseEvent) => {
+        if (option.disabled) return;
+        mouseEvent.currentTarget.style.background = "var(--shape-fill)";
+      }}
+      onMouseLeave={(mouseEvent) => {
+        mouseEvent.currentTarget.style.background = "transparent";
+      }}
+    >
+      <Icon name={option.icon} size={17} />
+      {option.label}
+    </button>
+  );
 }
 
 /**
@@ -19,16 +75,23 @@ export function CalendarCreatePopover({
   anchor,
   title,
   options,
+  secondaryGroup,
   onClose,
 }: {
   anchor: DOMRect;
   title: string;
   options: CreateOption[];
+  /** A second, separately-headed list under a divider. The day menu is no longer
+   * only about creating things — marking the day unavailable acts on the day
+   * itself — and filing that under "CREATE" would misname it. */
+  secondaryGroup?: { heading: string; options: CreateOption[] };
   onClose: () => void;
 }) {
   // Anchor near the cell's top-left, clamped so the panel stays on screen.
   const width = 232;
-  const estimatedHeight = 52 + options.length * 40;
+  const secondaryOptions = secondaryGroup?.options ?? [];
+  const estimatedHeight =
+    52 + options.length * 40 + (secondaryOptions.length ? 33 + secondaryOptions.length * 40 : 0);
   const left = Math.min(anchor.left + 6, window.innerWidth - width - 12);
   const top =
     anchor.top + 34 + estimatedHeight > window.innerHeight
@@ -71,51 +134,19 @@ export function CalendarCreatePopover({
           boxShadow: "var(--shadow-lg)",
         }}
       >
-        <div
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 10.5,
-            letterSpacing: "0.12em",
-            textTransform: "uppercase",
-            color: "var(--muted)",
-            padding: "8px 10px 6px",
-          }}
-        >
-          {title} — Create
-        </div>
+        <MenuHeading>{`${title} — Create`}</MenuHeading>
         {options.map((option) => (
-          <button
-            key={option.key}
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              option.onSelect();
-              onClose();
-            }}
-            style={{
-              all: "unset",
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              width: "100%",
-              boxSizing: "border-box",
-              padding: "9px 10px",
-              borderRadius: 9,
-              cursor: "pointer",
-              color: "var(--text)",
-              fontSize: 13.5,
-            }}
-            onMouseEnter={(mouseEvent) => {
-              mouseEvent.currentTarget.style.background = "var(--shape-fill)";
-            }}
-            onMouseLeave={(mouseEvent) => {
-              mouseEvent.currentTarget.style.background = "transparent";
-            }}
-          >
-            <Icon name={option.icon} size={17} />
-            {option.label}
-          </button>
+          <MenuItem key={option.key} option={option} onClose={onClose} />
         ))}
+        {secondaryGroup && secondaryOptions.length > 0 && (
+          <>
+            <div style={{ borderTop: "1px solid var(--border)", margin: "6px 4px 0" }} />
+            <MenuHeading>{secondaryGroup.heading}</MenuHeading>
+            {secondaryOptions.map((option) => (
+              <MenuItem key={option.key} option={option} onClose={onClose} />
+            ))}
+          </>
+        )}
       </div>
     </>,
     document.body,
