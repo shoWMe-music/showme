@@ -22,8 +22,10 @@ import {
   Toggle,
   useToast,
 } from "@showme/design-system";
+import { useRouterState } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
+import { VatSettingsCard } from "../components/VatSettingsCard";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
 import { errorMessage } from "../lib/errors";
@@ -39,6 +41,7 @@ type SectionKey =
   | "security"
   | "appearance"
   | "integrations"
+  | "vat"
   | "billing";
 
 const SECTIONS: { key: SectionKey; label: string; icon: IconName }[] = [
@@ -48,8 +51,17 @@ const SECTIONS: { key: SectionKey; label: string; icon: IconName }[] = [
   { key: "security", label: "Security", icon: "eye" },
   { key: "appearance", label: "Appearance", icon: "star" },
   { key: "integrations", label: "Integrations", icon: "link" },
+  { key: "vat", label: "VAT", icon: "file" },
   { key: "billing", label: "Billing", icon: "receipt" },
 ];
+
+const SECTION_KEYS = new Set<string>(SECTIONS.map((item) => item.key));
+
+/** `/settings#vat` opens the VAT tab. Anything unrecognised falls back to General. */
+function sectionFromHash(hash: string): SectionKey | null {
+  const key = hash.replace(/^#/, "");
+  return SECTION_KEYS.has(key) ? (key as SectionKey) : null;
+}
 
 const CURRENCIES = ["EUR", "USD", "GBP", "SEK", "NOK", "DKK"];
 const TIMEZONES = [
@@ -64,7 +76,15 @@ const TIMEZONES = [
 export function Settings() {
   const { session } = useAuth();
   const profileId = session?.memberships[0]?.profileId ?? "";
-  const [section, setSection] = useState<SectionKey>("general");
+  // The hash IS the tab, so a tab is linkable — `UpgradeNoticeProvider` sends the
+  // user to `/settings#billing`, and "the VAT tab" is now an address someone can
+  // paste to a colleague.
+  const hash = useRouterState({ select: (state) => state.location.hash });
+  const [section, setSection] = useState<SectionKey>(() => sectionFromHash(hash) ?? "general");
+  useEffect(() => {
+    const fromHash = sectionFromHash(hash);
+    if (fromHash) setSection(fromHash);
+  }, [hash]);
   // Same fade-and-rise as route changes, keyed on the active tab.
   const panelRef = usePageTransition(section);
 
@@ -93,7 +113,10 @@ export function Settings() {
               icon={<Icon name={item.icon} />}
               label={item.label}
               active={section === item.key}
-              onClick={() => setSection(item.key)}
+              onClick={() => {
+                setSection(item.key);
+                window.history.replaceState(null, "", `#${item.key}`);
+              }}
             />
           ))}
         </nav>
@@ -105,6 +128,7 @@ export function Settings() {
           {section === "security" && <SecurityPanel />}
           {section === "appearance" && <AppearancePanel />}
           {section === "integrations" && <IntegrationsPanel />}
+          {section === "vat" && <VatSettingsCard profileId={profileId} />}
           {section === "billing" && <BillingPanel profileId={profileId} />}
         </div>
       </div>
@@ -192,25 +216,26 @@ function GeneralPanel({ profileId }: { profileId: string }) {
   );
 }
 
+/**
+ * The profile's LEGAL identity — who the business is on paper. VAT used to live
+ * here too, buried at the bottom of General; it is its own tab now
+ * (`VatSettingsCard`), which is where a user looks for it.
+ */
 function LegalCard({ profileId }: { profileId: string }) {
   const profile = useGetApiV1ProfilesId(profileId, { query: { enabled: Boolean(profileId) } });
   const toast = useToast();
   const [legalName, setLegalName] = useState("");
-  const [vatId, setVatId] = useState("");
   const [address, setAddress] = useState("");
-  const [vatRegistered, setVatRegistered] = useState(false);
 
   useEffect(() => {
     const billing = (profile.data?.billing ?? {}) as Record<string, unknown>;
     setLegalName(typeof billing.legalName === "string" ? billing.legalName : "");
-    setVatId(typeof billing.vatId === "string" ? billing.vatId : "");
     setAddress(typeof billing.address === "string" ? billing.address : "");
-    setVatRegistered(billing.vatRegistered === true);
   }, [profile.data]);
 
   const patch = usePatchApiV1ProfilesIdBilling({
     mutation: {
-      onSuccess: () => toast.success("Legal & tax details saved"),
+      onSuccess: () => toast.success("Legal details saved"),
       onError: (mutationError) => toast.error(errorMessage(mutationError, "Couldn't save.")),
     },
   });
@@ -222,7 +247,7 @@ function LegalCard({ profileId }: { profileId: string }) {
 
   return (
     <PanelCard>
-      <Eyebrow>Legal &amp; tax</Eyebrow>
+      <Eyebrow>Legal identity</Eyebrow>
       <TextField
         label="Legal / registered name"
         value={legalName}
@@ -230,33 +255,21 @@ function LegalCard({ profileId }: { profileId: string }) {
         onChange={(changeEvent) => setLegalName(changeEvent.target.value)}
       />
       <TextField
-        label="VAT ID"
-        value={vatId}
-        placeholder="e.g. DE123456789"
-        onChange={(changeEvent) => setVatId(changeEvent.target.value)}
-      />
-      <TextField
         label="Registered address"
         value={address}
         placeholder="Street, city, country"
         onChange={(changeEvent) => setAddress(changeEvent.target.value)}
       />
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ fontSize: 14, color: "var(--text)" }}>VAT registered</span>
-        <Toggle checked={vatRegistered} onChange={setVatRegistered} label="VAT registered" />
-      </div>
+      <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
+        VAT registration, VAT ID and rate live in the VAT tab.
+      </span>
       <div>
         <Button
           variant="primary"
           onClick={() =>
             patch.mutate({
               id: profileId,
-              data: {
-                legalName: legalName.trim(),
-                vatId: vatId.trim(),
-                address: address.trim(),
-                vatRegistered,
-              },
+              data: { legalName: legalName.trim(), address: address.trim() },
             })
           }
           disabled={patch.isPending}

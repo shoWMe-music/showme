@@ -10,7 +10,7 @@ import { badRequest, conflict, forbidden, notFound, tooManyRequests } from "../e
 import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
-import { canUseFeature } from "../lib/entitlements";
+import { canUseFeature, entitlementRequired } from "../lib/entitlements";
 import { resolveEventTimezone } from "../lib/event-timezone";
 import { notifyProfileMembers } from "../lib/notify";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
@@ -761,9 +761,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
       // Entitlement gate (decisions #4/§C): the free artist plan meters offers per
       // month. Composed AFTER authorization, always a fresh read — never conflated.
       const gate = await canUseFeature(database, senderProfileId, "send_offer");
-      if (!gate.allowed) {
-        throw forbidden(gate.reason ?? "Monthly offer limit reached — upgrade to send more");
-      }
+      if (!gate.allowed) throw entitlementRequired("send_offer", gate);
 
       // Who the offer is FROM: the sending profile plus the person behind it. The
       // row must never be anonymous, so these are the fallbacks for the identity

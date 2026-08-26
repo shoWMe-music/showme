@@ -2,7 +2,7 @@ import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
 import type { Capability } from "@showme/shared";
 import { and, count, countDistinct, eq, gte, inArray, sql } from "drizzle-orm";
-import { forbidden } from "../errors";
+import { HttpError } from "../errors";
 
 /**
  * The entitlement layer (PLAN.md §C) — plan limits, kept STRICTLY SEPARATE from
@@ -24,6 +24,45 @@ export interface FeatureCheck {
   reason?: string;
   used?: number;
   limit?: number;
+}
+
+/**
+ * The error CODE every plan-limit refusal carries — `403 entitlement_required`,
+ * deliberately NOT the plain `forbidden` that an authorization refusal uses.
+ *
+ * The two 403s mean opposite things and deserve opposite answers. "You may not
+ * touch this event" is a standing problem the user cannot fix by paying; "your
+ * plan does not include this" is a purchase away. Until this code existed the UI
+ * could only tell them apart by matching on message TEXT, which is how upgrade
+ * prompts end up hardcoded into a dozen screens and drifting from the rule.
+ * `apps/web/src/lib/errors.ts::isEntitlementError` reads exactly this code, so
+ * ONE component answers every plan gate in the app.
+ */
+export const ENTITLEMENT_REQUIRED_CODE = "entitlement_required";
+
+/**
+ * The features that a PAID PLAN unlocks — the only ones whose refusal is an
+ * upgrade prompt. `not_spam_suspended` is deliberately absent: it is a reputation
+ * gate, and answering a suspended profile with "upgrade to Pro" would be both
+ * wrong and insulting. It stays an ordinary `forbidden`.
+ */
+const PLAN_GATED_FEATURES: readonly Feature[] = ["create_event", "send_offer", "grant_admin"];
+
+/** Is a refusal of this feature an upgrade prompt, or an ordinary refusal? */
+export function isPlanGatedFeature(feature: Feature): boolean {
+  return PLAN_GATED_FEATURES.includes(feature);
+}
+
+/**
+ * Build the 403 for a refused entitlement. The MESSAGE stays the specific,
+ * factual reason ("Free plan event limit reached") — it is what an API consumer
+ * and the audit log read; the upgrade SENTENCE belongs to the UI and lives in one
+ * component, not in this file and not in each route.
+ */
+export function entitlementRequired(feature: Feature, check: FeatureCheck): HttpError {
+  const message = check.reason ?? "Your plan does not include this feature";
+  if (!isPlanGatedFeature(feature)) return new HttpError(403, message, "forbidden");
+  return new HttpError(403, message, ENTITLEMENT_REQUIRED_CODE);
 }
 
 const PAID_TIERS: readonly PlanTier[] = ["operator_pro", "artist_pro"];
@@ -254,9 +293,7 @@ export async function assertEventCapAllows(
   if (countsTowardEventCap(event.status)) return;
 
   const gate = await canUseFeature(database, event.hostProfileId, "create_event", now);
-  if (!gate.allowed) {
-    throw forbidden(gate.reason ?? "Event cap reached — upgrade to confirm more events");
-  }
+  if (!gate.allowed) throw entitlementRequired("create_event", gate);
 }
 
 /**
@@ -308,7 +345,7 @@ export async function assertGrantAdminAllows(
   if (confersAdminAuthority(current?.capabilities)) return;
 
   const gate = await canUseFeature(database, hostProfileId, "grant_admin");
-  if (!gate.allowed) throw forbidden(gate.reason ?? "Granting admin requires a paid plan");
+  if (!gate.allowed) throw entitlementRequired("grant_admin", gate);
 }
 
 /**
@@ -335,5 +372,5 @@ export async function assertProfileAdminGrantAllows(
   if (nextRole !== "admin" || currentRole === "admin") return;
 
   const gate = await canUseFeature(database, profileId, "grant_admin");
-  if (!gate.allowed) throw forbidden(gate.reason ?? "Granting admin requires a paid plan");
+  if (!gate.allowed) throw entitlementRequired("grant_admin", gate);
 }

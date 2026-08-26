@@ -3,13 +3,17 @@ import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  ENTITLEMENT_REQUIRED_CODE,
   assertEventCapAllows,
   assertGrantAdminAllows,
+  assertProfileAdminGrantAllows,
   canUseFeature,
   confersAdminAuthority,
   countsTowardEventCap,
   creditBalance,
+  entitlementRequired,
   getPlanTier,
+  isPlanGatedFeature,
 } from "./lib/entitlements";
 
 let harness: TestDatabase;
@@ -413,5 +417,125 @@ describe("assertGrantAdminAllows", () => {
         currentPermissionSetId: adminSet,
       }),
     ).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * A plan refusal must be TELLABLE APART from a permission refusal on the wire.
+ *
+ * Both are 403. Before `entitlement_required` existed they were both
+ * `code: "forbidden"`, so the only way a client could offer "upgrade to Pro"
+ * instead of "you don't have access" was to match on the message TEXT — which
+ * breaks the moment a limit's wording changes, and which is why upgrade copy ends
+ * up copy-pasted into a dozen screens. These tests pin the CODE, because the web
+ * app's single upgrade notice keys off exactly that
+ * (`apps/web/src/lib/errors.ts::isEntitlementError`).
+ */
+describe("the entitlement refusal is a distinct error code", () => {
+  it("marks a PLAN gate `entitlement_required`, and a reputation gate plain `forbidden`", () => {
+    const refused = { allowed: false, reason: "Free plan event limit reached" };
+
+    for (const feature of ["create_event", "send_offer", "grant_admin"] as const) {
+      expect(isPlanGatedFeature(feature)).toBe(true);
+      expect(entitlementRequired(feature, refused)).toMatchObject({
+        statusCode: 403,
+        code: ENTITLEMENT_REQUIRED_CODE,
+      });
+    }
+
+    // Spam suspension is a REPUTATION gate. Answering a reported profile with
+    // "upgrade to Pro" would be wrong, so it stays an ordinary refusal.
+    expect(isPlanGatedFeature("not_spam_suspended")).toBe(false);
+    expect(
+      entitlementRequired("not_spam_suspended", {
+        allowed: false,
+        reason: "Profile suspended for spam reports",
+      }),
+    ).toMatchObject({ statusCode: 403, code: "forbidden" });
+  });
+
+  it("keeps the SPECIFIC reason as the message — the upgrade sentence belongs to the UI", () => {
+    expect(
+      entitlementRequired("create_event", {
+        allowed: false,
+        reason: "Free plan event limit reached",
+      }).message,
+    ).toBe("Free plan event limit reached");
+    // A check with no reason still refuses, with a message rather than "".
+    expect(entitlementRequired("grant_admin", { allowed: false }).message).toBe(
+      "Your plan does not include this feature",
+    );
+  });
+
+  it("EVERY plan gate throws that code — event cap, event admin grant, profile admin grant", async () => {
+    const operator = await seedProfile("operator");
+    await seedEvent(operator.profileId, operator.ownerUserId, "confirmed");
+    await seedEvent(operator.profileId, operator.ownerUserId, "confirmed");
+    await seedEvent(operator.profileId, operator.ownerUserId, "concluded");
+
+    // 1. The event cap, from both statuses that enter the counted set.
+    for (const nextStatus of ["confirmed", "concluded"]) {
+      await expect(
+        assertEventCapAllows(
+          harness.db,
+          { hostProfileId: operator.profileId, status: "draft" },
+          nextStatus,
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        code: ENTITLEMENT_REQUIRED_CODE,
+        message: "Free plan event limit reached",
+      });
+    }
+
+    // 2. The EVENT-level admin grant (A-21).
+    const [adminSet] = await harness.db
+      .insert(schema.permissionSets)
+      .values({
+        profileId: operator.profileId,
+        name: `code-set-${seq++}`,
+        capabilities: [...PRESET_PERMISSION_SETS.operator_full],
+      })
+      .returning();
+    if (!adminSet) throw new Error("permission set seed failed");
+    await expect(
+      assertGrantAdminAllows(harness.db, {
+        hostProfileId: operator.profileId,
+        nextPermissionSetId: adminSet.id,
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      code: ENTITLEMENT_REQUIRED_CODE,
+      message: "Granting admin requires a paid plan",
+    });
+
+    // 3. The PROFILE-level admin grant (A-37).
+    await expect(
+      assertProfileAdminGrantAllows(harness.db, {
+        profileId: operator.profileId,
+        nextRole: "admin",
+      }),
+    ).rejects.toMatchObject({ statusCode: 403, code: ENTITLEMENT_REQUIRED_CODE });
+  });
+
+  it("a free artist over the offer cap is refused with the same code", async () => {
+    const performer = await seedProfile("performer");
+    const venue = await seedProfile("operator");
+    // 50 dateless offers = 50 offers (Postgres counts NULL `wanted_date` as distinct),
+    // which is exactly the free_artist monthly limit.
+    for (let index = 0; index < 50; index += 1) {
+      await harness.db.insert(schema.bookingRequests).values({
+        source: "performer_offer",
+        senderUserId: performer.ownerUserId,
+        targetProfileId: venue.profileId,
+      });
+    }
+    const gate = await canUseFeature(harness.db, performer.profileId, "send_offer");
+    expect(gate.allowed).toBe(false);
+    expect(entitlementRequired("send_offer", gate)).toMatchObject({
+      statusCode: 403,
+      code: ENTITLEMENT_REQUIRED_CODE,
+      message: "Monthly offer limit reached",
+    });
   });
 });
