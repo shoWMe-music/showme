@@ -1,11 +1,12 @@
 import { Button, Icon, Modal, TextField } from "@showme/design-system";
 import { DateTimeField } from "./DateTimeField";
-import type { EventInformationDraft } from "./useEventInformationEdit";
+import { EventPublishPanel } from "./EventPublishPanel";
+import type { EventInformationDraft, EventInformationFields } from "./useEventInformationEdit";
 
 export interface EventInformationEditModalProps {
   open: boolean;
   draft: EventInformationDraft | null;
-  onChange: (fields: Partial<EventInformationDraft>) => void;
+  onChange: (fields: Partial<EventInformationFields>) => void;
   onClose: () => void;
   onSave: () => void;
   onReload: () => void;
@@ -22,6 +23,13 @@ export interface EventInformationEditModalProps {
  *
  * Presentational only: the draft, validity and the save itself live in
  * `useEventInformationEdit`.
+ *
+ * It is also where an event is PUBLISHED. The toggle that used to live in the
+ * event header was removed, and this modal is the honest home for it: it is the
+ * one place the operator is already deciding what the event says about itself.
+ * The control keeps its own panel (`EventPublishPanel`) rather than becoming a
+ * fifth field, because publishing is not a value that is saved with the others —
+ * see that file for the reasoning.
  */
 export function EventInformationEditModal({
   open,
@@ -63,52 +71,62 @@ export function EventInformationEditModal({
       }
     >
       {draft && (
-        <form
-          onSubmit={(formEvent) => {
-            formEvent.preventDefault();
-            if (canSave && !isSaving) onSave();
-          }}
-          style={{ display: "flex", flexDirection: "column", gap: 14 }}
-        >
-          {hasConflict && <ConflictNotice />}
-          <TextField
-            label="Event name"
-            value={draft.title}
-            onChange={(changeEvent) => onChange({ title: changeEvent.target.value })}
-            placeholder="e.g. Open Mic Wednesdays"
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <form
+            onSubmit={(formEvent) => {
+              formEvent.preventDefault();
+              if (canSave && !isSaving) onSave();
+            }}
+            style={{ display: "flex", flexDirection: "column", gap: 14 }}
+          >
+            {hasConflict && <ConflictNotice />}
+            <TextField
+              label="Event name"
+              value={draft.title}
+              onChange={(changeEvent) => onChange({ title: changeEvent.target.value })}
+              placeholder="e.g. Open Mic Wednesdays"
+              disabled={hasConflict}
+              autoFocus
+            />
+            <DateTimeField
+              type="date"
+              label="Date"
+              value={draft.eventDate}
+              onChange={(changeEvent) => onChange({ eventDate: changeEvent.target.value })}
+              disabled={hasConflict}
+            />
+            <TextField
+              label="Venue"
+              value={draft.venueName}
+              onChange={(changeEvent) => onChange({ venueName: changeEvent.target.value })}
+              placeholder="e.g. The Lantern Hall (Back Room)"
+              disabled={hasConflict}
+            />
+            <TextField
+              label="Capacity"
+              type="number"
+              min={0}
+              step={1}
+              value={draft.capacity}
+              onChange={(changeEvent) => onChange({ capacity: changeEvent.target.value })}
+              placeholder="Leave empty for no capacity"
+              disabled={hasConflict}
+            />
+            <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: "var(--muted)" }}>
+              Status follows the event's own progression, and the operator and performers are the
+              event's participants — none of them are edited here.
+            </p>
+            <button type="submit" hidden aria-hidden />
+          </form>
+          {/* Outside the form on purpose: publishing is not one of the values the
+            footer's "Save changes" writes — it is its own act, on its own route,
+            and it happens the moment its button is pressed. */}
+          <EventPublishPanel
+            eventId={draft.publishing.eventId}
+            hasUnsavedChanges={draft.publishing.hasUnsavedChanges}
             disabled={hasConflict}
-            autoFocus
           />
-          <DateTimeField
-            type="date"
-            label="Date"
-            value={draft.eventDate}
-            onChange={(changeEvent) => onChange({ eventDate: changeEvent.target.value })}
-            disabled={hasConflict}
-          />
-          <TextField
-            label="Venue"
-            value={draft.venueName}
-            onChange={(changeEvent) => onChange({ venueName: changeEvent.target.value })}
-            placeholder="e.g. The Lantern Hall (Back Room)"
-            disabled={hasConflict}
-          />
-          <TextField
-            label="Capacity"
-            type="number"
-            min={0}
-            step={1}
-            value={draft.capacity}
-            onChange={(changeEvent) => onChange({ capacity: changeEvent.target.value })}
-            placeholder="Leave empty for no capacity"
-            disabled={hasConflict}
-          />
-          <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: "var(--muted)" }}>
-            Status follows the event's own progression, and the operator and performers are the
-            event's participants — none of them are edited here.
-          </p>
-          <button type="submit" hidden aria-hidden />
-        </form>
+        </div>
       )}
     </Modal>
   );

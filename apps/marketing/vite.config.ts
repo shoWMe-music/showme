@@ -19,6 +19,7 @@ export default defineConfig({
         cookies: resolve(here, "cookies.html"),
         privacy: resolve(here, "privacy.html"),
         availability: resolve(here, "availability.html"),
+        event: resolve(here, "event.html"),
       },
     },
   },

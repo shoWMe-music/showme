@@ -1,0 +1,392 @@
+/* The public event page. Same shape as the shared availability page next to it:
+   the brand tokens + fonts, one column, no scroll scenes — a link someone was
+   handed (or found) should open fast and read like a poster, not like a site. */
+@import "./tokens.css";
+@import "./fonts.css";
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding: 22px clamp(18px, 5vw, 48px) 40px;
+}
+
+/* ---------- Header ---------- */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+
+.brand__mark {
+  width: 28px;
+  height: 28px;
+  display: block;
+}
+
+.brand__mark svg {
+  width: 100%;
+  height: 100%;
+}
+
+.theme-toggle {
+  border: 1px solid var(--border);
+  background: var(--button-surface);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 7px 15px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+/* ---------- The column ---------- */
+.event {
+  width: min(100%, 680px);
+  margin-inline: auto;
+  flex: 1;
+}
+
+.event__loading,
+.event__problem {
+  color: var(--muted);
+}
+
+.event__title--plain {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(28px, 5vw, 40px);
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  margin: 0 0 8px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  padding: clamp(18px, 3vw, 26px);
+}
+
+.card + .card {
+  margin-top: 16px;
+}
+
+/* The poster card carries the banner edge-to-edge, so its own padding moves
+   inward to the parts that need it. */
+.card--poster {
+  padding: 0;
+  overflow: hidden;
+}
+
+/* ---------- The poster band ----------
+   The prototype's public event screen put the show's name alone on a warm
+   gradient. Kept, with the gradient built from brand tokens so it is one colour
+   with the rest of the site — and left identical in both themes, because a
+   poster is a poster. */
+.poster {
+  background: linear-gradient(135deg, var(--brand-red), var(--brand-amber));
+  padding: clamp(30px, 7vw, 56px) clamp(18px, 3vw, 26px) clamp(24px, 5vw, 40px);
+}
+
+.poster__eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.85);
+  margin: 0 0 10px;
+}
+
+.poster__title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(30px, 6.5vw, 46px);
+  letter-spacing: -0.03em;
+  line-height: 1.04;
+  margin: 0;
+  color: #fff;
+  /* The gradient runs light at its amber corner; a soft shadow keeps the title
+     readable across all of it. Kept gentle on purpose — the prototype's heavier
+     0 2px 12px/.4 reads as an emboss at this weight and size. */
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.22);
+  /* A long show title must wrap, never widen the page. */
+  overflow-wrap: anywhere;
+}
+
+/* ---------- The facts ---------- */
+.facts {
+  display: grid;
+  gap: 14px;
+  padding: clamp(18px, 3vw, 26px);
+}
+
+.facts__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+}
+
+.facts__label {
+  margin: 0;
+  min-width: 84px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  /* Nudged onto the value's first line rather than its cap-height. */
+  padding-top: 5px;
+}
+
+.facts__value {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- RSVP ---------- */
+.rsvp__heading {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(20px, 3.4vw, 26px);
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.rsvp__intro {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 8px 0 20px;
+}
+
+.rsvp__form {
+  display: grid;
+  gap: 16px;
+}
+
+/* An author `display` beats the UA sheet's `[hidden] { display: none }`, so the
+   two blocks that swap places — the form and the confirmation — have to opt back
+   out by hand, or the "You're on the list" panel appears under a still-live
+   form. (The same trap the availability page's request panel documents.) */
+.rsvp__form[hidden],
+.rsvp__done[hidden] {
+  display: none;
+}
+
+.rsvp__row {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr 1fr;
+}
+
+/* One column on a phone — with 100%-wide controls this is what keeps 390px free
+   of horizontal overflow. */
+@media (max-width: 560px) {
+  .rsvp__row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Off-screen rather than display:none, so a bot that reads the DOM still fills
+   it in. Humans never see it and never tab into it. */
+.rsvp__honeypot {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+/* ---------- Fields ---------- */
+:root {
+  /* A red that stays legible on both grounds — --brand-red is tuned for the dark
+     surface and goes muddy on the light paper. Same pair the availability page
+     uses; the app's tokens have no semantic danger colour to borrow. */
+  --rsvp-alert: var(--brand-red-glow);
+}
+
+[data-theme="light"] {
+  --rsvp-alert: var(--brand-red-deep);
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field__label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0;
+}
+
+.field__hint {
+  color: var(--dim);
+  font-size: 12.5px;
+  margin: 0;
+}
+
+.field__control {
+  width: 100%;
+  max-width: 100%;
+  font: inherit;
+  font-size: 15px;
+  color: var(--text);
+  background: var(--control-surface);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 11px 14px;
+  box-sizing: border-box;
+}
+
+.field__control::placeholder {
+  color: var(--dim);
+}
+
+.field__control:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+  border-color: var(--border-strong);
+}
+
+.field__control[aria-invalid="true"] {
+  border-color: var(--rsvp-alert);
+}
+
+.field__error {
+  color: var(--rsvp-alert);
+  font-size: 13px;
+  margin: 0;
+}
+
+/* ---------- Actions, status, confirmation ---------- */
+.rsvp__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.rsvp__submit {
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--brand-red), var(--brand-amber));
+  border: 0;
+  border-radius: 11px;
+  padding: 12px 22px;
+  cursor: pointer;
+}
+
+.rsvp__submit:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.rsvp__submit:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.rsvp__submit:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.rsvp__status {
+  color: var(--rsvp-alert);
+  font-size: 14px;
+  border: 1px solid var(--rsvp-alert);
+  border-radius: 11px;
+  padding: 10px 14px;
+  margin: 0;
+}
+
+.rsvp__done {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  padding: 6px 0 2px;
+}
+
+.rsvp__done:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+}
+
+.rsvp__done-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 20px;
+  margin: 0;
+}
+
+.rsvp__done-body {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0;
+}
+
+.rsvp__consent {
+  color: var(--dim);
+  font-size: 12.5px;
+  margin: 18px 0 0;
+}
+
+.rsvp__consent a {
+  color: var(--muted);
+}
+
+/* ---------- Footer ---------- */
+.page-footer {
+  width: min(100%, 680px);
+  margin-inline: auto;
+  color: var(--dim);
+  font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.page-footer p {
+  margin: 0;
+}

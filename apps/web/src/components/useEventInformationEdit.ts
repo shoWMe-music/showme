@@ -6,7 +6,7 @@ import {
 } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { errorMessage } from "../lib/errors";
 
 /** The body `PATCH /events/:id` accepts, taken from the generated client so a
@@ -27,7 +27,7 @@ export interface EditableEventInformation {
 
 /** Every field is text: the inputs must be able to hold "" (meaning "cleared")
  * and a half-typed number without the draft losing them. */
-export interface EventInformationDraft {
+export interface EventInformationFields {
   title: string;
   /** `yyyy-mm-dd`, or "" for no date. */
   eventDate: string;
@@ -35,11 +35,30 @@ export interface EventInformationDraft {
   capacity: string;
 }
 
+/**
+ * What the publish panel needs to know, riding along with the draft.
+ *
+ * It is here rather than in the modal's props because the modal is handed the
+ * draft and nothing else — and publishing has to know WHICH event it is, and
+ * whether the form above it is holding edits that the public page would not
+ * show. Everything else about publishing (the flag, the status, the version) the
+ * panel reads from the live event itself.
+ */
+export interface EventPublishingContext {
+  eventId: string;
+  hasUnsavedChanges: boolean;
+}
+
+/** The draft as the modal receives it: the editable fields plus that context. */
+export interface EventInformationDraft extends EventInformationFields {
+  publishing: EventPublishingContext;
+}
+
 export interface EventInformationEdit {
   draft: EventInformationDraft | null;
   open: () => void;
   close: () => void;
-  change: (fields: Partial<EventInformationDraft>) => void;
+  change: (fields: Partial<EventInformationFields>) => void;
   save: () => void;
   /** Discard the stale draft and pull the event again after a conflict. */
   reload: () => void;
@@ -55,7 +74,7 @@ function toDateInputValue(eventDate: string | null): string {
   return eventDate ? eventDate.slice(0, 10) : "";
 }
 
-function toDraft(event: EditableEventInformation): EventInformationDraft {
+function toDraft(event: EditableEventInformation): EventInformationFields {
   return {
     title: event.title,
     eventDate: toDateInputValue(event.eventDate),
@@ -78,7 +97,7 @@ function parseCapacity(raw: string): { valid: boolean; value: number | null } {
  * field someone else edited between this card loading and the save. */
 function changedFields(
   event: EditableEventInformation,
-  draft: EventInformationDraft,
+  draft: EventInformationFields,
 ): EventPatchBody {
   const body: EventPatchBody = {};
 
@@ -110,7 +129,7 @@ function changedFields(
 export function useEventInformationEdit(event: EditableEventInformation): EventInformationEdit {
   const toast = useToast();
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<EventInformationDraft | null>(null);
+  const [fields, setFields] = useState<EventInformationFields | null>(null);
   const [hasConflict, setHasConflict] = useState(false);
 
   const invalidateEvent = useCallback(() => {
@@ -122,7 +141,7 @@ export function useEventInformationEdit(event: EditableEventInformation): EventI
       onSuccess: () => {
         toast.success("Event information updated");
         invalidateEvent();
-        setDraft(null);
+        setFields(null);
       },
       onError: (error) => {
         if (error instanceof ApiError && error.status === 409) {
@@ -136,27 +155,27 @@ export function useEventInformationEdit(event: EditableEventInformation): EventI
 
   const open = useCallback(() => {
     setHasConflict(false);
-    setDraft(toDraft(event));
+    setFields(toDraft(event));
   }, [event]);
 
   const close = useCallback(() => {
-    setDraft(null);
+    setFields(null);
     setHasConflict(false);
   }, []);
 
-  const change = useCallback((fields: Partial<EventInformationDraft>) => {
-    setDraft((current) => (current ? { ...current, ...fields } : current));
+  const change = useCallback((changes: Partial<EventInformationFields>) => {
+    setFields((current) => (current ? { ...current, ...changes } : current));
   }, []);
 
   const reload = useCallback(() => {
     invalidateEvent();
-    setDraft(null);
+    setFields(null);
     setHasConflict(false);
   }, [invalidateEvent]);
 
   const save = useCallback(() => {
-    if (!draft || hasConflict) return;
-    const body = changedFields(event, draft);
+    if (!fields || hasConflict) return;
+    const body = changedFields(event, fields);
     // Nothing moved — closing is the honest outcome, not a no-op write that bumps
     // the version for everyone else.
     if (Object.keys(body).length === 0) {
@@ -164,13 +183,30 @@ export function useEventInformationEdit(event: EditableEventInformation): EventI
       return;
     }
     patchEvent.mutate({ id: event.id, data: { ...body, expectedVersion: event.version } });
-  }, [draft, hasConflict, event, patchEvent, close]);
+  }, [fields, hasConflict, event, patchEvent, close]);
 
   const canSave =
-    draft !== null &&
+    fields !== null &&
     !hasConflict &&
-    draft.title.trim().length > 0 &&
-    parseCapacity(draft.capacity).valid;
+    fields.title.trim().length > 0 &&
+    parseCapacity(fields.capacity).valid;
+
+  // The publish panel is told, on every render, whether the form is holding
+  // edits — the public page renders the SAVED row, so publishing mid-edit would
+  // announce a title the operator can see they have changed.
+  const draft = useMemo<EventInformationDraft | null>(
+    () =>
+      fields
+        ? {
+            ...fields,
+            publishing: {
+              eventId: event.id,
+              hasUnsavedChanges: Object.keys(changedFields(event, fields)).length > 0,
+            },
+          }
+        : null,
+    [fields, event],
+  );
 
   return {
     draft,
