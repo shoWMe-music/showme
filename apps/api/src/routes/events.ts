@@ -81,6 +81,8 @@ const EventResponse = z.object({
   stageId: z.string().nullable(),
   notes: z.string().nullable(),
   version: z.number(),
+  /** The caller's OWN effective capabilities here — what the workspace may offer. */
+  capabilities: z.array(z.string()),
   holdRank: z.number().nullable().optional(),
   holdAutoPromote: z.boolean().optional(),
   extras: EventExtrasSchema.nullable().optional(),

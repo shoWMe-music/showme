@@ -13,15 +13,25 @@ import { errorMessage } from "../lib/errors";
  * regenerated contract fails the build instead of the request. */
 type EventPatchBody = Parameters<typeof patchApiV1EventsId>[1];
 
-/** The event fields the Event Information card lets an operator change. Status,
- * the operator (host profile), performers (participants) and the room/stage are
- * deliberately absent — each is owned by another surface. */
+/**
+ * The event fields the Event Information card lets an operator change. Status,
+ * the operator (host profile) and the performers (participants) are deliberately
+ * absent — each is owned by another surface.
+ *
+ * THE ROOM used to be on that list, and it was the odd one out: no other surface
+ * owned it either, because no route could even list a venue's rooms. So an event
+ * could only ever say "Room / Stage: Assigned" and a venue could never move a
+ * show from the hall to the basement. It is edited here, where the operator is
+ * already deciding where and when the show happens.
+ */
 export interface EditableEventInformation {
   id: string;
   title: string;
   eventDate: string | null;
   venueName: string | null;
   capacity: number | null;
+  /** The room (`stages.id`) this show is placed in, or null for none set. */
+  stageId: string | null;
   version: number;
 }
 
@@ -33,6 +43,8 @@ export interface EventInformationFields {
   eventDate: string;
   venueName: string;
   capacity: string;
+  /** A `stages.id`, or "" for "no room set". */
+  stageId: string;
 }
 
 /**
@@ -80,6 +92,7 @@ function toDraft(event: EditableEventInformation): EventInformationFields {
     eventDate: toDateInputValue(event.eventDate),
     venueName: event.venueName ?? "",
     capacity: event.capacity != null ? String(event.capacity) : "",
+    stageId: event.stageId ?? "",
   };
 }
 
@@ -114,6 +127,11 @@ function changedFields(
 
   const { value: capacity } = parseCapacity(draft.capacity);
   if (capacity !== event.capacity) body.capacity = capacity;
+
+  // "" means "no room set" — sent as null, so clearing a room really clears it
+  // rather than leaving the show wherever it was.
+  const stageId = draft.stageId === "" ? null : draft.stageId;
+  if (stageId !== event.stageId) body.stageId = stageId;
 
   return body;
 }

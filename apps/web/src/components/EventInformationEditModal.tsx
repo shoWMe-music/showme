@@ -1,4 +1,4 @@
-import { Button, Icon, Modal, TextField } from "@showme/design-system";
+import { Button, Icon, Modal, Select, type SelectOption, TextField } from "@showme/design-system";
 import { DateTimeField } from "./DateTimeField";
 import { EventPublishPanel } from "./EventPublishPanel";
 import type { EventInformationDraft, EventInformationFields } from "./useEventInformationEdit";
@@ -6,6 +6,14 @@ import type { EventInformationDraft, EventInformationFields } from "./useEventIn
 export interface EventInformationEditModalProps {
   open: boolean;
   draft: EventInformationDraft | null;
+  /**
+   * The rooms of the venue this event is placed at, empty when the event has no
+   * venue PROFILE (the wizard captures a free-text venue name for a room the
+   * operator does not run) or when that venue has recorded none. Empty means the
+   * field is not drawn: a picker with nothing to pick is a dead end, and the
+   * place to add a room is the venue's own profile.
+   */
+  roomOptions: SelectOption[];
   onChange: (fields: Partial<EventInformationFields>) => void;
   onClose: () => void;
   onSave: () => void;
@@ -34,6 +42,7 @@ export interface EventInformationEditModalProps {
 export function EventInformationEditModal({
   open,
   draft,
+  roomOptions,
   onChange,
   onClose,
   onSave,
@@ -102,6 +111,26 @@ export function EventInformationEditModal({
               placeholder="e.g. The Lantern Hall (Back Room)"
               disabled={hasConflict}
             />
+            {roomOptions.length > 0 && (
+              <>
+                <Select
+                  label="Room"
+                  value={draft.stageId}
+                  onChange={(value) => onChange({ stageId: value })}
+                  // "No room set" is a real choice, not an empty state: a show
+                  // whose room nobody has decided yet is a different statement
+                  // from one in the main hall — and it costs the venue every
+                  // room's availability that night until it is placed.
+                  options={[{ value: "", label: "No room set" }, ...roomOptions]}
+                  disabled={hasConflict}
+                  searchable={false}
+                />
+                <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: "var(--muted)" }}>
+                  Each room is its own calendar — two rooms can hold two shows the same night. A
+                  show with no room set counts against every room's availability.
+                </p>
+              </>
+            )}
             <TextField
               label="Capacity"
               type="number"

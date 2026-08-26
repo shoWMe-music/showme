@@ -5,7 +5,6 @@ import {
   type getApiV1EventsIdParticipants,
   type getApiV1EventsIdRiders,
   type getApiV1EventsIdSchedule,
-  type getApiV1EventsIdSettlements,
   getGetApiV1EventsIdInvitationsQueryKey,
   getGetApiV1EventsIdQueryKey,
   useGetApiV1EventsId,
@@ -14,7 +13,6 @@ import {
   useGetApiV1EventsIdParticipants,
   useGetApiV1EventsIdRiders,
   useGetApiV1EventsIdSchedule,
-  useGetApiV1EventsIdSettlements,
   usePatchApiV1EventsId,
 } from "@showme/api-client";
 import {
@@ -29,9 +27,8 @@ import {
 } from "@showme/design-system";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  AgreementView,
   BudgetPlanner,
   type CrewMember,
   type DetailsPerformer,
@@ -43,14 +40,13 @@ import {
   EventMessagesTab,
   EventTodoTab,
   type ScheduleEntry,
-  type SettlementLine,
-  type SettlementStep,
-  SettlementStepper,
-  type Transfer,
-  WhoOwesWhomBoard,
 } from "../components";
+import { BudgetCustomFieldModal, type CustomFieldKind } from "../components/BudgetCustomFieldModal";
+import { BudgetTemplateDialogs } from "../components/BudgetTemplateDialogs";
+import { EventAgreementTab } from "../components/EventAgreementTab";
 import { EventCollaboratorInviteModal } from "../components/EventCollaboratorInviteModal";
 import { EventCrewPanel } from "../components/EventCrewPanel";
+import { EventSettlementTab } from "../components/EventSettlementTab";
 import { EventStatusControl } from "../components/EventStatusControl";
 import { budgetPlannerViewFrom } from "../components/budgetPlannerView";
 import {
@@ -62,6 +58,8 @@ import {
 } from "../components/eventUi";
 import { ErrorState, LoadingState } from "../components/states";
 import { useBudgetEditor } from "../components/useBudgetEditor";
+import { useBudgetSeed } from "../components/useBudgetSeed";
+import { useBudgetToolbar } from "../components/useBudgetToolbar";
 import { formatDate, formatMoney } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
 
@@ -69,7 +67,6 @@ type EventDetailData = Awaited<ReturnType<typeof getApiV1EventsId>>;
 type Participant = Awaited<ReturnType<typeof getApiV1EventsIdParticipants>>[number];
 type EventInvitation = Awaited<ReturnType<typeof getApiV1EventsIdInvitations>>[number];
 type Deal = Awaited<ReturnType<typeof getApiV1EventsIdDeals>>[number];
-type Settlements = Awaited<ReturnType<typeof getApiV1EventsIdSettlements>>;
 type ScheduleItem = Awaited<ReturnType<typeof getApiV1EventsIdSchedule>>[number];
 type Rider = Awaited<ReturnType<typeof getApiV1EventsIdRiders>>[number];
 
@@ -135,6 +132,17 @@ export function EventDetail() {
   const performerParty =
     roster.find((party) => party.role === "performer") ??
     roster.find((party) => party.role === "support");
+  // EVERY act on the bill, not just the headliner: a support act's guarantee is
+  // still a performance deal, and the Budget Planner seeds its "Performer fee"
+  // from whichever of them the deal actually names as payee.
+  //
+  // Passed as a joined STRING rather than an array because `roster` is rebuilt
+  // on every render: a fresh array would be a new dependency each time and the
+  // seed downstream would never settle. The string is stable while the ids are.
+  const performerIdsKey = roster
+    .filter((party) => party.role === "performer" || party.role === "support")
+    .map((party) => party.id)
+    .join(",");
   const hostParty =
     roster.find((party) => party.role === "host") ??
     roster.find((party) => party.role === "co_host");
@@ -303,7 +311,15 @@ export function EventDetail() {
       <EventTabsBar tabs={tabs} value={tab} onChange={setTab} />
 
       {tab === "todo" && <EventTodoTab eventId={eventId} />}
-      {tab === "budget" && <BudgetTab eventId={eventId} currency={currency} />}
+      {tab === "budget" && (
+        <BudgetTab
+          eventId={eventId}
+          currency={currency}
+          eventTitle={event.title}
+          capacity={event.capacity ?? null}
+          performerIdsKey={performerIdsKey}
+        />
+      )}
       {tab === "details" && (
         <DetailsTab
           event={event}
@@ -316,12 +332,19 @@ export function EventDetail() {
         />
       )}
       {tab === "agreement" && (
-        <AgreementTab
-          event={event}
+        <EventAgreementTab
+          eventId={eventId}
+          eventTitle={event.title}
+          eventDate={event.eventDate}
+          eventStatusLabel={display.label}
+          // `?? []` only for an API older than this field (a dev server left
+          // running across the change): no capabilities means no action is
+          // offered, which is the safe reading, rather than a crash.
+          capabilities={event.capabilities ?? []}
           currency={currency}
-          performer={performerParty}
-          operatorName={operatorName}
+          baseCurrency={event.baseCurrency}
           venueLabel={venueLabel}
+          operatorName={operatorName}
         />
       )}
       {tab === "crew" && (
@@ -333,7 +356,12 @@ export function EventDetail() {
         />
       )}
       {tab === "settlement" && (
-        <SettlementTab eventId={eventId} currency={currency} roster={roster} />
+        <EventSettlementTab
+          eventId={eventId}
+          currency={event.baseCurrency}
+          roster={roster}
+          capabilities={event.capabilities ?? []}
+        />
       )}
       {tab === "messages" && <MessagesTab eventId={eventId} roster={roster} />}
       {tab === "collaborators" && (
@@ -494,99 +522,6 @@ function firstDealSummary(deals: Deal[], currency: string) {
   };
 }
 
-function AgreementTab({
-  event,
-  currency,
-  performer,
-  operatorName,
-  venueLabel,
-}: {
-  event: EventDetailData;
-  currency: string;
-  performer?: Participant;
-  operatorName: string;
-  venueLabel: string;
-}) {
-  const { data, isPending, isError, error } = useGetApiV1EventsIdDeals(event.id);
-  const schedule = useGetApiV1EventsIdSchedule(event.id);
-
-  if (isPending) return <LoadingState label="Loading agreement" />;
-  if (isError) return <ErrorState error={error} title="Couldn't load the agreement" />;
-
-  const deals = data ?? [];
-  if (deals.length === 0) {
-    return (
-      <EmptyState
-        icon={<Icon name="file" />}
-        title="No agreement yet"
-        description="The deal, its terms and the production schedule will appear here."
-      />
-    );
-  }
-
-  const scheduleEntries = toScheduleEntries(schedule.data ?? []);
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {deals.map((deal) => (
-        <AgreementView
-          key={deal.id}
-          frozen={deal.agreementStatus === "signed" || deal.agreementStatus === "confirmed"}
-          summary={agreementSummary(event, deal, performer, operatorName, venueLabel)}
-          dealStructure={dealStructure(deal, currency)}
-          schedule={scheduleEntries}
-          onExportPdf={() => window.print()}
-        />
-      ))}
-    </div>
-  );
-}
-
-function agreementSummary(
-  event: EventDetailData,
-  deal: Deal,
-  performer: Participant | undefined,
-  operatorName: string,
-  venueLabel: string,
-) {
-  return [
-    { label: "Event", value: event.title },
-    {
-      label: "Date",
-      value: formatDate(event.eventDate, { day: "2-digit", month: "short", year: "numeric" }),
-    },
-    { label: "Performer", value: performer ? participantName(performer) : "—" },
-    { label: "Venue", value: venueLabel },
-    { label: "Operator", value: operatorName },
-    { label: "Deal", value: deal.name },
-    { label: "Status", value: apiStatusToDisplay(event.status).label },
-  ];
-}
-
-function dealStructure(deal: Deal, currency: string) {
-  const rows = [{ label: "Deal type", value: statusLabel(deal.type) }];
-  if (deal.structure) rows.push({ label: "Structure", value: statusLabel(deal.structure) });
-  if (deal.guaranteeAmount) {
-    rows.push({
-      label: "Guarantee",
-      value: formatMoney(deal.guaranteeAmount, deal.currency ?? currency),
-    });
-  }
-  if (deal.advanceAmount) {
-    rows.push({
-      label: "Advance",
-      value: formatMoney(deal.advanceAmount, deal.currency ?? currency),
-    });
-  }
-  if (deal.splitBasisPoints != null) {
-    rows.push({ label: "Split", value: `${(deal.splitBasisPoints / 100).toFixed(0)}%` });
-  }
-  rows.push({ label: "Payment timing", value: statusLabel(deal.paymentTiming) });
-  rows.push({ label: "Agreement", value: statusLabel(deal.agreementStatus) });
-  rows.push({ label: "Parties", value: String(deal.parties.length) });
-  return rows;
-}
-
 function toScheduleEntries(items: ScheduleItem[]): ScheduleEntry[] {
   return items
     .slice()
@@ -607,8 +542,35 @@ function toScheduleEntries(items: ScheduleItem[]): ScheduleEntry[] {
  * `useBudgetEditor` — it used to edit them into local state and discard them,
  * on a budget that on a new event did not exist at all.
  */
-function BudgetTab({ eventId, currency }: { eventId: string; currency: string }) {
-  const editor = useBudgetEditor(eventId);
+function BudgetTab({
+  eventId,
+  currency,
+  eventTitle,
+  capacity,
+  performerIdsKey,
+}: {
+  eventId: string;
+  currency: string;
+  eventTitle: string;
+  capacity: number | null;
+  /** Comma-joined participant ids — see `performerIdsKey` above. */
+  performerIdsKey: string;
+}) {
+  // What the event already knows, offered into the planner's blank fields — the
+  // rest of the app was holding a capacity and a guarantee while this screen
+  // showed an empty sheet. A suggestion, never an overwrite (`useBudgetSeed`).
+  const seedSources = useMemo(
+    () => ({
+      capacity,
+      performerParticipantIds: performerIdsKey === "" ? [] : performerIdsKey.split(","),
+    }),
+    [capacity, performerIdsKey],
+  );
+  const seed = useBudgetSeed(eventId, seedSources);
+  const editor = useBudgetEditor(eventId, seed);
+  const toolbar = useBudgetToolbar(editor, eventTitle, currency);
+  // Which card the "+ Add Field" modal is adding to, or null when it is closed.
+  const [customFieldKind, setCustomFieldKind] = useState<CustomFieldKind>(null);
 
   if (editor.isPending) return <LoadingState label="Loading budget" />;
   if (editor.isError) return <ErrorState error={editor.error} title="Couldn't load the budget" />;
@@ -648,6 +610,8 @@ function BudgetTab({ eventId, currency }: { eventId: string; currency: string })
         barRevenue={view.barRevenue}
         otherRevenue={editor.otherRevenue}
         costs={editor.costs}
+        customRevenue={editor.customRevenue}
+        toolbar={toolbar.actions}
         processingPercent={editor.processingPercent}
         processingFlatPerTicket={editor.processingFlatPerTicket}
         onTicketChange={editor.changeTier}
@@ -657,9 +621,24 @@ function BudgetTab({ eventId, currency }: { eventId: string; currency: string })
         onAvgBarSpendChange={editor.changeAverageBarSpend}
         onOtherRevenueChange={editor.changeOtherRevenue}
         onCostChange={editor.changeCost}
+        onRemoveCost={editor.removeCost}
+        onCustomRevenueChange={editor.changeCustomRevenue}
+        onRemoveCustomRevenue={editor.removeCustomRevenue}
+        onAddCustomField={setCustomFieldKind}
         onProcessingPercentChange={editor.changeProcessingPercent}
         onProcessingFlatPerTicketChange={editor.changeProcessingFlatPerTicket}
       />
+      <BudgetCustomFieldModal
+        kind={customFieldKind}
+        currencySymbol={currencySymbol(currency)}
+        onClose={() => setCustomFieldKind(null)}
+        onSubmit={(kind, label, amount, type) =>
+          kind === "cost"
+            ? editor.addCustomCost(label, amount, type)
+            : editor.addCustomRevenue(label, amount, type)
+        }
+      />
+      <BudgetTemplateDialogs toolbar={toolbar} />
     </div>
   );
 }
@@ -690,116 +669,6 @@ function BudgetScopeSwitch({
       ))}
     </div>
   );
-}
-
-function SettlementTab({
-  eventId,
-  currency,
-  roster,
-}: {
-  eventId: string;
-  currency: string;
-  roster: Participant[];
-}) {
-  const { data, isPending, isError, error } = useGetApiV1EventsIdSettlements(eventId);
-
-  if (isPending) return <LoadingState label="Loading settlement" />;
-  if (isError) return <ErrorState error={error} title="Couldn't load the settlement" />;
-
-  const settlements = data?.settlements ?? [];
-  const transfers = data?.transfers ?? [];
-
-  if (settlements.length === 0 && transfers.length === 0) {
-    return (
-      <EmptyState
-        icon={<Icon name="receipt" />}
-        title="Nothing settled yet"
-        description="Per-participant entitlements and transfers appear once settlement runs."
-      />
-    );
-  }
-
-  const nameFor = (participantId: string | null | undefined): string => {
-    const match = roster.find((party) => party.id === participantId);
-    return match ? participantName(match) : "Participant";
-  };
-
-  const lines: SettlementLine[] = settlements
-    .filter((settlement) => settlement.computed)
-    .map((settlement) => {
-      const computed = settlement.computed as NonNullable<typeof settlement.computed>;
-      const netValue = Number(computed.net);
-      const name = nameFor(settlement.participantId);
-      return {
-        id: settlement.id,
-        party: name,
-        initials: initials(name),
-        owed: formatMoney(computed.entitlement, currency),
-        collected: formatMoney(computed.collected, currency),
-        paid: formatMoney(computed.paid, currency),
-        net: formatMoney(computed.net, currency),
-        netTone: netValue < 0 ? "negative" : netValue > 0 ? "positive" : "neutral",
-      };
-    });
-
-  const transferRows: Transfer[] = transfers.map((transfer, index) => ({
-    id: transfer.id ?? String(index),
-    from: nameFor(transfer.fromParticipantId),
-    to: nameFor(transfer.toParticipantId),
-    amount: formatMoney(transfer.amount, currency),
-    state: transferState(transfer.state),
-  }));
-
-  const netSum = settlements.reduce(
-    (total, settlement) => total + (settlement.computed ? Number(settlement.computed.net) : 0),
-    0,
-  );
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <SettlementStepper steps={settlementSteps(settlements)} />
-      </Card>
-      <WhoOwesWhomBoard
-        participants={lines}
-        transfers={transferRows}
-        balanced={Math.abs(netSum) < 1}
-      />
-    </div>
-  );
-}
-
-function transferState(raw?: string): Transfer["state"] {
-  if (raw === "paid") return "paid";
-  if (raw === "handled" || raw === "concluded") return "handled";
-  return "owed";
-}
-
-function settlementSteps(settlements: Settlements["settlements"]): SettlementStep[] {
-  const labels = ["Open", "Pending review", "Finalized", "Paid"];
-  const rank: Record<string, number> = {
-    open: 0,
-    draft: 0,
-    pending: 1,
-    pending_review: 1,
-    review: 1,
-    finalized: 2,
-    revised: 2,
-    partly_paid: 3,
-    paid: 3,
-    concluded: 3,
-  };
-  const active = settlements.reduce(
-    (lowest, settlement) => {
-      const value = rank[settlement.status] ?? 0;
-      return Math.min(lowest, value);
-    },
-    settlements.length > 0 ? 3 : 0,
-  );
-  return labels.map((label, index) => ({
-    label,
-    state: index < active ? "done" : index === active ? "active" : "pending",
-  }));
 }
 
 function CollaboratorsTab({

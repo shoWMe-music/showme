@@ -24,6 +24,18 @@ export interface SerializedEvent {
   stageId: string | null;
   notes: string | null;
   version: number;
+  /**
+   * The caller's OWN effective capabilities on this event — not a widening of
+   * what they may do, a statement of it. Without it the web app had to infer
+   * authority from the presence of an operator-only field
+   * (`holdAutoPromote !== undefined`), which is `event.edit` wearing a disguise:
+   * it reads TRUE for a host and FALSE for an agent, who nonetheless holds
+   * `deal.edit` and `agreement.manage` (decisions #14). Every screen that guessed
+   * this way either hid an action from someone entitled to it or offered one that
+   * would come back 403. Naming the set is what lets a button exist only when the
+   * click behind it would be allowed.
+   */
+  capabilities: string[];
   holdRank?: number | null;
   holdAutoPromote?: boolean;
   /** Read-with-parent leaves (amenities / ticket tiers / guest list); operator-only. */
@@ -58,6 +70,7 @@ export function serializeEvent(event: EventRow, capabilities: Set<Capability>): 
     stageId: event.stageId,
     notes: event.notes,
     version: event.version,
+    capabilities: [...capabilities].sort(),
   };
 
   // `event.edit` is the operator signal — performers/crew never hold it.

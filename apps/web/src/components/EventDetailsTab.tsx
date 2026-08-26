@@ -1,5 +1,6 @@
+import { useGetApiV1ProfilesIdStages } from "@showme/api-client";
 import { Avatar, Button, Icon, Select, TextField } from "@showme/design-system";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { formatMoney } from "../lib/format";
 import { EventInformationEditModal } from "./EventInformationEditModal";
 import { EventScheduleCard } from "./EventScheduleCard";
@@ -195,6 +196,34 @@ function EventInformationCard({
   const dateLabel = event.eventDate
     ? new Date(event.eventDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })
     : "—";
+
+  /**
+   * The venue's rooms, so this card can NAME the one the show is in.
+   *
+   * It used to render "Assigned" — the only thing it could say, because no route
+   * listed a venue's rooms and the event carries an id and nothing else. Which
+   * room a show is in is the whole content of that field: "the basement" and "the
+   * main hall" are different rooms, different capacities and different nights'
+   * availability, and "Assigned" says none of it.
+   *
+   * Skipped when the event stands at no venue profile — the wizard captures a
+   * free-text venue name for a room the operator does not run, and there is
+   * nobody to ask for its rooms.
+   */
+  const rooms = useGetApiV1ProfilesIdStages(event.venueProfileId ?? "", {
+    query: { enabled: Boolean(event.venueProfileId) },
+  });
+  const roomOptions = useMemo(
+    () => (rooms.data ?? []).map((room) => ({ value: room.id, label: room.name })),
+    [rooms.data],
+  );
+  const roomLabel = (() => {
+    if (!event.stageId) return "—";
+    const room = (rooms.data ?? []).find((entry) => entry.id === event.stageId);
+    // A room id we cannot resolve is not "—": the show IS in a room, we just
+    // could not read the list (no venue profile, or the request has not landed).
+    return room?.name ?? "Assigned";
+  })();
   return (
     <SectionCard>
       <CardHeader
@@ -216,7 +245,7 @@ function EventInformationCard({
           { label: "Event Name", value: event.title },
           { label: "Date", value: dateLabel },
           { label: "Venue", value: event.venueName ?? "—" },
-          { label: "Room / Stage", value: event.stageId ? "Assigned" : "—" },
+          { label: "Room / Stage", value: roomLabel },
           { label: "Performer", value: performers[0]?.name ?? "—" },
           {
             label: "Capacity",
@@ -289,6 +318,7 @@ function EventInformationCard({
       <EventInformationEditModal
         open={edit.draft !== null}
         draft={edit.draft}
+        roomOptions={roomOptions}
         onChange={edit.change}
         onClose={edit.close}
         onSave={edit.save}

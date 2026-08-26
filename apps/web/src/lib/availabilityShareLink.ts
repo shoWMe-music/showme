@@ -18,8 +18,11 @@
  * — anyone can see exactly what a link they were sent contains.
  *
  * NOTHING but availability goes in here: no event identifiers, no titles, no
- * venues, no counterparties, no money. The reader learns which days are free
- * and the filter that produced them.
+ * counterparties, no money. The reader learns which days are free, the filter
+ * that produced them, and — when the sharer picked one — WHICH ROOM they are for.
+ * The room is the one addition that carries a name, and it is there because a
+ * list of free Fridays from a two-room venue is ambiguous without it: the answer
+ * to "are you free on the 12th?" is a different answer for each room.
  */
 
 /** Monday = 0 … Sunday = 6 — the same indexing the modal's weekday pills use. */
@@ -28,6 +31,20 @@ export type WeekdayIndex = number;
 export interface AvailabilitySnapshot {
   /** Public profile slug — the public page resolves the display name from it. */
   profileSlug: string;
+  /**
+   * WHICH ROOM these dates are for, or null for the venue as a whole (and for
+   * anyone who is not a venue and has only one calendar).
+   *
+   * It travels as a NAME, not an id, and that is deliberate on both counts. As a
+   * name, because the public page has no authenticated way to resolve a room id
+   * and should not get one — a venue's room list is its own. And as part of the
+   * SHARER'S CLAIM rather than something the API vouches for: the display name
+   * above it is resolved live, precisely so a link cannot claim an identity, but
+   * the room is a statement the sharer is making about their own building,
+   * exactly like the dates beside it. The public page renders it where that is
+   * clear — among "how this list was made", never as the identity line.
+   */
+  room: string | null;
   /** Inclusive `yyyy-mm-dd` window the sharer picked. */
   from: string;
   to: string;
@@ -62,6 +79,9 @@ export function buildAvailabilityShareLink(snapshot: AvailabilitySnapshot): stri
 
   const parameters = new URLSearchParams({
     profile: snapshot.profileSlug,
+    // Only when there is one. An absent `room` reads as "the whole calendar",
+    // which is what a venue-wide or single-schedule share means.
+    ...(snapshot.room ? { room: snapshot.room } : {}),
     from: snapshot.from,
     to: snapshot.to,
     weekdays: snapshot.weekdays.join(","),

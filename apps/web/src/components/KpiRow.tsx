@@ -20,6 +20,23 @@ export interface KpiRowProps {
   eyebrow?: string;
   /** Minimum tile width before wrapping. */
   minTileWidth?: number;
+  /**
+   * Force a fixed number of columns, so a tile count that does not divide evenly
+   * leaves a SHORT LAST ROW rather than redistributing (the Budget Planner's
+   * Results block is "a 4-column grid of 7 tiles", last row short by design —
+   * docs/design-handoff-budget-planner.md §3.5).
+   *
+   * Still responsive: each track is at least the width four would take, so
+   * exactly that many fit, and below `minTileWidth` the grid drops to fewer
+   * columns instead of crushing them.
+   */
+  columns?: number;
+  /**
+   * Override the tile figure's size. Four-across tiles are narrower than the
+   * three the default 34px was drawn for, and a six-figure total in a currency
+   * whose code is spelled out ("SEK 306,700") does not fit one at that size.
+   */
+  valueFontSize?: number;
 }
 
 const TONE_COLOR: Record<KpiTone, string | undefined> = {
@@ -29,19 +46,31 @@ const TONE_COLOR: Record<KpiTone, string | undefined> = {
   neutral: undefined,
 };
 
-export function KpiRow({ items, eyebrow, minTileWidth = 200 }: KpiRowProps) {
+export function KpiRow({
+  items,
+  eyebrow,
+  minTileWidth = 200,
+  columns,
+  valueFontSize,
+}: KpiRowProps) {
+  const gap = 14;
+  const trackMinimum = columns
+    ? `max(${minTileWidth}px, calc((100% - ${(columns - 1) * gap}px) / ${columns}))`
+    : `${minTileWidth}px`;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: `repeat(auto-fit, minmax(${minTileWidth}px, 1fr))`,
-          gap: 14,
+          gridTemplateColumns: `repeat(auto-fit, minmax(${trackMinimum}, 1fr))`,
+          gap,
         }}
       >
         {items.map((item, index) => {
           const color = item.tone ? TONE_COLOR[item.tone] : undefined;
+          const figureStyle =
+            color || valueFontSize ? { color, fontSize: valueFontSize } : undefined;
           return (
             <StatCard
               // A KPI row is a fixed, order-stable set of tiles (no add/remove/reorder),
@@ -49,7 +78,7 @@ export function KpiRow({ items, eyebrow, minTileWidth = 200 }: KpiRowProps) {
               // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering tiles
               key={index}
               label={item.label}
-              value={color ? <span style={{ color }}>{item.value}</span> : item.value}
+              value={figureStyle ? <span style={figureStyle}>{item.value}</span> : item.value}
               hint={item.hint}
               icon={item.icon}
             />

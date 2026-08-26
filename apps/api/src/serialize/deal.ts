@@ -3,7 +3,11 @@ import type { schema } from "@showme/db";
 type DealRow = typeof schema.deals.$inferSelect;
 type DealPartyRow = typeof schema.dealParties.$inferSelect;
 
-export interface SerializedDealParty {
+/**
+ * A party line as the AUDIT records it — the row itself, with nothing in it that
+ * depends on who is looking.
+ */
+export interface DealPartyRecord {
   id: string;
   participantId: string;
   roleInDeal: string;
@@ -11,6 +15,21 @@ export interface SerializedDealParty {
   /** ISO timestamp of this party's own agreement confirmation, or null (decisions #1). */
   confirmedAt: string | null;
   version: number;
+}
+
+/**
+ * A party line as a CALLER receives it. `isYours` is the only viewer-dependent
+ * field, and it exists because confirmation is a per-party act (decisions #1):
+ * the caller may stamp this line and no other. An operator that is a party sees
+ * every line of its own deal, so "is there anything left for ME to sign?" is not
+ * answerable from `confirmedAt` alone — without this flag a screen either offers
+ * Confirm to someone with nothing to confirm, or hides it from someone who does.
+ * True for the caller's own participant rows AND for the lines of performers they
+ * represent as agent here, which is exactly the set `POST /deals/:did/confirm`
+ * stamps (decisions #14 — the agent confirms the performer's own line).
+ */
+export interface SerializedDealParty extends DealPartyRecord {
+  isYours: boolean;
 }
 
 export interface SerializedDeal {
@@ -32,6 +51,11 @@ export interface SerializedDeal {
   parties: SerializedDealParty[];
 }
 
+/** The same deal with viewer-independent party lines — the audit's shape. */
+export interface UnredactedDeal extends Omit<SerializedDeal, "parties"> {
+  parties: DealPartyRecord[];
+}
+
 export interface DealViewer {
   /**
    * Participant ids the caller stands behind: their own participant rows PLUS the
@@ -48,7 +72,7 @@ export interface DealViewer {
   isManagingOperator: boolean;
 }
 
-function serializeParty(party: DealPartyRow): SerializedDealParty {
+function partyRecord(party: DealPartyRow): DealPartyRecord {
   return {
     id: party.id,
     participantId: party.participantId,
@@ -79,18 +103,24 @@ export function serializeDeal(
     ? parties
     : parties.filter((party) => viewer.viewerParticipantIds.includes(party.participantId));
 
-  return build(deal, visibleParties);
+  return {
+    ...build(deal),
+    parties: visibleParties.map((party) => ({
+      ...partyRecord(party),
+      isYours: viewer.viewerParticipantIds.includes(party.participantId),
+    })),
+  };
 }
 
 /**
  * The FULL, unredacted shape — for the AUDIT LOG only, never a response body. The
  * audit records what actually changed, which is not a party-scoped question.
  */
-export function serializeDealUnredacted(deal: DealRow, parties: DealPartyRow[]): SerializedDeal {
-  return build(deal, parties);
+export function serializeDealUnredacted(deal: DealRow, parties: DealPartyRow[]): UnredactedDeal {
+  return { ...build(deal), parties: parties.map(partyRecord) };
 }
 
-function build(deal: DealRow, visibleParties: DealPartyRow[]): SerializedDeal {
+function build(deal: DealRow): Omit<SerializedDeal, "parties"> {
   return {
     id: deal.id,
     eventId: deal.eventId,
@@ -106,7 +136,6 @@ function build(deal: DealRow, visibleParties: DealPartyRow[]): SerializedDeal {
     status: deal.status,
     agreementStatus: deal.agreementStatus,
     version: deal.version,
-    parties: visibleParties.map(serializeParty),
   };
 }
 

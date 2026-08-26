@@ -1451,3 +1451,69 @@ describe("budget lines — the planner's other-revenue field", () => {
     expect(created.json().details.basis).toBe("other_revenue");
   });
 });
+
+describe("budget lines — the planner's custom revenue rows", () => {
+  it("round-trips a `custom_revenue` basis, so it is not read back as a ticket tier", async () => {
+    const seeded = await seedEvent("line-custom-revenue");
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seeded.eventId}/budgets`,
+      headers: auth(seeded.operatorUid),
+    });
+    const budgetId = listed.json()[0].id;
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seeded.eventId}/budgets/${budgetId}/lines`,
+      headers: auth(seeded.operatorUid),
+      payload: {
+        kind: "revenue",
+        label: "Sponsorship",
+        amount: "500000",
+        collectedBy: seeded.hostParticipantId,
+        details: { basis: "custom_revenue", unitAmount: "500000", quantity: 1 },
+      },
+    });
+
+    expect(created.statusCode).toBe(201);
+    expect(created.json().details.basis).toBe("custom_revenue");
+
+    // And it survives the read the planner actually makes. Without the basis it
+    // would come back among the ticket tiers as one ticket priced at 5 000.
+    const reread = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seeded.eventId}/budgets`,
+      headers: auth(seeded.operatorUid),
+    });
+    const line = reread
+      .json()[0]
+      .lines.find((row: { label: string }) => row.label === "Sponsorship");
+    expect(line.details.basis).toBe("custom_revenue");
+    expect(line.amount).toBe("500000");
+  });
+
+  it("refuses a basis the planner does not have a field for", async () => {
+    const seeded = await seedEvent("line-bad-basis");
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seeded.eventId}/budgets`,
+      headers: auth(seeded.operatorUid),
+    });
+    const budgetId = listed.json()[0].id;
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seeded.eventId}/budgets/${budgetId}/lines`,
+      headers: auth(seeded.operatorUid),
+      payload: {
+        kind: "revenue",
+        label: "Mystery",
+        amount: "100",
+        collectedBy: seeded.hostParticipantId,
+        details: { basis: "made_up", unitAmount: "100", quantity: 1 },
+      },
+    });
+
+    expect(rejected.statusCode).toBe(400);
+  });
+});

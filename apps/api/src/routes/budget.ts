@@ -54,7 +54,9 @@ const LineDetails = z.object({
    * the data rather than inferred from the label, so renaming a tier cannot
    * silently turn it into the bar estimate (or the reverse).
    */
-  basis: z.enum(["ticket_tier", "bar_spend", "other_revenue"]).default("ticket_tier"),
+  basis: z
+    .enum(["ticket_tier", "bar_spend", "other_revenue", "custom_revenue", "custom_cost"])
+    .default("ticket_tier"),
   unitAmount: MinorUnitsAmount,
   quantity: z.number().int().min(0),
 });

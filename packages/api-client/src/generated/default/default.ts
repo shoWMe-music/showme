@@ -38,6 +38,7 @@ import type {
   DeleteApiV1ProfilesId200,
   DeleteApiV1ProfilesIdContactsCid200,
   DeleteApiV1ProfilesIdMembersMid200,
+  DeleteApiV1ProfilesIdStagesSid200,
   DeleteApiV1ProfilesIdTemplatesTid200,
   DeleteApiV1TasksId200,
   GetApiV1Activity200,
@@ -96,6 +97,7 @@ import type {
   GetApiV1ProfilesIdPayoutAccounts200Item,
   GetApiV1ProfilesIdPublicPreview200,
   GetApiV1ProfilesIdRiders200Item,
+  GetApiV1ProfilesIdStages200Item,
   GetApiV1ProfilesIdTemplates200Item,
   GetApiV1ProfilesIdUnavailability200Item,
   GetApiV1ProfilesSearch200,
@@ -147,6 +149,8 @@ import type {
   PatchApiV1ProfilesIdContactsCidBody,
   PatchApiV1ProfilesIdMembersMid200,
   PatchApiV1ProfilesIdMembersMidBody,
+  PatchApiV1ProfilesIdStagesSid200,
+  PatchApiV1ProfilesIdStagesSidBody,
   PatchApiV1ProfilesIdTemplatesTid200,
   PatchApiV1ProfilesIdTemplatesTidBody,
   PatchApiV1RepresentationsId200,
@@ -247,6 +251,8 @@ import type {
   PostApiV1ProfilesIdPayoutAccountsBody,
   PostApiV1ProfilesIdRiders201,
   PostApiV1ProfilesIdRidersBody,
+  PostApiV1ProfilesIdStages201,
+  PostApiV1ProfilesIdStagesBody,
   PostApiV1ProfilesIdTemplates201,
   PostApiV1ProfilesIdTemplatesBody,
   PostApiV1PublicEventsIdRsvp200,
@@ -4129,7 +4135,267 @@ export function useGetApiV1ProfilesIdAvailability<TData = Awaited<ReturnType<typ
 
 
 
-export const getApiV1ProfilesIdTemplates = (
+export const getApiV1ProfilesIdStages = (
+    id: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1ProfilesIdStages200Item[]>(
+      {url: `/api/v1/profiles/${id}/stages`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1ProfilesIdStagesQueryKey = (id?: string,) => {
+    return [
+    `/api/v1/profiles/${id}/stages`
+    ] as const;
+    }
+
+    
+export const getGetApiV1ProfilesIdStagesQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1ProfilesIdStages>>, TError = unknown>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1ProfilesIdStages>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1ProfilesIdStagesQueryKey(id);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1ProfilesIdStages>>> = ({ signal }) => getApiV1ProfilesIdStages(id, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1ProfilesIdStages>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1ProfilesIdStagesQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1ProfilesIdStages>>>
+export type GetApiV1ProfilesIdStagesQueryError = unknown
+
+
+export function useGetApiV1ProfilesIdStages<TData = Awaited<ReturnType<typeof getApiV1ProfilesIdStages>>, TError = unknown>(
+ id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1ProfilesIdStages>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1ProfilesIdStages>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1ProfilesIdStages>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1ProfilesIdStages<TData = Awaited<ReturnType<typeof getApiV1ProfilesIdStages>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1ProfilesIdStages>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1ProfilesIdStages>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1ProfilesIdStages>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1ProfilesIdStages<TData = Awaited<ReturnType<typeof getApiV1ProfilesIdStages>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1ProfilesIdStages>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1ProfilesIdStages<TData = Awaited<ReturnType<typeof getApiV1ProfilesIdStages>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1ProfilesIdStages>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1ProfilesIdStagesQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const postApiV1ProfilesIdStages = (
+    id: string,
+    postApiV1ProfilesIdStagesBody: PostApiV1ProfilesIdStagesBody,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1ProfilesIdStages201>(
+      {url: `/api/v1/profiles/${id}/stages`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: postApiV1ProfilesIdStagesBody, signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1ProfilesIdStagesMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1ProfilesIdStages>>, TError,{id: string;data: PostApiV1ProfilesIdStagesBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1ProfilesIdStages>>, TError,{id: string;data: PostApiV1ProfilesIdStagesBody}, TContext> => {
+
+const mutationKey = ['postApiV1ProfilesIdStages'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1ProfilesIdStages>>, {id: string;data: PostApiV1ProfilesIdStagesBody}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  postApiV1ProfilesIdStages(id,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1ProfilesIdStagesMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1ProfilesIdStages>>>
+    export type PostApiV1ProfilesIdStagesMutationBody = PostApiV1ProfilesIdStagesBody
+    export type PostApiV1ProfilesIdStagesMutationError = unknown
+
+    export const usePostApiV1ProfilesIdStages = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1ProfilesIdStages>>, TError,{id: string;data: PostApiV1ProfilesIdStagesBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1ProfilesIdStages>>,
+        TError,
+        {id: string;data: PostApiV1ProfilesIdStagesBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1ProfilesIdStagesMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const patchApiV1ProfilesIdStagesSid = (
+    id: string,
+    sid: string,
+    patchApiV1ProfilesIdStagesSidBody: PatchApiV1ProfilesIdStagesSidBody,
+ ) => {
+      
+      
+      return customFetch<PatchApiV1ProfilesIdStagesSid200>(
+      {url: `/api/v1/profiles/${id}/stages/${sid}`, method: 'PATCH',
+      headers: {'Content-Type': 'application/json', },
+      data: patchApiV1ProfilesIdStagesSidBody
+    },
+      );
+    }
+  
+
+
+export const getPatchApiV1ProfilesIdStagesSidMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof patchApiV1ProfilesIdStagesSid>>, TError,{id: string;sid: string;data: PatchApiV1ProfilesIdStagesSidBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof patchApiV1ProfilesIdStagesSid>>, TError,{id: string;sid: string;data: PatchApiV1ProfilesIdStagesSidBody}, TContext> => {
+
+const mutationKey = ['patchApiV1ProfilesIdStagesSid'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof patchApiV1ProfilesIdStagesSid>>, {id: string;sid: string;data: PatchApiV1ProfilesIdStagesSidBody}> = (props) => {
+          const {id,sid,data} = props ?? {};
+
+          return  patchApiV1ProfilesIdStagesSid(id,sid,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PatchApiV1ProfilesIdStagesSidMutationResult = NonNullable<Awaited<ReturnType<typeof patchApiV1ProfilesIdStagesSid>>>
+    export type PatchApiV1ProfilesIdStagesSidMutationBody = PatchApiV1ProfilesIdStagesSidBody
+    export type PatchApiV1ProfilesIdStagesSidMutationError = unknown
+
+    export const usePatchApiV1ProfilesIdStagesSid = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof patchApiV1ProfilesIdStagesSid>>, TError,{id: string;sid: string;data: PatchApiV1ProfilesIdStagesSidBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof patchApiV1ProfilesIdStagesSid>>,
+        TError,
+        {id: string;sid: string;data: PatchApiV1ProfilesIdStagesSidBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPatchApiV1ProfilesIdStagesSidMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const deleteApiV1ProfilesIdStagesSid = (
+    id: string,
+    sid: string,
+ ) => {
+      
+      
+      return customFetch<DeleteApiV1ProfilesIdStagesSid200>(
+      {url: `/api/v1/profiles/${id}/stages/${sid}`, method: 'DELETE'
+    },
+      );
+    }
+  
+
+
+export const getDeleteApiV1ProfilesIdStagesSidMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteApiV1ProfilesIdStagesSid>>, TError,{id: string;sid: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof deleteApiV1ProfilesIdStagesSid>>, TError,{id: string;sid: string}, TContext> => {
+
+const mutationKey = ['deleteApiV1ProfilesIdStagesSid'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteApiV1ProfilesIdStagesSid>>, {id: string;sid: string}> = (props) => {
+          const {id,sid} = props ?? {};
+
+          return  deleteApiV1ProfilesIdStagesSid(id,sid,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteApiV1ProfilesIdStagesSidMutationResult = NonNullable<Awaited<ReturnType<typeof deleteApiV1ProfilesIdStagesSid>>>
+    
+    export type DeleteApiV1ProfilesIdStagesSidMutationError = unknown
+
+    export const useDeleteApiV1ProfilesIdStagesSid = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteApiV1ProfilesIdStagesSid>>, TError,{id: string;sid: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteApiV1ProfilesIdStagesSid>>,
+        TError,
+        {id: string;sid: string},
+        TContext
+      > => {
+
+      const mutationOptions = getDeleteApiV1ProfilesIdStagesSidMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const getApiV1ProfilesIdTemplates = (
     id: string,
  signal?: AbortSignal
 ) => {

@@ -139,6 +139,8 @@ const DealPartyResponse = z.object({
   roleInDeal: z.string(),
   share: z.unknown().nullable(),
   confirmedAt: z.string().nullable(),
+  /** Whether the CALLER stands behind this line — the one they may confirm (#1). */
+  isYours: z.boolean(),
   version: z.number(),
 });
 

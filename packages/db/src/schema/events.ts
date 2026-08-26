@@ -66,15 +66,40 @@ export const events = pgTable("events", {
  * An event is placed on exactly one stage via `events.stage_id`, so a venue or
  * festival runs concurrent events by putting them on different stages. The stages
  * available to an event are those whose `venue_profile_id` is the event's venue.
+ *
+ * NOT the same thing as `venue_details.capacity_setups`. A stage is a ROOM — a
+ * separate space that can hold its own show on the same night. A capacity setup
+ * is a named ARRANGEMENT of one room ("Theater seating" 220 / "Standing only"
+ * 400): the same four walls, counted differently. Two rooms can be booked twice
+ * on a Friday; two setups of one room cannot.
+ *
+ * `events.stage_id` is `ON DELETE SET NULL` (see `events` above), which is the
+ * schema's answer to "what happens to the shows when a room is deleted": the
+ * shows survive and become room-less, exactly as if they had never been assigned.
+ * Deleting a room is a statement about the BUILDING, and a settled event must
+ * never disappear because someone tidied up a floor plan.
  */
-export const stages = pgTable("stages", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  venueProfileId: uuid("venue_profile_id")
-    .notNull()
-    .references(() => profiles.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  capacity: integer("capacity"),
-});
+export const stages = pgTable(
+  "stages",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    venueProfileId: uuid("venue_profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    capacity: integer("capacity"),
+  },
+  (table) => [
+    // "The rooms of this venue" is now a real query — it draws the room picker on
+    // an event, the rooms card on the profile, and every calendar in the
+    // availability dropdown.
+    index("stages_venue_profile_id_idx").on(table.venueProfileId),
+    // Two rooms of one venue may not share a name. A room list is chosen from by
+    // NAME — in the dropdown, on the event, in the shared availability link — so
+    // duplicates are not a cosmetic problem: they make the choice meaningless.
+    unique("stages_venue_profile_id_name_key").on(table.venueProfileId, table.name),
+  ],
+);
 
 /**
  * A profile's participation in an event — event-role + a modular permission set.

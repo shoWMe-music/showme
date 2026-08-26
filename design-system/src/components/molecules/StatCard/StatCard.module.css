@@ -26,5 +26,10 @@
   line-height: 1.1;
   margin-top: 10px;
   color: var(--text);
+  /* A seven-figure total in a narrow tile used to run out past the card and be
+     clipped by its neighbour — an amount that is unreadable is worse than one
+     that takes two lines. */
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }

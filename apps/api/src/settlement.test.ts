@@ -1029,6 +1029,106 @@ describe("settlement — finalize & transfer state", () => {
   });
 
   /**
+   * `isYours` and `approvedByYou` are what a screen hangs the sign-off control off.
+   * Without them the operator — who is a party on the deals it funds and so reads
+   * several lines — cannot tell which single line "you can only confirm your own
+   * settlement" is about, and nothing anywhere says whether that signature has
+   * already been given.
+   */
+  it("marks the caller's own settlement line, and whether they have signed it", async () => {
+    const seed = await seedWorkedExample("own-line");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const asBand = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlements`,
+      headers: auth(seed.band.userId),
+    });
+    const mine = asBand.json().settlements.filter((row: { isYours: boolean }) => row.isYours);
+    expect(mine).toHaveLength(1);
+    expect(mine[0].participantId).toBe(seed.bPart);
+    expect(mine[0].approvedByYou).toBe(false);
+
+    // The operator reads the same event and does NOT see the band's line as its own.
+    const asOperator = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlements`,
+      headers: auth(seed.operator.userId),
+    });
+    const bandLine = asOperator
+      .json()
+      .settlements.find((row: { participantId: string }) => row.participantId === seed.bPart);
+    expect(bandLine.isYours).toBe(false);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlements/${mine[0].id}/confirm`,
+      headers: auth(seed.band.userId),
+    });
+    const afterSigning = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlements`,
+      headers: auth(seed.band.userId),
+    });
+    expect(
+      afterSigning.json().settlements.find((row: { isYours: boolean }) => row.isYours)
+        .approvedByYou,
+    ).toBe(true);
+    // And the operator still never learns the band signed — that is the band's own
+    // line, and `approvedByYou` is only ever read for the caller's own rows.
+    const operatorView = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlements`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(
+      operatorView
+        .json()
+        .settlements.find((row: { participantId: string }) => row.participantId === seed.bPart)
+        .approvedByYou,
+    ).toBe(false);
+  });
+
+  /** A signature given twice is still one signature (two tabs, or a re-visit). */
+  it("records only one approval however many times the same party confirms", async () => {
+    const seed = await seedWorkedExample("confirm-twice");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const rows = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    const bandSettlement = rows.find((row) => row.participantId === seed.bPart);
+    if (!bandSettlement) throw new Error("no band settlement");
+
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlements/${bandSettlement.id}/confirm`,
+      headers: auth(seed.band.userId),
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlements/${bandSettlement.id}/confirm`,
+      headers: auth(seed.band.userId),
+    });
+    expect(second.statusCode).toBe(200);
+    expect(second.json().id).toBe(first.json().id);
+
+    const approvals = await harness.db
+      .select()
+      .from(schema.settlementApprovals)
+      .where(eq(schema.settlementApprovals.partyParticipantId, seed.bPart));
+    expect(approvals).toHaveLength(1);
+  });
+
+  /**
    * An approval is a signature. The route accepted any settlement id on the event, so
    * the operator — who holds `settlement.confirm` for its OWN line — could record the
    * band's approval of the band's money. Same party-scoping rule as the read (A-07).

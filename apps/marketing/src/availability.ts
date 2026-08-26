@@ -9,9 +9,10 @@
  * authenticated route even by mistake.
  *
  * WHAT IT MAY SHOW: free dates, the window they were computed over, the weekday
- * filter, and which event states the sharer counted as busy. Nothing else. There
- * is no event title, venue, counterparty or amount anywhere in the link or in the
- * endpoints it calls — `GET /public/profiles/:slug` (the display name only, and
+ * filter, which event states the sharer counted as busy, and the ROOM the sharer
+ * picked (a two-room venue has a different answer per room, so a bare list of
+ * free Fridays would be ambiguous). Nothing else. There is no event title,
+ * counterparty or amount anywhere in the link or in the endpoints it calls — `GET /public/profiles/:slug` (the display name only, and
  * only for a profile its owner marked public) and
  * `GET /public/profiles/:slug/availability` (date ranges, no reason, no event).
  *
@@ -58,6 +59,8 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 interface AvailabilitySnapshot {
   profileSlug: string;
+  /** The room these dates are for, or null for the whole calendar. */
+  room: string | null;
   from: string;
   to: string;
   weekdays: number[];
@@ -82,6 +85,27 @@ function commaList(value: string | null): string[] {
     .filter((entry) => entry.length > 0);
 }
 
+/** How long a room name may be before this page stops believing it. */
+const MAX_ROOM_NAME_LENGTH = 200;
+
+/**
+ * The room name, cleaned up, or null.
+ *
+ * Unlike the profile name — which this page refuses to take from the link and
+ * resolves from the API instead — the room is part of what the SHARER is
+ * asserting, exactly like the dates. So it is accepted, but bounded and stripped
+ * of control characters and line breaks, and rendered only among "how this list
+ * was made" (never as the identity line at the top), so it can never dress
+ * itself up as something the API confirmed.
+ */
+function readRoomName(value: string | null): string | null {
+  if (!value) return null;
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping them is the point.
+  const cleaned = value.replace(/[\u0000-\u001f\u007f]/g, " ").trim();
+  if (cleaned === "") return null;
+  return cleaned.slice(0, MAX_ROOM_NAME_LENGTH);
+}
+
 /**
  * Read the snapshot out of the fragment. Everything is validated here — the whole
  * input is attacker-controlled, so a malformed link becomes an honest "this link
@@ -104,6 +128,7 @@ export function parseSnapshot(fragment: string): AvailabilitySnapshot | null {
 
   return {
     profileSlug,
+    room: readRoomName(parameters.get("room")),
     from,
     to,
     weekdays,
@@ -360,6 +385,10 @@ function renderSnapshot(
     (() => {
       const filters = element("div", "filters");
       filters.append(
+        // The room leads, because it is the thing that makes the rest of the list
+        // mean one thing rather than several: a venue with two rooms has two
+        // different answers to "are you free on the 12th?".
+        filterRow("Calendar", snapshot.room ?? "All rooms"),
         filterRow("Window", `${formatLongDate(snapshot.from)} – ${formatLongDate(snapshot.to)}`),
         filterRow("Days of the week", formatWeekdays(snapshot.weekdays)),
         filterRow("Counted as unavailable", formatBusyStates(snapshot)),

@@ -188,6 +188,20 @@ describe("deals — party-scoped visibility", () => {
     expect(listAsB.json()).toHaveLength(1);
     expect(listAsB.json()[0].parties).toHaveLength(1);
     expect(listAsB.json()[0].parties[0].participantId).toBe(participantB.id);
+
+    // `isYours` marks the line the caller stands behind — the one and only line
+    // `POST /deals/:did/confirm` will stamp for them. The operator reads all three
+    // lines on its own deal, so without this it cannot tell which is its own, and a
+    // screen would offer "Confirm" to a party with nothing left to confirm.
+    const operatorParties = asOperator.json().parties as {
+      participantId: string;
+      isYours: boolean;
+    }[];
+    expect(
+      operatorParties.filter((party) => party.isYours).map((party) => party.participantId),
+    ).toEqual([hostParticipant.id]);
+    expect(asPerformerA.json().parties[0].isYours).toBe(true);
+    expect(listAsB.json()[0].parties[0].isYours).toBe(true);
   });
 
   it("404s a deal for a participant who is not a party on it (no leak)", async () => {

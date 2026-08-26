@@ -14,6 +14,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getActiveProfileId } from "../lib/activeProfile";
 import { errorMessage } from "../lib/errors";
+import type { TemplateDrafts } from "./budgetTemplateDrafts";
+import {
+  type BudgetSeed,
+  DEFAULT_PROCESSING_PERCENT,
+  SEEDED_TICKET_NAME,
+  SEEDED_TICKET_SHARE,
+} from "./useBudgetSeed";
 
 type Budget = Awaited<ReturnType<typeof getApiV1EventsIdBudgets>>[number];
 
@@ -30,6 +37,48 @@ export interface CostDraft {
   key: string;
   label: string;
   value: string;
+  /**
+   * True for a row the operator added themselves ("+ Add Field"), false for one
+   * of the standing headings. Only a custom row may be removed — deleting
+   * "Performer fee" would take a heading out of a screen that is supposed to
+   * always show the same six, and the operator would have no way to get it back.
+   */
+  isCustom: boolean;
+  /** Set on custom rows only; the standing headings are always flat figures. */
+  type?: CustomFieldType;
+}
+
+/**
+ * A free-form revenue row ("+ Add Field" on the Revenue card) — a sponsorship, a
+ * merch guarantee, a grant.
+ *
+ * Unlike a custom COST, which is simply a cost line under a heading of the
+ * operator's own, a custom revenue line has to be told apart from a ticket tier:
+ * both are `kind = 'revenue'` rows with a label and an amount. That is what
+ * `details.basis = 'custom_revenue'` is for, and why the two are not symmetric.
+ */
+/**
+ * What kind of amount a custom row holds — the `type` of the handoff's
+ * `{ name, type, amount }`, and what the row's pill prints.
+ *
+ * `manual` is a flat figure. `per_guest` is an amount a head, multiplied by
+ * capacity — the same arithmetic the bar estimate already does, which is why it
+ * needs no new storage: a per-guest row is `unitAmount` × `quantity = capacity`,
+ * exactly as `bar_spend` is, and a manual row is that amount taken once.
+ *
+ * Deliberately NOT the July prototype's `manual`/`auto`: nothing computed an
+ * "auto" row there, so it summed to zero for ever. A pill that names a behaviour
+ * the planner does not have is the placeholder-control problem in miniature.
+ */
+export type CustomFieldType = "manual" | "per_guest";
+
+export interface CustomRevenueDraft {
+  /** The line id, or a `new:` placeholder for a row not yet written. */
+  id: string;
+  label: string;
+  /** For `per_guest`, the amount PER HEAD; for `manual`, the whole figure. */
+  value: string;
+  type: CustomFieldType;
 }
 
 /**
@@ -40,7 +89,7 @@ export interface CostDraft {
  * figure, so an untouched budget stays genuinely empty rather than carrying six
  * zero-value lines nobody entered.
  */
-const STANDARD_COST_HEADINGS = [
+export const STANDARD_COST_HEADINGS = [
   "Performer fee",
   "Production cost",
   "Staff cost",
@@ -78,7 +127,7 @@ function costHeadingOf(label: string): string {
 /** The one revenue line that is neither a ticket tier nor the bar estimate. */
 const OTHER_REVENUE_LABEL = "Other revenue";
 
-const NEW_ROW_PREFIX = "new:";
+export const NEW_ROW_PREFIX = "new:";
 const SAVE_DEBOUNCE_MILLISECONDS = 700;
 
 /**
@@ -120,6 +169,29 @@ function numeric(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+/**
+ * A stored custom line read back into a draft row.
+ *
+ * The row's TYPE is carried by its breakdown rather than by a field of its own: a
+ * `quantity` above one means the amount was struck per head, which is the only
+ * thing `per_guest` means. Storing the word as well would give the row two
+ * sources of truth that a hand-edited `details` could put out of step.
+ */
+function customDraftFrom(
+  id: string,
+  label: string,
+  amount: string,
+  details: { unitAmount: string; quantity: number } | null | undefined,
+): { id: string; label: string; value: string; type: CustomFieldType } {
+  const perGuest = (details?.quantity ?? 1) > 1;
+  return {
+    id,
+    label,
+    value: toMajorUnits(perGuest && details ? details.unitAmount : amount),
+    type: perGuest ? "per_guest" : "manual",
+  };
+}
+
 /** Which budget the planner opens on: the joint book if this event is co-hosted. */
 function preferredBudget(budgets: Budget[]): Budget | undefined {
   return budgets.find((budget) => budget.scope === "shared") ?? budgets[0];
@@ -150,6 +222,17 @@ export interface BudgetEditor {
   addTier: () => void;
   removeTier: (id: string) => void;
   changeCost: (key: string, value: string) => void;
+  /** Add a cost row of the operator's own, named and typed in the "+ Add Field" modal. */
+  addCustomCost: (label: string, amount: string, type: CustomFieldType) => void;
+  /** Remove a custom cost row. The six standing headings are never removable. */
+  removeCost: (key: string) => void;
+  /** The free-form revenue rows ("+ Add Field" on the Revenue card). */
+  customRevenue: CustomRevenueDraft[];
+  addCustomRevenue: (label: string, amount: string, type: CustomFieldType) => void;
+  changeCustomRevenue: (id: string, value: string) => void;
+  removeCustomRevenue: (id: string) => void;
+  /** Fill every field from a saved template — see `budgetTemplateDrafts.ts`. */
+  applyTemplate: (drafts: TemplateDrafts) => void;
   changeCapacity: (value: string) => void;
   changeAverageBarSpend: (value: string) => void;
   changeOtherRevenue: (value: string) => void;
@@ -175,7 +258,16 @@ export interface BudgetEditor {
  * version from a debounced autosave would raise 409s at the person typing
  * rather than at the conflict.
  */
-export function useBudgetEditor(eventId: string): BudgetEditor {
+/** Nothing known about the event — the planner then behaves exactly as before. */
+const NO_SEED: BudgetSeed = { capacity: null, performerFee: null, venueCost: null };
+
+/** Which standing heading each seeded figure belongs under. */
+const SEEDED_COST_HEADINGS: Record<string, keyof BudgetSeed> = {
+  "Performer fee": "performerFee",
+  "Venue cost": "venueCost",
+};
+
+export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEED): BudgetEditor {
   const toast = useToast();
   const queryClient = useQueryClient();
   const budgetsQuery = useGetApiV1EventsIdBudgets(eventId);
@@ -217,7 +309,10 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
           (line) =>
             line.kind === "revenue" &&
             line.details?.basis !== "bar_spend" &&
-            line.details?.basis !== "other_revenue",
+            line.details?.basis !== "other_revenue" &&
+            // Without this a sponsorship would come back as a ticket tier priced
+            // at its full amount — one ticket at 5 000, sitting in the tier list.
+            line.details?.basis !== "custom_revenue",
         )
         .map((line) => ({
           id: line.id,
@@ -244,24 +339,56 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
     [lines],
   );
 
+  // The free-form revenue rows, found by `basis` for the same reason the bar
+  // estimate is: a label match would break the moment somebody renamed one.
+  const serverCustomRevenue = useMemo<CustomRevenueDraft[]>(
+    () =>
+      lines
+        .filter((line) => line.kind === "revenue" && line.details?.basis === "custom_revenue")
+        .map((line) => customDraftFrom(line.id, line.label, line.amount, line.details)),
+    [lines],
+  );
+
   const serverCosts = useMemo<CostDraft[]>(() => {
     const costLines = lines.filter((line) => line.kind === "cost");
     const byHeading = new Map(costLines.map((line) => [costHeadingOf(line.label), line]));
     const standard = STANDARD_COST_HEADINGS.map((heading) => {
       const line = byHeading.get(heading);
+      // A heading with a stored line shows the stored figure. A heading with none
+      // shows what the event already knows — the deal's guarantee under
+      // "Performer fee", the rental under "Venue cost" — and nothing at all when
+      // the event knows nothing. A STORED LINE ALWAYS WINS: the seed fills a
+      // blank, it never overwrites a figure somebody typed.
+      const seeded = SEEDED_COST_HEADINGS[heading];
+      const fallback = seeded ? seedSource[seeded] : null;
       return {
         key: line ? line.id : `${NEW_ROW_PREFIX}${heading}`,
         label: heading,
-        value: line ? toMajorUnits(line.amount) : "",
+        value: line
+          ? toMajorUnits(line.amount)
+          : typeof fallback === "string"
+            ? toMajorUnits(fallback)
+            : "",
+        isCustom: false,
       };
     });
     // Anything budgeted under a heading of the operator's own is kept too —
-    // dropping it would make a real line invisible and un-editable.
+    // dropping it would make a real line invisible and un-editable. These are the
+    // rows "+ Add Field" creates, and the only ones that carry a remove control.
     const custom = costLines
       .filter((line) => !STANDARD_COST_HEADINGS.includes(costHeadingOf(line.label) as never))
-      .map((line) => ({ key: line.id, label: line.label, value: toMajorUnits(line.amount) }));
+      .map((line) => {
+        const draft = customDraftFrom(line.id, line.label, line.amount, line.details);
+        return {
+          key: line.id,
+          label: draft.label,
+          value: draft.value,
+          isCustom: true,
+          type: draft.type,
+        };
+      });
     return [...standard, ...custom];
-  }, [lines]);
+  }, [lines, seedSource]);
 
   /**
    * Everything the draft is seeded from, in one value. Grouping it means the
@@ -270,22 +397,62 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
    */
   const processing = budget?.planningAssumptions?.paymentProcessing ?? null;
 
-  const seed = useMemo(
-    () => ({
+  const seed = useMemo(() => {
+    // The bar line is where the planner keeps its head count, so a budget that
+    // has never been touched has no capacity of its own — the event's does.
+    const capacity = barLine?.details
+      ? barLine.details.quantity.toString()
+      : (seedSource.capacity?.toString() ?? "");
+
+    // A budget with no tiers yet opens on one General Admission row expecting to
+    // sell 80% of the room. Priced BLANK on purpose: the count is something the
+    // event knows, the ticket price is not, and a made-up price would put a
+    // revenue figure on the screen that nobody chose.
+    const guests = Number(capacity);
+    const expected =
+      Number.isFinite(guests) && guests > 0 ? Math.round(guests * SEEDED_TICKET_SHARE) : 0;
+    const tiers =
+      serverTiers.length > 0
+        ? serverTiers
+        : [
+            {
+              id: `${NEW_ROW_PREFIX}seed`,
+              name: SEEDED_TICKET_NAME,
+              price: "",
+              quantity: expected > 0 ? expected.toString() : "",
+            },
+          ];
+
+    return {
       budgetId,
-      tiers: serverTiers,
+      tiers,
       costs: serverCosts,
-      capacity: barLine?.details ? barLine.details.quantity.toString() : "",
+      customRevenue: serverCustomRevenue,
+      capacity,
       averageBarSpend: barLine?.details ? toMajorUnits(barLine.details.unitAmount) : "",
       otherRevenue: otherRevenueLine ? toMajorUnits(otherRevenueLine.amount) : "",
-      processingPercent: processing ? toPercentText(processing.percentBasisPoints) : "",
+      // Every budget assumes a provider takes something until the operator says
+      // otherwise. An explicit 0 is stored and read back as 0, so this fills a
+      // blank without preventing anyone from saying the rails are free.
+      processingPercent: processing
+        ? toPercentText(processing.percentBasisPoints)
+        : DEFAULT_PROCESSING_PERCENT,
       processingFlatPerTicket: processing ? toMajorUnits(processing.flatPerTicket) : "",
-    }),
-    [budgetId, serverTiers, serverCosts, barLine, otherRevenueLine, processing],
-  );
+    };
+  }, [
+    budgetId,
+    serverTiers,
+    serverCosts,
+    serverCustomRevenue,
+    barLine,
+    otherRevenueLine,
+    processing,
+    seedSource,
+  ]);
 
   const [tiers, setTiers] = useState<TicketTierDraft[]>(seed.tiers);
   const [costs, setCosts] = useState<CostDraft[]>(seed.costs);
+  const [customRevenue, setCustomRevenue] = useState<CustomRevenueDraft[]>(seed.customRevenue);
   const [capacity, setCapacity] = useState(seed.capacity);
   const [averageBarSpend, setAverageBarSpend] = useState(seed.averageBarSpend);
   const [otherRevenue, setOtherRevenue] = useState(seed.otherRevenue);
@@ -301,6 +468,7 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
     if (pendingRef.current) return;
     setTiers(seed.tiers);
     setCosts(seed.costs);
+    setCustomRevenue(seed.customRevenue);
     setCapacity(seed.capacity);
     setAverageBarSpend(seed.averageBarSpend);
     setOtherRevenue(seed.otherRevenue);
@@ -317,6 +485,18 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
     : !myParticipantId
       ? "Your profile is not a participant on this event, so budget lines cannot be attributed to it."
       : null;
+
+  /**
+   * Mark the draft as being edited without queueing a write.
+   *
+   * Adding an empty row IS the start of an edit even though there is nothing to
+   * save yet: without this, the next background refetch re-seeds from the server,
+   * which has never heard of the row, and the blank field the operator was about
+   * to type into vanishes under their cursor.
+   */
+  const holdDraft = useCallback(() => {
+    pendingRef.current = true;
+  }, []);
 
   const scheduleFlush = useCallback(() => {
     if (readOnlyReason) return;
@@ -370,28 +550,55 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
 
     for (const cost of costs) {
       const typed = cost.value.trim();
+      // A custom cost row carries the same unit x quantity breakdown a custom
+      // revenue row does, so a per-guest cost (a wristband, a drinks token)
+      // round-trips as one. A standing heading is always a flat figure and keeps
+      // storing no breakdown at all.
+      const unitAmount = toMinorUnits(typed === "" ? "0" : typed);
+      const quantity =
+        cost.isCustom && cost.type === "per_guest" ? Math.trunc(numeric(capacity)) : 1;
+      const amount = toMinorUnits((numeric(typed) * quantity).toString());
+      const details = cost.isCustom
+        ? { basis: "custom_cost" as const, unitAmount, quantity }
+        : undefined;
+
       if (cost.key.startsWith(NEW_ROW_PREFIX)) {
-        if (typed === "") continue; // a heading with no figure stays a heading
+        // A standing heading becomes a line when it is given a FIGURE; a custom
+        // row becomes one when it is given a NAME. The row the operator just
+        // added is theirs and worth keeping at zero — the heading above it is
+        // not, or an untouched budget would carry six lines nobody entered.
+        const ready = cost.isCustom ? cost.label.trim() !== "" : typed !== "";
+        if (!ready) continue;
         createLine.mutate({
           ...target,
           data: {
             kind: "cost",
-            label: cost.label,
-            amount: toMinorUnits(typed),
+            label: cost.label.trim(),
+            amount,
             paidBy: myParticipantId,
+            ...(details ? { details } : {}),
           },
         });
         continue;
       }
       const before = lines.find((line) => line.id === cost.key);
       if (!before) continue;
-      const amount = toMinorUnits(typed === "" ? "0" : typed);
       // A line stored under an old heading is relabelled the first time its figure
       // is edited — the operator is already changing this row, so the label
       // catching up with the row it is displayed in surprises nobody.
-      const relabelled = before.label !== cost.label ? { label: cost.label } : {};
-      if (before.amount === amount && before.label === cost.label) continue;
-      updateLine.mutate({ ...target, lid: cost.key, data: { amount, ...relabelled } });
+      const label = cost.label.trim() || before.label;
+      const relabelled = before.label !== label ? { label } : {};
+      const unchanged =
+        before.amount === amount &&
+        before.label === label &&
+        (!details ||
+          (before.details?.unitAmount === unitAmount && before.details?.quantity === quantity));
+      if (unchanged) continue;
+      updateLine.mutate({
+        ...target,
+        lid: cost.key,
+        data: { amount, ...relabelled, ...(details ? { details } : {}) },
+      });
     }
 
     // The bar estimate is one revenue line whose breakdown is spend-per-head
@@ -444,6 +651,48 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
       }
     }
 
+    // The free-form revenue rows. Each is one line carrying `basis:
+    // 'custom_revenue'`, taken once (`quantity: 1`) at its own amount — the same
+    // shape "Other revenue" uses, because a sponsorship is a figure the operator
+    // states rather than a multiplication they performed.
+    for (const row of customRevenue) {
+      const typed = row.value.trim();
+      const unitAmount = toMinorUnits(typed === "" ? "0" : typed);
+      // A per-guest row is struck a head and multiplied by capacity, exactly as
+      // the bar estimate is; a manual row is that amount taken once. The
+      // breakdown is what carries the row's type back on the next read.
+      const quantity = row.type === "per_guest" ? Math.trunc(numeric(capacity)) : 1;
+      const amount = toMinorUnits((numeric(typed) * quantity).toString());
+      const details = { basis: "custom_revenue" as const, unitAmount, quantity };
+      if (row.id.startsWith(NEW_ROW_PREFIX)) {
+        if (row.label.trim() === "") continue; // an unnamed row is not a line yet
+        createLine.mutate({
+          ...target,
+          data: {
+            kind: "revenue",
+            label: row.label.trim(),
+            amount,
+            collectedBy: myParticipantId,
+            details,
+          },
+        });
+        continue;
+      }
+      const before = lines.find((line) => line.id === row.id);
+      if (!before) continue;
+      const unchanged =
+        before.amount === amount &&
+        before.label === row.label.trim() &&
+        before.details?.unitAmount === unitAmount &&
+        before.details?.quantity === quantity;
+      if (unchanged) continue;
+      updateLine.mutate({
+        ...target,
+        lid: row.id,
+        data: { label: row.label.trim() || before.label, amount, details },
+      });
+    }
+
     // The provider's rates go on the BUDGET, not into a line: no cash has moved,
     // and a cost line would take this estimate into the settlement pool (see the
     // 0015 migration). Written only when they differ from what the server holds,
@@ -485,6 +734,7 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
   );
 
   const addTier = useCallback(() => {
+    holdDraft(); // same reason as the custom rows: an empty tier must survive a refetch
     setTiers((rows) => [
       ...rows,
       // Empty, not "0": a tier nobody has priced yet has no price, and a
@@ -493,15 +743,24 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
       // the KPI band still adds up while the fields stay blank.
       { id: `${NEW_ROW_PREFIX}${rows.length}`, name: "", price: "", quantity: "" },
     ]);
-  }, []);
+  }, [holdDraft]);
 
   const removeTier = useCallback(
     (id: string) => {
-      setTiers((rows) => rows.filter((row) => row.id !== id));
+      holdDraft();
+      setTiers((rows) => {
+        const left = rows.filter((row) => row.id !== id);
+        // The tier list is NEVER empty (handoff §1): taking the last row out
+        // leaves a blank one behind, because a Revenue card with no ticket row
+        // at all offers the operator nothing to type into and no way back.
+        return left.length > 0
+          ? left
+          : [{ id: `${NEW_ROW_PREFIX}0`, name: "", price: "", quantity: "" }];
+      });
       if (id.startsWith(NEW_ROW_PREFIX) || !budgetId) return; // never written, nothing to delete
       deleteLine.mutate({ id: eventId, bid: budgetId, lid: id, data: {} });
     },
-    [budgetId, eventId, deleteLine],
+    [budgetId, eventId, deleteLine, holdDraft],
   );
 
   const changeCost = useCallback(
@@ -510,6 +769,105 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
       scheduleFlush();
     },
     [scheduleFlush],
+  );
+
+  /**
+   * Add a cost row under a heading of the operator's own. It becomes a
+   * `budget_lines` cost row on the next flush — the SAME path a standing heading
+   * takes, which is why a custom cost needed nothing new in the arithmetic
+   * either: `budgetInputsFrom` already sums every row of `costs`.
+   *
+   * The key only has to be unique until the row is written (the create reads the
+   * LABEL, not the key), so the row index cannot collide with a heading's key.
+   */
+  const addCustomCost = useCallback(
+    (label: string, amount: string, type: CustomFieldType) => {
+      const trimmed = label.trim();
+      if (trimmed === "") return;
+      setCosts((rows) => [
+        ...rows,
+        // The key only has to be unique until the row is written — the create
+        // reads the LABEL, not the key — so a row index cannot collide with one
+        // of the standing headings' keys.
+        {
+          key: `${NEW_ROW_PREFIX}custom:${rows.length}`,
+          label: trimmed,
+          value: amount,
+          isCustom: true,
+          type,
+        },
+      ]);
+      scheduleFlush();
+    },
+    [scheduleFlush],
+  );
+
+  const removeCost = useCallback(
+    (key: string) => {
+      setCosts((rows) => rows.filter((row) => row.key !== key));
+      if (key.startsWith(NEW_ROW_PREFIX) || !budgetId) return; // never written
+      deleteLine.mutate({ id: eventId, bid: budgetId, lid: key, data: {} });
+    },
+    [budgetId, eventId, deleteLine],
+  );
+
+  const addCustomRevenue = useCallback(
+    (label: string, amount: string, type: CustomFieldType) => {
+      const trimmed = label.trim();
+      if (trimmed === "") return;
+      setCustomRevenue((rows) => [
+        ...rows,
+        { id: `${NEW_ROW_PREFIX}${rows.length}`, label: trimmed, value: amount, type },
+      ]);
+      scheduleFlush();
+    },
+    [scheduleFlush],
+  );
+
+  const changeCustomRevenue = useCallback(
+    (id: string, value: string) => {
+      setCustomRevenue((rows) => rows.map((row) => (row.id === id ? { ...row, value } : row)));
+      scheduleFlush();
+    },
+    [scheduleFlush],
+  );
+
+  const removeCustomRevenue = useCallback(
+    (id: string) => {
+      setCustomRevenue((rows) => rows.filter((row) => row.id !== id));
+      if (id.startsWith(NEW_ROW_PREFIX) || !budgetId) return; // never written
+      deleteLine.mutate({ id: eventId, bid: budgetId, lid: id, data: {} });
+    },
+    [budgetId, eventId, deleteLine],
+  );
+
+  /**
+   * Replace every planner field from a saved template (`budgetTemplateDrafts.ts`
+   * works out what that means) and write it through.
+   *
+   * The obsolete lines are deleted FIRST and by id, not left to the flush: the
+   * flush only ever creates and updates, so a tier the template does not fill
+   * would survive in the database and be read straight back on the next refetch —
+   * the template would appear to load and then quietly un-load itself.
+   */
+  const applyTemplate = useCallback(
+    (drafts: TemplateDrafts) => {
+      if (budgetId) {
+        for (const lineId of drafts.removedLineIds) {
+          deleteLine.mutate({ id: eventId, bid: budgetId, lid: lineId, data: {} });
+        }
+      }
+      setTiers(drafts.ticketTiers);
+      setCosts(drafts.costs);
+      setCustomRevenue(drafts.customRevenue);
+      setCapacity(drafts.capacity);
+      setAverageBarSpend(drafts.averageBarSpend);
+      setOtherRevenue(drafts.otherRevenue);
+      setProcessingPercent(drafts.processingPercent);
+      setProcessingFlatPerTicket(drafts.processingFlatPerTicket);
+      scheduleFlush();
+    },
+    [budgetId, eventId, deleteLine, scheduleFlush],
   );
 
   const changeCapacity = useCallback(
@@ -576,6 +934,13 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
     addTier,
     removeTier,
     changeCost,
+    addCustomCost,
+    removeCost,
+    customRevenue,
+    addCustomRevenue,
+    changeCustomRevenue,
+    removeCustomRevenue,
+    applyTemplate,
     changeCapacity,
     changeAverageBarSpend,
     changeOtherRevenue,
@@ -594,6 +959,27 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
  * hundred, and it belongs next to `toMinorUnits` — the other half of the same
  * conversion — instead of being re-derived in whichever component renders next.
  */
+/**
+ * What a custom row is WORTH, in minor units — its typed figure, multiplied by
+ * capacity when it is struck per head.
+ *
+ * One helper rather than the multiplication repeated at each call site: the
+ * projection, the breakdown bars and the CSV all have to agree about what a
+ * per-guest row contributes, and three copies of `value x capacity` is three
+ * places for one of them to be forgotten.
+ */
+export function customRowAmount(
+  row: { value: string; type?: CustomFieldType },
+  capacity: string,
+): bigint {
+  const perHead = Number(row.value);
+  if (!Number.isFinite(perHead)) return 0n;
+  if (row.type !== "per_guest") return BigInt(toMinorUnits(row.value));
+  const heads = Number(capacity);
+  const guests = Number.isFinite(heads) ? Math.trunc(heads) : 0;
+  return BigInt(toMinorUnits((perHead * guests).toString()));
+}
+
 export function budgetInputsFrom(editor: BudgetEditor): BudgetInputs {
   const wholeNumber = (value: string) => {
     const parsed = Number(value);
@@ -609,7 +995,8 @@ export function budgetInputsFrom(editor: BudgetEditor): BudgetInputs {
     averageBarSpend: BigInt(toMinorUnits(editor.averageBarSpend)),
     capacity: wholeNumber(editor.capacity),
     otherRevenue: BigInt(toMinorUnits(editor.otherRevenue)),
-    costs: editor.costs.map((cost) => BigInt(toMinorUnits(cost.value))),
+    customRevenue: editor.customRevenue.map((row) => customRowAmount(row, editor.capacity)),
+    costs: editor.costs.map((cost) => customRowAmount(cost, editor.capacity)),
     // Absent rather than a pair of zeroes when the operator has said nothing: the
     // projection then reports `paymentProcessingFees` of 0 because there is no
     // assumption, not because the assumption is that it is free.

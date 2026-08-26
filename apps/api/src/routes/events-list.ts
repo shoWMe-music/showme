@@ -60,6 +60,13 @@ const EventResponse = z.object({
   eventDate: z.string().nullable(),
   timezone: z.string().nullable(),
   venueProfileId: z.string().nullable(),
+  /**
+   * `serializeEvent` has always returned this; the list schema simply never
+   * declared it, so Fastify stripped it on the way out and every list screen had
+   * only a title to search. The Calendar's "Venue / Room…" filter was the visible
+   * cost: it advertised a search it could not perform.
+   */
+  venueName: z.string().nullable(),
   stageId: z.string().nullable(),
   version: z.number(),
   holdRank: z.number().nullable().optional(),

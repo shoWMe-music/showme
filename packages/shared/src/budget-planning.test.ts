@@ -182,3 +182,80 @@ describe("payment processing fees", () => {
     expect(withFees.breakEvenTickets).toBe(225);
   });
 });
+
+/**
+ * The "+ Add Field" rows on the design prototype's Revenue and Costs cards. The
+ * prototype sums them into its totals (`customRevTotal` / `customCostTotal` in
+ * `computeBudget`), so a planner that ignored them would disagree with the design
+ * the moment an operator used one — and disagree about the profit, which is the
+ * one figure the screen exists to state.
+ */
+describe("custom rows", () => {
+  const base = {
+    ticketTiers: [{ unitAmount: major(100), quantity: 500 }], // 50 000 of tickets
+    averageBarSpend: 0n,
+    capacity: 500,
+    otherRevenue: 0n,
+    costs: [major(20000)],
+  };
+
+  it("adds custom revenue rows to the total, and reports them back summed", () => {
+    const projection = computeBudgetProjection({
+      ...base,
+      customRevenue: [major(5000), major(1500)], // a sponsorship and a grant
+    });
+
+    expect(projection.customRevenue).toBe(major(6500));
+    expect(projection.totalRevenue).toBe(major(56500));
+    expect(projection.profit).toBe(major(36500));
+  });
+
+  it("treats a custom revenue row as money in hand, so break-even falls", () => {
+    const without = computeBudgetProjection(base);
+    const with_ = computeBudgetProjection({ ...base, customRevenue: [major(5000)] });
+
+    // 20 000 of costs over a 100.00 ticket → 200.
+    expect(without.breakEvenTickets).toBe(200);
+    // 5 000 of it is already covered by the sponsor → 15 000 left → 150.
+    expect(with_.breakEvenTickets).toBe(150);
+  });
+
+  it("needs nothing new for a custom COST — it is one more element of `costs`", () => {
+    const projection = computeBudgetProjection({
+      ...base,
+      costs: [major(20000), major(3000)], // the standard heading plus a custom row
+    });
+
+    expect(projection.enteredCosts).toBe(major(23000));
+    expect(projection.totalCosts).toBe(major(23000));
+    expect(projection.breakEvenTickets).toBe(230);
+  });
+
+  it("reads an absent list as no custom revenue rather than as a zero row", () => {
+    const projection = computeBudgetProjection(base);
+
+    expect(projection.customRevenue).toBe(0n);
+    expect(projection.totalRevenue).toBe(major(50000));
+  });
+
+  it("matches the prototype: a custom revenue row moves profit by its own amount", () => {
+    // The design prototype's Nils Frahm budget, before and after a 5 000
+    // "Sponsorship" field: total revenue 76 800 → 81 800, profit 15 148 → 20 148.
+    const inputs = {
+      ticketTiers: [{ unitAmount: major(60), quantity: 1280 }],
+      averageBarSpend: 0n,
+      capacity: 1600,
+      otherRevenue: 0n,
+      costs: [major(50000), major(6500), major(4000)],
+      paymentProcessing: { percentBasisPoints: 150, flatPerTicket: 0n },
+    };
+
+    const before = computeBudgetProjection(inputs);
+    const after = computeBudgetProjection({ ...inputs, customRevenue: [major(5000)] });
+
+    expect(before.totalRevenue).toBe(major(76800));
+    expect(before.profit).toBe(major(15148));
+    expect(after.totalRevenue).toBe(major(81800));
+    expect(after.profit).toBe(major(20148));
+  });
+});

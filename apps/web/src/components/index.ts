@@ -12,7 +12,14 @@ export { AvailabilityShareModal } from "./AvailabilityShareModal";
 export type { AvailabilityShareModalProps } from "./AvailabilityShareModal";
 
 export { BudgetPlanner } from "./BudgetPlanner";
-export type { BudgetPlannerProps, CostRow, TicketTypeRow } from "./BudgetPlanner";
+export type {
+  BudgetPlannerProps,
+  BudgetToolbarAction,
+  CostRow,
+  CustomRevenueRow,
+  TicketTypeRow,
+} from "./BudgetPlanner";
+export { BudgetTemplateDialogs } from "./BudgetTemplateDialogs";
 
 export { CalendarMonthGrid } from "./CalendarMonthGrid";
 export type { CalendarEvent, CalendarLabelMode, CalendarMonthGridProps } from "./CalendarMonthGrid";

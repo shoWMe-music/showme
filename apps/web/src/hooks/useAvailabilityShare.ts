@@ -1,25 +1,35 @@
-import { useGetApiV1Profiles, useGetApiV1ProfilesIdAvailability } from "@showme/api-client";
+import { useGetApiV1ProfilesIdAvailability } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
+import { type RoomBooking, WHOLE_VENUE, occupiedDates } from "@showme/shared";
 import { useMemo, useState } from "react";
-import type { CalendarEvent } from "../components";
 import { dayKey } from "../components/calendarGrid";
 import { getActiveProfileId } from "../lib/activeProfile";
 import {
   type AvailabilitySnapshot,
   buildAvailabilityShareLink,
 } from "../lib/availabilityShareLink";
+import type { CalendarSource } from "./useCalendarSources";
 import type { EventItem } from "./useEventList";
 
 /**
- * Everything behind the "Check & Share Availability" modal: the form state, the
- * free days it derives from the real schedule, and the public link that carries
- * that snapshot. The Calendar screen stays a dumb renderer over this.
+ * Everything behind the "Check & Share Availability" modal: which calendar is
+ * being asked about, the free nights that calendar has, and the public link that
+ * carries them. The Calendar screen stays a dumb renderer over this.
+ *
+ * THE CALENDAR IS A ROOM. That is the whole point, and it used to be missing: a
+ * venue with a main hall and a basement sells two shows on the same Friday, so
+ * "are you free on the 12th?" has one answer per room and none for the building.
+ * Availability derived from "every event I can see" told a promoter the venue was
+ * busy while the basement stood empty. The per-room math itself is in
+ * `@showme/shared` (`occupiedDates`) — it is a rule, not a rendering concern, and
+ * both the copied dates and the shared link are built from the same call so the
+ * link can never say something the screen did not.
  */
 
 /** How far a share window may reach, so a hand-typed year can't build a 100k-date link. */
 const MAX_WINDOW_DAYS = 366;
 
-/** Statuses that make a day busy, keyed by the modal's two "show as unavailable" toggles. */
+/** Statuses that make a night busy, keyed by the modal's two "show as unavailable" toggles. */
 type BusyToggles = { confirmed: boolean; held: boolean };
 
 /** Monday = 0 … Sunday = 6, matching the modal's weekday pills. */
@@ -49,54 +59,42 @@ interface BlockedRange {
 }
 
 /**
- * The days the sharer is NOT free. THREE sources, and each one closes a hole the
- * other two leave open:
+ * Every event, reduced to what the room math needs.
  *
- * 1. **The calendar feed** — the month on screen, for standalone entries.
- * 2. **The event list** — the whole schedule, because a share window routinely
- *    runs past the month edge and a month-only busy set advertises booked days.
- * 3. **The profile's computed availability** — the hand-made blocked dates AND
- *    the days taken by entries imported from a connected calendar. This one was
- *    simply missing: "Mark Unavailable" wrote rows that the share modal never
- *    read, so a user could block a week by hand and still hand out a link
- *    offering it. It is fetched for the SHARE window, not the month, which is
- *    why it is asked for separately from the grid's own feed.
+ * `occupies` is decided HERE rather than in the shared module, because it is a
+ * display choice the sharer makes with the two checkboxes — a held date is busy
+ * for one venue and merely pencilled-in for another.
  *
- * What is deliberately NOT here: the timed `busyTimes` half of that response. An
- * entry from 09:00 to 09:30 does not take the night — the whole point of
- * separating hours from days is that such a day stays offerable — and the shared
- * link's format is a list of DATES, with nowhere to put an hour.
+ * A source that is NOT a venue (a performer, a crew member, a promoter, an agent)
+ * has exactly one calendar: themselves. `GET /events` already returns only the
+ * events they can reach, so every one of those events occupies their single
+ * schedule — which is expressed by re-stamping each booking onto that profile
+ * with no room, so the identical `occupiedDates` rule serves both cases.
  */
-function busyDates(
-  calendarEvents: CalendarEvent[],
+function bookingsFor(
+  source: CalendarSource,
   events: EventItem[],
-  blockedRanges: BlockedRange[],
   toggles: BusyToggles,
-): Set<string> {
-  const busy = new Set<string>();
-
-  for (const entry of calendarEvents) {
-    const isBusy =
-      (toggles.confirmed && entry.status === "confirmed") ||
-      (toggles.held && entry.status === "hold");
-    if (isBusy) busy.add(entry.date);
-  }
-
-  for (const event of events) {
-    if (!event.eventDate) continue;
-    const isBusy =
+): RoomBooking[] {
+  return events.map((event) => {
+    const occupies =
       (toggles.confirmed && event.status === "confirmed") ||
       (toggles.held && event.status === "on_hold");
-    if (isBusy) busy.add(event.eventDate.slice(0, 10));
-  }
-
-  // Recorded and imported blocks are not a display preference — the two toggles
-  // above are about how to treat SHOWS, and a blocked date is not a show.
-  for (const range of blockedRanges) {
-    for (const day of datesInRange(range.startDate, range.endDate)) busy.add(day);
-  }
-
-  return busy;
+    if (!source.isVenue) {
+      return {
+        date: event.eventDate,
+        venueProfileId: source.profileId,
+        stageId: null,
+        occupies,
+      };
+    }
+    return {
+      date: event.eventDate,
+      venueProfileId: event.venueProfileId,
+      stageId: event.stageId,
+      occupies,
+    };
+  });
 }
 
 /** The design's "Fri · Jul 11" pill format (Ddd · Mmm DD). */
@@ -109,8 +107,11 @@ function formatDateChip(isoDate: string): string {
 }
 
 export interface AvailabilityShareView {
+  /** The selected calendar's `CalendarSource.value`. */
   calendar: string;
   setCalendar: (calendar: string) => void;
+  /** "The Nest — Basement" — what this list is actually about. */
+  calendarLabel: string;
   from: string;
   setFrom: (value: string) => void;
   to: string;
@@ -130,13 +131,12 @@ export interface AvailabilityShareView {
 }
 
 export function useAvailabilityShare(
-  calendarEvents: CalendarEvent[],
   events: EventItem[],
-  defaultCalendar: string,
+  sources: CalendarSource[],
 ): AvailabilityShareView {
   const toast = useToast();
 
-  const [calendar, setCalendar] = useState(defaultCalendar);
+  const [calendar, setCalendar] = useState("");
   // Default the window to today → +30 days so the list shows a real range.
   const [from, setFrom] = useState(() => dayKey(new Date()));
   const [to, setTo] = useState(() => {
@@ -149,49 +149,68 @@ export function useAvailabilityShare(
   const [showHeld, setShowHeld] = useState(false);
   const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
 
-  // The link names the profile by its PUBLIC slug — the public page resolves the
-  // display name from the API, so a link can't be hand-edited to claim a name.
-  const profiles = useGetApiV1Profiles();
-  const shareProfile = useMemo(() => {
-    const items = profiles.data ?? [];
+  /**
+   * The calendars arrive a moment after the screen does, so the selection is
+   * RESOLVED on every render rather than seeded once from an empty list — an
+   * effect that fires before the profiles land would pin an empty default.
+   *
+   * Nothing chosen yet means the profile the user is currently acting as: an
+   * operator who switched to their second venue is asking about that venue.
+   */
+  const selected = useMemo(() => {
+    const chosen = sources.find((source) => source.value === calendar);
+    if (chosen) return chosen;
     const activeProfileId = getActiveProfileId();
-    return items.find((profile) => profile.id === activeProfileId) ?? items[0];
-  }, [profiles.data]);
+    return sources.find((source) => source.profileId === activeProfileId) ?? sources[0];
+  }, [sources, calendar]);
 
-  // The computed availability for the WINDOW being shared, not for the month the
-  // grid happens to be showing — the two ranges are unrelated.
+  // The recorded blocks belong to the profile being SHARED, which is not always
+  // the acting one — an operator with two venues shares whichever they picked.
+  // Asked for the share WINDOW, not for the month the grid happens to show.
   const availability = useGetApiV1ProfilesIdAvailability(
-    shareProfile?.id ?? "",
+    selected?.profileId ?? "",
     { from, to },
-    { query: { enabled: Boolean(shareProfile?.id) } },
+    { query: { enabled: Boolean(selected?.profileId) } },
   );
 
   const availableDateKeys = useMemo(() => {
-    const busy = busyDates(calendarEvents, events, availability.data?.unavailability ?? [], {
-      confirmed: showConfirmed,
-      held: showHeld,
-    });
+    if (!selected) return [];
+
+    // Rooms first: the nights this room (or this venue) has already sold.
+    const busy = occupiedDates(
+      { venueProfileId: selected.profileId, room: selected.room },
+      selected.rooms,
+      bookingsFor(selected, events, { confirmed: showConfirmed, held: showHeld }),
+    );
+
+    // Then the profile's own recorded unavailability — "Mark Unavailable", plus
+    // the days taken by entries imported from a connected calendar. These are
+    // NOT a display preference (the two toggles above are about how to treat
+    // SHOWS), and they are venue-wide by construction: `profile_unavailability`
+    // has no room column, and rightly so — a building closed for renovation is
+    // closed in every room of it.
+    const blocked: BlockedRange[] = availability.data?.unavailability ?? [];
+    for (const range of blocked) {
+      for (const day of datesInRange(range.startDate, range.endDate)) busy.add(day);
+    }
+
     const weekdays = new Set(selectedWeekdays);
     return datesInRange(from, to)
       .filter((isoDate) => weekdays.has(mondayFirstWeekday(new Date(`${isoDate}T00:00:00`))))
       .filter((isoDate) => !busy.has(isoDate));
-  }, [
-    calendarEvents,
-    events,
-    availability.data,
-    from,
-    to,
-    selectedWeekdays,
-    showConfirmed,
-    showHeld,
-  ]);
+  }, [selected, events, availability.data, from, to, selectedWeekdays, showConfirmed, showHeld]);
 
   const availableDates = useMemo(() => availableDateKeys.map(formatDateChip), [availableDateKeys]);
 
   const shareLink = useMemo(() => {
-    if (!shareProfile?.slug || !shareProfile.isPublic) return "";
+    if (!selected?.profileSlug || !selected.profileIsPublic) return "";
     const snapshot: AvailabilitySnapshot = {
-      profileSlug: shareProfile.slug,
+      // The link names the profile by its PUBLIC slug — the public page resolves
+      // the display name from the API, so a link can't claim a name.
+      profileSlug: selected.profileSlug,
+      // The room, by contrast, travels as text: it is the sharer's own statement
+      // about their own building, exactly like the dates beside it.
+      room: selected.room === WHOLE_VENUE ? null : selected.label,
       from,
       to,
       weekdays: [...selectedWeekdays].sort((left, right) => left - right),
@@ -201,7 +220,7 @@ export function useAvailabilityShare(
       generatedOn: dayKey(new Date()),
     };
     return buildAvailabilityShareLink(snapshot);
-  }, [shareProfile, from, to, selectedWeekdays, availableDateKeys, showConfirmed, showHeld]);
+  }, [selected, from, to, selectedWeekdays, availableDateKeys, showConfirmed, showHeld]);
 
   const copyToClipboard = (value: string, success: string) => {
     navigator.clipboard
@@ -211,8 +230,9 @@ export function useAvailabilityShare(
   };
 
   return {
-    calendar,
+    calendar: selected?.value ?? "",
     setCalendar,
+    calendarLabel: selected?.fullLabel ?? "",
     from,
     setFrom,
     to,
@@ -233,7 +253,10 @@ export function useAvailabilityShare(
         toast.info("No available dates to copy in this range.");
         return;
       }
-      copyToClipboard(availableDates.join(", "), "Available dates copied");
+      // The label rides along so a pasted list says WHICH room it is about — the
+      // recipient is usually being told about one of several.
+      const prefix = selected?.fullLabel ? `${selected.fullLabel}: ` : "";
+      copyToClipboard(`${prefix}${availableDates.join(", ")}`, "Available dates copied");
     },
     copyLink: () => {
       if (!shareLink) {

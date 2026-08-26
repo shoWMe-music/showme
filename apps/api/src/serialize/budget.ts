@@ -8,9 +8,20 @@ type BudgetLineRow = typeof schema.budgetLines.$inferSelect;
  * inferred from the label, so renaming a tier cannot silently turn it into the bar
  * estimate (or the sponsorship into a ticket type).
  */
-export type BudgetLineBasis = "ticket_tier" | "bar_spend" | "other_revenue";
+export type BudgetLineBasis =
+  | "ticket_tier"
+  | "bar_spend"
+  | "other_revenue"
+  | "custom_revenue"
+  | "custom_cost";
 
-const LINE_BASES: BudgetLineBasis[] = ["ticket_tier", "bar_spend", "other_revenue"];
+const LINE_BASES: BudgetLineBasis[] = [
+  "ticket_tier",
+  "bar_spend",
+  "other_revenue",
+  "custom_revenue",
+  "custom_cost",
+];
 
 /**
  * The unit x quantity breakdown the planner used to arrive at a line's `amount`.

@@ -18,6 +18,8 @@ export type GetApiV1Events200ItemsItem = {
   /** @nullable */
   venueProfileId: string | null;
   /** @nullable */
+  venueName: string | null;
+  /** @nullable */
   stageId: string | null;
   version: number;
   /** @nullable */

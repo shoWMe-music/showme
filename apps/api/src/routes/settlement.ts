@@ -106,8 +106,24 @@ const MySettlementsResponse = z.object({
   ),
 });
 
+/**
+ * A settlement line as the caller receives it ON AN EVENT, where the two extra
+ * fields are the ones an action hangs off.
+ *
+ * `isYours` because approval is a signature: *"You can only confirm your own
+ * settlement"* is enforced below, and a caller that can see several lines (an
+ * operator is a party on the deals it funds) cannot otherwise tell which single
+ * line that sentence is about. `approvedByYou` because without it the confirm
+ * control has no OFF state — it would invite the same signature again, every
+ * visit, with no way to see it had already been given.
+ */
+const EventSettlementResponse = SettlementResponse.extend({
+  isYours: z.boolean(),
+  approvedByYou: z.boolean(),
+});
+
 const SettlementsResponse = z.object({
-  settlements: z.array(SettlementResponse),
+  settlements: z.array(EventSettlementResponse),
   transfers: z.array(TransferResponse),
   // Private agent↔performer commissions (decisions #14) — empty for the operator.
   commissions: z.array(CommissionResponse),
@@ -419,6 +435,26 @@ async function participantIdsOf(
   return new Set(rows.map((row) => row.id));
 }
 
+/** Which of `participantIds` have already approved their settlement on this event. */
+async function approvedParticipantIdsOf(
+  database: Database,
+  eventId: string,
+  participantIds: Set<string>,
+): Promise<Set<string>> {
+  if (participantIds.size === 0) return new Set();
+  const rows = await database
+    .select({ participantId: schema.settlementApprovals.partyParticipantId })
+    .from(schema.settlementApprovals)
+    .where(
+      and(
+        eq(schema.settlementApprovals.eventId, eventId),
+        eq(schema.settlementApprovals.approved, true),
+        inArray(schema.settlementApprovals.partyParticipantId, [...participantIds]),
+      ),
+    );
+  return new Set(rows.map((row) => row.participantId));
+}
+
 /**
  * The roles on a deal that see the whole of it. A payer funds the deal (and is the
  * economic hub of the event); an `observer` is decisions #4's explicit read-only
@@ -722,10 +758,18 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         );
       };
 
+      // Which of the caller's OWN lines they have already signed off. Read only for
+      // `mine` — another party's approval is that party's business.
+      const myApprovals = await approvedParticipantIdsOf(database, id, mine);
+
       return {
         settlements: settlementRows
           .filter((row) => row.participantId != null && visible.has(row.participantId))
-          .map(serializeSettlement),
+          .map((row) => ({
+            ...serializeSettlement(row),
+            isYours: mine.has(row.participantId as string),
+            approvedByYou: myApprovals.has(row.participantId as string),
+          })),
         transfers: transferRows
           .filter((row) =>
             row.representationId
@@ -840,6 +884,22 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       if (!mine.has(settlement.participantId)) {
         throw forbidden("You can only confirm your own settlement");
       }
+
+      // Idempotent. A signature given twice is still one signature, and the route
+      // used to append a second `settlement_approvals` row for every click — two
+      // browser tabs, or a re-visit, and the event's record of "who signed off"
+      // counted the same party more than once.
+      const [existing] = await database
+        .select()
+        .from(schema.settlementApprovals)
+        .where(
+          and(
+            eq(schema.settlementApprovals.eventId, id),
+            eq(schema.settlementApprovals.partyParticipantId, settlement.participantId),
+            eq(schema.settlementApprovals.approved, true),
+          ),
+        );
+      if (existing) return { id: existing.id, approved: existing.approved };
 
       const approval = await database.transaction(async (tx) => {
         const [row] = await tx

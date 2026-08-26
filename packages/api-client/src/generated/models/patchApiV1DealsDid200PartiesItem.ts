@@ -14,5 +14,6 @@ export type PatchApiV1DealsDid200PartiesItem = {
   share?: PatchApiV1DealsDid200PartiesItemShare;
   /** @nullable */
   confirmedAt: string | null;
+  isYours: boolean;
   version: number;
 };

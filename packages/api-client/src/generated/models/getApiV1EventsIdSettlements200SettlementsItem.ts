@@ -14,4 +14,6 @@ export type GetApiV1EventsIdSettlements200SettlementsItem = {
   /** @nullable */
   computed: GetApiV1EventsIdSettlements200SettlementsItemComputed;
   version: number;
+  isYours: boolean;
+  approvedByYou: boolean;
 };

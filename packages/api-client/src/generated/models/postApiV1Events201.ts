@@ -35,6 +35,7 @@ export type PostApiV1Events201 = {
   /** @nullable */
   notes: string | null;
   version: number;
+  capabilities: string[];
   /** @nullable */
   holdRank?: number | null;
   holdAutoPromote?: boolean;

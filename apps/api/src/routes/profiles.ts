@@ -1,5 +1,5 @@
 import { schema } from "@showme/db";
-import { isProfileTypeForKind, profileTypesForKind } from "@showme/shared";
+import { isPlaceProfile, isProfileTypeForKind, profileTypesForKind } from "@showme/shared";
 import { and, asc, eq, gte, ilike, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -8,6 +8,7 @@ import { badRequest, conflict, forbidden, notFound } from "../errors";
 import { type Transaction, writeAudit } from "../lib/audit";
 import { requireProfileRole } from "../lib/authorize";
 import { readProfileBusyTime } from "../lib/availability";
+import { validateTemplatePayload } from "../lib/budget-template-payload";
 import { assertProfileAdminGrantAllows } from "../lib/entitlements";
 import { withIdempotency } from "../plugins/idempotency";
 import {
@@ -21,6 +22,7 @@ import { PUBLICLY_VISIBLE_EVENT_STATUSES } from "./public";
 const ProfileParams = z.object({ id: z.string().uuid() });
 const MemberParams = z.object({ id: z.string().uuid(), mid: z.string().uuid() });
 const TemplateParams = z.object({ id: z.string().uuid(), tid: z.string().uuid() });
+const StageParams = z.object({ id: z.string().uuid(), sid: z.string().uuid() });
 
 const accountKind = z.enum(["operator", "performer", "team_and_crew", "agent"]);
 const memberRole = z.enum(["owner", "admin", "editor", "viewer", "crew"]);
@@ -169,6 +171,22 @@ const UnavailabilityEntry = z.object({
 });
 const ReplaceUnavailabilityBody = z.object({ entries: z.array(UnavailabilityEntry) });
 
+/**
+ * A room of a venue. `capacity` is this room's own — a 400-cap main hall and a
+ * 90-cap basement are two different bookings — and is separate from
+ * `venue_details.capacity`, which is the building's headline number.
+ */
+const StageBody = z.object({
+  name: z.string().min(1).max(200),
+  capacity: z.number().int().min(0).max(5_000_000).nullable().optional(),
+});
+
+/** Every field optional: renaming a room must not require restating its capacity. */
+const UpdateStageBody = z.object({
+  name: z.string().min(1).max(200).optional(),
+  capacity: z.number().int().min(0).max(5_000_000).nullable().optional(),
+});
+
 const CreateTemplateBody = z.object({
   category: templateCategory,
   name: z.string().min(1),
@@ -295,6 +313,21 @@ const AvailabilityResponse = z.object({
   busyTimes: z.array(z.object({ date: z.string(), startTime: z.string(), endTime: z.string() })),
 });
 
+const StageResponse = z.object({
+  id: z.string(),
+  venueProfileId: z.string(),
+  name: z.string(),
+  capacity: z.number().nullable(),
+  /** How many events are placed in this room — what a delete would unassign. */
+  eventCount: z.number(),
+});
+
+const DeleteStageResponse = z.object({
+  deleted: z.boolean(),
+  /** Events that kept their date and lost their room (`ON DELETE SET NULL`). */
+  unassignedEvents: z.number(),
+});
+
 const TemplateResponse = z.object({
   id: z.string(),
   profileId: z.string(),
@@ -341,6 +374,36 @@ function isUniqueViolation(error: unknown): boolean {
     "code" in error &&
     (error as { code?: unknown }).code === "23505"
   );
+}
+
+/**
+ * The room, or a 404. Scoped by `venue_profile_id` as well as by id, so a room id
+ * guessed from another venue cannot be edited through a profile the caller does
+ * happen to belong to.
+ */
+async function loadStage(
+  database: FastifyInstance["database"],
+  venueProfileId: string,
+  stageId: string,
+): Promise<typeof schema.stages.$inferSelect> {
+  const [stage] = await database
+    .select()
+    .from(schema.stages)
+    .where(and(eq(schema.stages.id, stageId), eq(schema.stages.venueProfileId, venueProfileId)));
+  if (!stage) throw notFound("Room not found");
+  return stage;
+}
+
+/** How many events sit in this room — the number a delete would unassign. */
+async function countEventsInStage(
+  database: FastifyInstance["database"],
+  stageId: string,
+): Promise<number> {
+  const [row] = await database
+    .select({ total: sql<number>`count(*)::int` })
+    .from(schema.events)
+    .where(eq(schema.events.stageId, stageId));
+  return row?.total ?? 0;
 }
 
 const ANY_ROLE = ["owner", "admin", "editor", "viewer", "crew"] as const;
@@ -1363,6 +1426,211 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
+  // ---- Rooms (stages) -----------------------------------------------------
+
+  /**
+   * A VENUE'S ROOMS. `stages` has existed since migration 0000 and `events.stage_id`
+   * has pointed at it just as long, but until now no route listed, created or
+   * renamed one — so the table only ever held what a test inserted by hand, the
+   * event page could say no more than "Room / Stage: Assigned", and the calendar
+   * could not offer a real calendar to check availability against.
+   *
+   * A room is NOT a `venue_details.capacity_setups` entry. A setup is one room
+   * counted two ways ("Theater seating" 220 / "Standing only" 400); a room is a
+   * separate space that holds its own show the same night. That difference is the
+   * whole reason these are rows with ids rather than another jsonb leaf: an event
+   * points AT a room, and a jsonb entry has nothing to point at.
+   *
+   * Authorization is the venue profile's own — `requireProfileRole`, exactly as
+   * the members, unavailability and templates sections use it. Reading is open to
+   * any member (crew included: the floor staff of a venue know its rooms, and the
+   * calendar picker is drawn from this list); writing is owner/admin/editor.
+   *
+   * The room list of a venue you do NOT belong to is a 404, not an empty list —
+   * a venue's internal geography is not something an arm's-length performer or a
+   * stranger gets to enumerate.
+   */
+  app.get(
+    "/profiles/:id/stages",
+    { schema: { params: ProfileParams, response: { 200: z.array(StageResponse) } } },
+    async (request) => {
+      const { database } = request.server;
+      const { id } = request.params;
+
+      requireProfileRole(request, id, [...ANY_ROLE]);
+
+      // The event count rides along because the only dangerous thing a room
+      // editor can do is delete a room with shows in it, and a UI cannot warn
+      // about that without knowing. One grouped join, not a request per room.
+      const rows = await database
+        .select({
+          id: schema.stages.id,
+          venueProfileId: schema.stages.venueProfileId,
+          name: schema.stages.name,
+          capacity: schema.stages.capacity,
+          eventCount: sql<number>`count(${schema.events.id})::int`,
+        })
+        .from(schema.stages)
+        .leftJoin(schema.events, eq(schema.events.stageId, schema.stages.id))
+        .where(eq(schema.stages.venueProfileId, id))
+        .groupBy(schema.stages.id)
+        .orderBy(asc(schema.stages.name));
+
+      return rows;
+    },
+  );
+
+  // Add a room (owner/admin/editor).
+  app.post(
+    "/profiles/:id/stages",
+    {
+      schema: { params: ProfileParams, body: StageBody, response: { 201: StageResponse } },
+    },
+    async (request, reply) => {
+      const { database } = request.server;
+      const { id } = request.params;
+
+      requireProfileRole(request, id, [...WRITE_ROLES]);
+
+      const [profile] = await database
+        .select({ kind: schema.profiles.kind, type: schema.profiles.type })
+        .from(schema.profiles)
+        .where(eq(schema.profiles.id, id));
+      if (!profile) throw notFound("Profile not found");
+      // Only a place has rooms. A promoter, a booking agency or a band is an
+      // organisation, not a building — the same test that decides whether the
+      // venue-details editor is offered at all (`@showme/shared`).
+      if (!isPlaceProfile(profile.kind, profile.type)) {
+        throw badRequest("Only a venue or festival profile can have rooms");
+      }
+
+      const name = request.body.name.trim();
+      if (name === "") throw badRequest("A room needs a name");
+
+      const created = await database
+        .transaction(async (tx) => {
+          const [stage] = await tx
+            .insert(schema.stages)
+            .values({ venueProfileId: id, name, capacity: request.body.capacity ?? null })
+            .returning();
+          if (!stage) throw new Error("stage create failed");
+          await writeAudit(tx, request, {
+            capability: "profile.edit",
+            action: "stage.create",
+            targetKind: "stage",
+            targetId: stage.id,
+            after: stage,
+          });
+          return { ...stage, eventCount: 0 };
+        })
+        .catch((error: unknown) => {
+          // The (venue_profile_id, name) unique index from migration 0016. A room
+          // is chosen by name everywhere it matters, so two "Hall A"s would make
+          // every one of those choices ambiguous.
+          if (isUniqueViolation(error))
+            throw conflict("This venue already has a room by that name");
+          throw error;
+        });
+
+      return reply.status(201).send(created);
+    },
+  );
+
+  // Rename a room or correct its capacity (owner/admin/editor).
+  app.patch(
+    "/profiles/:id/stages/:sid",
+    {
+      schema: { params: StageParams, body: UpdateStageBody, response: { 200: StageResponse } },
+    },
+    async (request) => {
+      const { database } = request.server;
+      const { id, sid } = request.params;
+
+      requireProfileRole(request, id, [...WRITE_ROLES]);
+      const before = await loadStage(database, id, sid);
+
+      const fields: Partial<typeof schema.stages.$inferInsert> = {};
+      if (request.body.name !== undefined) {
+        const name = request.body.name.trim();
+        if (name === "") throw badRequest("A room needs a name");
+        fields.name = name;
+      }
+      if (request.body.capacity !== undefined) fields.capacity = request.body.capacity;
+
+      const updated = await database
+        .transaction(async (tx) => {
+          const [after] = await tx
+            .update(schema.stages)
+            .set(fields)
+            .where(eq(schema.stages.id, sid))
+            .returning();
+          if (!after) throw notFound("Room not found");
+          await writeAudit(tx, request, {
+            capability: "profile.edit",
+            action: "stage.update",
+            targetKind: "stage",
+            targetId: sid,
+            before,
+            after,
+          });
+          return after;
+        })
+        .catch((error: unknown) => {
+          if (isUniqueViolation(error))
+            throw conflict("This venue already has a room by that name");
+          throw error;
+        });
+
+      return { ...updated, eventCount: await countEventsInStage(database, sid) };
+    },
+  );
+
+  /**
+   * Remove a room (owner/admin/editor).
+   *
+   * WHAT HAPPENS TO THE SHOWS IN IT: they stay, and become room-less. That is not
+   * a choice made here — `events.stage_id` is declared `ON DELETE SET NULL`
+   * (`schema/events.ts`), and it is the right one: deleting a room is a statement
+   * about the BUILDING, and a settled event must never vanish because someone
+   * tidied a floor plan. The count of events that just lost their room is returned
+   * rather than swallowed, so the screen can say what it did instead of implying
+   * nothing happened.
+   *
+   * NOTE the availability consequence, which is deliberate and worth stating: an
+   * event with no room occupies EVERY room (`@showme/shared` `occupiedDates`),
+   * because nobody can say which room is still free. Deleting a room therefore
+   * makes the venue look busier, not emptier — the safe direction.
+   */
+  app.delete(
+    "/profiles/:id/stages/:sid",
+    { schema: { params: StageParams, response: { 200: DeleteStageResponse } } },
+    async (request) => {
+      const { database } = request.server;
+      const { id, sid } = request.params;
+
+      requireProfileRole(request, id, [...WRITE_ROLES]);
+      const before = await loadStage(database, id, sid);
+      const unassignedEvents = await countEventsInStage(database, sid);
+
+      await database.transaction(async (tx) => {
+        const [deleted] = await tx
+          .delete(schema.stages)
+          .where(eq(schema.stages.id, sid))
+          .returning();
+        if (!deleted) throw notFound("Room not found");
+        await writeAudit(tx, request, {
+          capability: "profile.edit",
+          action: "stage.delete",
+          targetKind: "stage",
+          targetId: sid,
+          before,
+        });
+      });
+
+      return { deleted: true, unassignedEvents };
+    },
+  );
+
   // ---- Templates ----------------------------------------------------------
 
   // List a profile's templates (owner/admin/editor).
@@ -1398,6 +1666,11 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
 
       requireProfileRole(request, id, [...WRITE_ROLES]);
 
+      // PLAN.md §K — the payload is validated per-category, so a template can
+      // never be stored in a shape the screen that loads it cannot read.
+      const checked = validateTemplatePayload(request.body.category, request.body.payload ?? {});
+      if (!checked.ok) throw badRequest(checked.message);
+
       const created = await database.transaction(async (tx) => {
         const [template] = await tx
           .insert(schema.templates)
@@ -1405,7 +1678,7 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
             profileId: id,
             category: request.body.category,
             name: request.body.name,
-            payload: request.body.payload ?? {},
+            payload: checked.payload,
           })
           .returning();
         if (!template) throw new Error("template create failed");
@@ -1448,7 +1721,14 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
       const fields: Partial<typeof schema.templates.$inferInsert> = {};
       if (request.body.category !== undefined) fields.category = request.body.category;
       if (request.body.name !== undefined) fields.name = request.body.name;
-      if (request.body.payload !== undefined) fields.payload = request.body.payload;
+      if (request.body.payload !== undefined) {
+        // Against the category the row will HAVE after this edit, not the one it
+        // had before — moving a payload into `budget` has to meet budget's shape.
+        const category = request.body.category ?? before.category;
+        const checked = validateTemplatePayload(category, request.body.payload);
+        if (!checked.ok) throw badRequest(checked.message);
+        fields.payload = checked.payload;
+      }
 
       const updated = await database.transaction(async (tx) => {
         const [after] = await tx

@@ -1,4 +1,12 @@
-import { Button, Checkbox, Icon, Input, Modal, Select } from "@showme/design-system";
+import {
+  Button,
+  Checkbox,
+  Icon,
+  Input,
+  Modal,
+  Select,
+  type SelectOption,
+} from "@showme/design-system";
 import type { ReactNode } from "react";
 import { DateTimeField } from "./DateTimeField";
 import { Eyebrow } from "./primitives";
@@ -17,8 +25,20 @@ function FieldLabel({ children }: { children: ReactNode }) {
 export interface AvailabilityShareModalProps {
   open: boolean;
   onClose: () => void;
-  calendars: string[];
+  /**
+   * The calendars this user has: their venues, and the ROOMS inside them —
+   * grouped, with an unselectable venue heading above each venue's rooms.
+   *
+   * It used to be three strings ("Promoter events / Performer shows / Venue
+   * bookings"), which named the acting profile's role rather than any calendar.
+   * A calendar here is a thing that can be double-booked, which for a venue is a
+   * room: two rooms hold two shows on the same Friday, so each has its own free
+   * nights and the answer to "are you free on the 12th?" is per room.
+   */
+  calendars: Array<SelectOption | string>;
   calendar: string;
+  /** "The Nest — Basement": what the dates below are actually about. */
+  calendarLabel?: string;
   onCalendarChange?: (calendar: string) => void;
   from: string;
   to: string;
@@ -44,6 +64,7 @@ export function AvailabilityShareModal({
   onClose,
   calendars,
   calendar,
+  calendarLabel,
   onCalendarChange,
   from,
   to,
@@ -83,6 +104,7 @@ export function AvailabilityShareModal({
             onChange={(value) => onCalendarChange?.(value)}
             options={calendars}
             aria-label="Calendar"
+            placeholder="No calendars yet"
           />
         </div>
 
@@ -152,7 +174,11 @@ export function AvailabilityShareModal({
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <Eyebrow>Available dates in range</Eyebrow>
+          {/* Named, not just "Available dates": with a room picker above it, a
+              bare heading leaves the reader to remember which room these are. */}
+          <Eyebrow>
+            {calendarLabel ? `Available dates — ${calendarLabel}` : "Available dates in range"}
+          </Eyebrow>
           <div
             style={{
               display: "flex",

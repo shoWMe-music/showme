@@ -35,6 +35,7 @@ export type PatchApiV1EventsId200 = {
   /** @nullable */
   notes: string | null;
   version: number;
+  capabilities: string[];
   /** @nullable */
   holdRank?: number | null;
   holdAutoPromote?: boolean;

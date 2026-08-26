@@ -55,6 +55,22 @@ export interface BudgetInputs {
   readonly capacity: number;
   /** Revenue that is neither ticketing nor bar (sponsorship, a fee, a grant). */
   readonly otherRevenue: bigint;
+  /**
+   * Free-form revenue rows the operator named themselves ("+ Add Field" on the
+   * design prototype's Revenue card) — a merch guarantee, a bar minimum, a city
+   * grant. Amounts only; the labels belong to the screen and the breakdown list,
+   * never to the arithmetic.
+   *
+   * A separate field from `otherRevenue` rather than folded into it because the
+   * two are different promises: `otherRevenue` is the ONE standing row the
+   * planner always shows, and Revenue Sources prints each custom row under its
+   * own name. Folding them would make a 40 000 sponsorship and a 5 000 grant
+   * indistinguishable the moment the screen tried to break the total down.
+   *
+   * Costs need no equivalent — `costs` is already a flat array, so a custom cost
+   * row is simply one more element in it.
+   */
+  readonly customRevenue?: readonly bigint[];
   readonly costs: readonly bigint[];
   /** Absent when the operator has not said what their provider charges. */
   readonly paymentProcessing?: PaymentProcessingAssumption;
@@ -63,6 +79,8 @@ export interface BudgetInputs {
 export interface BudgetProjection {
   readonly ticketRevenue: bigint;
   readonly barRevenue: bigint;
+  /** The custom revenue rows summed, so the total stays decomposable. Zero without any. */
+  readonly customRevenue: bigint;
   readonly totalRevenue: bigint;
   /** The costs the operator typed, before any derived fee. */
   readonly enteredCosts: bigint;
@@ -116,7 +134,8 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
     0,
   );
   const barRevenue = inputs.averageBarSpend * BigInt(Math.trunc(inputs.capacity));
-  const totalRevenue = ticketRevenue + barRevenue + inputs.otherRevenue;
+  const customRevenue = sum(inputs.customRevenue ?? []);
+  const totalRevenue = ticketRevenue + barRevenue + inputs.otherRevenue + customRevenue;
   const enteredCosts = sum(inputs.costs);
   // The provider charges on the tickets it sells, so the percentage is taken on
   // TICKET revenue only — not on the bar take or a sponsorship, which never pass
@@ -133,8 +152,11 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
     ticketsSold > 0 ? divideRounded(ticketRevenue, BigInt(ticketsSold)) : 0n;
 
   // What ticket sales still have to cover once the money that arrives regardless
-  // of them is counted. Already covered → nothing left to break even on.
-  const uncovered = totalCosts - barRevenue - inputs.otherRevenue;
+  // of them is counted — the bar, the standing other-revenue row, AND every
+  // custom row, all of which are money in hand before a ticket sells. Leaving
+  // the custom rows out here would demand tickets for a sponsorship already
+  // banked. Already covered → nothing left to break even on.
+  const uncovered = totalCosts - barRevenue - inputs.otherRevenue - customRevenue;
   let breakEvenTickets = 0;
   if (averageTicketPrice > 0n && uncovered > 0n) {
     const whole = uncovered / averageTicketPrice;
@@ -148,6 +170,7 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
   return {
     ticketRevenue,
     barRevenue,
+    customRevenue,
     totalRevenue,
     enteredCosts,
     paymentProcessingFees,

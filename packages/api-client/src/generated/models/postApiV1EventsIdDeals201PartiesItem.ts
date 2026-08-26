@@ -14,5 +14,6 @@ export type PostApiV1EventsIdDeals201PartiesItem = {
   share?: PostApiV1EventsIdDeals201PartiesItemShare;
   /** @nullable */
   confirmedAt: string | null;
+  isYours: boolean;
   version: number;
 };

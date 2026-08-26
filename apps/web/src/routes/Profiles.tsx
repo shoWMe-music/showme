@@ -27,6 +27,7 @@ import { SegmentedToggle } from "../components";
 import { type ProfileLinkDraft, ProfileLinkListField } from "../components/ProfileLinkListField";
 import { ProfileMediaField } from "../components/ProfileMediaField";
 import { ProfilePublicPreview } from "../components/ProfilePublicPreview";
+import { ProfileRoomsCard } from "../components/ProfileRoomsCard";
 import {
   type ProfileCapacitySetupDraft,
   ProfileCapacitySetupsField,
@@ -274,7 +275,16 @@ export function Profiles() {
           ) : detail.isError ? (
             <ErrorState error={detail.error} title="Couldn't load this profile" />
           ) : detail.data ? (
-            <ProfileEditor profile={detail.data} onSaved={() => void detail.refetch()} />
+            <>
+              <ProfileEditor profile={detail.data} onSaved={() => void detail.refetch()} />
+              {/* Its own card, not a field in the form above: rooms are separate
+                  records that events point at (`events.stage_id`), so they save
+                  as you go. Only a place has them — a promoter or a booking
+                  agency is an organisation, not a building. */}
+              {isPlaceProfile(detail.data.kind, detail.data.type) && (
+                <ProfileRoomsCard profileId={detail.data.id} />
+              )}
+            </>
           ) : null}
         </div>
       )}

@@ -8,7 +8,12 @@ import {
 } from "@showme/shared";
 import { formatMoney } from "../lib/format";
 import type { KpiItem } from "./KpiRow";
-import { type BudgetEditor, budgetInputsFrom, toMinorUnits } from "./useBudgetEditor";
+import {
+  type BudgetEditor,
+  budgetInputsFrom,
+  customRowAmount,
+  toMinorUnits,
+} from "./useBudgetEditor";
 
 /**
  * Everything the Budget Planner draws, derived once from the editor's draft.
@@ -24,6 +29,9 @@ import { type BudgetEditor, budgetInputsFrom, toMinorUnits } from "./useBudgetEd
 /** The palette the design prototype uses for the two breakdown lists. */
 const REVENUE_COLORS = { tickets: "#EE5746", bar: "#F4A046", other: "#6FA8E0" } as const;
 const COST_COLORS = ["#EE5746", "#F4A046", "#6FA8E0", "#B58BE0", "#6FC97A", "#8C7A6C"] as const;
+/** Custom revenue rows cycle their own colours, so a budget with several of them
+ * keeps getting distinguishable bars rather than three identical blues. */
+const CUSTOM_REVENUE_COLORS = ["#B58BE0", "#6FC97A", "#8C7A6C", "#E0A9C6"] as const;
 const PROCESSING_COLOR = "#E6D9CB";
 
 export interface BreakdownDisplayRow {
@@ -79,6 +87,14 @@ export function budgetPlannerViewFrom(editor: BudgetEditor, currency: string): B
       { label: "Ticket sales", amount: projection.ticketRevenue, color: REVENUE_COLORS.tickets },
       { label: "Bar / F&B", amount: projection.barRevenue, color: REVENUE_COLORS.bar },
       { label: "Other", amount: otherRevenue, color: REVENUE_COLORS.other },
+      // Each custom row under ITS OWN NAME, not folded into "Other". The whole
+      // point of naming a field "Sponsorship" is to see the sponsorship in the
+      // breakdown; a lump labelled "Other" answers a question nobody asked.
+      ...editor.customRevenue.map((row, index) => ({
+        label: row.label,
+        amount: customRowAmount(row, editor.capacity),
+        color: CUSTOM_REVENUE_COLORS[index % CUSTOM_REVENUE_COLORS.length] ?? REVENUE_COLORS.other,
+      })),
     ],
     projection.totalRevenue,
   );
@@ -87,7 +103,7 @@ export function budgetPlannerViewFrom(editor: BudgetEditor, currency: string): B
     [
       ...editor.costs.map((cost, index) => ({
         label: cost.label,
-        amount: BigInt(toMinorUnits(cost.value)),
+        amount: customRowAmount(cost, editor.capacity),
         // The headings cycle through the palette so a budget with custom rows of
         // its own keeps getting colours rather than running out.
         color: COST_COLORS[index % COST_COLORS.length] ?? PROCESSING_COLOR,

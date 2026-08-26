@@ -14,5 +14,6 @@ export type GetApiV1DealsDid200PartiesItem = {
   share?: GetApiV1DealsDid200PartiesItemShare;
   /** @nullable */
   confirmedAt: string | null;
+  isYours: boolean;
   version: number;
 };

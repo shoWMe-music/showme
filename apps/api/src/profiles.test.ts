@@ -376,6 +376,72 @@ describe("profiles — authorize + serialize + audit", () => {
     expect(list.json()[0]?.category).toBe("rider");
     expect(list.json()[0]?.payload).toEqual({ power: "3-phase" });
   });
+
+  // PLAN.md §K promises the payload is validated per-category. `budget` is the
+  // first category with a reader that does arithmetic on what it loads, so it is
+  // the first one whose payload is actually checked.
+  it("stores a budget template and reads its payload back unchanged", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("tmpl-budget", "operator");
+    const payload = {
+      ticketTiers: [{ name: "General Admission", unitAmount: "6000", quantity: 1280 }],
+      averageBarSpend: "500",
+      capacity: 1600,
+      otherRevenue: "100000",
+      customRevenue: [{ label: "Sponsorship", amount: "500000" }],
+      costs: [{ label: "Performer fee", amount: "5000000" }],
+      paymentProcessing: { percentBasisPoints: 150, flatPerTicket: "50" },
+    };
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${profileId}/templates`,
+      headers: auth(ownerId),
+      payload: { category: "budget", name: "Club night — 1600 cap", payload },
+    });
+
+    expect(created.statusCode).toBe(201);
+    expect(created.json().payload).toEqual(payload);
+  });
+
+  it("rejects a budget template whose money is not minor units", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("tmpl-bad", "operator");
+
+    // "40.00" reaches `BigInt()` in the planner and throws, so it never gets
+    // stored — the screen that loads a template must always be able to open it.
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${profileId}/templates`,
+      headers: auth(ownerId),
+      payload: {
+        category: "budget",
+        name: "Broken",
+        payload: {
+          ticketTiers: [],
+          averageBarSpend: "0",
+          capacity: 100,
+          otherRevenue: "0",
+          customRevenue: [],
+          costs: [{ label: "Venue cost", amount: "40.00" }],
+        },
+      },
+    });
+
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json().error.message).toContain("costs.0.amount");
+  });
+
+  it("leaves the other categories unvalidated — they have no reader to protect", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("tmpl-free", "operator");
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${profileId}/templates`,
+      headers: auth(ownerId),
+      payload: { category: "rider", name: "Anything", payload: { whatever: [1, 2, 3] } },
+    });
+
+    expect(created.statusCode).toBe(201);
+  });
 });
 
 describe("profiles — grant_admin entitlement gate (decisions #12)", () => {

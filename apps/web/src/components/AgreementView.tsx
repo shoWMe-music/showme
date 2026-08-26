@@ -19,6 +19,13 @@ export interface AgreementViewProps {
   schedule?: ScheduleEntry[];
   frozen?: boolean;
   confirmationLabel?: string;
+  /**
+   * What the badge says while the terms are NOT frozen. Defaults to "Draft —
+   * editable", which is only true of a deal nobody has been sent yet: once it is
+   * out for confirmation the terms are still live, but calling that a draft
+   * contradicts the agreement status shown beside it.
+   */
+  draftLabel?: string;
   onExportPdf?: () => void;
 }
 
@@ -28,6 +35,7 @@ export function AgreementView({
   schedule,
   frozen = false,
   confirmationLabel = "All parties confirmed",
+  draftLabel = "Draft — editable",
   onExportPdf,
 }: AgreementViewProps) {
   return (
@@ -41,7 +49,7 @@ export function AgreementView({
           </Badge>
         ) : (
           <Badge status="draft" dot>
-            Draft — editable
+            {draftLabel}
           </Badge>
         )}
         {onExportPdf && (

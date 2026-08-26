@@ -12,6 +12,19 @@ export {
   computeBreakdown,
 } from "./budget-breakdown";
 export {
+  type BudgetCsvInputs,
+  type BudgetCsvNamedAmount,
+  type BudgetCsvTicketTier,
+  budgetCsvRows,
+  budgetToCsv,
+} from "./budget-csv";
+export {
+  type BudgetTemplateNamedAmount,
+  type BudgetTemplatePayload,
+  type BudgetTemplateTicketTier,
+  readBudgetTemplatePayload,
+} from "./budget-template";
+export {
   type BreakEvenChart,
   type BreakEvenChartInputs,
   computeBreakEvenChart,
@@ -58,6 +71,33 @@ export {
   isRepresentationActiveAt,
   terminationTakesEffectNow,
 } from "./representation";
+export {
+  type CreateDealPayload,
+  type DealDraft,
+  type DealPartyDraft,
+  type DealPartyPayload,
+  type DealPartyRole,
+  type DealPartyRoleOption,
+  type DealStructure,
+  type DealStructureOption,
+  type DealType,
+  type DealTypeOption,
+  type PaymentTiming,
+  type PaymentTimingOption,
+  DEAL_PARTY_ROLE_OPTIONS,
+  DEAL_STRUCTURE_OPTIONS,
+  DEAL_TYPE_OPTIONS,
+  PAYMENT_TIMING_OPTIONS,
+  basisPointsToPercent,
+  createDealPayload,
+  dealDraftProblems,
+  emptyDealDraft,
+  emptyDealParty,
+  percentToBasisPoints,
+  shareBasisPointsOf,
+  structureNeedsGuarantee,
+  structureNeedsSplit,
+} from "./deal-terms";
 export { convertMinorUnits } from "./exchange";
 export { type CsvColumn, escapeCsvField, toCsv } from "./csv";
 export {
@@ -80,6 +120,14 @@ export {
   majorToMinor,
   minorToDecimalString,
 } from "./money";
+export {
+  type RoomBooking,
+  type RoomId,
+  type RoomSelection,
+  WHOLE_VENUE,
+  hasSeparableRooms,
+  occupiedDates,
+} from "./room-availability";
 export {
   type AmenityOption,
   VENUE_AMENITIES,

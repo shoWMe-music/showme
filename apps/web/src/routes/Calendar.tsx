@@ -12,6 +12,7 @@ import { CalendarWeekGrid } from "../components/CalendarWeekGrid";
 import { DateTimeField } from "../components/DateTimeField";
 import { ExternalCalendarCard } from "../components/ExternalCalendarCard";
 import { MarkUnavailableModal } from "../components/MarkUnavailableModal";
+import { MyCalendarsCard } from "../components/MyCalendarsCard";
 import {
   type CalendarView,
   dayKey,
@@ -28,7 +29,9 @@ import { type CalendarItemKind, useCalendarItemCreate } from "../components/useC
 import { useExternalCalendarEntries } from "../components/useExternalCalendarEntries";
 import { blocksOverlappingRange, useMarkUnavailable } from "../components/useMarkUnavailable";
 import { useAvailabilityShare } from "../hooks/useAvailabilityShare";
+import { useCalendarSources } from "../hooks/useCalendarSources";
 import { type EventItem, useAllEvents } from "../hooks/useEventList";
+import { buildCalendarInventory, placeEvents } from "../lib/calendarInventory";
 import { apiStatusToDisplay } from "../lib/status";
 import { useNewEvent } from "../shell/NewEventProvider";
 
@@ -111,12 +114,9 @@ const STATUS_FILTER_OPTIONS: { key: string; label: string; color: string }[] = [
   { key: "External", label: "External", color: "#B8A99B" },
 ];
 
-/** The three "My Calendars" sources from the prototype, with their swatch. */
-const MY_CALENDARS: { id: string; label: string; color: string }[] = [
-  { id: "promoter", label: "Promoter events", color: "#EE5746" },
-  { id: "performer", label: "Performer shows", color: "#F4A046" },
-  { id: "venue", label: "Venue bookings", color: "#6FC97A" },
-];
+/** Swatches for the Rooms checklist. Rooms carry no colour of their own — the
+ * grid is tinted by STATUS — so these only have to tell one row from the next. */
+const ROOM_SWATCHES = ["#6FC97A", "#3BB0C9", "#B58BE0", "#F4A046", "#D9B44A", "#D14FC4"];
 
 /** Matches a bare calendar date — what a Postgres `date` column serialises to. */
 const BARE_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -352,13 +352,9 @@ export function Calendar() {
    * kind that gains a label later starts visible instead of silently missing. */
   const [hiddenStatuses, setHiddenStatuses] = useState<string[]>([]);
 
-  // "My Calendars" toggles are a client-only view preference (calendar items
-  // carry no source grouping yet), so they start on and persist in local state.
-  const [enabledCalendars, setEnabledCalendars] = useState<Record<string, boolean>>({
-    promoter: true,
-    performer: true,
-    venue: true,
-  });
+  /** Rooms the reader has switched off, by `CalendarSource.value`. Hidden rather
+   * than shown, so a room added later starts visible instead of silently missing. */
+  const [hiddenRooms, setHiddenRooms] = useState<string[]>([]);
 
   // The API date params are inclusive bounds. Ask for the whole month(s) the view
   // touches rather than the seven or one visible days — see `queryRange`.
@@ -368,6 +364,16 @@ export function Calendar() {
   const calendar = useGetApiV1Calendar({ from, to });
   // Every event: the grid is a month of the whole schedule, not of page one.
   const events = useAllEvents();
+  // The calendars this user actually has — their venues, and the rooms inside
+  // them. Replaces three hard-coded prototype labels that named a ROLE, not a
+  // calendar (see `useCalendarSources`).
+  const calendarSources = useCalendarSources();
+  // Which of those calendars each show sits on, resolved once and used by both
+  // the "Venue / Room…" search and the rail's counts, so the two cannot disagree.
+  const placements = useMemo(
+    () => placeEvents(events.items, calendarSources.sources),
+    [events.items, calendarSources.sources],
+  );
 
   const calendarEvents = useMemo<CalendarEvent[]>(() => {
     // BOTH sources, concatenated: standalone calendar items (tasks, appointments,
@@ -429,20 +435,73 @@ export function Calendar() {
   const performerNeedle = performerFilter.trim().toLowerCase();
   const venueNeedle = venueFilter.trim().toLowerCase();
   const hiddenStatusSet = new Set(hiddenStatuses);
+  const hiddenRoomSet = new Set(hiddenRooms);
   const visibleEvents: CalendarEvent[] = namedEvents.filter((event) => {
     if (event.statusLabel && hiddenStatusSet.has(event.statusLabel)) return false;
+
+    // Where this show sits, when it sits at one of the reader's own venues. A
+    // show at somebody else's venue has no placement and is never hidden by the
+    // rooms chip — that chip speaks about rooms, and it is not their room.
+    const placement = event.eventId ? placements.get(event.eventId) : undefined;
+    if (placement && hiddenRoomSet.has(placement.calendarKey)) return false;
+
     if (!performerNeedle && !venueNeedle) return true;
-    const haystack = `${event.performer ?? ""} ${event.eventName}`.toLowerCase();
-    const matchesPerformer = !performerNeedle || haystack.includes(performerNeedle);
-    const matchesVenue = !venueNeedle || haystack.includes(venueNeedle);
+    // The field is labelled "Venue / Room…" and until now searched neither: the
+    // haystack was the performer and the title, so typing a room name matched
+    // nothing at all. Both now travel with the entry.
+    const performerHaystack = `${event.performer ?? ""} ${event.eventName}`.toLowerCase();
+    const venueHaystack =
+      `${placement?.venueName ?? ""} ${placement?.roomName ?? ""} ${event.eventName}`.toLowerCase();
+    const matchesPerformer = !performerNeedle || performerHaystack.includes(performerNeedle);
+    const matchesVenue = !venueNeedle || venueHaystack.includes(venueNeedle);
     return matchesPerformer && matchesVenue;
   });
 
   // The share modal is a read-only composite: the hook owns the form, derives the
-  // free days from the real schedule, and builds the public link.
-  const share = useAvailabilityShare(calendarEvents, events.items, MY_CALENDARS[0]?.label ?? "");
+  // free nights of the SELECTED ROOM from the real schedule, and builds the
+  // public link from the same computation.
+  //
+  // `calendarEvents` is deliberately not passed any more. It used to be a third
+  // busy-source and it could never contribute one: the only calendar-item kinds
+  // that exist are task / appointment / note / external, and none of them maps to
+  // the `confirmed` or `hold` status the busy test looks for — while the dated
+  // EVENTS inside it are the very list handed over beside it. Recorded and
+  // imported blocks come from `GET /profiles/:id/availability`, which is the
+  // route that actually knows about them.
+  const share = useAvailabilityShare(events.items, calendarSources.sources);
 
   const periodTitle = viewTitle(view, anchorDate);
+
+  // The rail's read-out: every calendar the reader has and what each is holding
+  // in the period on screen.
+  const calendarInventory = useMemo(
+    () => buildCalendarInventory(calendarSources.sources, placements, visibleEventIds),
+    [calendarSources.sources, placements, visibleEventIds],
+  );
+
+  /**
+   * The "Rooms" chip's checklist. Built from the same inventory the rail draws,
+   * so a room the reader can see is a room they can switch off — including the
+   * "No room set" bucket, which has to be togglable for the same reason every
+   * other bucket does: it is on the grid.
+   *
+   * Only multi-room venues contribute. A profile with one calendar has nothing to
+   * filter, and offering to hide it would just be a way to blank the screen.
+   */
+  const roomFilterOptions = useMemo(
+    () =>
+      calendarInventory
+        .filter((group) => group.heading !== null)
+        .flatMap((group, groupIndex) =>
+          group.rows.map((row, rowIndex) => ({
+            // The inventory already keys every row the way a placement is keyed.
+            key: row.key,
+            label: `${group.heading} — ${row.label}`,
+            color: ROOM_SWATCHES[(groupIndex + rowIndex) % ROOM_SWATCHES.length],
+          })),
+        ),
+    [calendarInventory],
+  );
 
   // Blocked dates for the acting profile. Read on every render (not only while
   // the editor is open) so the rail can name what is blocked in this period.
@@ -699,25 +758,29 @@ export function Calendar() {
             marginBottom: 20,
           }}
         >
-          <button
-            type="button"
-            style={filterChipStyle()}
-            onClick={() =>
-              // Left as a stub deliberately. "Promoter events / Performer shows /
-              // Venue bookings" is a question about the ACTING PROFILE'S ROLE on
-              // each event, and `GET /events` returns the event spine only — no
-              // participant role for the caller. Deriving it means one
-              // `/events/:id/participants` request per event in the range, and it
-              // still says nothing about tasks or notes. A chip that toggled
-              // three boxes and changed nothing would be worse than this.
-              toast.info(
-                "Source filters need the events list to say what role you play on each event; it doesn't yet.",
-              )
-            }
-          >
-            <Icon name="grid" size={14} />
-            Calendars
-          </button>
+          {/* Offered only when there is something to tell apart. A venue with one
+              room (or none recorded) has one calendar however it is sliced, and a
+              filter with a single option is furniture. */}
+          {roomFilterOptions.length > 0 && (
+            <CalendarFilterChip
+              label="Rooms"
+              icon="grid"
+              style={filterChipStyle()}
+              options={roomFilterOptions}
+              selected={roomFilterOptions
+                .map((option) => option.key)
+                .filter((key) => !hiddenRooms.includes(key))}
+              onToggle={(key) =>
+                setHiddenRooms((current) =>
+                  current.includes(key)
+                    ? current.filter((hidden) => hidden !== key)
+                    : [...current, key],
+                )
+              }
+              onSelectAll={() => setHiddenRooms([])}
+              onSelectNone={() => setHiddenRooms(roomFilterOptions.map((option) => option.key))}
+            />
+          )}
           <CalendarFilterChip
             label="Status"
             icon="eye"
@@ -865,50 +928,11 @@ export function Calendar() {
               onOpenEvent={(eventId) => navigate({ to: "/events/$eventId", params: { eventId } })}
             />
 
-            <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <Eyebrow>My calendars</Eyebrow>
-              <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
-                {MY_CALENDARS.map((source) => {
-                  const on = enabledCalendars[source.id] ?? false;
-                  return (
-                    <button
-                      key={source.id}
-                      type="button"
-                      onClick={() =>
-                        setEnabledCalendars((current) => ({ ...current, [source.id]: !on }))
-                      }
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        background: "transparent",
-                        border: "none",
-                        padding: 0,
-                        cursor: "pointer",
-                        textAlign: "left",
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 16,
-                          height: 16,
-                          borderRadius: 5,
-                          display: "grid",
-                          placeItems: "center",
-                          flexShrink: 0,
-                          color: "#fff",
-                          background: on ? source.color : "transparent",
-                          border: on ? "none" : "1.5px solid var(--border-strong)",
-                        }}
-                      >
-                        {on && <Icon name="check" size={11} strokeWidth={3} />}
-                      </span>
-                      <span style={{ fontSize: 12.5, color: "var(--text)" }}>{source.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </Card>
+            <MyCalendarsCard
+              groups={calendarInventory}
+              periodTitle={periodTitle}
+              onManageRooms={() => navigate({ to: "/profiles" })}
+            />
           </div>
         </div>
       </div>
@@ -916,8 +940,9 @@ export function Calendar() {
       <AvailabilityShareModal
         open={shareOpen}
         onClose={() => setShareOpen(false)}
-        calendars={MY_CALENDARS.map((source) => source.label)}
+        calendars={calendarSources.options}
         calendar={share.calendar}
+        calendarLabel={share.calendarLabel}
         onCalendarChange={share.setCalendar}
         from={share.from}
         to={share.to}
