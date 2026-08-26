@@ -10,10 +10,9 @@
   display: block;
 }
 
-/* Room for the trigger so a long value never runs underneath it. */
-.field input {
-  padding-right: 40px;
-}
+/* Room for the trigger is reserved inline by the component (TRIGGER_RESERVE_PX),
+   not here: callers pass their own inline `style` to match the surrounding form,
+   and an inline `padding` shorthand would win over any rule in this file. */
 
 /* Chrome / Edge / Safari. Firefox has no such glyph to hide. */
 .field input::-webkit-calendar-picker-indicator {

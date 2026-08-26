@@ -16,6 +16,7 @@ import {
 import { type FormEvent, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { KpiRow, SegmentedToggle } from "../components";
+import { DateTimeField } from "../components/DateTimeField";
 import { InvoiceDetailModal } from "../components/InvoiceDetailModal";
 import { InvoiceLedgerTable } from "../components/InvoiceLedgerTable";
 import { isInvoiceOverdue } from "../components/invoiceDocument";
@@ -322,7 +323,7 @@ function NewInvoiceModal({
             onChange={(changeEvent) => setCurrency(changeEvent.target.value)}
           />
         </div>
-        <TextField
+        <DateTimeField
           label="Due date"
           type="date"
           value={dueDate}

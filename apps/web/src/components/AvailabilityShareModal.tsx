@@ -1,5 +1,6 @@
 import { Button, Checkbox, Icon, Input, Modal, Select } from "@showme/design-system";
 import type { ReactNode } from "react";
+import { DateTimeField } from "./DateTimeField";
 import { Eyebrow } from "./primitives";
 
 /** The Check & Share Availability modal (§2, shot 02). Presentational shell over
@@ -88,15 +89,21 @@ export function AvailabilityShareModal({
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <FieldLabel>From</FieldLabel>
-            <Input
+            <DateTimeField
               type="date"
+              aria-label="From"
               value={from}
               onChange={(event) => onFromChange?.(event.target.value)}
             />
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <FieldLabel>To</FieldLabel>
-            <Input type="date" value={to} onChange={(event) => onToChange?.(event.target.value)} />
+            <DateTimeField
+              type="date"
+              aria-label="To"
+              value={to}
+              onChange={(event) => onToChange?.(event.target.value)}
+            />
           </div>
         </div>
 

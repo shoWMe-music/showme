@@ -1,9 +1,10 @@
 import { type getApiV1Profiles, useGetApiV1Profiles, usePostApiV1Events } from "@showme/api-client";
 import { Icon, type IconName, Select, useToast } from "@showme/design-system";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
 import { setActiveProfileId } from "../lib/activeProfile";
 import { errorMessage } from "../lib/errors";
+import { DateTimeField } from "./DateTimeField";
 import { PerformerSearch, type PerformerSelection } from "./PerformerSearch";
 import { GlyphButton, GradientButton, XIcon, fieldStyle } from "./eventUi";
 
@@ -663,6 +664,8 @@ function DetailsStep(props: {
   currency: string;
   setCurrency: (v: string) => void;
 }) {
+  const dateFieldId = useId();
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 15 }}>
       <div
@@ -776,15 +779,23 @@ function DetailsStep(props: {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        <label>
-          <span style={labelStyle}>Date</span>
-          <input
+        {/* The one field here that is not a bare <input>: its calendar is the
+            app's own popover, not the browser's. `bigField` keeps the box
+            identical to its neighbours, and the label is wired by `htmlFor`
+            rather than by wrapping, so the popover's trigger button never sits
+            inside a <label> that could forward its click to the input. */}
+        <div>
+          <label htmlFor={dateFieldId} style={labelStyle}>
+            Date
+          </label>
+          <DateTimeField
+            id={dateFieldId}
             type="date"
             value={props.date}
             onChange={(e) => props.setDate(e.target.value)}
             style={bigField}
           />
-        </label>
+        </div>
         <label>
           <span style={labelStyle}>Capacity</span>
           <input
