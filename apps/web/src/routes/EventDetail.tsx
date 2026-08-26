@@ -493,6 +493,16 @@ function DetailsTab({
     id: rider.id,
     name: rider.name,
     type: statusLabel(rider.type),
+    description: rider.description,
+    // Present only when a document is really attached — `null` is what the API
+    // says about a rider that was written down instead of uploaded.
+    file: rider.file
+      ? {
+          name: rider.file.name,
+          contentType: rider.file.contentType,
+          sizeBytes: rider.file.sizeBytes,
+        }
+      : null,
   }));
 
   return (

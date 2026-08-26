@@ -64,6 +64,9 @@ export interface DetailsRider {
   id: string;
   name: string;
   type: string;
+  description: string | null;
+  /** The attached document, or null for a rider that is only written down. */
+  file: { name: string; contentType: string | null; sizeBytes: number | null } | null;
 }
 /** Pre-formatted schedule row. Superseded by `EventScheduleCard`, which reads
  * `/events/:id/schedule` itself so it has the ids an edit needs; kept because

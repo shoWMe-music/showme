@@ -17,3 +17,22 @@
 .mono input {
   font-family: var(--font-mono);
 }
+
+/* A rider row that opens its document. Interaction lives on the EDGE, never on
+   the ground (STYLE-GUIDE §2): the hairline walks toward the focus colour on
+   hover, and focus adds a second, non-colour signal so it survives a reader who
+   cannot separate two reds. */
+.riderRow {
+  cursor: pointer;
+  transition: border-color var(--duration-quick) var(--ease-out);
+}
+
+.riderRow:hover {
+  border-color: var(--hover-border);
+}
+
+.riderRow:focus-visible {
+  outline: none;
+  border-color: var(--brand-red);
+  box-shadow: 0 0 0 1px var(--brand-red);
+}

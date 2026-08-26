@@ -9377,6 +9377,28 @@
                         "type": "string",
                         "nullable": true
                       },
+                      "file": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "contentType": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "sizeBytes": {
+                            "type": "number",
+                            "nullable": true
+                          }
+                        },
+                        "required": ["id", "name", "contentType", "sizeBytes"],
+                        "additionalProperties": false,
+                        "nullable": true
+                      },
                       "sourceRiderId": {
                         "type": "string",
                         "nullable": true
@@ -9394,6 +9416,7 @@
                       "name",
                       "description",
                       "fileId",
+                      "file",
                       "sourceRiderId",
                       "isDefault"
                     ],
@@ -9486,6 +9509,28 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "file": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "contentType": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "sizeBytes": {
+                          "type": "number",
+                          "nullable": true
+                        }
+                      },
+                      "required": ["id", "name", "contentType", "sizeBytes"],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
                     "sourceRiderId": {
                       "type": "string",
                       "nullable": true
@@ -9503,6 +9548,7 @@
                     "name",
                     "description",
                     "fileId",
+                    "file",
                     "sourceRiderId",
                     "isDefault"
                   ],
@@ -9582,6 +9628,28 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "file": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "contentType": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "sizeBytes": {
+                          "type": "number",
+                          "nullable": true
+                        }
+                      },
+                      "required": ["id", "name", "contentType", "sizeBytes"],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
                     "sourceRiderId": {
                       "type": "string",
                       "nullable": true
@@ -9599,6 +9667,7 @@
                     "name",
                     "description",
                     "fileId",
+                    "file",
                     "sourceRiderId",
                     "isDefault"
                   ],
@@ -9660,6 +9729,28 @@
                         "type": "string",
                         "nullable": true
                       },
+                      "file": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "contentType": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "sizeBytes": {
+                            "type": "number",
+                            "nullable": true
+                          }
+                        },
+                        "required": ["id", "name", "contentType", "sizeBytes"],
+                        "additionalProperties": false,
+                        "nullable": true
+                      },
                       "sourceRiderId": {
                         "type": "string",
                         "nullable": true
@@ -9677,11 +9768,55 @@
                       "name",
                       "description",
                       "fileId",
+                      "file",
                       "sourceRiderId",
                       "isDefault"
                     ],
                     "additionalProperties": false
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/events/{id}/riders/{rid}/preview-url": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "rid",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["url"],
+                  "additionalProperties": false
                 }
               }
             }

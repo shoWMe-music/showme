@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { GetApiV1EventsIdRiders200ItemFile } from './getApiV1EventsIdRiders200ItemFile';
 
 export type GetApiV1EventsIdRiders200Item = {
   id: string;
@@ -19,6 +20,8 @@ export type GetApiV1EventsIdRiders200Item = {
   description: string | null;
   /** @nullable */
   fileId: string | null;
+  /** @nullable */
+  file: GetApiV1EventsIdRiders200ItemFile;
   /** @nullable */
   sourceRiderId: string | null;
   isDefault: boolean;

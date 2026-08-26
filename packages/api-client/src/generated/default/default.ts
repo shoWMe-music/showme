@@ -66,6 +66,7 @@ import type {
   GetApiV1EventsIdParticipants200Item,
   GetApiV1EventsIdPerformingRightsRate200,
   GetApiV1EventsIdRiders200Item,
+  GetApiV1EventsIdRidersRidPreviewUrl200,
   GetApiV1EventsIdSchedule200Item,
   GetApiV1EventsIdSetlists200Item,
   GetApiV1EventsIdSetlistsSetlistIdShares200Item,
@@ -5642,6 +5643,99 @@ export function useGetApiV1EventsIdRiders<TData = Awaited<ReturnType<typeof getA
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetApiV1EventsIdRidersQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const getApiV1EventsIdRidersRidPreviewUrl = (
+    id: string,
+    rid: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1EventsIdRidersRidPreviewUrl200>(
+      {url: `/api/v1/events/${id}/riders/${rid}/preview-url`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1EventsIdRidersRidPreviewUrlQueryKey = (id?: string,
+    rid?: string,) => {
+    return [
+    `/api/v1/events/${id}/riders/${rid}/preview-url`
+    ] as const;
+    }
+
+    
+export const getGetApiV1EventsIdRidersRidPreviewUrlQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1EventsIdRidersRidPreviewUrl>>, TError = unknown>(id: string,
+    rid: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdRidersRidPreviewUrl>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1EventsIdRidersRidPreviewUrlQueryKey(id,rid);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1EventsIdRidersRidPreviewUrl>>> = ({ signal }) => getApiV1EventsIdRidersRidPreviewUrl(id,rid, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(id && rid), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdRidersRidPreviewUrl>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1EventsIdRidersRidPreviewUrlQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1EventsIdRidersRidPreviewUrl>>>
+export type GetApiV1EventsIdRidersRidPreviewUrlQueryError = unknown
+
+
+export function useGetApiV1EventsIdRidersRidPreviewUrl<TData = Awaited<ReturnType<typeof getApiV1EventsIdRidersRidPreviewUrl>>, TError = unknown>(
+ id: string,
+    rid: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdRidersRidPreviewUrl>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1EventsIdRidersRidPreviewUrl>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1EventsIdRidersRidPreviewUrl>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1EventsIdRidersRidPreviewUrl<TData = Awaited<ReturnType<typeof getApiV1EventsIdRidersRidPreviewUrl>>, TError = unknown>(
+ id: string,
+    rid: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdRidersRidPreviewUrl>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1EventsIdRidersRidPreviewUrl>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1EventsIdRidersRidPreviewUrl>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1EventsIdRidersRidPreviewUrl<TData = Awaited<ReturnType<typeof getApiV1EventsIdRidersRidPreviewUrl>>, TError = unknown>(
+ id: string,
+    rid: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdRidersRidPreviewUrl>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1EventsIdRidersRidPreviewUrl<TData = Awaited<ReturnType<typeof getApiV1EventsIdRidersRidPreviewUrl>>, TError = unknown>(
+ id: string,
+    rid: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdRidersRidPreviewUrl>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1EventsIdRidersRidPreviewUrlQueryOptions(id,rid,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { GetApiV1ProfilesIdRiders200ItemFile } from './getApiV1ProfilesIdRiders200ItemFile';
 
 export type GetApiV1ProfilesIdRiders200Item = {
   id: string;
@@ -19,6 +20,8 @@ export type GetApiV1ProfilesIdRiders200Item = {
   description: string | null;
   /** @nullable */
   fileId: string | null;
+  /** @nullable */
+  file: GetApiV1ProfilesIdRiders200ItemFile;
   /** @nullable */
   sourceRiderId: string | null;
   isDefault: boolean;

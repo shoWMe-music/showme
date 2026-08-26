@@ -68,6 +68,19 @@ const PROFILE_IDS = {
   agent: "e2e00000-0000-4000-8000-0000000000a5",
 } as const;
 
+// Riders on the Album Release: performerA's tech rider (a PDF, the preview's
+// subject) and performerB's hospitality rider (written down, no file) — so the
+// scoped read has two OWNERS to tell apart, not just one. The `files` row points
+// at Firebase Storage, which the local stack has no emulator for, so the document
+// pane reports honestly that it could not open the bytes.
+const RIDER_FILE_ID = "e2e00000-0000-4000-8000-000000000711";
+const RIDER_IDS = {
+  performerATechLibrary: "e2e00000-0000-4000-8000-000000000701",
+  performerATech: "e2e00000-0000-4000-8000-000000000702",
+  performerBHospitalityLibrary: "e2e00000-0000-4000-8000-000000000703",
+  performerBHospitality: "e2e00000-0000-4000-8000-000000000704",
+} as const;
+
 // The standing agent↔performerA representation (decisions.md #14).
 const REPRESENTATION_ID = "e2e00000-0000-4000-8000-000000000001";
 
@@ -294,6 +307,10 @@ async function main() {
     await database
       .delete(schema.contacts)
       .where(inArray(schema.contacts.id, Object.values(CONTACT_IDS)));
+    // Riders before their file (riders.file_id is NO ACTION) and before the
+    // profiles a library rider hangs off.
+    await database.delete(schema.riders).where(inArray(schema.riders.id, Object.values(RIDER_IDS)));
+    await database.delete(schema.files).where(inArray(schema.files.id, [RIDER_FILE_ID]));
     await database
       .delete(schema.groupProfiles)
       .where(inArray(schema.groupProfiles.id, [...GROUP_PROFILE_IDS])); // → profiles (no action)
@@ -835,6 +852,71 @@ async function main() {
       })
       .returning({ id: schema.setlists.id });
     record("setlists", setlists);
+
+    // ── 8c. Riders — one per performer on the Album Release, modelled the way
+    //        the app produces them: a profile-library doc, and the instance that
+    //        records the copy it came from. `scopedEventRiders` (decisions #12)
+    //        is what decides who sees which, so two owners are the fixture that
+    //        can actually catch a leak.
+    const riderFiles = await database
+      .insert(schema.files)
+      .values({
+        id: RIDER_FILE_ID,
+        path: `profiles/${PROFILE_IDS.performerA}/riders/Marlo_Vega_Tech_Rider_2026.pdf`,
+        kind: "document",
+        contentType: "application/pdf",
+        sizeBytes: 412_000,
+        ownerUserId: performerAUserId,
+        ownerProfileId: PROFILE_IDS.performerA,
+      })
+      .returning({ id: schema.files.id });
+    record("files.rider", riderFiles);
+
+    const riders = await database
+      .insert(schema.riders)
+      .values([
+        {
+          id: RIDER_IDS.performerATechLibrary,
+          ownerProfileId: PROFILE_IDS.performerA,
+          type: "tech",
+          name: "Tech Rider 2026",
+          description: "FOH: 32-channel desk. Monitors: 4 wedges on 3 mixes. 2x DI at stage left.",
+          fileId: RIDER_FILE_ID,
+          isDefault: true,
+          createdBy: performerAUserId,
+        },
+        {
+          id: RIDER_IDS.performerATech,
+          eventId: EVENT_IDS.albumRelease,
+          ownerParticipantId: PART.albumPerformerA,
+          sourceRiderId: RIDER_IDS.performerATechLibrary,
+          type: "tech",
+          name: "Tech Rider 2026",
+          description: "FOH: 32-channel desk. Monitors: 4 wedges on 3 mixes. 2x DI at stage left.",
+          fileId: RIDER_FILE_ID,
+          createdBy: performerAUserId,
+        },
+        {
+          id: RIDER_IDS.performerBHospitalityLibrary,
+          ownerProfileId: PROFILE_IDS.performerB,
+          type: "hospitality",
+          name: "Hospitality Notes",
+          description: "Dressing room for three from 17:00. Hot meal after soundcheck; one vegan.",
+          createdBy: performerBUserId,
+        },
+        {
+          id: RIDER_IDS.performerBHospitality,
+          eventId: EVENT_IDS.albumRelease,
+          ownerParticipantId: PART.albumPerformerB,
+          sourceRiderId: RIDER_IDS.performerBHospitalityLibrary,
+          type: "hospitality",
+          name: "Hospitality Notes",
+          description: "Dressing room for three from 17:00. Hot meal after soundcheck; one vegan.",
+          createdBy: performerBUserId,
+        },
+      ])
+      .returning({ id: schema.riders.id });
+    record("riders", riders);
 
     // ── 9. Deals + parties. ────────────────────────────────────────────────
     // Album Release: ONE shared split deal across performerA (60%) and performerB

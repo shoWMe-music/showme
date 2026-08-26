@@ -63,6 +63,24 @@ export function formatDate(
 }
 
 /**
+ * A file size a person can read ("240 KB", "1.8 MB"). Decimal units, because
+ * that is what the operating system that produced the file shows. Returns "" for
+ * an unknown size, so a missing byte count renders as nothing rather than "0 B".
+ */
+export function formatFileSize(bytes: number | null | undefined): string {
+  if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return "";
+  if (bytes < 1000) return `${bytes} B`;
+  const units = ["KB", "MB", "GB"];
+  let value = bytes / 1000;
+  let unitIndex = 0;
+  while (value >= 1000 && unitIndex < units.length - 1) {
+    value /= 1000;
+    unitIndex += 1;
+  }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unitIndex]}`;
+}
+
+/**
  * Human-friendly age of an ISO timestamp ("just now", "5m ago", "3d ago").
  * Returns "" for an unparseable value so a bad timestamp renders as nothing
  * rather than "NaN ago".

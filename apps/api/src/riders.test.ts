@@ -5,9 +5,9 @@ import { and, eq, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
-import type { StorageSigner } from "./lib/storage";
+import { createFakeStorageSigner } from "./lib/storage";
 import { createFileRoutes } from "./routes/files";
-import { riderRoutes } from "./routes/riders";
+import { createRiderRoutes } from "./routes/riders";
 import { buildTestApp } from "./testing";
 
 /** Fake verifier: the bearer token IS the uid (mirrors app.test.ts). */
@@ -17,29 +17,22 @@ const fakeVerifier: TokenVerifier = {
   },
 };
 
-/** Deterministic signer — the bytes are irrelevant here; who gets a URL is not. */
-const fakeSigner: StorageSigner = {
-  async signUpload(path, contentType, maxBytes) {
-    return {
-      url: `signed-upload::${path}`,
-      headers: { "content-type": contentType, "x-goog-content-length-range": `0,${maxBytes}` },
-    };
-  },
-  async signDownload(path) {
-    return `signed-download::${path}`;
-  },
-};
-
 let harness: TestDatabase;
 let app: FastifyInstance;
+
+// Deterministic, offline signer — the preview assertions can then be exact, and
+// the file routes are mounted alongside so the preview's authority can be
+// contrasted with the file-ownership rule it deliberately does not use.
+const signer = createFakeStorageSigner();
 
 beforeAll(async () => {
   harness = await startTestDatabase();
   // The FILE routes ride along on purpose: who may download a rider's bytes is a
-  // rider question, and asserting it needs both halves in one app.
+  // rider question, and asserting it needs both halves in one app. Both take the
+  // SAME signer — two would mean bytes written through one and read through the other.
   app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [
-    riderRoutes,
-    createFileRoutes(fakeSigner),
+    createRiderRoutes(signer),
+    createFileRoutes(signer),
   ]);
   await app.ready();
 });
@@ -658,5 +651,190 @@ describe("riders — profile library + event instances (copy-on-attach)", () => 
 describe("rider.view — an operator holds the capability for the reach it already had", () => {
   it("is in the operator preset", () => {
     expect(PRESET_PERMISSION_SETS.operator_full).toContain("rider.view");
+  });
+});
+
+describe("rider preview — the document opens for exactly the readers the list serves", () => {
+  const RIDER_FILE_PATH = "profiles/rp-a/riders/main-tech-rider.pdf";
+  const fakeDownloadUrl = (path: string) =>
+    `https://fake.storage.local/download/${encodeURIComponent(path)}`;
+
+  /** Everyone, the event, and two attached riders — one with a PDF, one without. */
+  async function seedRiderFixture() {
+    const { db } = harness;
+    const operator = await seedMemberWithSet(
+      "rp-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performerA = await seedMemberWithSet(
+      "rp-a",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const performerB = await seedMemberWithSet(
+      "rp-b",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    await seedMemberWithSet("rp-stranger", "performer", PRESET_PERMISSION_SETS.performer);
+    const { event, participants } = await seedEvent(
+      operator,
+      [
+        { ...operator, role: "host" },
+        { ...performerA, role: "performer" },
+        { ...performerB, role: "performer" },
+      ],
+      "rp-op",
+    );
+    const participantA = participants.find((row) => row.profileId === performerA.profileId)
+      ?.id as string;
+
+    // A's rider carries a real PDF. The file row is owned by A's PROFILE — which is
+    // exactly why file ownership alone would shut the operator out of it.
+    const [file] = await db
+      .insert(schema.files)
+      .values({
+        path: RIDER_FILE_PATH,
+        kind: "document",
+        contentType: "application/pdf",
+        sizeBytes: 245_760,
+        ownerUserId: "rp-a",
+        ownerProfileId: performerA.profileId,
+      })
+      .returning();
+    if (!file) throw new Error("file seed failed");
+
+    const attach = async (uid: string, profileId: string, name: string, fileId?: string) => {
+      const library = await app.inject({
+        method: "POST",
+        url: `/api/v1/profiles/${profileId}/riders`,
+        headers: auth(uid),
+        payload: { type: "tech", name, fileId },
+      });
+      expect(library.statusCode).toBe(201);
+      const instance = await app.inject({
+        method: "POST",
+        url: `/api/v1/events/${event.id}/riders`,
+        headers: auth(uid),
+        payload: { sourceRiderId: library.json().id },
+      });
+      expect(instance.statusCode).toBe(201);
+      return instance.json();
+    };
+    const riderA = await attach("rp-a", performerA.profileId, "A tech", file.id);
+    const riderB = await attach("rp-b", performerB.profileId, "B tech (described only)");
+
+    // Two crew members A brought: one technical (holds `rider.view`), one without it.
+    const addCrew = async (uid: string, capabilities: readonly string[]) => {
+      const member = await seedMemberWithSet(uid, "performer", capabilities);
+      await db.insert(schema.eventParticipants).values({
+        eventId: event.id,
+        profileId: member.profileId,
+        role: "crew",
+        permissionSetId: member.permissionSetId,
+        status: "confirmed",
+        details: { sponsorParticipantId: participantA },
+      });
+    };
+    await addCrew("rp-tech-a", PRESET_PERMISSION_SETS.crew_technical);
+    await addCrew("rp-bar", PRESET_PERMISSION_SETS.crew_schedule_only);
+
+    return { event, file, riderA, riderB };
+  }
+
+  // Seeded once: every assertion below is a READ, so nothing here moves under
+  // another test, and the fixture stays the state the product can really produce.
+  let fixture: Awaited<ReturnType<typeof seedRiderFixture>>;
+  beforeAll(async () => {
+    fixture = await seedRiderFixture();
+  });
+
+  const previewAs = (uid: string, riderId: string) =>
+    app.inject({
+      method: "GET",
+      url: `/api/v1/events/${fixture.event.id}/riders/${riderId}/preview-url`,
+      headers: auth(uid),
+    });
+
+  it("serves the file metadata on the list, and a signed URL to a reader in scope", async () => {
+    const { event, file, riderA, riderB } = fixture;
+
+    // The list says WHAT the document is, so a reader can pick a renderer without
+    // a second round trip — and says `null` honestly when there is no file.
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/riders`,
+      headers: auth("rp-op"),
+    });
+    expect(listed.statusCode).toBe(200);
+    const fileByRiderName = new Map(
+      (listed.json() as Array<{ name: string; file: unknown }>).map((rider) => [
+        rider.name,
+        rider.file,
+      ]),
+    );
+    expect(fileByRiderName.get("A tech")).toEqual({
+      id: file.id,
+      name: "main-tech-rider.pdf",
+      contentType: "application/pdf",
+      sizeBytes: 245_760,
+    });
+    expect(fileByRiderName.get("B tech (described only)")).toBeNull();
+
+    // The operator may open the performer's rider (decisions #12: pool visibility)…
+    const operatorPreview = await previewAs("rp-op", riderA.id);
+    expect(operatorPreview.statusCode).toBe(200);
+    expect(operatorPreview.json().url).toBe(fakeDownloadUrl(RIDER_FILE_PATH));
+
+    // The file route reaches the same bytes for this operator — but only because
+    // `riderFileVisibleToCaller` (e5928ec) taught it to ask the RIDER question
+    // first. This assertion used to expect 404 and was written before that landed;
+    // an operator being unable to open a rider submitted TO them was the bug, not
+    // the rule. Both doors now answer the same, which is the point: one visibility
+    // rule (`scopedEventRiders`), consulted from either entrance.
+    const viaFileRoute = await app.inject({
+      method: "GET",
+      url: `/api/v1/files/${file.id}/download-url`,
+      headers: auth("rp-op"),
+    });
+    expect(viaFileRoute.statusCode).toBe(200);
+
+    // The owner opens their own.
+    const ownPreview = await previewAs("rp-a", riderA.id);
+    expect(ownPreview.statusCode).toBe(200);
+    expect(ownPreview.json().url).toBe(fakeDownloadUrl(RIDER_FILE_PATH));
+
+    // A described rider has nothing to open, and says so instead of 500ing.
+    const noFile = await previewAs("rp-op", riderB.id);
+    expect(noFile.statusCode).toBe(404);
+    expect(noFile.json().error.message).toBe("This rider has no file");
+  });
+
+  it("refuses the bytes to everyone the list already hides them from", async () => {
+    const { riderA, riderB } = fixture;
+
+    // Another performer on the same event: out of reach, and reads as absent.
+    const otherPerformer = await previewAs("rp-b", riderA.id);
+    expect(otherPerformer.statusCode).toBe(404);
+    expect(otherPerformer.json().error.message).toBe("Rider not found");
+
+    // A-sponsored crew WITHOUT `rider.view` — the on/off is off.
+    const bartender = await previewAs("rp-bar", riderA.id);
+    expect(bartender.statusCode).toBe(404);
+    expect(bartender.json().error.message).toBe("Rider not found");
+
+    // A-sponsored crew WITH `rider.view` — on, but scoped to the sponsor's reach:
+    // A's document opens, B's stays shut.
+    const technical = await previewAs("rp-tech-a", riderA.id);
+    expect(technical.statusCode).toBe(200);
+    expect(technical.json().url).toBe(fakeDownloadUrl(RIDER_FILE_PATH));
+    const technicalOnB = await previewAs("rp-tech-a", riderB.id);
+    expect(technicalOnB.statusCode).toBe(404);
+
+    // Not on the event at all: the event itself is 404, so nothing leaks.
+    const stranger = await previewAs("rp-stranger", riderA.id);
+    expect(stranger.statusCode).toBe(404);
+    expect(stranger.json().error.message).toBe("Event not found");
   });
 });

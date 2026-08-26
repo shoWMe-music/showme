@@ -62,6 +62,19 @@ const PART = {
   e5Host: "5eed0000-0000-4000-8000-0000000000b7",
 } as const;
 
+// Riders — the performer's library doc and the copy attached to the show, plus
+// the `files` row the tech rider points at. The bytes themselves live in
+// Firebase Storage, which local dev has no emulator for, so the preview's
+// document pane will honestly report that it could not open them; everything
+// around it (who may look, what the file is, how big) is real.
+const RIDER_FILE_ID = "5eed0000-0000-4000-8000-000000000711";
+const RIDER_IDS = {
+  techLibrary: "5eed0000-0000-4000-8000-000000000701",
+  techInstance: "5eed0000-0000-4000-8000-000000000702",
+  hospitalityLibrary: "5eed0000-0000-4000-8000-000000000703",
+  hospitalityInstance: "5eed0000-0000-4000-8000-000000000704",
+} as const;
+
 // The operator's permission set — attached to every host participant so the
 // operator resolves `budget.view` (unlocking settlements, budgets, and every
 // performer's setlist for the PRO-royalty screen). Mirrors
@@ -217,6 +230,10 @@ async function main() {
       .delete(schema.bookingRequests)
       .where(inArray(schema.bookingRequests.id, [...BOOKING_REQUEST_IDS]));
     await database.delete(schema.contacts).where(inArray(schema.contacts.id, [...CONTACT_IDS]));
+    // Riders before their file (riders.file_id is NO ACTION) and before the
+    // profiles a library rider hangs off.
+    await database.delete(schema.riders).where(inArray(schema.riders.id, Object.values(RIDER_IDS)));
+    await database.delete(schema.files).where(inArray(schema.files.id, [RIDER_FILE_ID]));
     await database.delete(schema.tasks).where(inArray(schema.tasks.id, [...TASK_IDS]));
     await database
       .delete(schema.calendarItems)
@@ -556,6 +573,72 @@ async function main() {
       ])
       .returning({ id: schema.setlists.id });
     record("setlists", setlists);
+
+    // ── 6c. Riders — the performer's library, and the copies attached to the
+    //        show. Modelled the way the app produces them: a library doc
+    //        (`event_id` NULL) and an instance that records the copy it came
+    //        from (`source_rider_id`), never an instance with no origin.
+    const riderFiles = await database
+      .insert(schema.files)
+      .values({
+        id: RIDER_FILE_ID,
+        path: `profiles/${PERFORMER_PROFILE_ID}/riders/Aurora_Vale_Tech_Rider_2026.pdf`,
+        kind: "document",
+        contentType: "application/pdf",
+        sizeBytes: 412_000,
+        ownerUserId: PERFORMER_USER_ID,
+        ownerProfileId: PERFORMER_PROFILE_ID,
+      })
+      .returning({ id: schema.files.id });
+    record("files.rider", riderFiles);
+
+    const riders = await database
+      .insert(schema.riders)
+      .values([
+        {
+          id: RIDER_IDS.techLibrary,
+          ownerProfileId: PERFORMER_PROFILE_ID,
+          type: "tech",
+          name: "Tech Rider 2026",
+          description: "FOH: 32-channel desk. Monitors: 4 wedges on 3 mixes. 2x DI at stage left.",
+          fileId: RIDER_FILE_ID,
+          isDefault: true,
+          createdBy: PERFORMER_USER_ID,
+        },
+        {
+          id: RIDER_IDS.hospitalityLibrary,
+          ownerProfileId: PERFORMER_PROFILE_ID,
+          type: "hospitality",
+          name: "Hospitality Notes",
+          description:
+            "Dressing room for five from 16:00. Hot meal after soundcheck; two vegetarian. No nuts in the room.",
+          createdBy: PERFORMER_USER_ID,
+        },
+        {
+          id: RIDER_IDS.techInstance,
+          eventId: EVENT_IDS.albumRelease,
+          ownerParticipantId: PART.e1Perf,
+          sourceRiderId: RIDER_IDS.techLibrary,
+          type: "tech",
+          name: "Tech Rider 2026",
+          description: "FOH: 32-channel desk. Monitors: 4 wedges on 3 mixes. 2x DI at stage left.",
+          fileId: RIDER_FILE_ID,
+          createdBy: PERFORMER_USER_ID,
+        },
+        {
+          id: RIDER_IDS.hospitalityInstance,
+          eventId: EVENT_IDS.albumRelease,
+          ownerParticipantId: PART.e1Perf,
+          sourceRiderId: RIDER_IDS.hospitalityLibrary,
+          type: "hospitality",
+          name: "Hospitality Notes",
+          description:
+            "Dressing room for five from 16:00. Hot meal after soundcheck; two vegetarian. No nuts in the room.",
+          createdBy: PERFORMER_USER_ID,
+        },
+      ])
+      .returning({ id: schema.riders.id });
+    record("riders", riders);
 
     // ── 7. Deals (+ parties) — operator pays performer. ────────────────────
     const deals = await database

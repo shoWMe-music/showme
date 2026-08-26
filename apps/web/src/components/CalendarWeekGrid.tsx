@@ -1,11 +1,11 @@
 import { Card } from "@showme/design-system";
 import { type CalendarEvent, CalendarEventChip, type CalendarLabelMode } from "./CalendarEventChip";
-import type { EventMenuItem } from "./EventRowMenu";
 import {
   CalendarUnavailableMark,
   dayCellBackground,
   unavailableSuffix,
 } from "./CalendarUnavailableMark";
+import type { EventMenuItem } from "./EventRowMenu";
 import { WEEKDAYS_SHORT, buildWeekGrid, dayKey } from "./calendarGrid";
 import type { UnavailableDays } from "./useMarkUnavailable";
 

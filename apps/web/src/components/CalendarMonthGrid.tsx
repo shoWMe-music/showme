@@ -1,11 +1,11 @@
 import { Card, STATUSES, STATUS_LABEL, StatusDot } from "@showme/design-system";
 import { type CalendarEvent, CalendarEventChip, type CalendarLabelMode } from "./CalendarEventChip";
-import type { EventMenuItem } from "./EventRowMenu";
 import {
   CalendarUnavailableMark,
   dayCellBackground,
   unavailableSuffix,
 } from "./CalendarUnavailableMark";
+import type { EventMenuItem } from "./EventRowMenu";
 import { WEEKDAYS_SHORT, buildMonthGrid, dayKey, trimTrailingWeeks } from "./calendarGrid";
 import { Eyebrow } from "./primitives";
 import type { UnavailableDays } from "./useMarkUnavailable";
