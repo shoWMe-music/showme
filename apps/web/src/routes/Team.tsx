@@ -1,12 +1,14 @@
 import {
   type getApiV1Groups,
+  type getApiV1ProfilesIdMembers,
   getGetApiV1GroupsQueryKey,
+  getGetApiV1ProfilesIdMembersQueryKey,
+  getGetApiV1ProfilesIdMembersQueryOptions,
   useDeleteApiV1GroupsGid,
   useGetApiV1Groups,
   useGetApiV1Profiles,
   usePatchApiV1GroupsGid,
   usePostApiV1Groups,
-  usePostApiV1GroupsGidMembers,
 } from "@showme/api-client";
 import {
   Avatar,
@@ -18,20 +20,24 @@ import {
   Icon,
   Modal,
   SectionHeader,
-  Select,
   Tag,
   TextField,
   useToast,
 } from "@showme/design-system";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { type CSSProperties, type FormEvent, type ReactNode, useMemo, useState } from "react";
 import { GroupCard } from "../components";
+import { TeamInviteMemberModal } from "../components/TeamInviteMemberModal";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
 import { errorMessage } from "../lib/errors";
 
 type Group = Awaited<ReturnType<typeof getApiV1Groups>>[number];
-type Member = Group["members"][number];
+type GroupMember = Group["members"][number];
+type ProfileMember = Awaited<ReturnType<typeof getApiV1ProfilesIdMembers>>[number];
+
+/** An account member, carrying the name of the account they are a member of. */
+type RosterEntry = ProfileMember & { profileName: string };
 
 /** Deterministic dot colour + avatar tone, cycled by index (groups have no
  * stored colour yet — the prototype uses one per group). */
@@ -39,18 +45,30 @@ const GROUP_COLORS = ["#EE5746", "#F4A046", "#7C6FE0", "#4B9FE0", "#6FC97A"];
 const PROFILE_COLORS = ["#EE5746", "#6FC97A", "#4B9FE0", "#7C6FE0", "#F4A046"];
 const MEMBER_TONES: AvatarTone[] = ["brand", "amber", "purple", "blue", "green"];
 
+/** What a `profile_members.role` is called on screen (docs/decisions.md #12). */
+const ROLE_TITLES: Record<string, string> = {
+  owner: "Owner",
+  admin: "Admin",
+  editor: "Editor",
+  viewer: "Viewer",
+  crew: "Crew",
+};
+
 /** No display-name field exists on a group member — derive a human label from
  * the email local-part rather than surfacing a raw address as the name. */
-function deriveName(member: Member): string {
-  const local = member.email?.split("@")[0];
-  if (local) {
-    const words = local
-      .split(/[._-]+/)
-      .filter(Boolean)
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1));
-    if (words.length > 0) return words.join(" ");
-  }
-  return member.roleLabel ?? "Member";
+function nameFromEmail(email: string | null | undefined): string | null {
+  const local = email?.split("@")[0];
+  if (!local) return null;
+  const words = local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1));
+  return words.length > 0 ? words.join(" ") : null;
+}
+
+/** A group member's on-screen label — their email local-part, else their role. */
+function groupMemberLabel(member: GroupMember): string {
+  return nameFromEmail(member.email) ?? member.roleLabel ?? "Member";
 }
 
 function initials(label: string): string {
@@ -77,38 +95,64 @@ interface UniqueMember {
   groupNames: string[];
 }
 
-/** Collapse the per-group member lists into one deduplicated roster — a person
- * in several groups appears once, carrying all their group chips (matches the
- * prototype's flat member list under the group cards). */
-function collectMembers(groups: Group[]): UniqueMember[] {
-  const byKey = new Map<string, UniqueMember & { toneSeed: number }>();
+/**
+ * The roster shown on this screen — the ACCOUNT's members first (the "member"
+ * layer of docs/decisions.md #12), then anyone who only appears in a group
+ * bundle. Deduplicated by person, so someone who is both an account member and
+ * in two groups is one row carrying both group chips.
+ *
+ * The distinction is load-bearing: a group-only person has a place on a reusable
+ * roster but NO access to the account, which is why they read "Group only"
+ * rather than being silently counted as a member.
+ */
+function collectMembers(
+  roster: RosterEntry[],
+  groups: Group[],
+  showAccountName: boolean,
+): UniqueMember[] {
+  const byKey = new Map<string, UniqueMember>();
+  const tone = () => MEMBER_TONES[byKey.size % MEMBER_TONES.length] ?? "brand";
+
+  for (const entry of roster) {
+    const key = entry.userId ?? entry.email ?? entry.id;
+    if (byKey.has(key)) continue;
+    const onPlatform = entry.userId != null;
+    byKey.set(key, {
+      key,
+      // `GET /profiles/:id/members` carries no name for an ON-PLATFORM member (it
+      // never joins `users.name`, and redeeming an invitation does not copy the
+      // recipient's name onto the row) — so say "Team member" rather than invent one.
+      name: entry.displayName ?? nameFromEmail(entry.email) ?? "Team member",
+      email: entry.email,
+      tone: tone(),
+      onPlatform,
+      roleTitle: ROLE_TITLES[entry.role] ?? entry.role,
+      accessLevel: showAccountName ? entry.profileName : "Account member",
+      groupNames: [],
+    });
+  }
+
   for (const group of groups) {
     for (const member of group.members) {
       const key = member.userId ?? member.email ?? member.id;
-      const isOwner = member.userId != null && member.userId === group.ownerUserId;
       const existing = byKey.get(key);
       if (existing) {
         existing.groupNames.push(group.name);
-        if (existing.roleTitle === "Member" && member.roleLabel)
-          existing.roleTitle = member.roleLabel;
-        if (isOwner) existing.accessLevel = "Owner";
         continue;
       }
-      const onPlatform = member.userId != null;
-      const seed = byKey.size;
       byKey.set(key, {
         key,
-        toneSeed: seed,
-        name: deriveName(member),
+        name: groupMemberLabel(member),
         email: member.email,
-        tone: MEMBER_TONES[seed % MEMBER_TONES.length] ?? "brand",
-        onPlatform,
-        roleTitle: member.roleLabel ?? "Member",
-        accessLevel: isOwner ? "Owner" : onPlatform ? "Member" : "Invited",
+        tone: tone(),
+        onPlatform: member.userId != null,
+        roleTitle: member.roleLabel ?? "Crew",
+        accessLevel: "Group only",
         groupNames: [group.name],
       });
     }
   }
+
   return [...byKey.values()];
 }
 
@@ -129,14 +173,12 @@ export function Team() {
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
-  const [groupModal, setGroupModal] = useState<{ mode: "create" | "rename"; gid?: string } | null>(
-    null,
-  );
+  const [groupModal, setGroupModal] = useState<{
+    mode: "create" | "rename";
+    groupId?: string;
+  } | null>(null);
   const [groupName, setGroupName] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviteGid, setInviteGid] = useState("");
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState("");
 
   const invalidateGroups = () =>
     queryClient.invalidateQueries({ queryKey: getGetApiV1GroupsQueryKey() });
@@ -172,23 +214,31 @@ export function Team() {
       onError: (error) => toast.error(errorMessage(error, "Couldn't remove the group.")),
     },
   });
-  const addMember = usePostApiV1GroupsGidMembers({
-    mutation: {
-      onSuccess: () => {
-        toast.success("Member invited");
-        invalidateGroups();
-        setInviteOpen(false);
-        setInviteEmail("");
-        setInviteRole("");
-      },
-      onError: (error) => toast.error(errorMessage(error, "Couldn't invite the member.")),
-    },
+  // The account roster — one query per profile the user belongs to, so the count
+  // in the header is the truth. Reading only group members used to report "0
+  // members" to an owner who was, demonstrably, a member.
+  const rosterQueries = useQueries({
+    queries: profiles.map((profile) => getGetApiV1ProfilesIdMembersQueryOptions(profile.id)),
   });
 
   const visibleGroups = selectedProfileId
     ? groups.filter((group) => group.profileIds.includes(selectedProfileId))
     : groups;
-  const members = useMemo(() => collectMembers(visibleGroups), [visibleGroups]);
+  const visibleRoster: RosterEntry[] = profiles.flatMap((profile, index) => {
+    if (selectedProfileId && profile.id !== selectedProfileId) return [];
+    const rows = rosterQueries[index]?.data ?? [];
+    return rows.map((row) => ({ ...row, profileName: profile.name }));
+  });
+  // Naming the account only earns its place when the user has more than one.
+  const members = collectMembers(visibleRoster, visibleGroups, profiles.length > 1);
+
+  /** The account an invite lands on: the one in focus, else the user's first. */
+  const inviteProfileId = selectedProfileId ?? profiles[0]?.id ?? null;
+
+  function refreshRoster(profileId: string) {
+    queryClient.invalidateQueries({ queryKey: getGetApiV1ProfilesIdMembersQueryKey(profileId) });
+    invalidateGroups();
+  }
 
   function scopeLabel(group: Group): string {
     const count = group.profileIds.length;
@@ -206,14 +256,14 @@ export function Team() {
   }
   function openRenameGroup(group: Group) {
     setGroupName(group.name);
-    setGroupModal({ mode: "rename", gid: group.id });
+    setGroupModal({ mode: "rename", groupId: group.id });
   }
   function submitGroup(formEvent: FormEvent) {
     formEvent.preventDefault();
     const name = groupName.trim();
     if (!name) return;
-    if (groupModal?.mode === "rename" && groupModal.gid) {
-      renameGroup.mutate({ gid: groupModal.gid, data: { name } });
+    if (groupModal?.mode === "rename" && groupModal.groupId) {
+      renameGroup.mutate({ gid: groupModal.groupId, data: { name } });
     } else {
       createGroup.mutate({ data: { name } });
     }
@@ -222,22 +272,6 @@ export function Team() {
     if (!window.confirm(`Remove the "${group.name}" group? Members stay in any other groups.`))
       return;
     deleteGroup.mutate({ gid: group.id });
-  }
-
-  function openInvite() {
-    setInviteGid(groups[0]?.id ?? "");
-    setInviteEmail("");
-    setInviteRole("");
-    setInviteOpen(true);
-  }
-  function submitInvite(formEvent: FormEvent) {
-    formEvent.preventDefault();
-    const email = inviteEmail.trim();
-    if (!inviteGid || !email) return;
-    addMember.mutate({
-      gid: inviteGid,
-      data: { email, ...(inviteRole.trim() ? { roleLabel: inviteRole.trim() } : {}) },
-    });
   }
 
   const groupModalBusy = createGroup.isPending || renameGroup.isPending;
@@ -264,12 +298,7 @@ export function Team() {
           <Icon name="grid" size={16} />
         </button>
       </div>
-      <Button
-        variant="primary"
-        onClick={openInvite}
-        disabled={groups.length === 0}
-        leftIcon={<InviteIcon />}
-      >
+      <Button variant="primary" onClick={() => setInviteOpen(true)} leftIcon={<InviteIcon />}>
         Invite Member
       </Button>
     </div>
@@ -331,70 +360,83 @@ export function Team() {
             <EmptyState
               icon={<Icon name="users" />}
               title={selectedProfileId ? "No groups on this profile" : "No groups yet"}
-              description="Reusable rosters — Booking, Production, Marketing — appear here."
+              description="Reusable rosters — Booking, Production, Marketing — appear here. Optional: people can join the team without one."
             />
           ) : (
-            <>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
-                  gap: 14,
-                }}
-              >
-                {visibleGroups.map((group, groupIndex) => {
-                  const color = GROUP_COLORS[groupIndex % GROUP_COLORS.length] ?? "#EE5746";
-                  return (
-                    <GroupCard
-                      key={group.id}
-                      name={group.name}
-                      color={color}
-                      members={group.members.map((member, index) => ({
-                        id: member.id,
-                        initials: initials(deriveName(member)),
-                        tone: MEMBER_TONES[index % MEMBER_TONES.length],
-                      }))}
-                      memberCount={group.members.length}
-                      scopeLabel={scopeLabel(group)}
-                      onEdit={() => openRenameGroup(group)}
-                      onRemove={() => removeGroup(group)}
-                    />
-                  );
-                })}
-              </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+                gap: 14,
+              }}
+            >
+              {visibleGroups.map((group, groupIndex) => {
+                const color = GROUP_COLORS[groupIndex % GROUP_COLORS.length] ?? "#EE5746";
+                return (
+                  <GroupCard
+                    key={group.id}
+                    name={group.name}
+                    color={color}
+                    members={group.members.map((member, index) => ({
+                      id: member.id,
+                      initials: initials(groupMemberLabel(member)),
+                      tone: MEMBER_TONES[index % MEMBER_TONES.length],
+                    }))}
+                    memberCount={group.members.length}
+                    scopeLabel={scopeLabel(group)}
+                    onEdit={() => openRenameGroup(group)}
+                    onRemove={() => removeGroup(group)}
+                  />
+                );
+              })}
+            </div>
+          )}
 
-              {members.length === 0 ? (
-                <Card padding="md">
-                  <span style={{ color: "var(--muted)", fontSize: 13 }}>No members yet.</span>
-                </Card>
-              ) : viewMode === "grid" ? (
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-                    gap: 14,
-                  }}
+          <Eyebrow>People</Eyebrow>
+
+          {/* The roster stands on its own — it is the account's members, not a
+              read-out of the group cards above, so it renders with or without one. */}
+          {members.length === 0 ? (
+            <EmptyState
+              icon={<Icon name="users" />}
+              title="No one here yet"
+              description="Invite someone by email and pick what they may do — they join the account as soon as they accept."
+              action={
+                <Button
+                  variant="primary"
+                  onClick={() => setInviteOpen(true)}
+                  leftIcon={<InviteIcon />}
                 >
-                  {members.map((member) => (
-                    <MemberCard key={member.key} member={member} />
-                  ))}
-                </div>
-              ) : (
-                <Card padding="none">
-                  {members.map((member, index) => (
-                    <MemberRow
-                      key={member.key}
-                      member={member}
-                      first={index === 0}
-                      menuOpen={openMenuKey === member.key}
-                      onToggleMenu={() =>
-                        setOpenMenuKey((current) => (current === member.key ? null : member.key))
-                      }
-                    />
-                  ))}
-                </Card>
-              )}
-            </>
+                  Invite Member
+                </Button>
+              }
+            />
+          ) : viewMode === "grid" ? (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+                gap: 14,
+              }}
+            >
+              {members.map((member) => (
+                <MemberCard key={member.key} member={member} />
+              ))}
+            </div>
+          ) : (
+            <Card padding="none">
+              {members.map((member, index) => (
+                <MemberRow
+                  key={member.key}
+                  member={member}
+                  first={index === 0}
+                  menuOpen={openMenuKey === member.key}
+                  onToggleMenu={() =>
+                    setOpenMenuKey((current) => (current === member.key ? null : member.key))
+                  }
+                />
+              ))}
+            </Card>
           )}
         </div>
       )}
@@ -431,54 +473,17 @@ export function Team() {
         </form>
       </Modal>
 
-      <Modal
+      <TeamInviteMemberModal
         open={inviteOpen}
         onClose={() => setInviteOpen(false)}
-        title="Invite member"
-        width={460}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setInviteOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              onClick={submitInvite}
-              disabled={!inviteGid || inviteEmail.trim().length === 0 || addMember.isPending}
-              leftIcon={<InviteIcon />}
-            >
-              {addMember.isPending ? "Inviting…" : "Send invite"}
-            </Button>
-          </>
-        }
-      >
-        <form onSubmit={submitInvite} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <Eyebrow>Group</Eyebrow>
-            <Select
-              value={inviteGid}
-              onChange={setInviteGid}
-              options={groups.map((group) => ({ value: group.id, label: group.name }))}
-              aria-label="Group"
-            />
-          </div>
-          <TextField
-            label="Email"
-            type="email"
-            value={inviteEmail}
-            placeholder="name@example.com"
-            onChange={(changeEvent) => setInviteEmail(changeEvent.target.value)}
-            autoFocus
-          />
-          <TextField
-            label="Role (optional)"
-            value={inviteRole}
-            placeholder="e.g. Production Manager"
-            onChange={(changeEvent) => setInviteRole(changeEvent.target.value)}
-          />
-          <button type="submit" hidden aria-hidden />
-        </form>
-      </Modal>
+        profiles={profiles.map((profile) => ({ id: profile.id, name: profile.name }))}
+        groups={groups.map((group) => ({ id: group.id, name: group.name }))}
+        defaultProfileId={inviteProfileId}
+        onInvited={({ email, profileId }) => {
+          toast.success(`Invitation sent to ${email}`);
+          refreshRoster(profileId);
+        }}
+      />
     </>
   );
 }
