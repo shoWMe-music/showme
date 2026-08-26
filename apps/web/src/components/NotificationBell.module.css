@@ -1,0 +1,192 @@
+/* The topbar bell dropdown.
+
+   Owns the whole panel (it used to be the `.notifications__*` block in app.css;
+   those rules are now unused by any component and can be deleted). Colours are
+   design-system tokens only — no invented values.
+
+   DENSITY: the previous rows stacked title / body / time on three lines with
+   10px of padding, so a 420px panel showed barely four notifications. Title and
+   timestamp now share one line (the timestamp is short — "just now", "3d ago"),
+   which drops a line per row without dropping a word: the body line, the one
+   that says what actually happened, is untouched. ~54px per row against a taller
+   panel shows eight. Type sizes match the app's other dense list surfaces —
+   13px body text and mono meta, as in the invoice/event tables. */
+
+.bell {
+  position: relative;
+  display: inline-flex;
+}
+
+.count {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--brand-red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* Click-anywhere-else-to-close, behind the panel. */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
+/* A flex column, not one scrolling box: the header stays put and only the list
+   scrolls, so "Mark all read" can't scroll out of reach with a long feed. */
+.panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 21;
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(70vh, 480px);
+  overflow: hidden;
+  padding: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+/* The border is what tells the eye the header is pinned once the list scrolls
+   under it; it lines up with the row separators, both inset by the panel's 6px. */
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 4px 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.empty {
+  margin: 0;
+  padding: 16px 8px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  /* Reaching the end of the feed must not start scrolling the page behind it. */
+  overscroll-behavior: contain;
+  list-style: none;
+}
+
+.item + .item {
+  border-top: 1px solid var(--border);
+}
+
+/* One rule for both row kinds, so a linked and an unlinked notification are laid
+   out identically — only the affordances differ. `button` needs the resets. */
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.rowLinked {
+  cursor: pointer;
+  transition: background .16s;
+}
+.rowLinked:hover {
+  background: var(--elevated);
+}
+.rowLinked:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/* Unread carries a tint AND a dot AND a heavier title, so the state never rests
+   on colour alone. color-mix keeps the tint readable in both themes — the
+   --elevated surface is all but invisible against light mode's near-white card. */
+.rowUnread {
+  background: color-mix(in srgb, var(--brand-red) 8%, transparent);
+}
+.rowLinked.rowUnread:hover {
+  background: color-mix(in srgb, var(--brand-red) 14%, transparent);
+}
+
+.topline {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: 1px;
+  border-radius: 999px;
+  background: var(--brand-red);
+}
+
+.itemTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+.rowUnread .itemTitle {
+  font-weight: 600;
+}
+
+/* Mono so the ages line up down the right edge, matching the app's meta type. */
+.time {
+  flex: none;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.body {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* The dot is decorative; screen readers get the word instead. */
+.unreadLabel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
