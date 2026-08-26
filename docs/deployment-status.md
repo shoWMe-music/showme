@@ -4,6 +4,52 @@ The standing answer to "what's deployed where". Update it when that changes.
 Account/project map and the domain history live in
 [handoff-2026-08-23-marketing-and-hosting.md](./handoff-2026-08-23-marketing-and-hosting.md).
 
+## 2026-08-26 — the big deploy (migrations 0007–0011, API 00008, web app)
+
+Everything below was deployed from `main` at `04dfd16`, after 528 API tests and
+34/34 web e2e passed against current code and the rewritten seed.
+
+| | |
+|---|---|
+| Database | Cloud SQL `showme-production-db` moved **0006 → 0011**. On-demand backup `1787716371559` taken first ("before migrations 0007-0011"), verified SUCCESSFUL before applying. |
+| API | Cloud Run `showme-api` rev **`00008-5kp`**, europe-north2. |
+| Web app | `showme-app.web.app`, bundle **`index-2JNI8cFe.js`** (was `index-scfLaoqh.js`). |
+| Marketing | **NOT deployed** — its target is `showme-production` on the **gmail** account, and this session ran as `daniel@showme.music`. Three new public pages are waiting there: `availability.html`, `event.html`, `profile.html`. |
+
+**Data at risk was negligible and was checked before migrating**: 1 user, 1
+profile, 1 event, and zero deals, deal parties, messages or calendar items — so
+0007's jsonb key rename and 0008's thread backfill touched no rows. Verified
+after: 12 migrations applied, all five new objects present
+(`calendar_items.external_id`, `.blocks_availability`,
+`event_messages.thread_participant_id`, `venue_details`,
+`external_calendar_mirrors`, and `calendar_item_type` carrying `external`), and
+the user and event still there.
+
+**New secrets** in Secret Manager, all granted to the runtime service account
+`680839076083-compute@developer.gserviceaccount.com`:
+`BREVO_API_KEY`, `BREVO_SENDER` (`no-reply@showme-google.se`), and
+`SHARE_JWT_SECRET` — the last was never set, which meant off-platform share
+tokens had nothing to sign with. It was generated fresh; that is safe only
+because no share exists in prod yet, and rotating it later invalidates live
+share links.
+
+**New env on the service**: `PUBLIC_APP_BASE_URL=https://showme-app.web.app`.
+Without it every link in every email points at `localhost:5174`.
+`LEADS_ALLOWED_ORIGINS` and `CORS_ALLOWED_ORIGINS` both gained
+`showme-app.web.app` and `music-showme.web.app`, because the triage work put an
+**origin guard** on `POST /booking-requests` and the public availability form
+403s from any origin not listed.
+
+**Smoke-tested after deploy**: `/health` 200; `/events/:id/message-threads`
+returns 401 rather than 404, proving the build is current rather than the stale
+one that served all night; and the origin guard returns 403 for a request with
+no Origin.
+
+**Still not deployed**: the marketing site (gmail account, needs a decision);
+`apps/stream`, so `VITE_STREAM_URL` stays blank and realtime is still off; and
+the reaper jobs — `infra/modules/scheduled-jobs` is written but never applied,
+so no reaper runs in production and that drift keeps accumulating.
+
 ## Live
 
 | What | Where | Notes |
