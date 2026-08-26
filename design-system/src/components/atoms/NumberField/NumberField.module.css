@@ -1,0 +1,74 @@
+.field {
+  display: block;
+}
+
+.label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+/* Same fill, hairline border and radius as TextField — the adornments live in
+   the wrapper so a currency symbol can sit inside the same frame. */
+.control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--control-surface);
+  color: var(--text);
+  transition: border-color 0.2s;
+}
+.control:focus-within {
+  /* Same 1px border as at rest — only the color changes. */
+  border-color: #ee5746;
+}
+.controlDisabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.affix {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  line-height: 1;
+  user-select: none;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+}
+.input::placeholder {
+  color: var(--muted);
+}
+.input:disabled {
+  cursor: not-allowed;
+}
+.inputRight {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .control {
+    transition: none;
+  }
+}

@@ -66,6 +66,12 @@ export type { CheckboxProps } from "@/components/atoms/Checkbox/Checkbox";
 
 export { TextField } from "@/components/atoms/TextField/TextField";
 export type { TextFieldProps } from "@/components/atoms/TextField/TextField";
+export { NumberField } from "@/components/atoms/NumberField/NumberField";
+export type { NumberFieldProps } from "@/components/atoms/NumberField/NumberField";
+export {
+  formatNumberFieldValue,
+  parseNumberFieldText,
+} from "@/components/atoms/NumberField/useNumberField";
 export { Select } from "@/components/atoms/Select/Select";
 export type { SelectProps, SelectOption } from "@/components/atoms/Select/Select";
 

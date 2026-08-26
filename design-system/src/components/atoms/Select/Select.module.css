@@ -66,18 +66,78 @@
   transform: rotate(180deg);
 }
 
-/* Popup — the styled list a native <select> can't give us. */
+/* Popup — the styled list a native <select> can't give us. The panel itself no
+   longer scrolls: the search row stays pinned and only the list moves. */
 .panel {
   position: fixed;
   z-index: 1000;
   box-sizing: border-box;
-  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: var(--shadow-lg);
-  overflow-y: auto;
+  overflow: hidden;
   animation: selectIn 0.14s ease-out;
+}
+
+/* Search row — a hairline rule below it, no box of its own, so the popover
+   still reads as one surface. */
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.searchIcon {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+}
+.searchInput::placeholder {
+  color: var(--muted);
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.noResults {
+  padding: 10px 12px 14px;
+  color: var(--dim);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+/* Screen-reader-only live region announcing the match count. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 @keyframes selectIn {
   from {
