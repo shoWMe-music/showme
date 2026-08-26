@@ -198,10 +198,13 @@ Filed while fixing P3, still open:
 
 - ~~**No CI**~~ / ~~**No logs**~~ — both done 2026-08-26, see "Do these first" above.
   CI has not yet been observed running on GitHub, because nothing has been pushed.
-- **Terraform covers the load balancer only.** `infra/` is real — `modules/api-load-balancer`
-  and `envs/prod` — but the Cloud Run service, the Cloud SQL instance, the secrets and
-  Firebase Hosting were all created by hand and are not in code. (An earlier note in
-  this session said "no Terraform in the repo"; that was wrong.)
+- **Terraform covers the load balancer and the job schedule.** `infra/` has
+  `modules/api-load-balancer` and, since 2026-08-26, `modules/scheduled-jobs` — but the
+  Cloud Run **service**, the Cloud SQL instance, the secrets and Firebase Hosting were
+  all created by hand and are still not in code. (An earlier note said "no Terraform in
+  the repo"; that was wrong.) Note the asymmetry this creates: the jobs module is the
+  only thing in `envs/prod` that has never been applied, so a first `terraform apply`
+  there will want reviewing carefully against what already exists by hand.
 - **The HTTPS load balancer is provisioned with no DNS record** — carrying zero traffic
   and still billing. Either wire `api.showme.music` to it or tear it down.
 - **No error tracking, metrics or alerting.**
