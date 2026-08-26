@@ -1,11 +1,12 @@
 import { schema } from "@showme/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { conflict, forbidden, notFound, tooManyRequests } from "../errors";
 import { readProfileBusyTime } from "../lib/availability";
 import { createSlidingWindowRateLimiter } from "../lib/rate-limit";
+import { type ProfileRelations, PublicProfileSchema } from "../serialize/profile";
 import { serializePublicEvent, serializePublicProfile } from "../serialize/public";
 
 /**
@@ -21,20 +22,19 @@ import { serializePublicEvent, serializePublicProfile } from "../serialize/publi
  * single gate, so a re-confirmed event returns to the world instead of silently
  * staying dark.
  */
-const PUBLICLY_VISIBLE_EVENT_STATUSES = ["confirmed", "concluded"] as const;
+export const PUBLICLY_VISIBLE_EVENT_STATUSES = ["confirmed", "concluded"] as const;
 
 const SlugParams = z.object({ slug: z.string().min(1) });
 const EventParams = z.object({ id: z.string().uuid() });
 
-const PublicProfileResponse = z.object({
-  id: z.string(),
-  name: z.string(),
-  type: z.string().nullable(),
-  kind: z.string(),
-  bio: z.string().nullable(),
-  avatarUrl: z.string().nullable(),
-  bannerUrl: z.string().nullable(),
-});
+/**
+ * The public profile body. Declared once, beside the projection that fills it
+ * (`serialize/profile.ts`), and imported by the owner's Preview route as well —
+ * a second copy here would be a second, independently-editable answer to "what is
+ * public", and the day they disagreed one route would publish what the other
+ * withheld.
+ */
+const PublicProfileResponse = PublicProfileSchema;
 
 const PublicEventResponse = z.object({
   id: z.string(),
@@ -158,6 +158,47 @@ function clientIp(request: FastifyRequest): string {
  * booking status (`PUBLICLY_VISIBLE_EVENT_STATUSES`) — a non-public row is a 404,
  * not a 403 (no existence leak, and nothing to reveal).
  */
+/**
+ * The rows the public profile projection reads besides the profile itself. Same
+ * four the in-app route loads, deliberately: the projection is one function, so
+ * feeding it a thinner set here would make a stranger's page quietly poorer than
+ * the owner's preview of it. `is_primary` picks the location, matching every
+ * other reader of that table.
+ */
+async function loadPublicProfileRelations(
+  database: FastifyInstance["database"],
+  profileId: string,
+): Promise<ProfileRelations> {
+  const [locations, venues, socialLinks, media] = await Promise.all([
+    database
+      .select()
+      .from(schema.profileLocations)
+      .where(
+        and(
+          eq(schema.profileLocations.profileId, profileId),
+          eq(schema.profileLocations.isPrimary, true),
+        ),
+      ),
+    database.select().from(schema.venueDetails).where(eq(schema.venueDetails.profileId, profileId)),
+    database
+      .select()
+      .from(schema.profileSocialLinks)
+      .where(eq(schema.profileSocialLinks.profileId, profileId))
+      .orderBy(asc(schema.profileSocialLinks.position)),
+    database
+      .select()
+      .from(schema.profileMedia)
+      .where(eq(schema.profileMedia.profileId, profileId))
+      .orderBy(asc(schema.profileMedia.position)),
+  ]);
+  return {
+    location: locations[0] ?? null,
+    venueDetails: venues[0] ?? null,
+    socialLinks,
+    media,
+  };
+}
+
 export async function publicRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -180,7 +221,12 @@ export async function publicRoutes(fastify: FastifyInstance): Promise<void> {
           and(eq(schema.profiles.slug, request.params.slug), eq(schema.profiles.isPublic, true)),
         );
       if (!profile) throw notFound("Profile not found");
-      return serializePublicProfile(profile);
+      // The joined rows the page needs: where the venue is, what the room
+      // offers, the owner's links and their gallery. Which of them a stranger
+      // actually receives is decided inside `serializePublicProfile` — this
+      // handler hands it everything and publishes nothing on its own.
+      const relations = await loadPublicProfileRelations(database, profile.id);
+      return serializePublicProfile(profile, relations);
     },
   );
 

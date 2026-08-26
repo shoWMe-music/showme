@@ -89,12 +89,23 @@ export const profileMedia = pgTable("profile_media", {
   position: integer("position"),
 });
 
-/** A profile's locations — kept normalized because discovery queries by them. */
+/**
+ * A profile's locations — kept normalized because discovery queries by them.
+ *
+ * `street` / `postcode` (migration 0014) are the doorstep half. They are read
+ * with the row and never filtered on — searches use `city`/`country` — so they
+ * are leaf columns here rather than a second table. Who may READ them is not a
+ * schema question: `serialize/profile.ts` publishes a place's street address and
+ * withholds everyone else's, so a performer who typed a home address to place
+ * their map pin does not thereby publish it.
+ */
 export const profileLocations = pgTable("profile_locations", {
   id: uuid("id").defaultRandom().primaryKey(),
   profileId: uuid("profile_id")
     .notNull()
     .references(() => profiles.id, { onDelete: "cascade" }),
+  street: text("street"),
+  postcode: text("postcode"),
   city: text("city"),
   country: text("country"),
   lat: doublePrecision("lat"),
@@ -102,7 +113,12 @@ export const profileLocations = pgTable("profile_locations", {
   isPrimary: boolean("is_primary").notNull().default(false),
 });
 
-/** External social/streaming links shown on a public profile. */
+/**
+ * External social/streaming links shown on a public profile. `position` (0014)
+ * is the owner's editorial order — Spotify before Instagram — which is a choice
+ * they make in the editor and would otherwise be lost to the random uuid primary
+ * key. Same column, same meaning, as `profile_media.position`.
+ */
 export const profileSocialLinks = pgTable("profile_social_links", {
   id: uuid("id").defaultRandom().primaryKey(),
   profileId: uuid("profile_id")
@@ -110,6 +126,7 @@ export const profileSocialLinks = pgTable("profile_social_links", {
     .references(() => profiles.id, { onDelete: "cascade" }),
   platform: text("platform").notNull(),
   url: text("url").notNull(),
+  position: integer("position"),
 });
 
 /**

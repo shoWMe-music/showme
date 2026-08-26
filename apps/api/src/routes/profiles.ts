@@ -1,6 +1,6 @@
 import { schema } from "@showme/db";
 import { isProfileTypeForKind, profileTypesForKind } from "@showme/shared";
-import { and, asc, eq, ilike, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, gte, ilike, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -10,7 +10,13 @@ import { requireProfileRole } from "../lib/authorize";
 import { readProfileBusyTime } from "../lib/availability";
 import { assertProfileAdminGrantAllows } from "../lib/entitlements";
 import { withIdempotency } from "../plugins/idempotency";
-import { type ProfileRelations, serializeProfile } from "../serialize/profile";
+import {
+  type ProfileRelations,
+  PublicProfileSchema,
+  serializeProfile,
+  serializePublicProfile,
+} from "../serialize/profile";
+import { PUBLICLY_VISIBLE_EVENT_STATUSES } from "./public";
 
 const ProfileParams = z.object({ id: z.string().uuid() });
 const MemberParams = z.object({ id: z.string().uuid(), mid: z.string().uuid() });
@@ -35,8 +41,52 @@ const templateCategory = z.enum([
  * timezone engines read, so it is not free text.
  */
 const ProfileLocationBody = z.object({
+  // The doorstep half (migration 0014). Optional for everyone and asked for only
+  // where it means something — a band has a home city, not a front door.
+  street: z.string().max(300).nullable().optional(),
+  postcode: z.string().max(30).nullable().optional(),
   city: z.string().max(200).nullable().optional(),
   country: z.string().max(2).nullable().optional(),
+  lat: z.number().min(-90).max(90).nullable().optional(),
+  lng: z.number().min(-180).max(180).nullable().optional(),
+});
+
+/**
+ * A named arrangement of the room. Ported from the previous app's
+ * `venueCapacitySetups` (`../showme-settle-fast/src/pages/ProfileEditPage.tsx:605`):
+ * "Theater seating" / "Standing only" / "Mixed", one of them the headline.
+ *
+ * `isMain` is accepted per row rather than as an index because that is how the
+ * old data is shaped; the route below enforces the invariant the old UI only
+ * enforced by convention — at most one main, and if any setup exists exactly one.
+ */
+const VenueCapacitySetupBody = z.object({
+  id: z.string().min(1).max(100).optional(),
+  name: z.string().min(1).max(200),
+  capacitySitting: z.number().int().min(0).max(5_000_000).nullable().optional(),
+  capacityStanding: z.number().int().min(0).max(5_000_000).nullable().optional(),
+  isMain: z.boolean().optional(),
+  notes: z.string().max(2000).nullable().optional(),
+});
+
+/**
+ * The external links on a profile. Sent as a whole list, not patched one at a
+ * time: the owner reorders and deletes them in one form, and a partial protocol
+ * would need ids the UI has no reason to carry.
+ *
+ * `url` must parse as a URL. The old app accepted free text here and its data has
+ * bare "instagram.com/…" strings that render as broken relative links on the
+ * public page — the one place the value is actually used.
+ */
+const SocialLinkBody = z.object({
+  platform: z.string().min(1).max(60),
+  url: z.string().url().max(2000),
+});
+
+/** A performer line-up: "Full Band", 5. Stored on `details.setups`. */
+const PerformerSetupBody = z.object({
+  name: z.string().min(1).max(200),
+  headcount: z.number().int().min(0).max(1000).nullable().optional(),
 });
 
 /**
@@ -52,6 +102,7 @@ const VenueDetailsBody = z.object({
   curfew: z.string().max(50).nullable().optional(),
   amenities: z.array(z.string().min(1).max(100)).max(100).optional(),
   dealTypes: z.array(z.string().min(1).max(100)).max(50).optional(),
+  capacitySetups: z.array(VenueCapacitySetupBody).max(50).optional(),
   cateringNotes: z.string().max(5000).nullable().optional(),
   accommodationNotes: z.string().max(5000).nullable().optional(),
   artistLogisticsNotes: z.string().max(5000).nullable().optional(),
@@ -84,6 +135,15 @@ const UpdateProfileBody = z.object({
   details: z.unknown().optional(),
   location: ProfileLocationBody.optional(),
   venueDetails: VenueDetailsBody.optional(),
+  // Whole-list replacements, each backed by its own table. Absent = leave alone;
+  // an empty array = "I removed them all", which is a thing an owner does.
+  socialLinks: z.array(SocialLinkBody).max(30).optional(),
+  photos: z.array(z.string().url().max(2000)).max(60).optional(),
+  videos: z.array(z.string().url().max(2000)).max(30).optional(),
+  /** Performer line-ups. Merged into `details.setups`, not a table — see the
+   * serializer. Sent as its own field so the client never has to hand-merge the
+   * jsonb blob. */
+  setups: z.array(PerformerSetupBody).max(30).optional(),
 });
 
 const CreateMemberBody = z
@@ -121,8 +181,26 @@ const UpdateTemplateBody = z.object({
 });
 
 const ProfileLocationResponse = z.object({
+  street: z.string().nullable(),
+  postcode: z.string().nullable(),
   city: z.string().nullable(),
   country: z.string().nullable(),
+  lat: z.number().nullable(),
+  lng: z.number().nullable(),
+});
+
+const VenueCapacitySetupResponse = z.object({
+  id: z.string(),
+  name: z.string(),
+  capacitySitting: z.number().nullable(),
+  capacityStanding: z.number().nullable(),
+  isMain: z.boolean(),
+  notes: z.string().nullable(),
+});
+
+const SocialLinkResponse = z.object({
+  platform: z.string(),
+  url: z.string(),
 });
 
 const VenueDetailsResponse = z.object({
@@ -131,12 +209,35 @@ const VenueDetailsResponse = z.object({
   curfew: z.string().nullable(),
   amenities: z.array(z.string()),
   dealTypes: z.array(z.string()),
+  capacitySetups: z.array(VenueCapacitySetupResponse),
   cateringNotes: z.string().nullable(),
   accommodationNotes: z.string().nullable(),
   artistLogisticsNotes: z.string().nullable(),
   audienceLogisticsNotes: z.string().nullable(),
   contactEmail: z.string().nullable(),
   contactPhone: z.string().nullable(),
+});
+
+/**
+ * The shows a stranger would find on the page. Same rule as
+ * `GET /public/events/:id`: `published` AND a status the world was told about.
+ * A draft is not a listing, and a cancelled show is no longer one.
+ */
+const PublicProfileEventResponse = z.object({
+  id: z.string(),
+  title: z.string(),
+  eventDate: z.string().nullable(),
+  venueName: z.string().nullable(),
+  doorTime: z.string().nullable(),
+  startTime: z.string().nullable(),
+});
+
+const PublicPreviewResponse = z.object({
+  profile: PublicProfileSchema,
+  comingEvents: z.array(PublicProfileEventResponse),
+  /** False → this page is not reachable by anyone yet. The preview still renders
+   * (that is the point of a preview), and the screen says so. */
+  isPublic: z.boolean(),
 });
 
 const ProfileResponse = z.object({
@@ -155,6 +256,9 @@ const ProfileResponse = z.object({
   // route does not load it, null = loaded and nothing is recorded.
   location: ProfileLocationResponse.nullable().optional(),
   venueDetails: VenueDetailsResponse.nullable().optional(),
+  socialLinks: z.array(SocialLinkResponse).optional(),
+  photos: z.array(z.string()).optional(),
+  videos: z.array(z.string()).optional(),
   billing: z.unknown().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -293,7 +397,7 @@ async function loadProfileRelations(
   database: Database,
   profileId: string,
 ): Promise<Required<ProfileRelations>> {
-  const [locations, venues] = await Promise.all([
+  const [locations, venues, socialLinks, media] = await Promise.all([
     database
       .select()
       .from(schema.profileLocations)
@@ -304,25 +408,45 @@ async function loadProfileRelations(
         ),
       ),
     database.select().from(schema.venueDetails).where(eq(schema.venueDetails.profileId, profileId)),
+    // Ordered by the position the owner arranged them in — `id` is a random
+    // uuid, so without this the row of links reshuffles on every read.
+    database
+      .select()
+      .from(schema.profileSocialLinks)
+      .where(eq(schema.profileSocialLinks.profileId, profileId))
+      .orderBy(asc(schema.profileSocialLinks.position)),
+    database
+      .select()
+      .from(schema.profileMedia)
+      .where(eq(schema.profileMedia.profileId, profileId))
+      .orderBy(asc(schema.profileMedia.position)),
   ]);
-  return { location: locations[0] ?? null, venueDetails: venues[0] ?? null };
+  return {
+    location: locations[0] ?? null,
+    venueDetails: venues[0] ?? null,
+    socialLinks,
+    media,
+  };
 }
 
 /**
- * The same two joins for a whole list, in two queries instead of 2N. The list
- * screen renders a location on every card, so N+1 here would be a round trip per
- * profile the moment anyone holds more than a couple.
+ * The same joins for a whole list, in a fixed number of queries instead of 4N.
+ * The list screen renders a location on every card, so N+1 here would be a round
+ * trip per profile the moment anyone holds more than a couple.
  */
 async function loadProfileRelationsBatch(
   database: Database,
   profileIds: string[],
 ): Promise<Map<string, Required<ProfileRelations>>> {
   const byProfile = new Map<string, Required<ProfileRelations>>(
-    profileIds.map((profileId) => [profileId, { location: null, venueDetails: null }]),
+    profileIds.map((profileId) => [
+      profileId,
+      { location: null, venueDetails: null, socialLinks: [], media: [] },
+    ]),
   );
   if (profileIds.length === 0) return byProfile;
 
-  const [locations, venues] = await Promise.all([
+  const [locations, venues, socialLinks, media] = await Promise.all([
     database
       .select()
       .from(schema.profileLocations)
@@ -336,6 +460,16 @@ async function loadProfileRelationsBatch(
       .select()
       .from(schema.venueDetails)
       .where(inArray(schema.venueDetails.profileId, profileIds)),
+    database
+      .select()
+      .from(schema.profileSocialLinks)
+      .where(inArray(schema.profileSocialLinks.profileId, profileIds))
+      .orderBy(asc(schema.profileSocialLinks.position)),
+    database
+      .select()
+      .from(schema.profileMedia)
+      .where(inArray(schema.profileMedia.profileId, profileIds))
+      .orderBy(asc(schema.profileMedia.position)),
   ]);
   for (const location of locations) {
     const entry = byProfile.get(location.profileId);
@@ -344,6 +478,12 @@ async function loadProfileRelationsBatch(
   for (const venue of venues) {
     const entry = byProfile.get(venue.profileId);
     if (entry) entry.venueDetails = venue;
+  }
+  for (const link of socialLinks) {
+    byProfile.get(link.profileId)?.socialLinks.push(link);
+  }
+  for (const item of media) {
+    byProfile.get(item.profileId)?.media.push(item);
   }
   return byProfile;
 }
@@ -366,6 +506,87 @@ function assertProfileTypeAllowed(kind: string, type: string | null | undefined)
     .map((option) => option.key)
     .join(", ");
   throw badRequest(`A ${kind} profile cannot be of type "${type}". Allowed: ${allowed}`);
+}
+
+/**
+ * The shows a stranger would find listed on this profile's page.
+ *
+ * The visibility rule is IMPORTED from `routes/public.ts` rather than restated:
+ * `published` (the host's publishing intent) AND a status the world was actually
+ * told about. Restating it as a local literal is how a preview drifts into
+ * showing a draft — which is the bug this whole endpoint replaces.
+ *
+ * Scoped to the venue, matching what the Profiles screen already lists. Past
+ * shows are dropped: "Coming Events" is a claim about the future.
+ */
+async function loadPublicUpcomingEvents(database: Database, profileId: string) {
+  const today = new Date().toISOString().slice(0, 10);
+  const rows = await database
+    .select({
+      id: schema.events.id,
+      title: schema.events.title,
+      eventDate: schema.events.eventDate,
+      venueName: schema.events.venueName,
+      doorTime: schema.events.doorTime,
+      startTime: schema.events.startTime,
+    })
+    .from(schema.events)
+    .where(
+      and(
+        eq(schema.events.venueProfileId, profileId),
+        eq(schema.events.published, true),
+        inArray(schema.events.status, [...PUBLICLY_VISIBLE_EVENT_STATUSES]),
+        gte(schema.events.eventDate, today),
+      ),
+    )
+    .orderBy(asc(schema.events.eventDate));
+  return rows;
+}
+
+/**
+ * Give the capacity setups stable ids and exactly one headline.
+ *
+ * "Exactly one main" is the invariant the old app's UI enforced by convention and
+ * never in storage (`ProfileEditPage.tsx:626` set the flag on click, `:637`
+ * repaired it on delete) — so its data has rows with two mains and rows with
+ * none, and "the venue's headline capacity" was whichever one rendered first.
+ * Here it is enforced on write: the first setup flagged main wins, and if none is
+ * flagged the first setup becomes it, so a non-empty list always has an answer.
+ *
+ * Ids are minted from the position when the client did not send one. They only
+ * have to be stable within the row, which is why a jsonb array can carry them at
+ * all — nothing outside this blob ever references a setup.
+ */
+function normalizeCapacitySetups(
+  setups: {
+    id?: string;
+    name: string;
+    capacitySitting?: number | null;
+    capacityStanding?: number | null;
+    isMain?: boolean;
+    notes?: string | null;
+  }[],
+): {
+  id: string;
+  name: string;
+  capacitySitting: number | null;
+  capacityStanding: number | null;
+  isMain: boolean;
+  notes: string | null;
+}[] {
+  const named = setups
+    .map((setup, index) => ({ ...setup, name: setup.name.trim(), index }))
+    .filter((setup) => setup.name !== "");
+  const mainIndex = named.findIndex((setup) => setup.isMain === true);
+  const headline = mainIndex === -1 ? 0 : mainIndex;
+  return named.map((setup, position) => ({
+    id: setup.id?.trim() || `VCS-${setup.index + 1}`,
+    name: setup.name,
+    capacitySitting: setup.capacitySitting ?? null,
+    capacityStanding: setup.capacityStanding ?? null,
+    isMain: position === headline,
+    notes: setup.notes?.trim() || null,
+  }));
 }
 
 /** Drop blanks and duplicates from a chip list, preserving the order given. */
@@ -575,6 +796,50 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
+  /**
+   * PREVIEW — what a stranger sees on this profile's public page.
+   *
+   * The screen's Edit/Preview switch reads this. It exists because the honest
+   * answer to "what does the public see" cannot be computed in the browser: the
+   * client holds the MEMBER projection (which carries the booking contact, the
+   * artist logistics and every draft event), so any client-side "public view" is
+   * a guess dressed as a fact. That is precisely what the previous switcher was —
+   * its "Public view" tab rendered draft events under a "PUBLIC" heading.
+   *
+   * So the preview is a server round trip through the SAME
+   * `serializePublicProfile` the anonymous route uses, plus the same event
+   * visibility rule. The only difference from `GET /public/profiles/:slug` is the
+   * `is_public` gate: that route 404s an unpublished profile, and previewing
+   * before publishing is the entire point of a preview. `isPublic` rides along so
+   * the screen can say "nobody can reach this yet" instead of implying otherwise.
+   *
+   * Authorization is ordinary: any member of the profile may look. It reveals
+   * strictly less than `GET /profiles/:id`, which they can already call.
+   */
+  app.get(
+    "/profiles/:id/public-preview",
+    { schema: { params: ProfileParams, response: { 200: PublicPreviewResponse } } },
+    async (request) => {
+      const { database } = request.server;
+      const { id } = request.params;
+
+      requireProfileRole(request, id, [...ANY_ROLE]);
+      const [profile] = await database
+        .select()
+        .from(schema.profiles)
+        .where(eq(schema.profiles.id, id));
+      if (!profile) throw notFound("Profile not found");
+
+      const relations = await loadProfileRelations(database, id);
+      const comingEvents = await loadPublicUpcomingEvents(database, id);
+      return {
+        profile: serializePublicProfile(profile, relations),
+        comingEvents,
+        isPublic: profile.isPublic,
+      };
+    },
+  );
+
   // Edit a profile (owner/admin).
   app.patch(
     "/profiles/:id",
@@ -611,6 +876,29 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
       if (request.body.bannerUrl !== undefined) fields.bannerUrl = request.body.bannerUrl;
       if (request.body.details !== undefined) fields.details = request.body.details;
 
+      // ---- Performer setups -------------------------------------------------
+      // `setups` is a first-class field on the body but a leaf inside the
+      // `details` jsonb, so it is merged here rather than in the client. Sending
+      // `details` and `setups` together is legal and `setups` wins: the caller
+      // named the specific field, which is the more specific intent. Doing this
+      // in the client instead is how `details` blobs lose keys — every caller has
+      // to remember to spread the old object.
+      if (request.body.setups !== undefined) {
+        const carried =
+          request.body.details !== undefined ? request.body.details : (before.details ?? {});
+        const baseDetails =
+          carried && typeof carried === "object" && !Array.isArray(carried)
+            ? (carried as Record<string, unknown>)
+            : {};
+        fields.details = {
+          ...baseDetails,
+          setups: request.body.setups.map((setup) => ({
+            name: setup.name.trim(),
+            headcount: setup.headcount ?? null,
+          })),
+        };
+      }
+
       const relationsBefore = await loadProfileRelations(database, id);
 
       const updated = await database.transaction(async (tx) => {
@@ -628,21 +916,76 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
         // which is why a seeded venue with a Stockholm row rendered "No location
         // set" — two sources, one of them invisible to every query.
         if (request.body.location !== undefined) {
-          const { city = null, country = null } = request.body.location;
+          const {
+            street = null,
+            postcode = null,
+            city = null,
+            country = null,
+            lat = null,
+            lng = null,
+          } = request.body.location;
           // Uppercased because the territory checks compare ISO codes literally.
           const countryCode = country ? country.toUpperCase() : null;
+          const locationFields = { street, postcode, city, country: countryCode, lat, lng };
           const existing = relationsBefore.location;
           if (existing) {
             await tx
               .update(schema.profileLocations)
-              .set({ city, country: countryCode })
+              .set(locationFields)
               .where(eq(schema.profileLocations.id, existing.id));
-          } else if (city !== null || countryCode !== null) {
+          } else if (Object.values(locationFields).some((value) => value !== null)) {
             // Only create a row when there is something to say — an empty
             // location row would make `location` non-null and claim otherwise.
             await tx
               .insert(schema.profileLocations)
-              .values({ profileId: id, city, country: countryCode, isPrimary: true });
+              .values({ profileId: id, ...locationFields, isPrimary: true });
+          }
+        }
+
+        // ---- Social links --------------------------------------------------
+        // Replaced wholesale, in the order given. The owner edits them as one
+        // list (add / reorder / delete in a single form), so a per-row protocol
+        // would need ids the form has no reason to carry — and a reorder would
+        // become N requests that can half-apply.
+        if (request.body.socialLinks !== undefined) {
+          await tx
+            .delete(schema.profileSocialLinks)
+            .where(eq(schema.profileSocialLinks.profileId, id));
+          const links = request.body.socialLinks;
+          if (links.length > 0) {
+            await tx.insert(schema.profileSocialLinks).values(
+              links.map((link, position) => ({
+                profileId: id,
+                platform: link.platform.trim(),
+                url: link.url.trim(),
+                position,
+              })),
+            );
+          }
+        }
+
+        // ---- Photos and videos ---------------------------------------------
+        // One `profile_media` table, two kinds. Each kind is replaced
+        // independently: sending photos must not wipe the videos, because the
+        // two are separate cards in the editor and a screen that only touched
+        // one of them sends only that one.
+        for (const [kind, urls] of [
+          ["photo", request.body.photos],
+          ["video", request.body.videos],
+        ] as const) {
+          if (urls === undefined) continue;
+          await tx
+            .delete(schema.profileMedia)
+            .where(and(eq(schema.profileMedia.profileId, id), eq(schema.profileMedia.kind, kind)));
+          if (urls.length > 0) {
+            await tx.insert(schema.profileMedia).values(
+              urls.map((url, position) => ({
+                profileId: id,
+                kind,
+                url: url.trim(),
+                position,
+              })),
+            );
           }
         }
 
@@ -660,6 +1003,9 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
           }
           if (body.dealTypes !== undefined) {
             venueFields.dealTypes = normalizeStringList(body.dealTypes);
+          }
+          if (body.capacitySetups !== undefined) {
+            venueFields.capacitySetups = normalizeCapacitySetups(body.capacitySetups);
           }
           if (body.cateringNotes !== undefined) venueFields.cateringNotes = body.cateringNotes;
           if (body.accommodationNotes !== undefined) {

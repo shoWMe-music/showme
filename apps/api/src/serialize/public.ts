@@ -1,35 +1,25 @@
 import type { schema } from "@showme/db";
 
-type ProfileRow = typeof schema.profiles.$inferSelect;
 type EventRow = typeof schema.events.$inferSelect;
 
 /**
- * The public, unauthenticated projection of a profile — a hard allowlist, not a
- * redaction. Only the columns safe for anonymous viewers appear here; owner,
- * billing, `details`, membership, and every internal/financial field are omitted
- * by construction (they are never read, so they can never leak).
+ * The public, unauthenticated projection of a profile lives in
+ * `serialize/profile.ts` and is re-exported here so this module stays the one
+ * import for "the public shapes".
+ *
+ * WHY IT MOVED: the owner's in-app **Preview** has to show exactly what a
+ * stranger sees, including for a profile that is not published yet — so it needs
+ * the same projection over a row this endpoint would 404. Two implementations of
+ * "what is public" would drift the day one of them gained a field, and the drift
+ * would be invisible (a preview that flatters). There is now one function, called
+ * from both places, and its docstring carries the field-by-field rule.
  */
-export interface PublicProfile {
-  id: string;
-  name: string;
-  type: string | null;
-  kind: string;
-  bio: string | null;
-  avatarUrl: string | null;
-  bannerUrl: string | null;
-}
-
-export function serializePublicProfile(profile: ProfileRow): PublicProfile {
-  return {
-    id: profile.id,
-    name: profile.name,
-    type: profile.type,
-    kind: profile.kind,
-    bio: profile.bio,
-    avatarUrl: profile.avatarUrl,
-    bannerUrl: profile.bannerUrl,
-  };
-}
+export {
+  type PublicProfile,
+  type PublicProfileLocation,
+  type PublicVenueDetails,
+  serializePublicProfile,
+} from "./profile";
 
 /**
  * The public projection of a published event — the poster-level facts only.

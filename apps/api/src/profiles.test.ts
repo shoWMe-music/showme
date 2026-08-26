@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
 import { profileRoutes } from "./routes/profiles";
+import { publicRoutes } from "./routes/public";
 import { buildTestApp } from "./testing";
 
 /** Fake verifier: the bearer token IS the uid, so tests just send `Bearer <uid>`. */
@@ -19,7 +20,13 @@ let app: FastifyInstance;
 
 beforeAll(async () => {
   harness = await startTestDatabase();
-  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [profileRoutes]);
+  // `publicRoutes` rides along so the preview tests can assert that the owner's
+  // Preview and the anonymous page return the SAME body — the one thing a second
+  // copy of the projection would break.
+  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [
+    profileRoutes,
+    publicRoutes,
+  ]);
   await app.ready();
 });
 
@@ -178,7 +185,14 @@ describe("profiles — authorize + serialize + audit", () => {
     expect(saved.statusCode).toBe(200);
     expect(saved.json().venueDetails.amenities).toEqual(["pa_system", "Green Room"]);
     expect(saved.json().venueDetails.capacity).toBe(400);
-    expect(saved.json().location).toEqual({ city: "Stockholm", country: "SE" });
+    expect(saved.json().location).toEqual({
+      street: null,
+      postcode: null,
+      city: "Stockholm",
+      country: "SE",
+      lat: null,
+      lng: null,
+    });
 
     // The state, not just the response: the location must land in
     // `profile_locations` (what timezone/territory/search join), not in a jsonb
@@ -211,7 +225,14 @@ describe("profiles — authorize + serialize + audit", () => {
       },
     });
     expect(again.statusCode).toBe(200);
-    expect(again.json().location).toEqual({ city: "Göteborg", country: "SE" });
+    expect(again.json().location).toEqual({
+      street: null,
+      postcode: null,
+      city: "Göteborg",
+      country: "SE",
+      lat: null,
+      lng: null,
+    });
     // An unmentioned field is left alone, not blanked.
     expect(again.json().venueDetails.soundSystem).toBe("Funktion-One");
 
@@ -430,3 +451,387 @@ describe("profiles — grant_admin entitlement gate (decisions #12)", () => {
     expect(allowed.json().role).toBe("admin");
   });
 });
+
+/**
+ * THE FIELDS THE PREVIOUS APP CAPTURED AND THIS ONE HAD LOST.
+ *
+ * The user's report was "Profile is missing a lot of inputs from the old
+ * version". These are the ones with somewhere to be stored — links, photos,
+ * videos, performer setups, venue capacity setups, and the street half of an
+ * address — asserted as a round trip, because "the API accepts it" and "the row
+ * holds it" have been two different things in this codebase before.
+ */
+describe("profiles — the field inventory ported from the previous app", () => {
+  it("round-trips links, photos, videos and setups, and stores each in its own table", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("inventory", "performer");
+
+    const saved = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: {
+        avatarUrl: "https://cdn.example/avatar.png",
+        bannerUrl: "https://cdn.example/banner.png",
+        location: { street: "Bandvägen 7", postcode: "113 30", city: "Stockholm", country: "se" },
+        socialLinks: [
+          { platform: "Spotify", url: "https://open.spotify.com/artist/x" },
+          { platform: "Instagram", url: "https://instagram.com/x" },
+        ],
+        photos: ["https://cdn.example/1.jpg", "https://cdn.example/2.jpg"],
+        videos: ["https://youtube.com/watch?v=abc"],
+        setups: [
+          { name: "Solo", headcount: 1 },
+          { name: "Full Band", headcount: 5 },
+        ],
+      },
+    });
+    expect(saved.statusCode).toBe(200);
+
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+    });
+    const body = read.json();
+    expect(body.socialLinks).toEqual([
+      { platform: "Spotify", url: "https://open.spotify.com/artist/x" },
+      { platform: "Instagram", url: "https://instagram.com/x" },
+    ]);
+    expect(body.photos).toEqual(["https://cdn.example/1.jpg", "https://cdn.example/2.jpg"]);
+    expect(body.videos).toEqual(["https://youtube.com/watch?v=abc"]);
+    expect(body.location.street).toBe("Bandvägen 7");
+    expect(body.location.postcode).toBe("113 30");
+
+    // The STATE, per table — `profile_social_links` and `profile_media` had
+    // existed since 0000 with nothing ever writing to them.
+    const links = await harness.db
+      .select()
+      .from(schema.profileSocialLinks)
+      .where(eq(schema.profileSocialLinks.profileId, profileId));
+    expect(links).toHaveLength(2);
+    // Order is the owner's editorial choice, so it is stored, not incidental.
+    expect(links.map((link) => link.position).sort()).toEqual([0, 1]);
+
+    const media = await harness.db
+      .select()
+      .from(schema.profileMedia)
+      .where(eq(schema.profileMedia.profileId, profileId));
+    expect(media.filter((item) => item.kind === "photo")).toHaveLength(2);
+    expect(media.filter((item) => item.kind === "video")).toHaveLength(1);
+
+    // Setups are merged into the `details` jsonb by the ROUTE, so a client never
+    // has to hand-spread the blob (and so can never drop a sibling key).
+    const [row] = await harness.db
+      .select()
+      .from(schema.profiles)
+      .where(eq(schema.profiles.id, profileId));
+    expect((row?.details as { setups: unknown[] }).setups).toEqual([
+      { name: "Solo", headcount: 1 },
+      { name: "Full Band", headcount: 5 },
+    ]);
+  });
+
+  it("replaces photos without touching videos, and merges setups without dropping other details keys", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("inventory-partial", "performer");
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: {
+        details: { genres: ["Indie"] },
+        photos: ["https://cdn.example/old.jpg"],
+        videos: ["https://vimeo.com/1"],
+      },
+    });
+
+    // Photos alone. The videos are a separate card in the editor, so a save that
+    // only touched photos must not blank them.
+    const partial = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: { photos: ["https://cdn.example/new.jpg"], setups: [{ name: "Duo", headcount: 2 }] },
+    });
+    expect(partial.statusCode).toBe(200);
+    expect(partial.json().photos).toEqual(["https://cdn.example/new.jpg"]);
+    expect(partial.json().videos).toEqual(["https://vimeo.com/1"]);
+
+    const [row] = await harness.db
+      .select()
+      .from(schema.profiles)
+      .where(eq(schema.profiles.id, profileId));
+    const details = row?.details as { genres: string[]; setups: unknown[] };
+    // `setups` arrived on its own; `genres` was written by an earlier save and is
+    // still there.
+    expect(details.genres).toEqual(["Indie"]);
+    expect(details.setups).toEqual([{ name: "Duo", headcount: 2 }]);
+
+    // An explicit empty array is "I removed them all", not "leave them alone".
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: { photos: [] },
+    });
+    expect(cleared.json().photos).toEqual([]);
+    expect(cleared.json().videos).toEqual(["https://vimeo.com/1"]);
+  });
+
+  it("gives capacity setups stable ids and exactly one headline", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("capacity-setups", "operator");
+
+    // Nobody flagged a main — the first setup becomes it, because a non-empty
+    // list must have an answer to "what is this room's headline capacity".
+    const none = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: {
+        venueDetails: {
+          capacitySetups: [
+            { name: "Standing only", capacityStanding: 400 },
+            { name: "Theater seating", capacitySitting: 220 },
+            // A row the owner added and never named is dropped, not rejected.
+            { name: "   " },
+          ],
+        },
+      },
+    });
+    expect(none.statusCode).toBe(200);
+    const setups = none.json().venueDetails.capacitySetups;
+    expect(setups).toHaveLength(2);
+    expect(setups.map((setup: { isMain: boolean }) => setup.isMain)).toEqual([true, false]);
+    expect(setups[0].id).toBeTruthy();
+
+    // Two mains is a state the previous app's UI could produce. Only the first
+    // survives, so "the headline capacity" always has one answer.
+    const both = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: {
+        venueDetails: {
+          capacitySetups: [
+            { id: "a", name: "Standing only", capacityStanding: 400, isMain: true },
+            { id: "b", name: "Theater seating", capacitySitting: 220, isMain: true },
+          ],
+        },
+      },
+    });
+    expect(
+      both.json().venueDetails.capacitySetups.map((s: { isMain: boolean }) => s.isMain),
+    ).toEqual([true, false]);
+  });
+});
+
+/**
+ * THE PREVIEW, and the rule it exists to make honest.
+ *
+ * The screen used to compute "Public view" in the browser from the member
+ * payload, so it showed draft events under a heading that said PUBLIC. The
+ * preview is now a server projection — the SAME `serializePublicProfile` the
+ * anonymous route runs — and these tests pin the two things that matters:
+ * what it withholds, and that it agrees with the anonymous route field for field.
+ */
+describe("profiles — public preview", () => {
+  it("withholds artist logistics and the booking contact, and keeps the audience half", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("preview-venue", "operator");
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: {
+        type: "venue",
+        isPublic: true,
+        location: { street: "Hornsgatan 12", postcode: "118 20", city: "Stockholm", country: "SE" },
+        venueDetails: {
+          capacity: 400,
+          artistLogisticsNotes: "Back door on Bellmansgatan, code 4471",
+          audienceLogisticsNotes: "Entrance on Hornsgatan, step-free at the side",
+          contactEmail: "book@lantern.example",
+          contactPhone: "+46 70 000 00 00",
+        },
+      },
+    });
+
+    const preview = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${profileId}/public-preview`,
+      headers: auth(ownerId),
+    });
+    expect(preview.statusCode).toBe(200);
+    const { profile } = preview.json();
+
+    // The audience half is published; the artist half and the contact are not
+    // merely blank — they have no key at all (decisions.md #16.7).
+    expect(profile.venueDetails.audienceLogisticsNotes).toBe(
+      "Entrance on Hornsgatan, step-free at the side",
+    );
+    expect(profile.venueDetails.artistLogisticsNotes).toBeUndefined();
+    expect(profile.venueDetails.contactEmail).toBeUndefined();
+    expect(profile.venueDetails.contactPhone).toBeUndefined();
+    expect(profile.billing).toBeUndefined();
+    expect(profile.details).toBeUndefined();
+    expect(profile.ownerUserId).toBeUndefined();
+
+    // A place publishes its street address — a venue nobody can find is a venue
+    // nobody attends.
+    expect(profile.location.street).toBe("Hornsgatan 12");
+
+    // And it agrees with the anonymous route, field for field. Two projections
+    // would drift; there is one, and this is the proof.
+    const anonymous = await app.inject({
+      method: "GET",
+      url: `/api/v1/public/profiles/${anonymousSlug(preview.json().profile.slug)}`,
+    });
+    expect(anonymous.statusCode).toBe(200);
+    expect(anonymous.json()).toEqual(profile);
+  });
+
+  it("withholds a performer's street address while publishing their city", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("preview-band", "performer");
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: {
+        type: "band",
+        isPublic: true,
+        location: { street: "Bandvägen 7", postcode: "113 30", city: "Stockholm", country: "SE" },
+      },
+    });
+
+    // The band's own team still sees the whole address on the member read — it
+    // is their address.
+    const member = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+    });
+    expect(member.json().location.street).toBe("Bandvägen 7");
+
+    // A stranger gets the city and nothing finer. Ported from the previous app,
+    // which printed a venue's full address and a performer's city only
+    // (`PublicProfilePage.tsx` — `formatLocation` vs `formatPerformerLocation`).
+    const preview = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${profileId}/public-preview`,
+      headers: auth(ownerId),
+    });
+    expect(preview.json().profile.location).toEqual({
+      street: null,
+      postcode: null,
+      city: "Stockholm",
+      country: "SE",
+      lat: null,
+      lng: null,
+    });
+  });
+
+  it("lists only published, world-facing events — never a draft", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("preview-events", "operator");
+    const future = "2099-06-01";
+    const past = "2000-06-01";
+    await harness.db.insert(schema.events).values([
+      // The one a stranger would find.
+      {
+        hostProfileId: profileId,
+        venueProfileId: profileId,
+        title: "Announced Show",
+        baseCurrency: "SEK",
+        eventDate: future,
+        status: "confirmed",
+        published: true,
+        createdBy: ownerId,
+      },
+      // Never announced. The old screen listed exactly this under "PUBLIC".
+      {
+        hostProfileId: profileId,
+        venueProfileId: profileId,
+        title: "Draft Idea",
+        baseCurrency: "SEK",
+        eventDate: future,
+        status: "draft",
+        published: false,
+        createdBy: ownerId,
+      },
+      // Published once, then called off — no longer a show.
+      {
+        hostProfileId: profileId,
+        venueProfileId: profileId,
+        title: "Called Off",
+        baseCurrency: "SEK",
+        eventDate: future,
+        status: "cancelled",
+        published: true,
+        createdBy: ownerId,
+      },
+      // Real, announced, and over. "Coming Events" is a claim about the future.
+      {
+        hostProfileId: profileId,
+        venueProfileId: profileId,
+        title: "Last Year",
+        baseCurrency: "SEK",
+        eventDate: past,
+        status: "concluded",
+        published: true,
+        createdBy: ownerId,
+      },
+    ]);
+
+    const preview = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${profileId}/public-preview`,
+      headers: auth(ownerId),
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json().comingEvents.map((event: { title: string }) => event.title)).toEqual([
+      "Announced Show",
+    ]);
+  });
+
+  it("previews an UNPUBLISHED profile that the anonymous route 404s", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("preview-unpublished", "operator");
+    const detail = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+    });
+    const { slug } = detail.json();
+
+    // Previewing before publishing is the whole point of a preview…
+    const preview = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${profileId}/public-preview`,
+      headers: auth(ownerId),
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json().isPublic).toBe(false);
+    expect(preview.json().profile.name).toBe("preview-unpublished");
+
+    // …and the screen says so because the API told it, not because it guessed.
+    const anonymous = await app.inject({
+      method: "GET",
+      url: `/api/v1/public/profiles/${slug}`,
+    });
+    expect(anonymous.statusCode).toBe(404);
+  });
+
+  it("404s a preview for a non-member (no existence leak)", async () => {
+    const { profileId } = await seedProfileOwner("preview-private", "operator");
+    await seedUser("preview-stranger", "operator");
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${profileId}/public-preview`,
+      headers: auth("preview-stranger"),
+    });
+    expect(response.statusCode).toBe(404);
+  });
+});
+
+/** The slug is already URL-safe (created from a slug field); this just documents that. */
+function anonymousSlug(slug: string): string {
+  return encodeURIComponent(slug);
+}

@@ -92,19 +92,34 @@ describe("public profiles", () => {
     const response = await app.inject({ method: "GET", url: "/api/v1/public/profiles/cool-band" });
     expect(response.statusCode).toBe(200);
     const body = response.json();
+    // The WHOLE body, asserted exactly. This is the projection's contract: a
+    // field added to `profiles` that quietly reached the open internet would
+    // break this line, which is the point of writing it as an equality rather
+    // than a handful of `toHaveProperty`s.
     expect(body).toEqual({
       id: expect.any(String),
+      slug: "cool-band",
       name: "cool-band",
       type: "band",
       kind: "performer",
       bio: "We play",
       avatarUrl: "https://cdn/a.png",
       bannerUrl: "https://cdn/b.png",
+      // `details` held `{ private: true }`; only the two leaves the projection
+      // names by hand come out, and neither was set.
+      genres: [],
+      setups: [],
+      socialLinks: [],
+      photos: [],
+      videos: [],
+      location: null,
+      venueDetails: null,
     });
     // No owner/billing/details/members leak.
     expect(body.ownerUserId).toBeUndefined();
     expect(body.billing).toBeUndefined();
     expect(body.details).toBeUndefined();
+    expect(body.isPublic).toBeUndefined();
   });
 
   it("404s a non-public profile", async () => {
