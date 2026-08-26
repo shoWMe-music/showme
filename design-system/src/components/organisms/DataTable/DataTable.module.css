@@ -35,11 +35,33 @@
 }
 .row:first-of-type { border-top: 0; }
 
+/*
+ * A ROW HAS AN EDGE — ITS OWN RULE. §2 says hover promotes the edge rather than
+ * filling the ground, and a table row looks like the exception because it has no
+ * border box. It does not: it has a `border-top`, and the row BELOW has one too.
+ * Lighting both turns the hovered row into a bracketed band, which reads as
+ * "this row" more precisely than a wash does — a fill on a row of a striped-free
+ * table is easy to mistake for selection.
+ *
+ * `--hover-surface` is transparent in light, so the fill this used to carry was
+ * doing nothing at all there once the token changed. The inset shadow draws the
+ * bottom edge without adding a second border and without shifting the row by a
+ * pixel.
+ */
 .clickable {
   cursor: pointer;
-  transition: background var(--duration-quick);
+  transition:
+    border-top-color var(--duration-quick) var(--ease-out),
+    box-shadow var(--duration-quick) var(--ease-out),
+    background var(--duration-quick) var(--ease-out);
 }
-.clickable:hover { background: var(--hover-surface); }
+.clickable:hover {
+  background: var(--hover-surface);
+  border-top-color: var(--hover-border);
+  box-shadow: inset 0 -1px 0 0 var(--hover-border);
+}
+/* The first row has no top rule to promote, so the bottom edge carries it alone. */
+.clickable:first-of-type:hover { border-top-color: transparent; }
 
 .right { text-align: right; }
 

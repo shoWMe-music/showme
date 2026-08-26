@@ -49,6 +49,11 @@ export function SegmentedToggle<Value extends string>({
               fontSize: 13,
               fontWeight: active ? 600 : 400,
               background: active ? "var(--brand-red)" : "transparent",
+              // Solid colours on both sides, so a plain transition interpolates
+              // — unlike Chip, whose active state is a gradient and needed a
+              // separate opacity layer.
+              transition:
+                "background var(--duration-quick) var(--ease-out), color var(--duration-quick) var(--ease-out)",
               color: active ? "#fff" : "var(--muted)",
             }}
           >

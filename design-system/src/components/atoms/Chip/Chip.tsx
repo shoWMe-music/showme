@@ -16,7 +16,10 @@ export function Chip({ active = false, className, children, type = "button", ...
       className={classNames(styles.chip, active && styles.active, className)}
       {...rest}
     >
-      {children}
+      {/* The label needs to be an ELEMENT, not a bare text node: the active
+          fill is a pseudo-element layer (a gradient cannot be transitioned
+          against a flat colour), and only an element can be raised above it. */}
+      <span className={styles.label}>{children}</span>
     </button>
   );
 }

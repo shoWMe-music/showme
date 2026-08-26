@@ -1,4 +1,5 @@
 import { Badge, Button, Card, Icon, KeyValueRow } from "@showme/design-system";
+import { useEffect } from "react";
 import { formatStartTime } from "../components/CalendarEventChip";
 import { ShareOtpGate } from "../components/ShareOtpGate";
 import { type ShareComment, ShareSectionCard } from "../components/ShareSectionCard";
@@ -34,6 +35,20 @@ import { formatDate, formatMoney } from "../lib/format";
  */
 export function ShareViewer({ token }: { token: string }) {
   const share = useShareViewer(token);
+
+  /**
+   * The share viewer is rendered BEFORE the auth gate and outside `AppShell`
+   * (`main.tsx`) — and `AppShell` is the only thing in the app that stamps
+   * `data-theme="light"` on `<html>`. Light is the product's default theme;
+   * without this the one page an outside recipient ever sees was the one page
+   * that could never reach it, and every settlement link opened dark. Same
+   * attribute, same idiom as the shell, for the lifetime of this page.
+   */
+  useEffect(() => {
+    const element = window.document.documentElement;
+    element.setAttribute("data-theme", "light");
+    return () => element.removeAttribute("data-theme");
+  }, []);
 
   return (
     <div style={pageStyle}>
