@@ -1,4 +1,4 @@
-import type { FastifyRequest, FastifyServerOptions } from "fastify";
+import type { FastifyError, FastifyRequest, FastifyServerOptions } from "fastify";
 
 /**
  * Structured logging, shaped for Cloud Logging.
@@ -82,6 +82,30 @@ export function sanitizeUrl(url: string): string {
  * silent; otherwise structured JSON on stdout, which is exactly what Cloud Run
  * forwards to Cloud Logging.
  */
+/**
+ * Shape a thrown value for a log line.
+ *
+ * pino registers its standard error serializer under the key `err` only. Routes
+ * in this codebase log `request.log.error({ error }, "…")`, and an `Error` under
+ * any other key serializes as `{}` — because `message` and `stack` are
+ * non-enumerable, so a structured clone of an Error is an empty object. The
+ * first production failure diagnosed with this logger, an invitation email that
+ * refused to send, arrived as literally `"error": {}`. This is what makes the
+ * reason survive the trip.
+ */
+function serializeThrown(value: unknown): unknown {
+  if (!(value instanceof Error)) return value;
+  const serialized: Record<string, unknown> = {
+    type: value.name,
+    message: value.message,
+    stack: value.stack,
+  };
+  // `cause` is where a wrapped lower-level failure hides — an upstream HTTP
+  // status, a driver error code — and it is the half that usually says why.
+  if (value.cause !== undefined) serialized.cause = serializeThrown(value.cause);
+  return serialized;
+}
+
 export function loggerOptions(
   environment: NodeJS.ProcessEnv = process.env,
 ): FastifyServerOptions["logger"] {
@@ -108,6 +132,19 @@ export function loggerOptions(
       censor: REDACTED,
     },
     serializers: {
+      // Both spellings: `err` is pino's convention, `error` is the one the
+      // routes actually use. Registering only one of them is how a failure
+      // becomes an empty object.
+      // Fastify types the `err` serializer's return shape strictly, so it gets
+      // a wrapper that always satisfies it; `error` — the spelling the routes
+      // actually use — takes anything, including a non-Error.
+      err: (value: FastifyError) => ({
+        type: value.name,
+        message: value.message,
+        stack: value.stack ?? "",
+        ...(value.cause === undefined ? {} : { cause: serializeThrown(value.cause) }),
+      }),
+      error: serializeThrown,
       // Deliberately no `headers` — the Authorization header is a Firebase ID
       // token, and there is no diagnosis it helps with that the route and the
       // resolved principal do not.

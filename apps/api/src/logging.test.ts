@@ -155,3 +155,53 @@ describe("what a live request actually writes", () => {
     expect(JSON.stringify(lines)).toContain("[redacted]");
   });
 });
+
+/**
+ * The defect this covers, found in production: an invitation email refused to
+ * send, the route logged `{ error }`, and Cloud Logging received `"error": {}`.
+ * An Error's `message` and `stack` are NON-ENUMERABLE, so anything that clones
+ * it structurally yields an empty object — and pino only registers its standard
+ * error serializer under `err`, never `error`. The logger existed precisely to
+ * make failures visible and was dropping the only part that mattered.
+ */
+describe("errors survive serialization", () => {
+  /** The serializer under `name`, or a failure — never an optional call. */
+  const serializer = (name: "err" | "error") => {
+    const options = loggerOptions({ NODE_ENV: "production" } as NodeJS.ProcessEnv);
+    if (typeof options !== "object" || options === null) throw new Error("expected options");
+    const found = (options as { serializers?: Record<string, (value: unknown) => unknown> })
+      .serializers?.[name];
+    if (!found) throw new Error(`no \`${name}\` serializer registered`);
+    return found;
+  };
+
+  it("keeps the message and stack that a structural clone would drop", () => {
+    const thrown = new Error("Brevo email send failed (401): unauthorised");
+    // The behaviour that made this necessary — proof, not assumption.
+    expect(JSON.parse(JSON.stringify(thrown))).toEqual({});
+
+    const serialized = serializer("error")(thrown) as Record<string, unknown>;
+    expect(serialized.type).toBe("Error");
+    expect(serialized.message).toBe("Brevo email send failed (401): unauthorised");
+    expect(typeof serialized.stack).toBe("string");
+  });
+
+  it("serializes under pino's `err` spelling too", () => {
+    const serialized = serializer("err")(new Error("boom")) as Record<string, unknown>;
+    expect(serialized.message).toBe("boom");
+  });
+
+  it("unwraps the cause, where the real reason usually hides", () => {
+    const thrown = new Error("invitation email failed", {
+      cause: new Error("getaddrinfo ENOTFOUND api.brevo.com"),
+    });
+    const serialized = serializer("error")(thrown) as Record<string, unknown>;
+    const cause = serialized.cause as Record<string, unknown>;
+    expect(cause.message).toBe("getaddrinfo ENOTFOUND api.brevo.com");
+  });
+
+  it("passes a non-Error through untouched", () => {
+    expect(serializer("error")("just a string")).toBe("just a string");
+    expect(serializer("error")({ code: 42 })).toEqual({ code: 42 });
+  });
+});

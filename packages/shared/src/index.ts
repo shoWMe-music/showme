@@ -1,5 +1,11 @@
 export { CAPABILITIES, isCapability, type Capability } from "./capabilities";
 export {
+  type BudgetInputs,
+  type BudgetProjection,
+  computeBudgetProjection,
+  type TicketTier,
+} from "./budget-planning";
+export {
   type E2eAccount,
   type E2eAccountKind,
   type E2eAccountName,
@@ -18,8 +24,11 @@ export {
   CURRENCIES,
   type CurrencyCode,
   type CurrencyInfo,
+  FALLBACK_CURRENCY,
   currencyExponent,
   currencyForCountry,
+  currencyOptionsForCountry,
+  defaultCurrencyForCountry,
 } from "./currencies";
 export {
   COUNTRY_CODES,

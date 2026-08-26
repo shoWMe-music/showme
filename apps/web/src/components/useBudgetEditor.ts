@@ -53,15 +53,17 @@ const SAVE_DEBOUNCE_MILLISECONDS = 700;
  * because a JS number loses precision past 2^53. The planner's fields are major
  * units, so these two are the only places the factor of 100 lives.
  */
-function toMinorUnits(major: string): string {
+export function toMinorUnits(major: string): string {
   const parsed = Number(major);
   if (!Number.isFinite(parsed)) return "0";
   return Math.round(parsed * 100).toString();
 }
 
-function toMajorUnits(minor: string): string {
+export function toMajorUnits(minor: string): string {
   const parsed = Number(minor);
-  if (!Number.isFinite(parsed)) return "0";
+  // An unreadable amount is unknown, not zero — surfacing it as a literal "0"
+  // puts a figure in front of the operator that nobody entered.
+  if (!Number.isFinite(parsed)) return "";
   return (parsed / 100).toString();
 }
 
@@ -352,7 +354,11 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
   const addTier = useCallback(() => {
     setTiers((rows) => [
       ...rows,
-      { id: `${NEW_ROW_PREFIX}${rows.length}`, name: "", price: "0", quantity: "0" },
+      // Empty, not "0": a tier nobody has priced yet has no price, and a
+      // pre-filled zero is three characters the operator must delete before
+      // they can type. `numeric()` reads "" as 0 for the running totals, so
+      // the KPI band still adds up while the fields stay blank.
+      { id: `${NEW_ROW_PREFIX}${rows.length}`, name: "", price: "", quantity: "" },
     ]);
   }, []);
 
