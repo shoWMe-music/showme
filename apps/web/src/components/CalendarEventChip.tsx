@@ -1,4 +1,6 @@
 import { STATUS_COLOR, type Status } from "@showme/design-system";
+import { CalendarEntryPreview } from "./CalendarEntryPreview";
+import { useCalendarEntryPreview } from "./useCalendarEntryPreview";
 
 /** One entry on the calendar, and the chip that draws it. Lives here rather than
  * inside the month grid because all three calendar views (month, week, day) draw
@@ -61,45 +63,67 @@ export function CalendarEventChip({
   onSelect,
 }: CalendarEventChipProps) {
   const color = STATUS_COLOR[event.status];
-  const clickable = Boolean(onSelect && event.eventId);
   const label = chipLabel(event, labelMode);
-  const time = showTime ? formatStartTime(event.startTime) : null;
+  const startTime = formatStartTime(event.startTime);
+  // Every chip previews; only a real event has somewhere to go afterwards.
+  const preview = useCalendarEntryPreview(event.eventId, onSelect);
 
   return (
-    <button
-      type="button"
-      onClick={(clickEvent) => {
-        clickEvent.stopPropagation();
-        if (event.eventId) onSelect?.(event.eventId);
-      }}
-      title={time ? `${time} ${label}` : label}
-      style={{
-        display: "block",
-        width: "100%",
-        textAlign: "left",
-        cursor: clickable ? "pointer" : "default",
-        border: 0,
-        borderLeft: `2px solid ${color.fg}`,
-        borderRadius: 6,
-        padding: "3px 7px",
-        marginBottom: 3,
-        fontSize: 11,
-        fontWeight: 500,
-        whiteSpace: "nowrap",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        background: color.tint,
-        color: color.fg,
-      }}
-    >
-      {time && (
-        <span
-          style={{ fontFamily: "var(--font-mono)", fontSize: 10, marginRight: 6, opacity: 0.8 }}
-        >
-          {time}
-        </span>
+    // `display: contents` so the wrapper is invisible to the day cell's flex
+    // layout — it exists only to give the popover a node to test clicks against.
+    <div ref={preview.wrapperRef} style={{ display: "contents" }}>
+      <button
+        ref={preview.triggerRef}
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={preview.open}
+        onClick={(clickEvent) => {
+          // The cell behind the chip opens its own "create" menu on click.
+          clickEvent.stopPropagation();
+          preview.toggle();
+        }}
+        // Without this a double-click on a chip also reaches the month cell and
+        // opens the create modal on top of the preview.
+        onDoubleClick={(clickEvent) => clickEvent.stopPropagation()}
+        title={showTime && startTime ? `${startTime} ${label}` : label}
+        style={{
+          display: "block",
+          width: "100%",
+          textAlign: "left",
+          cursor: "pointer",
+          border: 0,
+          borderLeft: `2px solid ${color.fg}`,
+          borderRadius: 6,
+          padding: "3px 7px",
+          marginBottom: 3,
+          fontSize: 11,
+          fontWeight: 500,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          background: color.tint,
+          color: color.fg,
+        }}
+      >
+        {showTime && startTime && (
+          <span
+            style={{ fontFamily: "var(--font-mono)", fontSize: 10, marginRight: 6, opacity: 0.8 }}
+          >
+            {startTime}
+          </span>
+        )}
+        {label}
+      </button>
+
+      {preview.open && preview.anchorRect && (
+        <CalendarEntryPreview
+          entry={event}
+          time={startTime}
+          anchor={preview.anchorRect}
+          panelRef={preview.panelRef}
+          onOpenEvent={preview.openEvent}
+        />
       )}
-      {label}
-    </button>
+    </div>
   );
 }
