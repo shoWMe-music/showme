@@ -14,7 +14,20 @@ Everything below was deployed from `main` at `04dfd16`, after 528 API tests and
 | Database | Cloud SQL `showme-production-db` moved **0006 → 0011**. On-demand backup `1787716371559` taken first ("before migrations 0007-0011"), verified SUCCESSFUL before applying. |
 | API | Cloud Run `showme-api` rev **`00008-5kp`**, europe-north2. |
 | Web app | `showme-app.web.app`, bundle **`index-2JNI8cFe.js`** (was `index-scfLaoqh.js`). |
-| Marketing | **NOT deployed** — its target is `showme-production` on the **gmail** account, and this session ran as `daniel@showme.music`. Three new public pages are waiting there: `availability.html`, `event.html`, `profile.html`. |
+| Marketing | **Deployed** to `showme-production` / `www.showme.music`, including three new public pages: `availability.html`, `event.html`, `profile.html`. |
+
+The marketing target lives on the **gmail** account (`daniel.islandman@gmail.com`)
+while everything else runs as `daniel@showme.music`. It was deployed with
+`firebase deploy --account daniel.islandman@gmail.com`, which uses that identity
+for the one command WITHOUT switching the CLI's default — verified afterwards
+that the active account is still `daniel@showme.music`. Use that flag rather
+than `login:use`, or the next deploy silently goes out as the wrong identity.
+
+Verified live: all four URLs 200, the availability bundle really does carry the
+deployed API origin, and the API answers a preflight from
+`https://www.showme.music` with a matching `access-control-allow-origin`. The
+three new pages are lean — 5–12 kB each — because none of them pulls in the
+141 kB landing bundle.
 
 **Data at risk was negligible and was checked before migrating**: 1 user, 1
 profile, 1 event, and zero deals, deal parties, messages or calendar items — so
