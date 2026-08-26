@@ -47,6 +47,11 @@ export interface CalendarMonthGridProps {
 
 const TODAY_TINT = "rgba(238,87,70,.05)";
 
+/** The hairline that separates two cells. Drawn only BETWEEN cells — never on the
+ * last column or last row — because the card already draws its own 1px border
+ * there, and the two sitting flush would read as a doubled 2px outer edge. */
+const CELL_RULE = "1px solid var(--border)";
+
 function chipLabel(event: CalendarEvent, mode: CalendarLabelMode): string {
   if (mode === "performer") return event.performer ?? event.eventName;
   if (mode === "eventName") return event.eventName;
@@ -83,7 +88,7 @@ export function CalendarMonthGrid({
             borderBottom: "1px solid var(--border)",
           }}
         >
-          {WEEKDAYS_SHORT.map((day) => (
+          {WEEKDAYS_SHORT.map((day, columnIndex) => (
             <div
               key={day}
               style={{
@@ -93,7 +98,7 @@ export function CalendarMonthGrid({
                 letterSpacing: "0.1em",
                 textTransform: "uppercase",
                 color: "var(--dim)",
-                borderRight: "1px solid var(--border)",
+                borderRight: columnIndex === WEEKDAYS_SHORT.length - 1 ? undefined : CELL_RULE,
               }}
             >
               {day.toUpperCase()}
@@ -102,10 +107,21 @@ export function CalendarMonthGrid({
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
-          {cells.map((cell) => {
-            // Out-of-month days render as empty padding cells (no borders), as
-            // the prototype does — the bordered day cells form the "table".
-            if (!cell.inMonth) return <div key={cell.key} />;
+          {cells.map((cell, cellIndex) => {
+            // Every cell carries the grid rules, out-of-month padding days included.
+            // The prototype leaves those cells border-less, which tears a visible hole
+            // in the table whenever a month starts or ends mid-week (August 2026 starts
+            // on a Saturday: the whole first week loses its rules). We deliberately
+            // depart from the prototype here so the hairlines stay continuous.
+            const rules = {
+              borderRight: cellIndex % 7 === 6 ? undefined : CELL_RULE,
+              borderBottom: cellIndex >= cells.length - 7 ? undefined : CELL_RULE,
+            };
+
+            // Padding days get the rules and NOTHING else: no day number, no today
+            // tint, no hover cursor, no click target. They must stay inert — a click
+            // there would select a day outside the month being shown.
+            if (!cell.inMonth) return <div key={cell.key} style={rules} />;
 
             const dayEvents = byDay.get(cell.key) ?? [];
             const visible = maxPerDay != null ? dayEvents.slice(0, maxPerDay) : dayEvents;
@@ -137,8 +153,7 @@ export function CalendarMonthGrid({
                   padding: 8,
                   display: "flex",
                   flexDirection: "column",
-                  borderRight: "1px solid var(--border)",
-                  borderBottom: "1px solid var(--border)",
+                  ...rules,
                   background: isToday ? TODAY_TINT : "transparent",
                   cursor: onSelectDay ? "pointer" : "default",
                 }}
