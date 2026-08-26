@@ -15,6 +15,18 @@
  * only for a profile its owner marked public) and
  * `GET /public/profiles/:slug/availability` (date ranges, no reason, no event).
  *
+ * WHAT A VISITOR MAY DO: ask for one of the dates on screen — see
+ * `availability-request.ts`, which posts the public, unauthenticated
+ * `POST /booking-requests`. The ask is bound to a chip, so the page still never
+ * says anything about a day the sharer did not publish.
+ *
+ * WHAT PROTECTS THAT PUBLIC POST, honestly: almost nothing today. The route has
+ * no rate limit, no origin guard and no honeypot of its own (unlike
+ * `POST /public/leads`, which has all three), and its body schema neither bounds
+ * nor sanitizes the text it stores. The honeypot below is a client-side speed
+ * bump and the API is what actually has to change; the audit lives in
+ * `docs/handoff-2026-08-25-remaining-work.md`.
+ *
  * The dates themselves are a SNAPSHOT carried in the URL fragment, because the
  * sharer's confirmed and held events are deliberately not public — the API can
  * never tell this page which days an event blocks, and it should not be able to.
@@ -24,10 +36,18 @@
  * promising a day that is gone.
  */
 
+import {
+  type DateRequestPanel,
+  type PublicProfileSummary,
+  createDateRequestPanel,
+} from "./availability-request";
+import { element } from "./element";
+
 /**
  * API base including `/api/v1`. Empty disables the live refresh — the page still
  * renders the snapshot, it just cannot retract anything (same contract as
- * VITE_LEAD_ENDPOINT on the contact form).
+ * VITE_LEAD_ENDPOINT on the contact form) — and, with it, the ability to request
+ * a date, since there is nowhere to send the request.
  */
 const API_BASE_URL: string = import.meta.env.VITE_PUBLIC_API_URL ?? "";
 
@@ -152,15 +172,29 @@ async function fetchJson<T>(path: string): Promise<T | null> {
   }
 }
 
-/* ------------------------------------------------------------------ rendering */
-
-function element(tag: string, className?: string, text?: string): HTMLElement {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  // textContent, never innerHTML — every value here came out of a URL someone else wrote.
-  if (text !== undefined) node.textContent = text;
-  return node;
+/**
+ * Narrow `GET /public/profiles/:slug` down to the three fields this page uses,
+ * or null. Only the API may name the profile — a link cannot claim a name it was
+ * not given, and a profile its owner kept private is a 404 and stays anonymous.
+ *
+ * `id` is taken because `POST /booking-requests` addresses its target by id and
+ * this is the only place a stranger can honestly learn it; the same public route
+ * already hands it to anyone holding the slug that is in the URL. It is never
+ * rendered, never put in the fragment, and never written anywhere.
+ */
+function toProfileSummary(value: unknown): PublicProfileSummary | null {
+  if (typeof value !== "object" || value === null) return null;
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.id !== "string" || candidate.id.length === 0) return null;
+  if (typeof candidate.name !== "string" || candidate.name.length === 0) return null;
+  return {
+    id: candidate.id,
+    name: candidate.name,
+    kind: typeof candidate.kind === "string" ? candidate.kind : "",
+  };
 }
+
+/* ------------------------------------------------------------------ rendering */
 
 function filterRow(label: string, value: string): HTMLElement {
   const row = element("div", "filters__row");
@@ -175,15 +209,47 @@ function renderProblem(container: HTMLElement, message: string): void {
   );
 }
 
+/**
+ * One free date, as a chip. It is a BUTTON only when the visitor could actually
+ * send a request for it — the profile resolved, so we have somewhere to send it,
+ * and the date has not been struck out since the link was made. Everything else
+ * stays an inert `<li>`, so the page never offers an action it cannot honour.
+ */
+function dateChip(
+  isoDate: string,
+  taken: boolean,
+  panel: DateRequestPanel | null,
+  selectChip: (chip: HTMLButtonElement, isoDate: string, label: string) => void,
+): HTMLElement {
+  const label = formatDateChip(isoDate);
+
+  if (taken || !panel) {
+    const item = element("li", taken ? "dates__item dates__item--withdrawn" : "dates__item", label);
+    if (taken) item.title = "No longer available";
+    return item;
+  }
+
+  const item = element("li", "dates__cell");
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "dates__item dates__item--action";
+  chip.textContent = label;
+  chip.dataset.date = isoDate;
+  chip.setAttribute("aria-pressed", "false");
+  chip.addEventListener("click", () => selectChip(chip, isoDate, label));
+  item.append(chip);
+  return item;
+}
+
 function renderSnapshot(
   container: HTMLElement,
   snapshot: AvailabilitySnapshot,
-  profileName: string | null,
+  profile: PublicProfileSummary | null,
   unavailability: UnavailabilityRange[],
 ): void {
   const withdrawn = snapshot.availableDates.filter((date) => isWithdrawn(date, unavailability));
 
-  const title = profileName ? `${profileName} is free on these dates` : "Free on these dates";
+  const title = profile ? `${profile.name} is free on these dates` : "Free on these dates";
 
   const heading = element("header");
   heading.append(
@@ -196,6 +262,66 @@ function renderSnapshot(
     ),
   );
 
+  // The request panel is built before the chips because a chip needs to be able
+  // to open it. It is null when nothing could be sent anyway — no API base, or a
+  // profile that did not resolve (private, renamed, or the API is unreachable) —
+  // and then the page is exactly the read-only page it was before.
+  const openDates = snapshot.availableDates.filter((date) => !isWithdrawn(date, unavailability));
+  const requestable = profile !== null && API_BASE_URL !== "" && openDates.length > 0;
+
+  let selectedChip: HTMLButtonElement | null = null;
+
+  const deselectChip = () => {
+    const previous = selectedChip;
+    previous?.setAttribute("aria-pressed", "false");
+    selectedChip = null;
+    return previous;
+  };
+
+  /**
+   * The panel closed (cancelled, or the visitor asked for another date). Hand
+   * focus back to the chips: the control the visitor was on has just been removed
+   * from view, and focus stranded on a hidden element drops a keyboard user back
+   * at the top of the document.
+   */
+  const handlePanelClosed = () => {
+    const previous = deselectChip();
+    if (previous && !previous.disabled) {
+      previous.focus();
+      return;
+    }
+    container.querySelector<HTMLButtonElement>(".dates__item--action:not(:disabled)")?.focus();
+  };
+
+  const markRequested = (isoDate: string) => {
+    const chip = container.querySelector<HTMLButtonElement>(
+      `.dates__item--action[data-date="${isoDate}"]`,
+    );
+    if (!chip) return;
+    chip.classList.add("dates__item--requested");
+    chip.disabled = true;
+    chip.setAttribute("aria-pressed", "false");
+    chip.setAttribute("aria-label", `${chip.textContent} — already requested`);
+    if (selectedChip === chip) selectedChip = null;
+  };
+
+  const panel: DateRequestPanel | null =
+    requestable && profile
+      ? createDateRequestPanel({
+          apiBaseUrl: API_BASE_URL,
+          target: profile,
+          onRequested: markRequested,
+          onClosed: handlePanelClosed,
+        })
+      : null;
+
+  const selectChip = (chip: HTMLButtonElement, isoDate: string, label: string) => {
+    deselectChip();
+    chip.setAttribute("aria-pressed", "true");
+    selectedChip = chip;
+    panel?.openForDate(isoDate, label);
+  };
+
   const datesCard = element("section", "card");
   datesCard.append(element("h2", "card__heading", "Available dates"));
 
@@ -206,16 +332,14 @@ function renderSnapshot(
   } else {
     const list = element("ul", "dates");
     for (const date of snapshot.availableDates) {
-      const taken = isWithdrawn(date, unavailability);
-      const item = element(
-        "li",
-        taken ? "dates__item dates__item--withdrawn" : "dates__item",
-        formatDateChip(date),
-      );
-      if (taken) item.title = "No longer available";
-      list.append(item);
+      list.append(dateChip(date, isWithdrawn(date, unavailability), panel, selectChip));
     }
     datesCard.append(list);
+    if (panel) {
+      datesCard.append(
+        element("p", "dates__hint", "Pick a date to ask about it — one click, then a short note."),
+      );
+    }
   }
 
   if (withdrawn.length > 0) {
@@ -251,7 +375,10 @@ function renderSnapshot(
     ),
   );
 
-  container.replaceChildren(heading, datesCard, filtersCard);
+  // The request panel sits between the dates and the "how this list was made"
+  // footnote — directly under the chip that opened it.
+  if (panel) container.replaceChildren(heading, datesCard, panel.element, filtersCard);
+  else container.replaceChildren(heading, datesCard, filtersCard);
 }
 
 /* ---------------------------------------------------------------- the theme */
@@ -298,7 +425,7 @@ async function render(): Promise<void> {
 
   const encodedSlug = encodeURIComponent(snapshot.profileSlug);
   const [profile, availability] = await Promise.all([
-    fetchJson<{ name: string }>(`/public/profiles/${encodedSlug}`),
+    fetchJson<unknown>(`/public/profiles/${encodedSlug}`),
     fetchJson<{ unavailability: UnavailabilityRange[] }>(
       `/public/profiles/${encodedSlug}/availability`,
     ),
@@ -307,9 +434,7 @@ async function render(): Promise<void> {
   renderSnapshot(
     container,
     snapshot,
-    // Only the name, and only from the API — a link cannot claim a name it was
-    // not given, and a profile its owner kept private stays anonymous here.
-    typeof profile?.name === "string" ? profile.name : null,
+    toProfileSummary(profile),
     availability?.unavailability ?? [],
   );
 }
