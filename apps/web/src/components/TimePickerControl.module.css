@@ -1,0 +1,101 @@
+/* The wall-clock control inside the picker popover. Everything here is drawn
+   from design tokens, which is the whole point: the browser's own time popup is
+   chrome no stylesheet can reach, so it arrives in system blue and system type
+   inside a warm-ink modal. */
+
+.control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.caption {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Reads as ONE field (the TextField fill, border and 10px radius), even though
+   it holds two inputs — the colon between them is decoration, not a separator. */
+.box {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--control-surface);
+  transition: border-color 0.2s;
+}
+
+.box:focus-within {
+  border-color: var(--brand-red);
+}
+
+.segment {
+  width: 2.4ch;
+  padding: 2px 2px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  text-align: center;
+  outline: none;
+}
+
+.segment::placeholder {
+  color: var(--dim);
+}
+
+/* The focused segment is highlighted rather than outlined: the box already
+   carries the focus border, and a second ring inside it would read as noise. */
+.segment:focus {
+  background: var(--brand-red);
+  color: #fff;
+}
+
+.segment::selection {
+  /* The auto-select on focus must not paint a second, differently coloured
+     block on top of the highlight. */
+  background: transparent;
+  color: inherit;
+}
+
+.colon {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.steppers {
+  display: flex;
+  gap: 2px;
+}
+
+.stepper {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--button-surface);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.stepper:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.stepper:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}

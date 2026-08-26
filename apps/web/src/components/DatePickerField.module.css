@@ -1,4 +1,6 @@
-/* The field half of the in-app date picker.
+/* The field half of the in-app date / date-time / time pickers (shared by
+   DatePickerField and TimePickerField — the trigger glyph differs, the
+   mechanics do not).
 
    The browser's calendar popup is chrome, not page content: no CSS reaches it,
    so the only way to match the design system is to keep it shut and open our own
@@ -14,7 +16,8 @@
    not here: callers pass their own inline `style` to match the surrounding form,
    and an inline `padding` shorthand would win over any rule in this file. */
 
-/* Chrome / Edge / Safari. Firefox has no such glyph to hide. */
+/* Chrome / Edge / Safari, on `date`, `datetime-local` and `time` alike.
+   Firefox has no such glyph to hide. */
 .field input::-webkit-calendar-picker-indicator {
   -webkit-appearance: none;
   appearance: none;
@@ -23,13 +26,13 @@
 
 .trigger {
   position: absolute;
-  right: 7px;
+  right: 5px;
   /* Pinned to the input, which is the wrapper's last child — the optional label
      sits above and must not shift the glyph. */
   bottom: 8px;
   display: grid;
   place-items: center;
-  width: 26px;
+  width: 22px;
   height: 24px;
   padding: 0;
   border: 0;

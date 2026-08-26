@@ -2,14 +2,17 @@ import {
   type KeyboardEvent,
   type RefObject,
   useCallback,
-  useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
 import { dayKey } from "./calendarGrid";
+import { usePickerPopover } from "./usePickerPopover";
 
 /**
- * Parse a `yyyy-mm-dd` day into a LOCAL date at midnight.
+ * Parse a `yyyy-mm-dd` day into a LOCAL date at midnight. A `datetime-local`
+ * stamp (`yyyy-mm-ddThh:mm`) is accepted too and its clock half ignored — the
+ * calendar only ever cares which day it is looking at.
  *
  * Never `new Date(value)`: the ISO date form is parsed as UTC, so west of
  * Greenwich it lands on the previous wall-clock day — the exact bug that once
@@ -19,7 +22,7 @@ import { dayKey } from "./calendarGrid";
  */
 export function parseDayKey(value: string | undefined | null): Date | null {
   if (!value) return null;
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}(?::\d{2})?)?$/.exec(value);
   if (!match) return null;
   const [, year, month, day] = match;
   const parsed = new Date(Number(year), Number(month) - 1, Number(day));
@@ -28,6 +31,10 @@ export function parseDayKey(value: string | undefined | null): Date | null {
 
 function startOfMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function isSameMonth(left: Date, right: Date): boolean {
+  return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth();
 }
 
 function addDays(date: Date, days: number): Date {
@@ -43,131 +50,68 @@ const DAY_STEPS: Record<string, number> = {
 };
 
 export interface DatePickerPopoverOptions {
-  /** The field's current `yyyy-mm-dd` value; undefined for an uncontrolled
-   * field, where the input's own DOM value is read instead. */
+  /** The field's current `yyyy-mm-dd` (or `yyyy-mm-ddThh:mm`) value; undefined
+   * for an uncontrolled field, where the input's own DOM value is read instead. */
   value?: string;
   inputRef: RefObject<HTMLInputElement | null>;
+  /** Whether the panel has controls after the grid (the wall-clock row of a
+   * `datetime-local` field). When it does, Tab must walk INTO them rather than
+   * closing the panel, and `PickerPopoverPanel` wraps it at the far end. */
+  panelHasMoreStops?: boolean;
 }
 
 /**
  * All the state and keyboard behaviour behind `DatePickerPopover`, kept out of
- * the components so both stay presentational.
+ * the components so both stay presentational. The open/close/dismiss half lives
+ * in `usePickerPopover`, which the time-only field shares.
  */
-export function useDatePickerPopover({ value, inputRef }: DatePickerPopoverOptions) {
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const panelRef = useRef<HTMLDialogElement>(null);
+export function useDatePickerPopover({
+  value,
+  inputRef,
+  panelHasMoreStops = false,
+}: DatePickerPopoverOptions) {
+  const shell = usePickerPopover({ inputRef });
+  const { open, closePopover, setKeyboardActive } = shell;
 
-  const [open, setOpen] = useState(false);
-  // Whether the calendar (rather than the text field) currently holds the
-  // keyboard: only then does the grid pull DOM focus onto the roving day.
-  const [keyboardActive, setKeyboardActive] = useState(false);
   const [visibleMonth, setVisibleMonth] = useState(() => startOfMonth(new Date()));
   const [focusedDay, setFocusedDay] = useState(() => dayKey(new Date()));
-  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
-
-  const measureAnchor = useCallback(() => {
-    const rect = inputRef.current?.getBoundingClientRect();
-    if (rect) setAnchorRect(rect);
-  }, [inputRef]);
-
-  const openPopover = useCallback(
-    (withKeyboard: boolean) => {
-      measureAnchor();
-      setKeyboardActive(withKeyboard);
-      setOpen(true);
-    },
-    [measureAnchor],
-  );
-
-  const closePopover = useCallback(
-    (returnFocus: boolean) => {
-      setOpen(false);
-      setKeyboardActive(false);
-      if (returnFocus) inputRef.current?.focus();
-    },
-    [inputRef],
-  );
-
-  const togglePopover = useCallback(
-    (withKeyboard: boolean) => {
-      if (open) closePopover(true);
-      else openPopover(withKeyboard);
-    },
-    [open, openPopover, closePopover],
-  );
+  /** The day this hook last pointed the calendar at, so it can tell a real day
+   * change from the value merely being rewritten. */
+  const seededDay = useRef<string | null>(null);
 
   // Keep the calendar pointed at whatever the field says — including days typed
   // straight into the input while the popover is open. Runs on open too, which
   // is what seeds the month and the roving focus.
-  useEffect(() => {
-    if (!open) return;
+  //
+  // LAYOUT effect, not a passive one: a passive effect runs after paint, so the
+  // panel would show one frame of TODAY's month before jumping to the field's —
+  // a visible flick every time a December date is opened in August.
+  useLayoutEffect(() => {
+    if (!open) {
+      seededDay.current = null;
+      return;
+    }
     const target = parseDayKey(value) ?? parseDayKey(inputRef.current?.value) ?? new Date();
-    setFocusedDay(dayKey(target));
-    setVisibleMonth(startOfMonth(target));
+    const targetDay = dayKey(target);
+    // Only a change of DAY may move the roving focus. On a `datetime-local`
+    // field this effect re-runs every time the user nudges the clock, and
+    // re-seeding then would yank the roving day back to the value's — dragging
+    // real DOM focus out of the wall-clock segments with it, so the next arrow
+    // press would silently step the wrong thing.
+    if (seededDay.current === targetDay) return;
+    seededDay.current = targetDay;
+    setFocusedDay(targetDay);
+    setVisibleMonth((current) => (isSameMonth(current, target) ? current : startOfMonth(target)));
   }, [open, value, inputRef]);
 
-  // Escape must close the POPOVER only. The design-system Modal listens for
-  // Escape on `document` in the bubble phase, so a document-level CAPTURE
-  // listener here runs first and stops the event before the modal ever sees it —
-  // one Escape closes the calendar, the next closes the modal.
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDownCapture = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      closePopover(true);
-    };
-    document.addEventListener("keydown", onKeyDownCapture, true);
-    return () => document.removeEventListener("keydown", onKeyDownCapture, true);
-  }, [open, closePopover]);
-
-  // Dismiss when the pointer or the focus lands anywhere outside the field and
-  // its calendar (no click-catcher overlay: one would swallow the first click on
-  // the modal behind it, and as a <button> it would sit in the tab order).
-  useEffect(() => {
-    if (!open) return;
-    const isOutside = (target: EventTarget | null) => {
-      const node = target instanceof Node ? target : null;
-      if (!node) return true;
-      return !wrapperRef.current?.contains(node) && !panelRef.current?.contains(node);
-    };
-    const onPointerDown = (event: MouseEvent) => {
-      if (isOutside(event.target)) closePopover(false);
-    };
-    const onFocusIn = (event: FocusEvent) => {
-      if (isOutside(event.target)) closePopover(false);
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("focusin", onFocusIn);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("focusin", onFocusIn);
-    };
-  }, [open, closePopover]);
-
-  // The field moves with the modal body's scroll, so re-measure rather than let
-  // the panel drift away from it.
-  useEffect(() => {
-    if (!open) return;
-    const onViewportChange = () => measureAnchor();
-    window.addEventListener("resize", onViewportChange);
-    document.addEventListener("scroll", onViewportChange, true);
-    return () => {
-      window.removeEventListener("resize", onViewportChange);
-      document.removeEventListener("scroll", onViewportChange, true);
-    };
-  }, [open, measureAnchor]);
-
-  const moveFocus = useCallback((next: Date) => {
-    setFocusedDay(dayKey(next));
-    setVisibleMonth((current) =>
-      current.getFullYear() === next.getFullYear() && current.getMonth() === next.getMonth()
-        ? current
-        : startOfMonth(next),
-    );
-    setKeyboardActive(true);
-  }, []);
+  const moveFocus = useCallback(
+    (next: Date) => {
+      setFocusedDay(dayKey(next));
+      setVisibleMonth((current) => (isSameMonth(current, next) ? current : startOfMonth(next)));
+      setKeyboardActive(true);
+    },
+    [setKeyboardActive],
+  );
 
   const navigateMonth = useCallback((offset: number) => {
     setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
@@ -204,41 +148,31 @@ export function useDatePickerPopover({ value, inputRef }: DatePickerPopoverOptio
         );
         return;
       }
-      if (event.key === "Tab") {
+      if (event.key === "Tab" && !panelHasMoreStops) {
         // The calendar is portalled to the end of <body>, so a real Tab would
         // jump out of the modal entirely. Hand focus back to the field instead.
+        // When the panel has a wall-clock row below the grid, Tab is left alone:
+        // DOM order takes it there, and the panel wraps it at the far end.
         event.preventDefault();
         closePopover(true);
       }
     },
-    [focusedDay, moveFocus, closePopover],
-  );
-
-  /** Alt+ArrowDown is the standard "open the picker" chord — and in Chrome it is
-   * one of the gestures that would otherwise summon the NATIVE calendar. */
-  const handleInputKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLInputElement>) => {
-      if (event.altKey && event.key === "ArrowDown") {
-        event.preventDefault();
-        openPopover(true);
-      }
-    },
-    [openPopover],
+    [focusedDay, moveFocus, closePopover, panelHasMoreStops],
   );
 
   return {
-    wrapperRef,
-    panelRef,
-    open,
-    anchorRect,
+    wrapperRef: shell.wrapperRef,
+    panelRef: shell.panelRef,
+    open: shell.open,
+    anchorRect: shell.anchorRect,
+    keyboardActive: shell.keyboardActive,
+    openPopover: shell.openPopover,
+    closePopover: shell.closePopover,
+    togglePopover: shell.togglePopover,
+    handleInputKeyDown: shell.handleInputKeyDown,
     visibleMonth,
     focusedDay,
-    keyboardActive,
-    openPopover,
-    closePopover,
-    togglePopover,
     navigateMonth,
     handleGridKeyDown,
-    handleInputKeyDown,
   };
 }

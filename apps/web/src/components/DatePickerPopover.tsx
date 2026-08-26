@@ -1,15 +1,22 @@
 import { Button } from "@showme/design-system";
 import type { KeyboardEventHandler, RefObject } from "react";
-import { createPortal } from "react-dom";
 import { MiniMonthCalendar } from "./MiniMonthCalendar";
+import { PickerPopoverPanel } from "./PickerPopoverPanel";
+import { TimePickerControl } from "./TimePickerControl";
 import { dayKey } from "./calendarGrid";
 
 const PANEL_WIDTH = 268;
-/** Enough for a 6-row month plus header and footer; only used to decide whether
- * the panel opens downwards, so a few pixels either way are harmless. */
-const ESTIMATED_PANEL_HEIGHT = 330;
-const VIEWPORT_MARGIN = 12;
-const ANCHOR_GAP = 6;
+/** Enough for a 6-row month plus header and footer. */
+const CALENDAR_HEIGHT = 330;
+/** What the wall-clock row adds when the field also picks a time. */
+const TIME_ROW_HEIGHT = 58;
+
+/** The wall-clock half, present only for a `datetime-local` field. */
+export interface DatePickerPopoverTime {
+  /** `hh:mm`, or `""` when no time has been chosen yet. */
+  value: string;
+  onChange: (next: string) => void;
+}
 
 export interface DatePickerPopoverProps {
   /** The field's rectangle, so the panel hangs off it like the native popup did. */
@@ -28,12 +35,19 @@ export interface DatePickerPopoverProps {
   onNavigate: (offset: number) => void;
   onGridKeyDown: KeyboardEventHandler<HTMLDivElement>;
   onClear: () => void;
+  /** Dismiss the panel — the "Done" action once there is a time to finish. */
+  onDone?: () => void;
+  time?: DatePickerPopoverTime;
 }
 
 /**
  * The in-app replacement for the browser's native calendar popup: the same
  * `MiniMonthCalendar` the Requests rail uses, floated against the date field so
  * it inherits the app's surfaces, type and brand-red selection in both themes.
+ *
+ * For a `datetime-local` field a `TimePickerControl` joins it below the grid —
+ * one panel for the whole value, because a day and a wall clock chosen in two
+ * different popups is how you end up with a time attached to the wrong day.
  * Purely presentational — `useDatePickerPopover` owns the state.
  */
 export function DatePickerPopover({
@@ -47,42 +61,19 @@ export function DatePickerPopover({
   onNavigate,
   onGridKeyDown,
   onClear,
+  onDone,
+  time,
 }: DatePickerPopoverProps) {
-  const left = Math.max(
-    VIEWPORT_MARGIN,
-    Math.min(anchor.left, window.innerWidth - PANEL_WIDTH - VIEWPORT_MARGIN),
-  );
-  const below = anchor.bottom + ANCHOR_GAP;
-  const fitsBelow = below + ESTIMATED_PANEL_HEIGHT <= window.innerHeight - VIEWPORT_MARGIN;
-  const top = fitsBelow
-    ? below
-    : Math.max(VIEWPORT_MARGIN, anchor.top - ANCHOR_GAP - ESTIMATED_PANEL_HEIGHT);
-
-  // Portalled to <body> and positioned in viewport coordinates: inside the modal
-  // the panel would be clipped by the dialog's own scroll container.
-  return createPortal(
-    <dialog
-      ref={panelRef}
-      // A NON-modal dialog (the `open` attribute, never `showModal()`): it names
-      // the calendar for assistive tech while leaving the field behind it live —
-      // which is the point, since you can keep typing the date. The inline styles
-      // strip the user-agent dialog chrome (centering, border, padding) so the
-      // calendar card is the only thing on screen.
-      open
-      aria-label="Choose a date"
-      style={{
-        position: "fixed",
-        left,
-        top,
-        zIndex: 1200,
-        width: PANEL_WIDTH,
-        margin: 0,
-        padding: 0,
-        border: 0,
-        background: "transparent",
-        color: "inherit",
-        overflow: "visible",
-      }}
+  return (
+    <PickerPopoverPanel
+      anchor={anchor}
+      panelRef={panelRef}
+      width={PANEL_WIDTH}
+      estimatedHeight={CALENDAR_HEIGHT + (time ? TIME_ROW_HEIGHT : 0)}
+      label={time ? "Choose a date and time" : "Choose a date"}
+      // With a time control the panel holds several stops; without one the grid
+      // is the only stop and Tab is handled in the grid itself (it closes).
+      containTab={Boolean(time)}
     >
       <MiniMonthCalendar
         month={month}
@@ -97,22 +88,36 @@ export function DatePickerPopover({
           <div
             style={{
               display: "flex",
-              justifyContent: "space-between",
-              gap: 8,
+              flexDirection: "column",
+              gap: 10,
               paddingTop: 10,
               borderTop: "1px solid var(--border)",
             }}
           >
-            <Button variant="ghost" onClick={onClear}>
-              Clear
-            </Button>
-            <Button variant="ghost" onClick={() => onSelect(dayKey(new Date()))}>
-              Today
-            </Button>
+            {/* Never auto-focused: the grid keeps the keyboard when the panel
+                opens, and Tab walks from it into the segments. */}
+            {time && (
+              <TimePickerControl value={time.value} onChange={time.onChange} onDone={onDone} />
+            )}
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+              <Button variant="ghost" onClick={onClear}>
+                Clear
+              </Button>
+              {time ? (
+                // A day click can't dismiss the panel here — the time still has
+                // to be set — so the panel needs its own way out.
+                <Button variant="ghost" onClick={onDone}>
+                  Done
+                </Button>
+              ) : (
+                <Button variant="ghost" onClick={() => onSelect(dayKey(new Date()))}>
+                  Today
+                </Button>
+              )}
+            </div>
           </div>
         }
       />
-    </dialog>,
-    document.body,
+    </PickerPopoverPanel>
   );
 }

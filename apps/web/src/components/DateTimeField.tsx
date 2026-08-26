@@ -1,6 +1,7 @@
 import { TextField, type TextFieldProps } from "@showme/design-system";
 import { type MouseEvent, useRef } from "react";
 import { DatePickerField } from "./DatePickerField";
+import { TimePickerField } from "./TimePickerField";
 
 export interface DateTimeFieldProps extends Omit<TextFieldProps, "type"> {
   /** Which picker to open. Defaults to a date *and* time picker. */
@@ -15,15 +16,21 @@ export interface DateTimeFieldProps extends Omit<TextFieldProps, "type"> {
  * segments, so to a user the field reads as "the date picker doesn't open".
  * Making the whole field the hit target is the fix.
  *
- * For a plain `date` the picker is OURS (`DatePickerField`), drawn in the page
- * with design-system tokens: the browser's popup is chrome no CSS can reach, so
- * it renders in system colors and typography and looks alien inside our modals.
- * The other types keep the native picker — a time/week/month popover would be a
- * second, half-built widget, and the native one at least behaves correctly now
- * that `color-scheme` follows the app theme (see `app.css`).
+ * The picker itself is OURS for every type this app actually uses — `date`,
+ * `datetime-local` and `time` — drawn in the page with design-system tokens.
+ * The browser's popup is chrome no CSS can reach: it arrives in system blue and
+ * system typography and looks alien inside our warm-ink modals, which is exactly
+ * how the Event Schedule ended up with Chrome's calendar hanging off it.
+ *
+ * `month` and `week` still fall back to the native picker. Nothing in the app
+ * uses either (every caller passes one of the three above), so a hand-built
+ * month/week popover would be dead code — and the native one behaves correctly
+ * now that `color-scheme` follows the app theme (see `app.css`).
  */
 export function DateTimeField({ type = "datetime-local", ...rest }: DateTimeFieldProps) {
   if (type === "date") return <DatePickerField {...rest} />;
+  if (type === "datetime-local") return <DatePickerField {...rest} withTime />;
+  if (type === "time") return <TimePickerField {...rest} />;
   return <NativePickerField {...rest} type={type} />;
 }
 
@@ -31,7 +38,7 @@ function NativePickerField({
   type,
   onClick,
   ...rest
-}: DateTimeFieldProps & { type: Exclude<DateTimeFieldProps["type"], "date" | undefined> }) {
+}: DateTimeFieldProps & { type: "month" | "week" }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleClick = (event: MouseEvent<HTMLInputElement>) => {
