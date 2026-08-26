@@ -74,7 +74,15 @@ export async function customFetch<T>(request: RequestConfig): Promise<T> {
   // keep both and `fetch` would join them into an invalid "application/json,
   // application/json" that the server rejects as 415.
   const headers = new Headers(request.headers);
-  if (!headers.has("content-type")) headers.set("content-type", "application/json");
+  // ...and ONLY when there is a body to describe. A bodyless POST that still
+  // declares `application/json` is rejected by Fastify with 400 "Body cannot be
+  // empty when content-type is set to 'application/json'", which silently broke
+  // every bodyless POST hook in the app — issuing an invoice, and every sibling
+  // action shaped like it. The `verify-e2e` skill's `api-as.mjs` never hit this
+  // because it omits the header entirely.
+  if (request.data !== undefined && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
   if (token) headers.set("authorization", `Bearer ${token}`);
   if (profileId) headers.set("x-profile-id", profileId);
 
