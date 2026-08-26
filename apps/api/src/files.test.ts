@@ -76,7 +76,7 @@ describe("files — signed-URL issuance + metadata", () => {
       url: "/api/v1/files/upload-url",
       headers: auth("f-owner"),
       payload: {
-        path: "profiles/f-owner/press-kit.pdf",
+        path: `profiles/${owner.profileId}/press-kit.pdf`,
         contentType: "application/pdf",
         kind: "document",
         sizeBytes: 2048,
@@ -85,14 +85,16 @@ describe("files — signed-URL issuance + metadata", () => {
     });
     expect(response.statusCode).toBe(201);
     const { fileId, uploadUrl } = response.json();
-    expect(uploadUrl).toBe("signed-upload::profiles/f-owner/press-kit.pdf::application/pdf");
+    expect(uploadUrl).toBe(
+      `signed-upload::profiles/${owner.profileId}/press-kit.pdf::application/pdf`,
+    );
 
     // The metadata row exists, owned by the caller + the named profile.
     const rows = await db.select().from(schema.files).where(eq(schema.files.id, fileId));
     expect(rows).toHaveLength(1);
     expect(rows[0]?.ownerUserId).toBe("f-owner");
     expect(rows[0]?.ownerProfileId).toBe(owner.profileId);
-    expect(rows[0]?.path).toBe("profiles/f-owner/press-kit.pdf");
+    expect(rows[0]?.path).toBe(`profiles/${owner.profileId}/press-kit.pdf`);
 
     // Audited as file.create.
     const audit = await db
@@ -120,6 +122,78 @@ describe("files — signed-URL issuance + metadata", () => {
     expect(response.json().uploadUrl).toBe("signed-upload::users/f-user/avatar.png::image/png");
   });
 
+  /**
+   * A SIGNED WRITE URL FOR SOMEBODY ELSE'S FOLDER.
+   *
+   * `assertSafePath` only stopped traversal, and the role check only looked at the
+   * profile the caller NAMED as owner — never at `path`. So a caller could name
+   * their own profile, ask for `profiles/<someone-else>/riders/tech.pdf`, and be
+   * handed permission to overwrite the bytes behind another act's rider while the
+   * `files` row still pointed at them. Content substitution on the most sensitive
+   * artifact on an event, available to any authenticated user.
+   *
+   * The positive control matters as much as the refusal: the SAME caller, the SAME
+   * profile, a path in their own folder — 201. So this pins the folder rule and not
+   * merely "uploads are broken".
+   */
+  it("refuses a signed write URL for another profile's folder", async () => {
+    const { db } = harness;
+    const attacker = await seedMember("f-prefix-attacker", "performer");
+    const victim = await seedMember("f-prefix-victim", "performer");
+
+    const stolen = await app.inject({
+      method: "POST",
+      url: "/api/v1/files/upload-url",
+      headers: auth("f-prefix-attacker"),
+      payload: {
+        // Owner they legitimately hold; folder they do not.
+        path: `profiles/${victim.profileId}/riders/tech.pdf`,
+        contentType: "application/pdf",
+        kind: "document",
+        sizeBytes: 1024,
+        ownerProfileId: attacker.profileId,
+      },
+    });
+    expect(stolen.statusCode).toBe(400);
+    expect(stolen.json().error.message).toContain(`profiles/${attacker.profileId}/`);
+
+    // Nothing was written — a refused upload must not leave a metadata row behind.
+    const litter = await db
+      .select()
+      .from(schema.files)
+      .where(eq(schema.files.ownerProfileId, attacker.profileId));
+    expect(litter).toHaveLength(0);
+
+    // A bare USER file is held to the same rule, against the caller's own id.
+    const wrongUserFolder = await app.inject({
+      method: "POST",
+      url: "/api/v1/files/upload-url",
+      headers: auth("f-prefix-attacker"),
+      payload: {
+        path: "users/f-prefix-victim/avatar.png",
+        contentType: "image/png",
+        kind: "photo",
+        sizeBytes: 1024,
+      },
+    });
+    expect(wrongUserFolder.statusCode).toBe(400);
+
+    // POSITIVE CONTROL — same caller, same profile, their own folder.
+    const allowed = await app.inject({
+      method: "POST",
+      url: "/api/v1/files/upload-url",
+      headers: auth("f-prefix-attacker"),
+      payload: {
+        path: `profiles/${attacker.profileId}/riders/tech.pdf`,
+        contentType: "application/pdf",
+        kind: "document",
+        sizeBytes: 1024,
+        ownerProfileId: attacker.profileId,
+      },
+    });
+    expect(allowed.statusCode).toBe(201);
+  });
+
   it("forbids uploading to a profile the caller is not an owner/admin of", async () => {
     const target = await seedMember("f-target", "performer");
     await seedMember("f-outsider", "performer");
@@ -128,7 +202,7 @@ describe("files — signed-URL issuance + metadata", () => {
       url: "/api/v1/files/upload-url",
       headers: auth("f-outsider"),
       payload: {
-        path: "profiles/f-target/secret.pdf",
+        path: `profiles/${target.profileId}/secret.pdf`,
         contentType: "application/pdf",
         kind: "document",
         sizeBytes: 2048,
@@ -148,7 +222,7 @@ describe("files — signed-URL issuance + metadata", () => {
       url: "/api/v1/files/upload-url",
       headers: auth("f-dl-owner"),
       payload: {
-        path: "profiles/f-dl-owner/rider.pdf",
+        path: `profiles/${owner.profileId}/rider.pdf`,
         contentType: "application/pdf",
         kind: "document",
         sizeBytes: 2048,
@@ -163,7 +237,9 @@ describe("files — signed-URL issuance + metadata", () => {
       headers: auth("f-dl-owner"),
     });
     expect(asOwner.statusCode).toBe(200);
-    expect(asOwner.json().downloadUrl).toBe("signed-download::profiles/f-dl-owner/rider.pdf");
+    expect(asOwner.json().downloadUrl).toBe(
+      `signed-download::profiles/${owner.profileId}/rider.pdf`,
+    );
 
     const asStranger = await app.inject({
       method: "GET",
@@ -182,7 +258,7 @@ describe("files — signed-URL issuance + metadata", () => {
       url: "/api/v1/files/upload-url",
       headers: auth("f-del-owner"),
       payload: {
-        path: "profiles/f-del-owner/old.pdf",
+        path: `profiles/${owner.profileId}/old.pdf`,
         contentType: "application/pdf",
         kind: "document",
         sizeBytes: 2048,
@@ -252,7 +328,7 @@ describe("files — the loopback object sink (local dev's stand-in for GCS)", ()
       url: "/api/v1/files/upload-url",
       headers: auth("f-loop-owner"),
       payload: {
-        path: "profiles/f-loop-owner/riders/tech.pdf",
+        path: `profiles/${owner.profileId}/riders/tech.pdf`,
         contentType: "application/pdf",
         kind: "document",
         sizeBytes: 2048,
@@ -405,7 +481,7 @@ describe("files — only the content types and sizes the platform actually store
     ];
     for (const { contentType, kind } of cases) {
       const response = await upload("f-allow", {
-        path: `profiles/f-allow/riders/doc-${kind}-${contentType.replace("/", "-")}`,
+        path: `profiles/${owner.profileId}/riders/doc-${kind}-${contentType.replace("/", "-")}`,
         contentType,
         kind,
         sizeBytes: 1024,
@@ -493,7 +569,7 @@ describe("files — only the content types and sizes the platform actually store
   it("hands back the headers the client must echo, including the size ceiling", async () => {
     const owner = await seedMember("f-headers", "performer");
     const response = await upload("f-headers", {
-      path: "profiles/f-headers/riders/tech.pdf",
+      path: `profiles/${owner.profileId}/riders/tech.pdf`,
       contentType: "application/pdf",
       kind: "document",
       sizeBytes: 1024,
@@ -510,7 +586,7 @@ describe("files — only the content types and sizes the platform actually store
     const { db } = harness;
     const owner = await seedMember("f-size-row", "performer");
     const response = await upload("f-size-row", {
-      path: "profiles/f-size-row/riders/plot.png",
+      path: `profiles/${owner.profileId}/riders/plot.png`,
       contentType: "image/png",
       kind: "photo",
       sizeBytes: 3333,

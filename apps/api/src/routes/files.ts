@@ -108,6 +108,35 @@ function assertSafePath(path: string): void {
   }
 }
 
+/**
+ * The object must live in the CALLER'S OWN folder.
+ *
+ * `assertSafePath` above only stops traversal, and `requireProfileRole` below only
+ * checks the caller's standing on the profile they NAME as owner. Neither looks at
+ * `path`, which is a free-form string — so an authenticated caller could name their
+ * own profile as owner and ask for a signed WRITE url for
+ * `profiles/<someone-else>/riders/tech.pdf`. Signed, that is permission to
+ * overwrite the bytes behind another act's rider while the `files` row still points
+ * at them: content substitution on the most sensitive artifact on an event.
+ *
+ * The prefix is not a convention this function invents — it is the one every writer
+ * already uses (`storagePath` in `useRiderUpload.ts`, and profile media): a
+ * profile's objects live under `profiles/<profileId>/`, and a bare user file under
+ * `users/<userId>/`. Requiring it here is what makes the folder mean something.
+ */
+function assertPathIsOwnFolder(
+  path: string,
+  userId: string,
+  ownerProfileId: string | null | undefined,
+): void {
+  const expected = ownerProfileId ? `profiles/${ownerProfileId}/` : `users/${userId}/`;
+  if (!path.startsWith(expected)) {
+    throw badRequest(
+      `A ${ownerProfileId ? "profile" : "user"} file must be stored under ${expected}`,
+    );
+  }
+}
+
 /** Refuse an upload the platform will not store, saying what it would store instead. */
 function assertUploadAllowed(kind: FileKind, contentType: string, sizeBytes: number): void {
   const policy = UPLOAD_POLICY[kind];
@@ -293,6 +322,7 @@ export function createFileRoutes(
         // Refuse before anything is written: a metadata row for an upload that
         // was never going to be allowed is litter with a `files.id` attached.
         assertSafePath(body.path);
+        assertPathIsOwnFolder(body.path, principal.userId, body.ownerProfileId);
         assertUploadAllowed(body.kind, body.contentType, body.sizeBytes);
 
         if (body.ownerProfileId) {
