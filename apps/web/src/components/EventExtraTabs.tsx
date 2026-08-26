@@ -6,18 +6,11 @@ import {
   usePatchApiV1TasksId,
   usePostApiV1Tasks,
 } from "@showme/api-client";
-import { Avatar, Icon } from "@showme/design-system";
+import { Icon } from "@showme/design-system";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { describeActivity } from "./eventHistory";
-import {
-  GlyphButton,
-  GradientButton,
-  MonoPill,
-  OutlineButton,
-  SectionCard,
-  fieldStyle,
-} from "./eventUi";
+import { GlyphButton, GradientButton, MonoPill, SectionCard, fieldStyle } from "./eventUi";
 import { ErrorState, LoadingState } from "./states";
 
 function relativeTime(iso: string): string {
@@ -177,141 +170,6 @@ export interface CrewMember {
   name: string;
   initials: string;
   role: string;
-}
-
-export function EventTeamCrewTab({ crew }: { crew: CrewMember[] }) {
-  const [sub, setSub] = useState<"shared" | "inhouse">("shared");
-  return (
-    <div>
-      <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-        <SubToggle active={sub === "shared"} onClick={() => setSub("shared")}>
-          <Icon name="users" size={15} /> Shared Team
-        </SubToggle>
-        <SubToggle active={sub === "inhouse"} onClick={() => setSub("inhouse")}>
-          <Icon name="settings" size={15} /> In-House Management
-        </SubToggle>
-      </div>
-
-      {sub === "shared" ? (
-        <>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 14,
-              flexWrap: "wrap",
-              gap: 12,
-            }}
-          >
-            <div>
-              <h3
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontWeight: 600,
-                  fontSize: 16,
-                  margin: 0,
-                  color: "var(--text)",
-                }}
-              >
-                Team &amp; Crew
-              </h3>
-              <p style={{ color: "var(--muted)", fontSize: 12.5, margin: "3px 0 0" }}>
-                Visible to all event collaborators
-              </p>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <OutlineButton>
-                <Icon name="users" size={15} /> From Team
-              </OutlineButton>
-              <GradientButton>+ Add Member</GradientButton>
-            </div>
-          </div>
-          <SectionCard style={{ padding: 0 }}>
-            {crew.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--muted)" }}>
-                <Icon name="users" size={32} />
-                <div style={{ fontSize: 13.5, marginTop: 12 }}>No crew members added yet.</div>
-              </div>
-            ) : (
-              crew.map((member, index) => (
-                <div
-                  key={member.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    padding: "14px 18px",
-                    borderTop: index === 0 ? "none" : "1px solid var(--border)",
-                  }}
-                >
-                  <Avatar initials={member.initials} tone="blue" shape="square" size={32} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, color: "var(--text)", fontSize: 13.5 }}>
-                      {member.name}
-                    </div>
-                    <div style={{ color: "var(--muted)", fontSize: 12 }}>{member.role}</div>
-                  </div>
-                </div>
-              ))
-            )}
-          </SectionCard>
-        </>
-      ) : (
-        <SectionCard>
-          <h3
-            style={{
-              fontFamily: "var(--font-display)",
-              fontWeight: 600,
-              fontSize: 16,
-              margin: 0,
-              color: "var(--text)",
-            }}
-          >
-            Private Team Management
-          </h3>
-          <p style={{ color: "var(--muted)", fontSize: 12.5, margin: "6px 0 0" }}>
-            Only visible to you. Team schedules, private notes and assigned tasks live here — manage
-            assignees from the To Do tab.
-          </p>
-        </SectionCard>
-      )}
-    </div>
-  );
-}
-
-function SubToggle({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "10px 16px",
-        borderRadius: 10,
-        border: active ? "1px solid var(--brand-red)" : "1px solid var(--border)",
-        background: active
-          ? "color-mix(in srgb,var(--brand-red) 8%,transparent)"
-          : "var(--surface)",
-        color: active ? "var(--brand-red)" : "var(--text)",
-        fontSize: 13,
-        fontWeight: 500,
-        cursor: "pointer",
-      }}
-    >
-      {children}
-    </button>
-  );
 }
 
 // ── Event History ─────────────────────────────────────────────────────────

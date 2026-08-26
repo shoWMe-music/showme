@@ -23,26 +23,53 @@ export interface EventCrewPanelProps {
   crew: CrewMember[];
   /** False for a viewer who may not put people on this event — then it reads only. */
   canManage: boolean;
+  /**
+   * `crew.manage` — whether In-House Management is this caller's business at all.
+   *
+   * Shared Team is the contact list every participant may read; In-House is the
+   * venue's PRIVATE team management, and the meeting that defined the split said
+   * exactly that (`docs/meeting-2026-08-settlements-and-deals.md`, 01:40:58). A
+   * performer sees their own slice and not the room's staffing, so they do not get
+   * the sub-tab — not a disabled one, none at all.
+   *
+   * Gated on `crew.manage` because that is a MANAGEMENT capability by name
+   * (`packages/auth/src/presets.ts`) and it is absent from the `performer` preset.
+   * Deliberately NOT `budget.view`-as-"is an operator": commit `e5928ec` removed
+   * exactly that proxy from the rider path, and reintroducing it here would be the
+   * same bug in a new place.
+   */
+  canManageCrew: boolean;
   /** Opens the event's invite modal with the role already set to crew. */
   onInviteCrew: () => void;
 }
 
-export function EventCrewPanel({ eventId, crew, canManage, onInviteCrew }: EventCrewPanelProps) {
+export function EventCrewPanel({
+  eventId,
+  crew,
+  canManage,
+  canManageCrew,
+  onInviteCrew,
+}: EventCrewPanelProps) {
   const [tab, setTab] = useState<"shared" | "inhouse">("shared");
   const panel = useEventCrewPanel(eventId);
+  // Without the capability there is only one surface, so the chooser above it is
+  // noise — a toggle with a single option is a control that decides nothing.
+  const showInHouse = canManageCrew && tab === "inhouse";
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-        <SubToggle active={tab === "shared"} onClick={() => setTab("shared")}>
-          <Icon name="users" size={15} /> Shared Team
-        </SubToggle>
-        <SubToggle active={tab === "inhouse"} onClick={() => setTab("inhouse")}>
-          <Icon name="settings" size={15} /> In-House Management
-        </SubToggle>
-      </div>
+      {canManageCrew && (
+        <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+          <SubToggle active={tab === "shared"} onClick={() => setTab("shared")}>
+            <Icon name="users" size={15} /> Shared Team
+          </SubToggle>
+          <SubToggle active={tab === "inhouse"} onClick={() => setTab("inhouse")}>
+            <Icon name="settings" size={15} /> In-House Management
+          </SubToggle>
+        </div>
+      )}
 
-      {tab === "shared" ? (
+      {!showInHouse ? (
         <>
           <div
             style={{

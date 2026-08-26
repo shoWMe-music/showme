@@ -375,6 +375,7 @@ export function EventDetail() {
             eventId={eventId}
             crew={crew}
             canManage={canEdit}
+            canManageCrew={(event.capabilities ?? []).includes("crew.manage")}
             onInviteCrew={() => openInvite("crew")}
           />
         )}
