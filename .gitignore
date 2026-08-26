@@ -50,3 +50,7 @@ apps/web/tests/.auth/
 **/.terraform/
 # browser-automation scratch output
 .playwright-mcp/
+
+# Agent worktrees — isolated checkouts created by background agents. They are
+# whole copies of this repo; committing them would nest the tree inside itself.
+.claude/worktrees/

@@ -347,12 +347,11 @@ describe("shares — what a link may grant", () => {
   });
 
   it("lets an operator share the riders they can already read", async () => {
-    // No operator preset carries `rider.view` at all — an operator's all-rider
-    // reach is `scopedEventRiders`'s "operators see everything", read off
-    // `budget.view`. Asking for the literal capability made the Riders tick-box
-    // unusable for every operator on every event.
+    // `operator_full` carries `rider.view` (pinned in `riders.test.ts`), and the
+    // all-rider REACH is still `scopedEventRiders`'s "operators see everything".
+    // What this test is about is the tick-box: asking for the literal capability
+    // once made the Riders option unusable for every operator on every event.
     const seed = await seedEvent("cap-rider");
-    expect(PRESET_PERMISSION_SETS.operator_full).not.toContain("rider.view");
 
     const shared = await createShare(seed, {
       capabilities: ["rider.view"],
