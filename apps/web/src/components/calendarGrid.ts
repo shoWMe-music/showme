@@ -56,3 +56,108 @@ export function trimTrailingWeeks(cells: MonthCell[]): MonthCell[] {
 export function monthTitle(reference: Date): string {
   return reference.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 }
+
+/** Which span of days the Calendar screen is showing. */
+export type CalendarView = "month" | "week" | "day";
+
+/** Monday-first start of the week containing `reference`, at local midnight. */
+export function startOfWeek(reference: Date): Date {
+  const weekdayFromMonday = (reference.getDay() + 6) % 7;
+  return new Date(
+    reference.getFullYear(),
+    reference.getMonth(),
+    reference.getDate() - weekdayFromMonday,
+  );
+}
+
+/** The seven Monday-first cells of the week containing `reference`. `inMonth`
+ * keeps its month-grid meaning ("belongs to the reference's month"), which for a
+ * week straddling a month boundary is true on one side and false on the other. */
+export function buildWeekGrid(reference: Date): MonthCell[] {
+  const start = startOfWeek(reference);
+  const cells: MonthCell[] = [];
+  for (let index = 0; index < 7; index += 1) {
+    const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
+    cells.push({ date, key: dayKey(date), inMonth: date.getMonth() === reference.getMonth() });
+  }
+  return cells;
+}
+
+/** Move the anchor date by one unit of the current view. The `<` / `>` buttons
+ * must step what the reader is LOOKING at — stepping a month while a single day
+ * is on screen would jump the reader somewhere they never asked to go. */
+export function stepByView(view: CalendarView, reference: Date, offset: number): Date {
+  if (view === "month") {
+    return new Date(reference.getFullYear(), reference.getMonth() + offset, 1);
+  }
+  const days = view === "week" ? 7 * offset : offset;
+  return new Date(reference.getFullYear(), reference.getMonth(), reference.getDate() + days);
+}
+
+/** The inclusive `yyyy-mm-dd` span a view puts on screen. */
+export function viewRange(view: CalendarView, reference: Date): { from: string; to: string } {
+  if (view === "day") {
+    const key = dayKey(reference);
+    return { from: key, to: key };
+  }
+  if (view === "week") {
+    const cells = buildWeekGrid(reference);
+    return { from: cells[0]?.key ?? dayKey(reference), to: cells[6]?.key ?? dayKey(reference) };
+  }
+  const year = reference.getFullYear();
+  const month = reference.getMonth();
+  return {
+    from: dayKey(new Date(year, month, 1)),
+    to: dayKey(new Date(year, month + 1, 0)),
+  };
+}
+
+/** The window to ASK the API for: the whole month(s) the view touches. Wider than
+ * the view on purpose — a week straddles two months, and the availability-share
+ * modal reads the same feed over a window of the sharer's choosing, so narrowing
+ * the fetch to the seven visible days would quietly starve it. */
+export function queryRange(view: CalendarView, reference: Date): { from: string; to: string } {
+  const range = viewRange(view, reference);
+  const first = new Date(`${range.from}T00:00:00`);
+  const last = new Date(`${range.to}T00:00:00`);
+  return {
+    from: dayKey(new Date(first.getFullYear(), first.getMonth(), 1)),
+    to: dayKey(new Date(last.getFullYear(), last.getMonth() + 1, 0)),
+  };
+}
+
+/** "17 – 23 August 2026", collapsing the repeated month/year: a week inside one
+ * month says it once; a week across a boundary spells both sides out. */
+export function weekTitle(reference: Date): string {
+  const cells = buildWeekGrid(reference);
+  const first = cells[0]?.date ?? reference;
+  const last = cells[6]?.date ?? reference;
+  if (first.getFullYear() !== last.getFullYear()) {
+    const format = (date: Date) =>
+      date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    return `${format(first)} – ${format(last)}`;
+  }
+  if (first.getMonth() !== last.getMonth()) {
+    const shortMonth = (date: Date) =>
+      `${date.getDate()} ${date.toLocaleDateString("en-GB", { month: "short" })}`;
+    return `${shortMonth(first)} – ${shortMonth(last)} ${last.getFullYear()}`;
+  }
+  return `${first.getDate()} – ${last.getDate()} ${monthTitle(first)}`;
+}
+
+/** "Thursday, 20 August 2026". */
+export function dayTitle(reference: Date): string {
+  return reference.toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+/** The screen heading for the current view. */
+export function viewTitle(view: CalendarView, reference: Date): string {
+  if (view === "week") return weekTitle(reference);
+  if (view === "day") return dayTitle(reference);
+  return monthTitle(reference);
+}

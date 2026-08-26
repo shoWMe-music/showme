@@ -5,7 +5,17 @@ import { useMemo, useState } from "react";
 import { type CalendarEvent, type CalendarLabelMode, CalendarMonthGrid } from "../components";
 import { AvailabilityShareModal } from "../components/AvailabilityShareModal";
 import { CalendarCreatePopover } from "../components/CalendarCreatePopover";
-import { dayKey, monthTitle } from "../components/calendarGrid";
+import { CalendarDayAgenda } from "../components/CalendarDayAgenda";
+import { CalendarWeekGrid } from "../components/CalendarWeekGrid";
+import {
+  type CalendarView,
+  dayKey,
+  queryRange,
+  stepByView,
+  viewRange,
+  viewTitle,
+} from "../components/calendarGrid";
+import { useCalendarPerformerNames } from "../components/calendarPerformers";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
 import { useAvailabilityShare } from "../hooks/useAvailabilityShare";
@@ -14,8 +24,6 @@ import { apiStatusToDisplay } from "../lib/status";
 import { useNewEvent } from "../shell/NewEventProvider";
 
 type CalendarItem = Awaited<ReturnType<typeof getApiV1Calendar>>[number];
-
-type CalendarView = "month" | "week" | "day";
 
 const VIEW_OPTIONS: { value: CalendarView; label: string }[] = [
   { value: "month", label: "Month" },
@@ -37,6 +45,17 @@ const TYPE_TO_STATUS: Record<string, Status> = {
   task: "task",
   appointment: "task",
   note: "draft",
+};
+
+/** What to CALL each calendar-item kind. Separate from `TYPE_TO_STATUS` because
+ * several kinds share one tint (an appointment is tinted like a task) — the
+ * colour may collide, the word must not. */
+const TYPE_LABEL: Record<string, string> = {
+  event: "Event",
+  hold: "Hold",
+  task: "Task",
+  appointment: "Appointment",
+  note: "Note",
 };
 
 /** The legend, verbatim from the prototype (§2): the six event statuses plus
@@ -172,12 +191,66 @@ function segmentButtonStyle(active: boolean, weight: number): React.CSSPropertie
   };
 }
 
+/** Which calendar the Month / Week / Day segment selects. A switch rather than one
+ * component with a `view` prop, because the three lay days out in genuinely
+ * different ways and share only the chip. */
+function CalendarGridForView({
+  view,
+  anchorDate,
+  events,
+  labelMode,
+  onSelectDay,
+  onSelectEvent,
+}: {
+  view: CalendarView;
+  anchorDate: Date;
+  events: CalendarEvent[];
+  labelMode: CalendarLabelMode;
+  onSelectDay: (dayKey: string, anchor: DOMRect) => void;
+  onSelectEvent: (eventId: string) => void;
+}) {
+  if (view === "week") {
+    return (
+      <CalendarWeekGrid
+        week={anchorDate}
+        events={events}
+        labelMode={labelMode}
+        onSelectDay={onSelectDay}
+        onSelectEvent={onSelectEvent}
+      />
+    );
+  }
+  if (view === "day") {
+    return (
+      <CalendarDayAgenda
+        day={anchorDate}
+        events={events}
+        labelMode={labelMode}
+        onSelectDay={onSelectDay}
+        onSelectEvent={onSelectEvent}
+      />
+    );
+  }
+  return (
+    <CalendarMonthGrid
+      month={anchorDate}
+      events={events}
+      labelMode={labelMode}
+      showLegend={false}
+      onSelectDay={onSelectDay}
+      onSelectEvent={onSelectEvent}
+    />
+  );
+}
+
 export function Calendar() {
   const navigate = useNavigate();
   const toast = useToast();
   const { openNewEvent, canCreateEvent } = useNewEvent();
 
-  const [month, setMonth] = useState(() => new Date());
+  // One cursor for all three views: the month, week or day it lands in is what
+  // gets drawn, so switching view keeps the reader where they already were.
+  const [anchorDate, setAnchorDate] = useState(() => new Date());
   const [view, setView] = useState<CalendarView>("month");
   const [labelMode, setLabelMode] = useState<CalendarLabelMode>("eventName");
   const [performerFilter, setPerformerFilter] = useState("");
@@ -195,29 +268,32 @@ export function Calendar() {
     venue: true,
   });
 
-  // Query the visible month's window; the API date params are inclusive bounds.
-  const from = dayKey(new Date(month.getFullYear(), month.getMonth(), 1));
-  const to = dayKey(new Date(month.getFullYear(), month.getMonth() + 1, 0));
+  // The API date params are inclusive bounds. Ask for the whole month(s) the view
+  // touches rather than the seven or one visible days — see `queryRange`.
+  const { from, to } = queryRange(view, anchorDate);
+  const visibleRange = viewRange(view, anchorDate);
 
   const calendar = useGetApiV1Calendar({ from, to });
   // Every event: the grid is a month of the whole schedule, not of page one.
   const events = useAllEvents();
 
   const calendarEvents = useMemo<CalendarEvent[]>(() => {
-    const items: CalendarItem[] = calendar.data ?? [];
-    if (items.length > 0) {
-      return items.map((item) => ({
-        id: item.id,
-        date: toDayKey(item.date),
-        eventName: item.title,
-        performer: item.entity ?? undefined,
-        status: TYPE_TO_STATUS[item.type] ?? "draft",
-      }));
-    }
-    // Fallback: map dated events onto the grid when the calendar is sparse.
-    // These are real events, so tag them with eventId to click through.
+    // BOTH sources, concatenated: standalone calendar items (tasks, appointments,
+    // notes) and the dated events. They come from different tables and share no
+    // ids, so there is nothing to de-duplicate — and showing only one of them
+    // would hide every event from anyone who had also written down a task.
+    const items: CalendarEvent[] = (calendar.data ?? []).map((item: CalendarItem) => ({
+      id: item.id,
+      date: toDayKey(item.date),
+      eventName: item.title,
+      performer: item.entity ?? undefined,
+      startTime: item.startTime ?? undefined,
+      status: TYPE_TO_STATUS[item.type] ?? "draft",
+      statusLabel: TYPE_LABEL[item.type] ?? item.type,
+    }));
+    // Events are real, so tag them with eventId to click through.
     const evented: EventItem[] = events.items;
-    return evented
+    const dated: CalendarEvent[] = evented
       .filter((event) => event.eventDate)
       .map((event) => ({
         id: event.id,
@@ -225,34 +301,57 @@ export function Calendar() {
         date: toDayKey(event.eventDate as string),
         eventName: event.title,
         status: apiStatusToDisplay(event.status).status,
+        statusLabel: apiStatusToDisplay(event.status).label,
       }));
+    return [...items, ...dated];
   }, [calendar.data, events.items]);
 
+  // Who is playing: only for the events on screen, since it costs one request each.
+  const visibleEventIds = useMemo(
+    () =>
+      events.items
+        .filter((event) => {
+          const date = event.eventDate?.slice(0, 10);
+          return Boolean(date && date >= visibleRange.from && date <= visibleRange.to);
+        })
+        .map((event) => event.id),
+    [events.items, visibleRange.from, visibleRange.to],
+  );
+  const performerNames = useCalendarPerformerNames(visibleEventIds);
+
+  // Attach the resolved performer so the Performer / Both chip labels have a name
+  // to show. Cheap enough to redo per render, and it must happen BEFORE the text
+  // filter so "Performer…" searches the performer and not only the title.
+  const namedEvents: CalendarEvent[] = calendarEvents.map((entry) => {
+    const performer = entry.eventId ? performerNames.get(entry.eventId) : undefined;
+    return performer ? { ...entry, performer } : entry;
+  });
+
   // Client-only text filters over the real events (no server filter endpoint).
-  const visibleEvents = useMemo<CalendarEvent[]>(() => {
-    const performerNeedle = performerFilter.trim().toLowerCase();
-    const venueNeedle = venueFilter.trim().toLowerCase();
-    if (!performerNeedle && !venueNeedle) return calendarEvents;
-    return calendarEvents.filter((event) => {
-      const haystack = `${event.performer ?? ""} ${event.eventName}`.toLowerCase();
-      const matchesPerformer = !performerNeedle || haystack.includes(performerNeedle);
-      const matchesVenue = !venueNeedle || haystack.includes(venueNeedle);
-      return matchesPerformer && matchesVenue;
-    });
-  }, [calendarEvents, performerFilter, venueFilter]);
+  const performerNeedle = performerFilter.trim().toLowerCase();
+  const venueNeedle = venueFilter.trim().toLowerCase();
+  const visibleEvents: CalendarEvent[] = namedEvents.filter((event) => {
+    if (!performerNeedle && !venueNeedle) return true;
+    const haystack = `${event.performer ?? ""} ${event.eventName}`.toLowerCase();
+    const matchesPerformer = !performerNeedle || haystack.includes(performerNeedle);
+    const matchesVenue = !venueNeedle || haystack.includes(venueNeedle);
+    return matchesPerformer && matchesVenue;
+  });
 
   // The share modal is a read-only composite: the hook owns the form, derives the
   // free days from the real schedule, and builds the public link.
   const share = useAvailabilityShare(calendarEvents, events.items, MY_CALENDARS[0]?.label ?? "");
 
-  const stepMonth = (offset: number) =>
-    setMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
+  // The arrows step whatever is on screen: a month, a week, or a single day.
+  const stepView = (offset: number) =>
+    setAnchorDate((current) => stepByView(view, current, offset));
+  const viewNoun = view === "month" ? "month" : view === "week" ? "week" : "day";
 
   const onDateJump = (value: string) => {
     setDateJump(value);
     if (!value) return;
     const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) setMonth(parsed);
+    if (!Number.isNaN(parsed.getTime())) setAnchorDate(parsed);
   };
 
   const isPending = calendar.isPending || events.isPending;
@@ -270,7 +369,7 @@ export function Calendar() {
             margin: "0 0 16px",
           }}
         >
-          {monthTitle(month)}
+          {viewTitle(view, anchorDate)}
         </h2>
 
         {/* Toolbar: navigation + view toggle + label toggle */}
@@ -286,9 +385,9 @@ export function Calendar() {
           <div style={{ display: "flex", gap: 6 }}>
             <button
               type="button"
-              aria-label="Previous month"
+              aria-label={`Previous ${viewNoun}`}
               style={navSquareStyle()}
-              onClick={() => stepMonth(-1)}
+              onClick={() => stepView(-1)}
             >
               <Icon name="chevron-right" size={17} style={{ transform: "rotate(180deg)" }} />
             </button>
@@ -305,15 +404,15 @@ export function Calendar() {
                 fontWeight: 500,
                 cursor: "pointer",
               }}
-              onClick={() => setMonth(new Date())}
+              onClick={() => setAnchorDate(new Date())}
             >
               Today
             </button>
             <button
               type="button"
-              aria-label="Next month"
+              aria-label={`Next ${viewNoun}`}
               style={navSquareStyle()}
-              onClick={() => stepMonth(1)}
+              onClick={() => stepView(1)}
             >
               <Icon name="chevron-right" size={17} />
             </button>
@@ -491,14 +590,15 @@ export function Calendar() {
           ) : calendar.isError && events.isError ? (
             <ErrorState error={calendar.error} title="Couldn't load the calendar" />
           ) : (
-            <CalendarMonthGrid
-              month={month}
-              events={visibleEvents}
+            <CalendarGridForView
               view={view}
+              anchorDate={anchorDate}
+              events={visibleEvents}
               labelMode={labelMode}
-              showLegend={false}
               onSelectEvent={(eventId) => navigate({ to: "/events/$eventId", params: { eventId } })}
-              onSelectDay={(dayKey, anchor) => setCreateAt({ dayKey, anchor })}
+              onSelectDay={(selectedDayKey, anchor) =>
+                setCreateAt({ dayKey: selectedDayKey, anchor })
+              }
             />
           )}
 

@@ -1,11 +1,5 @@
-import {
-  Card,
-  STATUSES,
-  STATUS_COLOR,
-  STATUS_LABEL,
-  type Status,
-  StatusDot,
-} from "@showme/design-system";
+import { Card, STATUSES, STATUS_LABEL, StatusDot } from "@showme/design-system";
+import { type CalendarEvent, CalendarEventChip, type CalendarLabelMode } from "./CalendarEventChip";
 import { WEEKDAYS_SHORT, buildMonthGrid, dayKey, trimTrailingWeeks } from "./calendarGrid";
 import { Eyebrow } from "./primitives";
 
@@ -14,27 +8,15 @@ import { Eyebrow } from "./primitives";
  * 104px day cells, a circular day number, and left-border status chips.
  * Presentational — the screen supplies resolved events; interaction via callbacks. */
 
-export type CalendarLabelMode = "performer" | "eventName" | "both";
-
-export interface CalendarEvent {
-  id: string;
-  /** `yyyy-mm-dd`. */
-  date: string;
-  eventName: string;
-  performer?: string;
-  status: Status;
-  /** Set only when this chip is a real event (not a standalone calendar item);
-   * drives the click-through to the event workspace. */
-  eventId?: string;
-}
+/** Re-exported so the existing `components` barrel and its importers keep their
+ * one import site, while the chip itself now lives beside the week/day views. */
+export type { CalendarEvent, CalendarLabelMode } from "./CalendarEventChip";
 
 export interface CalendarMonthGridProps {
   /** Any date within the month to render. */
   month: Date;
   events: CalendarEvent[];
   labelMode?: CalendarLabelMode;
-  /** Reserved for the Month/Week/Day switch; the grid renders a month. */
-  view?: "month" | "week" | "day";
   /** Optional cap on chips per day (collapses to "+N more"). Omit to show all. */
   maxPerDay?: number;
   showLegend?: boolean;
@@ -50,13 +32,14 @@ const TODAY_TINT = "rgba(238,87,70,.05)";
 /** The hairline that separates two cells. Drawn only BETWEEN cells — never on the
  * last column or last row — because the card already draws its own 1px border
  * there, and the two sitting flush would read as a doubled 2px outer edge. */
-const CELL_RULE = "1px solid var(--border)";
+/** `1fr` alone is `minmax(auto, 1fr)`, so a single nowrap chip wider than its
+ * share of the row stretches that column and squeezes the other six — the day
+ * numbers then stop lining up with the weekday headers. `minmax(0, 1fr)` pins
+ * the seven columns equal and lets the chip ellipsize, which is what it is
+ * already styled to do. */
+const WEEK_COLUMNS = "repeat(7, minmax(0, 1fr))";
 
-function chipLabel(event: CalendarEvent, mode: CalendarLabelMode): string {
-  if (mode === "performer") return event.performer ?? event.eventName;
-  if (mode === "eventName") return event.eventName;
-  return event.performer ? `${event.performer} · ${event.eventName}` : event.eventName;
-}
+const CELL_RULE = "1px solid var(--border)";
 
 export function CalendarMonthGrid({
   month,
@@ -84,7 +67,7 @@ export function CalendarMonthGrid({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(7, 1fr)",
+            gridTemplateColumns: WEEK_COLUMNS,
             borderBottom: "1px solid var(--border)",
           }}
         >
@@ -106,7 +89,7 @@ export function CalendarMonthGrid({
           ))}
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
+        <div style={{ display: "grid", gridTemplateColumns: WEEK_COLUMNS }}>
           {cells.map((cell, cellIndex) => {
             // Every cell carries the grid rules, out-of-month padding days included.
             // The prototype leaves those cells border-less, which tears a visible hole
@@ -192,41 +175,14 @@ export function CalendarMonthGrid({
                   {cell.date.getDate()}
                 </button>
 
-                {visible.map((event) => {
-                  const color = STATUS_COLOR[event.status];
-                  const clickable = Boolean(onSelectEvent && event.eventId);
-                  return (
-                    <button
-                      key={event.id}
-                      type="button"
-                      onClick={(clickEvent) => {
-                        clickEvent.stopPropagation();
-                        if (event.eventId) onSelectEvent?.(event.eventId);
-                      }}
-                      title={chipLabel(event, labelMode)}
-                      style={{
-                        display: "block",
-                        width: "100%",
-                        textAlign: "left",
-                        cursor: clickable ? "pointer" : "default",
-                        border: 0,
-                        borderLeft: `2px solid ${color.fg}`,
-                        borderRadius: 6,
-                        padding: "3px 7px",
-                        marginBottom: 3,
-                        fontSize: 11,
-                        fontWeight: 500,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        background: color.tint,
-                        color: color.fg,
-                      }}
-                    >
-                      {chipLabel(event, labelMode)}
-                    </button>
-                  );
-                })}
+                {visible.map((event) => (
+                  <CalendarEventChip
+                    key={event.id}
+                    event={event}
+                    labelMode={labelMode}
+                    onSelect={onSelectEvent}
+                  />
+                ))}
 
                 {overflow > 0 && (
                   <span style={{ fontSize: 11, color: "var(--muted)", paddingLeft: 2 }}>
