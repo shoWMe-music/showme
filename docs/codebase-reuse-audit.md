@@ -395,3 +395,42 @@ inline card, because nothing there goes through `Select` any more.
 `--control-height`, because Chromium ignores `line-height` on the date editor.
 The only fix short of a hard height belongs in the design system's shared field
 CSS, not in a component.
+
+
+---
+
+## Open: `operator_full` does not carry `rider.view`, and a route works around it
+
+**The inconsistency.** `packages/auth/src/presets.ts` puts `rider.view` in
+`crew_technical` and in `VIEW_ONLY_CAPABILITIES`, with a comment stating the
+intended model plainly:
+
+> Opt-in for crew who need it (sound/lighting) — visibility is still SCOPED to
+> the crew's sponsor at read time (operator → all riders; performer → own only).
+
+So `rider.view` is meant to be "may see riders at all", with the SCOPE decided at
+read time. But `operator_full` does not include it. `scopedEventRiders`
+(`apps/api/src/routes/riders.ts:173`) papers over that with
+`if (capabilities.has("budget.view")) return all; // operators see everything` —
+using the budget capability as a proxy for "is an operator".
+
+**What it cost.** An operator could never share a rider on a link: the share
+scope check asked whether the sharer held `rider.view`, which no operator preset
+carries, so the tick-box was greyed out for every operator on every event. Fixed
+2026-08-26 with `hasReach()` in `lib/share-scope.ts`, which asks the same
+question the rider route asks rather than the one the capability name implies.
+
+**The two candidate fixes, neither applied:**
+
+1. **Add `rider.view` to `operator_full`.** Matches the documented intent, and
+   changes nothing in practice — operators already reach every rider through the
+   `budget.view` branch. `rider.view` is not a pool capability, so `isGrantable`
+   already permits it for any role.
+2. **Make the rider route require `rider.view` for everyone** and delete the
+   `budget.view` shortcut. Purer, and a larger blast radius.
+
+**Why neither was done:** this is a change to authorization, the symptom is
+already fixed, and a capability edit deserves its own pass with its own tests
+rather than riding along at the end of a long session. **Needs an owner
+decision.** Option 1 is the smaller and the one that makes the code match its own
+comment.

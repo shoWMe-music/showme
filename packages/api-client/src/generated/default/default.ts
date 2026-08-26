@@ -234,6 +234,7 @@ import type {
   PostApiV1IntegrationsCalendarIdSync200,
   PostApiV1Invitations201,
   PostApiV1InvitationsBody,
+  PostApiV1InvitationsIdRevoke200,
   PostApiV1InvitationsTokenAccept200,
   PostApiV1InvitationsTokenClaim200,
   PostApiV1InvitationsTokenDecline200,
@@ -7244,7 +7245,63 @@ export function useGetApiV1EventsIdInvitations<TData = Awaited<ReturnType<typeof
 
 
 
-export const getApiV1InvitationsToken = (
+export const postApiV1InvitationsIdRevoke = (
+    id: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1InvitationsIdRevoke200>(
+      {url: `/api/v1/invitations/${id}/revoke`, method: 'POST', signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1InvitationsIdRevokeMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1InvitationsIdRevoke>>, TError,{id: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1InvitationsIdRevoke>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['postApiV1InvitationsIdRevoke'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1InvitationsIdRevoke>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  postApiV1InvitationsIdRevoke(id,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1InvitationsIdRevokeMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1InvitationsIdRevoke>>>
+    
+    export type PostApiV1InvitationsIdRevokeMutationError = unknown
+
+    export const usePostApiV1InvitationsIdRevoke = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1InvitationsIdRevoke>>, TError,{id: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1InvitationsIdRevoke>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1InvitationsIdRevokeMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const getApiV1InvitationsToken = (
     token: string,
  signal?: AbortSignal
 ) => {

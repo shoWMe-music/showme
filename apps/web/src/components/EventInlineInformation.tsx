@@ -107,7 +107,6 @@ export function EventInlineInformation({
 
   const capacityText = inline.values.capacity;
   const status = apiStatusToDisplay(inline.values.status);
-  const draftStatus = apiStatusToDisplay(inline.draft);
   const isEditing = (field: keyof typeof EVENT_INLINE_FIELD_LABEL) => inline.editingField === field;
 
   return (
@@ -169,8 +168,6 @@ export function EventInlineInformation({
           <EventInlineDateChoice
             label={EVENT_INLINE_FIELD_LABEL.eventDate}
             value={inline.draft}
-            displayText={formatEventDate(inline.draft)}
-            placeholder="Add a date"
             canSave={inline.hasUnsavedChanges}
             onChange={inline.changeDraft}
             onCancel={inline.cancel}
@@ -245,7 +242,6 @@ export function EventInlineInformation({
                   : undefined,
             }))}
             value={inline.draft}
-            displayText={roomText}
             placeholder="No room set"
             canSave={inline.hasUnsavedChanges}
             hint="Each room is its own calendar — two rooms can hold two shows the same night. A show with no room set counts against every room's availability."
@@ -330,15 +326,21 @@ export function EventInlineInformation({
         >
           <EventInlineOptionChoice
             label={EVENT_INLINE_FIELD_LABEL.status}
+            // The glyph rides on the LABEL, so the same definition draws the
+            // dot in the menu and on the row behind it.
             options={EVENT_STATUS_OPTIONS.map((option) => ({
               value: option.value,
-              label: option.label,
+              label: (
+                <EventInlineGlyphValue
+                  glyph={<StatusDot status={apiStatusToDisplay(option.value).status} size={8} />}
+                >
+                  {option.label}
+                </EventInlineGlyphValue>
+              ),
+              searchText: option.label,
               description: option.description,
-              glyph: <StatusDot status={apiStatusToDisplay(option.value).status} size={8} />,
             }))}
             value={inline.draft}
-            displayText={draftStatus.label}
-            displayGlyph={<StatusDot status={draftStatus.status} size={8} />}
             placeholder="Not set"
             canSave={inline.hasUnsavedChanges}
             onChange={inline.changeDraft}

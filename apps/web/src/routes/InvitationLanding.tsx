@@ -1,5 +1,5 @@
 import { Button, Card, Icon, KeyValueRow } from "@showme/design-system";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { AuthScreen } from "../auth/AuthScreen";
 import { OnboardingFlow } from "../auth/OnboardingFlow";
@@ -34,6 +34,16 @@ export function InvitationLanding({ token }: { token: string }) {
   const invitation = useInvitation(token);
   const { signOut } = useAuth();
   const [signingIn, setSigningIn] = useState(false);
+
+  // LIGHT, unconditionally — for the reasons written out in full on the sibling
+  // surface, `ShareViewer`. Short version: this page renders outside `AppShell`,
+  // which is the only thing that stamps the theme, so without this a recipient
+  // would meet shoWMe in dark and land in light the moment they accept. Removed
+  // on unmount so this page cannot decide the theme for anything else.
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", "light");
+    return () => document.documentElement.removeAttribute("data-theme");
+  }, []);
 
   // The two full-screen flows the app already owns. Rendering them in place —
   // rather than navigating away — is what makes the link survive a signup: the
@@ -104,9 +114,12 @@ function OfferCard({ offer }: { offer: InvitationOffer }) {
         <KeyValueRow label="Sent to" value={offer.recipientEmail ?? "Anyone with the link"} />
       </div>
       {offer.claimable && (
+        // Deliberately unnamed. On a handoff the invitation points at BOTH an
+        // event and the unclaimed profile behind it, and `targetName` is the
+        // event — so naming anything here would name the wrong thing.
         <p style={noteStyle}>
-          {offer.targetName ?? "This profile"} was set up for you by someone else. Accepting takes
-          it over — the bookings already on it come with it.
+          An account was set up for you by someone else, and this hands it over. Everything already
+          booked on it comes with it.
         </p>
       )}
     </Card>
@@ -281,10 +294,10 @@ function AnswerCard({
 
     case "ready":
       return (
-        <Panel title={offer?.claimable ? "Take over this profile?" : "Do you accept?"}>
+        <Panel title={offer?.claimable ? "Take this account over?" : "Do you accept?"}>
           <p style={bodyStyle}>
             {offer?.claimable
-              ? "Accepting makes this profile yours, with everything already booked on it. Declining leaves it exactly as it is."
+              ? "Claiming makes that account yours, with everything already booked on it. Declining leaves it exactly as it is."
               : "Accepting adds you to it straight away. Declining is a real answer too, and closes the invitation."}
           </p>
           {answerFailed && <p style={errorStyle}>{errorMessage(answerFailed)}</p>}
@@ -304,10 +317,12 @@ function AnswerCard({
         </Panel>
       );
 
+    // Two outcomes, two different true sentences. Only ACCEPT notifies the
+    // sender (`notifyUsers` in `routes/invitations.ts`); a claim tells nobody,
+    // so saying it did would be the kind of small lie this page exists to stop.
     case "accepted":
-    case "claimed":
       return (
-        <Panel title={stage === "claimed" ? "It is yours" : "You are in"}>
+        <Panel title="You are in">
           <p style={bodyStyle}>
             {offer?.targetName
               ? `${offer.targetName} is on your shoWMe account now.`
@@ -317,6 +332,17 @@ function AnswerCard({
           <Button onClick={() => window.location.assign(eventLink)}>
             {offer?.targetKind === "event" ? "Open the event" : "Open shoWMe"}
           </Button>
+        </Panel>
+      );
+
+    case "claimed":
+      return (
+        <Panel title="It is yours">
+          <p style={bodyStyle}>
+            That account now belongs to you — it is in your profile list, with everything that was
+            already on it.
+          </p>
+          <Button onClick={() => window.location.assign("/profiles")}>Open your profiles</Button>
         </Panel>
       );
 
@@ -372,11 +398,13 @@ const headingStyle = {
   color: "var(--text)",
 } as const;
 
-const fieldGridStyle = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-  gap: "2px 24px",
-} as const;
+/**
+ * One column, not two. `KeyValueRow` is a full-width label↔value LINE, and
+ * packing four of them into a 560px card two-abreast wraps the labels ("Sent /
+ * to") and pushes long addresses against their neighbour. Four facts stacked
+ * read straight down and every value gets its own line.
+ */
+const fieldGridStyle = { display: "grid", gap: 2 } as const;
 
 const bodyStyle = {
   margin: 0,

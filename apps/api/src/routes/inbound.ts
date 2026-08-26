@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
-import { currencyForCountry } from "@showme/shared";
+import { currencyForCountry, invitationExpiresAt } from "@showme/shared";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -15,6 +15,7 @@ import {
   tooManyRequests,
 } from "../errors";
 import { writeActivity } from "../lib/activity";
+import { renderInvitationEmail } from "../lib/email-templates";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
 import { canUseFeature, entitlementRequired } from "../lib/entitlements";
@@ -236,7 +237,23 @@ const FlagResponse = z.object({
   /** The profile the report was filed AGAINST; null when the sender has no account. */
   reportedProfileId: z.string().nullable(),
 });
-const HandoffResponse = z.object({ profileId: z.string(), invitationId: z.string() });
+/**
+ * The handoff, as the operator handing it over sees it.
+ *
+ * `token` is here because without it the handoff had no door at all: the route
+ * minted exactly the right rows and then returned neither the token nor an email
+ * carrying it, so the only way to reach the invitation it created was a database
+ * query (`docs/old-app-analysis-flows-invite-settle.md` §1.3). It goes to the
+ * SENDER, who is the one being asked to pass it on — the same person who already
+ * holds it by virtue of having created it.
+ */
+const HandoffResponse = z.object({
+  profileId: z.string(),
+  invitationId: z.string(),
+  token: z.string(),
+  /** Whether we mailed the link ourselves, or the sender has to pass it on. */
+  emailed: z.boolean(),
+});
 
 /**
  * What "Create Draft" produces, plus the plan consequence stated out loud. A
@@ -1298,6 +1315,11 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
             source: "venue_handoff",
             status: "pending",
             token: generateToken(),
+            // 90 days, the number the handoff reaper has always used
+            // (`apps/jobs/src/reapers.ts`) and now the number the column says
+            // too. Read on every redemption, so the rule bites without waiting
+            // for a sweep.
+            expiresAt: invitationExpiresAt("venue_handoff", new Date()),
             recipientEmail: body.recipientEmail,
             targetEventId: id,
             targetProfileId: stub.id,
@@ -1334,10 +1356,42 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
           summary: { profileId: stub.id, invitationId: invitation.id, role: invitation.role },
         });
 
-        return { profileId: stub.id, invitationId: invitation.id };
+        return {
+          profileId: stub.id,
+          invitationId: invitation.id,
+          token: invitation.token as string,
+        };
       });
 
-      return reply.status(201).send(created);
+      // Mail the venue their link, when we were given an address. Best-effort and
+      // swallowed, exactly like `POST /invitations`: the handoff is already
+      // persisted and redeemable, and the token comes back in the response either
+      // way — so a mail outage costs the sender a copy-paste, never the handoff.
+      let emailed = false;
+      if (body.recipientEmail) {
+        try {
+          const [event] = await database
+            .select({ title: schema.events.title })
+            .from(schema.events)
+            .where(eq(schema.events.id, id));
+          await request.server.emailSink.sendEmail({
+            to: body.recipientEmail,
+            ...renderInvitationEmail({
+              recipientName: body.name,
+              inviterName: request.firebaseUser?.name,
+              targetName: event?.title,
+              targetKind: "event",
+              code: null,
+              token: created.token,
+            }),
+          });
+          emailed = true;
+        } catch (error) {
+          request.log.error({ error, invitationId: created.invitationId }, "handoff email failed");
+        }
+      }
+
+      return reply.status(201).send({ ...created, emailed });
     },
   );
 }

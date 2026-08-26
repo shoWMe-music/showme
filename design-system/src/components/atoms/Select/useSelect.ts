@@ -12,6 +12,10 @@ import {
 export interface SelectOption {
   value: string;
   label: ReactNode;
+  /** What choosing this option MEANS, on a second line under the label. For a
+   * list where the words alone do not settle it — "Confirmed: the booking is on,
+   * and this is the status that counts against your plan". */
+  description?: ReactNode;
   disabled?: boolean;
   /** What the search box matches against when `label` is not plain text. */
   searchText?: string;
@@ -40,7 +44,11 @@ function matches(option: SelectOption, query: string): boolean {
 }
 
 const OPTION_HEIGHT = 36;
+/** An option that also explains itself is two lines rather than one. */
+const OPTION_WITH_DESCRIPTION_HEIGHT = 58;
 const SEARCH_ROW_HEIGHT = 45;
+/** Stands in for the footer until it has been laid out once and can be measured. */
+const FOOTER_ROW_HEIGHT = 58;
 
 export interface UseSelectOptions {
   items: SelectOption[];
@@ -49,6 +57,24 @@ export interface UseSelectOptions {
   disabled?: boolean;
   searchable: boolean;
   listId: string;
+  /** Drive the menu from outside. Omit for the ordinary self-managing dropdown;
+   * pass it (with `onOpenChange`) when something else decides when the menu is
+   * up — a row that opens its picker the moment it is clicked, say. */
+  open?: boolean;
+  /** Every open and every close, however it happened: the trigger, Escape, a
+   * click outside, a choice. The single place to learn the menu went away. */
+  onOpenChange?: (open: boolean) => void;
+  /** Whether choosing an option also closes the menu. False keeps it up so a
+   * `footer` can confirm the choice — see `Select`. */
+  closeOnSelect: boolean;
+  /** Whether a footer is rendered, so Tab leads into it instead of closing and
+   * the menu is measured tall enough to hold it. */
+  hasFooter: boolean;
+  /** A floor for the menu's width. Menus match their trigger by default, which
+   * is right for a form control and wrong for a trigger sized to its own value
+   * — an inline table row, an icon button — where matching it opens a column too
+   * narrow to read. */
+  menuWidth?: number;
 }
 
 /**
@@ -67,8 +93,13 @@ export function useSelect({
   disabled,
   searchable,
   listId,
+  open: controlledOpen,
+  onOpenChange,
+  closeOnSelect,
+  hasFooter,
+  menuWidth,
 }: UseSelectOptions) {
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(-1);
   const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
@@ -77,6 +108,20 @@ export function useSelect({
   const panelRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const footerRef = useRef<HTMLDivElement>(null);
+
+  // Controlled when a caller passes `open`, self-managing otherwise. Both routes
+  // announce every change, so a caller can drive the menu, only listen, or
+  // neither, without the component behaving differently underneath.
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : uncontrolledOpen;
+  const setOpen = useCallback(
+    (next: boolean) => {
+      if (!isControlled) setUncontrolledOpen(next);
+      onOpenChange?.(next);
+    },
+    [isControlled, onOpenChange],
+  );
 
   const filtered = useMemo(
     () => (searchable ? items.filter((item) => matches(item, query)) : items),
@@ -97,8 +142,15 @@ const MINIMUM_MENU_HEIGHT = 240;
     const element = triggerRef.current;
     if (!element) return;
     const rect = element.getBoundingClientRect();
-    const listHeight = Math.max(filtered.length, 1) * OPTION_HEIGHT + 12;
-    const wanted = listHeight + (searchable ? SEARCH_ROW_HEIGHT : 0);
+    const rowHeight = items.some((item) => item.description != null)
+      ? OPTION_WITH_DESCRIPTION_HEIGHT
+      : OPTION_HEIGHT;
+    const listHeight = Math.max(filtered.length, 1) * rowHeight + 12;
+    // Measured once the footer has been laid out, estimated before that. Being a
+    // few pixels out only nudges the open-up/open-down choice; the list scrolls
+    // either way.
+    const footerHeight = hasFooter ? (footerRef.current?.offsetHeight ?? FOOTER_ROW_HEIGHT) : 0;
+    const wanted = listHeight + (searchable ? SEARCH_ROW_HEIGHT : 0) + footerHeight;
 
     // Open on whichever side has MORE ROOM, not merely when below is too small.
     // A control low in a card had plenty of space above it and was still opening
@@ -109,27 +161,35 @@ const MINIMUM_MENU_HEIGHT = 240;
     const openUp = spaceAbove > spaceBelow && spaceBelow < wanted;
     const available = openUp ? spaceAbove : spaceBelow;
 
+    // Never wider than it was asked to be, never off the edge of the window.
+    const width = Math.max(rect.width, menuWidth ?? 0);
     setMenuStyle({
-      left: rect.left,
-      width: rect.width,
+      left: Math.max(VIEWPORT_MARGIN, Math.min(rect.left, window.innerWidth - width - VIEWPORT_MARGIN)),
+      width,
       // Never taller than it needs, never shorter than the room allows. The old
       // floor of 160 was applied even when the viewport could not honour it, so
       // a menu near an edge both overflowed AND showed three options.
       maxHeight: Math.max(Math.min(wanted, available), Math.min(MINIMUM_MENU_HEIGHT, available)),
       ...(openUp ? { bottom: window.innerHeight - rect.top + GAP } : { top: rect.bottom + GAP }),
     });
-  }, [filtered.length, searchable]);
+  }, [filtered.length, items, searchable, hasFooter, menuWidth]);
 
-  const close = useCallback((focusTrigger = true) => {
-    setOpen(false);
-    setQuery("");
-    if (focusTrigger) triggerRef.current?.focus();
-  }, []);
+  const close = useCallback(
+    (focusTrigger = true) => {
+      setOpen(false);
+      setQuery("");
+      if (focusTrigger) triggerRef.current?.focus();
+    },
+    [setOpen],
+  );
 
-  const openWith = useCallback((seedQuery = "") => {
-    setQuery(seedQuery);
-    setOpen(true);
-  }, []);
+  const openWith = useCallback(
+    (seedQuery = "") => {
+      setQuery(seedQuery);
+      setOpen(true);
+    },
+    [setOpen],
+  );
 
   // Open housekeeping: position the popover and keep it glued to its trigger.
   useEffect(() => {
@@ -140,8 +200,7 @@ const MINIMUM_MENU_HEIGHT = 240;
     const onPointerDown = (pointerEvent: PointerEvent) => {
       const target = pointerEvent.target as Node;
       if (triggerRef.current?.contains(target) || panelRef.current?.contains(target)) return;
-      setOpen(false);
-      setQuery("");
+      close(false);
     };
     // Escape belongs to the topmost layer, and while this popover is open that
     // is the popover — not the Modal behind it, which also listens for Escape
@@ -165,12 +224,26 @@ const MINIMUM_MENU_HEIGHT = 240;
     };
   }, [open, updatePosition, close]);
 
-  // Focus moves into the search box only once the popover is actually mounted,
-  // which is one render after `open` flips — the panel waits for a measured
-  // position before it exists.
+  // Focus moves into the popover only once it is actually mounted, which is one
+  // render after `open` flips — the panel waits for a measured position before it
+  // exists.
+  //
+  // Without a search box the TRIGGER is the combobox, and it has to hold the
+  // keyboard for arrows and Enter to reach the list. That used to be assumed
+  // rather than done, because the only way to open a menu was to click its
+  // trigger, which focuses it for free. A caller driving `open` breaks that
+  // assumption: the menu appears with the keyboard nowhere, and arrows do
+  // nothing. Claim it — and only when it is not already inside, so a click never
+  // has its focus taken off it and put back.
   const positioned = menuStyle !== null;
   useEffect(() => {
-    if (open && searchable && positioned) searchRef.current?.focus();
+    if (!open || !positioned) return;
+    if (searchable) {
+      searchRef.current?.focus();
+      return;
+    }
+    const trigger = triggerRef.current;
+    if (trigger && !trigger.contains(document.activeElement)) trigger.focus();
   }, [open, searchable, positioned]);
 
   // Seeding the active option: with no query it is the current selection, and
@@ -198,9 +271,11 @@ const MINIMUM_MENU_HEIGHT = 240;
       const option = filtered[index];
       if (!option || option.disabled) return;
       onChange(option.value);
-      close();
+      // With a footer the choice is a DRAFT — the menu stays up until the footer
+      // says what to do with it.
+      if (closeOnSelect) close();
     },
-    [filtered, onChange, close],
+    [filtered, onChange, close, closeOnSelect],
   );
 
   const step = useCallback(
@@ -244,8 +319,11 @@ const MINIMUM_MENU_HEIGHT = 240;
         // Escape is deliberately absent: it is claimed in the capture phase on
         // `document` while the popover is open, so it never reaches here.
         // Focus lives inside a portal, so the browser's own Tab order would
-        // jump to the end of the document. Close and hand focus back instead.
+        // jump to the end of the document. Close and hand focus back instead —
+        // unless there is a footer, which is where Tab should go next; the panel
+        // keeps it from escaping past the last button.
         case "Tab":
+          if (hasFooter) return false;
           keyEvent.preventDefault();
           close();
           return true;
@@ -253,7 +331,7 @@ const MINIMUM_MENU_HEIGHT = 240;
           return false;
       }
     },
-    [step, commit, activeIndex, close],
+    [step, commit, activeIndex, close, hasFooter],
   );
 
   const onTriggerKeyDown = useCallback(
@@ -287,6 +365,36 @@ const MINIMUM_MENU_HEIGHT = 240;
     [navigate],
   );
 
+  /**
+   * Keep Tab inside the menu once it has a footer to walk into.
+   *
+   * The menu is portalled to the end of `<body>`, so a Tab off its last button
+   * would land nowhere near the control it belongs to. Wrapping is not a trap:
+   * Escape closes the menu from anywhere inside it, and the roving list means
+   * the only stops are the search box and the footer's own controls.
+   */
+  const onPanelKeyDown = useCallback(
+    (keyEvent: KeyboardEvent<HTMLDivElement>) => {
+      if (!hasFooter || keyEvent.key !== "Tab") return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const stops = [...panel.querySelectorAll<HTMLElement>("button, input, [tabindex]")].filter(
+        (element) => element.tabIndex >= 0 && !element.hasAttribute("disabled"),
+      );
+      const first = stops.at(0);
+      const last = stops.at(-1);
+      if (!first || !last) return;
+      if (!keyEvent.shiftKey && document.activeElement === last) {
+        keyEvent.preventDefault();
+        first.focus();
+      } else if (keyEvent.shiftKey && document.activeElement === first) {
+        keyEvent.preventDefault();
+        last.focus();
+      }
+    },
+    [hasFooter],
+  );
+
   return {
     open,
     query,
@@ -300,10 +408,12 @@ const MINIMUM_MENU_HEIGHT = 240;
     panelRef,
     listRef,
     searchRef,
+    footerRef,
     commit,
     close,
     toggle: () => (open ? close() : openWith()),
     onTriggerKeyDown,
     onSearchKeyDown,
+    onPanelKeyDown,
   };
 }

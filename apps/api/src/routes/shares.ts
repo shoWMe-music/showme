@@ -935,7 +935,14 @@ export async function shareRoutes(fastify: FastifyInstance): Promise<void> {
       const now = new Date();
 
       if (request.body.subject === "settlement") {
-        await database.transaction(async (tx) => {
+        /**
+         * The timestamp this route reports is the one the approval ACTUALLY
+         * carries, not the clock at the moment of the second click. Re-approving
+         * is idempotent and keeps the first stamp — so answering `now` told the
+         * recipient their settlement was signed at a time nothing was signed at.
+         * A signature's date is the part of it that matters most.
+         */
+        const approvedAt = await database.transaction(async (tx) => {
           const [settlement] = await tx
             .select()
             .from(schema.settlements)
@@ -954,8 +961,9 @@ export async function shareRoutes(fastify: FastifyInstance): Promise<void> {
                 eq(schema.settlementApprovals.partyParticipantId, party.participantId),
               ),
             );
+          // Idempotent: re-approving is a no-op that keeps the first timestamp.
+          const alreadyApproved = existing?.approved === true;
           if (existing) {
-            // Idempotent: re-approving is a no-op that keeps the first timestamp.
             if (!existing.approved) {
               await tx
                 .update(schema.settlementApprovals)
@@ -995,14 +1003,15 @@ export async function shareRoutes(fastify: FastifyInstance): Promise<void> {
               summary: { via: "share", partyRole: party.role },
             });
           }
+          return alreadyApproved ? (existing?.approvedAt ?? now) : now;
         });
-        return { approvedAt: now.toISOString() };
+        return { approvedAt: approvedAt.toISOString() };
       }
 
       const dealId = request.body.dealId;
       if (!dealId) throw badRequest("dealId is required to confirm an agreement");
 
-      await database.transaction(async (tx) => {
+      const confirmedAt = await database.transaction(async (tx) => {
         const [deal] = await tx
           .select()
           .from(schema.deals)
@@ -1019,8 +1028,8 @@ export async function shareRoutes(fastify: FastifyInstance): Promise<void> {
         const mine = parties.filter((line) => line.participantId === party.participantId);
         if (mine.length === 0) throw forbidden("You are not a party to this deal");
 
-        for (const line of mine) {
-          if (line.confirmedAt) continue; // idempotent
+        const unstamped = mine.filter((line) => line.confirmedAt == null); // idempotent
+        for (const line of unstamped) {
           await tx
             .update(schema.dealParties)
             .set({ confirmedAt: now, version: line.version + 1 })
@@ -1061,9 +1070,12 @@ export async function shareRoutes(fastify: FastifyInstance): Promise<void> {
           targetId: deal.id,
           summary: { name: deal.name, agreementStatus: current.agreementStatus, via: "share" },
         });
+        // Same rule as the settlement above: when this call stamped nothing, the
+        // honest answer is when the line was signed, not when it was re-asked.
+        return unstamped.length > 0 ? now : (mine[0]?.confirmedAt ?? now);
       });
 
-      return { approvedAt: now.toISOString() };
+      return { approvedAt: confirmedAt.toISOString() };
     },
   );
 }

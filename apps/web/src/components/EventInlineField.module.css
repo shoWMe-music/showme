@@ -201,10 +201,10 @@
   box-shadow: none;
 }
 
-/* The three PICKED fields (day, room, status). The value is drawn read-only, in
-   the same place and at the same size the closed row drew it — the picker
-   floating off this box is the editor. `justify-content: flex-end` is what keeps
-   its right edge on the column the other values line up on. */
+/* The three PICKED fields (day, room, status). The value sits in the same place
+   and at the same size the closed row drew it — the picker floating off this box
+   is the editor. `justify-content: flex-end` is what keeps its right edge on the
+   column the other values line up on. */
 .choiceSlot {
   display: flex;
   align-items: center;
@@ -213,7 +213,19 @@
   height: 20px;
 }
 
-.choiceSlot input {
+/* The `Select` the room and the status open, flattened the same way: its trigger
+   IS the value, and its menu is a floating panel that costs the row nothing.
+   The chevron goes to the LEFT of the value — on the right it would push the
+   value inward and the figure would no longer line up with the column of values
+   above and below it. */
+.choiceSlot button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+  width: auto;
+  min-width: 0;
   cursor: pointer;
 }
 
@@ -303,25 +315,8 @@
 
 /* ── Inside a picker's panel ──────────────────────────────────────────────── */
 
-/* The option list. Capped rather than allowed to grow: seven statuses at full
-   height is a popover taller than the card it hangs off. */
-.choiceOptions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.choiceOptionTitle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* What the list is about, above it — the sentence that used to float over the
-   row below this one. In the panel it is read where it is needed and covers
-   nothing. */
+/* What the list is about — the sentence that used to float over the row below
+   this one. In the panel it is read where it is needed and covers nothing. */
 .choiceHint {
   margin: 0 0 10px;
   font-size: 11.5px;
@@ -333,6 +328,12 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* The calendar's own footer chrome. `Select` draws this for its footer slot
+   already; the calendar has no such slot, so the rule is added here — one
+   definition of what an actions row looks like, two places that need it. */
+.choiceFooter {
   padding-top: 10px;
   border-top: 1px solid var(--border);
 }

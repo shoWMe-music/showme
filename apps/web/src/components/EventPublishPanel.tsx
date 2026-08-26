@@ -135,35 +135,42 @@ export function EventPublishPanel({
  *
  * The lists are a transcription of `serializePublicEvent`
  * (`apps/api/src/serialize/public.ts`), which selects six columns and no others:
- * id, title, eventDate, venueName, doorTime, startTime. Everything named in the
- * second list is a column that endpoint never reads, so it cannot leak. If that
- * allowlist ever gains a field, this copy is wrong until it gains the same one.
+ * id, title, eventDate, venueName, doorTime, startTime. Everything named under
+ * "They never see" is a column that endpoint never reads, so it cannot leak. If
+ * that allowlist ever gains a field, this copy is wrong until it gains the same
+ * one.
  *
  * Written positively AND negatively because the question an operator actually
  * has is the second one: an event carries a budget, deals and other people's
  * fees, and "we only publish the poster" is only reassuring once the things left
  * out are named.
  *
- * Rendered as display-block spans rather than divs because {@link ConfirmDialog}
- * puts its body inside a `<p>`, which may not contain block-level elements.
+ * A `<dl>` because that is what this is: two terms, each with its description.
+ * The pairing is the meaning here — "Visitors see" is worth nothing without the
+ * line under it — so a reader on a screen reader should meet them joined, not as
+ * four loose runs of text. This used to be `display: block` spans faking the
+ * structure, because {@link ConfirmDialog} wrapped its body in a `<p>`; that
+ * wrapper is a `<div>` now, so the honest elements are available.
  */
 function PublishConsequences() {
   return (
     <>
-      <span style={consequenceParagraph}>
+      <p style={consequenceParagraph}>
         The page goes up the moment you confirm. Anyone with the link can open it and RSVP — no
         shoWMe account needed — and everyone on the bill sees in the event's history that you
         published it.
-      </span>
-      <span style={consequenceLabel}>Visitors see</span>
-      <span style={consequenceParagraph}>
-        the event name, the date, the venue name, and the doors / show times.
-      </span>
-      <span style={consequenceLabel}>They never see</span>
-      <span style={consequenceParagraph}>
-        the budget, deals or fees, who is on the bill, participants' contact details, your guest
-        list, ticket tiers, capacity, or your notes.
-      </span>
+      </p>
+      <dl style={consequenceList}>
+        <dt style={consequenceTerm}>Visitors see</dt>
+        <dd style={consequenceDetail}>
+          the event name, the date, the venue name, and the doors / show times.
+        </dd>
+        <dt style={consequenceTerm}>They never see</dt>
+        <dd style={consequenceDetail}>
+          the budget, deals or fees, who is on the bill, participants' contact details, your guest
+          list, ticket tiers, capacity, or your notes.
+        </dd>
+      </dl>
     </>
   );
 }
@@ -184,34 +191,43 @@ function PublishConsequences() {
 function UnpublishConsequences() {
   return (
     <>
-      <span style={consequenceParagraph}>
+      <p style={consequenceParagraph}>
         The page comes down the moment you confirm. The link itself keeps working, but everyone
         already holding it — on a poster, in a post, in a message — lands on "This event isn't
         public" instead of the show.
-      </span>
-      <span style={consequenceFollowingParagraph}>
+      </p>
+      <p style={consequenceFollowingParagraph}>
         Nothing else changes: the event, the bill, the deals and the budget stay exactly as they
         are, and you can publish it again at any time. The link will be the same one.
-      </span>
+      </p>
     </>
   );
 }
 
-const consequenceParagraph: CSSProperties = { display: "block" };
+// The dialog body sets the colour, size and leading; these only place the parts.
+// Every one of them zeroes a browser default — <p>, <dl> and <dd> all arrive with
+// margins of their own, and <dd> with a 40px indent — so the spacing below is the
+// only spacing there is.
+
+const consequenceParagraph: CSSProperties = { margin: 0 };
 
 /**
- * A paragraph that follows another paragraph, rather than a label. Labels bring
- * their own gap and the line beneath a label belongs tight against it, so the
- * space is put on the one span that needs it instead of on the shared rule.
+ * A paragraph that follows another paragraph rather than a term. Terms bring
+ * their own gap and a description belongs tight beneath its term, so the space
+ * is put on the one element that needs it instead of on the shared rule.
  */
-const consequenceFollowingParagraph: CSSProperties = { display: "block", marginTop: 10 };
+const consequenceFollowingParagraph: CSSProperties = { margin: "10px 0 0" };
 
-const consequenceLabel: CSSProperties = {
-  display: "block",
+const consequenceList: CSSProperties = { margin: 0 };
+
+const consequenceTerm: CSSProperties = {
   marginTop: 12,
   color: "var(--text)",
   fontWeight: 600,
 };
+
+/** Zeroes the `<dd>` indent as well as its margin — the term is the only label. */
+const consequenceDetail: CSSProperties = { margin: 0 };
 
 function StatePill({ published }: { published: boolean }) {
   // `--muted`, not `--dim`, for the off state: --dim is tuned to recede on the

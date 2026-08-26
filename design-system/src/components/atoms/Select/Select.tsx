@@ -19,6 +19,35 @@ export interface SelectProps {
   /** Type-to-filter search box in the popover. On by default; pass `false`
    * only for a genuinely tiny, fixed choice where a search box is noise. */
   searchable?: boolean;
+  /**
+   * Drive the menu from outside. Omit for the ordinary dropdown, which opens
+   * and closes itself.
+   *
+   * Pass it with `onOpenChange` when something else owns that decision — a table
+   * row that opens its picker the moment it is clicked, rather than making the
+   * reader click the value and then the control inside it.
+   */
+  open?: boolean;
+  /** Every open and every close, however it happened: the trigger, Escape, a
+   * click outside, a choice. One place to learn the menu went away. */
+  onOpenChange?: (open: boolean) => void;
+  /** Whether choosing an option also closes the menu. Default true. Pass false
+   * with a `footer`: the choice becomes a draft the footer confirms. */
+  closeOnSelect?: boolean;
+  /**
+   * A row pinned under the list, inside the menu — Cancel / Save, an "Add
+   * a new one…" link, a count.
+   *
+   * It is the answer to a real tension: a menu is a popover, so clicking an
+   * option is, in DOM terms, focus LEAVING the control. Anything that has to be
+   * confirmed cannot be confirmed by blur, and a footer is where the confirming
+   * goes. Tab walks from the list into it and wraps at the end rather than
+   * escaping to the bottom of the document.
+   */
+  footer?: ReactNode;
+  /** A floor for the menu's width, for a trigger sized to its own value rather
+   * than to a form column. Menus match their trigger without it. */
+  menuWidth?: number;
   /** Placeholder for the search box. Defaults to "Search…". */
   searchPlaceholder?: string;
   /** Shown in place of the list when nothing matches. */
@@ -55,6 +84,13 @@ export function Select({
   searchable = true,
   searchPlaceholder = "Search…",
   noResultsLabel = "No matches",
+  // Renamed on the way in: `open` below is the menu's ACTUAL state, which is
+  // this prop when a caller drives it and the hook's own when nobody does.
+  open: controlledOpen,
+  onOpenChange,
+  closeOnSelect = true,
+  footer,
+  menuWidth,
   id,
   className,
   "aria-label": ariaLabel,
@@ -64,7 +100,19 @@ export function Select({
   const triggerId = id ?? generatedId;
   const listId = `${triggerId}-list`;
 
-  const select = useSelect({ items, value, onChange, disabled, searchable, listId });
+  const select = useSelect({
+    items,
+    value,
+    onChange,
+    disabled,
+    searchable,
+    listId,
+    open: controlledOpen,
+    onOpenChange,
+    closeOnSelect,
+    hasFooter: footer != null,
+    menuWidth,
+  });
   const { open, filtered, selected, activeIndex } = select;
 
   const labelText = typeof label === "string" ? label : ariaLabel;
@@ -109,7 +157,12 @@ export function Select({
       {open &&
         select.menuStyle &&
         createPortal(
-          <div ref={select.panelRef} className={styles.panel} style={select.menuStyle}>
+          <div
+            ref={select.panelRef}
+            className={styles.panel}
+            style={select.menuStyle}
+            onKeyDown={select.onPanelKeyDown}
+          >
             {searchable && (
               <div className={styles.search}>
                 <Icon name="search" size={15} className={styles.searchIcon} />
@@ -153,7 +206,12 @@ export function Select({
                     onClick={() => select.commit(index)}
                     onMouseEnter={() => !option.disabled && select.setActiveIndex(index)}
                   >
-                    <span className={styles.optionLabel}>{option.label}</span>
+                    <span className={styles.optionText}>
+                      <span className={styles.optionLabel}>{option.label}</span>
+                      {option.description != null && (
+                        <span className={styles.optionDescription}>{option.description}</span>
+                      )}
+                    </span>
                     {isSelected && <Icon name="check" size={15} className={styles.check} />}
                   </div>
                 );
@@ -166,6 +224,12 @@ export function Select({
               <output aria-live="polite" className={styles.srOnly}>
                 {filtered.length === 1 ? "1 option" : `${filtered.length} options`}
               </output>
+            )}
+
+            {footer != null && (
+              <div ref={select.footerRef} className={styles.footer}>
+                {footer}
+              </div>
             )}
           </div>,
           document.body,

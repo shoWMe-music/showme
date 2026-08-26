@@ -1,6 +1,7 @@
 import { randomBytes, randomInt } from "node:crypto";
 import { type Database, schema } from "@showme/db";
-import { and, desc, eq, gt, isNull, or } from "drizzle-orm";
+import { invitationExpiresAt } from "@showme/shared";
+import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -15,6 +16,7 @@ import { withIdempotency } from "../plugins/idempotency";
 
 const TokenParams = z.object({ token: z.string().min(1) });
 const EventParams = z.object({ id: z.string().uuid() });
+const IdParams = z.object({ id: z.string().uuid() });
 
 const invitationTypeEnum = z.enum(["profile_member", "event_participant", "code"]);
 const invitationSourceEnum = z.enum([
@@ -368,6 +370,14 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
                 targetEventId: body.targetEventId,
                 role: body.role,
                 permissionSetId: body.permissionSetId,
+                // ARMED HERE, not left null. Every guard downstream already read
+                // this column (`loadInvitation`, the roster list, the offer) and
+                // every one of them was dead code, because no insert had ever
+                // written it — so an invitation sent in 2026 was still redeemable
+                // in 2030. The duration is shared with the reaper that converges
+                // the status later (`@showme/shared`), because those two numbers
+                // disagreeing is worse than either one being wrong.
+                expiresAt: invitationExpiresAt(body.source, new Date()),
                 createdByUser: principal.userId,
                 createdByProfile: principal.actingProfileId,
               })
@@ -484,6 +494,98 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
         createdAt: invitation.createdAt.toISOString(),
         expiresAt: invitation.expiresAt ? invitation.expiresAt.toISOString() : null,
       }));
+    },
+  );
+
+  // Withdraw an invitation that has not been answered yet.
+  //
+  // By ID, not by token: the roster deliberately withholds the token from
+  // everyone but the recipient (`EventInvitationResponse`), so the sender's own
+  // screen has only an id to act on — and a revoke that demanded the bearer
+  // secret would be a revoke the sender could not perform.
+  //
+  // The row is KEPT and flipped to `revoked`, never deleted. The old app deleted
+  // four documents to withdraw one invitation and still missed the fifth, which
+  // left its off-platform door open after the revoke reported success
+  // (`docs/old-app-analysis-flows-invite-settle.md` §1.6). One row with one
+  // status cannot have that bug, and the recipient who arrives afterwards gets
+  // "this was withdrawn" instead of "this does not exist" — a true sentence
+  // rather than a confusing one.
+  //
+  // Authorized exactly like the create it undoes: whoever may hand out the grant
+  // may take it back, and nobody else.
+  app.post(
+    "/invitations/:id/revoke",
+    { schema: { params: IdParams, response: { 200: InvitationResponse } } },
+    async (request) => {
+      const { database } = request.server;
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+
+      const [invitation] = await database
+        .select()
+        .from(schema.invitations)
+        .where(eq(schema.invitations.id, request.params.id));
+      if (!invitation) throw notFound("Invitation not found");
+
+      let auditCapability: "members.manage" | "participants.manage";
+      if (invitation.targetEventId) {
+        await requireEventCapability(request, invitation.targetEventId, "participants.manage");
+        auditCapability = "participants.manage";
+      } else if (invitation.targetProfileId) {
+        requireProfileRole(request, invitation.targetProfileId, ["owner", "admin"]);
+        auditCapability = "members.manage";
+      } else {
+        throw badRequest("This invitation has no target to authorize against");
+      }
+
+      // Only an OPEN invitation can be withdrawn. Revoking an accepted one would
+      // read as "undo the membership" and does not do that — the way to remove
+      // someone who has already joined is to remove the participant.
+      if (invitation.status !== "pending") {
+        throw conflict("This invitation has already been answered");
+      }
+
+      const updated = await database.transaction(async (tx) => {
+        const [after] = await tx
+          .update(schema.invitations)
+          .set({ status: "revoked" })
+          .where(
+            and(
+              eq(schema.invitations.id, invitation.id),
+              // Guarded on the status as well as the id: two managers hitting
+              // Withdraw at once must not both believe they did it, and an
+              // acceptance landing in between must win.
+              eq(schema.invitations.status, "pending"),
+            ),
+          )
+          .returning();
+        if (!after) throw conflict("This invitation has already been answered");
+        await writeAudit(tx, request, {
+          capability: auditCapability,
+          action: "invitation.revoke",
+          targetKind: "invitation",
+          targetId: invitation.id,
+          eventId: invitation.targetEventId ?? undefined,
+          before: invitation,
+          after,
+        });
+        // The slot closing is event history for the same reason the send and the
+        // acceptance are: the bill changed shape. The recipient's address stays
+        // out of the summary, as everywhere else in this module.
+        if (after.targetEventId) {
+          await writeActivity(tx, request, {
+            eventId: after.targetEventId,
+            type: "invitation.revoked",
+            targetKind: "invitation",
+            targetId: after.id,
+            summary: { recipientName: after.recipientName, role: after.role },
+          });
+        }
+        return after;
+      });
+
+      return serializeInvitation(updated);
     },
   );
 
@@ -797,6 +899,10 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
       if (!invitation.recipientEmail) {
         throw forbidden("This invitation is not addressed to anyone, so it cannot be claimed");
       }
+      // Captured before the transaction closure, where the null-check above no
+      // longer narrows. It is the claim key twice over: the recipient check
+      // below, and the stub membership this links.
+      const invitedEmail = invitation.recipientEmail.trim().toLowerCase();
       assertInvitationRecipient(request, invitation);
       if (invitation.status !== "pending") {
         throw conflict("This invitation has already been used");
@@ -817,17 +923,47 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
       let updated: InvitationRow;
       try {
         updated = await database.transaction(async (tx) => {
+          const now = new Date();
           await tx
             .update(schema.profiles)
-            .set({ ownerUserId: principal.userId, claimedAt: new Date(), updatedAt: new Date() })
+            .set({ ownerUserId: principal.userId, claimedAt: now, updatedAt: now })
             .where(eq(schema.profiles.id, profile.id));
-          await tx.insert(schema.profileMembers).values({
-            profileId: profile.id,
-            userId: principal.userId,
-            role: "owner",
-            status: "active",
-            addedBy: principal.userId,
-          });
+
+          // LINK the stub's own membership row rather than adding a second one.
+          //
+          // An off-platform stub is created with `{user_id: null, email}` — that
+          // email IS the claim key (`lib/off-platform.ts`). Inserting a fresh
+          // owner row beside it left the original unlinked forever: the unique
+          // constraint does not catch it because the old row's `user_id` is NULL,
+          // so the profile ended up with two owner memberships, one of them a
+          // ghost pointing at nobody. `claimStubsForEmail` has always done this
+          // correctly; this route is catching up to its own sibling.
+          //
+          // Guarded on `user_id IS NULL` so a racing claim cannot double-apply,
+          // and matched on the lowercased address exactly as the sibling matches
+          // it. If there is no such row (a handoff stub is minted without one),
+          // fall through and insert — a claimer must end up a member either way.
+          const linked = await tx
+            .update(schema.profileMembers)
+            .set({ userId: principal.userId, role: "owner", status: "active", updatedAt: now })
+            .where(
+              and(
+                eq(schema.profileMembers.profileId, profile.id),
+                isNull(schema.profileMembers.userId),
+                eq(sql`lower(${schema.profileMembers.email})`, invitedEmail),
+              ),
+            )
+            .returning({ id: schema.profileMembers.id });
+
+          if (linked.length === 0) {
+            await tx.insert(schema.profileMembers).values({
+              profileId: profile.id,
+              userId: principal.userId,
+              role: "owner",
+              status: "active",
+              addedBy: principal.userId,
+            });
+          }
           const [after] = await tx
             .update(schema.invitations)
             .set({ status: "used", usedByUser: principal.userId, usedAt: new Date() })

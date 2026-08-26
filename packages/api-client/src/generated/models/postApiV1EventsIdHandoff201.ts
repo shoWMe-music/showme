@@ -8,4 +8,6 @@
 export type PostApiV1EventsIdHandoff201 = {
   profileId: string;
   invitationId: string;
+  token: string;
+  emailed: boolean;
 };

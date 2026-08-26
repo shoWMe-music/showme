@@ -1596,3 +1596,362 @@ describe("GET /invitations/:token — the offer a link-holder reads", () => {
     expect(response.statusCode).toBe(404);
   });
 });
+
+/**
+ * EXPIRY AND WITHDRAWAL — the two ways an invitation stops being an open offer
+ * without anybody answering it.
+ *
+ * Both were half-built: `expires_at` was read by four guards and written by no
+ * insert, and `revoked` was an enum value with no writer at all. An invitation
+ * that cannot run out and cannot be taken back is a permanent grant nobody
+ * remembers issuing.
+ */
+describe("invitations — expiry and revocation", () => {
+  /** A host operator + their event, with the host standing on it. */
+  async function seedHostAndEvent(prefix: string) {
+    const { db } = harness;
+    const host = await seedOwnerWithProfile(`${prefix}-host`);
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: host.profileId,
+        title: "Withdrawal Test",
+        baseCurrency: "SEK",
+        createdBy: `${prefix}-host`,
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: host.profileId,
+      role: "host",
+      permissionSetId: host.permissionSetId,
+      status: "confirmed",
+    });
+    return { host, event };
+  }
+
+  it("stamps `expires_at` at create — 30 days, and 90 for a venue handoff", async () => {
+    const owner = await seedOwnerWithProfile("expiry-create");
+
+    const send = async (source: string) => {
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/v1/invitations",
+        headers: { ...auth("expiry-create"), "x-profile-id": owner.profileId },
+        payload: {
+          type: "profile_member",
+          source,
+          targetProfileId: owner.profileId,
+          role: "viewer",
+        },
+      });
+      expect(created.statusCode).toBe(201);
+      const [row] = await harness.db
+        .select({ expiresAt: schema.invitations.expiresAt })
+        .from(schema.invitations)
+        .where(eq(schema.invitations.id, created.json().id));
+      return row?.expiresAt ?? null;
+    };
+
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const ordinary = await send("team");
+    const handoff = await send("venue_handoff");
+    if (!ordinary || !handoff) throw new Error("expires_at was not written");
+
+    const daysFromNow = (date: Date) => Math.round((date.getTime() - Date.now()) / DAY_MS);
+    expect(daysFromNow(ordinary)).toBe(30);
+    expect(daysFromNow(handoff)).toBe(90);
+  });
+
+  it("refuses to redeem a stamped invitation once its date has passed", async () => {
+    const { db } = harness;
+    const owner = await seedOwnerWithProfile("expiry-bite");
+    await seedUser("expiry-bite-invitee", "performer");
+    const [invitation] = await db
+      .insert(schema.invitations)
+      .values({
+        type: "profile_member",
+        source: "team",
+        status: "pending",
+        token: "expiry-bite-token",
+        recipientEmail: "expiry-bite-invitee@example.com",
+        targetProfileId: owner.profileId,
+        role: "editor",
+        expiresAt: new Date(Date.now() - 60_000),
+        createdByUser: "expiry-bite",
+      })
+      .returning();
+    if (!invitation) throw new Error("invitation seed failed");
+
+    // Gone, for every verb — and WITHOUT the reaper having run, which is the
+    // point: the column is the authority, the sweep only tidies the status.
+    for (const verb of ["accept", "decline", "claim"]) {
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/v1/invitations/expiry-bite-token/${verb}`,
+        headers: auth("expiry-bite-invitee"),
+      });
+      expect(response.statusCode).toBe(404);
+    }
+
+    const [after] = await db
+      .select()
+      .from(schema.invitations)
+      .where(eq(schema.invitations.id, invitation.id));
+    expect(after?.status).toBe("pending"); // still un-swept, and still refused
+
+    // …and the offer names it rather than 404ing, so the page can say why.
+    const offer = await app.inject({ method: "GET", url: "/api/v1/invitations/expiry-bite-token" });
+    expect(offer.statusCode).toBe(200);
+    expect(offer.json().status).toBe("expired");
+  });
+
+  it("lets the sender withdraw an open invitation, and closes it for the recipient", async () => {
+    const { db } = harness;
+    const { host, event } = await seedHostAndEvent("revoke-ok");
+    await seedUser("revoke-ok-invitee", "performer");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("revoke-ok-host"), "x-profile-id": host.profileId },
+      payload: {
+        type: "event_participant",
+        source: "collaborator",
+        recipientEmail: "revoke-ok-invitee@example.com",
+        recipientName: "Rae Recipient",
+        targetEventId: event.id,
+        role: "performer",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const { id, token } = created.json();
+
+    const revoked = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${id}/revoke`,
+      headers: { ...auth("revoke-ok-host"), "x-profile-id": host.profileId },
+    });
+    expect(revoked.statusCode).toBe(200);
+    expect(revoked.json().status).toBe("revoked");
+
+    // The row is KEPT — that is the whole argument against the old app's
+    // delete-four-documents revoke.
+    const [after] = await db.select().from(schema.invitations).where(eq(schema.invitations.id, id));
+    expect(after?.status).toBe("revoked");
+
+    // The recipient is told what happened, not that it never existed…
+    const offer = await app.inject({ method: "GET", url: `/api/v1/invitations/${token}` });
+    expect(offer.json().status).toBe("revoked");
+
+    // …and cannot redeem it.
+    const accept = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${token}/accept`,
+      headers: auth("revoke-ok-invitee"),
+    });
+    expect(accept.statusCode).toBe(409);
+
+    // It leaves the roster, and leaves a trace in the event's history.
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/invitations`,
+      headers: { ...auth("revoke-ok-host"), "x-profile-id": host.profileId },
+    });
+    expect(listed.json()).toHaveLength(0);
+
+    const activity = await db
+      .select()
+      .from(schema.activityLog)
+      .where(eq(schema.activityLog.eventId, event.id));
+    expect(activity.map((row) => row.type).sort()).toEqual([
+      "invitation.revoked",
+      "invitation.sent",
+    ]);
+    const audit = await db
+      .select()
+      .from(schema.auditLog)
+      .where(eq(schema.auditLog.action, "invitation.revoke"));
+    expect(audit).toHaveLength(1);
+  });
+
+  it("refuses a withdrawal from someone who could not have sent it", async () => {
+    const { db } = harness;
+    const { host, event } = await seedHostAndEvent("revoke-guard");
+    const outsider = await seedOwnerWithProfile("revoke-guard-outsider");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("revoke-guard-host"), "x-profile-id": host.profileId },
+      payload: {
+        type: "event_participant",
+        source: "collaborator",
+        recipientEmail: "someone@example.com",
+        targetEventId: event.id,
+        role: "performer",
+      },
+    });
+    const { id } = created.json();
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${id}/revoke`,
+      headers: { ...auth("revoke-guard-outsider"), "x-profile-id": outsider.profileId },
+    });
+    // 404, not 403: a stranger learns nothing about an event they cannot see.
+    expect(response.statusCode).toBe(404);
+
+    const [after] = await db.select().from(schema.invitations).where(eq(schema.invitations.id, id));
+    expect(after?.status).toBe("pending");
+  });
+
+  it("refuses to withdraw an invitation that has already been answered", async () => {
+    const owner = await seedOwnerWithProfile("revoke-late");
+    await seedUser("revoke-late-invitee", "performer");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("revoke-late"), "x-profile-id": owner.profileId },
+      payload: {
+        type: "profile_member",
+        source: "team",
+        recipientEmail: "revoke-late-invitee@example.com",
+        targetProfileId: owner.profileId,
+        role: "editor",
+      },
+    });
+    const { id, token } = created.json();
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${token}/accept`,
+      headers: auth("revoke-late-invitee"),
+    });
+    expect(accepted.statusCode).toBe(200);
+
+    const revoked = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${id}/revoke`,
+      headers: { ...auth("revoke-late"), "x-profile-id": owner.profileId },
+    });
+    expect(revoked.statusCode).toBe(409);
+    expect(revoked.json().error.message).toBe("This invitation has already been answered");
+  });
+});
+
+/**
+ * The claim leaves ONE membership behind, not two.
+ *
+ * A stub carries a `{user_id: null, email}` row — the email IS the claim key. The
+ * token route used to insert a second owner row beside it and leave the original
+ * pointing at nobody; the unique constraint never caught it, because the stale
+ * row's `user_id` is NULL.
+ */
+describe("invitations — claiming links the stub's own membership", () => {
+  it("links the email-bearing row instead of adding a second owner", async () => {
+    const { db } = harness;
+    await seedOwnerWithProfile("link-host");
+    await seedUser("link-invitee", "performer");
+
+    const [stub] = await db
+      .insert(schema.profiles)
+      .values({
+        kind: "performer",
+        ownerUserId: "link-host",
+        name: "Unclaimed Act",
+        slug: "link-stub",
+        claimedAt: null,
+      })
+      .returning();
+    if (!stub) throw new Error("stub seed failed");
+    // Exactly what `createPerformerStub` writes — including the mixed casing an
+    // operator actually types, which the claim has to match case-insensitively.
+    const [stubMember] = await db
+      .insert(schema.profileMembers)
+      .values({
+        profileId: stub.id,
+        userId: null,
+        email: "Link-Invitee@Example.com",
+        displayName: "Unclaimed Act",
+        role: "owner",
+        status: "active",
+        addedBy: "link-host",
+      })
+      .returning();
+    if (!stubMember) throw new Error("member seed failed");
+    await db.insert(schema.invitations).values({
+      type: "profile_member",
+      source: "venue_handoff",
+      status: "pending",
+      token: "link-token",
+      recipientEmail: "link-invitee@example.com",
+      targetProfileId: stub.id,
+      createdByUser: "link-host",
+    });
+
+    const claimed = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations/link-token/claim",
+      headers: auth("link-invitee"),
+    });
+    expect(claimed.statusCode).toBe(200);
+
+    const members = await db
+      .select()
+      .from(schema.profileMembers)
+      .where(eq(schema.profileMembers.profileId, stub.id));
+    // ONE row — the original, now pointing at a real person.
+    expect(members).toHaveLength(1);
+    expect(members[0]?.id).toBe(stubMember.id);
+    expect(members[0]?.userId).toBe("link-invitee");
+    expect(members[0]?.role).toBe("owner");
+  });
+
+  it("still makes the claimer an owner when the stub carries no membership row", async () => {
+    const { db } = harness;
+    await seedOwnerWithProfile("nolink-host");
+    await seedUser("nolink-invitee", "operator");
+
+    // A venue handoff mints the stub with no `profile_members` row at all
+    // (`routes/inbound.ts`), so there is nothing to link — the claimer must
+    // still come out of it owning the profile.
+    const [stub] = await db
+      .insert(schema.profiles)
+      .values({
+        kind: "operator",
+        ownerUserId: "nolink-host",
+        name: "Unclaimed Venue",
+        slug: "nolink-stub",
+        claimedAt: null,
+      })
+      .returning();
+    if (!stub) throw new Error("stub seed failed");
+    await db.insert(schema.invitations).values({
+      type: "event_participant",
+      source: "venue_handoff",
+      status: "pending",
+      token: "nolink-token",
+      recipientEmail: "nolink-invitee@example.com",
+      targetProfileId: stub.id,
+      createdByUser: "nolink-host",
+    });
+
+    const claimed = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations/nolink-token/claim",
+      headers: auth("nolink-invitee"),
+    });
+    expect(claimed.statusCode).toBe(200);
+
+    const members = await db
+      .select()
+      .from(schema.profileMembers)
+      .where(eq(schema.profileMembers.profileId, stub.id));
+    expect(members).toHaveLength(1);
+    expect(members[0]?.userId).toBe("nolink-invitee");
+    expect(members[0]?.role).toBe("owner");
+  });
+});

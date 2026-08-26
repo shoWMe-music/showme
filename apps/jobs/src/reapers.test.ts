@@ -150,6 +150,62 @@ describe("reapExpiredHandoffs", () => {
     expect(await statusOf(fresh.id)).toBe("pending");
     expect(await statusOf(wrongSource.id)).toBe("pending");
   });
+
+  /**
+   * The column, not the calendar. Every invitation now carries `expires_at`
+   * stamped at create, whatever its source — so the sweep follows that rather
+   * than re-deriving a duration from `created_at`, and a young invitation with a
+   * short life is reaped while an old one that is still in date is left alone.
+   */
+  it("expires any pending invitation past its `expires_at`, whatever its source", async () => {
+    const { userId } = await seedProfile(`expiry-${randomUUID()}`);
+
+    const insert = async (values: Record<string, unknown>) => {
+      const [row] = await harness.db
+        .insert(schema.invitations)
+        .values({
+          type: "profile_member",
+          source: "collaborator",
+          status: "pending",
+          createdByUser: userId,
+          ...values,
+        })
+        .returning({ id: schema.invitations.id });
+      if (!row) throw new Error("seed failed");
+      return row.id;
+    };
+
+    // Created yesterday, but only good for an hour — the created_at rule would
+    // have called this fresh and left it live.
+    const shortLived = await insert({
+      createdAt: daysAgo(1),
+      expiresAt: new Date(NOW.getTime() - 60 * 60 * 1000),
+    });
+    // Created long ago and still in date — the mirror image.
+    const stillOpen = await insert({
+      createdAt: daysAgo(200),
+      expiresAt: daysAgo(-30),
+    });
+    // Already answered: an expiry sweep must never move a settled row.
+    const declined = await insert({
+      status: "declined",
+      expiresAt: daysAgo(5),
+    });
+
+    const count = await reapExpiredHandoffs(harness.db, NOW);
+    expect(count).toBe(1);
+
+    const statusOf = async (id: string) => {
+      const [row] = await harness.db
+        .select({ status: schema.invitations.status })
+        .from(schema.invitations)
+        .where(eq(schema.invitations.id, id));
+      return row?.status;
+    };
+    expect(await statusOf(shortLived)).toBe("expired");
+    expect(await statusOf(stillOpen)).toBe("pending");
+    expect(await statusOf(declined)).toBe("declined");
+  });
 });
 
 describe("reapExpiredShares", () => {

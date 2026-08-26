@@ -1137,6 +1137,11 @@ describe("shares — off-platform approval (A-33)", () => {
       .from(schema.settlementApprovals)
       .where(eq(schema.settlementApprovals.eventId, seed.event.id));
     expect(afterTwo).toHaveLength(1);
+    // …and it reports the stamp the approval ACTUALLY carries, not the clock at
+    // the second click. The row keeps the first timestamp, so a response saying
+    // anything else dates a signature to a moment nothing was signed at.
+    expect(again.json().approvedAt).toBe(response.json().approvedAt);
+    expect(afterTwo[0]?.approvedAt?.toISOString()).toBe(again.json().approvedAt);
 
     // And it is attributed: an audit row with no actor and the recipient's email.
     const audit = await harness.db

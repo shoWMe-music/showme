@@ -700,6 +700,55 @@ describe("inbound — venue handoff", () => {
     expect(invitation).toBeDefined();
     expect(invitation?.source).toBe("venue_handoff");
     expect(invitation?.type).toBe("event_participant");
+
+    // 90 days, stamped at create. The reaper that converges the status reads the
+    // same constant (`@showme/shared`), so the column and the sweep agree.
+    const days = Math.round(
+      ((invitation?.expiresAt?.getTime() ?? 0) - Date.now()) / (24 * 60 * 60 * 1000),
+    );
+    expect(days).toBe(90);
+
+    // The token comes BACK. Without it the handoff minted a perfect invitation
+    // that no human could reach — the route worked and the flow did not.
+    expect(body.token).toBe(invitation?.token);
+    expect(body.emailed).toBe(false); // no address was given, so nothing was sent
+  });
+
+  it("mails the venue their link when an address is given, and says that it did", async () => {
+    const sent: EmailMessage[] = [];
+    const emailApp = buildTestApp(
+      {
+        database: harness.db,
+        tokenVerifier: fakeVerifier,
+        emailSink: {
+          async sendEmail(message) {
+            sent.push(message);
+          },
+        },
+      },
+      [inboundRoutes],
+    );
+    await emailApp.ready();
+
+    const owner = await seedOwnerWithProfile("inb-ho-mail");
+    const event = await seedEvent(owner.profileId, owner.permissionSetId, "inb-ho-mail");
+
+    const response = await emailApp.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/handoff`,
+      headers: { ...auth("inb-ho-mail"), "x-profile-id": owner.profileId },
+      payload: { name: "The New Venue", recipientEmail: "venue@example.com" },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(response.json().emailed).toBe(true);
+
+    const message = sent.find((entry) => entry.to === "venue@example.com");
+    expect(message).toBeDefined();
+    // The link is the payload: it must carry this handoff's own token, which is
+    // what the redemption page then resolves.
+    expect(message?.text).toContain(`/invitations/${response.json().token}`);
+
+    await emailApp.close();
   });
 });
 

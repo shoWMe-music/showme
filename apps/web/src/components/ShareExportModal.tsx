@@ -362,9 +362,12 @@ const groupedBlockStyle = {
  *
  * Hand-composed rather than `Chip`, which is the FILTER chip — a button with a
  * pressed state — so a recipient rendered as one would be a control that does
- * nothing when clicked. The design system has no removable-token primitive; this
- * follows the pill the app already composes in the same tokens elsewhere
- * (`AvailabilityShareModal`'s weekday pills, `BudgetLineAttribution`).
+ * nothing when clicked. The design system has no removable-token primitive.
+ *
+ * `--shape-fill`, not `--elevated`: `--elevated` is WHITE in light mode now
+ * (STYLE-GUIDE.md §1), so a pill filled with it on a white modal had no fill at
+ * all. A recipient token is a small SHAPE the eye counts, which is exactly what
+ * `--shape-fill` was added for.
  */
 const recipientChipStyle = {
   display: "inline-flex",
@@ -373,7 +376,7 @@ const recipientChipStyle = {
   padding: "4px 8px",
   borderRadius: 999,
   border: "1px solid var(--border)",
-  background: "var(--elevated)",
+  background: "var(--shape-fill)",
   color: "var(--text)",
   fontSize: 12.5,
 } as const;

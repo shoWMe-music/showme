@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useId } from "react";
 import { classNames } from "@/lib/classNames";
 import { Icon } from "@/icons";
 import styles from "./Checkbox.module.css";
@@ -29,6 +29,13 @@ export function Checkbox({
   className,
 }: CheckboxProps) {
   const toggle = () => { if (!disabled) onChange?.(!checked); };
+  // `aria-label` only carries a STRING label. A rich label — a name beside a
+  // count, a scope beside its description — left the control with no accessible
+  // name at all, because the visible text is a SIBLING span the button has no
+  // relationship to. `aria-labelledby` closes that: it points at the span, so a
+  // screen reader announces whatever is actually rendered, string or not.
+  const generatedId = useId();
+  const labelId = label != null && typeof label !== "string" ? `${generatedId}-label` : undefined;
   const box = (
     <button
       type="button"
@@ -36,6 +43,7 @@ export function Checkbox({
       role="checkbox"
       aria-checked={checked}
       aria-label={typeof label === "string" ? label : undefined}
+      aria-labelledby={labelId}
       disabled={disabled}
       onClick={toggle}
       className={classNames(
@@ -52,7 +60,7 @@ export function Checkbox({
   return (
     <span className={classNames(styles.wrap, className)}>
       {box}
-      <span className={styles.label} onClick={toggle}>{label}</span>
+      <span id={labelId} className={styles.label} onClick={toggle}>{label}</span>
     </span>
   );
 }

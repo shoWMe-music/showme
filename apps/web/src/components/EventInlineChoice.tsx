@@ -1,15 +1,21 @@
-import { Button, Card, SelectCard, TextField } from "@showme/design-system";
-import { type ReactNode, useEffect, useLayoutEffect, useRef } from "react";
+import { Button, Select, type SelectOption, TextField } from "@showme/design-system";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import styles from "./EventInlineField.module.css";
 import { MiniMonthCalendar } from "./MiniMonthCalendar";
 import { PickerPopoverPanel } from "./PickerPopoverPanel";
 import { useDatePickerPopover } from "./useDatePickerPopover";
-import { usePickerPopover } from "./usePickerPopover";
 
 /**
- * The three fields on the Event Information card that are PICKED rather than
- * typed — the day, the room, the status — and the Cancel / Save pair they all
- * finish with.
+ * The three fields on the Event Information card that finish with an explicit
+ * Cancel / Save pair rather than on blur — the day, the room, the status.
+ *
+ * **The day is typed AND picked.** The room and the status are chosen from a
+ * short list, so the list is the whole editor. A day is not: entering one far
+ * from today, or copying one off an email, is several clicks through a calendar
+ * and two keystrokes in a set of segments. So the day row is a real
+ * `<input type="date">` — the typed segments the card used to have — with the
+ * calendar already open beside it, and the two edit ONE draft: type a whole date
+ * and the calendar moves to it, click a day and the segments show it.
  *
  * **Why these three do not commit on blur.** Clicking a day inside a calendar
  * is, in DOM terms, focus leaving the field: the panel is portalled to `<body>`
@@ -28,21 +34,17 @@ import { usePickerPopover } from "./usePickerPopover";
  *
  * **The card cannot move.** Both buttons live in the panel's own footer, which
  * is portalled and floats — the row keeps the value's exact footprint, open or
- * closed, and the eye finds the buttons where it is already looking.
+ * closed, and the eye finds the buttons where it is already looking. The date
+ * input is held to the same 20px line box as every other value on the card
+ * (`.choiceSlot input` in the stylesheet), so the row is 43px tall with the
+ * segments in it exactly as it was with the words.
  */
 
-/** The panel width every one of these pickers hangs off the row at. */
+/** The width every one of these pickers hangs off the row at — wide enough to
+ * read a room's name or a status's sentence, whatever the row's value measures. */
 const PANEL_WIDTH = 268;
 /** A six-row month plus its header, and the actions under it. */
 const CALENDAR_PANEL_HEIGHT = 380;
-/** Roughly one `SelectCard` with a description, for sizing the option panels. */
-const OPTION_HEIGHT = 74;
-/** Where the option list starts scrolling instead of growing — must agree with
- * `.choiceOptions` in the stylesheet, or the panel is placed for a height it
- * does not have and floats away from the row it belongs to. */
-const OPTION_LIST_MAX_HEIGHT = 300;
-/** The actions row, plus the card's own padding. */
-const PANEL_CHROME_HEIGHT = 86;
 
 /** What `usePickerPopover` (and the calendar hook on top of it) hands back. Only
  * the parts this file drives are named. */
@@ -86,6 +88,10 @@ interface EventInlineChoiceActionsProps {
   /** False until the choice differs from what is saved — the card's existing
    * "only if it moved" rule, said out loud instead of implied. */
   canSave: boolean;
+  /** A sentence about what the field decides. In the panel, where it is read at
+   * the moment it matters and covers nothing — this used to float over the row
+   * below and sit on top of it. */
+  hint?: ReactNode;
   /** What Save will ALSO do, when it does more than the field it is on. */
   consequence?: ReactNode;
   onCancel: () => void;
@@ -100,12 +106,14 @@ interface EventInlineChoiceActionsProps {
  */
 function EventInlineChoiceActions({
   canSave,
+  hint,
   consequence,
   onCancel,
   onSave,
 }: EventInlineChoiceActionsProps) {
   return (
     <div className={styles.choiceActions}>
+      {hint && <p className={styles.choiceHint}>{hint}</p>}
       {consequence && <p className={styles.choiceConsequence}>{consequence}</p>}
       <div className={styles.choiceButtons}>
         <Button variant="ghost" onClick={onCancel}>
@@ -119,44 +127,10 @@ function EventInlineChoiceActions({
   );
 }
 
-interface ChoiceValueProps {
-  /** The row's own label, so the readonly value is announced as this field. */
-  label: string;
-  /** The value as the row reads it — the same words, in the same place, as when
-   * the row is closed. */
-  text: string;
-  /** What an empty field says instead. */
-  placeholder: string;
-}
-
-/**
- * The value, while its picker is open.
- *
- * Read-only on purpose: the picker IS the editor, and a second, typeable copy of
- * the value would be a second source of truth for what is being saved. It stays
- * a real `<input>` because that is what anchors the popover and what focus comes
- * home to — and because it draws the value at exactly the size and position the
- * closed row drew it, which is what keeps the card still.
- */
-function choiceValueProps({ label, text, placeholder }: ChoiceValueProps) {
-  return {
-    "aria-label": label,
-    value: text,
-    placeholder,
-    readOnly: true,
-    role: "combobox",
-    "aria-haspopup": "dialog",
-    "aria-expanded": true,
-  } as const;
-}
-
 export interface EventInlineDateChoiceProps {
   label: string;
   /** The DRAFT day, `yyyy-mm-dd`, or "" for none chosen. */
   value: string;
-  /** The draft as the card writes a date ("05 Dec"), or "" for none. */
-  displayText: string;
-  placeholder: string;
   canSave: boolean;
   onChange: (value: string) => void;
   onCancel: () => void;
@@ -175,8 +149,6 @@ export interface EventInlineDateChoiceProps {
 export function EventInlineDateChoice({
   label,
   value,
-  displayText,
-  placeholder,
   canSave,
   onChange,
   onCancel,
@@ -188,9 +160,32 @@ export function EventInlineDateChoice({
   const picker = useDatePickerPopover({ value, inputRef, panelHasMoreStops: true });
   useOpenWhileEditing(picker, onCancel);
 
+  /**
+   * Which of the two holds the keyboard — the calendar, or the segments.
+   *
+   * It starts on the calendar, because the row was clicked (or Entered), not a
+   * caret position. It moves to the field the moment the field is focused, and
+   * that hand-off is what makes typing possible at all: the calendar follows
+   * whatever the field says, so without it every keystroke that completed a date
+   * would drag DOM focus back onto the grid and out of the segments. Alt+Down —
+   * the standard "open the picker" chord — hands it back.
+   */
+  const [calendarHoldsKeyboard, setCalendarHoldsKeyboard] = useState(true);
+
   return (
     <div ref={picker.wrapperRef} className={styles.choiceSlot}>
-      <TextField ref={inputRef} {...choiceValueProps({ label, text: displayText, placeholder })} />
+      <TextField
+        ref={inputRef}
+        type="date"
+        aria-label={label}
+        value={value}
+        onChange={(changeEvent) => onChange(changeEvent.target.value)}
+        onFocus={() => setCalendarHoldsKeyboard(false)}
+        onKeyDown={(keyEvent) => {
+          if (keyEvent.altKey && keyEvent.key === "ArrowDown") setCalendarHoldsKeyboard(true);
+          picker.handleInputKeyDown(keyEvent);
+        }}
+      />
       {picker.open && picker.anchorRect && (
         <PickerPopoverPanel
           anchor={picker.anchorRect}
@@ -204,13 +199,18 @@ export function EventInlineDateChoice({
             month={picker.visibleMonth}
             selected={value || undefined}
             focusedDay={picker.focusedDay}
-            autoFocusDay={picker.keyboardActive}
-            onSelect={onChange}
+            autoFocusDay={calendarHoldsKeyboard}
+            onSelect={(day) => {
+              setCalendarHoldsKeyboard(true);
+              onChange(day);
+            }}
             onNavigate={picker.navigateMonth}
             onGridKeyDown={picker.handleGridKeyDown}
             style={{ boxShadow: "var(--shadow-lg)", background: "var(--surface)" }}
             footer={
-              <EventInlineChoiceActions canSave={canSave} onCancel={onCancel} onSave={onSave} />
+              <div className={styles.choiceFooter}>
+                <EventInlineChoiceActions canSave={canSave} onCancel={onCancel} onSave={onSave} />
+              </div>
             }
           />
         </PickerPopoverPanel>
@@ -219,29 +219,16 @@ export function EventInlineDateChoice({
   );
 }
 
-/** One option in a picked list: a room, or a status. */
-export interface EventInlineOption {
-  value: string;
-  label: string;
-  /** What choosing it means. Worth the height — this is where an operator finds
-   * out that Confirmed is the status that counts against their plan. */
-  description?: string;
-  /** A glyph rendered before the label (the status dot). */
-  glyph?: ReactNode;
-}
-
 export interface EventInlineOptionChoiceProps {
   label: string;
-  options: EventInlineOption[];
+  /** The choices. A `label` carrying a glyph is drawn in the menu AND on the
+   * row, so the value reads the same open as closed. */
+  options: SelectOption[];
   /** The DRAFT value. */
   value: string;
-  displayText: string;
-  /** The glyph the CLOSED row draws beside this value (the status dot), so the
-   * open row reads exactly the same and the promoted rule spans the same width. */
-  displayGlyph?: ReactNode;
   placeholder: string;
   canSave: boolean;
-  /** A sentence about what the list decides, above it. */
+  /** A sentence about what the list decides. */
   hint?: ReactNode;
   /** What Save will ALSO do, beside the button that will do it. */
   consequence?: ReactNode;
@@ -253,17 +240,17 @@ export interface EventInlineOptionChoiceProps {
 /**
  * A value chosen from a short list — the room, and the status.
  *
- * `SelectCard` is the design system's single-choice option, so the list is one:
- * every option is a real button in DOM order, which means Tab walks the list and
- * then the actions without a line of keyboard code, and `PickerPopoverPanel`
- * wraps at the far end so focus never escapes to the bottom of the document.
+ * A thin wrapper, and deliberately so: the design system's `Select` now takes a
+ * controlled `open`, a `footer` and `closeOnSelect`, which is exactly this
+ * pattern. Opening it is one gesture because the row's click IS the open; every
+ * way the menu can go away arrives as `onOpenChange(false)`, which is the single
+ * place Cancel is decided; and the choice is a draft until the footer says
+ * otherwise.
  */
 export function EventInlineOptionChoice({
   label,
   options,
   value,
-  displayText,
-  displayGlyph,
   placeholder,
   canSave,
   hint,
@@ -272,68 +259,35 @@ export function EventInlineOptionChoice({
   onCancel,
   onSave,
 }: EventInlineOptionChoiceProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const picker = usePickerPopover({ inputRef });
-  useOpenWhileEditing(picker, onCancel);
-
-  const panelRef = picker.panelRef;
-  useEffect(() => {
-    // Open on the option the event is already on, so the keyboard starts where
-    // the value is rather than at the top of a list. `aria-pressed` is how
-    // `SelectCard` says "this is the chosen one".
-    if (!picker.open) return;
-    panelRef.current?.querySelector<HTMLElement>('button[aria-pressed="true"]')?.focus();
-  }, [picker.open, panelRef]);
-
   return (
-    <div ref={picker.wrapperRef} className={styles.choiceSlot}>
-      {displayGlyph}
-      <TextField ref={inputRef} {...choiceValueProps({ label, text: displayText, placeholder })} />
-      {picker.open && picker.anchorRect && (
-        <PickerPopoverPanel
-          anchor={picker.anchorRect}
-          panelRef={picker.panelRef}
-          width={PANEL_WIDTH}
-          estimatedHeight={
-            Math.min(options.length * OPTION_HEIGHT, OPTION_LIST_MAX_HEIGHT) + PANEL_CHROME_HEIGHT
-          }
-          label={`Choose a ${label.toLowerCase()}`}
-          containTab
-        >
-          <Card
-            padding="md"
-            style={{ boxShadow: "var(--shadow-lg)", background: "var(--surface)" }}
-          >
-            {hint && <p className={styles.choiceHint}>{hint}</p>}
-            <div className={styles.choiceOptions}>
-              {options.map((option) => (
-                <SelectCard
-                  key={option.value}
-                  title={
-                    option.glyph ? (
-                      <span className={styles.choiceOptionTitle}>
-                        {option.glyph}
-                        {option.label}
-                      </span>
-                    ) : (
-                      option.label
-                    )
-                  }
-                  description={option.description}
-                  selected={option.value === value}
-                  onSelect={() => onChange(option.value)}
-                />
-              ))}
-            </div>
-            <EventInlineChoiceActions
-              canSave={canSave}
-              consequence={consequence}
-              onCancel={onCancel}
-              onSave={onSave}
-            />
-          </Card>
-        </PickerPopoverPanel>
-      )}
+    <div className={styles.choiceSlot}>
+      <Select
+        aria-label={label}
+        value={value}
+        onChange={onChange}
+        options={options}
+        placeholder={placeholder}
+        // A room list is four rows and the statuses are seven: a search box over
+        // either is furniture.
+        searchable={false}
+        // The row's editor IS the menu — it exists for exactly as long as the
+        // field is open, so there is no closed state to manage.
+        open
+        onOpenChange={(next) => {
+          if (!next) onCancel();
+        }}
+        closeOnSelect={false}
+        menuWidth={PANEL_WIDTH}
+        footer={
+          <EventInlineChoiceActions
+            canSave={canSave}
+            hint={hint}
+            consequence={consequence}
+            onCancel={onCancel}
+            onSave={onSave}
+          />
+        }
+      />
     </div>
   );
 }

@@ -37,12 +37,24 @@ export function ShareViewer({ token }: { token: string }) {
   const share = useShareViewer(token);
 
   /**
-   * The share viewer is rendered BEFORE the auth gate and outside `AppShell`
-   * (`main.tsx`) — and `AppShell` is the only thing in the app that stamps
-   * `data-theme="light"` on `<html>`. Light is the product's default theme;
-   * without this the one page an outside recipient ever sees was the one page
-   * that could never reach it, and every settlement link opened dark. Same
-   * attribute, same idiom as the shell, for the lifetime of this page.
+   * LIGHT, unconditionally — the same choice the invitation landing page made.
+   *
+   * This page is rendered BEFORE the auth gate and outside `AppShell`
+   * (`main.tsx`), and `AppShell` is the only thing in the app that stamps
+   * `data-theme="light"` on `<html>`. The token file's own default is dark, so
+   * every share link opened in a palette the product does not otherwise use.
+   *
+   * Not `prefers-color-scheme`, and the reason is not laziness. That setting is a
+   * statement about the reader's whole desktop, not about this product, and
+   * honouring it here would hand a dark-desktop recipient a theme no screen in
+   * this app has ever been reviewed in — STYLE-GUIDE.md is written entirely about
+   * light — on the one page with no toggle to escape it. A recipient is an
+   * outsider who clicked a link in an email: what they see is the product's face,
+   * and it should be the face the product was designed as. If dark ever becomes a
+   * supported recipient experience it arrives with a reviewed palette and a
+   * control, on this page and the invitation page together.
+   *
+   * Removed on unmount so this page cannot decide the theme for anything else.
    */
   useEffect(() => {
     const element = window.document.documentElement;
@@ -350,6 +362,14 @@ function ShareHeader({ document }: { document: ShareDocument }) {
  * the record, not a flow: when the recipient's address already has a shoWMe
  * account we say so, because that account is how they would get this without a
  * link at all.
+ *
+ * It USED to say "create a shoWMe account with that address and this show follows
+ * you in", and that is not what happens. `share_recipients.claimed_by_user_id` is
+ * stamped when a signed-in account with that verified email opens the link — a
+ * record, and nothing walks it at signup, so no show follows anyone anywhere. A
+ * page whose whole footer is about being trustworthy cannot end on a promise the
+ * product does not keep; what is written now is what the account actually buys
+ * you, which is being addable to a show without a link at all.
  */
 function ShareFooter({ document }: { document: ShareDocument }) {
   return (
@@ -365,8 +385,8 @@ function ShareFooter({ document }: { document: ShareDocument }) {
       {document.viewer.email && (
         <span style={{ color: "var(--muted)", fontSize: 12.5, lineHeight: 1.6 }}>
           {document.viewer.claimed
-            ? `${document.viewer.email} already has a shoWMe account — sign in and this show is on your dashboard.`
-            : `Shared with ${document.viewer.email}. Create a shoWMe account with that address and this show follows you in.`}
+            ? `${document.viewer.email} already has a shoWMe account — sign in and anything you have been added to is on your dashboard.`
+            : `Shared with ${document.viewer.email}. With a shoWMe account on that address, the people you work with can add you to a show directly instead of sending a link.`}
         </span>
       )}
     </Card>

@@ -470,6 +470,7 @@ export * from './postApiV1Invitations201';
 export * from './postApiV1InvitationsBody';
 export * from './postApiV1InvitationsBodySource';
 export * from './postApiV1InvitationsBodyType';
+export * from './postApiV1InvitationsIdRevoke200';
 export * from './postApiV1InvitationsTokenAccept200';
 export * from './postApiV1InvitationsTokenClaim200';
 export * from './postApiV1InvitationsTokenDecline200';
