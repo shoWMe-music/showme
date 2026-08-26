@@ -1,5 +1,12 @@
 import { schema } from "@showme/db";
-import { isPlaceProfile, isProfileTypeForKind, profileTypesForKind } from "@showme/shared";
+import {
+  VIDEO_LINK_REJECTION,
+  isEmbeddableVideoLink,
+  isPlaceProfile,
+  isProfileTypeForKind,
+  parseVideoLink,
+  profileTypesForKind,
+} from "@showme/shared";
 import { and, asc, eq, ilike, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -10,6 +17,8 @@ import { requireProfileRole } from "../lib/authorize";
 import { readProfileBusyTime } from "../lib/availability";
 import { validateTemplatePayload } from "../lib/budget-template-payload";
 import { assertProfileAdminGrantAllows } from "../lib/entitlements";
+import { assertProfileImageFiles, signProfileImageUrls } from "../lib/profile-media";
+import type { StorageSigner } from "../lib/storage";
 import { withIdempotency } from "../plugins/idempotency";
 import {
   type ProfileRelations,
@@ -127,21 +136,70 @@ const CreateProfileBody = z.object({
   slug: z.string().min(1),
 });
 
+/**
+ * An address we are willing to put in an `<img src>` or a CSS `url()`.
+ * `z.string().url()` alone is not that test: `new URL()` happily parses
+ * `javascript:alert(1)`, and these strings are rendered on a public page.
+ */
+const httpImageUrl = z
+  .string()
+  .url()
+  .max(2000)
+  .refine(
+    (value) => value.startsWith("https://") || value.startsWith("http://"),
+    "An image address must be http(s).",
+  );
+
+/**
+ * A gallery tile: either an uploaded file or an external address, never both and
+ * never neither. Uploads are the normal case — the editor's file picker produces
+ * a `files` row and hands its id here — and the URL half stays because pointing
+ * at a picture somebody else hosts is a legitimate thing to do (and is what every
+ * row written before uploading existed does).
+ */
+const ProfilePhotoBody = z
+  .object({
+    fileId: z.string().uuid().optional(),
+    url: httpImageUrl.optional(),
+  })
+  .refine(
+    (photo) => (photo.fileId === undefined) !== (photo.url === undefined),
+    "A photo is either an uploaded fileId or an external url — not both, not neither.",
+  );
+
+/**
+ * A video link, checked against the two providers that can actually be embedded.
+ * Validated HERE and not only in the browser, so what is STORED is a link a
+ * player can be pointed at: the value goes into an iframe on a public page, and
+ * "we'll check it when we render it" is how an arbitrary URL ends up in an
+ * iframe `src`.
+ */
+const ProfileVideoBody = z.string().max(2000).refine(isEmbeddableVideoLink, VIDEO_LINK_REJECTION);
+
 const UpdateProfileBody = z.object({
   name: z.string().min(1).optional(),
   bio: z.string().nullable().optional(),
   type: z.string().nullable().optional(),
   isPublic: z.boolean().optional(),
-  avatarUrl: z.string().nullable().optional(),
-  bannerUrl: z.string().nullable().optional(),
+  /**
+   * The picture and the cover, in the two forms the schema keeps: an uploaded
+   * file, or an external address. Setting one does not clear the other here —
+   * the read side resolves the ladder (file wins) — so the editor sends
+   * `avatarFileId: <id>` on upload and `{ avatarFileId: null, avatarUrl: null }`
+   * to take the picture off.
+   */
+  avatarFileId: z.string().uuid().nullable().optional(),
+  avatarUrl: httpImageUrl.nullable().optional(),
+  bannerFileId: z.string().uuid().nullable().optional(),
+  bannerUrl: httpImageUrl.nullable().optional(),
   details: z.unknown().optional(),
   location: ProfileLocationBody.optional(),
   venueDetails: VenueDetailsBody.optional(),
   // Whole-list replacements, each backed by its own table. Absent = leave alone;
   // an empty array = "I removed them all", which is a thing an owner does.
   socialLinks: z.array(SocialLinkBody).max(30).optional(),
-  photos: z.array(z.string().url().max(2000)).max(60).optional(),
-  videos: z.array(z.string().url().max(2000)).max(30).optional(),
+  photos: z.array(ProfilePhotoBody).max(60).optional(),
+  videos: z.array(ProfileVideoBody).max(30).optional(),
   /** Performer line-ups. Merged into `details.setups`, not a table — see the
    * serializer. Sent as its own field so the client never has to hand-merge the
    * jsonb blob. */
@@ -265,7 +323,10 @@ const ProfileResponse = z.object({
   location: ProfileLocationResponse.nullable().optional(),
   venueDetails: VenueDetailsResponse.nullable().optional(),
   socialLinks: z.array(SocialLinkResponse).optional(),
-  photos: z.array(z.string()).optional(),
+  /** Tiles, not URLs — the owner's editor needs the file id to save the list back. */
+  photos: z
+    .array(z.object({ fileId: z.string().nullable(), url: z.string().nullable() }))
+    .optional(),
   videos: z.array(z.string()).optional(),
   billing: z.unknown().optional(),
   createdAt: z.string(),
@@ -428,6 +489,16 @@ const ProfileSearchResponse = z.object({
 type Database = FastifyInstance["database"] | Transaction;
 
 /**
+ * The columns a loader needs to sign a profile's pictures. Narrower than the row
+ * on purpose — the PATCH calls the loader with the row it just wrote, and the
+ * list route with the rows it selected.
+ */
+type ProfileImageOwner = { id: string; avatarFileId: string | null; bannerFileId: string | null };
+
+/** One row's worth of gallery: exactly one of the two is set (schema CHECK). */
+type MediaSource = { fileId: string | null; url: string | null };
+
+/**
  * Load the two rows a full profile projection needs. Both are optional 1:1
  * extensions, so both may legitimately be missing — the caller gets `null`, which
  * the serializer turns into "loaded, nothing recorded" rather than "not loaded".
@@ -438,8 +509,10 @@ type Database = FastifyInstance["database"] | Transaction;
  */
 async function loadProfileRelations(
   database: Database,
-  profileId: string,
+  signer: StorageSigner,
+  profile: ProfileImageOwner,
 ): Promise<Required<ProfileRelations>> {
+  const profileId = profile.id;
   const [locations, venues, socialLinks, media] = await Promise.all([
     database
       .select()
@@ -469,6 +542,11 @@ async function loadProfileRelations(
     venueDetails: venues[0] ?? null,
     socialLinks,
     media,
+    imageUrls: await signProfileImageUrls(database, signer, [
+      profile.avatarFileId,
+      profile.bannerFileId,
+      ...media.map((row) => row.fileId),
+    ]),
   };
 }
 
@@ -479,12 +557,14 @@ async function loadProfileRelations(
  */
 async function loadProfileRelationsBatch(
   database: Database,
-  profileIds: string[],
+  signer: StorageSigner,
+  profiles: ProfileImageOwner[],
 ): Promise<Map<string, Required<ProfileRelations>>> {
+  const profileIds = profiles.map((profile) => profile.id);
   const byProfile = new Map<string, Required<ProfileRelations>>(
     profileIds.map((profileId) => [
       profileId,
-      { location: null, venueDetails: null, socialLinks: [], media: [] },
+      { location: null, venueDetails: null, socialLinks: [], media: [], imageUrls: new Map() },
     ]),
   );
   if (profileIds.length === 0) return byProfile;
@@ -527,6 +607,15 @@ async function loadProfileRelationsBatch(
   }
   for (const item of media) {
     byProfile.get(item.profileId)?.media.push(item);
+  }
+  // One signing pass for the whole page rather than one per card: the list
+  // screen draws an avatar on every profile the caller belongs to.
+  const imageUrls = await signProfileImageUrls(database, signer, [
+    ...profiles.flatMap((profile) => [profile.avatarFileId, profile.bannerFileId]),
+    ...media.map((row) => row.fileId),
+  ]);
+  for (const entry of byProfile.values()) {
+    entry.imageUrls = imageUrls;
   }
   return byProfile;
 }
@@ -735,7 +824,8 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
       // to carry them — batched, not per row.
       const relations = await loadProfileRelationsBatch(
         database,
-        rows.map((row) => row.id),
+        request.server.storageSigner,
+        rows,
       );
       return rows.map((row) =>
         serializeProfile(row, roleByProfile.get(row.id), relations.get(row.id)),
@@ -827,7 +917,7 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
         .from(schema.profiles)
         .where(eq(schema.profiles.id, id));
       if (!profile) throw notFound("Profile not found");
-      const relations = await loadProfileRelations(database, id);
+      const relations = await loadProfileRelations(database, request.server.storageSigner, profile);
       return serializeProfile(profile, membership.role, relations);
     },
   );
@@ -866,7 +956,7 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
         .where(eq(schema.profiles.id, id));
       if (!profile) throw notFound("Profile not found");
 
-      const relations = await loadProfileRelations(database, id);
+      const relations = await loadProfileRelations(database, request.server.storageSigner, profile);
       // The SAME loader the anonymous page uses. The old `loadPublicUpcomingEvents`
       // filtered on `events.venue_profile_id` alone, so a performer — who is never
       // named that way, only through `event_participants` — previewed an empty bill
@@ -917,8 +1007,24 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
       if (request.body.bio !== undefined) fields.bio = request.body.bio;
       if (request.body.type !== undefined) fields.type = request.body.type;
       if (request.body.isPublic !== undefined) fields.isPublic = request.body.isPublic;
+      if (request.body.avatarFileId !== undefined) fields.avatarFileId = request.body.avatarFileId;
       if (request.body.avatarUrl !== undefined) fields.avatarUrl = request.body.avatarUrl;
+      if (request.body.bannerFileId !== undefined) fields.bannerFileId = request.body.bannerFileId;
       if (request.body.bannerUrl !== undefined) fields.bannerUrl = request.body.bannerUrl;
+
+      // ---- Uploaded pictures ------------------------------------------------
+      // Every file this profile is about to point at must be a file uploaded TO
+      // this profile, into this profile's storage folder. Checked here, before
+      // the transaction opens, so a rejected picture leaves nothing behind.
+      await assertProfileImageFiles(
+        database,
+        id,
+        [
+          request.body.avatarFileId,
+          request.body.bannerFileId,
+          ...(request.body.photos ?? []).map((photo) => photo.fileId),
+        ].filter((fileId): fileId is string => typeof fileId === "string"),
+      );
       if (request.body.details !== undefined) fields.details = request.body.details;
 
       // ---- Performer setups -------------------------------------------------
@@ -944,7 +1050,11 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
         };
       }
 
-      const relationsBefore = await loadProfileRelations(database, id);
+      const relationsBefore = await loadProfileRelations(
+        database,
+        request.server.storageSigner,
+        before,
+      );
 
       const updated = await database.transaction(async (tx) => {
         const [after] = await tx
@@ -1014,20 +1124,43 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
         // independently: sending photos must not wipe the videos, because the
         // two are separate cards in the editor and a screen that only touched
         // one of them sends only that one.
-        for (const [kind, urls] of [
-          ["photo", request.body.photos],
-          ["video", request.body.videos],
-        ] as const) {
-          if (urls === undefined) continue;
+        //
+        // A photo names a FILE (or, still, an external address); a video is
+        // always a URL, stored in the canonical form `parseVideoLink` produces —
+        // so `youtu.be/x?si=…`, `m.youtube.com/watch?v=x` and the embed URL all
+        // land as one row and the player is pointed at something it recognises.
+        const replacements: [(typeof schema.profileMedia.$inferInsert)["kind"], MediaSource[]][] =
+          [];
+        if (request.body.photos !== undefined) {
+          replacements.push([
+            "photo",
+            request.body.photos.map((photo) => ({
+              fileId: photo.fileId ?? null,
+              url: photo.url?.trim() ?? null,
+            })),
+          ]);
+        }
+        if (request.body.videos !== undefined) {
+          replacements.push([
+            "video",
+            request.body.videos.map((video) => ({
+              fileId: null,
+              // Already validated by `ProfileVideoBody`; the parse cannot fail here.
+              url: parseVideoLink(video)?.canonicalUrl ?? video.trim(),
+            })),
+          ]);
+        }
+        for (const [kind, sources] of replacements) {
           await tx
             .delete(schema.profileMedia)
             .where(and(eq(schema.profileMedia.profileId, id), eq(schema.profileMedia.kind, kind)));
-          if (urls.length > 0) {
+          if (sources.length > 0) {
             await tx.insert(schema.profileMedia).values(
-              urls.map((url, position) => ({
+              sources.map((source, position) => ({
                 profileId: id,
                 kind,
-                url: url.trim(),
+                fileId: source.fileId,
+                url: source.url,
                 position,
               })),
             );
@@ -1074,7 +1207,7 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
             });
         }
 
-        const relationsAfter = await loadProfileRelations(tx, id);
+        const relationsAfter = await loadProfileRelations(tx, request.server.storageSigner, after);
         const serialized = serializeProfile(after, membership.role, relationsAfter);
         await writeAudit(tx, request, {
           capability: "profile.edit",

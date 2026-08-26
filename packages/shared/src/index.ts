@@ -151,6 +151,13 @@ export {
   profileTypesForKind,
 } from "./venue";
 export {
+  type VideoLink,
+  type VideoProvider,
+  VIDEO_LINK_REJECTION,
+  isEmbeddableVideoLink,
+  parseVideoLink,
+} from "./video";
+export {
   INVITATION_EXPIRY_DAYS,
   invitationExpiresAt,
   VENUE_HANDOFF_EXPIRY_DAYS,

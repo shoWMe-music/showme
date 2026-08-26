@@ -96,6 +96,14 @@ export interface SerializedPerformerSetup {
   headcount: number | null;
 }
 
+/** One gallery tile as its owner edits it: which file, and how to draw it. */
+export interface SerializedProfilePhoto {
+  /** The uploaded file, or null for a tile that is a plain external address. */
+  fileId: string | null;
+  /** Signed when file-backed, the pasted address otherwise, null when unresolvable. */
+  url: string | null;
+}
+
 export interface SerializedProfile {
   id: string;
   kind: string;
@@ -105,6 +113,7 @@ export interface SerializedProfile {
   slug: string;
   isPublic: boolean;
   bio: string | null;
+  /** Resolved down the file-then-URL ladder — see `resolveImageUrl`. */
   avatarUrl: string | null;
   bannerUrl: string | null;
   details: unknown;
@@ -114,8 +123,16 @@ export interface SerializedProfile {
   venueDetails?: SerializedVenueDetails | null;
   /** External links, in the order the owner arranged them. */
   socialLinks?: SerializedSocialLink[];
-  /** Gallery image URLs, ordered. */
-  photos?: string[];
+  /**
+   * The gallery, ordered — for the OWNER, who edits it.
+   *
+   * A tile, not a URL, because the owner's next action needs the file id: a save
+   * re-sends the list and the server has to be told which uploaded file each
+   * position holds. `url` is the signed URL to draw it with, and is null only
+   * when the underlying file row has vanished — the tile still appears (with its
+   * id) so a save does not silently delete a photo the screen could not draw.
+   */
+  photos?: SerializedProfilePhoto[];
   /** Video URLs (YouTube/Vimeo/anything), ordered. */
   videos?: string[];
   /** Legal/tax/invoicing identity — owner/admin only. */
@@ -130,6 +147,17 @@ export interface ProfileRelations {
   venueDetails?: VenueDetailsRow | null;
   socialLinks?: SocialLinkRow[];
   media?: MediaRow[];
+  /**
+   * `files.id → signed download URL`, for every uploaded picture this projection
+   * touches (the avatar, the banner, each gallery photo).
+   *
+   * The URL is not stored anywhere and cannot be: a signed URL expires in
+   * fifteen minutes, so it is minted per read by the route that loaded these
+   * rows and handed here. An id with no entry means the file row is gone — the
+   * picture serializes as absent, which is the truth, rather than as a broken
+   * `<img>` pointing at a bucket path.
+   */
+  imageUrls?: Map<string, string>;
 }
 
 /** Roles that may see the profile's private billing identity. */
@@ -228,12 +256,36 @@ function serializeVenueDetails(row: VenueDetailsRow): SerializedVenueDetails {
   };
 }
 
+/**
+ * One picture, resolved down the ladder the schema defines: an uploaded file
+ * beats a pasted address, and an uploaded file whose row has gone resolves to
+ * nothing rather than to a bucket path nobody can open.
+ */
+function resolveImageUrl(
+  fileId: string | null,
+  url: string | null,
+  imageUrls?: Map<string, string>,
+): string | null {
+  if (fileId) return imageUrls?.get(fileId) ?? null;
+  return url;
+}
+
 /** Media rows are one table for photos and videos; `position` is the order. */
-function mediaUrls(media: MediaRow[], kind: "photo" | "video"): string[] {
+function orderedMedia(media: MediaRow[], kind: "photo" | "video"): MediaRow[] {
   return media
     .filter((row) => row.kind === kind)
-    .sort((left, right) => (left.position ?? 0) - (right.position ?? 0))
-    .map((row) => row.url);
+    .sort((left, right) => (left.position ?? 0) - (right.position ?? 0));
+}
+
+/** The gallery as URLs — for readers who only draw it. An unresolvable tile is dropped. */
+function mediaUrls(
+  media: MediaRow[],
+  kind: "photo" | "video",
+  imageUrls?: Map<string, string>,
+): string[] {
+  return orderedMedia(media, kind)
+    .map((row) => resolveImageUrl(row.fileId, row.url, imageUrls))
+    .filter((url): url is string => url !== null);
 }
 
 /**
@@ -263,8 +315,8 @@ export function serializeProfile(
     slug: profile.slug,
     isPublic: profile.isPublic,
     bio: profile.bio,
-    avatarUrl: profile.avatarUrl,
-    bannerUrl: profile.bannerUrl,
+    avatarUrl: resolveImageUrl(profile.avatarFileId, profile.avatarUrl, relations?.imageUrls),
+    bannerUrl: resolveImageUrl(profile.bannerFileId, profile.bannerUrl, relations?.imageUrls),
     details: profile.details,
     createdAt: profile.createdAt.toISOString(),
     updatedAt: profile.updatedAt.toISOString(),
@@ -284,7 +336,10 @@ export function serializeProfile(
     }));
   }
   if (relations?.media) {
-    base.photos = mediaUrls(relations.media, "photo");
+    base.photos = orderedMedia(relations.media, "photo").map((row) => ({
+      fileId: row.fileId,
+      url: resolveImageUrl(row.fileId, row.url, relations.imageUrls),
+    }));
     base.videos = mediaUrls(relations.media, "video");
   }
   if (role && BILLING_ROLES.includes(role)) {
@@ -532,15 +587,15 @@ export function serializePublicProfile(
     type: profile.type,
     kind: profile.kind,
     bio: profile.bio,
-    avatarUrl: profile.avatarUrl,
-    bannerUrl: profile.bannerUrl,
+    avatarUrl: resolveImageUrl(profile.avatarFileId, profile.avatarUrl, relations?.imageUrls),
+    bannerUrl: resolveImageUrl(profile.bannerFileId, profile.bannerUrl, relations?.imageUrls),
     genres: readGenres(profile.details),
     setups: readPerformerSetups(profile.details),
     socialLinks: (relations?.socialLinks ?? []).map((row) => ({
       platform: row.platform,
       url: row.url,
     })),
-    photos: mediaUrls(media, "photo"),
+    photos: mediaUrls(media, "photo", relations?.imageUrls),
     videos: mediaUrls(media, "video"),
     location: relations?.location
       ? serializePublicLocation(relations.location, publishesAddress)

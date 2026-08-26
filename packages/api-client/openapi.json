@@ -6291,7 +6291,19 @@
                       "photos": {
                         "type": "array",
                         "items": {
-                          "type": "string"
+                          "type": "object",
+                          "properties": {
+                            "fileId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "url": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          },
+                          "required": ["fileId", "url"],
+                          "additionalProperties": false
                         }
                       },
                       "videos": {
@@ -6558,7 +6570,19 @@
                     "photos": {
                       "type": "array",
                       "items": {
-                        "type": "string"
+                        "type": "object",
+                        "properties": {
+                          "fileId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "url": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": ["fileId", "url"],
+                        "additionalProperties": false
                       }
                     },
                     "videos": {
@@ -6811,7 +6835,19 @@
                     "photos": {
                       "type": "array",
                       "items": {
-                        "type": "string"
+                        "type": "object",
+                        "properties": {
+                          "fileId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "url": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": ["fileId", "url"],
+                        "additionalProperties": false
                       }
                     },
                     "videos": {
@@ -6872,12 +6908,26 @@
                   "isPublic": {
                     "type": "boolean"
                   },
+                  "avatarFileId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": true
+                  },
                   "avatarUrl": {
                     "type": "string",
+                    "format": "uri",
+                    "maxLength": 2000,
+                    "nullable": true
+                  },
+                  "bannerFileId": {
+                    "type": "string",
+                    "format": "uuid",
                     "nullable": true
                   },
                   "bannerUrl": {
                     "type": "string",
+                    "format": "uri",
+                    "maxLength": 2000,
                     "nullable": true
                   },
                   "details": {},
@@ -7055,9 +7105,19 @@
                   "photos": {
                     "type": "array",
                     "items": {
-                      "type": "string",
-                      "format": "uri",
-                      "maxLength": 2000
+                      "type": "object",
+                      "properties": {
+                        "fileId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "url": {
+                          "type": "string",
+                          "format": "uri",
+                          "maxLength": 2000
+                        }
+                      },
+                      "additionalProperties": false
                     },
                     "maxItems": 60
                   },
@@ -7065,7 +7125,6 @@
                     "type": "array",
                     "items": {
                       "type": "string",
-                      "format": "uri",
                       "maxLength": 2000
                     },
                     "maxItems": 30
@@ -7310,7 +7369,19 @@
                     "photos": {
                       "type": "array",
                       "items": {
-                        "type": "string"
+                        "type": "object",
+                        "properties": {
+                          "fileId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "url": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": ["fileId", "url"],
+                        "additionalProperties": false
                       }
                     },
                     "videos": {

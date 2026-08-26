@@ -17,6 +17,13 @@
  *   bio         prose the owner wrote for exactly this purpose
  *   avatarUrl   the owner's chosen picture
  *   bannerUrl   the owner's chosen cover image
+ *   photos      the gallery the owner uploaded, in their own order. These are
+ *               SIGNED URLs minted for this response, not bucket paths — the
+ *               objects live in a private bucket and are reachable only through
+ *               a URL the API issued and that expires.
+ *   videos      YouTube/Vimeo links the owner added. Re-parsed here before they
+ *               are embedded (see `renderVideos`) — the stored string never
+ *               becomes an iframe `src`.
  *   id          NOT rendered. It is read only because a future "request a date"
  *               form addresses its target by id, the way availability.ts does.
  *
@@ -40,6 +47,7 @@
  * is a scraper's gift).
  */
 
+import { parseVideoLink } from "@showme/shared";
 import { element } from "./element";
 
 /** API base including `/api/v1`. Empty renders the page's "unavailable" state
@@ -110,6 +118,10 @@ interface PublicProfile {
   bannerUrl: string | null;
   city: string | null;
   country: string | null;
+  /** Gallery images. Signed URLs when the owner uploaded them — see the API. */
+  photos: string[];
+  /** YouTube/Vimeo links. Re-parsed here; nothing else ever reaches an iframe. */
+  videos: string[];
   venueDetails: PublicVenueDetails | null;
   upcomingShows: PublicShow[];
   socialLinks: PublicSocialLink[];
@@ -207,6 +219,10 @@ function readProfile(value: unknown): PublicProfile | null {
     bio: readString(source.bio),
     avatarUrl: readImageUrl(source.avatarUrl),
     bannerUrl: readImageUrl(source.bannerUrl),
+    photos: readStringArray(source.photos)
+      .map(readImageUrl)
+      .filter((url): url is string => url !== null),
+    videos: readStringArray(source.videos),
     city: readString(location.city),
     country: readString(location.country),
     venueDetails: readVenueDetails(source.venueDetails),
@@ -520,6 +536,53 @@ function renderIndustryLane(kind: string): HTMLElement {
   return lane;
 }
 
+/**
+ * The gallery. `<img>` rather than a CSS background so the browser can lazy-load
+ * it and a screen reader can skip it: these are pictures of the room, not
+ * decoration with meaning, so the alt text is empty by design.
+ */
+function renderPhotos(photos: string[]): HTMLElement {
+  const grid = element("div", "gallery");
+  for (const url of photos) {
+    const image = document.createElement("img");
+    image.className = "gallery__item";
+    image.loading = "lazy";
+    image.src = url;
+    image.alt = "";
+    grid.append(image);
+  }
+  return grid;
+}
+
+/**
+ * The videos, playing in place.
+ *
+ * The `src` is `link.embedUrl`, which `parseVideoLink` BUILT from a provider and
+ * an id — the stored string never becomes an iframe source. The server already
+ * refuses to store anything else; this parse is the second half of the same rule,
+ * because a public page must not depend on the database only ever having been
+ * written by the current version of the API.
+ */
+function renderVideos(videos: string[]): HTMLElement | null {
+  const grid = element("div", "videos");
+  let filled = false;
+  for (const url of videos) {
+    const link = parseVideoLink(url);
+    if (!link) continue;
+    const frame = document.createElement("iframe");
+    frame.className = "videos__item";
+    frame.src = link.embedUrl;
+    frame.title = `${link.provider === "youtube" ? "YouTube" : "Vimeo"} video`;
+    frame.loading = "lazy";
+    frame.referrerPolicy = "strict-origin-when-cross-origin";
+    frame.allow = "accelerometer; clipboard-write; encrypted-media; picture-in-picture; fullscreen";
+    frame.allowFullscreen = true;
+    grid.append(frame);
+    filled = true;
+  }
+  return filled ? grid : null;
+}
+
 function renderProfile(container: HTMLElement, profile: PublicProfile): void {
   container.replaceChildren();
 
@@ -591,6 +654,15 @@ function renderProfile(container: HTMLElement, profile: PublicProfile): void {
     const venueCard = renderVenueDetails(profile.venueDetails);
     if (venueCard) container.append(venueCard);
   }
+
+  // Photos and videos appear only when there ARE some. An empty "Photos" heading
+  // on a stranger's page says nothing true about the profile (STYLE-GUIDE §7);
+  // the owner sees "No photos yet" in their own editor, where it is actionable.
+  if (profile.photos.length > 0) {
+    container.append(section("Photos", renderPhotos(profile.photos)));
+  }
+  const videos = renderVideos(profile.videos);
+  if (videos) container.append(section("Videos", videos));
 
   // Last, and quiet — the design keeps the industry lane below everything the
   // fans came for, "present, but no longer competing with the tickets".

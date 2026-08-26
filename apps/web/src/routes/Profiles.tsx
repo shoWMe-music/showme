@@ -24,8 +24,12 @@ import {
 import { COUNTRY_CODES, isPlaceProfile, profileTypesForKind } from "@showme/shared";
 import { type FormEvent, useEffect, useState } from "react";
 import { SegmentedToggle } from "../components";
+import { ProfileImageField } from "../components/ProfileImageField";
 import { type ProfileLinkDraft, ProfileLinkListField } from "../components/ProfileLinkListField";
-import { ProfileMediaField } from "../components/ProfileMediaField";
+import {
+  type ProfilePhotoDraft,
+  ProfilePhotoGalleryField,
+} from "../components/ProfilePhotoGalleryField";
 import { ProfilePublicPreview } from "../components/ProfilePublicPreview";
 import { ProfileRoomsCard } from "../components/ProfileRoomsCard";
 import {
@@ -34,6 +38,7 @@ import {
   type ProfileSetupDraft,
   ProfileSetupsField,
 } from "../components/ProfileSetupsField";
+import { ProfileVideoListField } from "../components/ProfileVideoListField";
 import {
   EMPTY_VENUE_DETAILS,
   type VenueDetailsDraft,
@@ -41,6 +46,7 @@ import {
 } from "../components/VenueDetailsFields";
 import { VenueNotesField } from "../components/VenueNotesField";
 import { ErrorState, LoadingState } from "../components/states";
+import { useProfileImageUpload } from "../components/useProfileImageUpload";
 import { getActiveProfileId, setActiveProfileId } from "../lib/activeProfile";
 import { errorMessage } from "../lib/errors";
 
@@ -409,6 +415,52 @@ function fromVenueDraft(draft: VenueDetailsDraft, capacitySetups: ProfileCapacit
   };
 }
 
+/**
+ * The avatar / banner as the form holds it, which is NOT what the wire holds.
+ *
+ * `previewUrl` is only how to draw the picture right now. For an uploaded one
+ * that is a signed URL which stops working in fifteen minutes — so it must never
+ * be sent back, and `touched` is what stops it.
+ *
+ * WHY `touched` EXISTS, found by driving the screen: the API resolves the
+ * file-then-URL ladder into one `avatarUrl`, so a file-backed picture arrives
+ * here looking exactly like an external address. Sending it back unconditionally
+ * wrote the SIGNED URL into `profiles.avatar_url` and cleared `avatar_file_id` —
+ * a profile picture that worked until the URL expired and then broke for good.
+ * A PATCH is partial, so the honest answer is to send nothing at all for a field
+ * the owner did not touch: `touched` is false until they upload or remove.
+ */
+interface ProfileImageDraft {
+  touched: boolean;
+  fileId: string | null;
+  externalUrl: string | null;
+  previewUrl: string | null;
+}
+
+/** The owner took the picture off — both halves cleared, and that IS a change. */
+const REMOVED_IMAGE_DRAFT: ProfileImageDraft = {
+  touched: true,
+  fileId: null,
+  externalUrl: null,
+  previewUrl: null,
+};
+
+/** Seed from what the server sent: something to draw, and nothing to save. */
+function toImageDraft(resolvedUrl: string | null): ProfileImageDraft {
+  return { touched: false, fileId: null, externalUrl: null, previewUrl: resolvedUrl };
+}
+
+/** The two picture fields, folded into the PATCH body only when they changed. */
+function imageFields(
+  avatar: ProfileImageDraft,
+  banner: ProfileImageDraft,
+): Record<string, string | null> {
+  return {
+    ...(avatar.touched ? { avatarFileId: avatar.fileId, avatarUrl: avatar.externalUrl } : {}),
+    ...(banner.touched ? { bannerFileId: banner.fileId, bannerUrl: banner.externalUrl } : {}),
+  };
+}
+
 function ProfileEditor({
   profile,
   onSaved,
@@ -420,8 +472,10 @@ function ProfileEditor({
   const initial = readDetails(profile.details);
   const [name, setName] = useState(profile.name);
   const [bio, setBio] = useState(profile.bio ?? "");
-  const [avatarUrl, setAvatarUrl] = useState(profile.avatarUrl ?? "");
-  const [bannerUrl, setBannerUrl] = useState(profile.bannerUrl ?? "");
+  // Pictures are FILES now. The draft holds the id that will be saved plus the
+  // signed URL that draws it — the URL is not what is stored, because it expires.
+  const [avatar, setAvatar] = useState<ProfileImageDraft>(() => toImageDraft(profile.avatarUrl));
+  const [banner, setBanner] = useState<ProfileImageDraft>(() => toImageDraft(profile.bannerUrl));
   const [street, setStreet] = useState(profile.location?.street ?? "");
   const [postcode, setPostcode] = useState(profile.location?.postcode ?? "");
   const [city, setCity] = useState(profile.location?.city ?? "");
@@ -429,7 +483,7 @@ function ProfileEditor({
   const [genres, setGenres] = useState(initial.genres.join(", "));
   const [setups, setSetups] = useState<ProfileSetupDraft[]>(initial.setups);
   const [links, setLinks] = useState<ProfileLinkDraft[]>(profile.socialLinks ?? []);
-  const [photos, setPhotos] = useState<string[]>(profile.photos ?? []);
+  const [photos, setPhotos] = useState<ProfilePhotoDraft[]>(profile.photos ?? []);
   const [videos, setVideos] = useState<string[]>(profile.videos ?? []);
   const [isPublic, setIsPublic] = useState(profile.isPublic);
   const [profileType, setProfileType] = useState(profile.type ?? "");
@@ -437,6 +491,33 @@ function ProfileEditor({
   const [capacitySetups, setCapacitySetups] = useState<ProfileCapacitySetupDraft[]>(() =>
     toCapacitySetupDrafts(profile.venueDetails),
   );
+
+  const upload = useProfileImageUpload(profile.id);
+
+  /**
+   * Upload one picture and point the avatar/banner at it. The bytes go to
+   * storage immediately (that is what an upload is); the PROFILE only learns
+   * about the file when the form is saved, so a picked-then-abandoned picture
+   * leaves an orphaned object rather than a changed profile.
+   */
+  const pickImage = async (
+    file: File,
+    apply: (draft: ProfileImageDraft) => void,
+  ): Promise<void> => {
+    const fileId = await upload.upload(file);
+    if (!fileId) return;
+    // Drawn from the local file until the next save round-trips a signed URL —
+    // the picture the owner just chose, not a placeholder standing in for it.
+    apply({ touched: true, fileId, externalUrl: null, previewUrl: URL.createObjectURL(file) });
+  };
+
+  const addPhotos = async (files: File[]): Promise<void> => {
+    for (const file of files) {
+      const fileId = await upload.upload(file);
+      if (!fileId) return;
+      setPhotos((current) => [...current, { fileId, url: URL.createObjectURL(file) }]);
+    }
+  };
 
   // Only a place has a capacity and a curfew — a promoter or a booking agency is
   // an organisation, not a room. The same test decides whether the street address
@@ -462,8 +543,8 @@ function ProfileEditor({
     const details = readDetails(profile.details);
     setName(profile.name);
     setBio(profile.bio ?? "");
-    setAvatarUrl(profile.avatarUrl ?? "");
-    setBannerUrl(profile.bannerUrl ?? "");
+    setAvatar(toImageDraft(profile.avatarUrl));
+    setBanner(toImageDraft(profile.bannerUrl));
     setStreet(profile.location?.street ?? "");
     setPostcode(profile.location?.postcode ?? "");
     setCity(profile.location?.city ?? "");
@@ -504,8 +585,8 @@ function ProfileEditor({
       data: {
         name: name.trim(),
         bio: bio.trim() ? bio.trim() : null,
-        avatarUrl: blankToNull(avatarUrl),
-        bannerUrl: blankToNull(bannerUrl),
+        // Only when the owner actually changed one — see `ProfileImageDraft`.
+        ...imageFields(avatar, banner),
         isPublic,
         ...(profileType ? { type: profileType } : {}),
         // The location goes to `profile_locations` through its own field, NOT
@@ -534,7 +615,14 @@ function ProfileEditor({
         socialLinks: links
           .filter((link) => link.platform.trim() !== "" && link.url.trim() !== "")
           .map((link) => ({ platform: link.platform.trim(), url: link.url.trim() })),
-        photos,
+        // A tile is saved as the FILE it holds, never as the URL it is drawn
+        // with. A tile that is neither (its file row vanished) is dropped rather
+        // than sent as an empty photo the server would refuse.
+        photos: photos
+          .map((photo) =>
+            photo.fileId ? { fileId: photo.fileId } : photo.url ? { url: photo.url } : null,
+          )
+          .filter((photo): photo is { fileId: string } | { url: string } => photo !== null),
         videos,
         ...(showsVenueFields ? { venueDetails: fromVenueDraft(venue, capacitySetups) } : {}),
       },
@@ -570,30 +658,40 @@ function ProfileEditor({
           onChange={setBio}
         />
 
-        {/* Pictures. The old app had both and this rebuild had neither, so a
-            profile could not carry a face at all. URLs for now — uploading is the
-            `files` + signed-URL subsystem and is separate work; the columns and
-            the rendering are the same either way. */}
+        {/* Pictures — uploaded to this profile's own storage folder. They used
+            to be two text boxes asking for a URL, which meant a venue could only
+            show a face it was already hosting somewhere else. */}
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-            gap: 14,
+            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+            gap: 18,
           }}
         >
-          <TextField
-            label="Avatar image URL"
-            value={avatarUrl}
-            placeholder="https://…"
-            onChange={(event) => setAvatarUrl(event.target.value)}
+          <ProfileImageField
+            label="Profile picture"
+            hint="Square works best. Shown on your page and beside your name everywhere."
+            previewUrl={avatar.previewUrl}
+            shape="avatar"
+            isUploading={upload.isUploading}
+            onPick={(file) => pickImage(file, setAvatar)}
+            onRemove={() => setAvatar(REMOVED_IMAGE_DRAFT)}
           />
-          <TextField
-            label="Banner image URL"
-            value={bannerUrl}
-            placeholder="https://… (wide — around 1500×500)"
-            onChange={(event) => setBannerUrl(event.target.value)}
+          <ProfileImageField
+            label="Cover banner"
+            hint="Wide — around 1500×500. It runs across the top of your page."
+            previewUrl={banner.previewUrl}
+            shape="banner"
+            isUploading={upload.isUploading}
+            onPick={(file) => pickImage(file, setBanner)}
+            onRemove={() => setBanner(REMOVED_IMAGE_DRAFT)}
           />
         </div>
+        {upload.error && (
+          <p style={{ margin: 0, fontSize: 12.5, color: "var(--brand-red)" }} role="alert">
+            {upload.error}
+          </p>
+        )}
 
         <hr style={{ border: 0, borderTop: "1px solid var(--border)", margin: "4px 0" }} />
 
@@ -645,23 +743,14 @@ function ProfileEditor({
 
         <ProfileLinkListField value={links} onChange={setLinks} />
 
-        <ProfileMediaField
-          label="Photos"
-          hint="Shown on your public page, in this order. The first one leads."
-          placeholder="https://… image URL"
+        <ProfilePhotoGalleryField
           value={photos}
           onChange={setPhotos}
-          preview="image"
+          isUploading={upload.isUploading}
+          onPick={addPhotos}
         />
 
-        <ProfileMediaField
-          label="Videos"
-          hint="YouTube and Vimeo links play inline; anything else appears as a link."
-          placeholder="https://youtube.com/watch?v=… or https://vimeo.com/…"
-          value={videos}
-          onChange={setVideos}
-          preview="link"
-        />
+        <ProfileVideoListField value={videos} onChange={setVideos} />
 
         {showsSetups && (
           <>

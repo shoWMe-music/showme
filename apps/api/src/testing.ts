@@ -10,6 +10,7 @@ import {
 } from "./app";
 import { createNoopLeadSink } from "./lib/clickup";
 import { createNoopEmailSink } from "./lib/email";
+import { defaultStorageSigner } from "./lib/storage";
 import { authenticate } from "./plugins/authenticate";
 import "./types";
 
@@ -35,6 +36,7 @@ export function buildTestApp(
     dependencies.leadsAllowedOrigins ?? DEFAULT_LEADS_ALLOWED_ORIGINS,
   );
   app.decorate("calendarIntegration", dependencies.calendarIntegration ?? null);
+  app.decorate("storageSigner", dependencies.storageSigner ?? defaultStorageSigner());
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   app.setErrorHandler(apiErrorHandler);

@@ -7,6 +7,7 @@
 import type { PatchApiV1ProfilesIdBodyLocation } from './patchApiV1ProfilesIdBodyLocation';
 import type { PatchApiV1ProfilesIdBodyVenueDetails } from './patchApiV1ProfilesIdBodyVenueDetails';
 import type { PatchApiV1ProfilesIdBodySocialLinksItem } from './patchApiV1ProfilesIdBodySocialLinksItem';
+import type { PatchApiV1ProfilesIdBodyPhotosItem } from './patchApiV1ProfilesIdBodyPhotosItem';
 import type { PatchApiV1ProfilesIdBodySetupsItem } from './patchApiV1ProfilesIdBodySetupsItem';
 
 export type PatchApiV1ProfilesIdBody = {
@@ -18,8 +19,18 @@ export type PatchApiV1ProfilesIdBody = {
   type?: string | null;
   isPublic?: boolean;
   /** @nullable */
+  avatarFileId?: string | null;
+  /**
+   * @maxLength 2000
+   * @nullable
+   */
   avatarUrl?: string | null;
   /** @nullable */
+  bannerFileId?: string | null;
+  /**
+   * @maxLength 2000
+   * @nullable
+   */
   bannerUrl?: string | null;
   details?: unknown;
   location?: PatchApiV1ProfilesIdBodyLocation;
@@ -27,7 +38,7 @@ export type PatchApiV1ProfilesIdBody = {
   /** @maxItems 30 */
   socialLinks?: PatchApiV1ProfilesIdBodySocialLinksItem[];
   /** @maxItems 60 */
-  photos?: string[];
+  photos?: PatchApiV1ProfilesIdBodyPhotosItem[];
   /** @maxItems 30 */
   videos?: string[];
   /** @maxItems 30 */

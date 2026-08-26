@@ -13,6 +13,7 @@ import { HttpError } from "./errors";
 import type { CalendarIntegration } from "./lib/calendar-integration";
 import { type LeadSink, createNoopLeadSink } from "./lib/clickup";
 import { type EmailSink, createNoopEmailSink } from "./lib/email";
+import { type StorageSigner, defaultStorageSigner } from "./lib/storage";
 import { loggerOptions } from "./logging";
 import { authenticate } from "./plugins/authenticate";
 import { activityRoutes } from "./routes/activity";
@@ -24,7 +25,7 @@ import { dealRoutes } from "./routes/deals";
 import { eventRoutes } from "./routes/events";
 import { eventListRoutes } from "./routes/events-list";
 import { exchangeRateRoutes } from "./routes/exchange-rate";
-import { fileRoutes } from "./routes/files";
+import { createFileRoutes } from "./routes/files";
 import { groupRoutes } from "./routes/groups";
 import { healthRoutes } from "./routes/health";
 import { holdRoutes } from "./routes/holds";
@@ -119,6 +120,12 @@ export interface AppDependencies {
    * which is exactly what a laptop and a test run want.
    */
   calendarIntegration?: CalendarIntegration | null;
+  /**
+   * Optional — where signed file URLs come from. Defaults to
+   * `defaultStorageSigner()` (the real GCS signer when a bucket is
+   * configured, the loopback sink on a laptop, the fake under test).
+   */
+  storageSigner?: StorageSigner;
 }
 
 /** Typed error envelope (decisions #15): { error: { code, message, details? } }. */
@@ -165,6 +172,8 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     dependencies.leadsAllowedOrigins ?? DEFAULT_LEADS_ALLOWED_ORIGINS,
   );
   app.decorate("calendarIntegration", dependencies.calendarIntegration ?? null);
+  // One signer for the whole app — see the decorator's docstring in types.ts.
+  app.decorate("storageSigner", dependencies.storageSigner ?? defaultStorageSigner());
 
   // Zod is the single source of truth for validation AND serialization → OpenAPI.
   app.setValidatorCompiler(validatorCompiler);
@@ -221,7 +230,7 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
       await api.register(exchangeRateRoutes);
       await api.register(adminRoutes);
       await api.register(insightRoutes);
-      await api.register(fileRoutes);
+      await api.register(createFileRoutes(app.storageSigner));
       await api.register(activityRoutes);
       await api.register(groupRoutes);
       await api.register(invoiceRoutes);

@@ -7,6 +7,7 @@
 import type { GetApiV1Profiles200ItemLocation } from './getApiV1Profiles200ItemLocation';
 import type { GetApiV1Profiles200ItemVenueDetails } from './getApiV1Profiles200ItemVenueDetails';
 import type { GetApiV1Profiles200ItemSocialLinksItem } from './getApiV1Profiles200ItemSocialLinksItem';
+import type { GetApiV1Profiles200ItemPhotosItem } from './getApiV1Profiles200ItemPhotosItem';
 
 export type GetApiV1Profiles200Item = {
   id: string;
@@ -29,7 +30,7 @@ export type GetApiV1Profiles200Item = {
   /** @nullable */
   venueDetails?: GetApiV1Profiles200ItemVenueDetails;
   socialLinks?: GetApiV1Profiles200ItemSocialLinksItem[];
-  photos?: string[];
+  photos?: GetApiV1Profiles200ItemPhotosItem[];
   videos?: string[];
   billing?: unknown;
   createdAt: string;

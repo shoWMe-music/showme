@@ -124,6 +124,9 @@ importers:
       '@showme/design-system':
         specifier: workspace:*
         version: link:../../design-system
+      '@showme/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       gsap:
         specifier: ^3.15.0
         version: 3.15.0

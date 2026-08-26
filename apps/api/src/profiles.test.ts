@@ -4,6 +4,8 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
+import type { StorageSigner } from "./lib/storage";
+import { createFileRoutes } from "./routes/files";
 import { profileRoutes } from "./routes/profiles";
 import { publicRoutes } from "./routes/public";
 import { buildTestApp } from "./testing";
@@ -15,6 +17,24 @@ const fakeVerifier: TokenVerifier = {
   },
 };
 
+/**
+ * Deterministic fake signer, so a picture's URL can be asserted exactly. The
+ * SAME instance is decorated onto the app and given to `createFileRoutes`,
+ * because that is the production wiring: one signer, or an upload issued through
+ * one and read back through another.
+ */
+const fakeSigner: StorageSigner = {
+  async signUpload(path, contentType, maxBytes) {
+    return {
+      url: `signed-upload::${path}`,
+      headers: { "content-type": contentType, "x-goog-content-length-range": `0,${maxBytes}` },
+    };
+  },
+  async signDownload(path) {
+    return `signed-download::${path}`;
+  },
+};
+
 let harness: TestDatabase;
 let app: FastifyInstance;
 
@@ -22,11 +42,14 @@ beforeAll(async () => {
   harness = await startTestDatabase();
   // `publicRoutes` rides along so the preview tests can assert that the owner's
   // Preview and the anonymous page return the SAME body — the one thing a second
-  // copy of the projection would break.
-  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [
-    profileRoutes,
-    publicRoutes,
-  ]);
+  // copy of the projection would break. `createFileRoutes` rides along so the
+  // picture tests can walk the REAL upload path (issue a URL, then attach the
+  // file to the profile) rather than hand-inserting a `files` row the API never
+  // agreed to.
+  app = buildTestApp(
+    { database: harness.db, tokenVerifier: fakeVerifier, storageSigner: fakeSigner },
+    [profileRoutes, publicRoutes, createFileRoutes(fakeSigner)],
+  );
   await app.ready();
 });
 
@@ -731,8 +754,8 @@ describe("profiles — the field inventory ported from the previous app", () => 
           { platform: "Spotify", url: "https://open.spotify.com/artist/x" },
           { platform: "Instagram", url: "https://instagram.com/x" },
         ],
-        photos: ["https://cdn.example/1.jpg", "https://cdn.example/2.jpg"],
-        videos: ["https://youtube.com/watch?v=abc"],
+        photos: [{ url: "https://cdn.example/1.jpg" }, { url: "https://cdn.example/2.jpg" }],
+        videos: ["https://youtube.com/watch?v=dQw4w9WgXcQ"],
         setups: [
           { name: "Solo", headcount: 1 },
           { name: "Full Band", headcount: 5 },
@@ -751,8 +774,12 @@ describe("profiles — the field inventory ported from the previous app", () => 
       { platform: "Spotify", url: "https://open.spotify.com/artist/x" },
       { platform: "Instagram", url: "https://instagram.com/x" },
     ]);
-    expect(body.photos).toEqual(["https://cdn.example/1.jpg", "https://cdn.example/2.jpg"]);
-    expect(body.videos).toEqual(["https://youtube.com/watch?v=abc"]);
+    expect(body.photos).toEqual([
+      { fileId: null, url: "https://cdn.example/1.jpg" },
+      { fileId: null, url: "https://cdn.example/2.jpg" },
+    ]);
+    // Stored canonical, so the value in the row is one a player can be pointed at.
+    expect(body.videos).toEqual(["https://www.youtube.com/watch?v=dQw4w9WgXcQ"]);
     expect(body.location.street).toBe("Bandvägen 7");
     expect(body.location.postcode).toBe("113 30");
 
@@ -794,8 +821,8 @@ describe("profiles — the field inventory ported from the previous app", () => 
       headers: auth(ownerId),
       payload: {
         details: { genres: ["Indie"] },
-        photos: ["https://cdn.example/old.jpg"],
-        videos: ["https://vimeo.com/1"],
+        photos: [{ url: "https://cdn.example/old.jpg" }],
+        videos: ["https://vimeo.com/347119375"],
       },
     });
 
@@ -805,11 +832,14 @@ describe("profiles — the field inventory ported from the previous app", () => 
       method: "PATCH",
       url: `/api/v1/profiles/${profileId}`,
       headers: auth(ownerId),
-      payload: { photos: ["https://cdn.example/new.jpg"], setups: [{ name: "Duo", headcount: 2 }] },
+      payload: {
+        photos: [{ url: "https://cdn.example/new.jpg" }],
+        setups: [{ name: "Duo", headcount: 2 }],
+      },
     });
     expect(partial.statusCode).toBe(200);
-    expect(partial.json().photos).toEqual(["https://cdn.example/new.jpg"]);
-    expect(partial.json().videos).toEqual(["https://vimeo.com/1"]);
+    expect(partial.json().photos).toEqual([{ fileId: null, url: "https://cdn.example/new.jpg" }]);
+    expect(partial.json().videos).toEqual(["https://vimeo.com/347119375"]);
 
     const [row] = await harness.db
       .select()
@@ -829,7 +859,7 @@ describe("profiles — the field inventory ported from the previous app", () => 
       payload: { photos: [] },
     });
     expect(cleared.json().photos).toEqual([]);
-    expect(cleared.json().videos).toEqual(["https://vimeo.com/1"]);
+    expect(cleared.json().videos).toEqual(["https://vimeo.com/347119375"]);
   });
 
   it("gives capacity setups stable ids and exactly one headline", async () => {
@@ -1092,3 +1122,256 @@ describe("profiles — public preview", () => {
 function anonymousSlug(slug: string): string {
   return encodeURIComponent(slug);
 }
+
+/**
+ * PICTURES ARE FILES, AND VIDEOS ARE LINKS TO A PLAYER.
+ *
+ * What this replaced: every image on a profile was a `text` column holding an
+ * address somebody typed ("Avatar image URL", placeholder `https://…`), so the
+ * only way to give a venue a face was to already be hosting that face elsewhere.
+ * The `files` + signed-URL subsystem was never wired to a profile at all.
+ *
+ * These tests walk the real path — issue an upload URL, then attach the file id
+ * to the profile — because "the API accepts a fileId" and "the picture came out
+ * of this profile's own storage folder" are two different claims.
+ */
+describe("profiles — uploaded pictures", () => {
+  /** Issue an upload URL the way the browser does, and return the new file id. */
+  async function uploadImage(
+    profileId: string,
+    ownerId: string,
+    name: string,
+  ): Promise<{ fileId: string; path: string }> {
+    const path = `profiles/${profileId}/media/${name}`;
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/files/upload-url",
+      headers: auth(ownerId),
+      payload: {
+        path,
+        contentType: "image/jpeg",
+        kind: "photo",
+        sizeBytes: 12_345,
+        ownerProfileId: profileId,
+      },
+    });
+    expect(response.statusCode).toBe(201);
+    return { fileId: response.json().fileId, path };
+  }
+
+  it("puts an uploaded photo in the gallery and serves it through a signed URL", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("picture-upload", "performer");
+    const uploaded = await uploadImage(profileId, ownerId, "stage.jpg");
+
+    const saved = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: { photos: [{ fileId: uploaded.fileId }], avatarFileId: uploaded.fileId },
+    });
+    expect(saved.statusCode).toBe(200);
+
+    // The ROW stores the file, never a URL — a signed URL expires in fifteen
+    // minutes, so a stored one would be a face that works until lunchtime.
+    const [media] = await harness.db
+      .select()
+      .from(schema.profileMedia)
+      .where(eq(schema.profileMedia.profileId, profileId));
+    expect(media?.fileId).toBe(uploaded.fileId);
+    expect(media?.url).toBeNull();
+
+    // The WIRE carries a signed URL, minted per read, plus the id the editor
+    // needs to save the list back.
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+    });
+    expect(read.json().photos).toEqual([
+      { fileId: uploaded.fileId, url: `signed-download::${uploaded.path}` },
+    ]);
+    expect(read.json().avatarUrl).toBe(`signed-download::${uploaded.path}`);
+  });
+
+  it("publishes an uploaded picture on the public page as a signed URL, never as a path", async () => {
+    const slug = "picture-public";
+    const { profileId, ownerId } = await seedProfileOwner(slug, "operator");
+    const uploaded = await uploadImage(profileId, ownerId, "room.jpg");
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: { isPublic: true, photos: [{ fileId: uploaded.fileId }] },
+    });
+
+    const anonymous = await app.inject({
+      method: "GET",
+      url: `/api/v1/public/profiles/${anonymousSlug(slug)}`,
+    });
+    expect(anonymous.statusCode).toBe(200);
+    expect(anonymous.json().photos).toEqual([`signed-download::${uploaded.path}`]);
+  });
+
+  it("refuses a file that belongs to another profile", async () => {
+    const mine = await seedProfileOwner("picture-mine", "performer");
+    const theirs = await seedProfileOwner("picture-theirs", "performer");
+    const stolen = await uploadImage(theirs.profileId, theirs.ownerId, "theirs.jpg");
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${mine.profileId}`,
+      headers: auth(mine.ownerId),
+      payload: { photos: [{ fileId: stolen.fileId }] },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toContain("not uploaded to this profile");
+  });
+
+  it("refuses a file whose object path is outside this profile's folder", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("picture-elsewhere", "performer");
+
+    // THE ROW IS PLANTED DIRECTLY, and that is the point of this test now.
+    //
+    // `POST /files/upload-url` refuses this shape outright — a signed write URL
+    // must target the caller's own folder — so the route can no longer produce a
+    // row whose `owner_profile_id` and `path` disagree. This asserts the SECOND
+    // door: even handed such a row (an older upload, a future writer, a direct
+    // insert), attaching it as a picture is still refused, because `files.path`
+    // is client-supplied and ownership and location are two separate claims.
+    const [planted] = await harness.db
+      .insert(schema.files)
+      .values({
+        path: "profiles/00000000-0000-0000-0000-000000000000/media/elsewhere.jpg",
+        kind: "photo",
+        contentType: "image/jpeg",
+        sizeBytes: 100,
+        ownerUserId: ownerId,
+        ownerProfileId: profileId,
+      })
+      .returning();
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: { avatarFileId: planted?.id },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("refuses to ISSUE an upload URL outside the profile's folder in the first place", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("picture-prefix", "performer");
+    const issued = await app.inject({
+      method: "POST",
+      url: "/api/v1/files/upload-url",
+      headers: auth(ownerId),
+      payload: {
+        path: "profiles/00000000-0000-0000-0000-000000000000/media/elsewhere.jpg",
+        contentType: "image/jpeg",
+        kind: "photo",
+        sizeBytes: 100,
+        ownerProfileId: profileId,
+      },
+    });
+    expect(issued.statusCode).toBe(400);
+  });
+
+  it("refuses a photo that is both a file and a URL, and one that is neither", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("picture-either", "performer");
+    const uploaded = await uploadImage(profileId, ownerId, "either.jpg");
+
+    const both = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: {
+        photos: [{ fileId: uploaded.fileId, url: "https://cdn.example/also.jpg" }],
+      },
+    });
+    expect(both.statusCode).toBe(400);
+
+    const neither = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: { photos: [{}] },
+    });
+    expect(neither.statusCode).toBe(400);
+  });
+
+  it("takes the picture off when the owner clears both halves", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("picture-clear", "performer");
+    const uploaded = await uploadImage(profileId, ownerId, "clear.jpg");
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: { avatarFileId: uploaded.fileId },
+    });
+
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: { avatarFileId: null, avatarUrl: null },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().avatarUrl).toBeNull();
+  });
+});
+
+/**
+ * A video is a link to somebody else's player, which means it becomes an
+ * `<iframe src>` on a page strangers read. The server decides which links may
+ * become that, so what is stored is already safe to embed — a check that lives
+ * only in the browser is a check the stored value never had to pass.
+ */
+describe("profiles — video links", () => {
+  it("refuses a link that is not YouTube or Vimeo, and says what is accepted", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("video-refuse", "performer");
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: { videos: ["https://example.com/our-showreel.mp4"] },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toContain("YouTube and Vimeo");
+  });
+
+  it("refuses a hostile host that merely contains the provider's name", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("video-lookalike", "performer");
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: { videos: ["https://attacker.example/youtube.com/watch?v=dQw4w9WgXcQ"] },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("stores every accepted form canonically, so the player gets one shape", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("video-canonical", "performer");
+
+    const saved = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: {
+        videos: [
+          "https://youtu.be/dQw4w9WgXcQ?si=share-sheet",
+          "https://player.vimeo.com/video/347119375",
+          "https://vimeo.com/347119375/a1b2c3d4e5",
+        ],
+      },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().videos).toEqual([
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "https://vimeo.com/347119375",
+      "https://vimeo.com/347119375/a1b2c3d4e5",
+    ]);
+  });
+});

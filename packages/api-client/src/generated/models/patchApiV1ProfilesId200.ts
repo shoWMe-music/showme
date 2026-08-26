@@ -7,6 +7,7 @@
 import type { PatchApiV1ProfilesId200Location } from './patchApiV1ProfilesId200Location';
 import type { PatchApiV1ProfilesId200VenueDetails } from './patchApiV1ProfilesId200VenueDetails';
 import type { PatchApiV1ProfilesId200SocialLinksItem } from './patchApiV1ProfilesId200SocialLinksItem';
+import type { PatchApiV1ProfilesId200PhotosItem } from './patchApiV1ProfilesId200PhotosItem';
 
 export type PatchApiV1ProfilesId200 = {
   id: string;
@@ -29,7 +30,7 @@ export type PatchApiV1ProfilesId200 = {
   /** @nullable */
   venueDetails?: PatchApiV1ProfilesId200VenueDetails;
   socialLinks?: PatchApiV1ProfilesId200SocialLinksItem[];
-  photos?: string[];
+  photos?: PatchApiV1ProfilesId200PhotosItem[];
   videos?: string[];
   billing?: unknown;
   createdAt: string;

@@ -434,3 +434,46 @@ already fixed, and a capability edit deserves its own pass with its own tests
 rather than riding along at the end of a long session. **Needs an owner
 decision.** Option 1 is the smaller and the one that makes the code match its own
 comment.
+
+---
+
+## Added 2026-08-26 (profile media) — two uploads that look alike and were left apart
+
+`apps/web/src/components/useProfileImageUpload.ts` repeats the two-leg upload
+dance already written in `useRiderUpload.ts`: issue a signed URL, then PUT the
+bytes with exactly the headers the API signed, and name the PUT explicitly in the
+error because a CORS refusal reaches the browser as an opaque `TypeError`.
+
+**Not extracted, on purpose.** The review gate asks for three real call sites, and
+there are two. What comes AFTER the PUT is also different in kind — a rider goes
+on to create a library entry and an event instance, a picture only yields a file
+id the profile form holds until it is saved — so a shared helper would be the
+first two statements of two otherwise unrelated flows. The third caller is the one
+to extract on: at that point the shape is known rather than guessed.
+
+## Open: `POST /files/upload-url` does not check that the path is in the caller's folder
+
+`apps/api/src/routes/files.ts` takes the object `path` from the client and checks
+only that it has no traversal segments (`assertSafePath`). It does NOT check that
+the path is inside the folder the named owner actually owns. So an authenticated
+caller can obtain a signed WRITE URL for `profiles/<somebody-else>/riders/x.pdf`
+and overwrite another profile's object, while their own `files` row honestly
+records them as the owner.
+
+The convention is already uniform in the callers — riders write
+`profiles/<profileId>/riders/…`, profile pictures `profiles/<profileId>/media/…`
+— so the rule is one comparison:
+
+```
+ownerProfileId ? path.startsWith(`profiles/${ownerProfileId}/`)
+               : path.startsWith(`users/${principal.userId}/`)
+```
+
+**Why it was not done in the profile-media pass:** `files.ts` is shared upload
+infrastructure that a concurrent rider change was also touching, and enforcing
+the prefix needs about ten existing assertions in `files.test.ts` rewritten (they
+use the user id as the folder segment while passing the profile's uuid as
+`ownerProfileId`, so every one of them violates the rule they would be asserting).
+Profile media enforces the same rule at its own attach point
+(`lib/profile-media.ts` — owner AND prefix), so a picture cannot be published out
+of another profile's folder; the WRITE hole above is still open for every caller.

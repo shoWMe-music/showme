@@ -7,6 +7,7 @@ import { z } from "zod";
 import { badRequest, forbidden, notFound } from "../errors";
 import { writeAudit } from "../lib/audit";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
+import { signProfileImageUrls } from "../lib/profile-media";
 import { serializeProfile } from "../serialize/profile";
 
 const ProfileParams = z.object({ profileId: z.string().uuid() });
@@ -163,7 +164,18 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
         id: row.id,
       }));
       // Admins are privileged — surface the full profile (billing included).
-      return { items: items.map((row) => serializeProfile(row, "admin")), nextCursor };
+      // The pictures are resolved too: an uploaded avatar is a file id, and
+      // without a signed URL for it this list would show every such profile as
+      // having no picture at all rather than as having one.
+      const imageUrls = await signProfileImageUrls(
+        database,
+        request.server.storageSigner,
+        items.flatMap((row) => [row.avatarFileId, row.bannerFileId]),
+      );
+      return {
+        items: items.map((row) => serializeProfile(row, "admin", { imageUrls })),
+        nextCursor,
+      };
     },
   );
 

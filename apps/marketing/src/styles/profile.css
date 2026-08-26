@@ -220,6 +220,38 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* ---------- Gallery + videos ---------- */
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.gallery__item {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--shape-fill);
+}
+
+.videos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.videos__item {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--shape-fill);
+}
+
 /* ---------- Pills ---------- */
 .pills {
   display: flex;

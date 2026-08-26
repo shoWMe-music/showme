@@ -1,5 +1,7 @@
 import { Avatar, type AvatarTone, Card, Icon } from "@showme/design-system";
+import { parseVideoLink } from "@showme/shared";
 import { VenueSpecsCard } from "./VenueSpecsCard";
+import { VideoEmbed } from "./VideoEmbed";
 
 /**
  * PREVIEW — the profile as a stranger sees it.
@@ -127,17 +129,6 @@ function formatPublicAddress(location: PublicPreviewLocation | null): string | n
 
 function formatEventDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "2-digit" });
-}
-
-/** YouTube/Vimeo become an inline player; anything else stays an honest link. */
-function videoEmbedUrl(url: string): string | null {
-  const youtube = url.match(
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]+)/,
-  );
-  if (youtube?.[1]) return `https://www.youtube.com/embed/${youtube[1]}`;
-  const vimeo = url.match(/vimeo\.com\/(\d+)/);
-  if (vimeo?.[1]) return `https://player.vimeo.com/video/${vimeo[1]}`;
-  return null;
 }
 
 export function ProfilePublicPreview({
@@ -422,12 +413,13 @@ export function ProfilePublicPreview({
         </Card>
       )}
 
-      {/* Photos */}
-      <Card>
-        <CardHeading icon={<ImageIcon />} title="Photos" />
-        {profile.photos.length === 0 ? (
-          <p style={{ color: "var(--dim)", fontSize: 14, margin: "10px 0 0" }}>No photos yet.</p>
-        ) : (
+      {/* Photos. Absent when there are none, because that is what the public page
+          does — a "No photos yet" card on a stranger's page tells them nothing
+          true about the profile, and a preview that shows one is not a preview
+          (the owner sees the empty state in Edit, where it is actionable). */}
+      {profile.photos.length > 0 && (
+        <Card>
+          <CardHeading icon={<ImageIcon />} title="Photos" />
           <div
             style={{
               display: "grid",
@@ -441,6 +433,7 @@ export function ProfilePublicPreview({
                 key={url}
                 src={url}
                 alt=""
+                loading="lazy"
                 style={{
                   width: "100%",
                   aspectRatio: "16 / 9",
@@ -451,8 +444,8 @@ export function ProfilePublicPreview({
               />
             ))}
           </div>
-        )}
-      </Card>
+        </Card>
+      )}
 
       {profile.videos.length > 0 && (
         <Card>
@@ -465,21 +458,13 @@ export function ProfilePublicPreview({
               marginTop: 12,
             }}
           >
-            {profile.videos.map((url) => {
-              const embed = videoEmbedUrl(url);
-              return embed ? (
-                <iframe
-                  key={url}
-                  src={embed}
-                  title={url}
-                  allowFullScreen
-                  style={{
-                    width: "100%",
-                    aspectRatio: "16 / 9",
-                    border: "1px solid var(--border)",
-                    borderRadius: 12,
-                  }}
-                />
+            {profile.videos.map((url, index) => {
+              // Parsed, never interpolated: `VideoEmbed` is handed a link whose
+              // `embedUrl` was BUILT from a provider and an id. A stored value
+              // this cannot parse predates the rule and stays an honest link.
+              const link = parseVideoLink(url);
+              return link ? (
+                <VideoEmbed key={url} link={link} title={`Video ${index + 1}`} />
               ) : (
                 <a
                   key={url}

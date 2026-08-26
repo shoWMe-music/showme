@@ -5,7 +5,9 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { conflict, forbidden, isUniqueViolation, notFound, tooManyRequests } from "../errors";
 import { readProfileBusyTime } from "../lib/availability";
+import { signProfileImageUrls } from "../lib/profile-media";
 import { createSlidingWindowRateLimiter } from "../lib/rate-limit";
+import type { StorageSigner } from "../lib/storage";
 import { type ProfileRelations, PublishedProfileSchema } from "../serialize/profile";
 import { serializePublicEvent, serializePublicProfile } from "../serialize/public";
 
@@ -252,8 +254,10 @@ export async function loadPublicShows(database: FastifyInstance["database"], pro
 
 async function loadPublicProfileRelations(
   database: FastifyInstance["database"],
-  profileId: string,
+  signer: StorageSigner,
+  profile: { id: string; avatarFileId: string | null; bannerFileId: string | null },
 ): Promise<ProfileRelations> {
+  const profileId = profile.id;
   const [locations, venues, socialLinks, media] = await Promise.all([
     database
       .select()
@@ -281,6 +285,14 @@ async function loadPublicProfileRelations(
     venueDetails: venues[0] ?? null,
     socialLinks,
     media,
+    // An uploaded picture is bytes in a private bucket, so even the open page
+    // gets a freshly signed URL rather than an object path. It expires; the page
+    // is re-fetched; that is the trade a private bucket buys.
+    imageUrls: await signProfileImageUrls(database, signer, [
+      profile.avatarFileId,
+      profile.bannerFileId,
+      ...media.map((row) => row.fileId),
+    ]),
   };
 }
 
@@ -310,8 +322,10 @@ export async function publicRoutes(fastify: FastifyInstance): Promise<void> {
       // offers, the owner's links and their gallery. Which of them a stranger
       // actually receives is decided inside `serializePublicProfile` — this
       // handler hands it everything and publishes nothing on its own.
+      // The signer is needed because a photo may be a FILE now, signed per read;
+      // the bill is a separate query, so the two run together.
       const [relations, shows] = await Promise.all([
-        loadPublicProfileRelations(database, profile.id),
+        loadPublicProfileRelations(database, request.server.storageSigner, profile),
         loadPublicShows(database, profile.id),
       ]);
       return { ...serializePublicProfile(profile, relations), upcomingShows: shows };

@@ -1,5 +1,8 @@
+import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
+  check,
   doublePrecision,
   index,
   integer,
@@ -11,6 +14,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { permissionSets } from "./authorization";
+import { files } from "./content";
 import {
   accountKind,
   payoutMethod,
@@ -68,7 +72,26 @@ export const profiles = pgTable("profiles", {
   slug: text("slug").notNull().unique(),
   isPublic: boolean("is_public").notNull().default(false),
   bio: text("bio"),
+  /**
+   * The picture and the cover, in two forms that are read as ONE ladder.
+   *
+   * `*_file_id` is an image the owner uploaded — the bytes are in this profile's
+   * own storage folder and the browser is handed a freshly signed URL for them on
+   * every read. `*_url` is a plain external address, which is all this rebuild
+   * had before uploading existed and is still the honest way to point at a
+   * picture somebody else hosts.
+   *
+   * The file wins when both are set (`serialize/profile.ts` resolves it). A URL
+   * column cannot hold the uploaded form because a signed URL expires in fifteen
+   * minutes: storing one would mean a profile whose face works until lunchtime.
+   */
+  avatarFileId: uuid("avatar_file_id").references((): AnyPgColumn => files.id, {
+    onDelete: "set null",
+  }),
   avatarUrl: text("avatar_url"),
+  bannerFileId: uuid("banner_file_id").references((): AnyPgColumn => files.id, {
+    onDelete: "set null",
+  }),
   bannerUrl: text("banner_url"),
   details: jsonb("details"), // social links / media / custom fields read with the profile
   billing: jsonb("billing"), // legal_name, address, vat_id, vat_rate, invoice_number_seq (gapless)
@@ -78,16 +101,33 @@ export const profiles = pgTable("profiles", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-/** Ordered media gallery for a profile (photos, videos, banner, avatar, docs). */
-export const profileMedia = pgTable("profile_media", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  profileId: uuid("profile_id")
-    .notNull()
-    .references(() => profiles.id, { onDelete: "cascade" }),
-  kind: profileMediaKind("kind").notNull(),
-  url: text("url").notNull(),
-  position: integer("position"),
-});
+/**
+ * Ordered media gallery for a profile (photos, videos, banner, avatar, docs).
+ *
+ * A row points at EITHER an uploaded file (`file_id` — bytes in this profile's
+ * storage folder, served through a signed URL that is minted per read) or an
+ * external address (`url`). Photos are uploads; videos are always a URL, because
+ * a YouTube link is not a file anyone hands us. `url` therefore cannot be NOT
+ * NULL any more, and the pair is constrained in the migration to exactly one of
+ * the two — a row with neither is a gallery tile with nothing in it.
+ */
+export const profileMedia = pgTable(
+  "profile_media",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    kind: profileMediaKind("kind").notNull(),
+    fileId: uuid("file_id").references((): AnyPgColumn => files.id, { onDelete: "cascade" }),
+    url: text("url"),
+    position: integer("position"),
+  },
+  (table) => [
+    check("profile_media_one_source", sql`(${table.fileId} IS NULL) <> (${table.url} IS NULL)`),
+    index("profile_media_profile_idx").on(table.profileId, table.position),
+  ],
+);
 
 /**
  * A profile's locations — kept normalized because discovery queries by them.
