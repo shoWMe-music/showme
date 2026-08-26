@@ -6,7 +6,11 @@ import {
   REFERENCE_GUARANTEE_TERMS,
   REFERENCE_GUARANTEE_VS_DOOR_TERMS,
   breakdownFor,
+  dateOffsetFromToday,
+  referenceAlbumReleaseBudgetLines,
   referenceBudgetLines,
+  referenceEventDates,
+  referenceHoldBudgetLines,
   referenceSettlement,
 } from "./reference-settlement";
 import * as schema from "./schema";
@@ -92,7 +96,22 @@ const DEAL_IDS = {
   e1: "5eed0000-0000-4000-8000-0000000000d1",
   e2: "5eed0000-0000-4000-8000-0000000000d2",
 };
-const BUDGET_ID = "5eed0000-0000-4000-8000-0000000000c1";
+// One budget per event that has money on it.
+//
+// Note the dev seed's album release runs a FLAT GUARANTEE rather than the e2e seed's
+// door split, so the same budget lines settle differently here: the performer takes
+// the 25 000.00 guarantee and the venue keeps the rest of the pool as its residual.
+// Same cash, different agreement — which is the pair of fixtures doing its job.
+//
+// The concluded event's budget keeps the id it has always had, because a re-run
+// against an existing dev database has to find and delete its own prior rows, and an
+// id changed for tidiness is a row that never gets cleaned up again. (It reads the
+// same as OPERATOR_PERMISSION_SET_ID above; different tables, so harmless.)
+const BUDGET_IDS = {
+  springWarmup: "5eed0000-0000-4000-8000-0000000000c1", // shared — the settled reference event
+  albumRelease: "5eed0000-0000-4000-8000-0000000000c3", // shared — confirmed, upcoming
+  synthShowcaseHold: "5eed0000-0000-4000-8000-0000000000c4", // PRIVATE — the venue's own costing
+} as const;
 // One settlement per participant (PLAN.md) — the operator's line is not optional:
 // without it the host reads its own event and finds no line of its own.
 const SETTLEMENT_IDS = {
@@ -213,10 +232,11 @@ async function main() {
       .delete(schema.settlementTransfers)
       .where(inArray(schema.settlementTransfers.eventId, eventIds)); // → event_participants (no action)
     await database.delete(schema.settlements).where(inArray(schema.settlements.eventId, eventIds)); // → event_participants
+    const budgetIds = Object.values(BUDGET_IDS);
     await database
       .delete(schema.budgetLines)
-      .where(inArray(schema.budgetLines.budgetId, [BUDGET_ID])); // → deals (no action)
-    await database.delete(schema.budgets).where(inArray(schema.budgets.id, [BUDGET_ID]));
+      .where(inArray(schema.budgetLines.budgetId, budgetIds)); // → deals (no action)
+    await database.delete(schema.budgets).where(inArray(schema.budgets.id, budgetIds));
     await database.delete(schema.dealParties).where(inArray(schema.dealParties.dealId, dealIds)); // → event_participants
     await database.delete(schema.deals).where(inArray(schema.deals.id, dealIds));
     await database.delete(schema.events).where(inArray(schema.events.id, eventIds)); // cascades event_participants
@@ -326,7 +346,12 @@ async function main() {
       .returning({ id: schema.profileMembers.id });
     record("profile_members", members);
 
-    // ── 5. Events — varied status + dates (today ≈ 2026-08-02). ────────────
+    // ── 5. Events — varied status; dates computed from the day the seed runs. ─
+    // Absolute dates rotted: the "upcoming" draft below had already slid into the
+    // past, and with it the whole premise that this fixture shows a live pipeline.
+    // The offsets and the reasoning are in reference-settlement.ts.
+    const eventDates = referenceEventDates();
+
     const events = await database
       .insert(schema.events)
       .values([
@@ -335,7 +360,7 @@ async function main() {
           hostProfileId: OPERATOR_PROFILE_ID,
           title: "Marlo Vance — Album Release",
           status: "confirmed",
-          eventDate: "2026-09-12",
+          eventDate: eventDates.albumRelease,
           doorTime: "19:00:00",
           startTime: "20:00:00",
           endTime: "23:00:00",
@@ -354,7 +379,7 @@ async function main() {
           hostProfileId: OPERATOR_PROFILE_ID,
           title: "Spring Warmup",
           status: "concluded",
-          eventDate: "2026-04-18",
+          eventDate: eventDates.springWarmup,
           doorTime: "18:30:00",
           startTime: "19:30:00",
           endTime: "22:30:00",
@@ -372,7 +397,7 @@ async function main() {
           hostProfileId: OPERATOR_PROFILE_ID,
           title: "Open Mic Wednesdays",
           status: "draft",
-          eventDate: "2026-08-20",
+          eventDate: eventDates.openMic,
           doorTime: "18:00:00",
           startTime: "19:00:00",
           timezone: "Europe/Stockholm",
@@ -388,7 +413,7 @@ async function main() {
           hostProfileId: OPERATOR_PROFILE_ID,
           title: "Nordic Synth Showcase",
           status: "on_hold",
-          eventDate: "2026-11-01",
+          eventDate: eventDates.synthShowcase,
           doorTime: "19:00:00",
           startTime: "20:00:00",
           timezone: "Europe/Stockholm",
@@ -407,7 +432,7 @@ async function main() {
           hostProfileId: OPERATOR_PROFILE_ID,
           title: "Winter Gala",
           status: "cancelled",
-          eventDate: "2026-12-05",
+          eventDate: eventDates.winterGala,
           timezone: "Europe/Stockholm",
           venueProfileId: OPERATOR_PROFILE_ID,
           venueName: "The Lantern Hall",
@@ -605,10 +630,27 @@ async function main() {
       .returning({ id: schema.dealParties.id });
     record("deal_parties", dealParties);
 
-    // ── 8. Budget + lines + a settlement on the concluded event. ───────────
+    // ── 8. Budgets — the settled record, plus the two forward-looking ones. ─
+    // A budget on the concluded event alone gave the Financial Projections screen
+    // nothing to sum under either of its forward-looking scopes ("Confirmed",
+    // "Upcoming"), so a screen whose whole job is a forward P&L across the pipeline
+    // showed a dash. The two live future events therefore carry budgets too: the
+    // confirmed release SHARED (its performer is signed to this money), the hold
+    // PRIVATE (nothing is signed, so the costing is the venue's own). The draft and
+    // the cancelled date stay unbudgeted — both are honest states, and they keep the
+    // screen's partial-coverage note exercised.
     const budgets = await database
       .insert(schema.budgets)
-      .values({ id: BUDGET_ID, eventId: EVENT_IDS.springWarmup, scope: "shared" })
+      .values([
+        { id: BUDGET_IDS.springWarmup, eventId: EVENT_IDS.springWarmup, scope: "shared" },
+        { id: BUDGET_IDS.albumRelease, eventId: EVENT_IDS.albumRelease, scope: "shared" },
+        {
+          id: BUDGET_IDS.synthShowcaseHold,
+          eventId: EVENT_IDS.synthShowcase,
+          scope: "private",
+          ownerProfileId: OPERATOR_PROFILE_ID, // required for `private`, and the point of it
+        },
+      ])
       .returning({ id: schema.budgets.id });
     record("budgets", budgets);
 
@@ -622,16 +664,35 @@ async function main() {
       dealId: DEAL_IDS.e2,
     };
 
+    // Every figure comes from reference-settlement.ts, never from here (audit A-13).
     const budgetLines = await database
       .insert(schema.budgetLines)
-      .values(
-        referenceBudgetLines(REFERENCE_SPINE).map((line) => ({
-          budgetId: BUDGET_ID,
+      .values([
+        ...referenceBudgetLines(REFERENCE_SPINE).map((line) => ({
+          budgetId: BUDGET_IDS.springWarmup,
           source: "manual" as const,
           ...line,
         })),
-      )
-      .returning({ id: schema.budgetLines.id });
+        ...referenceAlbumReleaseBudgetLines({
+          hostParticipantId: PART.e1Host,
+          dealId: DEAL_IDS.e1,
+        }).map((line) => ({
+          budgetId: BUDGET_IDS.albumRelease,
+          source: "manual" as const,
+          ...line,
+        })),
+        // No `dealId` on the hold's lines: there is no deal to assign them to yet.
+        ...referenceHoldBudgetLines({ hostParticipantId: PART.e4Host }).map((line) => ({
+          budgetId: BUDGET_IDS.synthShowcaseHold,
+          source: "manual" as const,
+          ...line,
+        })),
+      ])
+      .returning({
+        id: schema.budgetLines.id,
+        budgetId: schema.budgetLines.budgetId,
+        label: schema.budgetLines.label,
+      });
     record("budget_lines", budgetLines);
 
     // One settlement per participant, DERIVED by the settlement engine from the deal
@@ -693,7 +754,7 @@ async function main() {
           email: "anders@midnightecho.example",
           phone: "+46 70 123 45 67",
           artistName: "The Midnight Echo",
-          wantedDate: "2026-10-03",
+          wantedDate: dateOffsetFromToday(38),
           artistFee: 3000000n, // 30 000.00 SEK asking fee
           pitch:
             "Four-piece indie rock, just wrapped a Nordic club tour. Would love a Friday slot.",
@@ -719,7 +780,7 @@ async function main() {
           contactName: "Marlo Vance",
           email: "marlo.vance@showme.test",
           artistName: "Marlo Vance",
-          wantedDate: "2026-10-18",
+          wantedDate: dateOffsetFromToday(53),
           offerFeeMin: 2000000n, // 20 000.00 SEK
           offerFeeMax: 2800000n, // 28 000.00 SEK
           pitch:
@@ -739,7 +800,7 @@ async function main() {
           email: "booking@lenaforsquartet.example",
           phone: "+46 73 987 65 43",
           artistName: "Lena Fors Quartet",
-          wantedDate: "2026-09-27",
+          wantedDate: dateOffsetFromToday(32),
           artistFee: 1500000n, // 15 000.00 SEK
           pitch: "Acoustic jazz quartet, seated show. Confirmed and looking forward to it.",
           note: "Handled by Söder Live agency.",
@@ -756,7 +817,9 @@ async function main() {
           contactName: "DJ Frostbite",
           email: "frostbite@coldwax.example",
           artistName: "DJ Frostbite",
-          wantedDate: "2026-08-29",
+          // The very night the Open Mic draft occupies — which is WHY the note below
+          // says it clashes. Pinning it to the same computed date keeps the reason true.
+          wantedDate: eventDates.openMic,
           artistFee: 800000n, // 8 000.00 SEK
           pitch: "Late-night techno set. Passed over from Klubb Nord.",
           note: "Declined — clashes with Open Mic night.",
@@ -773,7 +836,7 @@ async function main() {
           contactName: "MegaPromo Bookings",
           email: "deals@megapromo.example",
           artistName: "Various Artists",
-          wantedDate: "2026-11-14",
+          wantedDate: dateOffsetFromToday(80),
           pitch: "GUARANTEED SELLOUT!!! Book 20 of our acts now for a special rate, reply ASAP!!!",
           note: "Auto-flagged — bulk/spam pattern.",
           senderType: "agency",
@@ -964,7 +1027,17 @@ async function main() {
     record("group_profiles", groupProfiles);
 
     // ── 12. Bills & invoices — AR (issued) + AP (received), varied state. ──
-    const soundProductionLineId = budgetLines[1]?.id; // "Sound & production" cost line
+    // Found by label, not by position: the budget insert above now spans three
+    // events, so an index into it would silently point at another event's money the
+    // next time a line is added.
+    const soundProductionLine = budgetLines.find(
+      (line) => line.budgetId === BUDGET_IDS.springWarmup && line.label === "Sound & production",
+    );
+    if (!soundProductionLine) {
+      throw new Error(
+        "The concluded event's 'Sound & production' line is missing — the supplier bill has nothing to settle against.",
+      );
+    }
     const invoices = await database
       .insert(schema.invoices)
       .values([
@@ -979,8 +1052,8 @@ async function main() {
           lineItems: [{ label: "Venue hire — Album Release", quantity: 1, unitAmount: "4000000" }],
           vat: { rate: 25, amount: "1000000" },
           total: 5000000n, // 50 000.00 SEK incl. VAT
-          issuedAt: new Date("2026-08-15T09:00:00Z"),
-          dueDate: "2026-09-20",
+          issuedAt: new Date(`${dateOffsetFromToday(-10)}T09:00:00Z`),
+          dueDate: dateOffsetFromToday(25), // shortly after the show
           state: "sent",
         },
         {
@@ -989,14 +1062,16 @@ async function main() {
           eventId: EVENT_IDS.springWarmup,
           direction: "received", // AP — a supplier bill we owe
           issuerRef: "Nordic Sound Rentals AB",
-          budgetLineId: soundProductionLineId,
+          budgetLineId: soundProductionLine.id,
           number: "NSR-4471",
           currency: SEK,
           lineItems: [{ label: "PA + backline hire", quantity: 1, unitAmount: "720000" }],
           vat: { rate: 25, amount: "180000" },
           total: 900000n, // 9 000.00 SEK incl. VAT
-          issuedAt: new Date("2026-04-20T09:00:00Z"),
-          dueDate: "2026-05-10",
+          issuedAt: new Date(`${dateOffsetFromToday(-128)}T09:00:00Z`),
+          // Past due, which is what makes `overdue` an honest state rather than a
+          // label contradicting its own date.
+          dueDate: dateOffsetFromToday(-108),
           state: "overdue",
         },
         {
@@ -1010,8 +1085,8 @@ async function main() {
           lineItems: [{ label: "Co-promotion recharge", quantity: 1, unitAmount: "1000000" }],
           vat: { rate: 25, amount: "250000" },
           total: 1250000n, // 12 500.00 SEK incl. VAT
-          issuedAt: new Date("2026-04-25T09:00:00Z"),
-          dueDate: "2026-05-25",
+          issuedAt: new Date(`${dateOffsetFromToday(-125)}T09:00:00Z`),
+          dueDate: dateOffsetFromToday(-95),
           state: "paid",
         },
       ])
@@ -1028,7 +1103,7 @@ async function main() {
           ownerProfileId: OPERATOR_PROFILE_ID,
           title: "Confirm PA hire for Album Release",
           description: "Get written confirmation from Nordic Sound Rentals for the 12th.",
-          dueDate: "2026-08-25",
+          dueDate: dateOffsetFromToday(6),
           budgetType: "production",
           budgetAmount: 900000n,
           createdBy: operatorUserId,
@@ -1039,7 +1114,7 @@ async function main() {
           ownerProfileId: OPERATOR_PROFILE_ID,
           title: "Send stage plot to Marlo Vance",
           completed: true,
-          completedAt: new Date("2026-07-30T14:00:00Z"),
+          completedAt: new Date(`${dateOffsetFromToday(-12)}T14:00:00Z`),
           createdBy: operatorUserId,
         },
         {
@@ -1047,7 +1122,7 @@ async function main() {
           ownerUserId: operatorUserId,
           title: "Renew venue liability insurance",
           description: "Personal reminder — policy lapses in September.",
-          dueDate: "2026-09-01",
+          dueDate: dateOffsetFromToday(21),
           createdBy: operatorUserId,
         },
         {
@@ -1056,7 +1131,7 @@ async function main() {
           ownerProfileId: OPERATOR_PROFILE_ID,
           title: "Finalize Spring Warmup settlement",
           completed: true,
-          completedAt: new Date("2026-04-25T18:30:00Z"),
+          completedAt: new Date(`${dateOffsetFromToday(-123)}T18:30:00Z`),
           createdBy: operatorUserId,
         },
         {
@@ -1064,7 +1139,7 @@ async function main() {
           eventId: EVENT_IDS.openMic,
           ownerProfileId: OPERATOR_PROFILE_ID,
           title: "Book door security for Open Mic",
-          dueDate: "2026-08-18",
+          dueDate: dateOffsetFromToday(4),
           createdBy: operatorUserId,
         },
         {
@@ -1073,7 +1148,7 @@ async function main() {
           ownerProfileId: OPERATOR_PROFILE_ID,
           title: "Chase artist confirmation on Synth Showcase hold",
           description: "First hold expires soon — confirm or release.",
-          dueDate: "2026-10-10",
+          dueDate: dateOffsetFromToday(30),
           createdBy: operatorUserId,
         },
       ])
@@ -1090,7 +1165,7 @@ async function main() {
           ownerUserId: operatorUserId,
           type: "appointment",
           title: "Site visit — Nordic Synth Showcase",
-          date: "2026-08-14",
+          date: dateOffsetFromToday(3),
           startTime: "11:00:00",
           endTime: "12:30:00",
           entity: "Nordic Synth Showcase",
@@ -1103,7 +1178,7 @@ async function main() {
           ownerUserId: operatorUserId,
           type: "task",
           title: "Advance Album Release with the artist",
-          date: "2026-09-05",
+          date: dateOffsetFromToday(10), // a week before the show
         },
         {
           id: CALENDAR_ITEM_IDS[2],
@@ -1111,7 +1186,7 @@ async function main() {
           ownerUserId: operatorUserId,
           type: "appointment",
           title: "Meeting with Blue Owl Agency",
-          date: "2026-09-22",
+          date: dateOffsetFromToday(27),
           startTime: "15:00:00",
           endTime: "16:00:00",
           assigneeName: "Sofia Lind",
@@ -1122,7 +1197,7 @@ async function main() {
           ownerUserId: operatorUserId,
           type: "note",
           title: "STIM performance report deadline",
-          date: "2026-10-15",
+          date: dateOffsetFromToday(50),
         },
       ])
       .returning({ id: schema.calendarItems.id });

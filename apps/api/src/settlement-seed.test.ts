@@ -5,9 +5,12 @@ import {
   REFERENCE_DOOR_SPLIT_POOL,
   REFERENCE_DOOR_SPLIT_SHARES,
   REFERENCE_DOOR_SPLIT_TERMS,
+  REFERENCE_FORWARD_LOOKING_BUDGETS,
   REFERENCE_GUARANTEE_VS_DOOR_TERMS,
   breakdownFor,
   dealTermsAsTheEngineSeesThem,
+  projectedProfit,
+  referenceAlbumReleaseBudgetLines,
   referenceBudgetLines,
   referenceSettlement,
 } from "@showme/db/reference-settlement";
@@ -513,15 +516,21 @@ describe("the seeded album split deal (A-01's leftover)", () => {
       .values({ eventId: event.id, scope: "shared" })
       .returning();
     if (!budget) throw new Error("budget seed failed");
-    await db.insert(schema.budgetLines).values({
-      budgetId: budget.id,
-      kind: "revenue",
-      source: "manual",
-      label: "Ticket sales",
-      amount: REFERENCE_DOOR_SPLIT_POOL, // 50 000.00 SEK, no external costs
-      currency: "SEK",
-      collectedBy: hostParticipantId,
-    });
+
+    // The budget the seeds actually put on this event — six lines, two of revenue and
+    // four of external cost — rather than one synthetic line already equal to the
+    // pool. That substitution is the point: the seeded event now HAS a budget (it used
+    // to have none, which is why the Financial Projections screen had nothing to
+    // project), and the 60/40 below is only true if those six lines net to exactly the
+    // pool the shares are quoted at. A single line worth the pool could not have
+    // caught a costing that drifted; these can.
+    await db.insert(schema.budgetLines).values(
+      referenceAlbumReleaseBudgetLines({ hostParticipantId, dealId: deal.id }).map((line) => ({
+        budgetId: budget.id,
+        source: "manual" as const,
+        ...line,
+      })),
+    );
 
     const response = await app.inject({
       method: "POST",
@@ -535,16 +544,79 @@ describe("the seeded album split deal (A-01's leftover)", () => {
       body.breakdowns.find((row: { participantId: string }) => row.participantId === participantId)
         ?.entitlement;
 
-    expect(body.pool).toBe("5000000");
+    // 83 000 revenue − 33 000 external cost, netting to the pool the signed shares
+    // are quoted at. Stated against the constant, not the literal, so a budget line
+    // that moves fails HERE rather than silently re-pricing both performers.
+    expect(body.pool).toBe(REFERENCE_DOOR_SPLIT_POOL.toString());
     // Pre-fix these were "0" and "0", with the host holding the entire 5 000 000.
-    expect(entitlementOf(headlinerParticipantId)).toBe("3000000"); // 60% — A-01's snapshot
-    expect(entitlementOf(supportParticipantId)).toBe("2000000"); // 40% — A-01's snapshot
+    expect(entitlementOf(headlinerParticipantId)).toBe(
+      REFERENCE_DOOR_SPLIT_SHARES.headlinerAmount.toString(), // 60% — A-01's snapshot
+    );
+    expect(entitlementOf(supportParticipantId)).toBe(
+      REFERENCE_DOOR_SPLIT_SHARES.supportAmount.toString(), // 40% — A-01's snapshot
+    );
     expect(entitlementOf(hostParticipantId)).toBe("0"); // the split members take the pool
 
     // And the venue pays it out rather than keeping it.
     expect(body.transfers).toHaveLength(2);
     for (const transfer of body.transfers) {
       expect(transfer.fromParticipantId).toBe(hostParticipantId);
+    }
+  });
+});
+
+/**
+ * The forward-looking budgets — the fixture gap that read as a broken screen.
+ *
+ * Financial Projections rolls up planned revenue against planned costs across the
+ * event pipeline, and it computes that from budget lines. The seeds put a budget on
+ * exactly one event — the CONCLUDED one — so both of the screen's forward-looking
+ * scopes ("Confirmed", "Upcoming") matched real events and had nothing to sum over
+ * them, and rendered a dash under every figure. Only "All events" showed anything, by
+ * sweeping in a settled show from months earlier.
+ *
+ * Nothing was wrong with the code. The fixture simply had no data for the case the
+ * screen exists to show — which, from where the user is sitting, is indistinguishable
+ * from a bug, and was in fact reported as one.
+ *
+ * `REFERENCE_DEALS` already guards the neighbouring failure one level down (a deal
+ * whose terms size to nothing out of a real pool). This is the same guard one level
+ * up: an event still ahead of us whose budget projects nothing at all.
+ */
+describe("the seeded forward-looking budgets (the projections fixture)", () => {
+  it("gives every event still ahead of us something to project", () => {
+    // Deliberately not asserting the amounts: what makes a projection a projection is
+    // that there IS one. A budget with no revenue divides by zero for its margin and
+    // shows the same dash as no budget at all, which is the state being guarded.
+    expect(REFERENCE_FORWARD_LOOKING_BUDGETS.length).toBeGreaterThan(0);
+    for (const { label, lines } of REFERENCE_FORWARD_LOOKING_BUDGETS) {
+      const { revenue, cost, profit } = projectedProfit(lines);
+      expect(revenue, `${label} projects no revenue`).toBeGreaterThan(0n);
+      expect(cost, `${label} projects revenue with no costs against it`).toBeGreaterThan(0n);
+      expect(profit, `${label} projects a loss`).toBeGreaterThan(0n);
+    }
+  });
+
+  it("sizes the confirmed event's pool to exactly the pool its signed shares are quoted at", () => {
+    // The album release's budget is not free to be any plausible set of numbers: the
+    // deal on it hands 100% of the pool to two performers at 60/40, and the seeds
+    // quote their lines — and the agent commission derived from the headliner's —
+    // as fixed amounts. Those amounts are only true if the budget nets to
+    // REFERENCE_DOOR_SPLIT_POOL, so that identity is asserted rather than assumed.
+    const { revenue, cost, profit } = projectedProfit(
+      referenceAlbumReleaseBudgetLines({ hostParticipantId: "host", dealId: "deal" }),
+    );
+    expect(profit).toBe(REFERENCE_DOOR_SPLIT_POOL);
+    expect(revenue).toBe(8_300_000n); // 83 000.00 SEK of tickets
+    expect(cost).toBe(3_300_000n); // 33 000.00 SEK to outside suppliers
+
+    // No cost line names a participant, so none of them is a deductible — which is
+    // what keeps the projection screen's revenue−cost and the engine's pool the same
+    // number on this event, and the two performers on exactly their signed shares.
+    for (const line of referenceAlbumReleaseBudgetLines({ hostParticipantId: "host" })) {
+      expect(line.payeeParticipantId, `"${line.label}" is a deductible, not a pool cost`).toBe(
+        undefined,
+      );
     }
   });
 });

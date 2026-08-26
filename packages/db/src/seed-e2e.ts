@@ -12,7 +12,11 @@ import {
   REFERENCE_DOOR_SPLIT_TERMS,
   REFERENCE_GUARANTEE_VS_DOOR_TERMS,
   breakdownFor,
+  dateOffsetFromToday,
+  referenceAlbumReleaseBudgetLines,
   referenceBudgetLines,
+  referenceEventDates,
+  referenceHoldBudgetLines,
   referenceSettlement,
 } from "./reference-settlement";
 import * as schema from "./schema";
@@ -162,7 +166,15 @@ const DEAL_IDS = {
   springGuaranteeVsDoor: "e2e00000-0000-4000-8000-0000000000d2",
 } as const;
 
-const BUDGET_ID = "e2e00000-0000-4000-8000-0000000000f1";
+// One budget per event that has money on it. The concluded event's is the settled
+// record; the other two are the forward-looking ones the Financial Projections screen
+// exists to roll up (see reference-settlement.ts for why each carries what it does).
+const BUDGET_IDS = {
+  springWarmup: "e2e00000-0000-4000-8000-0000000000f1", // shared — the settled reference event
+  albumRelease: "e2e00000-0000-4000-8000-000000000f11", // shared — confirmed, upcoming
+  synthShowcaseHold: "e2e00000-0000-4000-8000-000000000f12", // PRIVATE — the venue's own costing
+} as const;
+
 const SETTLEMENT_IDS = {
   springOperator: "e2e00000-0000-4000-8000-0000000000f2",
   springPerformerA: "e2e00000-0000-4000-8000-0000000000f3",
@@ -181,6 +193,62 @@ const BOOKING_REQUEST_IDS = {
   frostbiteDeclined: "e2e00000-0000-4000-8000-0000000000f9", // anonymous, declined
   megaPromoFlagged: "e2e00000-0000-4000-8000-0000000000fa", // anonymous, flagged as spam
 } as const;
+
+// ── The operator's back office ───────────────────────────────────────────────
+// Contacts, teams, bills and to-dos are not decoration: each is the ONLY table
+// behind a whole sidebar destination (Contacts, Team, Bills & Invoices, Tasks). The
+// e2e seed provisioned none of them, so four screens rendered their bare empty state
+// on a fresh install and the dev stack could not be used to look at any of them. The
+// dev seed (seed.ts) already told this story for a single operator; these rows tell
+// the same one, re-cast so the on-platform people in it are the E2E accounts.
+const CONTACT_IDS = {
+  soundRentals: "e2e00000-0000-4000-8000-000000000201",
+  agency: "e2e00000-0000-4000-8000-000000000202",
+  performingRightsOrganization: "e2e00000-0000-4000-8000-000000000203",
+  catering: "e2e00000-0000-4000-8000-000000000204",
+  frontOfHouseEngineer: "e2e00000-0000-4000-8000-000000000205",
+  security: "e2e00000-0000-4000-8000-000000000206",
+} as const;
+
+const GROUP_IDS = {
+  coreCrew: "e2e00000-0000-4000-8000-000000000301",
+  frontOfHouse: "e2e00000-0000-4000-8000-000000000302",
+} as const;
+
+const GROUP_MEMBER_IDS = [
+  "e2e00000-0000-4000-8000-000000000311",
+  "e2e00000-0000-4000-8000-000000000312",
+  "e2e00000-0000-4000-8000-000000000313",
+  "e2e00000-0000-4000-8000-000000000314",
+  "e2e00000-0000-4000-8000-000000000315",
+] as const;
+
+const GROUP_PROFILE_IDS = [
+  "e2e00000-0000-4000-8000-000000000321",
+  "e2e00000-0000-4000-8000-000000000322",
+] as const;
+
+const INVOICE_IDS = {
+  albumReleaseVenueHire: "e2e00000-0000-4000-8000-000000000401", // AR, sent
+  springSoundRentalBill: "e2e00000-0000-4000-8000-000000000402", // AP, overdue
+  springCoPromotionRecharge: "e2e00000-0000-4000-8000-000000000403", // AR, paid
+} as const;
+
+const TASK_IDS = [
+  "e2e00000-0000-4000-8000-000000000501",
+  "e2e00000-0000-4000-8000-000000000502",
+  "e2e00000-0000-4000-8000-000000000503",
+  "e2e00000-0000-4000-8000-000000000504",
+  "e2e00000-0000-4000-8000-000000000505",
+  "e2e00000-0000-4000-8000-000000000506",
+] as const;
+
+const CALENDAR_ITEM_IDS = [
+  "e2e00000-0000-4000-8000-000000000601",
+  "e2e00000-0000-4000-8000-000000000602",
+  "e2e00000-0000-4000-8000-000000000603",
+  "e2e00000-0000-4000-8000-000000000604",
+] as const;
 
 const SEK = "SEK";
 
@@ -211,6 +279,28 @@ async function main() {
     const eventIds = Object.values(EVENT_IDS);
     const dealIds = Object.values(DEAL_IDS);
     const profileIds = Object.values(PROFILE_IDS);
+    const budgetIds = Object.values(BUDGET_IDS);
+
+    // The back office goes FIRST: an invoice references a budget line and a settlement
+    // transfer with NO ACTION, and tasks/calendar_items reference the operator profile
+    // the same way, so every one of them blocks the deletes below until it is gone.
+    await database
+      .delete(schema.invoices)
+      .where(inArray(schema.invoices.id, Object.values(INVOICE_IDS)));
+    await database.delete(schema.tasks).where(inArray(schema.tasks.id, [...TASK_IDS]));
+    await database
+      .delete(schema.calendarItems)
+      .where(inArray(schema.calendarItems.id, [...CALENDAR_ITEM_IDS]));
+    await database
+      .delete(schema.contacts)
+      .where(inArray(schema.contacts.id, Object.values(CONTACT_IDS)));
+    await database
+      .delete(schema.groupProfiles)
+      .where(inArray(schema.groupProfiles.id, [...GROUP_PROFILE_IDS])); // → profiles (no action)
+    await database
+      .delete(schema.groupMembers)
+      .where(inArray(schema.groupMembers.id, [...GROUP_MEMBER_IDS])); // cascades with the group, but be explicit
+    await database.delete(schema.groups).where(inArray(schema.groups.id, Object.values(GROUP_IDS)));
 
     await database
       .delete(schema.settlementTransfers)
@@ -218,8 +308,8 @@ async function main() {
     await database.delete(schema.settlements).where(inArray(schema.settlements.eventId, eventIds)); // → participants, representations
     await database
       .delete(schema.budgetLines)
-      .where(inArray(schema.budgetLines.budgetId, [BUDGET_ID])); // → participants, deals
-    await database.delete(schema.budgets).where(inArray(schema.budgets.id, [BUDGET_ID]));
+      .where(inArray(schema.budgetLines.budgetId, budgetIds)); // → participants, deals
+    await database.delete(schema.budgets).where(inArray(schema.budgets.id, budgetIds));
     await database.delete(schema.dealParties).where(inArray(schema.dealParties.dealId, dealIds)); // → participants
     await database.delete(schema.deals).where(inArray(schema.deals.id, dealIds));
     await database
@@ -437,7 +527,10 @@ async function main() {
         agentCollects: false, // performer collects, then pays the agent
         proposedBy: "agent",
         status: "active",
-        startsAt: new Date("2026-01-01T00:00:00Z"),
+        // A year back, so the representation always predates every event it acts on —
+        // an agreement that starts after the show it negotiated is not a fixture, it
+        // is a contradiction, and a fixed date becomes one the moment the events move.
+        startsAt: new Date(`${dateOffsetFromToday(-365)}T00:00:00Z`),
         confirmedByAgent: true,
         confirmedByPerformer: true,
       })
@@ -487,7 +580,13 @@ async function main() {
       .returning({ id: schema.permissionSets.id });
     record("permission_sets", permissionSets);
 
-    // ── 7. Events — all hosted by the operator; varied status (today ≈ 2026-08-09). ─
+    // ── 7. Events — all hosted by the operator; varied status. ─────────────
+    // The dates are computed from the day the seed runs, not written down: a
+    // fixture whose "upcoming" events quietly slide into the past stops being a
+    // pipeline, and that is exactly what had happened to the draft below. The
+    // offsets and the reasoning are in reference-settlement.ts.
+    const eventDates = referenceEventDates();
+
     const events = await database
       .insert(schema.events)
       .values([
@@ -496,7 +595,7 @@ async function main() {
           hostProfileId: PROFILE_IDS.operator,
           title: "Marlo Vance — Album Release",
           status: "confirmed",
-          eventDate: "2026-09-12",
+          eventDate: eventDates.albumRelease,
           doorTime: "19:00:00",
           startTime: "20:00:00",
           endTime: "23:00:00",
@@ -515,7 +614,7 @@ async function main() {
           hostProfileId: PROFILE_IDS.operator,
           title: "Spring Warmup",
           status: "concluded",
-          eventDate: "2026-04-18",
+          eventDate: eventDates.springWarmup,
           doorTime: "18:30:00",
           startTime: "19:30:00",
           endTime: "22:30:00",
@@ -533,7 +632,7 @@ async function main() {
           hostProfileId: PROFILE_IDS.operator,
           title: "Open Mic Wednesdays",
           status: "draft",
-          eventDate: "2026-08-20",
+          eventDate: eventDates.openMic,
           doorTime: "18:00:00",
           startTime: "19:00:00",
           timezone: "Europe/Stockholm",
@@ -549,7 +648,7 @@ async function main() {
           hostProfileId: PROFILE_IDS.operator,
           title: "Nordic Synth Showcase",
           status: "on_hold",
-          eventDate: "2026-11-01",
+          eventDate: eventDates.synthShowcase,
           doorTime: "19:00:00",
           startTime: "20:00:00",
           timezone: "Europe/Stockholm",
@@ -568,7 +667,7 @@ async function main() {
           hostProfileId: PROFILE_IDS.operator,
           title: "Winter Gala",
           status: "cancelled",
-          eventDate: "2026-12-05",
+          eventDate: eventDates.winterGala,
           timezone: "Europe/Stockholm",
           venueProfileId: PROFILE_IDS.operator,
           venueName: E2E_ACCOUNTS.operator.profileName,
@@ -815,10 +914,33 @@ async function main() {
       .returning({ id: schema.dealParties.id });
     record("deal_parties", dealParties);
 
-    // ── 10. Budget + lines on the concluded event. ─────────────────────────
+    // ── 10. Budgets — one settled record and TWO forward-looking projections. ─
+    // The seed used to put a budget on the concluded event and nowhere else, which
+    // left the Financial Projections screen — whose whole job is a forward-looking
+    // P&L across the pipeline — with nothing to sum under either of its
+    // forward-looking scopes ("Confirmed", "Upcoming"), so both rendered a dash.
+    // A budget is what makes a projection projectable, so the two events that have
+    // not happened yet and are still live now carry one:
+    //   · Album Release  — SHARED: two performers are signed to a split of this pool,
+    //                      so the budget is the thing they and the venue both read.
+    //   · Synth Showcase — PRIVATE: nothing is signed on a hold, so there is no
+    //                      counterparty to share with; it is the venue's own costing
+    //                      of whether to confirm the date (visible only to its owner).
+    // The draft and the cancelled event stay unbudgeted on purpose — "not costed
+    // yet" and "abandoned" are true states, and they give the screen's
+    // partial-coverage note ("2 of 3 events budgeted") something honest to report.
     const budgets = await database
       .insert(schema.budgets)
-      .values({ id: BUDGET_ID, eventId: EVENT_IDS.springWarmup, scope: "shared" })
+      .values([
+        { id: BUDGET_IDS.springWarmup, eventId: EVENT_IDS.springWarmup, scope: "shared" },
+        { id: BUDGET_IDS.albumRelease, eventId: EVENT_IDS.albumRelease, scope: "shared" },
+        {
+          id: BUDGET_IDS.synthShowcaseHold,
+          eventId: EVENT_IDS.synthShowcase,
+          scope: "private",
+          ownerProfileId: PROFILE_IDS.operator, // required for `private`, and the point of it
+        },
+      ])
       .returning({ id: schema.budgets.id });
     record("budgets", budgets);
 
@@ -832,16 +954,40 @@ async function main() {
       dealId: DEAL_IDS.springGuaranteeVsDoor,
     };
 
+    // Every figure comes from reference-settlement.ts, never from here (audit A-13):
+    // a number typed beside the data it describes drifts from the code that computes
+    // it. The album release's lines are sized so its pool lands exactly on the pool
+    // the door split's 60/40 lines are quoted at — so the 30 000.00 / 20 000.00 the
+    // deal states, and the 3 000.00 commission derived from the first of them below,
+    // are what the engine will actually pay on this event rather than a hopeful note.
     const budgetLines = await database
       .insert(schema.budgetLines)
-      .values(
-        referenceBudgetLines(REFERENCE_SPINE).map((line) => ({
-          budgetId: BUDGET_ID,
+      .values([
+        ...referenceBudgetLines(REFERENCE_SPINE).map((line) => ({
+          budgetId: BUDGET_IDS.springWarmup,
           source: "manual" as const,
           ...line,
         })),
-      )
-      .returning({ id: schema.budgetLines.id });
+        ...referenceAlbumReleaseBudgetLines({
+          hostParticipantId: PART.albumHost,
+          dealId: DEAL_IDS.albumSplit,
+        }).map((line) => ({
+          budgetId: BUDGET_IDS.albumRelease,
+          source: "manual" as const,
+          ...line,
+        })),
+        // No `dealId` on the hold's lines: there is no deal to assign them to yet.
+        ...referenceHoldBudgetLines({ hostParticipantId: PART.synthHost }).map((line) => ({
+          budgetId: BUDGET_IDS.synthShowcaseHold,
+          source: "manual" as const,
+          ...line,
+        })),
+      ])
+      .returning({
+        id: schema.budgetLines.id,
+        budgetId: schema.budgetLines.budgetId,
+        label: schema.budgetLines.label,
+      });
     record("budget_lines", budgetLines);
 
     // ── 11. Settlement on the concluded event — ONE per participant, Σ net = 0. ─
@@ -984,7 +1130,7 @@ async function main() {
           email: "anders@midnightecho.example",
           phone: "+46 70 123 45 67",
           artistName: "The Midnight Echo",
-          wantedDate: "2026-10-03",
+          wantedDate: dateOffsetFromToday(38),
           artistFee: 3000000n, // 30 000.00 SEK asking fee
           pitch:
             "Four-piece indie rock, just wrapped a Nordic club tour. Would love a Friday slot.",
@@ -1013,7 +1159,7 @@ async function main() {
           contactName: E2E_ACCOUNTS.performerA.displayName,
           email: E2E_ACCOUNTS.performerA.email,
           artistName: E2E_ACCOUNTS.performerA.profileName,
-          wantedDate: "2026-10-18",
+          wantedDate: dateOffsetFromToday(53),
           offerFeeMin: 2000000n, // 20 000.00 SEK
           offerFeeMax: 2800000n, // 28 000.00 SEK
           pitch:
@@ -1041,7 +1187,7 @@ async function main() {
           // (the same pairing POST /offers validates before accepting the field).
           onBehalfOfProfileId: PROFILE_IDS.performerA,
           artistName: E2E_ACCOUNTS.performerA.profileName,
-          wantedDate: "2026-11-07",
+          wantedDate: dateOffsetFromToday(73),
           offerFeeMin: 2500000n, // 25 000.00 SEK
           offerFeeMax: 3200000n, // 32 000.00 SEK
           pitch:
@@ -1065,7 +1211,7 @@ async function main() {
           contactName: E2E_ACCOUNTS.performerB.displayName,
           email: E2E_ACCOUNTS.performerB.email,
           artistName: E2E_ACCOUNTS.performerB.profileName,
-          wantedDate: "2026-09-27",
+          wantedDate: dateOffsetFromToday(32),
           offerFeeMin: 1500000n, // 15 000.00 SEK
           pitch: "Synth-pop live set, seated show. Confirmed and looking forward to it.",
           senderType: "performer",
@@ -1082,7 +1228,9 @@ async function main() {
           contactName: "DJ Frostbite",
           email: "frostbite@coldwax.example",
           artistName: "DJ Frostbite",
-          wantedDate: "2026-08-29",
+          // The very night the draft below occupies — which is WHY the note says it
+          // clashes. Pinning it to the same computed date keeps the reason true.
+          wantedDate: eventDates.openMic,
           artistFee: 800000n, // 8 000.00 SEK
           pitch: "Late-night techno set. Passed over from Klubb Nord.",
           note: "Declined, clashes with Open Mic night.",
@@ -1100,7 +1248,7 @@ async function main() {
           contactName: "MegaPromo Bookings",
           email: "deals@megapromo.example",
           artistName: "Various Artists",
-          wantedDate: "2026-11-14",
+          wantedDate: dateOffsetFromToday(80),
           pitch: "GUARANTEED SELLOUT!!! Book 20 of our acts now for a special rate, reply ASAP!!!",
           note: "Auto-flagged, bulk/spam pattern.",
           senderType: "agency",
@@ -1109,6 +1257,375 @@ async function main() {
       ])
       .returning({ id: schema.bookingRequests.id });
     record("booking_requests", bookingRequests);
+
+    // ── 14. Contacts — the operator's address book. ────────────────────────
+    // The Contacts screen reads this table and nothing else, so with none of these
+    // rows it opened on its empty state forever. These are the counterparties the
+    // budget lines above already name — the sound company behind "Sound &
+    // production", the caterer behind "Green-room catering", the security firm
+    // behind "Door & security staffing" — so the address book and the money agree
+    // on who the venue does business with instead of describing two different venues.
+    const contacts = await database
+      .insert(schema.contacts)
+      .values([
+        {
+          id: CONTACT_IDS.soundRentals,
+          ownerProfileId: PROFILE_IDS.operator,
+          name: "Nordic Sound Rentals AB",
+          type: "supplier",
+          iban: "SE45 5000 0000 0583 9825 7466",
+          bankName: "SEB",
+          vatId: "SE556200100001",
+          address: "Industrigatan 4, 117 45 Stockholm",
+          notes: "PA + backline hire. Net-30 terms.",
+          persons: [
+            { name: "Erik Sund", email: "erik@nordicsound.example", phone: "+46 8 555 010 20" },
+          ],
+        },
+        {
+          // The agency is an E2E ACCOUNT, not an invention: the operator's address
+          // book entry and the `representations` row above are the same relationship
+          // seen from the two sides the product models it from.
+          id: CONTACT_IDS.agency,
+          ownerProfileId: PROFILE_IDS.operator,
+          name: E2E_ACCOUNTS.agent.profileName,
+          type: "agency",
+          vatId: "SE556200100005",
+          address: "Götgatan 15, 116 46 Stockholm",
+          notes: "Represents Marlo Vance. Negotiates and confirms on her behalf.",
+          persons: [
+            {
+              name: E2E_ACCOUNTS.agent.displayName,
+              email: E2E_ACCOUNTS.agent.email,
+              phone: "+46 70 900 80 70",
+            },
+          ],
+        },
+        {
+          id: CONTACT_IDS.performingRightsOrganization,
+          ownerProfileId: PROFILE_IDS.operator,
+          name: "STIM",
+          type: "authority",
+          notes: "Performing-rights reporting (the Swedish PRO the setlists are filed to).",
+          persons: [
+            { name: "Reporting desk", email: "reporting@stim.example", phone: "+46 8 783 88 00" },
+          ],
+        },
+        {
+          id: CONTACT_IDS.catering,
+          ownerProfileId: PROFILE_IDS.operator,
+          name: "Söder Catering",
+          type: "supplier",
+          iban: "SE35 5000 0000 0549 1000 0003",
+          bankName: "Swedbank",
+          vatId: "SE556200100003",
+          address: "Hornsgatan 88, 118 21 Stockholm",
+          notes: "Green-room hospitality + artist meals.",
+          persons: [
+            { name: "Amir Haddad", email: "amir@sodercatering.example", phone: "+46 8 640 11 22" },
+          ],
+        },
+        {
+          // The crew ACCOUNT again — booked on the release as a participant, and
+          // kept here as the venue's first-call engineer.
+          id: CONTACT_IDS.frontOfHouseEngineer,
+          ownerProfileId: PROFILE_IDS.operator,
+          name: E2E_ACCOUNTS.teamAndCrew.profileName,
+          type: "crew",
+          notes: "Freelance FOH engineer — first call for seated shows. Fee invoiced separately.",
+          persons: [
+            {
+              name: E2E_ACCOUNTS.teamAndCrew.displayName,
+              email: E2E_ACCOUNTS.teamAndCrew.email,
+              phone: "+46 76 300 40 50",
+            },
+          ],
+        },
+        {
+          id: CONTACT_IDS.security,
+          ownerProfileId: PROFILE_IDS.operator,
+          name: "Security Partners AB",
+          type: "supplier",
+          iban: "SE99 9000 0000 0000 1234 5678",
+          bankName: "Nordea",
+          vatId: "SE556200100006",
+          notes: "Door + crowd security staffing.",
+          persons: [
+            { name: "Jonas Ek", email: "jonas@securitypartners.example", phone: "+46 8 700 60 50" },
+          ],
+        },
+      ])
+      .returning({ id: schema.contacts.id });
+    record("contacts", contacts);
+
+    // ── 15. Reusable teams (the Team screen) — groups, members, profile link. ─
+    // The Team screen shows a roster AND the reusable work groups an operator
+    // assigns to events. With no `groups` rows the roster listed exactly one person
+    // (the owner) and the groups rail was empty, so the member-vs-group-only
+    // distinction the screen is built around had nothing to distinguish.
+    const groups = await database
+      .insert(schema.groups)
+      .values([
+        { id: GROUP_IDS.coreCrew, ownerUserId: operatorUserId, name: "Core Crew" },
+        { id: GROUP_IDS.frontOfHouse, ownerUserId: operatorUserId, name: "Front of House Team" },
+      ])
+      .returning({ id: schema.groups.id });
+    record("groups", groups);
+
+    const groupMembers = await database
+      .insert(schema.groupMembers)
+      .values([
+        // Core Crew — two ON-PLATFORM members (so a group row links to real accounts)
+        // and two off-platform ones (so the invite-by-email path has rows too).
+        {
+          id: GROUP_MEMBER_IDS[0],
+          groupId: GROUP_IDS.coreCrew,
+          userId: operatorUserId,
+          email: E2E_ACCOUNTS.operator.email,
+          roleLabel: "Venue Manager",
+        },
+        {
+          id: GROUP_MEMBER_IDS[1],
+          groupId: GROUP_IDS.coreCrew,
+          userId: teamAndCrewUserId,
+          email: E2E_ACCOUNTS.teamAndCrew.email,
+          roleLabel: "FOH Engineer",
+        },
+        {
+          id: GROUP_MEMBER_IDS[2],
+          groupId: GROUP_IDS.coreCrew,
+          email: "tobias@stagehands.example",
+          roleLabel: "Stage Manager",
+        },
+        {
+          id: GROUP_MEMBER_IDS[3],
+          groupId: GROUP_IDS.frontOfHouse,
+          email: "vera@lanternhall.example",
+          roleLabel: "Bar Lead",
+        },
+        {
+          id: GROUP_MEMBER_IDS[4],
+          groupId: GROUP_IDS.frontOfHouse,
+          email: "milo@lanternhall.example",
+          roleLabel: "Box Office",
+        },
+      ])
+      .returning({ id: schema.groupMembers.id });
+    record("group_members", groupMembers);
+
+    // Which profile each group belongs to — without this the groups exist but the
+    // operator's Team screen cannot claim them.
+    const groupProfiles = await database
+      .insert(schema.groupProfiles)
+      .values([
+        {
+          id: GROUP_PROFILE_IDS[0],
+          groupId: GROUP_IDS.coreCrew,
+          profileId: PROFILE_IDS.operator,
+        },
+        {
+          id: GROUP_PROFILE_IDS[1],
+          groupId: GROUP_IDS.frontOfHouse,
+          profileId: PROFILE_IDS.operator,
+        },
+      ])
+      .returning({ id: schema.groupProfiles.id });
+    record("group_profiles", groupProfiles);
+
+    // ── 16. Bills & invoices — money receivable and payable, varied state. ──
+    // The fixture produced `owed` settlement transfers and a finalized settlement —
+    // precisely the money a venue then invoices — and not one invoice to close the
+    // loop, so the whole AR/AP screen sat at zero on both sides. One of each
+    // direction and one of each state the ledger colours differently.
+    //
+    // The supplier bill is LINKED to the budget line it pays off (`budgetLineId`),
+    // which is the join that makes a bill and a cost the same fact rather than two.
+    // It is found by label rather than by position: the budget insert above spans
+    // three events now, and an index into it would silently point at another event's
+    // money the next time a line is added.
+    const soundProductionLine = budgetLines.find(
+      (line) => line.budgetId === BUDGET_IDS.springWarmup && line.label === "Sound & production",
+    );
+    if (!soundProductionLine) {
+      throw new Error(
+        "The concluded event's 'Sound & production' line is missing — the supplier bill has nothing to settle against.",
+      );
+    }
+
+    const invoices = await database
+      .insert(schema.invoices)
+      .values([
+        {
+          id: INVOICE_IDS.albumReleaseVenueHire,
+          ownerProfileId: PROFILE_IDS.operator,
+          eventId: EVENT_IDS.albumRelease,
+          direction: "issued", // AR — the venue billing the artist side
+          recipientRef: `${E2E_ACCOUNTS.agent.profileName} (for ${E2E_ACCOUNTS.performerA.profileName})`,
+          number: "LH-2026-014",
+          currency: SEK,
+          lineItems: [{ label: "Venue hire — Album Release", quantity: 1, unitAmount: "4000000" }],
+          vat: { rate: 25, amount: "1000000" },
+          total: 5000000n, // 50 000.00 SEK incl. VAT
+          issuedAt: new Date(`${dateOffsetFromToday(-10)}T09:00:00Z`),
+          dueDate: dateOffsetFromToday(25), // shortly after the show
+          state: "sent",
+        },
+        {
+          id: INVOICE_IDS.springSoundRentalBill,
+          ownerProfileId: PROFILE_IDS.operator,
+          eventId: EVENT_IDS.springWarmup,
+          direction: "received", // AP — a supplier bill the venue owes
+          issuerRef: "Nordic Sound Rentals AB",
+          budgetLineId: soundProductionLine.id,
+          number: "NSR-4471",
+          currency: SEK,
+          lineItems: [{ label: "PA + backline hire", quantity: 1, unitAmount: "720000" }],
+          vat: { rate: 25, amount: "180000" },
+          total: 900000n, // 9 000.00 SEK incl. VAT — the budget line it pays off
+          issuedAt: new Date(`${dateOffsetFromToday(-128)}T09:00:00Z`),
+          // Past due, which is what makes `overdue` an honest state rather than a
+          // label contradicting its own date.
+          dueDate: dateOffsetFromToday(-108),
+          state: "overdue",
+        },
+        {
+          id: INVOICE_IDS.springCoPromotionRecharge,
+          ownerProfileId: PROFILE_IDS.operator,
+          eventId: EVENT_IDS.springWarmup,
+          direction: "issued", // AR — a co-promotion recharge, already settled
+          recipientRef: "Söder Live",
+          number: "LH-2026-009",
+          currency: SEK,
+          lineItems: [{ label: "Co-promotion recharge", quantity: 1, unitAmount: "1000000" }],
+          vat: { rate: 25, amount: "250000" },
+          total: 1250000n, // 12 500.00 SEK incl. VAT
+          issuedAt: new Date(`${dateOffsetFromToday(-125)}T09:00:00Z`),
+          dueDate: dateOffsetFromToday(-95),
+          state: "paid",
+        },
+      ])
+      .returning({ id: schema.invoices.id });
+    record("invoices", invoices);
+
+    // ── 17. Tasks — the to-do board, across all three of its scopes. ────────
+    // `tasks` was another table with no rows at all, so the board showed "You're all
+    // caught up" on a fresh install and none of its six filter chips had anything to
+    // filter. One task per scope the schema allows (event / profile / personal) and
+    // both completion states, so every chip resolves to something.
+    const tasks = await database
+      .insert(schema.tasks)
+      .values([
+        {
+          id: TASK_IDS[0],
+          eventId: EVENT_IDS.albumRelease,
+          ownerProfileId: PROFILE_IDS.operator,
+          title: "Confirm PA hire for the Album Release",
+          description: "Get written confirmation from Nordic Sound Rentals for the night.",
+          dueDate: dateOffsetFromToday(6),
+          budgetType: "production",
+          budgetAmount: 1200000n, // the "Sound & production" line it is chasing
+          createdBy: operatorUserId,
+        },
+        {
+          id: TASK_IDS[1],
+          eventId: EVENT_IDS.albumRelease,
+          ownerProfileId: PROFILE_IDS.operator,
+          title: `Send the stage plot to ${E2E_ACCOUNTS.performerA.profileName}`,
+          completed: true,
+          completedAt: new Date(`${dateOffsetFromToday(-12)}T14:00:00Z`),
+          createdBy: operatorUserId,
+        },
+        {
+          // Personal scope — owned by the USER, not the profile.
+          id: TASK_IDS[2],
+          ownerUserId: operatorUserId,
+          title: "Renew the venue's liability insurance",
+          description: "Personal reminder — the policy lapses next month.",
+          dueDate: dateOffsetFromToday(21),
+          createdBy: operatorUserId,
+        },
+        {
+          id: TASK_IDS[3],
+          eventId: EVENT_IDS.springWarmup,
+          ownerProfileId: PROFILE_IDS.operator,
+          title: "Finalize the Spring Warmup settlement",
+          completed: true,
+          completedAt: new Date(`${dateOffsetFromToday(-123)}T18:30:00Z`),
+          createdBy: operatorUserId,
+        },
+        {
+          id: TASK_IDS[4],
+          eventId: EVENT_IDS.openMic,
+          ownerProfileId: PROFILE_IDS.operator,
+          title: "Book door security for Open Mic",
+          dueDate: dateOffsetFromToday(4),
+          createdBy: operatorUserId,
+        },
+        {
+          // The decision the hold's private budget above exists to inform.
+          id: TASK_IDS[5],
+          eventId: EVENT_IDS.synthShowcase,
+          ownerProfileId: PROFILE_IDS.operator,
+          title: "Confirm or release the Nordic Synth Showcase hold",
+          description: "First hold. The costing says it clears — chase the artist or drop it.",
+          dueDate: dateOffsetFromToday(30),
+          createdBy: operatorUserId,
+        },
+      ])
+      .returning({ id: schema.tasks.id });
+    record("tasks", tasks);
+
+    // ── 18. Calendar items — the operator's own agenda beside the events. ───
+    // The Calendar screen falls back to plotting events when it finds no items, so
+    // it never looked broken — it just never showed the half of the month that is
+    // meetings, deadlines and notes rather than shows. All four sit inside the
+    // weeks around today so the default month view is not empty.
+    const calendarItems = await database
+      .insert(schema.calendarItems)
+      .values([
+        {
+          id: CALENDAR_ITEM_IDS[0],
+          ownerProfileId: PROFILE_IDS.operator,
+          ownerUserId: operatorUserId,
+          type: "appointment",
+          title: "Site visit — Nordic Synth Showcase",
+          date: dateOffsetFromToday(3),
+          startTime: "11:00:00",
+          endTime: "12:30:00",
+          entity: "Nordic Synth Showcase",
+          assigneeUserId: operatorUserId,
+          assigneeName: E2E_ACCOUNTS.operator.profileName,
+        },
+        {
+          id: CALENDAR_ITEM_IDS[1],
+          ownerProfileId: PROFILE_IDS.operator,
+          ownerUserId: operatorUserId,
+          type: "task",
+          title: "Advance the Album Release with the artist",
+          date: dateOffsetFromToday(10), // a week before the show
+        },
+        {
+          id: CALENDAR_ITEM_IDS[2],
+          ownerProfileId: PROFILE_IDS.operator,
+          ownerUserId: operatorUserId,
+          type: "appointment",
+          title: `Meeting with ${E2E_ACCOUNTS.agent.profileName}`,
+          date: dateOffsetFromToday(27),
+          startTime: "15:00:00",
+          endTime: "16:00:00",
+          assigneeName: E2E_ACCOUNTS.agent.displayName,
+        },
+        {
+          id: CALENDAR_ITEM_IDS[3],
+          ownerProfileId: PROFILE_IDS.operator,
+          ownerUserId: operatorUserId,
+          type: "note",
+          title: "STIM performance report deadline",
+          date: dateOffsetFromToday(50),
+        },
+      ])
+      .returning({ id: schema.calendarItems.id });
+    record("calendar_items", calendarItems);
 
     // ── Summary ────────────────────────────────────────────────────────────
     console.log("\nE2E seed complete. Accounts (Firebase uid = users.id):");
