@@ -264,6 +264,65 @@ describe("profiles — authorize + serialize + audit", () => {
     expect(rows).toHaveLength(0);
   });
 
+  it("keeps venue details on a place profile and refuses them everywhere else", async () => {
+    // POSITIVE — an operator's venue. `seedProfileOwner` leaves `type` null and
+    // an untyped operator already counts as a place (locking out someone mid-
+    // setup is worse than offering the form to a promoter who ignores it), so
+    // the type is stated here rather than implied: this is the venue case.
+    const venue = await seedProfileOwner("room-venue", "operator");
+    const saved = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${venue.profileId}`,
+      headers: auth("room-venue-owner"),
+      payload: { type: "venue", venueDetails: { capacity: 400, curfew: "02:00" } },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().venueDetails.capacity).toBe(400);
+    expect(saved.json().venueDetails.curfew).toBe("02:00");
+
+    // NEGATIVE — a performer, the OWNER of their own profile, so nothing about
+    // authority is being tested here. The room is simply not theirs to describe:
+    // venue/production setup is operator-only (PLAN.md:350) and a performer sees
+    // their own slice, never the venue's asset inventory (story.md).
+    const performer = await seedProfileOwner("room-performer", "performer");
+    const refused = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${performer.profileId}`,
+      headers: auth("room-performer-owner"),
+      payload: { name: "Renamed By The Same Request", venueDetails: { capacity: 400 } },
+    });
+    expect(refused.statusCode).toBe(403);
+    // The REASON, not the bare status — a 403 on this route is also what a
+    // viewer member gets, which would prove nothing about this rule.
+    expect(refused.json().error.message).toContain("venue or festival");
+
+    const performerRooms = await harness.db
+      .select()
+      .from(schema.venueDetails)
+      .where(eq(schema.venueDetails.profileId, performer.profileId));
+    expect(performerRooms).toHaveLength(0);
+
+    // The rest of the PATCH went down with it. A partial save that wrote the
+    // name and quietly dropped the venue half would be the same bug, quieter.
+    const [storedPerformer] = await harness.db
+      .select()
+      .from(schema.profiles)
+      .where(eq(schema.profiles.id, performer.profileId));
+    expect(storedPerformer?.name).toBe("room-performer");
+
+    // An operator who is a PROMOTER is refused too — the question is "is this a
+    // place", not "is this an operator". A promoter is an organisation, not a
+    // room, and it has no curfew to publish.
+    const promoter = await seedProfileOwner("room-promoter", "operator");
+    const promoterRefused = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${promoter.profileId}`,
+      headers: auth("room-promoter-owner"),
+      payload: { type: "promoter", venueDetails: { capacity: 400 } },
+    });
+    expect(promoterRefused.statusCode).toBe(403);
+  });
+
   it("404s a GET from a non-member (no existence leak)", async () => {
     const { profileId } = await seedProfileOwner("leak", "operator");
     await seedUser("leak-stranger", "operator");

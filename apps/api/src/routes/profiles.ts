@@ -642,6 +642,34 @@ function normalizeCapacitySetups(
   }));
 }
 
+/**
+ * Venue details belong to a PLACE.
+ *
+ * The editor for them is already gated in the browser on `isPlaceProfile`
+ * (`routes/Profiles.tsx`), but the route was not, so a performer who owns their own
+ * profile could PATCH a capacity, a curfew and a green room onto it and `GET` would
+ * hand it all back — `VenueSpecsCard` then renders a room on a band. Hiding a form
+ * while the route still answers is not a boundary.
+ *
+ * Gated on the SAME predicate the browser reads, imported from `@showme/shared`, so
+ * the two halves cannot drift into disagreeing about what a place is. Not a
+ * capability: the catalog in `packages/shared/src/capabilities.ts` is event-scoped
+ * and hangs off `event_participants`, while `venue_details` hangs off a profile —
+ * authority here is already settled by `requireProfileRole` one line earlier. What
+ * is left is whether this surface EXISTS for this profile, which is a kind/type
+ * fact of exactly the shape `assertProfileTypeAllowed` above already handles.
+ *
+ * Note it tracks the PLACE, not the account kind: an operator typed `promoter` is
+ * refused too, because a promoter is an organisation, not a building.
+ *
+ * `type` is judged AFTER the patch, not before — one request may retype the profile
+ * and describe the room, and the rule has to judge what the profile is about to be.
+ */
+function assertVenueDetailsAllowed(kind: string, type: string | null | undefined): void {
+  if (isPlaceProfile(kind, type)) return;
+  throw forbidden("Venue details belong to a venue or festival profile.");
+}
+
 /** Drop blanks and duplicates from a chip list, preserving the order given. */
 function normalizeStringList(values: string[]): string[] {
   const seen = new Set<string>();
@@ -918,6 +946,12 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
       // not editable here at all — it is the account's and is not on the body.
       if (request.body.type !== undefined) {
         assertProfileTypeAllowed(before.kind, request.body.type);
+      }
+      // Refused BEFORE the transaction, so a rejected request writes nothing at all —
+      // not the name in the same body, not a half-saved profile.
+      if (request.body.venueDetails !== undefined) {
+        const nextType = request.body.type !== undefined ? request.body.type : before.type;
+        assertVenueDetailsAllowed(before.kind, nextType);
       }
 
       const fields: Partial<typeof schema.profiles.$inferInsert> = {};
