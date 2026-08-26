@@ -173,7 +173,7 @@ function TeamPickerModal({ panel }: { panel: ReturnType<typeof useEventCrewPanel
               padding: "12px 14px",
               borderRadius: 11,
               border: "1px solid var(--border)",
-              background: "var(--elevated)",
+              background: "var(--card)",
               color: "var(--text)",
               fontSize: 13.5,
               cursor: panel.isAssigning ? "wait" : "pointer",
@@ -209,9 +209,11 @@ function SubToggle({
         gap: 8,
         padding: "10px 16px",
         borderRadius: 10,
-        border: active ? "1px solid #EE5746" : "1px solid var(--border)",
-        background: active ? "color-mix(in srgb,#EE5746 8%,transparent)" : "var(--surface)",
-        color: active ? "#EE5746" : "var(--text)",
+        border: active ? "1px solid var(--brand-red)" : "1px solid var(--border)",
+        background: active
+          ? "color-mix(in srgb,var(--brand-red) 8%,transparent)"
+          : "var(--surface)",
+        color: active ? "var(--brand-red)" : "var(--text)",
         fontSize: 13,
         fontWeight: 500,
         cursor: "pointer",

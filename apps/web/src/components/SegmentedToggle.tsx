@@ -28,7 +28,7 @@ export function SegmentedToggle<Value extends string>({
         padding: 3,
         gap: 2,
         borderRadius: 999,
-        background: "var(--elevated)",
+        background: "var(--shape-fill)",
         border: "1px solid var(--border)",
       }}
     >

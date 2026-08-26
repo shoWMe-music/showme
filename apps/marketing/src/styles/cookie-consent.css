@@ -19,10 +19,11 @@
 .cookie-consent__card {
   width: min(100% - 32px, 720px);
   margin-inline: auto;
-  background: var(--ink-900);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--radius-lg, 24px);
-  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.7);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  /* 24px: there is no radius token in the system yet — see the sweep report. */
+  border-radius: 24px;
+  box-shadow: var(--shadow-lg);
   padding: 22px 24px;
   display: flex;
   flex-wrap: wrap;
@@ -32,23 +33,23 @@
 
 .cookie-consent__text {
   flex: 1 1 320px;
-  color: var(--ink-200, #e6d9cb);
+  color: var(--ink-200);
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.5;
   margin: 0;
 }
 .cookie-consent__text strong {
-  color: var(--ink-100, #f5ede2);
+  color: var(--ink-100);
   font-weight: 600;
 }
 .cookie-consent__text a {
-  color: var(--brand-gold, #ffc266);
+  color: var(--brand-gold);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 .cookie-consent__text a:hover {
-  color: var(--brand-red-glow, #ff7a68);
+  color: var(--brand-red-glow);
 }
 
 .cookie-consent__actions {

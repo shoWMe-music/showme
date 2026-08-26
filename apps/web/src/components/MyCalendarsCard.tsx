@@ -86,7 +86,7 @@ export function MyCalendarsCard({ groups, periodTitle, onManageRooms }: MyCalend
           alignItems: "center",
           gap: 6,
           fontSize: 12,
-          color: "#EE5746",
+          color: "var(--brand-red)",
           fontWeight: 500,
         }}
       >

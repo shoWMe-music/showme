@@ -11,9 +11,9 @@
   color: var(--text);
   font-family: inherit;
   cursor: pointer;
-  transition: border-color .12s, background .12s;
+  transition: border-color var(--duration-quick), background var(--duration-quick);
 }
-.card:hover:not(.selected) { border-color: var(--border-strong); }
+.card:hover:not(.selected) { border-color: var(--hover-border); }
 .card:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
 .selected {
   border-color: #EE5746;
@@ -24,7 +24,7 @@
   width: 40px;
   height: 40px;
   border-radius: 11px;
-  background: var(--elevated);
+  background: var(--shape-fill);
   display: grid;
   place-items: center;
   color: #F4A046;

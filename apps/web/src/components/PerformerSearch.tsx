@@ -275,7 +275,7 @@ function Row({
         type="button"
         onClick={onClick}
         onMouseEnter={(event) => {
-          event.currentTarget.style.background = "var(--elevated)";
+          event.currentTarget.style.background = "var(--shape-fill)";
         }}
         onMouseLeave={(event) => {
           event.currentTarget.style.background = "transparent";

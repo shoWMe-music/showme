@@ -7,6 +7,30 @@
 }
 .elevated { box-shadow: var(--shadow-lg); }
 
+/* NO SHADOW ON WHITE-INSIDE-WHITE (light mode only).
+ *
+ * In light mode `--card` is pure #FFFFFF, so a card nested inside another card
+ * is white on white — and a drop shadow there does not read as depth, it reads
+ * as a smudge. The dark theme has the opposite problem: its surfaces are close
+ * in value and the shadow is most of what separates them, so this is deliberately
+ * scoped to light and the structural rule (`:is(.card) .card`) rather than a
+ * prop, because whether a card is nested is a fact about where it was placed,
+ * not a decision its author should have to remember to declare.
+ *
+ * The border stays. It is what still says "this is a distinct surface" once the
+ * shadow is gone, and at .14 alpha it is a hairline rather than a box. */
+:global([data-theme="light"]) .card .card,
+:global([data-theme="light"]) .card .elevated {
+  box-shadow: none;
+}
+
+/* An INTERACTIVE nested card keeps its hover lift: a shadow that appears under
+   the pointer is feedback, not decoration, and its absence at rest is what
+   makes the lift legible. */
+:global([data-theme="light"]) .card .interactive:hover {
+  box-shadow: var(--shadow);
+}
+
 .p-none { padding: 0; }
 .p-sm { padding: 14px; }
 .p-md { padding: 18px; }
@@ -14,10 +38,18 @@
 
 .interactive {
   cursor: pointer;
-  transition: transform .25s cubic-bezier(.2,.8,.2,1), border-color .25s, box-shadow .25s;
+  transition: transform var(--duration-base) var(--ease-out), border-color var(--duration-base), box-shadow var(--duration-base);
 }
 .interactive:hover {
   transform: translateY(-3px);
   border-color: #EE5746;
   box-shadow: var(--shadow-lg);
+}
+/* Press cancels most of the hover lift, on the press duration so it happens
+   under the finger rather than after it. Every other pressable surface in the
+   library already did this (`.btn`); an interactive card was the one thing that
+   lifted on approach and then did nothing at all when you actually clicked it. */
+.interactive:active {
+  transform: translateY(-1px);
+  transition-duration: var(--duration-instant);
 }

@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { badRequest, conflict, forbidden, notFound } from "../errors";
+import { badRequest, conflict, forbidden, isUniqueViolation, notFound } from "../errors";
 import { writeActivity } from "../lib/activity";
 import { autoAssignAgentOnPerformerJoin } from "../lib/agent-assignment";
 import { writeAudit } from "../lib/audit";
@@ -67,16 +67,6 @@ const ParticipantResponse = z.object({
   permissionSetId: z.string().nullable().optional(),
   details: z.unknown().optional(),
 });
-
-/** Postgres unique-violation — the `(event_id, profile_id)` constraint tripped. */
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "23505"
-  );
-}
 
 export async function participantRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();

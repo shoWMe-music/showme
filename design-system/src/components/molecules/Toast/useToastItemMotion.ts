@@ -1,5 +1,6 @@
-import { useLayoutEffect, useRef } from "react";
 import gsap from "gsap";
+import { useLayoutEffect, useRef } from "react";
+import { DURATION, EASE } from "@/lib/motion";
 import { useReducedMotion } from "@/lib/useReducedMotion";
 
 /**
@@ -18,7 +19,7 @@ export function useToastItemMotion(dismissing: boolean, onExited: () => void) {
     const tween = gsap.fromTo(
       element.current,
       { autoAlpha: 0, y: reducedMotion ? 0 : 16, scale: reducedMotion ? 1 : 0.98 },
-      { autoAlpha: 1, y: 0, scale: 1, duration: reducedMotion ? 0 : 0.35, ease: "power3.out" },
+      { autoAlpha: 1, y: 0, scale: 1, duration: reducedMotion ? 0 : DURATION.slow, ease: EASE.out },
     );
     return () => { tween.kill(); };
   }, [reducedMotion]);
@@ -29,8 +30,10 @@ export function useToastItemMotion(dismissing: boolean, onExited: () => void) {
       autoAlpha: 0,
       y: reducedMotion ? 0 : 8,
       scale: reducedMotion ? 1 : 0.98,
-      duration: reducedMotion ? 0 : 0.25,
-      ease: "power2.in",
+      // Leaving is quicker than arriving: nobody is reading a toast on its way
+      // out, and a slow exit holds the corner of the screen hostage.
+      duration: reducedMotion ? 0 : DURATION.base,
+      ease: EASE.in,
       onComplete: () => exited.current(),
     });
     return () => { tween.kill(); };

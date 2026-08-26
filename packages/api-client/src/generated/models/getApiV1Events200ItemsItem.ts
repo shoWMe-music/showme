@@ -25,4 +25,5 @@ export type GetApiV1Events200ItemsItem = {
   /** @nullable */
   holdRank?: number | null;
   holdAutoPromote?: boolean;
+  archived: boolean;
 };

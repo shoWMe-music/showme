@@ -18,7 +18,9 @@ const ALBUM_RELEASE = "e2e00000-0000-4000-8000-0000000000e1";
 
 async function openCollaborators(page: import("@playwright/test").Page) {
   await page.goto(`/events/${ALBUM_RELEASE}`);
-  const tab = page.getByRole("button", { name: /collaborators/i }).first();
+  // `tab`, not `button`: the event tab strip is the design system's `Tabs` now
+  // (a real `tablist`), where it used to be a bare row of buttons.
+  const tab = page.getByRole("tab", { name: /collaborators/i }).first();
   await tab.waitFor();
   await tab.click();
   await expect(page.getByText("The Lantern Hall").first()).toBeVisible();

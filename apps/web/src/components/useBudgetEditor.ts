@@ -53,6 +53,73 @@ export type CostBearing =
 
 export const SHARED_COST_BEARING: CostBearing = { kind: "shared" };
 
+/**
+ * HOW A COST NAMES A DEAL — and the two things that can mean.
+ *
+ * The 2026-08 settlements meeting and the budget-planner design handoff both ask
+ * for `budget_lines.deal_id`, and they mean opposite things by it:
+ *
+ * - the meeting means **accountability** — *"all project costs assigned to
+ *   specific deals, creating accountability for each agreement"*. The 500 of
+ *   catering booked to the headliner's night so the deal's true cost can be read
+ *   off. Somebody was really invoiced 500.
+ * - the handoff (§6) means **identity** — *"performer fee → a deal ENTITLEMENT,
+ *   not a budget line — assign the line to the deal via `deal_id` so it is never
+ *   double-counted"*. The 3 000 typed into "Performer fee" IS the guarantee the
+ *   deal already promises. Nobody pays it twice.
+ *
+ * Both are real, the same operator wants both, and NOTHING IN A LINE distinguishes
+ * them — a catering cost and a guarantee are both a label, an amount and a deal.
+ * So the line says which, and this is the field that says it:
+ *
+ * - **`deal_figure`** → `budget_lines.deal_id`. A forecast of what the agreement
+ *   will pay. The settlement takes the figure from the DEAL and drops the line
+ *   (`routes/settlement.ts`), so the row never touches the pool.
+ * - **`attributed`** → `budget_lines.attributed_deal_id`. Ordinary external cash
+ *   that happens to be reported under a deal. It lowers the pool and obeys
+ *   `paidBy` / `bearing` exactly as an untagged cost does; the settlement engine
+ *   never reads the column at all.
+ *
+ * The difference is a real 500 in the operator's residual, which is why the
+ * planner asks in words rather than inferring.
+ */
+export type CostDealLink =
+  | { kind: "none" }
+  | { kind: "deal_figure"; dealId: string }
+  | { kind: "attributed"; dealId: string };
+
+export const NO_DEAL_LINK: CostDealLink = { kind: "none" };
+
+/** The deal a link names, whichever sense it is — or "" when it names none. */
+export function linkedDealId(link: CostDealLink | undefined): string {
+  return link && link.kind !== "none" ? link.dealId : "";
+}
+
+/** The two `budget_lines` columns a link writes, in the shape the API takes. */
+function dealLinkFields(link: CostDealLink): {
+  dealId: string | null;
+  attributedDealId: string | null;
+} {
+  if (link.kind === "deal_figure") return { dealId: link.dealId, attributedDealId: null };
+  if (link.kind === "attributed") return { dealId: null, attributedDealId: link.dealId };
+  return { dealId: null, attributedDealId: null };
+}
+
+/** The link a stored line carries, read back for the planner's selector. */
+function dealLinkFrom(line: {
+  dealId?: string | null;
+  attributedDealId?: string | null;
+}): CostDealLink {
+  if (line.dealId) return { kind: "deal_figure", dealId: line.dealId };
+  if (line.attributedDealId) return { kind: "attributed", dealId: line.attributedDealId };
+  return NO_DEAL_LINK;
+}
+
+/** Two links that say the same thing — so a debounced flush can skip a write. */
+function sameDealLink(left: CostDealLink, right: CostDealLink): boolean {
+  return left.kind === right.kind && linkedDealId(left) === linkedDealId(right);
+}
+
 /** A ticket tier as the planner edits it — major-unit strings, controlled. */
 export interface TicketTierDraft {
   /** The line id, or a `new:` placeholder for a tier not yet written. */
@@ -80,22 +147,20 @@ export interface CostDraft {
    * always show the same six, and the operator would have no way to get it back.
    */
   isCustom: boolean;
-  /** Set on custom rows only; the standing headings are always flat figures. */
-  type?: CustomFieldType;
   /** The participant who FRONTED the cash (2026-08 meeting, 01:29:46). */
   paidBy?: string;
   /** Who ultimately carries it. Absent reads as `shared`. */
   bearing?: CostBearing;
+  /** Which deal this cost names, and in which of the two senses. Absent = none. */
+  dealLink?: CostDealLink;
   /**
-   * The agreement this cost belongs to — accountability per deal (2026-08
-   * meeting: *"all project costs to be assigned to specific deals"*).
-   *
-   * It also settles the planner's oldest double-count: a "Performer fee" row that
-   * is really the deal's guarantee is counted once as a pool cost and again as the
-   * deal's entitlement. Assigned to the deal, the settlement takes the figure from
-   * the agreement and ignores the line (the API drops it at the engine boundary).
+   * Set on a row whose figure is READ FROM A DEAL and never stored — the
+   * performer fee (`useBudgetSeed`). It counts in every total, is not editable
+   * here, and the flush skips it entirely: writing it would put the guarantee in
+   * `budget_lines` as well as in the deal, which is the double-count the whole
+   * arrangement exists to avoid.
    */
-  dealId?: string;
+  readFromDeal?: { dealNames: string[] };
 }
 
 /**
@@ -106,29 +171,25 @@ export interface CostDraft {
  * operator's own, a custom revenue line has to be told apart from a ticket tier:
  * both are `kind = 'revenue'` rows with a label and an amount. That is what
  * `details.basis = 'custom_revenue'` is for, and why the two are not symmetric.
- */
-/**
- * What kind of amount a custom row holds — the `type` of the handoff's
- * `{ name, type, amount }`, and what the row's pill prints.
  *
- * `manual` is a flat figure. `per_guest` is an amount a head, multiplied by
- * capacity — the same arithmetic the bar estimate already does, which is why it
- * needs no new storage: a per-guest row is `unitAmount` × `quantity = capacity`,
- * exactly as `bar_spend` is, and a manual row is that amount taken once.
+ * A CUSTOM ROW'S VALUE IS THE VALUE (product owner, 2026-08: *"Values in custom
+ * budget is what the user inputs"*).
  *
- * Deliberately NOT the July prototype's `manual`/`auto`: nothing computed an
- * "auto" row there, so it summed to zero for ever. A pill that names a behaviour
- * the planner does not have is the placeholder-control problem in miniature.
+ * There is no row `type`. A previous build invented one — `manual` / `per_guest`,
+ * where a per-guest row was silently multiplied by capacity — so €5 typed into a
+ * row came out of the sheet as €2 500 on a 500-cap room. Nothing asked for that
+ * arithmetic and nothing on the row said it had happened; the operator typed a
+ * figure and the planner budgeted a different one.
+ *
+ * An operator who wants a per-head cost multiplies it themselves, which is the
+ * one calculation they cannot get wrong without seeing it.
  */
-export type CustomFieldType = "manual" | "per_guest";
-
 export interface CustomRevenueDraft {
   /** The line id, or a `new:` placeholder for a row not yet written. */
   id: string;
   label: string;
-  /** For `per_guest`, the amount PER HEAD; for `manual`, the whole figure. */
+  /** The whole figure, exactly as typed. */
   value: string;
-  type: CustomFieldType;
   /** The participant who RECEIVES this money (2026-08 meeting, 01:27:49). */
   collectedBy?: string;
 }
@@ -229,24 +290,23 @@ function numeric(value: string): number {
 /**
  * A stored custom line read back into a draft row.
  *
- * The row's TYPE is carried by its breakdown rather than by a field of its own: a
- * `quantity` above one means the amount was struck per head, which is the only
- * thing `per_guest` means. Storing the word as well would give the row two
- * sources of truth that a hand-edited `details` could put out of step.
+ * ALWAYS `amount`, never `details.unitAmount` — and that is how the rows written
+ * under the old per-guest reading are carried across. Such a row stored the
+ * per-head figure in `unitAmount` and the multiplied total in `amount`; `amount`
+ * is what every total on the screen was already built from, so reading it back is
+ * the one interpretation under which no money on the sheet changes. What changes
+ * is the row's own field: it now shows the €2 500 the budget was always counting
+ * instead of the €5 a head that produced it, which is exactly the figure the
+ * literal reading says belongs there. The stale `unitAmount` is overwritten by the
+ * next edit that touches the row.
  */
 function customDraftFrom(
   id: string,
   label: string,
   amount: string,
-  details: { unitAmount: string; quantity: number } | null | undefined,
-): { id: string; label: string; value: string; type: CustomFieldType } {
-  const perGuest = (details?.quantity ?? 1) > 1;
-  return {
-    id,
-    label,
-    value: toMajorUnits(perGuest && details ? details.unitAmount : amount),
-    type: perGuest ? "per_guest" : "manual",
-  };
+  _details: { unitAmount: string; quantity: number } | null | undefined,
+): { id: string; label: string; value: string } {
+  return { id, label, value: toMajorUnits(amount) };
 }
 
 /**
@@ -317,6 +377,14 @@ export interface BudgetAttributionOption {
 export interface BudgetDealOption {
   id: string;
   name: string;
+  /**
+   * What the deal itself says it pays, MINOR UNITS — the figure the settlement
+   * will actually use, and therefore the one a row claiming to BE this deal's
+   * figure has to match. `null` when the deal states no amount of its own (a pure
+   * split computes its figure at settlement, so there is nothing to disagree
+   * with).
+   */
+  guaranteeAmount: string | null;
 }
 
 export interface BudgetEditor {
@@ -364,25 +432,20 @@ export interface BudgetEditor {
   changeCostPaidBy: (key: string, participantId: string) => void;
   /** The cost rule: shared, a single bearer, or a split (2026-08 meeting, 01:06:31). */
   changeCostBearing: (key: string, bearing: CostBearing) => void;
-  /** Book a cost against one of the event's agreements, or "" to unassign it. */
-  changeCostDeal: (key: string, dealId: string) => void;
+  /** Say which deal a cost names and in which sense — see `CostDealLink`. */
+  changeCostDealLink: (key: string, link: CostDealLink) => void;
   /**
    * Add a cost row of the operator's own, named and typed in the "+ Add Field"
    * modal. `bearing` is what makes "add deduction" a different act from "add
    * cost" (2026-08 meeting, 01:08:30) — a deduction arrives already naming the
    * party it comes out of.
    */
-  addCustomCost: (
-    label: string,
-    amount: string,
-    type: CustomFieldType,
-    bearing?: CostBearing,
-  ) => void;
+  addCustomCost: (label: string, amount: string, bearing?: CostBearing) => void;
   /** Remove a custom cost row. The six standing headings are never removable. */
   removeCost: (key: string) => void;
   /** The free-form revenue rows ("+ Add Field" on the Revenue card). */
   customRevenue: CustomRevenueDraft[];
-  addCustomRevenue: (label: string, amount: string, type: CustomFieldType) => void;
+  addCustomRevenue: (label: string, amount: string) => void;
   changeCustomRevenue: (id: string, value: string) => void;
   removeCustomRevenue: (id: string) => void;
   /** Fill every field from a saved template — see `budgetTemplateDrafts.ts`. */
@@ -413,13 +476,19 @@ export interface BudgetEditor {
  * rather than at the conflict.
  */
 /** Nothing known about the event — the planner then behaves exactly as before. */
-const NO_SEED: BudgetSeed = { capacity: null, performerFee: null, venueCost: null };
+const NO_SEED: BudgetSeed = { capacity: null, performerFees: [], venueCost: null };
 
-/** Which standing heading each seeded figure belongs under. */
-const SEEDED_COST_HEADINGS: Record<string, keyof BudgetSeed> = {
-  "Performer fee": "performerFee",
-  "Venue cost": "venueCost",
-};
+/**
+ * Which standing heading each seeded AMOUNT fills in as an editable draft.
+ *
+ * Only the rental. The performer fee is handled separately a few lines down,
+ * because it is not seeded into a field at all — it is read from the deal and
+ * rendered read-only, so it must never become a stored row.
+ */
+const SEEDED_COST_HEADINGS: Record<string, "venueCost"> = { "Venue cost": "venueCost" };
+
+/** The heading the performer fee is read into. */
+const PERFORMER_FEE_HEADING = "Performer fee";
 
 export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEED): BudgetEditor {
   const toast = useToast();
@@ -457,7 +526,12 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     [participantsQuery.data],
   );
   const dealOptions = useMemo<BudgetDealOption[]>(
-    () => (dealsQuery.data ?? []).map((deal) => ({ id: deal.id, name: deal.name })),
+    () =>
+      (dealsQuery.data ?? []).map((deal) => ({
+        id: deal.id,
+        name: deal.name,
+        guaranteeAmount: deal.guaranteeAmount ?? null,
+      })),
     [dealsQuery.data],
   );
 
@@ -532,8 +606,33 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   const serverCosts = useMemo<CostDraft[]>(() => {
     const costLines = lines.filter((line) => line.kind === "cost");
     const byHeading = new Map(costLines.map((line) => [costHeadingOf(line.label), line]));
+    // A deal whose figure is ALREADY written down in this sheet — some row the
+    // operator marked "this IS the deal's figure". Reading that deal in again on
+    // top of its own row would show the guarantee twice and forecast a cost that
+    // exists once.
+    const dealsAlreadyOnTheSheet = new Set(
+      costLines.map((line) => line.dealId).filter((id): id is string => typeof id === "string"),
+    );
+    const feesToRead = seedSource.performerFees.filter(
+      (fee) => !dealsAlreadyOnTheSheet.has(fee.dealId),
+    );
+
     const standard = STANDARD_COST_HEADINGS.map((heading) => {
       const line = byHeading.get(heading);
+      // The performer fee, read live from the deal — but only while the operator
+      // has not written a figure of their own under the heading. A stored line is
+      // their assertion about the world and outranks the deal's; showing both
+      // would budget the same fee twice.
+      if (heading === PERFORMER_FEE_HEADING && !line && feesToRead.length > 0) {
+        const total = feesToRead.reduce((running, fee) => running + BigInt(fee.amount), 0n);
+        return {
+          key: `${NEW_ROW_PREFIX}${heading}`,
+          label: heading,
+          value: toMajorUnits(total.toString()),
+          isCustom: false,
+          readFromDeal: { dealNames: feesToRead.map((fee) => fee.dealName) },
+        };
+      }
       // A heading with a stored line shows the stored figure. A heading with none
       // shows what the event already knows — the deal's guarantee under
       // "Performer fee", the rental under "Venue cost" — and nothing at all when
@@ -552,7 +651,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
         isCustom: false,
         paidBy: line?.paidBy ?? undefined,
         bearing: line ? bearingFrom(line) : SHARED_COST_BEARING,
-        dealId: line?.dealId ?? undefined,
+        dealLink: line ? dealLinkFrom(line) : NO_DEAL_LINK,
       };
     });
     // Anything budgeted under a heading of the operator's own is kept too —
@@ -567,10 +666,9 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
           label: draft.label,
           value: draft.value,
           isCustom: true,
-          type: draft.type,
           paidBy: line.paidBy ?? undefined,
           bearing: bearingFrom(line),
-          dealId: line.dealId ?? undefined,
+          dealLink: dealLinkFrom(line),
         };
       });
     return [...standard, ...custom];
@@ -749,22 +847,27 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     }
 
     for (const cost of costs) {
+      // A figure read from a deal is not this budget's to write. Skipped BEFORE
+      // anything else, because the row does carry an amount and would otherwise
+      // sail through the "a heading with a figure becomes a line" rule below —
+      // storing the guarantee as external cash, which is precisely the wrong
+      // transfer `useBudgetSeed`'s note describes.
+      if (cost.readFromDeal) continue;
       const typed = cost.value.trim();
-      // A custom cost row carries the same unit x quantity breakdown a custom
-      // revenue row does, so a per-guest cost (a wristband, a drinks token)
-      // round-trips as one. A standing heading is always a flat figure and keeps
-      // storing no breakdown at all.
-      const unitAmount = toMinorUnits(typed === "" ? "0" : typed);
-      const quantity =
-        cost.isCustom && cost.type === "per_guest" ? Math.trunc(numeric(capacity)) : 1;
-      const amount = toMinorUnits((numeric(typed) * quantity).toString());
+      // The figure as typed, taken ONCE — a custom row's value is the value. The
+      // breakdown is stored anyway, and stored as `quantity: 1`, because `basis`
+      // is what makes the row findable as a custom cost on the way back in.
+      const amount = toMinorUnits(typed === "" ? "0" : typed);
       const details = cost.isCustom
-        ? { basis: "custom_cost" as const, unitAmount, quantity }
+        ? { basis: "custom_cost" as const, unitAmount: amount, quantity: 1 }
         : undefined;
       // The cost rule, as the two columns the API stores it in. Derived once —
       // the create and the update paths must never disagree about what "shared"
       // writes, or a rule would clear on one path and persist on the other.
       const bearing = bearingFields(cost.bearing ?? SHARED_COST_BEARING);
+      // Which of the two columns the deal id goes in — the whole point of
+      // `CostDealLink`. Derived once, for the same reason the bearing is.
+      const dealLink = dealLinkFields(cost.dealLink ?? NO_DEAL_LINK);
 
       if (cost.key.startsWith(NEW_ROW_PREFIX)) {
         // A standing heading becomes a line when it is given a FIGURE; a custom
@@ -784,7 +887,8 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
               ? { payeeParticipantId: bearing.payeeParticipantId }
               : {}),
             ...(bearing.costSplit ? { costSplit: bearing.costSplit } : {}),
-            ...(cost.dealId ? { dealId: cost.dealId } : {}),
+            ...(dealLink.dealId ? { dealId: dealLink.dealId } : {}),
+            ...(dealLink.attributedDealId ? { attributedDealId: dealLink.attributedDealId } : {}),
             ...(details ? { details } : {}),
           },
         });
@@ -802,10 +906,9 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
         before.amount === amount &&
         before.label === label &&
         before.paidBy === paidBy &&
-        (before.dealId ?? undefined) === (cost.dealId || undefined) &&
+        sameDealLink(dealLinkFrom(before), cost.dealLink ?? NO_DEAL_LINK) &&
         sameBearing(bearingFrom(before), cost.bearing ?? SHARED_COST_BEARING) &&
-        (!details ||
-          (before.details?.unitAmount === unitAmount && before.details?.quantity === quantity));
+        (!details || (before.details?.unitAmount === amount && before.details?.quantity === 1));
       if (unchanged) continue;
       updateLine.mutate({
         ...target,
@@ -819,7 +922,11 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
           // would leave the old bearer silently in place.
           payeeParticipantId: bearing.payeeParticipantId,
           costSplit: bearing.costSplit,
-          dealId: cost.dealId || null,
+          // Both columns written explicitly, never omitted: moving a row from one
+          // sense to the other has to CLEAR the column it left, or the line would
+          // claim both and the settlement would read the stale one.
+          dealId: dealLink.dealId,
+          attributedDealId: dealLink.attributedDealId,
           ...(details ? { details } : {}),
         },
       });
@@ -893,13 +1000,10 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     // states rather than a multiplication they performed.
     for (const row of customRevenue) {
       const typed = row.value.trim();
-      const unitAmount = toMinorUnits(typed === "" ? "0" : typed);
-      // A per-guest row is struck a head and multiplied by capacity, exactly as
-      // the bar estimate is; a manual row is that amount taken once. The
-      // breakdown is what carries the row's type back on the next read.
-      const quantity = row.type === "per_guest" ? Math.trunc(numeric(capacity)) : 1;
-      const amount = toMinorUnits((numeric(typed) * quantity).toString());
-      const details = { basis: "custom_revenue" as const, unitAmount, quantity };
+      // Taken once, at the figure the operator typed. `quantity` is always 1 now;
+      // the breakdown survives only because `basis` is how the row is recognised.
+      const amount = toMinorUnits(typed === "" ? "0" : typed);
+      const details = { basis: "custom_revenue" as const, unitAmount: amount, quantity: 1 };
       if (row.id.startsWith(NEW_ROW_PREFIX)) {
         if (row.label.trim() === "") continue; // an unnamed row is not a line yet
         createLine.mutate({
@@ -921,8 +1025,8 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
         before.amount === amount &&
         before.label === row.label.trim() &&
         before.collectedBy === collectedBy &&
-        before.details?.unitAmount === unitAmount &&
-        before.details?.quantity === quantity;
+        before.details?.unitAmount === amount &&
+        before.details?.quantity === 1;
       if (unchanged) continue;
       updateLine.mutate({
         ...target,
@@ -1028,8 +1132,8 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     [patchCost],
   );
 
-  const changeCostDeal = useCallback(
-    (key: string, dealId: string) => patchCost(key, { dealId }),
+  const changeCostDealLink = useCallback(
+    (key: string, link: CostDealLink) => patchCost(key, { dealLink: link }),
     [patchCost],
   );
 
@@ -1069,7 +1173,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
    * LABEL, not the key), so the row index cannot collide with a heading's key.
    */
   const addCustomCost = useCallback(
-    (label: string, amount: string, type: CustomFieldType, bearing?: CostBearing) => {
+    (label: string, amount: string, bearing?: CostBearing) => {
       const trimmed = label.trim();
       if (trimmed === "") return;
       setCosts((rows) => [
@@ -1082,7 +1186,6 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
           label: trimmed,
           value: amount,
           isCustom: true,
-          type,
           bearing: bearing ?? SHARED_COST_BEARING,
         },
       ]);
@@ -1101,12 +1204,12 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   );
 
   const addCustomRevenue = useCallback(
-    (label: string, amount: string, type: CustomFieldType) => {
+    (label: string, amount: string) => {
       const trimmed = label.trim();
       if (trimmed === "") return;
       setCustomRevenue((rows) => [
         ...rows,
-        { id: `${NEW_ROW_PREFIX}${rows.length}`, label: trimmed, value: amount, type },
+        { id: `${NEW_ROW_PREFIX}${rows.length}`, label: trimmed, value: amount },
       ]);
       scheduleFlush();
     },
@@ -1233,7 +1336,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     changeCost,
     changeCostPaidBy,
     changeCostBearing,
-    changeCostDeal,
+    changeCostDealLink,
     addCustomCost,
     removeCost,
     customRevenue,
@@ -1260,24 +1363,15 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
  * conversion — instead of being re-derived in whichever component renders next.
  */
 /**
- * What a custom row is WORTH, in minor units — its typed figure, multiplied by
- * capacity when it is struck per head.
+ * A typed field as the arithmetic wants it: minor units, as a bigint.
  *
- * One helper rather than the multiplication repeated at each call site: the
- * projection, the breakdown bars and the CSV all have to agree about what a
- * per-guest row contributes, and three copies of `value x capacity` is three
- * places for one of them to be forgotten.
+ * This is all a row's amount ever needs now. It used to be `customRowAmount`,
+ * which took the capacity too and multiplied per-guest rows by it — the invented
+ * behaviour the product owner struck out. Keeping the conversion named and in one
+ * place is still worth a function: it is where a factor of a hundred would hide.
  */
-export function customRowAmount(
-  row: { value: string; type?: CustomFieldType },
-  capacity: string,
-): bigint {
-  const perHead = Number(row.value);
-  if (!Number.isFinite(perHead)) return 0n;
-  if (row.type !== "per_guest") return BigInt(toMinorUnits(row.value));
-  const heads = Number(capacity);
-  const guests = Number.isFinite(heads) ? Math.trunc(heads) : 0;
-  return BigInt(toMinorUnits((perHead * guests).toString()));
+export function minorUnitsOf(value: string): bigint {
+  return BigInt(toMinorUnits(value));
 }
 
 export function budgetInputsFrom(editor: BudgetEditor): BudgetInputs {
@@ -1295,8 +1389,8 @@ export function budgetInputsFrom(editor: BudgetEditor): BudgetInputs {
     averageBarSpend: BigInt(toMinorUnits(editor.averageBarSpend)),
     capacity: wholeNumber(editor.capacity),
     otherRevenue: BigInt(toMinorUnits(editor.otherRevenue)),
-    customRevenue: editor.customRevenue.map((row) => customRowAmount(row, editor.capacity)),
-    costs: editor.costs.map((cost) => customRowAmount(cost, editor.capacity)),
+    customRevenue: editor.customRevenue.map((row) => minorUnitsOf(row.value)),
+    costs: editor.costs.map((cost) => minorUnitsOf(cost.value)),
     // Absent rather than a pair of zeroes when the operator has said nothing: the
     // projection then reports `paymentProcessingFees` of 0 because there is no
     // assumption, not because the assumption is that it is free.

@@ -106,7 +106,7 @@ export function CalendarCreatePopover({
               fontSize: 13.5,
             }}
             onMouseEnter={(mouseEvent) => {
-              mouseEvent.currentTarget.style.background = "var(--elevated)";
+              mouseEvent.currentTarget.style.background = "var(--shape-fill)";
             }}
             onMouseLeave={(mouseEvent) => {
               mouseEvent.currentTarget.style.background = "transparent";

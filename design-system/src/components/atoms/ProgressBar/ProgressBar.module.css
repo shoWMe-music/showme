@@ -18,5 +18,5 @@
   border-radius: 999px;
   background: linear-gradient(90deg, #EE5746, #F4A046);
   transform-origin: left;
-  animation: sm-grow .6s cubic-bezier(.2,.8,.2,1) both;
+  animation: sm-grow var(--duration-slow) var(--ease-out) both;
 }

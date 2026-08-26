@@ -1,3 +1,4 @@
+import { type TabItem, Tabs } from "@showme/design-system";
 import type { CSSProperties, ReactNode } from "react";
 
 /**
@@ -168,7 +169,7 @@ export function GradientButton({
         padding: "9px 15px",
         borderRadius: 10,
         border: 0,
-        background: "linear-gradient(135deg,#EE5746,#F4A046)",
+        background: "linear-gradient(135deg,var(--brand-red),var(--brand-amber))",
         color: "#fff",
         fontSize: 13,
         fontWeight: 600,
@@ -265,7 +266,7 @@ export function RemovableChip({
         gap: 7,
         padding: onRemove ? "6px 9px 6px 13px" : "5px 12px",
         borderRadius: 999,
-        background: "var(--elevated)",
+        background: "var(--shape-fill)",
         border: "1px solid var(--border)",
         color: "var(--text)",
         fontSize: 12.5,
@@ -290,8 +291,13 @@ export function MonoPill({ children }: { children: ReactNode }) {
         fontSize: 11,
         padding: "3px 10px",
         borderRadius: 999,
-        background: "var(--elevated)",
-        color: "var(--muted)",
+        // The brand, not the beige. These pills carry a COUNT — "0 tickets",
+        // "3 items" — which is the figure a reader scans a card for, and a
+        // muted grey-on-beige chip is the one treatment guaranteed not to be
+        // seen. A faint accent wash with accent text keeps it quiet enough to
+        // sit beside a heading while still reading as the product's colour.
+        background: "color-mix(in srgb, var(--accent) 12%, transparent)",
+        color: "var(--accent)",
       }}
     >
       {children}
@@ -300,11 +306,32 @@ export function MonoPill({ children }: { children: ReactNode }) {
 }
 
 /** A bare bordered input matching the export's field styling. */
+/**
+ * A hand-rolled field, kept in step with the real ones BY TOKEN.
+ *
+ * This exists because a few event controls compose their own input — the venue
+ * picker wraps a bare `<input>` in a combobox, the performer search the same —
+ * so they cannot simply be a `TextField`. What they must not do is invent their
+ * own surface: it used to paint `--elevated`, which in light mode is the warm
+ * `#FFF9EF`, so these fields sat beige beside every real input's white and read
+ * as a different control from the one two rows above them.
+ *
+ * `--control-surface` and `--control-border` are the same two tokens TextField,
+ * NumberField, Select and Input use, so this follows the theme rather than
+ * shadowing it. The proper fix is for these to compose a design-system input;
+ * until then, the tokens are what keep them honest.
+ */
 export const fieldStyle: CSSProperties = {
-  border: "1px solid var(--border)",
-  background: "var(--elevated)",
+  border: "1px solid var(--control-border)",
+  background: "var(--control-surface)",
   borderRadius: 9,
+  // Same box as every design-system control, so a hand-rolled field never sits
+  // a pixel or two off the TextField beside it. Padding trimmed to 9px vertical
+  // because these compose a bare input with its own line box; the min-height is
+  // what actually decides the height.
   padding: "9px 12px",
+  minHeight: "var(--control-height)",
+  lineHeight: "var(--control-line-height)",
   color: "var(--text)",
   fontSize: 13,
   outline: "none",
@@ -365,7 +392,7 @@ export function StageRail({ currentIndex }: { currentIndex: number }) {
                   right: "50%",
                   width: "100%",
                   height: 2,
-                  background: index <= currentIndex ? "#EE5746" : "var(--border)",
+                  background: index <= currentIndex ? "var(--brand-red)" : "var(--border)",
                   zIndex: 0,
                 }}
               />
@@ -377,7 +404,7 @@ export function StageRail({ currentIndex }: { currentIndex: number }) {
                 width: 15,
                 height: 15,
                 borderRadius: "50%",
-                background: reached ? color : "var(--elevated)",
+                background: reached ? color : "var(--shape-fill)",
                 border: reached ? "none" : "1.5px solid var(--border)",
                 boxShadow: current ? `0 0 0 4px ${hexAlpha(color, 0.22)}` : "none",
               }}
@@ -401,13 +428,32 @@ export function StageRail({ currentIndex }: { currentIndex: number }) {
 
 // ── Underline tab bar ─────────────────────────────────────────────────────
 
-export interface EventTab {
-  key: string;
-  label: string;
-  badge?: number;
-}
+/**
+ * A tab on the event workspace. The design system's `TabItem` under a local
+ * name, not a copy of it: this file used to declare its own `{ key, label,
+ * badge }` shape next to its own tab bar, and the two drifted the moment the
+ * design system grew a sliding indicator that this one never got.
+ */
+export type EventTab = TabItem;
 
-/** Flat underline tab bar with an active coral underline + optional count badge. */
+/**
+ * The event workspace's tab strip.
+ *
+ * This USED to be a second tab implementation — inline styles, a per-tab
+ * `borderBottom` that snapped between tabs with no transition at all. The
+ * design system's `Tabs` had already grown a GSAP-slid underline and
+ * `TabPanels` a directional scoot, and `EventDetail` had adopted the scoot, so
+ * on the live screen the panel slid while the bar underneath it jumped. Two
+ * implementations of one control is how that happens.
+ *
+ * What is left is an adapter: the count badge and the horizontal scroll this
+ * strip needed moved INTO `Tabs` (where the next nine-tab screen gets them for
+ * free), and the only thing that stayed behind is the vertical rhythm around
+ * the strip, which belongs to this screen rather than to the control.
+ *
+ * The wrapper exists solely because `EventDetail` calls `EventTabsBar`; when
+ * that file is next open, it can render `Tabs` directly and this can go.
+ */
 export function EventTabsBar({
   tabs,
   value,
@@ -418,67 +464,8 @@ export function EventTabsBar({
   onChange: (key: string) => void;
 }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        // The rule under the strip is drawn INSIDE the box rather than as a
-        // border, so the active tab's 2px underline can sit on top of it without
-        // a negative margin. A negative margin made each tab's border box hang
-        // 1px below the container's content box, and since `overflow-x: auto`
-        // promotes a `visible` overflow-y to `auto`, that 1px produced a real
-        // vertical scrollbar on a single-line tab strip.
-        boxShadow: "inset 0 -1px 0 var(--border)",
-        margin: "18px 0 26px",
-        overflowX: "auto",
-        // Pinned, so the promotion above can never bring the vertical bar back.
-        overflowY: "hidden",
-      }}
-    >
-      {tabs.map((tab) => {
-        const active = tab.key === value;
-        return (
-          <button
-            key={tab.key}
-            type="button"
-            onClick={() => onChange(tab.key)}
-            style={{
-              appearance: "none",
-              background: "transparent",
-              border: 0,
-              borderBottom: active ? "2px solid #EE5746" : "2px solid transparent",
-              color: active ? "#EE5746" : "var(--muted)",
-              fontSize: 13.5,
-              fontWeight: active ? 600 : 500,
-              padding: "12px 14px",
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-            }}
-          >
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-              {tab.label}
-              {tab.badge ? (
-                <span
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 10,
-                    minWidth: 16,
-                    height: 16,
-                    padding: "0 4px",
-                    borderRadius: 999,
-                    background: "#EE5746",
-                    color: "#fff",
-                    display: "inline-grid",
-                    placeItems: "center",
-                  }}
-                >
-                  {tab.badge}
-                </span>
-              ) : null}
-            </span>
-          </button>
-        );
-      })}
+    <div style={{ margin: "18px 0 26px" }}>
+      <Tabs tabs={tabs} value={value} onChange={onChange} />
     </div>
   );
 }

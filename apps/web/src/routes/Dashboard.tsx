@@ -97,7 +97,8 @@ const kpiTileStyle: CSSProperties = {
   padding: "18px 20px",
   cursor: "pointer",
   boxShadow: "var(--shadow)",
-  transition: "transform .2s, border-color .2s",
+  transition:
+    "transform var(--duration-base) var(--ease-out), border-color var(--duration-quick) var(--ease-out)",
 };
 
 /** The compact mono eyebrow the prototype stamps above each stat band. */
@@ -213,8 +214,8 @@ export function Dashboard() {
       }}
     >
       <style>{`
-        .dash-attn-row:hover { background: var(--elevated) !important; }
-        .dash-recent-row:hover { background: var(--elevated) !important; }
+        .dash-attn-row:hover { background: var(--shape-fill) !important; }
+        .dash-recent-row:hover { background: var(--shape-fill) !important; }
         .dash-kpi:hover { transform: translateY(-3px); border-color: var(--border-strong); }
       `}</style>
 
@@ -290,7 +291,7 @@ export function Dashboard() {
                 borderRadius: 14,
                 cursor: "pointer",
                 textAlign: "left",
-                transition: "background .18s",
+                transition: "background var(--duration-quick) var(--ease-out)",
               }}
             >
               <span

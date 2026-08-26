@@ -19,47 +19,52 @@ import { useMemo } from "react";
  * and `budget_lines.amount` already use, so nothing is converted on the way.
  */
 /**
- * WHY THE PERFORMER FEE IS NOT SEEDED, THOUGH THE HANDOFF LISTS IT.
+ * THE PERFORMER FEE IS RENDERED FROM THE DEAL AND NEVER WRITTEN.
  *
  * `docs/design-handoff-budget-planner.md` §1 says `performerFee` seeds from the
  * deal guarantee, and §6 says that same fee "becomes a deal ENTITLEMENT, not a
  * budget line — assign the line to the deal via `deal_id` so it is never
  * double-counted". Those two sentences pull in opposite directions the moment a
  * seeded FIELD becomes a stored ROW, which is what this editor does: a standing
- * heading carrying a figure is written as a `budget_lines` row on the next
- * flush.
+ * heading carrying a figure is written as a `budget_lines` row on the next flush.
  *
- * And a written row is not inert. `packages/settlement/src/reconcile.ts` reads
- * budget lines as EXTERNAL CASH:
+ * And a written row is not inert. `packages/settlement` reads budget lines as
+ * EXTERNAL CASH: a cost line with `payee_participant_id` LOWERS that party's
+ * entitlement, and one with `paid_by` counts as cash that participant ALREADY
+ * FRONTED. Auto-seeding the guarantee would tell the engine the operator has paid
+ * the artist, while the deal separately entitles the artist to the same money — a
+ * wrong transfer in a real settlement, not a cosmetic duplicate.
  *
- *   step 3 — a cost line with `payee_participant_id` LOWERS that party's
- *            entitlement;
- *   step 4 — a cost line with `paid_by` counts as cash that participant
- *            ALREADY FRONTED.
+ * So the fee is neither hidden nor stored: it is READ from the deal every time the
+ * screen renders, shown as a read-only row in the Costs card, and counted in every
+ * total. `select count(*) from budget_lines where label = 'Performer fee'` stays 0
+ * on a freshly seeded event, and the profit is still right. The operator changes
+ * the figure by changing the deal — which is where the figure lives, and the only
+ * place changing it also changes what the artist is owed.
  *
- * So auto-seeding the guarantee would tell the engine the operator has already
- * paid the artist, while the deal separately entitles the artist to the same
- * money — a wrong transfer in a real settlement, not a cosmetic duplicate. The
- * planner is a forecast and "never feeds Settlement" (handoff, Scope); a row
- * reconcile can see is a row that feeds settlement whatever we label it.
- *
- * An operator who genuinely paid a fee in cash may still enter it by hand — that
- * is their assertion about the world. What must not happen is the app asserting
- * it on their behalf.
- *
- * The right end state is to RENDER the fee from the deal without persisting it,
- * so the forecast is complete and no row exists. That needs a read-only cost row
- * in `BudgetPlanner`, which is more than this fix should carry.
+ * An operator who genuinely paid something in cash may still enter it by hand
+ * under a heading of their own. What must not happen is the app asserting it on
+ * their behalf.
  */
+
+/** A figure a deal already holds, offered to the planner to DISPLAY, never to store. */
+export interface BudgetSeedDealFigure {
+  dealId: string;
+  /** The deal's name, so the row can say where its figure came from. */
+  dealName: string;
+  /** Minor units, the spelling `deal.guaranteeAmount` already uses. */
+  amount: string;
+}
 
 export interface BudgetSeed {
   /** Head count from `events.capacity` — itself snapshotted from the venue. */
   capacity: number | null;
   /**
-   * NOT SEEDED, deliberately — see `performerFeeIsNotSeeded` below. The field is
-   * kept so the shape reads honestly at the call site; it is always `null`.
+   * Every performance deal that names a guarantee — a LIST, because a bill with a
+   * support act has more than one and the Costs card shows one "Performer fee".
+   * Displayed, never written; see the note above.
    */
-  performerFee: null;
+  performerFees: BudgetSeedDealFigure[];
   /** The venue's rental fee, minor units — only when a rental deal exists. */
   venueCost: string | null;
 }
@@ -79,6 +84,8 @@ interface DealParty {
 }
 
 interface Deal {
+  id: string;
+  name: string;
   type: string;
   structure?: string | null;
   guaranteeAmount?: string | null;
@@ -125,14 +132,18 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
         (party) => party.roleInDeal === "payee" && performers.has(party.participantId),
       );
 
-    // Referenced so the narrowing helper above stays live for the day the
-    // performer fee is rendered from the deal rather than seeded into a field.
-    void paysAPerformer;
-
     return {
       capacity: sources.capacity,
-      // THE PERFORMER FEE IS NEVER SEEDED. See the note above the module.
-      performerFee: null,
+      // Every deal that pays somebody on the bill and states a figure. The shape
+      // test is what keeps the venue's room hire out of the artist's row — a
+      // RENTAL deal carries a `guaranteeAmount` too.
+      performerFees: deals
+        .filter((deal) => paysAPerformer(deal) && deal.guaranteeAmount != null)
+        .map((deal) => ({
+          dealId: deal.id,
+          dealName: deal.name,
+          amount: deal.guaranteeAmount as string,
+        })),
       // The rental fee is the rental fee whoever collects it. There is no
       // "venue" participant role, so requiring a payee match here would seed
       // nothing on every event where the venue is not on the bill.

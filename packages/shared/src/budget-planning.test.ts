@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeBudgetProjection } from "./budget-planning";
+import { computeBudgetProjection, dealFigureDisagreement } from "./budget-planning";
 
 /** €/SEK 1.00 → 100 minor units. */
 const major = (value: number) => BigInt(Math.round(value * 100));
@@ -257,5 +257,47 @@ describe("custom rows", () => {
     expect(before.profit).toBe(major(15148));
     expect(after.totalRevenue).toBe(major(81800));
     expect(after.profit).toBe(major(20148));
+  });
+});
+
+describe("a budget row that claims to be a deal's own figure", () => {
+  it("says nothing when the row and the deal state the same money", () => {
+    expect(dealFigureDisagreement(major(3000), major(3000))).toBeNull();
+  });
+
+  it("reports both figures when they have drifted apart", () => {
+    // The row was written when the fee was 3 000; the deal has since been
+    // renegotiated to 3 500. The settlement will move 3 500 — the operator is
+    // forecasting 500 they will not keep.
+    expect(dealFigureDisagreement(major(3000), major(3500))).toEqual({
+      planned: major(3000),
+      deal: major(3500),
+    });
+  });
+
+  it("catches a disagreement smaller than the display would round away", () => {
+    // 3 000.00 vs 3 000.49 both RENDER as "3,000" — the whole reason the
+    // comparison is on integer minor units and never on formatted text.
+    expect(dealFigureDisagreement(300000n, 300049n)).toEqual({
+      planned: 300000n,
+      deal: 300049n,
+    });
+  });
+
+  it("stays silent when the deal states no figure of its own", () => {
+    // A pure percentage split has no amount to disagree with, so there is
+    // nothing to warn about — only something to compute at settlement.
+    expect(dealFigureDisagreement(major(3000), null)).toBeNull();
+    expect(dealFigureDisagreement(major(3000), undefined)).toBeNull();
+  });
+
+  it("treats a row left blank as a real disagreement, not as 'no opinion'", () => {
+    // Blank parses to 0 everywhere in the planner (handoff §1), and a row
+    // claiming to be a 3 000 deal's figure while forecasting nothing is exactly
+    // the drift worth naming.
+    expect(dealFigureDisagreement(0n, major(3000))).toEqual({
+      planned: 0n,
+      deal: major(3000),
+    });
   });
 });

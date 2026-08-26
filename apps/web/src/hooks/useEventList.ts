@@ -4,7 +4,7 @@ import { type CursorList, infiniteKey, useCursorList } from "./useCursorList";
 
 export type EventItem = Awaited<ReturnType<typeof getApiV1Events>>["items"][number];
 
-export type EventFilterKey = "all" | "pending" | "on_hold" | "concluded" | "draft";
+export type EventFilterKey = "all" | "pending" | "on_hold" | "concluded" | "draft" | "archived";
 export type EventView = "list" | "board";
 
 /** The `events.status` values the list filters on (mirrors the API's enum). */
@@ -31,7 +31,26 @@ const CHIP_STATUSES: Record<EventFilterKey, readonly EventStatus[]> = {
   on_hold: ["on_hold"],
   concluded: ["concluded"],
   draft: ["draft"],
+  // "Archived" is the one chip that asks a question about the READER rather than
+  // about the booking, so it selects no status at all — see `ARCHIVED_CHIP`.
+  archived: [],
 };
+
+/**
+ * The chip that shows what the reader has FILED AWAY.
+ *
+ * It sits in the same row as the status chips and behaves like one, but it is a
+ * different kind of question. A status says where the booking got to; archiving
+ * says whether this profile still wants to look at it
+ * (`event_participants.archived_at`) — which is why it could not be one more
+ * value in the `status` list, and why it travels as its own `archived=only`
+ * parameter. Every other chip leaves `archived` unset, so the server's default
+ * (`exclude`) keeps filed-away events out of the everyday views.
+ *
+ * It exists at all because the alternative is a feature that hides things with
+ * no way back, which is a delete that lies about itself.
+ */
+const ARCHIVED_CHIP: EventFilterKey = "archived";
 
 const PAGE_SIZE = 20;
 
@@ -59,6 +78,7 @@ export function useEventList(): EventListView {
     // `GET /events?status=` takes a LIST — the "Pending" chip is pending ∪ suggested,
     // and the fetch mutator stringifies the array to `status=pending,suggested`.
     status: statuses.length > 0 ? [...statuses] : undefined,
+    archived: filter === ARCHIVED_CHIP ? "only" : undefined,
   };
 
   const list = useCursorList<EventItem>({

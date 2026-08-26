@@ -1,9 +1,12 @@
-import { Button, EmptyState, Icon } from "@showme/design-system";
+import { Button, EmptyState, Icon, TabPanels } from "@showme/design-system";
 import { useNavigate } from "@tanstack/react-router";
 import type { CSSProperties } from "react";
+import { type EventMenuItem, EventRowMenu, rowClickTargetStyle } from "../components/EventRowMenu";
 import { GradientButton } from "../components/eventUi";
 import { ErrorState, LoadMore, LoadingState } from "../components/states";
+import { useEventArchive } from "../hooks/useEventArchive";
 import { type EventFilterKey, type EventItem, useEventList } from "../hooks/useEventList";
+import { useEventsViewMotion } from "../hooks/useEventsViewMotion";
 import { useNewEvent } from "../shell/NewEventProvider";
 
 /** Status colour + label map — ported verbatim from the prototype's EVMETA so
@@ -28,7 +31,16 @@ const FILTER_CHIPS: [value: EventFilterKey, label: string][] = [
   ["on_hold", "On hold"],
   ["concluded", "Concluded"],
   ["draft", "Draft"],
+  // The shelf. Every other chip asks about the BOOKING; this one asks what this
+  // profile has filed away (`archived=only`). It sits last because it is where
+  // things go, not a stage they pass through — and it exists because a feature
+  // that hides events with no way back is a delete that lies about itself.
+  ["archived", "Archived"],
 ];
+
+/** The chips in display order — what tells the panel which way to scoot when the
+ * reader moves between them. Same contract as the Requests page's buckets. */
+const FILTER_ORDER = FILTER_CHIPS.map(([value]) => value);
 
 /** Board view = four fixed columns, in this order and colour (prototype boardDefs). */
 const BOARD_DEFS: [status: string, label: string, color: string][] = [
@@ -82,7 +94,9 @@ function shortDate(iso: string | null | undefined): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "2-digit" });
 }
 
-const GRID_COLUMNS = "2.4fr 1.5fr 1fr .8fr 1.2fr 1fr";
+/** The last track is the overflow menu's — fixed, because it holds one 28px
+ * button and must not steal width from the columns that carry information. */
+const GRID_COLUMNS = "2.4fr 1.5fr 1fr .8fr 1.2fr 1fr 32px";
 
 export function Events() {
   const navigate = useNavigate();
@@ -100,6 +114,11 @@ export function Events() {
     isLoadingMore,
     loadMore,
   } = useEventList();
+  // Filing an event away, from either view. The hook owns the calls, the toast
+  // (with its Undo) and the cache invalidation; the rows below just draw what it
+  // says the menu offers.
+  const { menuItems } = useEventArchive();
+  const viewPanel = useEventsViewMotion(view);
 
   const openEvent = (eventId: string) => navigate({ to: "/events/$eventId", params: { eventId } });
 
@@ -116,28 +135,14 @@ export function Events() {
         }}
       >
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-          {FILTER_CHIPS.map(([value, label]) => {
-            const active = value === filter;
-            return (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setFilter(value)}
-                style={{
-                  padding: "6px 13px",
-                  borderRadius: 999,
-                  fontSize: 12.5,
-                  fontWeight: 500,
-                  cursor: "pointer",
-                  border: active ? "1px solid transparent" : "1px solid var(--border)",
-                  background: active ? "linear-gradient(135deg,#EE5746,#F4A046)" : "transparent",
-                  color: active ? "#fff" : "var(--muted)",
-                }}
-              >
-                {label}
-              </button>
-            );
-          })}
+          {FILTER_CHIPS.map(([value, label]) => (
+            <FilterChip
+              key={value}
+              label={label}
+              active={value === filter}
+              onSelect={() => setFilter(value)}
+            />
+          ))}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <ViewToggle value={view} onChange={setView} />
@@ -153,49 +158,146 @@ export function Events() {
         <LoadingState label="Loading events" />
       ) : isError ? (
         <ErrorState error={error} title="Couldn't load events" />
-      ) : rows.length === 0 ? (
-        // The filter is the server's answer now, so an empty result under a chip
-        // means "you have none of these", not "you have no events".
-        filter === "all" ? (
-          <EmptyState
-            icon={<Icon name="calendar" />}
-            title="No events yet"
-            description="Events you create or join will show up here."
-            action={
-              canCreateEvent ? (
-                <Button
-                  variant="primary"
-                  leftIcon={<Icon name="plus" />}
-                  onClick={() => openNewEvent()}
-                >
-                  New event
-                </Button>
-              ) : undefined
-            }
-          />
-        ) : (
-          <EmptyState
-            icon={<Icon name="calendar" />}
-            title="No events match this filter"
-            description="Nothing of yours is in this state right now."
-            action={
-              <Button variant="secondary" onClick={() => setFilter("all")}>
-                Show all events
-              </Button>
-            }
-          />
-        )
       ) : (
-        <>
-          {view === "board" ? (
-            <EventBoard rows={rows} onOpen={openEvent} />
-          ) : (
-            <EventList rows={rows} onOpen={openEvent} />
-          )}
-          <LoadMore hasMore={hasMore} isLoading={isLoadingMore} onLoadMore={loadMore} />
-        </>
+        // Two wrappers, one job each. The outer one fades when the VIEW changes
+        // (see `useEventsViewMotion` for why a fade and not a scoot); the inner
+        // one scoots when the FILTER changes, the same `TabPanels` the event
+        // workspace's tabs and the Requests page's buckets already use — the
+        // chips are tabs in everything but name.
+        <div ref={viewPanel}>
+          <TabPanels activeKey={filter} order={FILTER_ORDER}>
+            {rows.length === 0 ? (
+              // The empty state travels with the filter, which is the case where
+              // the motion earns the most: landing on "nothing here" otherwise
+              // reads as the screen having blanked.
+              <EventsEmptyState
+                filter={filter}
+                canCreateEvent={canCreateEvent}
+                onCreateEvent={openNewEvent}
+                onShowAll={() => setFilter("all")}
+              />
+            ) : (
+              <>
+                {view === "board" ? (
+                  <EventBoard rows={rows} onOpen={openEvent} menuItems={menuItems} />
+                ) : (
+                  <EventList rows={rows} onOpen={openEvent} menuItems={menuItems} />
+                )}
+                <LoadMore hasMore={hasMore} isLoading={isLoadingMore} onLoadMore={loadMore} />
+              </>
+            )}
+          </TabPanels>
+        </div>
       )}
     </div>
+  );
+}
+
+/** Nothing to show. The filter is the server's answer now, so an empty result
+ * under a chip means "you have none of these", not "you have no events". */
+function EventsEmptyState({
+  filter,
+  canCreateEvent,
+  onCreateEvent,
+  onShowAll,
+}: {
+  filter: EventFilterKey;
+  canCreateEvent: boolean;
+  onCreateEvent: () => void;
+  onShowAll: () => void;
+}) {
+  if (filter === "all") {
+    return (
+      <EmptyState
+        icon={<Icon name="calendar" />}
+        title="No events yet"
+        description="Events you create or join will show up here."
+        action={
+          canCreateEvent ? (
+            <Button variant="primary" leftIcon={<Icon name="plus" />} onClick={onCreateEvent}>
+              New event
+            </Button>
+          ) : undefined
+        }
+      />
+    );
+  }
+  return (
+    <EmptyState
+      icon={<Icon name="calendar" />}
+      title={filter === "archived" ? "Nothing archived" : "No events match this filter"}
+      description={
+        filter === "archived"
+          ? "Events you file away land here, and the row menu puts them back."
+          : "Nothing of yours is in this state right now."
+      }
+      action={
+        <Button variant="secondary" onClick={onShowAll}>
+          Show all events
+        </Button>
+      }
+    />
+  );
+}
+
+/**
+ * One status filter pill. Selected = the brand gradient, exactly as the prototype
+ * draws it — but ARRIVED AT rather than snapped to.
+ *
+ * The gradient is a separate layer that fades, and it has to be: a CSS transition
+ * cannot interpolate a `linear-gradient` against `transparent` (they are not the
+ * same property — one is a background-image, the other a background-color), so
+ * the obvious `transition: background` on the button would silently do nothing.
+ * Cross-fading an overlay is the only way this fill can move at all.
+ *
+ * `--duration-quick`, because nothing here travels — colour, edge and fill are a
+ * paint, and §4 gives a paint 140ms. The layer sits at `inset: -1px` so it covers
+ * the border ring too, which is what makes the active pill read as one solid
+ * gradient shape rather than a fill with a hairline gap around it.
+ */
+function FilterChip({
+  label,
+  active,
+  onSelect,
+}: {
+  label: string;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onSelect}
+      style={{
+        position: "relative",
+        padding: "6px 13px",
+        borderRadius: 999,
+        fontSize: 12.5,
+        fontWeight: 500,
+        cursor: "pointer",
+        border: "1px solid",
+        borderColor: active ? "transparent" : "var(--border)",
+        background: "transparent",
+        color: active ? "#fff" : "var(--muted)",
+        transition:
+          "color var(--duration-quick) var(--ease-out), border-color var(--duration-quick) var(--ease-out)",
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: -1,
+          borderRadius: 999,
+          background: "linear-gradient(135deg,var(--brand-red),var(--brand-amber))",
+          opacity: active ? 1 : 0,
+          transition: "opacity var(--duration-quick) var(--ease-out)",
+        }}
+      />
+      {/* Positioned, so the label paints above the fill instead of under it. */}
+      <span style={{ position: "relative" }}>{label}</span>
+    </button>
   );
 }
 
@@ -217,7 +319,7 @@ function ViewToggle({
       style={{
         display: "flex",
         gap: 4,
-        background: "var(--elevated)",
+        background: "var(--shape-fill)",
         border: "1px solid var(--border)",
         borderRadius: 999,
         padding: 4,
@@ -241,6 +343,12 @@ function ViewToggle({
               background: active ? "var(--surface)" : "transparent",
               color: active ? "var(--text)" : "var(--muted)",
               boxShadow: active ? "var(--shadow)" : "none",
+              // A paint, not a movement: the fill, the label and the lift under
+              // the selected option all land together on --duration-quick. Every
+              // one of these is a plain colour, so unlike the gradient on a
+              // filter chip they interpolate directly.
+              transition:
+                "background var(--duration-quick) var(--ease-out), color var(--duration-quick) var(--ease-out), box-shadow var(--duration-quick) var(--ease-out)",
             }}
           >
             {option.label}
@@ -251,10 +359,18 @@ function ViewToggle({
   );
 }
 
+/** What both views need: the rows, where a click goes, and what the row's
+ * overflow menu offers for one event (built once by `useEventArchive`). */
+interface EventViewProps {
+  rows: EventItem[];
+  onOpen: (eventId: string) => void;
+  menuItems: (event: { id: string; title: string; archived?: boolean }) => EventMenuItem[];
+}
+
 /** The List view — a bordered card with a mono header row and one grid row per
  * event. The events-list payload carries only title, date and status, so Venue,
  * Cap and Settlement render an honest "—" (no faked venue name/capacity). */
-function EventList({ rows, onOpen }: { rows: EventItem[]; onOpen: (eventId: string) => void }) {
+function EventList({ rows, onOpen, menuItems }: EventViewProps) {
   return (
     <div
       style={{
@@ -285,21 +401,25 @@ function EventList({ rows, onOpen }: { rows: EventItem[]; onOpen: (eventId: stri
         <span style={{ textAlign: "right" }}>Cap</span>
         <span>Status</span>
         <span>Settlement</span>
+        {/* The menu's column. Unlabelled on purpose — the header names what a
+            cell CONTAINS, and this one contains a control, not a fact. */}
+        <span />
       </div>
       {rows.map((event) => {
         const meta = eventMeta(event.status);
         return (
-          <button
+          // Hover tint only; the row's keyboard affordance is the stretched
+          // button inside it, which is a real focusable control.
+          <div
             key={event.id}
-            type="button"
-            onClick={() => onOpen(event.id)}
             onMouseEnter={(mouse) => {
-              mouse.currentTarget.style.background = "var(--elevated)";
+              mouse.currentTarget.style.background = "var(--shape-fill)";
             }}
             onMouseLeave={(mouse) => {
               mouse.currentTarget.style.background = "transparent";
             }}
             style={{
+              position: "relative",
               width: "100%",
               display: "grid",
               gridTemplateColumns: GRID_COLUMNS,
@@ -307,13 +427,17 @@ function EventList({ rows, onOpen }: { rows: EventItem[]; onOpen: (eventId: stri
               alignItems: "center",
               padding: "15px 22px",
               background: "transparent",
-              border: 0,
               borderTop: "1px solid var(--border)",
-              cursor: "pointer",
               textAlign: "left",
-              transition: "background .16s",
+              transition: "background var(--duration-quick) var(--ease-out)",
             }}
           >
+            <button
+              type="button"
+              aria-label={`Open ${event.title}`}
+              onClick={() => onOpen(event.id)}
+              style={rowClickTargetStyle}
+            />
             <span style={{ minWidth: 0 }}>
               <span
                 style={{
@@ -355,7 +479,12 @@ function EventList({ rows, onOpen }: { rows: EventItem[]; onOpen: (eventId: stri
                 <span style={{ marginLeft: 6 }}>—</span>
               </span>
             </span>
-          </button>
+            {/* Positioned, so it paints ABOVE the stretched click target and
+                takes its own clicks rather than opening the event. */}
+            <span style={{ position: "relative", justifySelf: "end" }}>
+              <EventRowMenu items={menuItems(event)} label={`Actions for ${event.title}`} />
+            </span>
+          </div>
         );
       })}
     </div>
@@ -369,7 +498,7 @@ function EventList({ rows, onOpen }: { rows: EventItem[]; onOpen: (eventId: stri
  *
  * The per-column count is a real count: `useEventList` drains the keyset cursor
  * in board view, so `rows` is every event the chip selects. */
-function EventBoard({ rows, onOpen }: { rows: EventItem[]; onOpen: (eventId: string) => void }) {
+function EventBoard({ rows, onOpen, menuItems }: EventViewProps) {
   return (
     <div
       style={{
@@ -377,6 +506,12 @@ function EventBoard({ rows, onOpen }: { rows: EventItem[]; onOpen: (eventId: str
         gridTemplateColumns: "repeat(4,minmax(220px,1fr))",
         gap: 14,
         overflowX: "auto",
+        // The board fills the screen rather than hugging its tallest column.
+        // A kanban whose columns end just under the cards reads as a list that
+        // happened to wrap — the empty space below a column IS the affordance
+        // that says a card could go there. Grid items stretch by default, so
+        // the height set here is what every column inherits.
+        minHeight: "calc(100vh - 300px)",
       }}
     >
       {BOARD_DEFS.map(([status, label, color]) => {
@@ -389,7 +524,8 @@ function EventBoard({ rows, onOpen }: { rows: EventItem[]; onOpen: (eventId: str
               border: "1px solid var(--border)",
               borderRadius: 16,
               padding: 14,
-              minHeight: 200,
+              display: "flex",
+              flexDirection: "column",
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
@@ -407,10 +543,10 @@ function EventBoard({ rows, onOpen }: { rows: EventItem[]; onOpen: (eventId: str
               </span>
             </div>
             {items.map((event) => (
-              <button
+              // Hover lift only; the card's keyboard affordance is the button
+              // stretched inside it, which is a real focusable control.
+              <div
                 key={event.id}
-                type="button"
-                onClick={() => onOpen(event.id)}
                 onMouseEnter={(mouse) => {
                   mouse.currentTarget.style.transform = "translateY(-2px)";
                 }}
@@ -418,26 +554,49 @@ function EventBoard({ rows, onOpen }: { rows: EventItem[]; onOpen: (eventId: str
                   mouse.currentTarget.style.transform = "none";
                 }}
                 style={{
+                  position: "relative",
                   width: "100%",
                   textAlign: "left",
-                  background: "var(--elevated)",
+                  // No fill: the column is already a surface, and a tinted card
+                  // inside it made a second one. The border is enough to say
+                  // "this is a thing you can pick up" — and in light mode the
+                  // beige tint read as dirt on a white column.
+                  background: "transparent",
                   border: "1px solid var(--border)",
                   borderRadius: 12,
                   padding: 12,
                   marginBottom: 9,
-                  cursor: "pointer",
-                  transition: "transform .16s",
+                  transition:
+                    "transform var(--duration-base) var(--ease-out), border-color var(--duration-quick), background var(--duration-quick)",
                 }}
               >
+                <button
+                  type="button"
+                  aria-label={`Open ${event.title}`}
+                  onClick={() => onOpen(event.id)}
+                  style={rowClickTargetStyle}
+                />
                 <span
                   style={{
-                    display: "block",
-                    fontWeight: 600,
-                    color: "var(--text)",
-                    fontSize: 13.5,
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: 6,
                   }}
                 >
-                  {event.title}
+                  <span
+                    style={{
+                      fontWeight: 600,
+                      color: "var(--text)",
+                      fontSize: 13.5,
+                      minWidth: 0,
+                    }}
+                  >
+                    {event.title}
+                  </span>
+                  <span style={{ position: "relative", flexShrink: 0 }}>
+                    <EventRowMenu items={menuItems(event)} label={`Actions for ${event.title}`} />
+                  </span>
                 </span>
                 <span
                   style={{
@@ -461,7 +620,7 @@ function EventBoard({ rows, onOpen }: { rows: EventItem[]; onOpen: (eventId: str
                   <span>{shortDate(event.eventDate)}</span>
                   <span>— cap</span>
                 </span>
-              </button>
+              </div>
             ))}
           </div>
         );

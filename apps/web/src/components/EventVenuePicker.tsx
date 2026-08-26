@@ -37,6 +37,11 @@ export interface EventVenuePickerProps {
   /** Wired to a `<label htmlFor=…>` by the caller — the input is nested inside a
    * component, so a wrapping label can no longer reach it. */
   inputId?: string;
+  /** Names the input where there is no room for a visible label — the event
+   * card edits this field inside a row that already carries the word "Venue",
+   * and a second copy of it above the control would be noise on screen and a
+   * stutter in a screen reader. */
+  inputAriaLabel?: string;
 }
 
 function useDebounced(value: string, delayMilliseconds: number): string {
@@ -56,6 +61,7 @@ export function EventVenuePicker({
   placeholder = "e.g. Funkhaus",
   inputStyle,
   inputId,
+  inputAriaLabel,
 }: EventVenuePickerProps) {
   const [open, setOpen] = useState(false);
   const term = useDebounced(value.trim(), 250);
@@ -96,13 +102,19 @@ export function EventVenuePicker({
           alignItems: "center",
           gap: 8,
           ...fieldStyle,
-          ...inputStyle,
+          // `inputStyle` LAST, so a caller can actually change the shell — the
+          // padding used to be re-applied after it, which silently pinned this
+          // field to 9px while the field beside it in the create-event wizard
+          // took the 11px it asked for, and left the event card no way to size
+          // the control down to a table row.
           padding: "9px 12px",
+          ...inputStyle,
         }}
       >
         {selectedProfileId ? <Icon name="building" size={15} /> : <Icon name="search" size={15} />}
         <input
           id={inputId}
+          aria-label={inputAriaLabel}
           value={value}
           onFocus={() => setOpen(true)}
           onChange={(changeEvent) => {

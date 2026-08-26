@@ -1,6 +1,9 @@
 import { customFetch } from "@showme/api-client";
+import type { AvatarTone } from "@showme/design-system";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useAuth } from "../auth/AuthProvider";
+import type { ThreadComment } from "./CommentThread";
 
 /**
  * The Messages tab's data layer, kept out of the component so the component stays
@@ -44,11 +47,22 @@ export interface ThreadMessage {
   createdAt: string;
 }
 
+/** A participant, by id, so a message's sender can be named. */
+export interface MessagesTabParty {
+  id: string;
+  name: string;
+}
+
 const threadsKey = (eventId: string) => ["event-message-threads", eventId];
 const messagesKey = (eventId: string, threadKey: string) => ["event-messages", eventId, threadKey];
 
-export function useEventMessageThreads(eventId: string) {
+export function useEventMessageThreads(eventId: string, roster: MessagesTabParty[]) {
   const queryClient = useQueryClient();
+  // Whose messages are "mine". `senderUserId` and the session's `userId` are the
+  // same `users.id` — the API stamps every message with `principal.userId` and
+  // `POST /auth/session` returns that same row's id — so this is an identity
+  // check against the server's own key, never a match on a display name.
+  const { session } = useAuth();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
 
@@ -99,13 +113,72 @@ export function useEventMessageThreads(eventId: string) {
     },
   });
 
+  const comments = useMemo(
+    () => toComments(messages.data ?? [], roster, session?.userId ?? null),
+    [messages.data, roster, session?.userId],
+  );
+
   return {
     threads,
     messages,
+    comments,
     selected,
     selectKey: setSelectedKey,
     draft,
     setDraft,
     post,
   };
+}
+
+/** The four non-brand avatar tones, so two different people are two colours. */
+const SENDER_TONES: AvatarTone[] = ["amber", "green", "purple", "blue"];
+
+/**
+ * A tone that is stable for one person and spread across the roster — the same
+ * face is the same colour every time you open the thread, which is most of what
+ * an avatar is for when nobody has uploaded a picture.
+ */
+function senderTone(seed: string): AvatarTone {
+  let total = 0;
+  for (let index = 0; index < seed.length; index += 1) total += seed.charCodeAt(index);
+  return SENDER_TONES[total % SENDER_TONES.length] ?? "amber";
+}
+
+const CLOCK_FORMAT = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
+
+function clockTime(iso: string): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? "" : CLOCK_FORMAT.format(date);
+}
+
+function toComments(
+  messages: ThreadMessage[],
+  roster: MessagesTabParty[],
+  currentUserId: string | null,
+): ThreadComment[] {
+  return messages.map((message) => {
+    const author =
+      roster.find((party) => party.id === message.senderParticipantId)?.name ?? "Member";
+    return {
+      id: message.id,
+      author,
+      initials: initials(author),
+      tone: senderTone(message.senderParticipantId ?? message.senderUserId),
+      createdAt: message.createdAt,
+      time: clockTime(message.createdAt),
+      body: message.body,
+      isOwn: currentUserId != null && message.senderUserId === currentUserId,
+    };
+  });
+}
+
+function initials(label: string): string {
+  return (
+    label
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((word) => word[0]?.toUpperCase() ?? "")
+      .join("") || "?"
+  );
 }

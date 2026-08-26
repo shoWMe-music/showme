@@ -1,5 +1,6 @@
 import { Card } from "@showme/design-system";
 import { type CalendarEvent, CalendarEventChip, type CalendarLabelMode } from "./CalendarEventChip";
+import type { EventMenuItem } from "./EventRowMenu";
 import { WEEKDAYS_SHORT, buildWeekGrid, dayKey } from "./calendarGrid";
 
 /** One week of the Calendar screen (§2): the month grid's seven columns, one week
@@ -16,9 +17,16 @@ export interface CalendarWeekGridProps {
   labelMode?: CalendarLabelMode;
   onSelectDay?: (dayKey: string, anchor: DOMRect) => void;
   onSelectEvent?: (eventId: string) => void;
+  /**
+   * What one event's overflow menu offers (archive today). Returns nothing for a
+   * standalone calendar item — a task or a note is not an event and has nothing
+   * to file. The chip hands it to the preview it opens; there is no room for a ⋮
+   * on the chip itself.
+   */
+  eventMenuItems?: (event: CalendarEvent) => EventMenuItem[];
 }
 
-const TODAY_TINT = "rgba(238,87,70,.05)";
+const TODAY_TINT = "color-mix(in srgb, var(--brand-red) 5%, transparent)";
 
 /** Drawn only BETWEEN columns — the card draws the outer edge itself, and the two
  * flush against each other would read as a doubled 2px border. */
@@ -37,6 +45,7 @@ export function CalendarWeekGrid({
   labelMode = "both",
   onSelectDay,
   onSelectEvent,
+  eventMenuItems,
 }: CalendarWeekGridProps) {
   const cells = buildWeekGrid(week);
   const todayKey = dayKey(new Date());
@@ -90,7 +99,7 @@ export function CalendarWeekGrid({
                   fontFamily: "var(--font-mono)",
                   fontSize: 12,
                   fontWeight: isToday ? 700 : 500,
-                  background: isToday ? "#EE5746" : "transparent",
+                  background: isToday ? "var(--brand-red)" : "transparent",
                   color: isToday ? "#fff" : "var(--muted)",
                 }}
               >
@@ -138,6 +147,7 @@ export function CalendarWeekGrid({
                   labelMode={labelMode}
                   showTime
                   onSelect={onSelectEvent}
+                  menuItems={eventMenuItems?.(event)}
                 />
               ))}
             </div>

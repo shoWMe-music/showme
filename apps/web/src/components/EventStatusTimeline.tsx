@@ -30,7 +30,7 @@ export function EventStatusTimeline({ stages, current }: EventStatusTimelineProp
           ? "var(--brand-gold)"
           : isCurrent
             ? "linear-gradient(135deg, var(--brand-red), var(--brand-amber))"
-            : "var(--elevated)";
+            : "var(--shape-fill)";
         const dotColor = isDone || isCurrent ? "#fff" : "var(--dim)";
         return (
           <div

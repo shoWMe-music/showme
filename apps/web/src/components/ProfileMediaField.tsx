@@ -74,7 +74,7 @@ export function ProfileMediaField({
                 padding: 8,
                 borderRadius: 12,
                 border: "1px solid var(--border)",
-                background: "var(--elevated)",
+                background: "var(--card)",
               }}
             >
               {preview === "image" ? (

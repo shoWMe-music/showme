@@ -1,7 +1,7 @@
 import { Button, Input, Modal, Select } from "@showme/design-system";
 import { useEffect, useState } from "react";
 import { SegmentedToggle } from "./SegmentedToggle";
-import type { BudgetAttributionOption, CostBearing, CustomFieldType } from "./useBudgetEditor";
+import type { BudgetAttributionOption, CostBearing } from "./useBudgetEditor";
 
 /** Which card the new row belongs to. `null` while the modal is closed. */
 export type CustomFieldKind = "revenue" | "cost" | null;
@@ -23,7 +23,6 @@ export interface BudgetCustomFieldModalProps {
     kind: "revenue" | "cost",
     label: string,
     amount: string,
-    type: CustomFieldType,
     /** Who carries a cost. Absent on a revenue row, and on a plain shared cost. */
     bearing?: CostBearing,
   ) => void;
@@ -33,16 +32,19 @@ export interface BudgetCustomFieldModalProps {
 }
 
 /**
- * "+ Add Field" — name a row the planner has no heading for, give it an amount,
- * and say what kind of amount it is.
+ * "+ Add Field" — name a row the planner has no heading for, and give it an
+ * amount.
  *
  * A MODAL and not an inline row, per the designer's handoff (§1: custom fields are
- * `{ name, type, amount }`, "added through a small modal, removable inline"). The
- * three fields are why: a row the operator must name, type AND price is a small
- * form, and a form inlined into a column of single-value rows reads as three
- * unrelated inputs. Once created the row IS inline — it renders beside the
- * standing rows with its type pill and an × — so the modal is the doorway, not
- * the home.
+ * "added through a small modal, removable inline"). A row the operator must name
+ * AND price is a small form, and a form inlined into a column of single-value rows
+ * reads as unrelated inputs. Once created the row IS inline — it renders beside
+ * the standing rows with an × — so the modal is the doorway, not the home.
+ *
+ * THERE IS NO "TYPE" FIELD. It used to offer Manual / Per guest, and a per-guest
+ * row was then multiplied by capacity behind the operator's back. The product
+ * owner's rule is that the value typed IS the value, so the question is gone
+ * rather than answered — the amount below means what it says.
  */
 export function BudgetCustomFieldModal({
   kind,
@@ -53,7 +55,6 @@ export function BudgetCustomFieldModal({
 }: BudgetCustomFieldModalProps) {
   const [label, setLabel] = useState("");
   const [amount, setAmount] = useState("");
-  const [type, setType] = useState<CustomFieldType>("manual");
   const [purpose, setPurpose] = useState<CostPurpose>("cost");
   const [deductedFrom, setDeductedFrom] = useState("");
 
@@ -63,7 +64,6 @@ export function BudgetCustomFieldModal({
     if (kind) {
       setLabel("");
       setAmount("");
-      setType("manual");
       setPurpose("cost");
       setDeductedFrom("");
     }
@@ -78,7 +78,6 @@ export function BudgetCustomFieldModal({
       kind,
       label,
       amount,
-      type,
       isDeduction ? { kind: "participant", participantId: deductedFrom } : undefined,
     );
     onClose();
@@ -155,22 +154,7 @@ export function BudgetCustomFieldModal({
           />
         </div>
         <div>
-          <span style={fieldLabelStyle}>Type</span>
-          <Select
-            value={type}
-            onChange={(value) => setType(value as CustomFieldType)}
-            options={[
-              { value: "manual", label: "Manual amount" },
-              { value: "per_guest", label: "Per guest" },
-            ]}
-            aria-label="Custom field type"
-            searchable={false}
-          />
-        </div>
-        <div>
-          <span style={fieldLabelStyle}>
-            {type === "per_guest" ? "Amount per guest" : "Amount"}
-          </span>
+          <span style={fieldLabelStyle}>Amount</span>
           <Input
             value={amount}
             inputMode="decimal"
@@ -179,11 +163,9 @@ export function BudgetCustomFieldModal({
             onChange={(event) => setAmount(event.target.value)}
             onKeyDown={(event) => event.key === "Enter" && submit()}
           />
-          {type === "per_guest" && (
-            <span style={{ display: "block", marginTop: 6, fontSize: 12, color: "var(--muted)" }}>
-              Multiplied by capacity, like the bar estimate above it.
-            </span>
-          )}
+          <span style={{ display: "block", marginTop: 6, fontSize: 12, color: "var(--muted)" }}>
+            The figure the budget counts, exactly as you type it.
+          </span>
         </div>
       </div>
     </Modal>

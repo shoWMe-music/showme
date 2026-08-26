@@ -46,6 +46,38 @@
   --ease-out: cubic-bezier(.2, .8, .2, 1);
   --ease-inout: cubic-bezier(.7, 0, .3, 1);
 
+  /* ── PRIMITIVES · duration ──
+     Four durations chosen by INTENT, never by taste. Always pick the intent;
+     never write a literal. A literal is how this app ended up with .09s, .12s,
+     .14s, .15s, .16s, .18s, .2s, .25s, .3s, .34s, .4s and .6s all meaning
+     roughly "a moment" — which is why it read as inconsistent rather than
+     unanimated.
+
+       instant — the press. Feedback under a finger that is already down; any
+                 slower and the control feels dead.
+       quick   — a paint-only change. Color, border, background, a menu opening
+                 directly under the control that was just clicked. Nothing
+                 travels, so nothing needs time to travel.
+       base    — something MOVES: a knob, a lift, a tab indicator, a panel. Also
+                 the default when the choice isn't obvious. This is the
+                 INTERACTION CEILING — past ~250ms a response reads as lag, and
+                 this is a tool people sit in all day.
+       slow    — a surface arriving or leaving under its own steam: a modal, a
+                 toast, a whole view. Nothing is waiting on it. This is the
+                 ceiling for the system; nothing is slower than this.
+
+     When a single control both repaints and moves (a toggle: track color + knob
+     travel) it takes the MOVEMENT duration for all of it, so the parts land
+     together.
+
+     Loop rates are deliberately NOT tokens — the spinner's turn and the
+     skeleton's shimmer are not interaction durations, they are the tempo of an
+     ongoing state, and each handles reduced motion in its own file. */
+  --duration-instant: 90ms;
+  --duration-quick: 140ms;
+  --duration-base: 200ms;
+  --duration-slow: 280ms;
+
   /* ── SEMANTIC (dark default) — role tokens derived from primitives ── */
   --bg: var(--ink-1000);
   --surface: var(--ink-900);
@@ -63,6 +95,35 @@
      hollow outline instead of a raised, pressable surface. */
   --button-surface: transparent;
   --control-surface: var(--elevated);
+  /* The border a text input, number field or select wears at REST. Separate
+     from --border because that one also draws cards, dividers and table rules:
+     tinting every one of those would repaint the whole page, when the intent is
+     only to make the things you can type into look typed-into-able. Dark keeps
+     the hairline it already had. */
+  --control-border: var(--border);
+  /* ONE HEIGHT FOR EVERY CONTROL.
+     Without this a control is as tall as its content makes it: `type="number"`
+     renders a taller line box than text, a mono font taller still, and a Select
+     differs from a TextField beside it. The result was a form where no two
+     fields on a row lined up — measured at 38.5 / 40 / 42px across the app for
+     the SAME components. Height is a property of the control, not of what
+     happens to be inside it.
+     40px = 18px line box + 10px padding top and bottom + 1px border each side,
+     with `box-sizing: border-box` (which every control already sets). Change
+     this and every field moves together, which is the point. */
+  --control-height: 40px;
+  --control-line-height: 18px;
+
+  /* The fill for a small SHAPE that must be visible against a surface — a toggle
+     track, a skeleton, a stepper rail, an option under the cursor. Distinct from
+     --elevated on purpose: --elevated is a surface role, and STYLE-GUIDE.md §1
+     says a surface in light mode is white. A shape is not a surface. */
+  --shape-fill: var(--ink-800);
+
+  /* What a hover reaches for. Dark keeps the neutral it already used; light
+     turns to the brand instead of a browner brown (see the light block). */
+  --hover-surface: var(--elevated);
+  --hover-border: var(--border-strong);
   --accent: var(--brand-gold);
   --focus: rgba(255, 194, 102, .5);
   --card: linear-gradient(180deg, rgba(34, 24, 18, .66), rgba(17, 10, 7, .66));
@@ -73,11 +134,46 @@
 }
 
 [data-theme="light"] {
-  --bg: #FBF6EE; --surface: #FFFDF9; --elevated: #FFF9EF;
+  /* --bg keeps the warm beige: it is the PAGE GROUND, the layer the grid squares
+     and the glow are drawn on, and it is the only thing giving the light theme
+     its warmth. Everything that sits ON it is white.
+     --surface was #FFFDF9 — a beige a shade off the page, which read as a dirty
+     white next to the pure-white --card rather than as a distinct surface. Panels,
+     modals, popovers and toasts are white now.
+     --elevated IS WHITE, like every other surface (STYLE-GUIDE.md §1). It was
+     #FFF9EF, then briefly a brand wash — both read as a tinted panel on a white
+     card, which is the thing the rule forbids. Anything that needs to be visible
+     as a SHAPE rather than a surface uses --shape-fill instead; a region a user
+     reads content in is white, and its border does the separating. */
+  --bg: #FBF6EE; --surface: #FFFFFF; --elevated: #FFFFFF;
+  /* Faint brand rather than beige: enough to read a toggle track against white,
+     never enough to look like a panel. */
+  --shape-fill: rgba(238, 87, 70, .07);
   --text: var(--ink-900); --muted: var(--ink-500); --dim: var(--ink-400);
   --border: rgba(90, 72, 60, .14); --border-strong: rgba(90, 72, 60, .26);
-  --button-surface: var(--surface); --control-surface: var(--surface);
-  --accent: #B8791F; --focus: rgba(238, 87, 70, .4);
+  --button-surface: var(--surface);
+  /* Pure white, not the warm --surface: an input is the one thing on a beige
+     page that should read as a fresh sheet you write on. */
+  --control-surface: #FFFFFF;
+  /* The brand coral, tempered. Full strength is reserved for :focus — an input
+     already wearing #EE5746 at rest has nowhere left to go when you land in it,
+     and losing that distinction costs keyboard users the only cue they get. */
+  --control-border: rgba(238, 87, 70, .38);
+  /* THE ACCENT IS THE BRAND, NOT A GOLD. #B8791F was a brown-gold that read as
+     part of the beige rather than as the product's colour. This is
+     --brand-red-deep, one step darker than the #EE5746 primary FOR CONTRAST:
+     --accent paints small text (eyebrows, stat labels, chip labels), and
+     #EE5746 on white is ~3.5:1 — fine for large text, short of the 4.5:1 that
+     body-sized text needs. The deep tone reads as the same colour and stays
+     legible. */
+  --accent: var(--brand-red-deep);
+  --focus: rgba(238, 87, 70, .4);
+  /* HOVER IS THE BORDER, NEVER THE GROUND (STYLE-GUIDE.md §2). A hovered row
+     should look reachable, not chosen — and if hover fills the ground, selection
+     has nowhere left to go and the two collide. Light mode surfaces are white
+     and stay white; the edge carries the interaction. */
+  --hover-surface: transparent;
+  --hover-border: rgba(238, 87, 70, .45);
   --card: #FFFFFF;
   --shadow: 0 4px 14px -6px rgba(90, 50, 30, .15);
   --shadow-lg: 0 18px 40px -16px rgba(90, 50, 30, .2);
@@ -95,4 +191,23 @@ a:hover { opacity: .85; }
 @keyframes smPulse { 0% { transform: scale(1); opacity: .6; } 80%, 100% { transform: scale(2.6); opacity: 0; } }
 @keyframes smRise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes smGrow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-.sm-screen { animation: smRise .4s cubic-bezier(.2, .8, .2, 1) both; }
+/* The screen entrance. `useViewMotion` plays the SAME rise from JS for routes
+   that swap without remounting — one entrance, two ways of triggering it, never
+   two competing entrances. */
+.sm-screen { animation: smRise var(--duration-slow) var(--ease-out) both; }
+
+/* ── Reduced motion: one switch for the whole system ──
+   Everything built from the duration tokens collapses to zero here, so no
+   component needs its own media query and none can forget one. This is also the
+   enforcement for "use the tokens": a hand-written .3s survives this block and a
+   token does not. Motion driven from JS reads `useReducedMotion` instead — same
+   setting, same result. The spinner and the skeleton shimmer are the deliberate
+   exceptions (loops, not interactions) and answer the preference themselves. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-instant: 0ms;
+    --duration-quick: 0ms;
+    --duration-base: 0ms;
+    --duration-slow: 0ms;
+  }
+}

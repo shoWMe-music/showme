@@ -798,7 +798,8 @@ function MemberRow({
                 onClick={item.onSelect}
                 style={menuItemStyle(!item.onSelect)}
                 onMouseEnter={(mouseEvent) => {
-                  if (item.onSelect) mouseEvent.currentTarget.style.background = "var(--elevated)";
+                  if (item.onSelect)
+                    mouseEvent.currentTarget.style.background = "var(--shape-fill)";
                 }}
                 onMouseLeave={(mouseEvent) => {
                   mouseEvent.currentTarget.style.background = "transparent";
@@ -886,7 +887,7 @@ function FilterChip({
         border: active ? "1px solid var(--brand-red)" : "1px solid var(--border)",
         background: active
           ? "color-mix(in srgb, var(--brand-red) 12%, transparent)"
-          : "var(--elevated)",
+          : "var(--shape-fill)",
         color: active ? "var(--brand-red)" : "var(--muted)",
         fontSize: 12.5,
         fontWeight: active ? 600 : 500,
@@ -940,7 +941,7 @@ const toggleWrapStyle: CSSProperties = {
   gap: 4,
   padding: 3,
   borderRadius: 10,
-  background: "var(--elevated)",
+  background: "var(--shape-fill)",
   border: "1px solid var(--border)",
 };
 
@@ -955,7 +956,7 @@ function toggleButtonStyle(active: boolean): CSSProperties {
     borderRadius: 7,
     background: active ? "var(--card)" : "transparent",
     color: active ? "var(--text)" : "var(--muted)",
-    boxShadow: active ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
+    boxShadow: active ? "var(--shadow)" : "none",
     cursor: "pointer",
   };
 }
@@ -1006,7 +1007,11 @@ function menuPopoverStyle(openUpward: boolean): CSSProperties {
     borderRadius: 10,
     background: "var(--card)",
     border: "1px solid var(--border)",
-    boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+    // The token, not a literal. A hardcoded black shadow is tuned for the dark
+    // theme and reads as a bruise on light mode's white card; --shadow-lg is
+    // warm-tinted and flips with the theme. The event row menu uses it, so this
+    // was the last overflow menu in the app painting its own.
+    boxShadow: "var(--shadow-lg)",
   };
 }
 

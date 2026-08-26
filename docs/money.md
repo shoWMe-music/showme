@@ -18,8 +18,36 @@ The foundation the settlement engine sits on. The **representation + accounting 
   (door_split, N-way `split_member`, commissions, VAT apportionment, deductibles) goes through it.
 - **Residual absorbs rounding:** operator entitlement = `pool − Σ others`, so the residual party soaks up leftover
   units → **`Σ net = 0` holds by construction**, not by luck.
-- **Carry exact minor units through intermediates; round only at `allocate()`/output.** Cascading commissions use
-  `allocate()` semantics — no per-step rounding drift.
+- **Carry exact minor units through intermediates; round only at `allocate()`/output.** A commissioned line is
+  partitioned rather than separately rounded — the payee is credited `line − Σ commissions` — so no minor unit
+  drifts however the individual cuts round. *(This bullet used to say commissions cascade. They do not today:
+  see "Settlement rules the engine enforces" below, and ClickUp `86cba8wmb`.)*
+
+## Settlement rules the engine enforces
+
+Answered by the product owner on **2026-08-26** and implemented in `packages/settlement`. Two adjacent
+questions were deliberately left open, and the code is shaped so answering them is a small change.
+
+- **Rentals settle OFF THE TOP.** A `structure = "rental"` deal is settled before the percentage deals and
+  its total **reduces the pool they divide** — "net door" means after the rental. On a 10 000 pool with a
+  2 000 rental, a 50% door performer takes **4 000**, not 5 000. Fixed amounts that are not rentals keep
+  dividing the same pool as everyone else. `packages/settlement/src/deal-order.ts` holds the predicate, and
+  it is the only thing that changes if the rule widens.
+  **OPEN — ClickUp `86cba8wfk`:** whether `deals.priority > 0` should also settle off the top. Nothing reads
+  `priority` today and `SettlementDeal` carries no `priority` member, so it cannot be half-wired by accident.
+- **A percentage-of-pool entitlement is floored at zero.** A loss-making night pays a 50% door performer
+  **0**, never −1 500; the operator absorbs the loss through the residual (`pool − Σ others`), so the floor
+  costs the conservation law nothing. **Scope:** the floor is on the *share of the pool*. A guarantee is
+  untouched, and a party's **net may still go negative** — a deductible or an advance is money genuinely owed
+  back, and flooring that would invent money.
+- **Disclosed commissions are paid, and apply in PARALLEL.** A `deal_parties` row with
+  `role_in_deal = 'commission'` now settles: its rate is `share.splitBasisPoints`, read as basis points **of
+  each payee's line**, charged per entitled line so a shared split commissions each performer's own portion.
+  Two commissions of 20% and 10% on a 1 000 line pay 200 and 100, and the payee keeps 700.
+  **OPEN — ClickUp `86cba8wmb`:** parallel vs cascading (which would pay 200 and 80, payee 720). All the
+  arithmetic lives in `packages/settlement/src/commissions.ts`.
+  A booking **agent's** private representation commission is none of this — it is a separate,
+  representation-scoped settlement (decisions.md #14) and must never be an entitled party line on the event.
 
 ## Multi-currency (accounting side)
 

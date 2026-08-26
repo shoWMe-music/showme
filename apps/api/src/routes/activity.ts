@@ -8,6 +8,7 @@ import { z } from "zod";
 import {
   ACTIVITY_KIND_CAPABILITY,
   ACTIVITY_OPERATOR_CAPABILITY,
+  ACTIVITY_PARTICIPANT_SCOPED_KINDS,
   type ActivityTargetKind,
 } from "../lib/activity";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
@@ -44,8 +45,9 @@ interface Cursor {
  * The user-facing activity feed (decisions #3), TARGET-SCOPED: a row is visible iff
  * the viewer can view its target — the same access model that gates the resource,
  * folded into one `WHERE` (no second visibility system). Event-level rows are seen
- * by all participants; deal/settlement/transfer rows only by their party; operators
- * see everything on their events.
+ * by all participants; deal/settlement/transfer rows only by their party; rider and
+ * setlist rows only by the participant they are about; operators see everything on
+ * their events.
  *
  * The scoping is by the viewer's EFFECTIVE CAPABILITIES on each event, resolved by
  * the same engine every route uses (`effectiveEventCapabilitiesForEvents`), not by
@@ -183,6 +185,20 @@ export async function activityRoutes(fastify: FastifyInstance): Promise<void> {
             and(
               eq(schema.activityLog.targetKind, kind),
               inArray(schema.activityLog.targetId, targetIds),
+            ),
+          );
+        }
+
+        // Participant-scoped kinds (`rider`, `setlist`) carry the OWNING participant
+        // id in `target_id`, so the viewer's own participant rows are the whole
+        // filter — no extra query, and the same list the party scoping joins through.
+        // A rider or setlist the viewer merely has REACH over (sponsored crew, an
+        // explicit share) is deliberately absent: see `lib/activity.ts`.
+        if (participantIds.length > 0) {
+          visible.push(
+            and(
+              inArray(schema.activityLog.targetKind, [...ACTIVITY_PARTICIPANT_SCOPED_KINDS]),
+              inArray(schema.activityLog.targetId, participantIds),
             ),
           );
         }

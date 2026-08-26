@@ -4,7 +4,7 @@ import { and, desc, eq, gt, isNull, or } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { badRequest, conflict, notFound } from "../errors";
+import { badRequest, conflict, forbidden, isUniqueViolation, notFound } from "../errors";
 import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
@@ -98,6 +98,143 @@ function serializeInvitation(invitation: InvitationRow): z.infer<typeof Invitati
 }
 
 /**
+ * The invitation as the PERSON HOLDING THE LINK sees it, before they answer.
+ *
+ * The redemption page has to say who invited them, to what, in what role, and
+ * what state the invitation is in — otherwise "accept" is a button with no
+ * sentence attached. But the reader is, by construction, unauthenticated at
+ * first: someone with no shoWMe account clicked a link in their email. So this
+ * shape is built on one question — *what does a link-holder already know?* —
+ * and carries nothing beyond it:
+ *
+ * - **No `token`, no `code`.** They hold theirs; printing it back adds nothing
+ *   and puts a bearer secret in a response body, a log and a screenshot.
+ * - **The recipient address is masked** (`d•••@s•••.music`). Its owner
+ *   recognises it at a glance, which is exactly what the wrong-account state
+ *   needs to say; someone the link was forwarded to learns nothing usable.
+ *   Only when the viewer's own verified address matches does the full address
+ *   come back — and then it is their own.
+ * - **No permission set, no other participants, no money.** The email is held
+ *   to the same line (`lib/email-templates.ts`).
+ */
+const InvitationOfferResponse = z.object({
+  /** Includes `expired`, which is DERIVED from `expires_at` and may not be the stored value. */
+  status: z.enum(["pending", "accepted", "declined", "revoked", "expired", "used"]),
+  type: invitationTypeEnum,
+  source: invitationSourceEnum,
+  role: z.string().nullable(),
+  targetKind: z.enum(["event", "profile"]).nullable(),
+  targetName: z.string().nullable(),
+  targetEventId: z.string().nullable(),
+  inviterName: z.string().nullable(),
+  recipientName: z.string().nullable(),
+  /** Masked unless it is the viewer's own address. Null when no address was named. */
+  recipientEmail: z.string().nullable(),
+  /** Whether an address was named at all — a `false` here means the token is the whole grant. */
+  boundToEmail: z.boolean(),
+  /**
+   * The invitation points at an UNCLAIMED profile, so the answer is "claim this
+   * act/venue", not "join as yourself". Derived from `profiles.claimed_at`, never
+   * from the invitation's `source` — a handoff whose stub has since been claimed
+   * must stop offering to hand it over, and the row is the only thing that knows.
+   */
+  claimable: z.boolean(),
+  viewer: z.object({
+    signedIn: z.boolean(),
+    emailMatches: z.boolean(),
+    emailVerified: z.boolean(),
+  }),
+});
+
+/**
+ * The invited address, blurred to the point where only its owner recognises it.
+ *
+ * `daniel@showme.music` → `d•••@s•••.music`. The first letter and the public
+ * suffix are enough for the real recipient to say "yes, that's my work address"
+ * on the wrong-account screen, and not enough for a stranger holding a forwarded
+ * link to learn who was approached or where they work.
+ */
+function maskEmail(email: string): string {
+  const [localPart = "", domain = ""] = email.split("@");
+  const suffixStart = domain.indexOf(".");
+  const maskedDomain =
+    suffixStart === -1 ? "•••" : `${domain.slice(0, 1)}•••${domain.slice(suffixStart)}`;
+  return `${localPart.slice(0, 1)}•••@${maskedDomain}`;
+}
+
+function normalizeEmail(email: string | null | undefined): string | null {
+  const normalized = email?.trim().toLowerCase();
+  return normalized ? normalized : null;
+}
+
+/**
+ * Who is reading the offer, when there is anyone to read it.
+ *
+ * `GET /invitations/:token` is `public`, so the global `preHandler` never looks
+ * at the Authorization header — but the three states the page most needs to
+ * separate (*signed out* · *signed in as the right person* · **signed in as the
+ * wrong person**) all turn on the viewer's identity. So the route verifies a
+ * bearer token itself when one is offered, and treats a missing or stale one as
+ * "nobody is signed in" rather than as an error: this is a page anyone may open.
+ *
+ * This does NOT resolve a principal and grants nothing. Every actual grant on
+ * this module is still decided by `assertInvitationRecipient` on the redemption
+ * routes, which run behind the ordinary authenticated pipeline.
+ */
+async function readViewerIdentity(
+  request: FastifyRequest,
+): Promise<{ email: string | null; emailVerified: boolean } | null> {
+  const [scheme, idToken] = (request.headers.authorization ?? "").split(" ");
+  if (scheme !== "Bearer" || !idToken) return null;
+  try {
+    const firebaseUser = await request.server.tokenVerifier.verify(idToken);
+    return {
+      email: normalizeEmail(firebaseUser.email),
+      emailVerified: firebaseUser.emailVerified === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * THE RECIPIENT CHECK — the one thing the old app got right that this module did
+ * not (`docs/old-app-analysis-flows-invite-settle.md` §4).
+ *
+ * Until now the token was the entire grant on every redemption route: anyone who
+ * was forwarded the link could accept in the invitee's place, or — worse, because
+ * it is silent and irreversible from the invitee's side — DECLINE on their behalf
+ * and close the slot. `invitations.recipient_email` has always held the binding;
+ * nothing read it.
+ *
+ * The rule, in the order it is checked so the message is the useful one:
+ *
+ * 1. **No address named → no check.** A few invitations are minted with no
+ *    recipient (a link the sender hands over in person). There the token IS the
+ *    grant, deliberately, and there is nothing to compare against.
+ * 2. **A different address → refused.** Not 404: telling the wrong person "this
+ *    is not yours" is the whole point of the wrong-account state, and the offer
+ *    they can already read tells them no more than the mask does.
+ * 3. **The right address, unverified → refused.** Anyone may register any
+ *    address at Firebase without proving they hold it, so an unverified match is
+ *    a claim, not evidence. `claimStubsForEmail` has required
+ *    `emailVerified === true` since it was written (`routes/session.ts`) and
+ *    `docs/off-platform-access.md`:134 makes it the platform-wide rule; the
+ *    invitation routes are simply catching up to their own sibling.
+ */
+function assertInvitationRecipient(request: FastifyRequest, invitation: InvitationRow): void {
+  const invited = normalizeEmail(invitation.recipientEmail);
+  if (!invited) return;
+  const viewerEmail = normalizeEmail(request.firebaseUser?.email);
+  if (viewerEmail !== invited) {
+    throw forbidden("This invitation was sent to a different email address");
+  }
+  if (request.firebaseUser?.emailVerified !== true) {
+    throw forbidden("Verify your email address before redeeming this invitation");
+  }
+}
+
+/**
  * The display name of whatever the invitation grants access to — the event's
  * title or the account's name. Used only to write the invitation email, which is
  * why it reads a single column and tolerates a missing row: an unnamed target
@@ -122,16 +259,6 @@ async function loadInvitationTargetName(
     return profile?.name;
   }
   return undefined;
-}
-
-/** Postgres unique-violation — a `(profile_id, user_id)` membership already exists. */
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "23505"
-  );
 }
 
 /** Unambiguous uppercase alphanumerics (no O/0, I/1) for a human-readable code. */
@@ -360,13 +487,90 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
     },
   );
 
-  // Look up by token OR code — the authenticated recipient's redemption preview.
+  // The offer, read by whoever opened the link — by token OR code.
+  //
+  // `public` on purpose, and it is the reason the whole redemption flow can
+  // exist: the invitation email goes to people who have never signed in, and
+  // half of them have no account at all. A page that cannot say what it is
+  // offering until you have signed up is a page that asks you to accept blind.
+  // The payload is built for exactly that reader (`InvitationOfferResponse`) —
+  // no token, no code, a masked address — so opening it costs the invitee
+  // nothing beyond what the link they were sent already told the holder.
+  //
+  // Unlike `loadInvitation`, this does NOT 404 an expired or revoked invitation.
+  // Silence is the bug being fixed here: every terminal state has to come back
+  // named, or the page cannot tell "we have never seen this link" apart from
+  // "you are three days late", and the recipient is left where they were before
+  // — at a screen where nothing happened.
   app.get(
     "/invitations/:token",
-    { schema: { params: TokenParams, response: { 200: InvitationResponse } } },
+    {
+      config: { public: true },
+      schema: { params: TokenParams, response: { 200: InvitationOfferResponse } },
+    },
     async (request) => {
-      const invitation = await loadInvitation(request, request.params.token);
-      return serializeInvitation(invitation);
+      const { database } = request.server;
+      const parameter = request.params.token;
+
+      const [invitation] = await database
+        .select()
+        .from(schema.invitations)
+        .where(or(eq(schema.invitations.token, parameter), eq(schema.invitations.code, parameter)));
+      if (!invitation) throw notFound("Invitation not found");
+
+      const viewer = await readViewerIdentity(request);
+      const invited = normalizeEmail(invitation.recipientEmail);
+      const emailMatches = invited != null && viewer?.email === invited;
+
+      const expired = invitation.expiresAt != null && invitation.expiresAt.getTime() < Date.now();
+      const status =
+        expired && invitation.status === "pending"
+          ? ("expired" as const)
+          : (invitation.status as z.infer<typeof InvitationOfferResponse>["status"]);
+
+      const [inviter] = await database
+        .select({ name: schema.users.name })
+        .from(schema.users)
+        .where(eq(schema.users.id, invitation.createdByUser));
+
+      // Claiming is a different answer from accepting — it takes over an existing
+      // unclaimed profile rather than adding the reader as themselves — so the
+      // page has to know which verb to put on the button. `POST /:token/claim`
+      // additionally requires a named address, so an unaddressed invitation is
+      // never offered as claimable.
+      let claimable = false;
+      if (invitation.targetProfileId && invited != null && invitation.status === "pending") {
+        const [target] = await database
+          .select({ claimedAt: schema.profiles.claimedAt })
+          .from(schema.profiles)
+          .where(eq(schema.profiles.id, invitation.targetProfileId));
+        claimable = target != null && target.claimedAt == null;
+      }
+
+      return {
+        status,
+        type: invitation.type as z.infer<typeof invitationTypeEnum>,
+        source: invitation.source as z.infer<typeof invitationSourceEnum>,
+        role: invitation.role,
+        targetKind: invitation.targetEventId
+          ? ("event" as const)
+          : invitation.targetProfileId
+            ? ("profile" as const)
+            : null,
+        targetName: (await loadInvitationTargetName(database, invitation)) ?? null,
+        targetEventId: invitation.targetEventId,
+        inviterName: inviter?.name ?? null,
+        recipientName: invitation.recipientName,
+        // Their own address back, or a mask. Never a stranger's address in full.
+        recipientEmail: invited == null ? null : emailMatches ? invited : maskEmail(invited),
+        boundToEmail: invited != null,
+        claimable,
+        viewer: {
+          signedIn: viewer != null,
+          emailMatches,
+          emailVerified: viewer?.emailVerified === true,
+        },
+      };
     },
   );
 
@@ -381,6 +585,7 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
       if (!principal) throw new Error("principal missing after authentication");
 
       const invitation = await loadInvitation(request, request.params.token);
+      assertInvitationRecipient(request, invitation);
       if (invitation.status !== "pending") {
         throw conflict("This invitation has already been used");
       }
@@ -529,6 +734,10 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
     async (request) => {
       const { database } = request.server;
       const invitation = await loadInvitation(request, request.params.token);
+      // A refusal is as much the invitee's answer as an acceptance, and it is the
+      // one nobody can undo from their side — a forwarded link must not let a
+      // stranger close someone else's slot quietly.
+      assertInvitationRecipient(request, invitation);
       if (invitation.status !== "pending") {
         throw conflict("This invitation is no longer pending");
       }
@@ -578,6 +787,17 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
       if (!principal) throw new Error("principal missing after authentication");
 
       const invitation = await loadInvitation(request, request.params.token);
+      // A claim is the largest of the three grants — it hands over OWNERSHIP of a
+      // profile and everything that profile is a participant of — so it is the
+      // one route that refuses an unbound invitation outright. Accept and decline
+      // tolerate a null `recipient_email` (a link the sender hands over in
+      // person); "whoever opens this link first owns this act" is not a state
+      // worth supporting, and is precisely the old app's first-come-first-served
+      // collaborator password (§1.8).
+      if (!invitation.recipientEmail) {
+        throw forbidden("This invitation is not addressed to anyone, so it cannot be claimed");
+      }
+      assertInvitationRecipient(request, invitation);
       if (invitation.status !== "pending") {
         throw conflict("This invitation has already been used");
       }
@@ -619,9 +839,24 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
             action: "invitation.claim",
             targetKind: "invitation",
             targetId: invitation.id,
+            eventId: invitation.targetEventId ?? undefined,
             before: invitation,
             after,
           });
+          // A handoff invitation carries an event: the off-platform stub the
+          // operator entered by hand has just been taken over by the real person.
+          // Everyone on the bill has been dealing with that row, so everyone on the
+          // bill should see that it is now a live account — kind `invitation`, the
+          // same `event.view` tier as the send and the acceptance beside it.
+          if (invitation.targetEventId) {
+            await writeActivity(tx, request, {
+              eventId: invitation.targetEventId,
+              type: "invitation.claimed",
+              targetKind: "invitation",
+              targetId: invitation.id,
+              summary: { profileId: profile.id, profileName: profile.name },
+            });
+          }
           return after;
         });
       } catch (error) {

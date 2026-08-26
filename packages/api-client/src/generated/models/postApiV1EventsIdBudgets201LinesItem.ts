@@ -29,6 +29,8 @@ export type PostApiV1EventsIdBudgets201LinesItem = {
   /** @nullable */
   dealId: string | null;
   /** @nullable */
+  attributedDealId: string | null;
+  /** @nullable */
   details: PostApiV1EventsIdBudgets201LinesItemDetails;
   version: number;
 };

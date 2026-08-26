@@ -38,6 +38,7 @@ import { messageRoutes } from "./routes/messages";
 import { notificationRoutes } from "./routes/notifications";
 import { participantRoutes } from "./routes/participants";
 import { payoutRoutes } from "./routes/payout";
+import { performingRightsRoutes } from "./routes/performing-rights";
 import { planRoutes } from "./routes/plans";
 import { profileRoutes } from "./routes/profiles";
 import { publicRoutes } from "./routes/public";
@@ -198,6 +199,7 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
       await api.register(participantRoutes);
       await api.register(dealRoutes);
       await api.register(budgetRoutes);
+      await api.register(performingRightsRoutes);
       await api.register(settlementRoutes);
       await api.register(holdRoutes);
       await api.register(profileRoutes);

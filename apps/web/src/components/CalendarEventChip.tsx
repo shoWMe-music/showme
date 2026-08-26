@@ -1,5 +1,6 @@
 import { STATUS_COLOR, type Status } from "@showme/design-system";
 import { CalendarEntryPreview } from "./CalendarEntryPreview";
+import type { EventMenuItem } from "./EventRowMenu";
 import { useCalendarEntryPreview } from "./useCalendarEntryPreview";
 
 /** One entry on the calendar, and the chip that draws it. Lives here rather than
@@ -54,6 +55,12 @@ export interface CalendarEventChipProps {
    * not, and the prototype's month chips show the title alone. */
   showTime?: boolean;
   onSelect?: (eventId: string) => void;
+  /**
+   * What the entry's overflow menu offers. A month chip is 11px tall text with
+   * 3px of padding — there is no room for a ⋮ on the chip itself — so the menu
+   * lives in the preview the chip already opens on click.
+   */
+  menuItems?: EventMenuItem[];
 }
 
 export function CalendarEventChip({
@@ -61,6 +68,7 @@ export function CalendarEventChip({
   labelMode,
   showTime = false,
   onSelect,
+  menuItems,
 }: CalendarEventChipProps) {
   const color = STATUS_COLOR[event.status];
   const label = chipLabel(event, labelMode);
@@ -122,6 +130,7 @@ export function CalendarEventChip({
           anchor={preview.anchorRect}
           panelRef={preview.panelRef}
           onOpenEvent={preview.openEvent}
+          menuItems={menuItems}
         />
       )}
     </div>

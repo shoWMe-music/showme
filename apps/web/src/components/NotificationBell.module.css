@@ -118,10 +118,10 @@
 
 .rowLinked {
   cursor: pointer;
-  transition: background .16s;
+  transition: background var(--duration-quick) var(--ease-out);
 }
 .rowLinked:hover {
-  background: var(--elevated);
+  background: var(--shape-fill);
 }
 .rowLinked:focus-visible {
   outline: 2px solid var(--focus);

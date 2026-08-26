@@ -30,6 +30,8 @@ export type PatchApiV1EventsIdBudgetsBidLinesLidBody = {
   /** @nullable */
   dealId?: string | null;
   /** @nullable */
+  attributedDealId?: string | null;
+  /** @nullable */
   details?: PatchApiV1EventsIdBudgetsBidLinesLidBodyDetails;
   expectedVersion?: number;
 };

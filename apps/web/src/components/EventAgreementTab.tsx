@@ -14,6 +14,7 @@ import { DealComposerModal, type DealPartyChoice } from "./DealComposerModal";
 import { DealReopenModal } from "./DealReopenModal";
 import type { ScheduleEntry } from "./ScheduleList";
 import { ErrorState, LoadingState } from "./states";
+import { useDealCardExpansion } from "./useDealCardExpansion";
 import { useDealComposer } from "./useDealComposer";
 import { dealActionsFor, useEventAgreements } from "./useEventAgreements";
 
@@ -37,14 +38,23 @@ export interface EventAgreementTabProps {
 }
 
 /**
- * The Agreement tab: every agreement this caller is a party to, and the lifecycle
- * that moves them.
+ * The deals section: every deal this caller is a party to, and the lifecycle that
+ * moves them.
+ *
+ * VOCABULARY (product owner, 2026-08): *"A deal has an agreement. Not the other
+ * way around."* The **deal** is the object — the thing composed, listed, named and
+ * settled — so every noun the screen prints for it reads "deal". **Agreement** is
+ * kept only where it means the state the parties reached: the confirmation
+ * language, `agreement_status`'s labels, and "Paper agreement only" (terms that
+ * exist on paper and settle nothing). Renaming the schema is explicitly NOT part
+ * of that — `agreement_status` and the `agreement.confirm` capability keep their
+ * names; what stops is calling the container an agreement.
  *
  * What was here before rendered `GET /events/:id/deals` and, when the list came
- * back empty, an EmptyState reading "No agreement yet" — with nothing anywhere in
- * the app that could ever create one. The list was empty on every event, for
- * every account, permanently. The tab now carries the door in as well as the
- * view: compose, send, confirm, reopen.
+ * back empty, an empty state — with nothing anywhere in the app that could ever
+ * create one. The list was empty on every event, for every account, permanently.
+ * The tab now carries the door in as well as the view: compose, send, confirm,
+ * reopen.
  */
 export function EventAgreementTab({
   eventId,
@@ -72,10 +82,15 @@ export function EventAgreementTab({
     composerOpen,
     choices,
   );
+  // What the caller can SEE, which is what "only one deal" counts: the server
+  // serves each party only the deals it is a party to. Above the loading
+  // branches because a hook cannot live behind an early return; before the list
+  // arrives it is empty, which the rule answers correctly on its own.
+  const expansion = useDealCardExpansion(agreements.deals.map((deal) => deal.id));
 
-  if (agreements.isPending) return <LoadingState label="Loading agreements" />;
+  if (agreements.isPending) return <LoadingState label="Loading deals" />;
   if (agreements.isError) {
-    return <ErrorState error={agreements.error} title="Couldn't load the agreements" />;
+    return <ErrorState error={agreements.error} title="Couldn't load the deals" />;
   }
 
   const submitComposer = async () => {
@@ -97,7 +112,7 @@ export function EventAgreementTab({
         }}
       >
         <span style={{ color: "var(--muted)", fontSize: 12.5 }}>
-          Agreements you are a party to. Each party sees only its own line.
+          Deals you are a party to. Each party sees only its own line.
         </span>
         {agreements.authority.canCompose && (
           <Button
@@ -105,7 +120,7 @@ export function EventAgreementTab({
             leftIcon={<Icon name="plus" size={14} />}
             onClick={() => setComposerOpen(true)}
           >
-            New agreement
+            New deal
           </Button>
         )}
       </div>
@@ -113,11 +128,11 @@ export function EventAgreementTab({
       {agreements.deals.length === 0 ? (
         <EmptyState
           icon={<Icon name="file" />}
-          title="No agreement yet"
+          title="No deal yet"
           description={
             agreements.authority.canCompose
               ? "Write the terms down and send them to the other parties. Nothing settles until they confirm."
-              : "When an agreement naming you is sent, its terms appear here for you to confirm."
+              : "When a deal naming you is sent, its terms appear here for you to confirm."
           }
         />
       ) : (
@@ -137,8 +152,10 @@ export function EventAgreementTab({
             dealStructure={dealStructureFields(deal, currency)}
             schedule={scheduleEntries}
             parties={partyLines(deal, agreements.roster)}
-            actions={dealActionsFor(deal, agreements.authority)}
+            actions={dealActionsFor(deal, agreements.authority, agreements.roster)}
             busy={agreements.busyDealId === deal.id}
+            expanded={expansion.isExpanded(deal.id)}
+            onToggleExpanded={() => expansion.toggle(deal.id)}
             onSend={agreements.send}
             onConfirm={agreements.confirm}
             onReopen={(dealId) => {
@@ -226,7 +243,7 @@ function agreementSummary(
     },
     { label: "Venue", value: event.venueLabel },
     { label: "Operator", value: event.operatorName },
-    { label: "Agreement", value: deal.name },
+    { label: "Deal", value: deal.name },
     { label: "Event status", value: event.eventStatusLabel },
   ];
 }

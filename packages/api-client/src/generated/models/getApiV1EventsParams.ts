@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { GetApiV1EventsStatusItem } from './getApiV1EventsStatusItem';
+import type { GetApiV1EventsArchived } from './getApiV1EventsArchived';
 
 export type GetApiV1EventsParams = {
 cursor?: string;
@@ -17,4 +18,5 @@ limit?: number;
  * @minItems 1
  */
 status?: GetApiV1EventsStatusItem[];
+archived?: GetApiV1EventsArchived;
 };

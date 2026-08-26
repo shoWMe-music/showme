@@ -38,9 +38,9 @@
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  transition: color .2s, border-color .2s;
+  transition: color var(--duration-quick), border-color var(--duration-quick);
 }
-.close:hover { color: var(--text); border-color: var(--border-strong); }
+.close:hover { color: var(--text); border-color: var(--hover-border); }
 .body { padding: 0 22px 22px; }
 .footer {
   display: flex;

@@ -25,6 +25,7 @@ export type PostApiV1EventsIdBudgetsBidLinesBody = {
   /** @nullable */
   costSplit?: PostApiV1EventsIdBudgetsBidLinesBodyCostSplit;
   dealId?: string;
+  attributedDealId?: string;
   /** @nullable */
   details?: PostApiV1EventsIdBudgetsBidLinesBodyDetails;
 };

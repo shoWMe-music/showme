@@ -47,7 +47,7 @@ export function Audience() {
               gap: 4,
               padding: 3,
               borderRadius: 12,
-              background: "var(--elevated)",
+              background: "var(--shape-fill)",
               border: "1px solid var(--border)",
             }}
           >

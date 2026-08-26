@@ -46,6 +46,7 @@ import type {
   GetApiV1AdminAlerts200Item,
   GetApiV1AdminAudit200,
   GetApiV1AdminAuditParams,
+  GetApiV1AdminPerformingRightsRates200Item,
   GetApiV1AdminProfiles200,
   GetApiV1AdminProfilesParams,
   GetApiV1BookingRequests200,
@@ -63,11 +64,13 @@ import type {
   GetApiV1EventsIdMessages200Item,
   GetApiV1EventsIdMessagesParams,
   GetApiV1EventsIdParticipants200Item,
+  GetApiV1EventsIdPerformingRightsRate200,
   GetApiV1EventsIdRiders200Item,
   GetApiV1EventsIdSchedule200Item,
   GetApiV1EventsIdSetlists200Item,
   GetApiV1EventsIdSetlistsSetlistIdShares200Item,
   GetApiV1EventsIdSettlements200,
+  GetApiV1EventsIdShares200Item,
   GetApiV1EventsParams,
   GetApiV1ExchangeRate200,
   GetApiV1ExchangeRateCurrencies200,
@@ -109,6 +112,7 @@ import type {
   GetApiV1RepresentationsIdDelegatableEvents200,
   GetApiV1Settlements200,
   GetApiV1SharesToken200,
+  GetApiV1SharesTokenDocument200,
   GetApiV1Tasks200,
   GetApiV1TasksParams,
   PatchApiV1BookingRequestsId200,
@@ -179,6 +183,7 @@ import type {
   PostApiV1DealsDidSend200,
   PostApiV1Events201,
   PostApiV1EventsBody,
+  PostApiV1EventsIdArchive200,
   PostApiV1EventsIdBudgets201,
   PostApiV1EventsIdBudgetsBidLines201,
   PostApiV1EventsIdBudgetsBidLinesBody,
@@ -213,6 +218,7 @@ import type {
   PostApiV1EventsIdSettlementsSidConfirm200,
   PostApiV1EventsIdShares201,
   PostApiV1EventsIdSharesBody,
+  PostApiV1EventsIdUnarchive200,
   PostApiV1FilesUploadUrl201,
   PostApiV1FilesUploadUrlBody,
   PostApiV1Groups201,
@@ -263,6 +269,8 @@ import type {
   PostApiV1RepresentationsBody,
   PostApiV1RepresentationsIdEvents200,
   PostApiV1RepresentationsIdEventsBody,
+  PostApiV1SharesTokenApprove200,
+  PostApiV1SharesTokenApproveBody,
   PostApiV1SharesTokenComment201,
   PostApiV1SharesTokenCommentBody,
   PostApiV1SharesTokenOtp200,
@@ -271,6 +279,8 @@ import type {
   PostApiV1SharesTokenVerifyBody,
   PostApiV1Tasks201,
   PostApiV1TasksBody,
+  PutApiV1AdminPerformingRightsRatesCountry200,
+  PutApiV1AdminPerformingRightsRatesCountryBody,
   PutApiV1EventsIdSetlists200,
   PutApiV1EventsIdSetlistsBody,
   PutApiV1ProfilesIdUnavailability200Item,
@@ -1059,6 +1069,118 @@ const {mutation: mutationOptions} = options ?
       > => {
 
       const mutationOptions = getDeleteApiV1EventsIdMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const postApiV1EventsIdArchive = (
+    id: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1EventsIdArchive200>(
+      {url: `/api/v1/events/${id}/archive`, method: 'POST', signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1EventsIdArchiveMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdArchive>>, TError,{id: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdArchive>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['postApiV1EventsIdArchive'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1EventsIdArchive>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  postApiV1EventsIdArchive(id,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1EventsIdArchiveMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1EventsIdArchive>>>
+    
+    export type PostApiV1EventsIdArchiveMutationError = unknown
+
+    export const usePostApiV1EventsIdArchive = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdArchive>>, TError,{id: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1EventsIdArchive>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1EventsIdArchiveMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const postApiV1EventsIdUnarchive = (
+    id: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1EventsIdUnarchive200>(
+      {url: `/api/v1/events/${id}/unarchive`, method: 'POST', signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1EventsIdUnarchiveMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdUnarchive>>, TError,{id: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdUnarchive>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['postApiV1EventsIdUnarchive'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1EventsIdUnarchive>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  postApiV1EventsIdUnarchive(id,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1EventsIdUnarchiveMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1EventsIdUnarchive>>>
+    
+    export type PostApiV1EventsIdUnarchiveMutationError = unknown
+
+    export const usePostApiV1EventsIdUnarchive = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdUnarchive>>, TError,{id: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1EventsIdUnarchive>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1EventsIdUnarchiveMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }
@@ -2491,7 +2613,93 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    export const postApiV1EventsIdSettlementCompute = (
+    export const getApiV1EventsIdPerformingRightsRate = (
+    id: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1EventsIdPerformingRightsRate200>(
+      {url: `/api/v1/events/${id}/performing-rights-rate`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1EventsIdPerformingRightsRateQueryKey = (id?: string,) => {
+    return [
+    `/api/v1/events/${id}/performing-rights-rate`
+    ] as const;
+    }
+
+    
+export const getGetApiV1EventsIdPerformingRightsRateQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1EventsIdPerformingRightsRate>>, TError = unknown>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdPerformingRightsRate>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1EventsIdPerformingRightsRateQueryKey(id);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1EventsIdPerformingRightsRate>>> = ({ signal }) => getApiV1EventsIdPerformingRightsRate(id, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdPerformingRightsRate>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1EventsIdPerformingRightsRateQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1EventsIdPerformingRightsRate>>>
+export type GetApiV1EventsIdPerformingRightsRateQueryError = unknown
+
+
+export function useGetApiV1EventsIdPerformingRightsRate<TData = Awaited<ReturnType<typeof getApiV1EventsIdPerformingRightsRate>>, TError = unknown>(
+ id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdPerformingRightsRate>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1EventsIdPerformingRightsRate>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1EventsIdPerformingRightsRate>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1EventsIdPerformingRightsRate<TData = Awaited<ReturnType<typeof getApiV1EventsIdPerformingRightsRate>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdPerformingRightsRate>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1EventsIdPerformingRightsRate>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1EventsIdPerformingRightsRate>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1EventsIdPerformingRightsRate<TData = Awaited<ReturnType<typeof getApiV1EventsIdPerformingRightsRate>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdPerformingRightsRate>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1EventsIdPerformingRightsRate<TData = Awaited<ReturnType<typeof getApiV1EventsIdPerformingRightsRate>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdPerformingRightsRate>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1EventsIdPerformingRightsRateQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const postApiV1EventsIdSettlementCompute = (
     id: string,
  signal?: AbortSignal
 ) => {
@@ -8159,6 +8367,148 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
+    export const getApiV1EventsIdShares = (
+    id: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1EventsIdShares200Item[]>(
+      {url: `/api/v1/events/${id}/shares`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1EventsIdSharesQueryKey = (id?: string,) => {
+    return [
+    `/api/v1/events/${id}/shares`
+    ] as const;
+    }
+
+    
+export const getGetApiV1EventsIdSharesQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1EventsIdShares>>, TError = unknown>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdShares>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1EventsIdSharesQueryKey(id);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1EventsIdShares>>> = ({ signal }) => getApiV1EventsIdShares(id, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdShares>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1EventsIdSharesQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1EventsIdShares>>>
+export type GetApiV1EventsIdSharesQueryError = unknown
+
+
+export function useGetApiV1EventsIdShares<TData = Awaited<ReturnType<typeof getApiV1EventsIdShares>>, TError = unknown>(
+ id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdShares>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1EventsIdShares>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1EventsIdShares>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1EventsIdShares<TData = Awaited<ReturnType<typeof getApiV1EventsIdShares>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdShares>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1EventsIdShares>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1EventsIdShares>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1EventsIdShares<TData = Awaited<ReturnType<typeof getApiV1EventsIdShares>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdShares>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1EventsIdShares<TData = Awaited<ReturnType<typeof getApiV1EventsIdShares>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdShares>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1EventsIdSharesQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const deleteApiV1EventsIdSharesShareId = (
+    id: string,
+    shareId: string,
+ ) => {
+      
+      
+      return customFetch<void>(
+      {url: `/api/v1/events/${id}/shares/${shareId}`, method: 'DELETE'
+    },
+      );
+    }
+  
+
+
+export const getDeleteApiV1EventsIdSharesShareIdMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteApiV1EventsIdSharesShareId>>, TError,{id: string;shareId: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof deleteApiV1EventsIdSharesShareId>>, TError,{id: string;shareId: string}, TContext> => {
+
+const mutationKey = ['deleteApiV1EventsIdSharesShareId'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteApiV1EventsIdSharesShareId>>, {id: string;shareId: string}> = (props) => {
+          const {id,shareId} = props ?? {};
+
+          return  deleteApiV1EventsIdSharesShareId(id,shareId,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteApiV1EventsIdSharesShareIdMutationResult = NonNullable<Awaited<ReturnType<typeof deleteApiV1EventsIdSharesShareId>>>
+    
+    export type DeleteApiV1EventsIdSharesShareIdMutationError = unknown
+
+    export const useDeleteApiV1EventsIdSharesShareId = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteApiV1EventsIdSharesShareId>>, TError,{id: string;shareId: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteApiV1EventsIdSharesShareId>>,
+        TError,
+        {id: string;shareId: string},
+        TContext
+      > => {
+
+      const mutationOptions = getDeleteApiV1EventsIdSharesShareIdMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
     export const getApiV1SharesToken = (
     token: string,
  signal?: AbortSignal
@@ -8234,6 +8584,92 @@ export function useGetApiV1SharesToken<TData = Awaited<ReturnType<typeof getApiV
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetApiV1SharesTokenQueryOptions(token,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const getApiV1SharesTokenDocument = (
+    token: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1SharesTokenDocument200>(
+      {url: `/api/v1/shares/${token}/document`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1SharesTokenDocumentQueryKey = (token?: string,) => {
+    return [
+    `/api/v1/shares/${token}/document`
+    ] as const;
+    }
+
+    
+export const getGetApiV1SharesTokenDocumentQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1SharesTokenDocument>>, TError = unknown>(token: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1SharesTokenDocument>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1SharesTokenDocumentQueryKey(token);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1SharesTokenDocument>>> = ({ signal }) => getApiV1SharesTokenDocument(token, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(token), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1SharesTokenDocument>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1SharesTokenDocumentQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1SharesTokenDocument>>>
+export type GetApiV1SharesTokenDocumentQueryError = unknown
+
+
+export function useGetApiV1SharesTokenDocument<TData = Awaited<ReturnType<typeof getApiV1SharesTokenDocument>>, TError = unknown>(
+ token: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1SharesTokenDocument>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1SharesTokenDocument>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1SharesTokenDocument>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1SharesTokenDocument<TData = Awaited<ReturnType<typeof getApiV1SharesTokenDocument>>, TError = unknown>(
+ token: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1SharesTokenDocument>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1SharesTokenDocument>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1SharesTokenDocument>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1SharesTokenDocument<TData = Awaited<ReturnType<typeof getApiV1SharesTokenDocument>>, TError = unknown>(
+ token: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1SharesTokenDocument>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1SharesTokenDocument<TData = Awaited<ReturnType<typeof getApiV1SharesTokenDocument>>, TError = unknown>(
+ token: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1SharesTokenDocument>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1SharesTokenDocumentQueryOptions(token,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -8419,6 +8855,65 @@ const {mutation: mutationOptions} = options ?
       > => {
 
       const mutationOptions = getPostApiV1SharesTokenCommentMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const postApiV1SharesTokenApprove = (
+    token: string,
+    postApiV1SharesTokenApproveBody: PostApiV1SharesTokenApproveBody,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1SharesTokenApprove200>(
+      {url: `/api/v1/shares/${token}/approve`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: postApiV1SharesTokenApproveBody, signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1SharesTokenApproveMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1SharesTokenApprove>>, TError,{token: string;data: PostApiV1SharesTokenApproveBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1SharesTokenApprove>>, TError,{token: string;data: PostApiV1SharesTokenApproveBody}, TContext> => {
+
+const mutationKey = ['postApiV1SharesTokenApprove'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1SharesTokenApprove>>, {token: string;data: PostApiV1SharesTokenApproveBody}> = (props) => {
+          const {token,data} = props ?? {};
+
+          return  postApiV1SharesTokenApprove(token,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1SharesTokenApproveMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1SharesTokenApprove>>>
+    export type PostApiV1SharesTokenApproveMutationBody = PostApiV1SharesTokenApproveBody
+    export type PostApiV1SharesTokenApproveMutationError = unknown
+
+    export const usePostApiV1SharesTokenApprove = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1SharesTokenApprove>>, TError,{token: string;data: PostApiV1SharesTokenApproveBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1SharesTokenApprove>>,
+        TError,
+        {token: string;data: PostApiV1SharesTokenApproveBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1SharesTokenApproveMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }
@@ -9867,7 +10362,206 @@ export function useGetApiV1AdminAudit<TData = Awaited<ReturnType<typeof getApiV1
 
 
 
-export const getApiV1InsightsProfilesIdSummary = (
+export const getApiV1AdminPerformingRightsRates = (
+    
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1AdminPerformingRightsRates200Item[]>(
+      {url: `/api/v1/admin/performing-rights-rates`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1AdminPerformingRightsRatesQueryKey = () => {
+    return [
+    `/api/v1/admin/performing-rights-rates`
+    ] as const;
+    }
+
+    
+export const getGetApiV1AdminPerformingRightsRatesQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1AdminPerformingRightsRates>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1AdminPerformingRightsRates>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1AdminPerformingRightsRatesQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1AdminPerformingRightsRates>>> = ({ signal }) => getApiV1AdminPerformingRightsRates(signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1AdminPerformingRightsRates>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1AdminPerformingRightsRatesQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1AdminPerformingRightsRates>>>
+export type GetApiV1AdminPerformingRightsRatesQueryError = unknown
+
+
+export function useGetApiV1AdminPerformingRightsRates<TData = Awaited<ReturnType<typeof getApiV1AdminPerformingRightsRates>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1AdminPerformingRightsRates>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1AdminPerformingRightsRates>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1AdminPerformingRightsRates>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1AdminPerformingRightsRates<TData = Awaited<ReturnType<typeof getApiV1AdminPerformingRightsRates>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1AdminPerformingRightsRates>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1AdminPerformingRightsRates>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1AdminPerformingRightsRates>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1AdminPerformingRightsRates<TData = Awaited<ReturnType<typeof getApiV1AdminPerformingRightsRates>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1AdminPerformingRightsRates>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1AdminPerformingRightsRates<TData = Awaited<ReturnType<typeof getApiV1AdminPerformingRightsRates>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1AdminPerformingRightsRates>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1AdminPerformingRightsRatesQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const putApiV1AdminPerformingRightsRatesCountry = (
+    country: string,
+    putApiV1AdminPerformingRightsRatesCountryBody: PutApiV1AdminPerformingRightsRatesCountryBody,
+ ) => {
+      
+      
+      return customFetch<PutApiV1AdminPerformingRightsRatesCountry200>(
+      {url: `/api/v1/admin/performing-rights-rates/${country}`, method: 'PUT',
+      headers: {'Content-Type': 'application/json', },
+      data: putApiV1AdminPerformingRightsRatesCountryBody
+    },
+      );
+    }
+  
+
+
+export const getPutApiV1AdminPerformingRightsRatesCountryMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putApiV1AdminPerformingRightsRatesCountry>>, TError,{country: string;data: PutApiV1AdminPerformingRightsRatesCountryBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof putApiV1AdminPerformingRightsRatesCountry>>, TError,{country: string;data: PutApiV1AdminPerformingRightsRatesCountryBody}, TContext> => {
+
+const mutationKey = ['putApiV1AdminPerformingRightsRatesCountry'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof putApiV1AdminPerformingRightsRatesCountry>>, {country: string;data: PutApiV1AdminPerformingRightsRatesCountryBody}> = (props) => {
+          const {country,data} = props ?? {};
+
+          return  putApiV1AdminPerformingRightsRatesCountry(country,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PutApiV1AdminPerformingRightsRatesCountryMutationResult = NonNullable<Awaited<ReturnType<typeof putApiV1AdminPerformingRightsRatesCountry>>>
+    export type PutApiV1AdminPerformingRightsRatesCountryMutationBody = PutApiV1AdminPerformingRightsRatesCountryBody
+    export type PutApiV1AdminPerformingRightsRatesCountryMutationError = unknown
+
+    export const usePutApiV1AdminPerformingRightsRatesCountry = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putApiV1AdminPerformingRightsRatesCountry>>, TError,{country: string;data: PutApiV1AdminPerformingRightsRatesCountryBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof putApiV1AdminPerformingRightsRatesCountry>>,
+        TError,
+        {country: string;data: PutApiV1AdminPerformingRightsRatesCountryBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPutApiV1AdminPerformingRightsRatesCountryMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const deleteApiV1AdminPerformingRightsRatesCountry = (
+    country: string,
+ ) => {
+      
+      
+      return customFetch<void>(
+      {url: `/api/v1/admin/performing-rights-rates/${country}`, method: 'DELETE'
+    },
+      );
+    }
+  
+
+
+export const getDeleteApiV1AdminPerformingRightsRatesCountryMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteApiV1AdminPerformingRightsRatesCountry>>, TError,{country: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof deleteApiV1AdminPerformingRightsRatesCountry>>, TError,{country: string}, TContext> => {
+
+const mutationKey = ['deleteApiV1AdminPerformingRightsRatesCountry'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteApiV1AdminPerformingRightsRatesCountry>>, {country: string}> = (props) => {
+          const {country} = props ?? {};
+
+          return  deleteApiV1AdminPerformingRightsRatesCountry(country,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteApiV1AdminPerformingRightsRatesCountryMutationResult = NonNullable<Awaited<ReturnType<typeof deleteApiV1AdminPerformingRightsRatesCountry>>>
+    
+    export type DeleteApiV1AdminPerformingRightsRatesCountryMutationError = unknown
+
+    export const useDeleteApiV1AdminPerformingRightsRatesCountry = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteApiV1AdminPerformingRightsRatesCountry>>, TError,{country: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteApiV1AdminPerformingRightsRatesCountry>>,
+        TError,
+        {country: string},
+        TContext
+      > => {
+
+      const mutationOptions = getDeleteApiV1AdminPerformingRightsRatesCountryMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const getApiV1InsightsProfilesIdSummary = (
     id: string,
  signal?: AbortSignal
 ) => {

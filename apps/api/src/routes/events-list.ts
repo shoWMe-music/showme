@@ -1,5 +1,5 @@
 import { schema } from "@showme/db";
-import { and, asc, eq, exists, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, eq, exists, getTableColumns, inArray, isNull, ne, not, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -47,8 +47,24 @@ const StatusFilter = z.preprocess(
   z.array(EventStatus).min(1),
 );
 
+/**
+ * What to do about events the caller has FILED AWAY (`event_participants.archived_at`,
+ * migration 0020).
+ *
+ * `exclude` is the default and the point of the feature: an archived event leaves
+ * the everyday list. `only` is the way back — the Events screen's "Archived" chip
+ * — because a feature that hides things with no way to find them again is a
+ * delete that lies about itself. `include` exists for the reader that wants the
+ * whole picture in one pass (an export, a count).
+ *
+ * Orthogonal to `status` on purpose, and combinable with it: archiving is not a
+ * status (see `routes/events.ts`), so it cannot be one more value in that list.
+ */
+const ArchivedFilter = z.enum(["exclude", "include", "only"]);
+
 const ListQuery = PaginationQuery.extend({
   status: StatusFilter.optional(),
+  archived: ArchivedFilter.optional().default("exclude"),
 });
 
 const EventResponse = z.object({
@@ -73,8 +89,21 @@ const EventResponse = z.object({
   holdAutoPromote: z.boolean().optional(),
 });
 
+/**
+ * A LIST row: the event, plus the one fact that belongs to the reader rather than
+ * to the event — has the caller filed this one away?
+ *
+ * Its own schema rather than a field on `EventResponse` because `archived` is not
+ * a property of the event. The same show is archived for the venue and live for
+ * the act standing on it (`event_participants.archived_at`, migration 0020), so
+ * it can only ever be answered per request, and only where the request is "show
+ * me my events". `POST /events/:id/publish` returns the event and has no reader
+ * scope to answer it from.
+ */
+const ListEventResponse = EventResponse.extend({ archived: z.boolean() });
+
 const ListResponse = z.object({
-  items: z.array(EventResponse),
+  items: z.array(ListEventResponse),
   nextCursor: z.string().nullable(),
 });
 
@@ -98,27 +127,50 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
       const principal = request.principal;
       if (!principal) throw new Error("principal missing after authentication");
       const { database } = request.server;
-      const { cursor, limit, status } = request.query;
+      const { cursor, limit, status, archived } = request.query;
 
       // Correlated EXISTS keeps the result one row per event (a caller may reach
       // an event through several participants) while folding access into the WHERE.
-      const reachable = exists(
-        database
-          .select({ present: sql`1` })
-          .from(schema.eventParticipants)
-          .innerJoin(
-            schema.profileMembers,
-            eq(schema.profileMembers.profileId, schema.eventParticipants.profileId),
-          )
-          .where(
-            and(
-              eq(schema.eventParticipants.eventId, schema.events.id),
-              eq(schema.profileMembers.userId, principal.userId),
-              eq(schema.profileMembers.status, "active"),
-              ne(schema.eventParticipants.status, "removed"),
+      //
+      // `onlyUnfiled` adds one predicate to that same join: the row must not be
+      // one the reader FILED AWAY (`archived_at`, migration 0020). Two spellings
+      // of the one query, because "can I reach this?" and "have I put it away?"
+      // are different questions and the archived view needs both.
+      const reachableThrough = (onlyUnfiled: boolean) =>
+        exists(
+          database
+            .select({ present: sql`1` })
+            .from(schema.eventParticipants)
+            .innerJoin(
+              schema.profileMembers,
+              eq(schema.profileMembers.profileId, schema.eventParticipants.profileId),
+            )
+            .where(
+              and(
+                eq(schema.eventParticipants.eventId, schema.events.id),
+                eq(schema.profileMembers.userId, principal.userId),
+                eq(schema.profileMembers.status, "active"),
+                ne(schema.eventParticipants.status, "removed"),
+                onlyUnfiled ? isNull(schema.eventParticipants.archivedAt) : undefined,
+              ),
             ),
-          ),
-      );
+        );
+
+      const reachable = reachableThrough(false);
+      const reachableAndLive = reachableThrough(true);
+
+      /**
+       * Filed away = EVERY way the caller reaches this event is archived.
+       *
+       * The "every" matters for the reader who is on one show through two profiles
+       * (their venue and their promoter company). Filing it as the venue must not
+       * take it off the promoter's list, so the event only leaves the everyday
+       * view once there is no live route to it left.
+       */
+      const filedAway = and(reachable, not(reachableAndLive));
+
+      const archiveScope =
+        archived === "only" ? filedAway : archived === "include" ? reachable : reachableAndLive;
 
       // `created_at` is timestamptz (microsecond) but the cursor round-trips
       // through a JS Date (millisecond) — truncate the column to milliseconds so
@@ -132,10 +184,17 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
         : undefined;
 
       const rows = await database
-        .select()
+        // The event's own columns plus the one fact that belongs to the READER
+        // rather than to the row — computed in the same pass, so no screen has to
+        // infer "is this archived?" from which filter it happens to be showing.
+        .select({ ...getTableColumns(schema.events), archived: sql<boolean>`${filedAway}` })
         .from(schema.events)
         .where(
-          and(reachable, status ? inArray(schema.events.status, status) : undefined, afterCursor),
+          and(
+            archiveScope,
+            status ? inArray(schema.events.status, status) : undefined,
+            afterCursor,
+          ),
         )
         .orderBy(asc(createdAtMillis), asc(schema.events.id))
         .limit(limit + 1);
@@ -149,7 +208,7 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
       const serialized = await Promise.all(
         items.map(async (event) => {
           const capabilities = await eventCapabilities(request, event.id);
-          return serializeEvent(event, capabilities);
+          return { ...serializeEvent(event, capabilities), archived: event.archived };
         }),
       );
 

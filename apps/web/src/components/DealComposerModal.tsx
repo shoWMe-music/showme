@@ -74,7 +74,7 @@ export function DealComposerModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="New agreement"
+      title="New deal"
       width={620}
       footer={
         <>
@@ -97,7 +97,7 @@ export function DealComposerModal({
 
         <div>
           <Select
-            label="Kind of agreement"
+            label="Kind of deal"
             value={draft.type}
             onChange={(value) => composer.setType(value as DealType)}
             options={DEAL_TYPE_OPTIONS.map((option) => ({
@@ -214,8 +214,8 @@ export function DealComposerModal({
           </div>
           {entitledLineCount > 1 && (
             <FieldNote>
-              More than one party is paid by this agreement, so each states its share of the payout.
-              They have to divide it exactly — 100%.
+              More than one party is paid by this deal, so each states its share of the payout. They
+              have to divide it exactly — 100%.
             </FieldNote>
           )}
         </div>
@@ -300,7 +300,7 @@ function PartyLine({
           onChange={(value) => onRoleChange(partyKey, value as DealPartyRole)}
           options={roleOptions.map((option) => ({ value: option.value, label: option.label }))}
           searchable={false}
-          aria-label="Role on this agreement"
+          aria-label="Role on this deal"
         />
       </div>
       {showShare && isEntitled && (

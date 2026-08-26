@@ -322,10 +322,24 @@ export async function groupRoutes(fastify: FastifyInstance): Promise<void> {
     async (request) => {
       const { database } = request.server;
       const group = await loadOwnedGroup(request, request.params.gid);
-      await database
-        .insert(schema.groupProfiles)
-        .values({ groupId: group.id, profileId: request.body.profileId })
-        .onConflictDoNothing();
+      // Audited, not history: linking a group to a profile decides which events the
+      // group can later be assigned to, so it is a real authority change — but it
+      // touches no event, and an entry with a null `event_id` is a feed row nobody
+      // can scope and nobody reads. The event-side consequence is audited AND
+      // recorded as history where it happens: `group.assigned` on the event.
+      await database.transaction(async (tx) => {
+        await tx
+          .insert(schema.groupProfiles)
+          .values({ groupId: group.id, profileId: request.body.profileId })
+          .onConflictDoNothing();
+        await writeAudit(tx, request, {
+          capability: "crew.manage",
+          action: "group.profile.link",
+          targetKind: "group",
+          targetId: group.id,
+          after: { profileId: request.body.profileId },
+        });
+      });
       return loadGroupDetail(request, group);
     },
   );
@@ -337,14 +351,23 @@ export async function groupRoutes(fastify: FastifyInstance): Promise<void> {
     async (request) => {
       const { database } = request.server;
       const group = await loadOwnedGroup(request, request.params.gid);
-      await database
-        .delete(schema.groupProfiles)
-        .where(
-          and(
-            eq(schema.groupProfiles.groupId, group.id),
-            eq(schema.groupProfiles.profileId, request.params.pid),
-          ),
-        );
+      await database.transaction(async (tx) => {
+        await tx
+          .delete(schema.groupProfiles)
+          .where(
+            and(
+              eq(schema.groupProfiles.groupId, group.id),
+              eq(schema.groupProfiles.profileId, request.params.pid),
+            ),
+          );
+        await writeAudit(tx, request, {
+          capability: "crew.manage",
+          action: "group.profile.unlink",
+          targetKind: "group",
+          targetId: group.id,
+          before: { profileId: request.params.pid },
+        });
+      });
       return loadGroupDetail(request, group);
     },
   );

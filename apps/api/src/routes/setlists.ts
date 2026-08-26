@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { badRequest, forbidden, notFound } from "../errors";
+import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 
@@ -195,6 +196,21 @@ export async function setlistRoutes(fastify: FastifyInstance): Promise<void> {
           eventId,
           after: setlist,
         });
+        // Participant-scoped on the AUTHOR's participant row: the setlist is the
+        // act's own artistic content (decisions.md "Setlists"), and the read route
+        // shows it to its author, to the operators who file the PRO report, and to
+        // whoever it was explicitly shared with. The count of songs is the only
+        // number here — the titles are the content itself.
+        await writeActivity(tx, request, {
+          eventId,
+          type: "setlist.updated",
+          targetKind: "setlist",
+          targetId: participantId,
+          summary: {
+            setlistId: setlist.id,
+            itemCount: Array.isArray(items) ? items.length : 0,
+          },
+        });
         return setlist;
       });
 
@@ -240,7 +256,7 @@ export async function setlistRoutes(fastify: FastifyInstance): Promise<void> {
       const { participantId } = request.body;
 
       await requireEventCapability(request, eventId, "setlist.author");
-      await requireAuthoredSetlist(request, eventId, setlistId);
+      const setlist = await requireAuthoredSetlist(request, eventId, setlistId);
 
       // The recipient must stand on THIS event — a share is an event-scoped grant,
       // so a participant from another event is a bad request, not a 404 hunt.
@@ -286,6 +302,17 @@ export async function setlistRoutes(fastify: FastifyInstance): Promise<void> {
           eventId,
           after: { participantId },
         });
+        // A read grant on the act's own content — who may open it, and when it was
+        // opened to them. Scoped to the AUTHOR's participant row (plus the
+        // operators), so it reads as "you shared this", never as somebody else's
+        // setlist appearing in a stranger's timeline.
+        await writeActivity(tx, request, {
+          eventId,
+          type: "setlist.shared",
+          targetKind: "setlist",
+          targetId: setlist.participantId,
+          summary: { setlistId, withParticipantId: participantId },
+        });
         return inserted;
       });
 
@@ -303,7 +330,7 @@ export async function setlistRoutes(fastify: FastifyInstance): Promise<void> {
       const { id: eventId, setlistId, participantId } = request.params;
 
       await requireEventCapability(request, eventId, "setlist.author");
-      await requireAuthoredSetlist(request, eventId, setlistId);
+      const setlist = await requireAuthoredSetlist(request, eventId, setlistId);
 
       const [existing] = await database
         .select()
@@ -318,6 +345,13 @@ export async function setlistRoutes(fastify: FastifyInstance): Promise<void> {
 
       await database.transaction(async (tx) => {
         await tx.delete(schema.setlistShares).where(eq(schema.setlistShares.id, existing.id));
+        await writeActivity(tx, request, {
+          eventId,
+          type: "setlist.unshared",
+          targetKind: "setlist",
+          targetId: setlist.participantId,
+          summary: { setlistId, withParticipantId: participantId },
+        });
         await writeAudit(tx, request, {
           capability: "setlist.author",
           action: "setlist.unshare",

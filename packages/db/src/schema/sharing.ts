@@ -67,6 +67,11 @@ export const shareRecipients = pgTable(
 /**
  * A one-time passcode for a protected share. Port the constants: 6-digit
  * salted-SHA256, 10-min TTL, 3/hr, 5 attempts → HS256 JWT for 24h.
+ *
+ * The row is the THROTTLE as well as the code, which is why it is never deleted
+ * while its window is open (migration 0018). Deleting it on success — or on the
+ * fifth wrong guess — handed the next request a clean hour and a clean five
+ * guesses, so neither limit ever actually bound anything.
  */
 export const shareOtps = pgTable(
   "share_otps",
@@ -79,7 +84,14 @@ export const shareOtps = pgTable(
     codeHash: text("code_hash").notNull(),
     salt: text("salt").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    /** Wrong guesses against the code that is live right now. Max 5, then spent. */
     attempts: integer("attempts").notNull().default(0),
+    /** Codes SENT inside the current window. Max 3 — its own counter, so a fresh
+     * code cannot reset the hour by resetting `attempts`. */
+    issues: integer("issues").notNull().default(0),
+    /** Set when the code is spent — verified, or burnt out on wrong guesses. The
+     * row stays so the window survives it; verify refuses a consumed code. */
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
     rateWindowStart: timestamp("rate_window_start", { withTimezone: true }),
   },
   (table) => [unique().on(table.shareId, table.emailHash)], // one active OTP per (share, email)

@@ -4,7 +4,20 @@
   position: relative;
   display: flex;
   align-items: center;
-  border-bottom: 1px solid var(--border);
+  /* The rule under the strip is painted INSIDE the box (inset shadow) rather
+     than as a border, so the 2px active underline can sit on top of it without
+     a negative margin. A negative margin made each tab's border box hang 1px
+     below the container's content box, and since `overflow-x: auto` promotes a
+     `visible` overflow-y to `auto`, that 1px produced a real vertical scrollbar
+     on a single-line tab strip. */
+  box-shadow: inset 0 -1px 0 var(--border);
+  /* Nine tabs (the event workspace) do not fit a narrow window. Scrolling the
+     strip is the only alternative to wrapping it, and a wrapped tab strip
+     breaks the sliding indicator's single-line geometry. */
+  overflow-x: auto;
+  /* Pinned, so the promotion described above can never bring the vertical bar
+     back. */
+  overflow-y: hidden;
 }
 
 .tab {
@@ -22,23 +35,41 @@
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
-  transition: color .2s;
+  transition: color var(--duration-quick);
 }
 .tab:last-of-type { margin-right: 0; }
 .tab:hover:not(.active) { color: var(--text); }
 .tab.active { color: #EE5746; }
-.tab:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); border-radius: 4px; }
+/* The ring is drawn INSIDE the tab box (negative offset), not around it: the
+   strip clips its overflow in both axes to stay one line, and an outward ring
+   on the first or last tab would be cut in half. */
+.tab:focus-visible { outline: 2px solid var(--focus); outline-offset: -3px; border-radius: 4px; }
 
 .icon { display: inline-flex; }
 
 /* the sliding active underline — sits on the container's hairline */
 .indicator {
   position: absolute;
-  bottom: -1px;
+  bottom: 0;
   left: 0;
   width: 0;
   height: 2px;
   border-radius: 999px;
   background: #EE5746;
   pointer-events: none;
+}
+
+/* A count riding on a tab ("Event History 3"). Mono, because it is a number the
+   eye compares rather than reads. */
+.badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #EE5746;
+  color: #fff;
+  display: inline-grid;
+  place-items: center;
 }

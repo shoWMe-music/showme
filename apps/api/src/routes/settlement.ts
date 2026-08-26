@@ -200,6 +200,35 @@ function weightFromShare(share: unknown, participantId: string): number | null {
   );
 }
 
+/**
+ * The RATE on a `role_in_deal = 'commission'` party, in basis points of each payee's
+ * line on that deal.
+ *
+ * The role existed in the enum and was inert: `reconcileEvent` mapped payees only, so
+ * a commission line was a row two parties had signed that no code ever paid. This is
+ * the mapping that makes it pay (`packages/settlement/src/commissions.ts` does the
+ * arithmetic). It reuses `share.splitBasisPoints` — the share's one basis-points
+ * carrier, already written by every client and validated by `DealPartyShare` — rather
+ * than inventing a second key the writers would have to learn; on a commission line it
+ * means "of the payee's line", not "of the pool", which is the only place the two
+ * readings differ and is documented on the schema in `routes/deals.ts`.
+ *
+ * A commission party with no readable rate THROWS, for the A-01 reason: a commission
+ * that quietly resolves to zero is a party being paid nothing on an agreement they
+ * signed, and `Σ net = 0` holds perfectly either way.
+ */
+function commissionBasisPointsFromShare(share: unknown, participantId: string): number {
+  if (typeof share === "object" && share !== null) {
+    const record = share as Record<string, unknown>;
+    if (typeof record.splitBasisPoints === "number" && Number.isFinite(record.splitBasisPoints)) {
+      return record.splitBasisPoints;
+    }
+  }
+  throw badRequest(
+    `Deal party ${participantId} takes a commission but its share states no splitBasisPoints rate; refusing to settle a commission of an unknown size.`,
+  );
+}
+
 /** The engine result plus the exact FX rates it was produced with (audit A-05). */
 interface ReconciledEvent {
   result: SettlementResult;
@@ -408,6 +437,25 @@ async function reconcileEvent(
         hasShares = true;
       }
     }
+    // DISCLOSED commissions — an entitled party on this deal, paid out of each
+    // payee's line (decisions.md #14 keeps an AGENT's private representation
+    // commission out of here entirely: that settles separately, against the
+    // performer's full gross, in `syncCommissionSettlements`; and
+    // `routes/deals.ts::assertPartiesAreEntitled` refuses an agent participant
+    // any deal role but `observer`, so an agent cannot reach this list at all).
+    //
+    // Sorted by participant so the engine sees the same order on every recompute
+    // whatever order Postgres returns the rows in. It makes no difference to the
+    // amounts while commissions apply in parallel, and it is what stops the day
+    // ClickUp 86cba8wmb switches them to cascading from making a settlement depend
+    // on row order.
+    const commissions = parties
+      .filter((party) => party.roleInDeal === "commission")
+      .map((party) => ({
+        participantId: party.participantId,
+        basisPoints: commissionBasisPointsFromShare(party.share, party.participantId),
+      }))
+      .sort((left, right) => left.participantId.localeCompare(right.participantId));
     return {
       dealId: deal.id,
       structure: deal.structure,
@@ -416,6 +464,7 @@ async function reconcileEvent(
         deal.guaranteeAmount != null ? toBase(deal.guaranteeAmount, deal.currency) : undefined,
       splitBasisPoints: deal.splitBasisPoints ?? undefined,
       partyShares: hasShares ? partyShares : undefined,
+      commissions: commissions.length > 0 ? commissions : undefined,
     };
   });
 
@@ -875,7 +924,23 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           type: "settlement.overridden",
           targetKind: "settlement",
           targetId: sid,
-          summary: { overrideCount: Array.isArray(manualOverrides) ? manualOverrides.length : 0 },
+          summary: {
+            // WHICH lines the operator moved, by label — an override is the operator
+            // reaching into somebody else's money, and "something was corrected" is
+            // not an answer. Never by how much: kind `settlement` reaches the party,
+            // and the amount is the serializer's business, not the feed's. Whose
+            // settlement it was is `target_id`, not a uuid repeated in the summary.
+            overrideCount: Array.isArray(manualOverrides) ? manualOverrides.length : 0,
+            overriddenLabels: Array.isArray(manualOverrides)
+              ? manualOverrides
+                  .map((override) =>
+                    override != null && typeof override === "object" && "label" in override
+                      ? String((override as { label?: unknown }).label ?? "")
+                      : "",
+                  )
+                  .filter((label) => label.length > 0)
+              : [],
+          },
         });
         return after;
       });
@@ -945,12 +1010,21 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           })
           .returning();
         if (!row) throw new Error("approval insert failed");
+        // The consent moment, and the one the whole trail turns on if the figures
+        // are ever disputed. `settlement_approvals` records only WHO and WHEN — it
+        // has no `confirmed_snapshot` the way a deal does, and the numbers stay
+        // editable right up to finalize. So the forensic entry carries the figures
+        // AS THEY STOOD when the signature was given: `before` is the settlement
+        // the party was actually looking at, overrides included. Without it, "what
+        // did they agree to" can only be re-derived by replaying every budget-line
+        // audit row up to this timestamp.
         await writeAudit(tx, request, {
           capability: "settlement.confirm",
           action: "settlement.confirm",
           targetKind: "settlement",
           targetId: sid,
           eventId: id,
+          before: serializeSettlement(settlement),
           after: row,
         });
         // An approval is a signature — the one settlement step that is a decision
@@ -961,7 +1035,13 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           type: "settlement.confirmed",
           targetKind: "settlement",
           targetId: sid,
-          summary: { approved: row.approved },
+          // Deliberately NO participant or settlement uuid here. `target_id` above
+          // already carries the settlement, which is where an id belongs, and the
+          // route refuses any settlement but the caller's own — so `actor_display`
+          // answers "who signed" with a NAME, which is what a person reading a
+          // timeline can actually use. A summary is for people; ids are for the
+          // audit trail, and `audit_log` has them plus the figures as they stood.
+          summary: { approved: row.approved, settlementStatus: settlement.status },
         });
         return row;
       });

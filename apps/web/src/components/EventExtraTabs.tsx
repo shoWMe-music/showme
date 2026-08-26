@@ -9,6 +9,7 @@ import {
 import { Avatar, Icon } from "@showme/design-system";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { describeActivity } from "./eventHistory";
 import {
   GlyphButton,
   GradientButton,
@@ -298,9 +299,11 @@ function SubToggle({
         gap: 8,
         padding: "10px 16px",
         borderRadius: 10,
-        border: active ? "1px solid #EE5746" : "1px solid var(--border)",
-        background: active ? "color-mix(in srgb,#EE5746 8%,transparent)" : "var(--surface)",
-        color: active ? "#EE5746" : "var(--text)",
+        border: active ? "1px solid var(--brand-red)" : "1px solid var(--border)",
+        background: active
+          ? "color-mix(in srgb,var(--brand-red) 8%,transparent)"
+          : "var(--surface)",
+        color: active ? "var(--brand-red)" : "var(--text)",
         fontSize: 13,
         fontWeight: 500,
         cursor: "pointer",
@@ -319,15 +322,42 @@ const DEFAULT_HISTORY_ICON: HistoryIcon = {
   color: "#EE5746",
   tint: "color-mix(in srgb,#EE5746 14%,transparent)",
 };
+const PEOPLE_HISTORY_ICON: HistoryIcon = {
+  name: "users",
+  color: "#6FC97A",
+  tint: "color-mix(in srgb,#6FC97A 16%,transparent)",
+};
+const MONEY_HISTORY_ICON: HistoryIcon = {
+  name: "file",
+  color: "#F4A046",
+  tint: "color-mix(in srgb,#F4A046 16%,transparent)",
+};
+const TIME_HISTORY_ICON: HistoryIcon = {
+  name: "clock",
+  color: "#6aa5d8",
+  tint: "color-mix(in srgb,#6aa5d8 16%,transparent)",
+};
+/** The act's own material — what the performer brings, rather than what the operator runs. */
+const ARTIST_HISTORY_ICON: HistoryIcon = {
+  name: "music",
+  color: "#B48BE0",
+  tint: "color-mix(in srgb,#B48BE0 16%,transparent)",
+};
+/** One icon per activity `targetKind` — every kind the API can write has an entry. */
 const HISTORY_ICON: Record<string, HistoryIcon> = {
   event: DEFAULT_HISTORY_ICON,
-  schedule: { name: "clock", color: "#6aa5d8", tint: "color-mix(in srgb,#6aa5d8 16%,transparent)" },
-  deal: { name: "file", color: "#F4A046", tint: "color-mix(in srgb,#F4A046 16%,transparent)" },
-  participant: {
-    name: "users",
-    color: "#6FC97A",
-    tint: "color-mix(in srgb,#6FC97A 16%,transparent)",
-  },
+  hold: DEFAULT_HISTORY_ICON,
+  schedule: TIME_HISTORY_ICON,
+  task: TIME_HISTORY_ICON,
+  deal: MONEY_HISTORY_ICON,
+  budget: MONEY_HISTORY_ICON,
+  settlement: MONEY_HISTORY_ICON,
+  transfer: MONEY_HISTORY_ICON,
+  participant: PEOPLE_HISTORY_ICON,
+  invitation: PEOPLE_HISTORY_ICON,
+  share: PEOPLE_HISTORY_ICON,
+  rider: ARTIST_HISTORY_ICON,
+  setlist: ARTIST_HISTORY_ICON,
 };
 
 export function EventHistoryTab({ eventId }: { eventId: string }) {
@@ -406,23 +436,4 @@ export function EventHistoryTab({ eventId }: { eventId: string }) {
       })}
     </div>
   );
-}
-
-/** Best-effort humanization of an activity row (type + summary jsonb). */
-function describeActivity(type: string, summary: unknown): { title: string; lines: string[] } {
-  const humanType = type.replace(/[._]/g, " ").replace(/^\w/, (c) => c.toUpperCase());
-  if (summary && typeof summary === "object") {
-    const record = summary as Record<string, unknown>;
-    const title =
-      typeof record.title === "string"
-        ? record.title
-        : typeof record.message === "string"
-          ? record.message
-          : humanType;
-    const lines = Array.isArray(record.lines)
-      ? record.lines.filter((line): line is string => typeof line === "string")
-      : [];
-    return { title, lines };
-  }
-  return { title: humanType, lines: [] };
 }

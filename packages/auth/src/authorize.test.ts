@@ -3,7 +3,13 @@ import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { authorizeEvent, effectiveEventCapabilities } from "./authorize";
-import { PRESET_PERMISSION_SETS, baselineCapabilities, isGrantable, roleFilter } from "./presets";
+import {
+  PRESET_PERMISSION_SETS,
+  baselineCapabilities,
+  dealPartyBaselineCapabilities,
+  isGrantable,
+  roleFilter,
+} from "./presets";
 import { resolvePrincipal } from "./principal";
 
 /**
@@ -106,6 +112,76 @@ describe("setlist authorship — the act's own content (A-23)", () => {
     expect(isGrantable("setlist.author", "agent")).toBe(false);
     expect(isGrantable("setlist.author", "crew")).toBe(false);
     expect(isGrantable("setlist.author", "crew_lead")).toBe(false);
+  });
+});
+
+/**
+ * The owner's call, 2026-08-26: *"crew can confirm an agreement if it is with them.
+ * If they are the payee."*
+ *
+ * Before it, a venue↔crew deal was a DEAD END. `CREW_FLOOR` and `crew_schedule_only`
+ * carry no `agreement.confirm`, and a deal freezes only once every non-observer party
+ * has signed — so the operator could send it and nothing on the platform could ever
+ * move it to `confirmed`.
+ *
+ * The fix is deliberately not a floor grant. Crew still hold no `agreement.confirm`
+ * on the EVENT, because that capability is also what `POST /events/:id/hold/confirm`
+ * gates on — whether the show happens is the act's call, never the sound engineer's.
+ */
+describe("the deal-scoped confirm — crew sign the agreement that is with them", () => {
+  it("stays out of the crew floor and out of every crew preset (event scope unchanged)", () => {
+    expect(baselineCapabilities("crew")).not.toContain("agreement.confirm");
+    expect(baselineCapabilities("crew_lead")).not.toContain("agreement.confirm");
+    expect(PRESET_PERMISSION_SETS.crew_schedule_only).not.toContain("agreement.confirm");
+    expect(PRESET_PERMISSION_SETS.crew_technical).not.toContain("agreement.confirm");
+  });
+
+  it("gives a crew signatory the confirm on that one agreement", () => {
+    expect(dealPartyBaselineCapabilities("crew", "payee")).toContain("agreement.confirm");
+    expect(dealPartyBaselineCapabilities("crew_lead", "payee")).toContain("agreement.confirm");
+    // A crew lead sub-hiring their own team is the PAYER on that deal, and signs it.
+    expect(dealPartyBaselineCapabilities("crew_lead", "payer")).toContain("agreement.confirm");
+    expect(dealPartyBaselineCapabilities("crew", "split_member")).toContain("agreement.confirm");
+  });
+
+  it("gives an observer nothing — a shared deal is watched, not signed (decisions #4)", () => {
+    expect(dealPartyBaselineCapabilities("crew", "observer")).toEqual([]);
+    expect(dealPartyBaselineCapabilities("crew_lead", "observer")).toEqual([]);
+  });
+
+  it("gives no OTHER event role anything — the event floor already answers for them", () => {
+    // Performers and operators already carry `agreement.confirm` from floor/preset,
+    // so re-granting here would be noise. The load-bearing case is `performer`: a
+    // DELEGATED performer's floor deliberately drops the capability (decisions #14),
+    // and they are still the payee on their own line — a deal-scoped re-grant would
+    // silently revoke the delegation the agent's whole authority rests on.
+    for (const roleInDeal of ["payer", "payee", "split_member", "commission"] as const) {
+      expect(dealPartyBaselineCapabilities("performer", roleInDeal)).toEqual([]);
+      expect(dealPartyBaselineCapabilities("support", roleInDeal)).toEqual([]);
+      expect(dealPartyBaselineCapabilities("host", roleInDeal)).toEqual([]);
+      expect(dealPartyBaselineCapabilities("co_host", roleInDeal)).toEqual([]);
+      expect(dealPartyBaselineCapabilities("agent", roleInDeal)).toEqual([]);
+    }
+  });
+
+  it("stays under the ceiling — it can never confer pool or artistic capabilities", () => {
+    const roles = [
+      "host",
+      "co_host",
+      "performer",
+      "support",
+      "crew_lead",
+      "crew",
+      "agent",
+    ] as const;
+    const dealRoles = ["payer", "payee", "split_member", "commission", "observer"] as const;
+    for (const role of roles) {
+      for (const roleInDeal of dealRoles) {
+        for (const capability of dealPartyBaselineCapabilities(role, roleInDeal)) {
+          expect(isGrantable(capability, role)).toBe(true);
+        }
+      }
+    }
   });
 });
 
@@ -360,6 +436,80 @@ describe("decisions #4 — floor and ceiling", () => {
     expect(caps.has("schedule.view")).toBe(true); // a grantable cap survives
   });
 
+  /**
+   * The ceiling's whole point (story.md): a performer sees their own slice "even if
+   * an operator *wanted* to show them". The meeting's "transparency options — let an
+   * operator share additional financial information" is therefore NOT a thing an
+   * operator may do to an arm's-length party, and the ceiling is where that is
+   * enforced rather than hoped for.
+   *
+   * `settlement.edit` was the hole. `POST /events/:id/settlement/compute` gates on
+   * it and answers with the event POOL plus every party's breakdown — unscoped,
+   * because the operator is the only caller it was written for. No preset hands it
+   * to a performer, but a hand-rolled permission set could, and before this the
+   * engine would have let it through.
+   */
+  it("refuses an arm's-length party the SETTLEMENT pool, however the set is written", async () => {
+    const { db } = harness;
+    const operator = await seedMember("fc4-op", "operator");
+    const performer = await seedMember("fc4-perf", "performer");
+    const crew = await seedMember("fc4-crew", "team_and_crew");
+    const agent = await seedMember("fc4-agent", "agent");
+    const event = await seedEvent(operator.profile.id, operator.user.id, "Pool ceiling");
+
+    // The set an operator would write if they decided to "share more".
+    const generous = [
+      "event.view",
+      "budget.view",
+      "revenue.edit",
+      "settlement.edit",
+      "settlement.finalize",
+      "settlement.view.own",
+    ];
+
+    for (const [member, role] of [
+      [performer, "performer"],
+      [crew, "crew"],
+      [agent, "agent"],
+    ] as const) {
+      const set = await seedPermissionSet(member.profile.id, `generous-${role}`, [...generous]);
+      await db.insert(schema.eventParticipants).values({
+        eventId: event.id,
+        profileId: member.profile.id,
+        role,
+        permissionSetId: set.id,
+      });
+      const principal = await resolvePrincipal(db, member.user.id);
+      if (!principal) throw new Error("principal not resolved");
+      const caps = await effectiveEventCapabilities(db, principal, event.id);
+      expect(caps.has("budget.view")).toBe(false);
+      expect(caps.has("revenue.edit")).toBe(false);
+      expect(caps.has("settlement.edit")).toBe(false);
+      expect(caps.has("settlement.finalize")).toBe(false);
+      // What is legitimately theirs survives — this is a ceiling, not a mute. (An
+      // `agent` row is skipped entirely without a live representation behind it,
+      // decisions #14, so it has no floor to keep.)
+      if (role !== "agent") expect(caps.has("settlement.view.own")).toBe(true);
+    }
+
+    // And the ceiling is a pure function, so state it directly too.
+    for (const capability of [
+      "budget.view",
+      "budget.edit",
+      "revenue.edit",
+      "settlement.edit",
+      "settlement.finalize",
+    ] as const) {
+      expect(isGrantable(capability, "host")).toBe(true);
+      expect(isGrantable(capability, "co_host")).toBe(true);
+      expect(isGrantable(capability, "performer")).toBe(false);
+      expect(isGrantable(capability, "support")).toBe(false);
+      expect(isGrantable(capability, "crew")).toBe(false);
+      expect(isGrantable(capability, "crew_lead")).toBe(false);
+      expect(isGrantable(capability, "agent")).toBe(false);
+    }
+  });
+
   it("lets a managing operator hold budget access", async () => {
     const { db } = harness;
     const operator = await seedMember("fc3-op", "operator");
@@ -378,6 +528,7 @@ describe("decisions #4 — floor and ceiling", () => {
     if (!principal) throw new Error("principal not resolved");
     const caps = await effectiveEventCapabilities(db, principal, event.id);
     expect(caps.has("budget.view")).toBe(true);
+    expect(caps.has("settlement.edit")).toBe(true);
     expect(caps.has("settlement.finalize")).toBe(true);
   });
 });

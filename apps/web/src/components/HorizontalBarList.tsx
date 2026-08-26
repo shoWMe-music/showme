@@ -53,7 +53,7 @@ export function HorizontalBarList({ items, format, eyebrow }: HorizontalBarListP
               style={{
                 height: 8,
                 borderRadius: 999,
-                background: "var(--elevated)",
+                background: "var(--shape-fill)",
                 overflow: "hidden",
               }}
             >

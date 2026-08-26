@@ -114,7 +114,7 @@ function ReportCard({
           <span
             style={{
               ...NEUTRAL_PILL,
-              background: "var(--elevated)",
+              background: "var(--shape-fill)",
               border: "1px solid var(--border)",
               color: "var(--muted)",
             }}
@@ -218,7 +218,7 @@ function ReportsScreen() {
           display: "flex",
           alignItems: "center",
           gap: 10,
-          background: "var(--elevated)",
+          background: "var(--card)",
           border: "1px solid var(--border)",
           borderRadius: 12,
           padding: "12px 16px",

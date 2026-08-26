@@ -40,7 +40,7 @@
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  transition: color 0.2s;
+  transition: color var(--duration-quick) var(--ease-out);
 }
 
 .trigger:hover:not(:disabled) {

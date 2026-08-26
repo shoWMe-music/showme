@@ -84,7 +84,7 @@ export function ExternalCalendarCard({
       )}
 
       {view.error && (
-        <p style={{ margin: 0, fontSize: 12, color: "#EE5746" }} role="alert">
+        <p style={{ margin: 0, fontSize: 12, color: "var(--brand-red)" }} role="alert">
           {view.error}
         </p>
       )}
@@ -108,7 +108,13 @@ function ExternalEntryRow({
       <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
         <span
           aria-hidden
-          style={{ width: 9, height: 9, borderRadius: 3, background: "#B8A99B", flexShrink: 0 }}
+          style={{
+            width: 9,
+            height: 9,
+            borderRadius: 3,
+            background: "var(--ink-300)",
+            flexShrink: 0,
+          }}
         />
         <span
           style={{
@@ -188,6 +194,6 @@ function linkButtonStyle(disabled: boolean): React.CSSProperties {
     cursor: disabled ? "default" : "pointer",
     fontSize: 12,
     fontWeight: 500,
-    color: disabled ? "var(--dim)" : "#EE5746",
+    color: disabled ? "var(--dim)" : "var(--brand-red)",
   };
 }

@@ -7,10 +7,17 @@ import { PerformingRightsEstimateCard } from "./PerformingRightsEstimateCard";
 import type {
   BreakEvenDisplay,
   BreakdownDisplayRow,
+  DealFigureWarning,
   PerformingRightsDisplay,
 } from "./budgetPlannerView";
 import { Eyebrow } from "./primitives";
-import type { BudgetAttributionOption, BudgetDealOption, CostBearing } from "./useBudgetEditor";
+import type {
+  BudgetAttributionOption,
+  BudgetDealOption,
+  CostBearing,
+  CostDealLink,
+} from "./useBudgetEditor";
+import { linkedDealId } from "./useBudgetEditor";
 
 export interface TicketTypeRow {
   id: string;
@@ -29,14 +36,21 @@ export interface CostRow {
   value: string;
   /** Only a custom row carries a remove control — see `useBudgetEditor`. */
   isCustom?: boolean;
-  /** Printed as the row's pill. Custom rows only. */
-  type?: "manual" | "per_guest";
   /** Who fronted the cash; "" falls back to the planning operator. */
   paidBy?: string;
   /** Who ultimately carries it — shared, one bearer, or a split. */
   bearing?: CostBearing;
-  /** The agreement this cost is booked against, or "". */
-  dealId?: string;
+  /** Which deal this cost names, and in which sense. Absent reads as none. */
+  dealLink?: CostDealLink;
+  /**
+   * Set on a row READ FROM A DEAL rather than stored — the performer fee taken
+   * live from the guarantee. Such a row has no `budget_lines` row behind it, so
+   * there is nothing to edit here, nothing to attribute and nothing to remove:
+   * the operator changes the figure by changing the deal, which is where the
+   * figure actually lives. It still counts in every total, because the forecast
+   * would otherwise be short by the largest cost of the night.
+   */
+  readFromDeal?: { dealNames: string[] };
 }
 
 /** A free-form revenue row the operator named ("+ Add Field"). */
@@ -44,7 +58,6 @@ export interface CustomRevenueRow {
   id: string;
   label: string;
   value: string;
-  type?: "manual" | "per_guest";
   /** The participant who receives it; "" falls back to the planning operator. */
   collectedBy?: string;
 }
@@ -83,6 +96,12 @@ export interface BudgetPlannerProps {
   revenueSources: BreakdownDisplayRow[];
   costBreakdown: BreakdownDisplayRow[];
   performingRights: PerformingRightsDisplay;
+  /**
+   * Cost rows that claim to be a deal's own figure and state a different one,
+   * keyed by row key. Absent for every row that agrees with its deal — this is a
+   * warning, so a row only carries one when something is actually wrong.
+   */
+  dealFigureWarnings?: Record<string, DealFigureWarning>;
   currencySymbol?: string;
   advisory?: string;
   /**
@@ -104,7 +123,7 @@ export interface BudgetPlannerProps {
   onCustomRevenueCollectedByChange?: (id: string, participantId: string) => void;
   onCostPaidByChange?: (key: string, participantId: string) => void;
   onCostBearingChange?: (key: string, bearing: CostBearing) => void;
-  onCostDealChange?: (key: string, dealId: string) => void;
+  onCostDealLinkChange?: (key: string, link: CostDealLink) => void;
   /** Opens the split dialog for one cost row. */
   onEditCostSplit?: (key: string) => void;
   onTicketChange?: (
@@ -153,6 +172,7 @@ export function BudgetPlanner({
   revenueSources,
   costBreakdown,
   performingRights,
+  dealFigureWarnings = {},
   currencySymbol = "€",
   advisory = "This is an estimate only and should be reviewed before final decisions.",
   participants = [],
@@ -165,7 +185,7 @@ export function BudgetPlanner({
   onCustomRevenueCollectedByChange,
   onCostPaidByChange,
   onCostBearingChange,
-  onCostDealChange,
+  onCostDealLinkChange,
   onEditCostSplit,
   onTicketChange,
   onAddTicketType,
@@ -206,7 +226,7 @@ export function BudgetPlanner({
           display: "flex",
           alignItems: "center",
           gap: 10,
-          background: "rgba(244,160,70,.12)",
+          background: "color-mix(in srgb, var(--brand-amber) 12%, transparent)",
         }}
       >
         <span style={{ color: "#F4A046", display: "inline-flex" }}>
@@ -345,7 +365,6 @@ export function BudgetPlanner({
             <div key={row.id} style={{ display: "flex", flexDirection: "column", gap: 7 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ flex: 1, color: "var(--text)", fontSize: 14 }}>{row.label}</span>
-                <span style={typePillStyle}>{typeLabel(row.type)}</span>
                 {money(
                   row.value,
                   (value) => onCustomRevenueChange?.(row.id, value),
@@ -390,15 +409,14 @@ export function BudgetPlanner({
             <div key={cost.key} style={{ display: "flex", flexDirection: "column", gap: 7 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ flex: 1, color: "var(--text)", fontSize: 14 }}>{cost.label}</span>
-                {/* Only a custom row is typed and removable — the six standing
-                  headings are fixed, because the screen promises to show them. */}
-                {cost.isCustom && <span style={typePillStyle}>{typeLabel(cost.type)}</span>}
-                {money(
-                  cost.value,
-                  (value) => onCostChange?.(cost.key, value),
-                  `${cost.label} amount`,
-                )}
-                {cost.isCustom && onRemoveCost && (
+                {cost.readFromDeal
+                  ? readOnlyMoney(cost.value, currencySymbol)
+                  : money(
+                      cost.value,
+                      (value) => onCostChange?.(cost.key, value),
+                      `${cost.label} amount`,
+                    )}
+                {cost.isCustom && !cost.readFromDeal && onRemoveCost && (
                   <button
                     type="button"
                     aria-label={`Remove ${cost.label}`}
@@ -409,23 +427,34 @@ export function BudgetPlanner({
                   </button>
                 )}
               </div>
-              <CostAttribution
-                participants={participants}
-                deals={deals}
-                paidBy={cost.paidBy ?? ""}
-                fallbackParticipantId={defaultParticipantId}
-                bearing={cost.bearing ?? { kind: "shared" }}
-                dealId={cost.dealId ?? ""}
-                onPaidByChange={(participantId) => onCostPaidByChange?.(cost.key, participantId)}
-                onBearingChange={(bearing) => onCostBearingChange?.(cost.key, bearing)}
-                onEditSplit={() => onEditCostSplit?.(cost.key)}
-                onDealChange={(dealId) => onCostDealChange?.(cost.key, dealId)}
-                rowLabel={cost.label}
-              />
-              {cost.dealId && (
-                <DealAssignmentNote
-                  dealName={deals.find((deal) => deal.id === cost.dealId)?.name ?? "this agreement"}
-                />
+              {cost.readFromDeal ? (
+                <ReadFromDealNote dealNames={cost.readFromDeal.dealNames} />
+              ) : (
+                <>
+                  <CostAttribution
+                    participants={participants}
+                    deals={deals}
+                    paidBy={cost.paidBy ?? ""}
+                    fallbackParticipantId={defaultParticipantId}
+                    bearing={cost.bearing ?? { kind: "shared" }}
+                    dealLink={cost.dealLink ?? { kind: "none" }}
+                    onPaidByChange={(participantId) =>
+                      onCostPaidByChange?.(cost.key, participantId)
+                    }
+                    onBearingChange={(bearing) => onCostBearingChange?.(cost.key, bearing)}
+                    onEditSplit={() => onEditCostSplit?.(cost.key)}
+                    onDealLinkChange={(link) => onCostDealLinkChange?.(cost.key, link)}
+                    rowLabel={cost.label}
+                  />
+                  <DealAssignmentNote
+                    link={cost.dealLink ?? { kind: "none" }}
+                    dealName={
+                      deals.find((deal) => deal.id === linkedDealId(cost.dealLink))?.name ??
+                      "this deal"
+                    }
+                  />
+                  <DealFigureDriftWarning warning={dealFigureWarnings[cost.key]} />
+                </>
               )}
             </div>
           ))}
@@ -517,30 +546,118 @@ export function BudgetPlanner({
   );
 }
 
+/**
+ * THE ROW SAYS ONE FIGURE, THE DEAL SAYS ANOTHER.
+ *
+ * A row marked "this IS the deal's figure" is dropped at the settlement boundary
+ * — the deal is the authority on what the deal pays — so a row that disagrees
+ * with its deal is an operator planning against a number they will not be settled
+ * on. The `DealAssignmentNote` above explains that MECHANISM on every such row;
+ * this appears only when the two have actually drifted, and names both figures so
+ * the operator knows which one wins and what to do about it.
+ *
+ * A WARNING, NEVER A BLOCK. Nothing here refuses a keystroke or a save: modelling
+ * a fee you have not agreed yet is ordinary mid-negotiation work, and a planner
+ * that would not let you type it would be worse than one that tells you the deal
+ * still says something else.
+ *
+ * On the row rather than in a banner, and in the house treatment the rest of the
+ * app already uses for an inline warning (`EventPublishPanel`'s BlockedNotice):
+ * amber tint, amber hairline, the `alert` glyph.
+ */
+function DealFigureDriftWarning({ warning }: { warning?: DealFigureWarning }) {
+  // Absent is the ordinary case — a row that agrees with its deal, or one that
+  // names no deal at all — so the nothing-to-say branch lives here rather than as
+  // a condition repeated at the call site.
+  if (!warning) return null;
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 9,
+        background: "color-mix(in srgb,var(--brand-amber) 12%,transparent)",
+        border: "1px solid color-mix(in srgb,var(--brand-amber) 30%,transparent)",
+        borderRadius: 11,
+        padding: "10px 13px",
+        color: "#c8842f",
+        fontSize: 12.5,
+        lineHeight: 1.5,
+      }}
+    >
+      <Icon name="alert" size={16} />
+      <span>
+        This row forecasts <strong>{warning.plannedLabel}</strong>, but “{warning.dealName}” says{" "}
+        <strong>{warning.dealLabel}</strong> — and the settlement uses the deal. Change the deal if
+        the fee moved, or change this row if it did not.
+      </span>
+    </div>
+  );
+}
+
+/**
+ * A figure the planner shows but does not own — right-aligned mono, no box.
+ *
+ * Deliberately NOT a disabled `<Input>`: a greyed-out field says "you may not
+ * edit this", and the truth is different — this figure is editable, on the deal.
+ * A plain readout carries no promise of a cursor, and the note under it says
+ * where to go.
+ */
+function readOnlyMoney(value: string, currencySymbol: string) {
+  return (
+    <span
+      style={{
+        width: 130,
+        textAlign: "right",
+        fontFamily: "var(--font-mono)",
+        fontSize: 13,
+        color: "var(--text)",
+        paddingRight: 2,
+      }}
+    >
+      {value === "" ? "—" : `${currencySymbol} ${value}`}
+    </span>
+  );
+}
+
+/**
+ * Where a read-only cost figure comes from, and how to change it.
+ *
+ * Named in full, and named per deal: a bill with a headliner and a support act
+ * shows one "Performer fee" row, and the operator has to be able to see which
+ * agreements it adds up.
+ */
+function ReadFromDealNote({ dealNames }: { dealNames: string[] }) {
+  const quoted = dealNames.map((name) => `“${name}”`);
+  const named =
+    quoted.length > 1
+      ? `${quoted.slice(0, -1).join(", ")} and ${quoted[quoted.length - 1]}`
+      : (quoted[0] ?? "the deal");
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        fontSize: 11.5,
+        color: "var(--dim)",
+        paddingLeft: 2,
+      }}
+    >
+      <Icon name="link" size={12} />
+      Read from {dealNames.length > 1 ? "the deals" : "the deal"} {named}. Nothing is stored on the
+      budget, so the settlement takes {dealNames.length > 1 ? "these figures" : "this figure"} from
+      the {dealNames.length > 1 ? "deals" : "deal"} — change it there.
+    </div>
+  );
+}
+
 const sectionHeadingStyle = {
   fontFamily: "var(--font-display)",
   fontWeight: 600,
   fontSize: 14,
   color: "var(--text)",
   margin: 0,
-} as const;
-
-/** What a custom row's pill prints — the `type` of the handoff's `{name, type, amount}`. */
-function typeLabel(type: "manual" | "per_guest" | undefined): string {
-  return type === "per_guest" ? "Per guest" : "Manual";
-}
-
-/** The prototype's small uppercase pill on a custom row. */
-const typePillStyle = {
-  fontFamily: "var(--font-mono)",
-  fontSize: 9,
-  padding: "2px 7px",
-  borderRadius: 999,
-  background: "var(--elevated)",
-  color: "var(--muted)",
-  textTransform: "uppercase",
-  letterSpacing: ".08em",
-  whiteSpace: "nowrap",
 } as const;
 
 const iconButtonStyle = {

@@ -10,6 +10,7 @@ import { CalendarFilterChip } from "../components/CalendarFilterChip";
 import { CalendarItemCreateModal } from "../components/CalendarItemCreateModal";
 import { CalendarWeekGrid } from "../components/CalendarWeekGrid";
 import { DateTimeField } from "../components/DateTimeField";
+import type { EventMenuItem } from "../components/EventRowMenu";
 import { ExternalCalendarCard } from "../components/ExternalCalendarCard";
 import { MarkUnavailableModal } from "../components/MarkUnavailableModal";
 import { MyCalendarsCard } from "../components/MyCalendarsCard";
@@ -30,6 +31,7 @@ import { useExternalCalendarEntries } from "../components/useExternalCalendarEnt
 import { blocksOverlappingRange, useMarkUnavailable } from "../components/useMarkUnavailable";
 import { useAvailabilityShare } from "../hooks/useAvailabilityShare";
 import { useCalendarSources } from "../hooks/useCalendarSources";
+import { useEventArchive } from "../hooks/useEventArchive";
 import { type EventItem, useAllEvents } from "../hooks/useEventList";
 import { buildCalendarInventory, placeEvents } from "../lib/calendarInventory";
 import { apiStatusToDisplay } from "../lib/status";
@@ -191,10 +193,14 @@ function toolbarButtonStyle(): React.CSSProperties {
 /** The Performer… / Venue-Room… text filter fields. */
 function filterInputStyle(): React.CSSProperties {
   return {
-    border: "1px solid var(--border)",
-    background: "var(--elevated)",
+    border: "1px solid var(--control-border)",
+    background: "var(--control-surface)",
     borderRadius: 10,
     padding: "9px 13px",
+    // One height for every control — see tokens.css. Without it this field sat
+    // shorter than the Select and the date fields beside it on the same row.
+    minHeight: "var(--control-height)",
+    lineHeight: "var(--control-line-height)",
     color: "var(--text)",
     fontSize: 12.5,
     outline: "none",
@@ -209,6 +215,10 @@ function filterChipStyle(): React.CSSProperties {
     alignItems: "center",
     gap: 7,
     padding: "9px 14px",
+    // These open a menu, so they are a select by another name — and they share a
+    // row with the two text filters and the date field. One height for every
+    // control, or the row does not line up (measured 35 against their 40).
+    minHeight: "var(--control-height)",
     borderRadius: 10,
     border: "1px solid var(--border)",
     background: "var(--surface)",
@@ -228,7 +238,7 @@ function primaryButtonStyle(): React.CSSProperties {
     padding: "9px 15px",
     borderRadius: 10,
     border: 0,
-    background: "linear-gradient(135deg,#EE5746,#F4A046)",
+    background: "linear-gradient(135deg,var(--brand-red),var(--brand-amber))",
     color: "#fff",
     fontSize: 13,
     fontWeight: 600,
@@ -256,7 +266,7 @@ function segmentContainerStyle(): React.CSSProperties {
   return {
     display: "flex",
     gap: 2,
-    background: "var(--elevated)",
+    background: "var(--shape-fill)",
     border: "1px solid var(--border)",
     borderRadius: 10,
     padding: 3,
@@ -272,7 +282,7 @@ function segmentButtonStyle(active: boolean, weight: number): React.CSSPropertie
     fontWeight: weight,
     cursor: "pointer",
     border: 0,
-    background: active ? "#EE5746" : "transparent",
+    background: active ? "var(--brand-red)" : "transparent",
     color: active ? "#fff" : "var(--muted)",
   };
 }
@@ -287,6 +297,7 @@ function CalendarGridForView({
   labelMode,
   onSelectDay,
   onSelectEvent,
+  eventMenuItems,
 }: {
   view: CalendarView;
   anchorDate: Date;
@@ -294,6 +305,7 @@ function CalendarGridForView({
   labelMode: CalendarLabelMode;
   onSelectDay: (dayKey: string, anchor: DOMRect) => void;
   onSelectEvent: (eventId: string) => void;
+  eventMenuItems: (event: CalendarEvent) => EventMenuItem[];
 }) {
   if (view === "week") {
     return (
@@ -303,6 +315,7 @@ function CalendarGridForView({
         labelMode={labelMode}
         onSelectDay={onSelectDay}
         onSelectEvent={onSelectEvent}
+        eventMenuItems={eventMenuItems}
       />
     );
   }
@@ -314,6 +327,7 @@ function CalendarGridForView({
         labelMode={labelMode}
         onSelectDay={onSelectDay}
         onSelectEvent={onSelectEvent}
+        eventMenuItems={eventMenuItems}
       />
     );
   }
@@ -325,6 +339,7 @@ function CalendarGridForView({
       showLegend={false}
       onSelectDay={onSelectDay}
       onSelectEvent={onSelectEvent}
+      eventMenuItems={eventMenuItems}
     />
   );
 }
@@ -470,6 +485,11 @@ export function Calendar() {
   // route that actually knows about them.
   const share = useAvailabilityShare(events.items, calendarSources.sources);
 
+  // Filing a show away from the calendar. Same hook, same toast (with its Undo)
+  // and same cache invalidation as the Events screen — archiving is one act with
+  // one set of consequences, however the reader reached it.
+  const archive = useEventArchive();
+
   const periodTitle = viewTitle(view, anchorDate);
 
   // The rail's read-out: every calendar the reader has and what each is holding
@@ -563,6 +583,19 @@ export function Calendar() {
     const parsed = new Date(year, month - 1, day);
     if (!Number.isNaN(parsed.getTime())) setAnchorDate(parsed);
   };
+
+  /**
+   * The ⋮ on a calendar entry.
+   *
+   * Only real EVENTS get one: a task, an appointment, a note or an imported
+   * entry has no `eventId`, is not an event, and has nothing to file away. An
+   * entry drawn here is never already archived — the grid reads `useAllEvents`,
+   * which leaves filed-away shows out — so the menu always offers Archive and
+   * the way back lives on the Events screen's Archived filter, which is where the
+   * toast points.
+   */
+  const eventMenuItems = (entry: CalendarEvent): EventMenuItem[] =>
+    entry.eventId ? archive.menuItems({ id: entry.eventId, title: entry.eventName }) : [];
 
   const isPending = calendar.isPending || events.isPending;
 
@@ -845,6 +878,7 @@ export function Calendar() {
               anchorDate={anchorDate}
               events={visibleEvents}
               labelMode={labelMode}
+              eventMenuItems={eventMenuItems}
               onSelectEvent={(eventId) => navigate({ to: "/events/$eventId", params: { eventId } })}
               onSelectDay={(selectedDayKey, anchor) =>
                 setCreateAt({ dayKey: selectedDayKey, anchor })
@@ -913,7 +947,7 @@ export function Calendar() {
                   all: "unset",
                   cursor: "pointer",
                   fontSize: 12,
-                  color: "#EE5746",
+                  color: "var(--brand-red)",
                   fontWeight: 500,
                 }}
               >

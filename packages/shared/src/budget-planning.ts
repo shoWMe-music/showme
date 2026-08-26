@@ -184,3 +184,41 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
     costPerGuest: totalCosts / guests,
   };
 }
+
+/** A row marked as a deal's own figure, and the deal it disagrees with. */
+export interface DealFigureDisagreement {
+  /** What the planner is forecasting — the figure typed on the budget row. */
+  readonly planned: bigint;
+  /** What the settlement will actually use — the deal's own amount. */
+  readonly deal: bigint;
+}
+
+/**
+ * A budget row that CLAIMS to be a deal's own figure but states a different one.
+ *
+ * The dangerous silence this closes: a row assigned to a deal as *"this IS the
+ * deal's figure"* is dropped at the settlement boundary, because the deal is the
+ * authority on what the deal pays. So the operator plans against the number on
+ * the row and gets settled on the number in the deal. When those two drift apart
+ * — a fee renegotiated on the deal after the budget was written, or a placeholder
+ * typed while the terms were still being argued — nothing anywhere said so. The
+ * planner simply forecast one figure while the settlement stood ready to move
+ * another.
+ *
+ * Both sides are MINOR UNITS as bigint, and compared as integers (money.md).
+ * Never format first and compare strings: `3000` and `3,000` and `3000.00` are
+ * the same money and three different strings, and a rounded display figure would
+ * hide a disagreement of up to half a unit — which is the one comparison this
+ * function exists to get right.
+ *
+ * `null` when there is nothing to warn about: the amounts agree, or the deal
+ * states no amount of its own (a pure split has no figure to disagree with).
+ */
+export function dealFigureDisagreement(
+  planned: bigint,
+  deal: bigint | null | undefined,
+): DealFigureDisagreement | null {
+  if (deal == null) return null;
+  if (planned === deal) return null;
+  return { planned, deal };
+}

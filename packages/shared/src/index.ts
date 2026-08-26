@@ -3,6 +3,8 @@ export {
   type BudgetInputs,
   type BudgetProjection,
   computeBudgetProjection,
+  type DealFigureDisagreement,
+  dealFigureDisagreement,
   type PaymentProcessingAssumption,
   type TicketTier,
 } from "./budget-planning";
@@ -31,8 +33,15 @@ export {
 } from "./break-even-chart";
 export {
   estimatePerformingRightsFee,
+  findPerformingRightsRate,
+  isProCode,
   PERFORMING_RIGHTS_PLANNING_RATE_BASIS_POINTS,
   type PerformingRightsFeeEstimate,
+  type PerformingRightsRate,
+  type PerformingRightsTariffSource,
+  type PerformingRightsTerritory,
+  PRO_CODES,
+  type ProCode,
 } from "./performing-rights";
 export {
   type E2eAccount,

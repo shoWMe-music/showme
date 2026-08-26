@@ -1,13 +1,16 @@
-import { Badge, Icon } from "@showme/design-system";
+import { Avatar, type AvatarTone, Badge, Card, Select } from "@showme/design-system";
 import { relativeTime } from "../lib/format";
-import { CommentThread, type ThreadComment } from "./CommentThread";
+import { CommentThread } from "./CommentThread";
+import styles from "./MessageSurface.module.css";
 import { ErrorState, LoadingState } from "./states";
-import { type MessageThread, useEventMessageThreads } from "./useEventMessageThreads";
+import {
+  type MessageThread,
+  type MessagesTabParty,
+  useEventMessageThreads,
+} from "./useEventMessageThreads";
+import { useMessageRailMode } from "./useMessageSurface";
 
-export interface MessagesTabParty {
-  id: string;
-  name: string;
-}
+export type { MessagesTabParty } from "./useEventMessageThreads";
 
 /**
  * Messages — one thread per party, not one thread per event.
@@ -20,6 +23,10 @@ export interface MessagesTabParty {
  * That is deliberate: the operator is in most of these threads, and a thread that
  * looks private but is not is worse than no thread. So nothing here is labelled
  * "private" — it is labelled with the people who can read it.
+ *
+ * Both halves live on ONE surface. Choosing a conversation is part of being in the
+ * conversation, so the chooser sits inside the same container as the messages,
+ * divided from them by a hairline rather than by a gap.
  */
 export function EventMessagesTab({
   eventId,
@@ -29,48 +36,118 @@ export function EventMessagesTab({
   /** Participants by id, for naming a message's sender. */
   roster: MessagesTabParty[];
 }) {
-  const { threads, messages, selected, selectKey, draft, setDraft, post } =
-    useEventMessageThreads(eventId);
+  const { threads, messages, comments, selected, selectKey, draft, setDraft, post } =
+    useEventMessageThreads(eventId, roster);
+  const { containerRef, isNarrow } = useMessageRailMode();
 
   if (threads.isPending) return <LoadingState label="Loading messages" />;
   if (threads.isError) return <ErrorState error={threads.error} title="Couldn't load messages" />;
 
+  // There is deliberately NO "no conversations at all" state here. It cannot
+  // happen: the event room is unconditional for anyone who passed `event.view`
+  // (`visibleThreads` in apps/api/src/lib/message-threads.ts), so a caller who
+  // can see this tab always has at least one thread. A conversation with no
+  // MESSAGES yet is the empty state that is real, and it belongs to the thread.
   const items = threads.data ?? [];
 
   return (
-    <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
-      <nav
-        aria-label="Message threads"
-        style={{ flex: "1 1 240px", minWidth: 240, display: "grid", gap: 8 }}
+    <div ref={containerRef}>
+      <Card
+        padding="none"
+        className={[styles.surface, isNarrow && styles.surfaceNarrow].filter(Boolean).join(" ")}
       >
-        {items.map((thread) => (
-          <ThreadRow
-            key={thread.key}
-            thread={thread}
-            active={thread.key === selected?.key}
-            onSelect={() => selectKey(thread.key)}
-          />
-        ))}
-      </nav>
-
-      <div style={{ flex: "3 1 380px", minWidth: 300 }}>
-        {selected && <ThreadPane thread={selected} />}
-        {messages.isPending && selected ? (
-          <LoadingState label="Loading thread" />
-        ) : messages.isError ? (
-          <ErrorState error={messages.error} title="Couldn't load this thread" />
+        {isNarrow ? (
+          <ThreadSelector threads={items} selectedKey={selected?.key} onSelect={selectKey} />
         ) : (
-          <CommentThread
-            comments={toComments(messages.data ?? [], roster)}
-            draft={draft}
-            onDraftChange={setDraft}
-            onSubmit={() => draft.trim() && post.mutate(draft.trim())}
-            readOnly={!selected?.canPost}
-            placeholder={`Message ${selected?.title ?? ""}…`}
-            submitLabel={post.isPending ? "Sending…" : "Send"}
-          />
+          <ThreadRail threads={items} selectedKey={selected?.key} onSelect={selectKey} />
         )}
-      </div>
+
+        {/* Keyed on the thread: switching remounts the pane, which is what plays
+            the cross-fade and what re-opens the new conversation at its newest
+            message. The fade is opacity only and suspends nothing, so the
+            composer takes a keystroke on the first frame. */}
+        <section
+          key={selected?.key ?? "none"}
+          aria-label="Conversation"
+          className={[styles.conversation, styles.conversationEnter].join(" ")}
+        >
+          {selected && <ConversationHeader thread={selected} />}
+          {messages.isPending && selected ? (
+            <div className={styles.conversationFill}>
+              <LoadingState label="Loading thread" />
+            </div>
+          ) : messages.isError ? (
+            <div className={styles.conversationFill}>
+              <ErrorState error={messages.error} title="Couldn't load this thread" />
+            </div>
+          ) : (
+            <CommentThread
+              comments={comments}
+              draft={draft}
+              onDraftChange={setDraft}
+              onSubmit={() => draft.trim() && post.mutate(draft.trim())}
+              readOnly={!selected?.canPost}
+              isSubmitting={post.isPending}
+              placeholder={`Message ${selected?.title ?? ""}…`}
+              emptyDescription={
+                selected?.canPost
+                  ? `Nothing here yet. Anything you write is read by ${readerSummary(selected)}.`
+                  : "Nothing has been said in this conversation yet."
+              }
+            />
+          )}
+        </section>
+      </Card>
+    </div>
+  );
+}
+
+/** The rail: every conversation, one row each, scrolling on its own. */
+function ThreadRail({
+  threads,
+  selectedKey,
+  onSelect,
+}: {
+  threads: MessageThread[];
+  selectedKey: string | undefined;
+  onSelect: (key: string) => void;
+}) {
+  return (
+    <nav aria-label="Message threads" className={styles.rail}>
+      {threads.map((thread) => (
+        <ThreadRow
+          key={thread.key}
+          thread={thread}
+          active={thread.key === selectedKey}
+          onSelect={() => onSelect(thread.key)}
+        />
+      ))}
+    </nav>
+  );
+}
+
+/**
+ * The rail, once there is no room for a rail. One control, one line tall — the
+ * conversation keeps every other pixel, which is the half you came to read.
+ */
+function ThreadSelector({
+  threads,
+  selectedKey,
+  onSelect,
+}: {
+  threads: MessageThread[];
+  selectedKey: string | undefined;
+  onSelect: (key: string) => void;
+}) {
+  return (
+    <div className={styles.selectorBar}>
+      <Select
+        aria-label="Conversation"
+        value={selectedKey ?? ""}
+        onChange={onSelect}
+        options={threads.map((thread) => ({ value: thread.key, label: thread.title }))}
+        searchable={threads.length > 8}
+      />
     </div>
   );
 }
@@ -89,99 +166,54 @@ function ThreadRow({
     <button
       type="button"
       onClick={onSelect}
-      aria-current={active}
-      style={{
-        textAlign: "left",
-        display: "flex",
-        gap: 10,
-        padding: "12px 14px",
-        borderRadius: 12,
-        border: active ? "1px solid #EE5746" : "1px solid var(--border)",
-        background: active ? "color-mix(in srgb,#EE5746 8%,transparent)" : "var(--card)",
-        color: "var(--text)",
-        cursor: "pointer",
-      }}
+      aria-current={active ? "true" : undefined}
+      className={[styles.threadRow, active && styles.threadRowActive].filter(Boolean).join(" ")}
     >
-      <span style={{ color: active ? "#EE5746" : "var(--muted)", flexShrink: 0, marginTop: 1 }}>
-        <Icon name={scopeIcon(thread.scope)} size={16} />
-      </span>
-      <span style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-          <span style={{ fontWeight: 600, fontSize: 13.5 }}>{thread.title}</span>
+      <Avatar
+        initials={railInitials(thread)}
+        tone={scopeTone(thread.scope)}
+        shape="circle"
+        size={32}
+      />
+      <span className={styles.threadText}>
+        <span className={styles.threadTitle}>
+          <span className={styles.threadName}>{thread.title}</span>
           {thread.messageCount > 0 && (
-            <span style={{ color: "var(--dim)", fontSize: 11.5 }}>
-              {thread.messageCount} · {relativeTime(thread.lastMessageAt ?? "")}
-            </span>
+            <span className={styles.threadMeta}>{relativeTime(thread.lastMessageAt ?? "")}</span>
           )}
         </span>
-        <span
-          style={{
-            display: "block",
-            color: "var(--muted)",
-            fontSize: 12,
-            marginTop: 2,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {readerSummary(thread)}
-        </span>
+        <span className={styles.threadReaders}>{readerSummary(thread)}</span>
       </span>
     </button>
   );
 }
 
 /** The header above the open thread — the reader list again, in full, never elided. */
-function ThreadPane({ thread }: { thread: MessageThread }) {
+function ConversationHeader({ thread }: { thread: MessageThread }) {
   return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <h3
-          style={{
-            fontFamily: "var(--font-display)",
-            fontWeight: 600,
-            fontSize: 17,
-            margin: 0,
-            color: "var(--text)",
-          }}
-        >
-          {thread.title}
-        </h3>
+    <header className={styles.conversationHeader}>
+      <div className={styles.conversationTitleRow}>
+        <h3 className={styles.conversationTitle}>{thread.title}</h3>
         <Badge status={thread.scope === "operators" ? "pending" : "confirmed"} dot>
           {scopeLabel(thread.scope)}
         </Badge>
       </div>
-      <p style={{ color: "var(--muted)", fontSize: 12.5, margin: "4px 0 0" }}>
-        Read by {readerSummary(thread)}.
-      </p>
-    </div>
+      <p className={styles.conversationReaders}>Read by {readerSummary(thread)}.</p>
+    </header>
   );
 }
 
-function toComments(
-  messages: { id: string; body: string; createdAt: string; senderParticipantId: string | null }[],
-  roster: MessagesTabParty[],
-): ThreadComment[] {
-  return messages.map((message) => {
-    const author =
-      roster.find((party) => party.id === message.senderParticipantId)?.name ?? "Member";
-    return {
-      id: message.id,
-      author,
-      initials: initials(author),
-      time: relativeTime(message.createdAt),
-      body: message.body,
-    };
-  });
-}
-
-function initials(label: string): string {
+/**
+ * A party thread is a PERSON, so it gets a person's two initials. The event room
+ * and the back office are PLACES — "Operators only" as "OO" reads like someone's
+ * name — so they get one letter.
+ */
+function railInitials(thread: MessageThread): string {
+  const words = thread.title.split(/\s+/).filter(Boolean);
+  const wanted = thread.scope === "party" ? 2 : 1;
   return (
-    label
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
+    words
+      .slice(0, wanted)
       .map((word) => word[0]?.toUpperCase() ?? "")
       .join("") || "?"
   );
@@ -201,8 +233,10 @@ function scopeLabel(scope: MessageThread["scope"]): string {
   return "Party thread";
 }
 
-function scopeIcon(scope: MessageThread["scope"]): "users" | "settings" | "mail" {
-  if (scope === "all") return "users";
-  if (scope === "operators") return "settings";
-  return "mail";
+/** The rail's avatar carries the scope as colour, so the glyph the row used to
+ * spend a column on is not lost when the row gains a face. */
+function scopeTone(scope: MessageThread["scope"]): AvatarTone {
+  if (scope === "all") return "blue";
+  if (scope === "operators") return "amber";
+  return "brand";
 }

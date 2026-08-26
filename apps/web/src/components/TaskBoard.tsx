@@ -83,7 +83,7 @@ export function TaskBoard({ columns, onMove, onEdit, isMoving }: TaskBoardProps)
         gap: 14,
         overflowX: "auto",
         opacity: isMoving ? 0.65 : 1,
-        transition: "opacity .15s",
+        transition: "opacity var(--duration-quick) var(--ease-out)",
       }}
     >
       {columns.map((column) => {
@@ -110,7 +110,8 @@ export function TaskBoard({ columns, onMove, onEdit, isMoving }: TaskBoardProps)
               borderRadius: 16,
               padding: 14,
               minHeight: 220,
-              transition: "border-color .15s, box-shadow .15s",
+              transition:
+                "border-color var(--duration-quick) var(--ease-out), box-shadow var(--duration-quick) var(--ease-out)",
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
@@ -224,7 +225,7 @@ function TaskBoardCard({
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       style={{
-        background: "var(--elevated)",
+        background: "var(--card)",
         border: "1px solid var(--border)",
         borderRadius: 12,
         padding: 12,

@@ -700,6 +700,16 @@
             "in": "query",
             "name": "status",
             "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": ["exclude", "include", "only"],
+              "default": "exclude"
+            },
+            "in": "query",
+            "name": "archived",
+            "required": false
           }
         ],
         "responses": {
@@ -759,6 +769,9 @@
                           },
                           "holdAutoPromote": {
                             "type": "boolean"
+                          },
+                          "archived": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -772,7 +785,8 @@
                           "venueProfileId",
                           "venueName",
                           "stageId",
-                          "version"
+                          "version",
+                          "archived"
                         ],
                         "additionalProperties": false
                       }
@@ -1460,6 +1474,88 @@
                     }
                   },
                   "required": ["id", "deleted"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/events/{id}/archive": {
+      "post": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "archived": {
+                      "type": "boolean"
+                    },
+                    "archivedAt": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": ["id", "archived", "archivedAt"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/events/{id}/unarchive": {
+      "post": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "archived": {
+                      "type": "boolean"
+                    },
+                    "archivedAt": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": ["id", "archived", "archivedAt"],
                   "additionalProperties": false
                 }
               }
@@ -3335,6 +3431,10 @@
                               "type": "string",
                               "nullable": true
                             },
+                            "attributedDealId": {
+                              "type": "string",
+                              "nullable": true
+                            },
                             "details": {
                               "type": "object",
                               "properties": {
@@ -3380,6 +3480,7 @@
                             "payeeParticipantId",
                             "costSplit",
                             "dealId",
+                            "attributedDealId",
                             "details",
                             "version"
                           ],
@@ -3543,6 +3644,10 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "attributedDealId": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "details": {
                             "type": "object",
                             "properties": {
@@ -3588,6 +3693,7 @@
                           "payeeParticipantId",
                           "costSplit",
                           "dealId",
+                          "attributedDealId",
                           "details",
                           "version"
                         ],
@@ -3781,6 +3887,10 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "attributedDealId": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "details": {
                             "type": "object",
                             "properties": {
@@ -3826,6 +3936,7 @@
                           "payeeParticipantId",
                           "costSplit",
                           "dealId",
+                          "attributedDealId",
                           "details",
                           "version"
                         ],
@@ -3933,6 +4044,10 @@
                         "type": "string",
                         "nullable": true
                       },
+                      "attributedDealId": {
+                        "type": "string",
+                        "nullable": true
+                      },
                       "details": {
                         "type": "object",
                         "properties": {
@@ -3978,6 +4093,7 @@
                       "payeeParticipantId",
                       "costSplit",
                       "dealId",
+                      "attributedDealId",
                       "details",
                       "version"
                     ],
@@ -4043,6 +4159,10 @@
                     "nullable": true
                   },
                   "dealId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "attributedDealId": {
                     "type": "string",
                     "format": "uuid"
                   },
@@ -4159,6 +4279,10 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "attributedDealId": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "details": {
                       "type": "object",
                       "properties": {
@@ -4204,6 +4328,7 @@
                     "payeeParticipantId",
                     "costSplit",
                     "dealId",
+                    "attributedDealId",
                     "details",
                     "version"
                   ],
@@ -4266,6 +4391,11 @@
                     "nullable": true
                   },
                   "dealId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": true
+                  },
+                  "attributedDealId": {
                     "type": "string",
                     "format": "uuid",
                     "nullable": true
@@ -4394,6 +4524,10 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "attributedDealId": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "details": {
                       "type": "object",
                       "properties": {
@@ -4439,6 +4573,7 @@
                     "payeeParticipantId",
                     "costSplit",
                     "dealId",
+                    "attributedDealId",
                     "details",
                     "version"
                   ],
@@ -4508,6 +4643,72 @@
                     }
                   },
                   "required": ["deleted"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/events/{id}/performing-rights-rate": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "country": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "rate": {
+                      "type": "object",
+                      "properties": {
+                        "proCode": {
+                          "type": "string"
+                        },
+                        "proName": {
+                          "type": "string"
+                        },
+                        "rateBasisPoints": {
+                          "type": "number"
+                        },
+                        "sourceUrl": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "sourceNote": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "proCode",
+                        "proName",
+                        "rateBasisPoints",
+                        "sourceUrl",
+                        "sourceNote"
+                      ],
+                      "additionalProperties": false,
+                      "nullable": true
+                    }
+                  },
+                  "required": ["country", "rate"],
                   "additionalProperties": false
                 }
               }
@@ -11388,35 +11589,28 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "id": {
-                      "type": "string"
+                    "status": {
+                      "type": "string",
+                      "enum": ["pending", "accepted", "declined", "revoked", "expired", "used"]
                     },
                     "type": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "string"
+                      "type": "string",
+                      "enum": ["profile_member", "event_participant", "code"]
                     },
                     "source": {
-                      "type": "string"
+                      "type": "string",
+                      "enum": ["collaborator", "admin", "team", "venue_handoff", "performer_offer"]
                     },
-                    "code": {
+                    "role": {
                       "type": "string",
                       "nullable": true
                     },
-                    "token": {
+                    "targetKind": {
                       "type": "string",
+                      "enum": ["event", "profile"],
                       "nullable": true
                     },
-                    "recipientEmail": {
-                      "type": "string",
-                      "nullable": true
-                    },
-                    "recipientName": {
-                      "type": "string",
-                      "nullable": true
-                    },
-                    "targetProfileId": {
+                    "targetName": {
                       "type": "string",
                       "nullable": true
                     },
@@ -11424,28 +11618,55 @@
                       "type": "string",
                       "nullable": true
                     },
-                    "role": {
+                    "inviterName": {
                       "type": "string",
                       "nullable": true
                     },
-                    "permissionSetId": {
+                    "recipientName": {
                       "type": "string",
                       "nullable": true
+                    },
+                    "recipientEmail": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "boundToEmail": {
+                      "type": "boolean"
+                    },
+                    "claimable": {
+                      "type": "boolean"
+                    },
+                    "viewer": {
+                      "type": "object",
+                      "properties": {
+                        "signedIn": {
+                          "type": "boolean"
+                        },
+                        "emailMatches": {
+                          "type": "boolean"
+                        },
+                        "emailVerified": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["signedIn", "emailMatches", "emailVerified"],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
-                    "id",
-                    "type",
                     "status",
+                    "type",
                     "source",
-                    "code",
-                    "token",
-                    "recipientEmail",
-                    "recipientName",
-                    "targetProfileId",
-                    "targetEventId",
                     "role",
-                    "permissionSetId"
+                    "targetKind",
+                    "targetName",
+                    "targetEventId",
+                    "inviterName",
+                    "recipientName",
+                    "recipientEmail",
+                    "boundToEmail",
+                    "claimable",
+                    "viewer"
                   ],
                   "additionalProperties": false
                 }
@@ -13247,7 +13468,7 @@
                 "properties": {
                   "targetKind": {
                     "type": "string",
-                    "minLength": 1
+                    "enum": ["event", "schedule", "riders", "budget", "deal", "settlement"]
                   },
                   "targetId": {
                     "type": "string",
@@ -13321,6 +13542,149 @@
             }
           }
         }
+      },
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "token": {
+                        "type": "string"
+                      },
+                      "targetKind": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "targetId": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "capabilities": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "access": {
+                        "type": "string"
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      },
+                      "expiresAt": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "revokedAt": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "recipients": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "email": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "isParty": {
+                              "type": "boolean"
+                            },
+                            "invitedAt": {
+                              "type": "string"
+                            },
+                            "lastSeenAt": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "claimed": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "email",
+                            "name",
+                            "isParty",
+                            "invitedAt",
+                            "lastSeenAt",
+                            "claimed"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "token",
+                      "targetKind",
+                      "targetId",
+                      "capabilities",
+                      "access",
+                      "createdAt",
+                      "expiresAt",
+                      "revokedAt",
+                      "recipients"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/events/{id}/shares/{shareId}": {
+      "delete": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "shareId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
       }
     },
     "/api/v1/shares/{token}": {
@@ -13360,6 +13724,505 @@
                     }
                   },
                   "required": ["targetKind", "targetId", "capabilities"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shares/{token}/document": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "token",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "capabilities": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "targetKind": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "targetId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "sharedBy": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "viewer": {
+                      "type": "object",
+                      "properties": {
+                        "email": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "name": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "isParty": {
+                          "type": "boolean"
+                        },
+                        "partyName": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "partyRole": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "claimed": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["email", "name", "isParty", "partyName", "partyRole", "claimed"],
+                      "additionalProperties": false
+                    },
+                    "event": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "eventDate": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "doorTime": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "startTime": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "endTime": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "timezone": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "venueName": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "capacity": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "baseCurrency": {
+                          "type": "string"
+                        },
+                        "notes": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "status",
+                        "eventDate",
+                        "doorTime",
+                        "startTime",
+                        "endTime",
+                        "timezone",
+                        "venueName",
+                        "capacity",
+                        "baseCurrency",
+                        "notes"
+                      ],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
+                    "schedule": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "localDateTime": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "duration": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "category": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "localDateTime",
+                          "duration",
+                          "label",
+                          "description",
+                          "category"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "nullable": true
+                    },
+                    "riders": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": ["id", "type", "name", "description"],
+                        "additionalProperties": false
+                      },
+                      "nullable": true
+                    },
+                    "budget": {
+                      "type": "object",
+                      "properties": {
+                        "currency": {
+                          "type": "string"
+                        },
+                        "revenueTotal": {
+                          "type": "string"
+                        },
+                        "costTotal": {
+                          "type": "string"
+                        },
+                        "lines": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "amount": {
+                                "type": "string"
+                              },
+                              "currency": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            },
+                            "required": ["id", "kind", "label", "amount", "currency"],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": ["currency", "revenueTotal", "costTotal", "lines"],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
+                    "deals": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string"
+                          },
+                          "structure": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "currency": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "guaranteeAmount": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "splitBasisPoints": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "paymentTiming": {
+                            "type": "string"
+                          },
+                          "agreementStatus": {
+                            "type": "string"
+                          },
+                          "agreementBodyText": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "parties": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "participantId": {
+                                  "type": "string"
+                                },
+                                "roleInDeal": {
+                                  "type": "string"
+                                },
+                                "share": {
+                                  "nullable": true
+                                },
+                                "confirmedAt": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "isYours": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "participantId",
+                                "roleInDeal",
+                                "confirmedAt",
+                                "isYours"
+                              ],
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "type",
+                          "structure",
+                          "currency",
+                          "guaranteeAmount",
+                          "splitBasisPoints",
+                          "paymentTiming",
+                          "agreementStatus",
+                          "agreementBodyText",
+                          "parties"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "nullable": true
+                    },
+                    "settlement": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "currency": {
+                          "type": "string"
+                        },
+                        "entitlement": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "collected": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "paid": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "held": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "net": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "transfers": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "direction": {
+                                "type": "string",
+                                "enum": ["incoming", "outgoing"]
+                              },
+                              "amount": {
+                                "type": "string"
+                              },
+                              "currency": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "state": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["id", "direction", "amount", "currency", "state"],
+                            "additionalProperties": false
+                          }
+                        },
+                        "approvedAt": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "status",
+                        "currency",
+                        "entitlement",
+                        "collected",
+                        "paid",
+                        "held",
+                        "net",
+                        "transfers",
+                        "approvedAt"
+                      ],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
+                    "comments": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "section": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "authorName": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "authorEmail": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "message": {
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "isYours": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "section",
+                          "authorName",
+                          "authorEmail",
+                          "message",
+                          "createdAt",
+                          "isYours"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "nullable": true
+                    },
+                    "actions": {
+                      "type": "object",
+                      "properties": {
+                        "canComment": {
+                          "type": "boolean"
+                        },
+                        "canConfirmSettlement": {
+                          "type": "boolean"
+                        },
+                        "canConfirmAgreement": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["canComment", "canConfirmSettlement", "canConfirmAgreement"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "capabilities",
+                    "targetKind",
+                    "targetId",
+                    "sharedBy",
+                    "expiresAt",
+                    "viewer",
+                    "event",
+                    "schedule",
+                    "riders",
+                    "budget",
+                    "deals",
+                    "settlement",
+                    "comments",
+                    "actions"
+                  ],
                   "additionalProperties": false
                 }
               }
@@ -13491,7 +14354,12 @@
                 "properties": {
                   "message": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "section": {
+                    "type": "string",
+                    "enum": ["event", "schedule", "riders", "budget", "deal", "settlement"]
                   }
                 },
                 "required": ["message"],
@@ -13524,6 +14392,62 @@
                     }
                   },
                   "required": ["id"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shares/{token}/approve": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "subject": {
+                    "type": "string",
+                    "enum": ["settlement", "agreement"]
+                  },
+                  "dealId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": ["subject"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "token",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "approvedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["approvedAt"],
                   "additionalProperties": false
                 }
               }
@@ -15165,6 +16089,192 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/performing-rights-rates": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "country": {
+                        "type": "string"
+                      },
+                      "proCode": {
+                        "type": "string"
+                      },
+                      "proName": {
+                        "type": "string"
+                      },
+                      "rateBasisPoints": {
+                        "type": "number"
+                      },
+                      "sourceUrl": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "sourceNote": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "updatedBy": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "updatedAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "country",
+                      "proCode",
+                      "proName",
+                      "rateBasisPoints",
+                      "sourceUrl",
+                      "sourceNote",
+                      "updatedBy",
+                      "updatedAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/performing-rights-rates/{country}": {
+      "put": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "proCode": {
+                    "type": "string",
+                    "enum": ["stim", "gema", "prs", "none"],
+                    "default": "none"
+                  },
+                  "proName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "rateBasisPoints": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  },
+                  "sourceUrl": {
+                    "type": "string",
+                    "format": "uri",
+                    "maxLength": 2048,
+                    "nullable": true
+                  },
+                  "sourceNote": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "nullable": true
+                  }
+                },
+                "required": ["proName", "rateBasisPoints"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "country",
+            "required": true,
+            "description": "ISO 3166-1 alpha-2 country code, e.g. SE. Case-insensitive."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "country": {
+                      "type": "string"
+                    },
+                    "proCode": {
+                      "type": "string"
+                    },
+                    "proName": {
+                      "type": "string"
+                    },
+                    "rateBasisPoints": {
+                      "type": "number"
+                    },
+                    "sourceUrl": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "sourceNote": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "updatedBy": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "updatedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "country",
+                    "proCode",
+                    "proName",
+                    "rateBasisPoints",
+                    "sourceUrl",
+                    "sourceNote",
+                    "updatedBy",
+                    "updatedAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "country",
+            "required": true,
+            "description": "ISO 3166-1 alpha-2 country code, e.g. SE. Case-insensitive."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
           }
         }
       }

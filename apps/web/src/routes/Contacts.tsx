@@ -23,6 +23,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { SegmentedToggle } from "../components";
 import { ErrorState, LoadingState } from "../components/states";
 import { errorMessage } from "../lib/errors";
+import { type ClipboardCopier, useCopyToClipboard } from "../lib/useCopyToClipboard";
 
 type Contact = Awaited<ReturnType<typeof getApiV1ProfilesIdContacts>>[number];
 type ContactPerson = { name?: string; email?: string; phone?: string };
@@ -79,28 +80,83 @@ function firstPerson(contact: Contact): ContactPerson | null {
 }
 
 /** A labelled key/value line inside a contact card (label left, value right). */
-function CardField({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+/**
+ * One field on a contact card, copyable when it holds something.
+ *
+ * These are the values people retype into a bank transfer or an email client,
+ * and an IBAN retyped by hand is a payment sent to the wrong account. So the
+ * copy affordance is the point of the row, not decoration — but it appears only
+ * when there is a value, because a button that copies an em dash is a lie.
+ */
+function CardField({
+  label,
+  value,
+  mono,
+  copier,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  copier?: ClipboardCopier;
+}) {
+  const empty = value === "—";
+  const copyable = copier != null && !empty;
+  const justCopied = copyable && copier.copiedValue === value;
+
   return (
     <div
       style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}
     >
       <span style={{ color: "var(--muted)", fontSize: 13 }}>{label}</span>
-      <span
-        style={{
-          fontSize: 13,
-          textAlign: "right",
-          wordBreak: "break-all",
-          fontFamily: mono ? "var(--font-mono)" : undefined,
-          color: value === "—" ? "var(--muted)" : "var(--text)",
-        }}
-      >
-        {value}
+      <span style={{ display: "flex", alignItems: "baseline", gap: 6, minWidth: 0 }}>
+        <span
+          style={{
+            fontSize: 13,
+            textAlign: "right",
+            wordBreak: "break-all",
+            fontFamily: mono ? "var(--font-mono)" : undefined,
+            color: empty ? "var(--muted)" : "var(--text)",
+          }}
+        >
+          {value}
+        </span>
+        {copyable && (
+          <button
+            type="button"
+            // The label carries the field name because a screen reader user
+            // hears these out of context: "Copy" alone, six times on one card,
+            // says nothing about which value is about to be taken.
+            aria-label={justCopied ? `${label} copied` : `Copy ${label.toLowerCase()}`}
+            title={`Copy ${label.toLowerCase()}`}
+            onClick={() => copier.copy(value, label)}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+              width: 22,
+              height: 22,
+              padding: 0,
+              border: "none",
+              background: "transparent",
+              borderRadius: 6,
+              cursor: "pointer",
+              // The design handoff fixes #6FC97A as "revenue / positive" and says the
+              // semantic hues deliberately do NOT flip with the theme. There is no
+              // --success token, so this names the hue rather than a variable that
+              // does not exist.
+              color: justCopied ? "#6FC97A" : "var(--muted)",
+            }}
+          >
+            <Icon name={justCopied ? "check" : "copy"} size={13} />
+          </button>
+        )}
       </span>
     </div>
   );
 }
 
-function ContactEntry({ contact }: { contact: Contact }) {
+function ContactEntry({ contact, copier }: { contact: Contact; copier: ClipboardCopier }) {
   const person = firstPerson(contact);
   const role = person?.name
     ? `${typeLabel(contact.type)} · ${person.name}`
@@ -119,8 +175,18 @@ function ContactEntry({ contact }: { contact: Contact }) {
           <div style={{ color: "var(--muted)", fontSize: 13 }}>{role}</div>
         </div>
       </div>
-      <CardField label="Email" value={person?.email ?? "—"} />
-      <CardField label="IBAN" value={contact.iban ?? "—"} mono />
+      {/* The payout details a contact exists FOR. The card used to show only
+          email and IBAN while the record also carried a bank name, a VAT id and
+          an address — data someone had typed in and could then never get out
+          without opening the edit form. Empty ones render as an em dash with no
+          copy button rather than disappearing, so the card's shape stays
+          predictable across contacts. */}
+      <CardField label="Email" value={person?.email ?? "—"} copier={copier} />
+      <CardField label="Phone" value={person?.phone ?? "—"} copier={copier} />
+      <CardField label="IBAN" value={contact.iban ?? "—"} mono copier={copier} />
+      {contact.bankName && <CardField label="Bank" value={contact.bankName} copier={copier} />}
+      {contact.vatId && <CardField label="VAT ID" value={contact.vatId} mono copier={copier} />}
+      {contact.address && <CardField label="Address" value={contact.address} copier={copier} />}
       <div>
         <Badge status={verified ? "confirmed" : "pending"} dot>
           {verified ? "IBAN verified" : "Unverified"}
@@ -137,6 +203,9 @@ export function Contacts() {
   const [category, setCategory] = useState("all");
   const [view, setView] = useState<ViewMode>("grid");
   const [creating, setCreating] = useState(false);
+  // One copier for the screen: copying a second value supersedes the first,
+  // so two rows can never both be showing "Copied".
+  const copier = useCopyToClipboard();
 
   const { data, isPending, isError, error, refetch } = useGetApiV1ProfilesIdContacts(profileId, {
     query: { enabled: Boolean(profileId) },
@@ -245,7 +314,7 @@ export function Contacts() {
               }}
             >
               {visible.map((contact) => (
-                <ContactEntry key={contact.id} contact={contact} />
+                <ContactEntry key={contact.id} contact={contact} copier={copier} />
               ))}
             </div>
           )}

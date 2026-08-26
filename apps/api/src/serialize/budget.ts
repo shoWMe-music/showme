@@ -112,7 +112,10 @@ export interface SerializedBudgetLine {
   paidBy: string | null;
   payeeParticipantId: string | null;
   costSplit: BudgetCostSplit | null;
+  /** The deal whose OWN figure this line is — settlement takes it from the deal. */
   dealId: string | null;
+  /** The deal this real cost is REPORTED UNDER — settlement still counts it. */
+  attributedDealId: string | null;
   details: BudgetLineDetails | null;
   version: number;
 }
@@ -143,6 +146,7 @@ export function serializeBudgetLine(line: BudgetLineRow): SerializedBudgetLine {
     payeeParticipantId: line.payeeParticipantId,
     costSplit: budgetCostSplit(line.costSplit),
     dealId: line.dealId,
+    attributedDealId: line.attributedDealId,
     details: budgetLineDetails(line.details),
     version: line.version,
   };

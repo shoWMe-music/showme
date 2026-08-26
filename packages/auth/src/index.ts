@@ -14,7 +14,9 @@ export {
   type PresetName,
   type ProfileRole,
   type EventRole,
+  type DealPartyRole,
   roleFilter,
   baselineCapabilities,
+  dealPartyBaselineCapabilities,
   isGrantable,
 } from "./presets";

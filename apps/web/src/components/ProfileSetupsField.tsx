@@ -148,7 +148,7 @@ export function ProfileCapacitySetupsField({ value, onChange }: ProfileCapacityS
             padding: 12,
             borderRadius: 12,
             border: "1px solid var(--border)",
-            background: "var(--elevated)",
+            background: "var(--card)",
           }}
         >
           <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>

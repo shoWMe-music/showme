@@ -9,10 +9,17 @@ import type { EmailMessage } from "./lib/email";
 import { invitationRoutes } from "./routes/invitations";
 import { buildTestApp } from "./testing";
 
-/** Fake verifier: the bearer token IS the uid, so tests just send `Bearer <uid>`. */
+/**
+ * Fake verifier: the bearer token IS the uid, so tests just send `Bearer <uid>`.
+ * The identity carries a VERIFIED `<uid>@example.com`, because the redemption
+ * routes now read both halves — an invitation is redeemable only by the address
+ * it names, and only once Firebase says that address is really theirs. Tests
+ * that need the other side of that rule override the identity per-request
+ * (`unverifiedVerifier` below) or simply redeem as the wrong uid.
+ */
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.com`, emailVerified: true, name: token };
   },
 };
 
@@ -32,9 +39,10 @@ afterAll(async () => {
 
 const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 
-/** A bare provisioned user (no memberships). */
+/** A bare provisioned user (no memberships). The display name matters now: the
+ * offer a link-holder reads names who invited them, and it reads it off here. */
 async function seedUser(id: string, kind: "operator" | "performer") {
-  await harness.db.insert(schema.users).values({ id, email: `${id}@example.com`, kind });
+  await harness.db.insert(schema.users).values({ id, email: `${id}@example.com`, name: id, kind });
 }
 
 /** Seed an owner + their profile + a permission set. Returns the ids. */
@@ -104,9 +112,18 @@ describe("invitations — create, redeem, decline", () => {
     expect(summary.json()).toMatchObject({
       type: "code",
       status: "pending",
-      targetProfileId: owner.profileId,
+      targetKind: "profile",
+      targetName: "inv-owner",
       role: "editor",
+      recipientName: "Rae Recipient",
+      // Their own address, in full, because it is theirs.
+      recipientEmail: "inv-recipient@example.com",
+      boundToEmail: true,
+      viewer: { signedIn: true, emailMatches: true, emailVerified: true },
     });
+    // The offer never hands back the bearer secret the reader already holds.
+    expect(summary.json().token).toBeUndefined();
+    expect(summary.json().code).toBeUndefined();
 
     // Recipient accepts → a profile membership now exists + invite is accepted.
     const accepted = await app.inject({
@@ -298,6 +315,7 @@ describe("invitations — create, redeem, decline", () => {
         type: "profile_member",
         source: "performer_offer",
         status: "pending",
+        recipientEmail: "claim-user@example.com",
         token: "claim-token-abc",
         targetProfileId: stub.id,
         role: "owner",
@@ -391,7 +409,7 @@ describe("invitations — the grant_admin entitlement gate (paid plans only)", (
       payload: {
         type: "event_participant",
         source: "collaborator",
-        recipientEmail: "co@example.com",
+        recipientEmail: "inv-ga-free-rec@example.com",
         targetEventId: event.id,
         role: "co_host",
         // `seedOwnerWithProfile` mints the operator_full bundle — admin-grade.
@@ -422,7 +440,7 @@ describe("invitations — the grant_admin entitlement gate (paid plans only)", (
       payload: {
         type: "event_participant",
         source: "collaborator",
-        recipientEmail: "co@example.com",
+        recipientEmail: `${recipient.userId}@example.com`,
         targetEventId: event.id,
         role: "co_host",
         permissionSetId: host.permissionSetId,
@@ -463,7 +481,7 @@ describe("invitations — the grant_admin entitlement gate (paid plans only)", (
         source: "collaborator",
         status: "pending",
         token: "inv-ga-lapse-token",
-        recipientEmail: "co@example.com",
+        recipientEmail: `${recipient.userId}@example.com`,
         targetEventId: event.id,
         role: "co_host",
         permissionSetId: host.permissionSetId,
@@ -519,7 +537,7 @@ describe("invitations — the grant_admin entitlement gate (paid plans only)", (
       payload: {
         type: "event_participant",
         source: "collaborator",
-        recipientEmail: "act@example.com",
+        recipientEmail: `${recipient.userId}@example.com`,
         targetEventId: event.id,
         role: "performer",
         permissionSetId: performerSet.id,
@@ -587,7 +605,7 @@ describe("invitations — the PROFILE-level grant_admin gate (A-37)", () => {
       payload: {
         type: "profile_member",
         source: "team",
-        recipientEmail: "second@example.com",
+        recipientEmail: `${invitee.userId}@example.com`,
         targetProfileId: owner.profileId,
         role: "admin",
       },
@@ -630,7 +648,7 @@ describe("invitations — the PROFILE-level grant_admin gate (A-37)", () => {
         source: "team",
         status: "pending",
         token: "inv-pa-lapse-token",
-        recipientEmail: "second@example.com",
+        recipientEmail: `${invitee.userId}@example.com`,
         targetProfileId: owner.profileId,
         role: "admin",
         createdByUser: "inv-pa-lapse",
@@ -676,7 +694,7 @@ describe("invitations — the PROFILE-level grant_admin gate (A-37)", () => {
       payload: {
         type: "profile_member",
         source: "team",
-        recipientEmail: "helper@example.com",
+        recipientEmail: `${invitee.userId}@example.com`,
         targetProfileId: owner.profileId,
         role: "editor",
       },
@@ -909,6 +927,9 @@ describe("GET /events/:id/invitations — the event's open invitations", () => {
   it("drops an invitation once it has been answered", async () => {
     const { db } = harness;
     const { host, event } = await seedEventWithHost("answered-list");
+    // The INVITEE declines, not the host: an answer is the recipient's to give,
+    // and the sender declining on their behalf is now refused outright.
+    await seedUser("answered-list-invitee", "performer");
 
     const invite = await app.inject({
       method: "POST",
@@ -917,18 +938,19 @@ describe("GET /events/:id/invitations — the event's open invitations", () => {
       payload: {
         type: "event_participant",
         source: "collaborator",
-        recipientEmail: "declined@example.com",
+        recipientEmail: "answered-list-invitee@example.com",
         targetEventId: event.id,
         role: "crew",
       },
     });
     const token = invite.json().token as string;
 
-    await app.inject({
+    const declined = await app.inject({
       method: "POST",
       url: `/api/v1/invitations/${token}/decline`,
-      headers: auth("answered-list-host"),
+      headers: auth("answered-list-invitee"),
     });
+    expect(declined.statusCode).toBe(200);
 
     const listed = await app.inject({
       method: "GET",
@@ -1120,8 +1142,8 @@ describe("the invitation email — what actually goes out", () => {
     expect(message?.subject).toContain("email-host");
     // The link is the whole payload: it must carry the invitation's own token,
     // which is what `GET /invitations/:token` then resolves.
-    expect(message?.html).toContain(`?invitation=${token}`);
-    expect(message?.text).toContain(`?invitation=${token}`);
+    expect(message?.html).toContain(`/invitations/${token}`);
+    expect(message?.text).toContain(`/invitations/${token}`);
 
     // …and that link really does resolve to this invitation.
     const preview = await emailApp.inject({
@@ -1132,5 +1154,445 @@ describe("the invitation email — what actually goes out", () => {
     expect(preview.statusCode).toBe(200);
     expect(preview.json().targetEventId).toBe(event.id);
     expect(preview.json().status).toBe("pending");
+  });
+});
+
+/**
+ * THE RECIPIENT CHECK, and the offer the redemption page reads before it asks
+ * anyone to answer.
+ *
+ * Until this landed, the token was the entire grant on all four routes: a
+ * forwarded link let a stranger accept in the invitee's place, decline on their
+ * behalf, or take ownership of an unclaimed profile — and `GET /invitations/:token`
+ * handed the whole row, token included, to any authenticated caller. The old app
+ * enforced the address on every redemption
+ * (`docs/old-app-analysis-flows-invite-settle.md` §4); these are that rule,
+ * asserted per route so it cannot quietly come off one of them again.
+ */
+describe("invitations — the invitation is bound to the address it names", () => {
+  /**
+   * Same identities, but Firebase has NOT confirmed the address. Anyone may
+   * register any email at Firebase without proving they hold it, so this is the
+   * "right address, no evidence" case — and it must be refused for the same
+   * reason `claimStubsForEmail` has always refused it.
+   */
+  const unverifiedVerifier: TokenVerifier = {
+    async verify(token: string) {
+      return { uid: token, email: `${token}@example.com`, emailVerified: false, name: token };
+    },
+  };
+  let unverifiedApp: FastifyInstance;
+
+  beforeAll(async () => {
+    unverifiedApp = buildTestApp({ database: harness.db, tokenVerifier: unverifiedVerifier }, [
+      invitationRoutes,
+    ]);
+    await unverifiedApp.ready();
+  });
+
+  afterAll(async () => {
+    await unverifiedApp?.close();
+  });
+
+  /** An invited-but-unredeemed profile membership, addressed to `<prefix>-invitee`. */
+  async function seedPendingInvitation(prefix: string) {
+    const { db } = harness;
+    const owner = await seedOwnerWithProfile(`${prefix}-owner`);
+    await seedUser(`${prefix}-invitee`, "performer");
+    await seedUser(`${prefix}-stranger`, "performer");
+    const [invitation] = await db
+      .insert(schema.invitations)
+      .values({
+        type: "profile_member",
+        source: "team",
+        status: "pending",
+        token: `${prefix}-token`,
+        recipientEmail: `${prefix}-invitee@example.com`,
+        recipientName: "Rae Recipient",
+        targetProfileId: owner.profileId,
+        role: "editor",
+        createdByUser: `${prefix}-owner`,
+      })
+      .returning();
+    if (!invitation) throw new Error("invitation seed failed");
+    return { owner, invitation };
+  }
+
+  it("refuses an ACCEPT from a different address, and grants nothing", async () => {
+    const { owner, invitation } = await seedPendingInvitation("bind-accept");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${invitation.token}/accept`,
+      headers: auth("bind-accept-stranger"),
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe(
+      "This invitation was sent to a different email address",
+    );
+
+    // The state, not just the status: nothing was granted and the real invitee
+    // can still answer.
+    const members = await harness.db
+      .select()
+      .from(schema.profileMembers)
+      .where(
+        and(
+          eq(schema.profileMembers.profileId, owner.profileId),
+          eq(schema.profileMembers.userId, "bind-accept-stranger"),
+        ),
+      );
+    expect(members).toHaveLength(0);
+    const [after] = await harness.db
+      .select()
+      .from(schema.invitations)
+      .where(eq(schema.invitations.id, invitation.id));
+    expect(after?.status).toBe("pending");
+
+    // The positive control, same body: the addressee is let through.
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${invitation.token}/accept`,
+      headers: auth("bind-accept-invitee"),
+    });
+    expect(accepted.statusCode).toBe(200);
+  });
+
+  it("refuses an ACCEPT from the right address while it is unverified", async () => {
+    const { invitation } = await seedPendingInvitation("bind-unverified");
+
+    const response = await unverifiedApp.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${invitation.token}/accept`,
+      headers: auth("bind-unverified-invitee"),
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe(
+      "Verify your email address before redeeming this invitation",
+    );
+
+    const [after] = await harness.db
+      .select()
+      .from(schema.invitations)
+      .where(eq(schema.invitations.id, invitation.id));
+    expect(after?.status).toBe("pending");
+  });
+
+  it("refuses a DECLINE from a different address — a stranger cannot close the slot", async () => {
+    const { invitation } = await seedPendingInvitation("bind-decline");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${invitation.token}/decline`,
+      headers: auth("bind-decline-stranger"),
+    });
+    expect(response.statusCode).toBe(403);
+
+    const [after] = await harness.db
+      .select()
+      .from(schema.invitations)
+      .where(eq(schema.invitations.id, invitation.id));
+    expect(after?.status).toBe("pending");
+
+    const declined = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${invitation.token}/decline`,
+      headers: auth("bind-decline-invitee"),
+    });
+    expect(declined.statusCode).toBe(200);
+    expect(declined.json().status).toBe("declined");
+  });
+
+  it("refuses a CLAIM from a different address, and leaves the profile unclaimed", async () => {
+    const { db } = harness;
+    await seedOwnerWithProfile("bind-claim-host");
+    await seedUser("bind-claim-invitee", "performer");
+    await seedUser("bind-claim-stranger", "performer");
+    const [stub] = await db
+      .insert(schema.profiles)
+      .values({
+        kind: "performer",
+        ownerUserId: "bind-claim-host",
+        name: "Unclaimed Act",
+        slug: "bind-claim-stub",
+        claimedAt: null,
+      })
+      .returning();
+    if (!stub) throw new Error("stub seed failed");
+    const [invitation] = await db
+      .insert(schema.invitations)
+      .values({
+        type: "profile_member",
+        source: "venue_handoff",
+        status: "pending",
+        token: "bind-claim-token",
+        recipientEmail: "bind-claim-invitee@example.com",
+        targetProfileId: stub.id,
+        createdByUser: "bind-claim-host",
+      })
+      .returning();
+    if (!invitation) throw new Error("invitation seed failed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations/bind-claim-token/claim",
+      headers: auth("bind-claim-stranger"),
+    });
+    expect(response.statusCode).toBe(403);
+
+    const [untouched] = await db
+      .select()
+      .from(schema.profiles)
+      .where(eq(schema.profiles.id, stub.id));
+    expect(untouched?.claimedAt).toBeNull();
+    expect(untouched?.ownerUserId).toBe("bind-claim-host");
+
+    const claimed = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations/bind-claim-token/claim",
+      headers: auth("bind-claim-invitee"),
+    });
+    expect(claimed.statusCode).toBe(200);
+  });
+
+  it("refuses a CLAIM of an invitation that names nobody", async () => {
+    const { db } = harness;
+    await seedOwnerWithProfile("bind-open-host");
+    await seedUser("bind-open-passerby", "performer");
+    const [stub] = await db
+      .insert(schema.profiles)
+      .values({
+        kind: "performer",
+        ownerUserId: "bind-open-host",
+        name: "Nobody's Act",
+        slug: "bind-open-stub",
+        claimedAt: null,
+      })
+      .returning();
+    if (!stub) throw new Error("stub seed failed");
+    await db.insert(schema.invitations).values({
+      type: "profile_member",
+      source: "venue_handoff",
+      status: "pending",
+      token: "bind-open-token",
+      targetProfileId: stub.id,
+      createdByUser: "bind-open-host",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations/bind-open-token/claim",
+      headers: auth("bind-open-passerby"),
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe(
+      "This invitation is not addressed to anyone, so it cannot be claimed",
+    );
+
+    const [untouched] = await db
+      .select()
+      .from(schema.profiles)
+      .where(eq(schema.profiles.id, stub.id));
+    expect(untouched?.claimedAt).toBeNull();
+  });
+
+  it("still lets an UNBOUND invitation be redeemed by whoever holds it", async () => {
+    const owner = await seedOwnerWithProfile("bind-none-owner");
+    await seedUser("bind-none-holder", "performer");
+    await harness.db.insert(schema.invitations).values({
+      type: "profile_member",
+      source: "team",
+      status: "pending",
+      token: "bind-none-token",
+      targetProfileId: owner.profileId,
+      role: "viewer",
+      createdByUser: "bind-none-owner",
+    });
+
+    // No address was ever named, so there is nothing to check against and the
+    // token is the grant — deliberately, for a link handed over in person.
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations/bind-none-token/accept",
+      headers: auth("bind-none-holder"),
+    });
+    expect(accepted.statusCode).toBe(200);
+  });
+});
+
+/**
+ * The offer, read by whoever opened the link. Every one of these states used to
+ * be the same thing from the recipient's side — nothing happening — because the
+ * email pointed at a URL the app ignored. The page can only say what happened
+ * if the API names it.
+ */
+describe("GET /invitations/:token — the offer a link-holder reads", () => {
+  it("answers an anonymous reader, masks the address, and withholds the token", async () => {
+    const { db } = harness;
+    const owner = await seedOwnerWithProfile("offer-anon-owner");
+    await db.insert(schema.invitations).values({
+      type: "profile_member",
+      source: "team",
+      status: "pending",
+      token: "offer-anon-token",
+      recipientEmail: "Daniel@ShowMe.Music",
+      recipientName: "Daniel",
+      targetProfileId: owner.profileId,
+      role: "editor",
+      createdByUser: "offer-anon-owner",
+    });
+
+    // No Authorization header at all — the reader has no account yet, which is
+    // the whole reason this route is public.
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/invitations/offer-anon-token",
+    });
+    expect(response.statusCode).toBe(200);
+    const offer = response.json();
+    expect(offer.status).toBe("pending");
+    expect(offer.role).toBe("editor");
+    expect(offer.targetKind).toBe("profile");
+    expect(offer.inviterName).toBe("offer-anon-owner");
+    expect(offer.recipientName).toBe("Daniel");
+    expect(offer.viewer).toEqual({ signedIn: false, emailMatches: false, emailVerified: false });
+    // The target profile is the inviter's own, long since claimed — so the
+    // answer on offer is "join", not "take this over".
+    expect(offer.claimable).toBe(false);
+    // Enough for its owner to recognise, useless to anyone else — and the
+    // address is never returned in full to a stranger, whatever its casing.
+    expect(offer.recipientEmail).toBe("d•••@s•••.music");
+    expect(JSON.stringify(offer)).not.toContain("daniel@showme.music");
+    expect(JSON.stringify(offer)).not.toContain("offer-anon-token");
+  });
+
+  it("tells a signed-in stranger it is not theirs, without naming the invitee", async () => {
+    const { db } = harness;
+    const owner = await seedOwnerWithProfile("offer-wrong-owner");
+    await seedUser("offer-wrong-stranger", "performer");
+    await db.insert(schema.invitations).values({
+      type: "profile_member",
+      source: "team",
+      status: "pending",
+      token: "offer-wrong-token",
+      recipientEmail: "invitee@elsewhere.example",
+      targetProfileId: owner.profileId,
+      role: "editor",
+      createdByUser: "offer-wrong-owner",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/invitations/offer-wrong-token",
+      headers: auth("offer-wrong-stranger"),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().viewer).toEqual({
+      signedIn: true,
+      emailMatches: false,
+      emailVerified: true,
+    });
+    expect(response.json().recipientEmail).toBe("i•••@e•••.example");
+  });
+
+  it("names the terminal states instead of 404ing them", async () => {
+    const { db } = harness;
+    const owner = await seedOwnerWithProfile("offer-terminal-owner");
+    const base = {
+      type: "profile_member" as const,
+      source: "team" as const,
+      targetProfileId: owner.profileId,
+      createdByUser: "offer-terminal-owner",
+    };
+    await db.insert(schema.invitations).values([
+      // Still `pending` in the column, but past its date — the page must be able
+      // to say "you are late", not "we have never seen this link".
+      {
+        ...base,
+        status: "pending",
+        token: "offer-expired-token",
+        expiresAt: new Date(Date.now() - 60_000),
+      },
+      { ...base, status: "revoked", token: "offer-revoked-token" },
+      { ...base, status: "accepted", token: "offer-accepted-token" },
+      { ...base, status: "declined", token: "offer-declined-token" },
+    ]);
+
+    for (const [token, status] of [
+      ["offer-expired-token", "expired"],
+      ["offer-revoked-token", "revoked"],
+      ["offer-accepted-token", "accepted"],
+      ["offer-declined-token", "declined"],
+    ]) {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/v1/invitations/${token}`,
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().status).toBe(status);
+    }
+
+    // …while the redemption routes still treat expiry as gone.
+    const accept = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations/offer-expired-token/accept",
+      headers: auth("offer-terminal-owner"),
+    });
+    expect(accept.statusCode).toBe(404);
+  });
+
+  it("says an unclaimed profile is claimable, and stops saying so once it is claimed", async () => {
+    const { db } = harness;
+    await seedOwnerWithProfile("offer-claim-host");
+    await seedUser("offer-claim-invitee", "performer");
+    const [stub] = await db
+      .insert(schema.profiles)
+      .values({
+        kind: "performer",
+        ownerUserId: "offer-claim-host",
+        name: "Held For You",
+        slug: "offer-claim-stub",
+        claimedAt: null,
+      })
+      .returning();
+    if (!stub) throw new Error("stub seed failed");
+    await db.insert(schema.invitations).values({
+      type: "profile_member",
+      source: "venue_handoff",
+      status: "pending",
+      token: "offer-claim-token",
+      recipientEmail: "offer-claim-invitee@example.com",
+      targetProfileId: stub.id,
+      createdByUser: "offer-claim-host",
+    });
+
+    const before = await app.inject({
+      method: "GET",
+      url: "/api/v1/invitations/offer-claim-token",
+    });
+    expect(before.json().claimable).toBe(true);
+    expect(before.json().targetName).toBe("Held For You");
+
+    const claimed = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations/offer-claim-token/claim",
+      headers: auth("offer-claim-invitee"),
+    });
+    expect(claimed.statusCode).toBe(200);
+
+    const after = await app.inject({
+      method: "GET",
+      url: "/api/v1/invitations/offer-claim-token",
+    });
+    expect(after.json().status).toBe("used");
+    expect(after.json().claimable).toBe(false);
+  });
+
+  it("404s a token that was never issued", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/invitations/never-issued-at-all",
+    });
+    expect(response.statusCode).toBe(404);
   });
 });

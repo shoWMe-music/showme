@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { forbidden, notFound } from "../errors";
+import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { eventCapabilities, requireEventCapability, requireProfileRole } from "../lib/authorize";
 
@@ -352,6 +353,18 @@ export async function riderRoutes(fastify: FastifyInstance): Promise<void> {
           eventId,
           after: instance,
         });
+        // Participant-scoped: `targetId` is the SUBMITTER's participant row, so the
+        // row reaches the submitter and the operators and stops there. A rider is
+        // one act's private requirements — the other acts on the bill must not learn
+        // from the timeline that a hospitality rider exists, let alone whose. The
+        // rider's own id travels in the summary. See `lib/activity.ts`.
+        await writeActivity(tx, request, {
+          eventId,
+          type: "rider.attached",
+          targetKind: "rider",
+          targetId: participant.id,
+          summary: { riderId: instance.id, riderType: instance.type, name: instance.name },
+        });
         return instance;
       });
 
@@ -405,6 +418,15 @@ export async function riderRoutes(fastify: FastifyInstance): Promise<void> {
           targetId: rid,
           eventId,
           before: rider,
+        });
+        // Withdrawing a requirement the operator may already have catered for is
+        // exactly what a history tab is for. Same participant scoping as the attach.
+        await writeActivity(tx, request, {
+          eventId,
+          type: "rider.removed",
+          targetKind: "rider",
+          targetId: participant.id,
+          summary: { riderId: rid, riderType: rider.type, name: rider.name },
         });
       });
 

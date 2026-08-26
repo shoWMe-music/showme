@@ -25,10 +25,31 @@ export function dealEntitlement(deal: SettlementDeal, pool: bigint, ticketsSold:
   }
 }
 
-/** Split-of-pool with escalator tier selection and threshold bonus. */
+/**
+ * Split-of-pool with escalator tier selection and threshold bonus.
+ *
+ * **A share of the pool is floored at zero** (product owner, 2026-08-26: *"Should
+ * not be negative no"*). A percentage deal is a share of an upside, not a share of
+ * a liability: on a pool of −3 000 a 50% door split used to hand the performer an
+ * entitlement of −1 500, i.e. the performer *owes* the operator for having played
+ * (the reference app does the same — `../showme-settle-fast`
+ * `src/lib/models.ts:437`, reproduced as case 5 of `docs/old-app-analysis-settlement.md`).
+ * The loss stays with the operator, which needs no special case: the operator's
+ * entitlement is the residual `pool − Σ others`, so whatever the floor spares the
+ * performer lands there and `Σ net = 0` still holds exactly.
+ *
+ * **Scope, precisely.** This floors the *percentage-of-pool* component only.
+ * A `guarantee` is untouched (it never was negative), `guarantee_vs_door` is
+ * unaffected in substance (a non-negative guarantee already won every comparison a
+ * negative door could enter), and — most importantly — a party's NET may still go
+ * negative afterwards. Deductibles are applied in `reconcile()` AFTER this: a
+ * performer whose hotel the venue fronted, or who was advanced more than the night
+ * earned, genuinely owes that money back and is not floored.
+ */
 function doorAmount(deal: SettlementDeal, pool: bigint, ticketsSold: number): bigint {
   const basisPoints = splitBasisPointsForSales(deal, ticketsSold);
-  let amount = applyBasisPoints(pool, basisPoints);
+  const share = applyBasisPoints(pool, basisPoints);
+  let amount = share > 0n ? share : 0n;
   if (deal.bonusThreshold != null && pool >= deal.bonusThreshold) {
     amount += deal.bonusAmount ?? 0n;
   }

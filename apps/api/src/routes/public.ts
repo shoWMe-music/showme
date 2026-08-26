@@ -3,7 +3,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { conflict, forbidden, notFound, tooManyRequests } from "../errors";
+import { conflict, forbidden, isUniqueViolation, notFound, tooManyRequests } from "../errors";
 import { readProfileBusyTime } from "../lib/availability";
 import { createSlidingWindowRateLimiter } from "../lib/rate-limit";
 import { type ProfileRelations, PublicProfileSchema } from "../serialize/profile";
@@ -317,7 +317,7 @@ export async function publicRoutes(fastify: FastifyInstance): Promise<void> {
         });
       } catch (error) {
         // unique(event_id, email) → one RSVP per attendee per event.
-        if (error instanceof Error && "code" in error && error.code === "23505") {
+        if (isUniqueViolation(error)) {
           throw conflict("You have already RSVP'd to this event");
         }
         throw error;

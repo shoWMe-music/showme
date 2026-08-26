@@ -22,8 +22,11 @@
   justify-content: space-between;
   gap: 8px;
   padding: 10px 12px;
+  /* One height for every control, whatever the content — see tokens.css. */
+  min-height: var(--control-height);
+  line-height: var(--control-line-height);
   border-radius: 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   background: var(--control-surface);
   color: var(--text);
   font-family: var(--font-sans);
@@ -31,10 +34,17 @@
   text-align: left;
   cursor: pointer;
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color var(--duration-quick);
 }
 .trigger:hover:not(:disabled) {
-  border-color: var(--border-strong);
+  /* A HOVER MUST PROMOTE, NEVER DEMOTE. This used to set --border-strong, which
+     was right when the control rested on the neutral --border: brown over
+     fainter brown. Now that a control rests on --control-border (coral in light
+     mode) the same rule swung the edge coral -> brown on hover, and the 140ms
+     transition made that hue swing visible where it used to snap.
+     color-mix keeps it the SAME hue, one step firmer, in both themes: it walks
+     toward the focus colour rather than away from it. */
+  border-color: color-mix(in srgb, var(--control-border) 55%, #EE5746);
 }
 .trigger:focus-visible,
 .trigger[aria-expanded="true"] {
@@ -60,7 +70,7 @@
 .chevron {
   color: var(--muted);
   flex-shrink: 0;
-  transition: transform 0.2s;
+  transition: transform var(--duration-base);
 }
 .chevronOpen {
   transform: rotate(180deg);
@@ -80,7 +90,9 @@
   border-radius: 12px;
   box-shadow: var(--shadow-lg);
   overflow: hidden;
-  animation: selectIn 0.14s ease-out;
+  /* quick, not slow: a menu anchored to the control you just clicked should
+     read as that control opening, not as a surface arriving over the page */
+  animation: selectIn var(--duration-quick) var(--ease-out);
 }
 
 /* Search row — a hairline rule below it, no box of its own, so the popover
@@ -164,7 +176,7 @@
   user-select: none;
 }
 .optionActive {
-  background: var(--elevated);
+  background: var(--shape-fill);
 }
 .optionDisabled {
   color: var(--dim);

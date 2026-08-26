@@ -1,19 +1,17 @@
 import {
   type BreakEvenChart,
   type BreakdownRow,
+  type PerformingRightsFeeEstimate,
+  type PerformingRightsTerritory,
   computeBreakEvenChart,
   computeBreakdown,
   computeBudgetProjection,
+  dealFigureDisagreement,
   estimatePerformingRightsFee,
 } from "@showme/shared";
-import { formatMoney } from "../lib/format";
+import { formatMoney, formatMoneyExact } from "../lib/format";
 import type { KpiItem } from "./KpiRow";
-import {
-  type BudgetEditor,
-  budgetInputsFrom,
-  customRowAmount,
-  toMinorUnits,
-} from "./useBudgetEditor";
+import { type BudgetEditor, budgetInputsFrom, minorUnitsOf, toMinorUnits } from "./useBudgetEditor";
 
 /**
  * Everything the Budget Planner draws, derived once from the editor's draft.
@@ -53,8 +51,35 @@ export interface BreakEvenDisplay {
 export interface PerformingRightsDisplay {
   feeLabel: string;
   rateLabel: string;
-  /** Stated in full on the card — this figure is nobody's published tariff. */
+  /**
+   * Whether a rate configured for this event's territory produced the figure, or
+   * the flat planning default did. The card leans on this for everything it says
+   * about confidence — see `PerformingRightsEstimateCard`.
+   */
+  isTerritoryTariff: boolean;
+  /** The pill: the society and territory when there is one, "Estimate only" when not. */
+  sourceLabel: string;
+  /** The published tariff the rate was read off, when an admin recorded one. */
+  sourceUrl: string | null;
+  /** Stated in full on the card — even a real tariff produces only an estimate here. */
   assumptions: string[];
+}
+
+/**
+ * A cost row that claims to be a deal's own figure while stating a different one.
+ *
+ * Carried as finished TEXT because the component that draws it renders and does
+ * not compute (CLAUDE.md): the integer comparison is `@showme/shared`'s
+ * `dealFigureDisagreement`, the money formatting is this module's unit boundary,
+ * and the row is handed the two figures it prints.
+ */
+export interface DealFigureWarning {
+  /** The deal whose figure the row claims to be. */
+  dealName: string;
+  /** What the planner is forecasting, formatted. */
+  plannedLabel: string;
+  /** What the settlement will use, formatted. */
+  dealLabel: string;
 }
 
 export interface BudgetPlannerView {
@@ -66,9 +91,21 @@ export interface BudgetPlannerView {
   revenueSources: BreakdownDisplayRow[];
   costBreakdown: BreakdownDisplayRow[];
   performingRights: PerformingRightsDisplay;
+  /** Keyed by cost row key — only rows that actually disagree appear here. */
+  dealFigureWarnings: Record<string, DealFigureWarning>;
 }
 
-export function budgetPlannerViewFrom(editor: BudgetEditor, currency: string): BudgetPlannerView {
+/**
+ * @param territory Where the show happens and what PRO rate is configured there,
+ *   from `GET /events/:id/performing-rights-rate`. Omitted (or still loading) the
+ *   planner falls back to the flat planning estimate and SAYS SO on the card,
+ *   which is the same thing it did before any tariff table existed.
+ */
+export function budgetPlannerViewFrom(
+  editor: BudgetEditor,
+  currency: string,
+  territory?: PerformingRightsTerritory,
+): BudgetPlannerView {
   const inputs = budgetInputsFrom(editor);
   const projection = computeBudgetProjection(inputs);
   const money = (minor: bigint) => formatMoney(minor.toString(), currency);
@@ -92,7 +129,7 @@ export function budgetPlannerViewFrom(editor: BudgetEditor, currency: string): B
       // breakdown; a lump labelled "Other" answers a question nobody asked.
       ...editor.customRevenue.map((row, index) => ({
         label: row.label,
-        amount: customRowAmount(row, editor.capacity),
+        amount: minorUnitsOf(row.value),
         color: CUSTOM_REVENUE_COLORS[index % CUSTOM_REVENUE_COLORS.length] ?? REVENUE_COLORS.other,
       })),
     ],
@@ -103,7 +140,7 @@ export function budgetPlannerViewFrom(editor: BudgetEditor, currency: string): B
     [
       ...editor.costs.map((cost, index) => ({
         label: cost.label,
-        amount: customRowAmount(cost, editor.capacity),
+        amount: minorUnitsOf(cost.value),
         // The headings cycle through the palette so a budget with custom rows of
         // its own keeps getting colours rather than running out.
         color: COST_COLORS[index % COST_COLORS.length] ?? PROCESSING_COLOR,
@@ -117,8 +154,39 @@ export function budgetPlannerViewFrom(editor: BudgetEditor, currency: string): B
     projection.totalCosts,
   );
 
-  const performingRights = estimatePerformingRightsFee(projection.ticketRevenue);
-  const ratePercent = performingRights.rateBasisPoints / 100;
+  // Rows that say "this IS the deal's figure" and then state a different one.
+  // Only a REAL disagreement lands here — same-value rows produce no entry — so
+  // the screen renders whatever it is given and decides nothing.
+  const dealFigureWarnings: Record<string, DealFigureWarning> = {};
+  for (const cost of editor.costs) {
+    const link = cost.dealLink;
+    if (link?.kind !== "deal_figure") continue;
+    const deal = editor.deals.find((option) => option.id === link.dealId);
+    if (!deal) continue;
+    const drift = dealFigureDisagreement(
+      minorUnitsOf(cost.value),
+      deal.guaranteeAmount == null ? null : BigInt(deal.guaranteeAmount),
+    );
+    if (!drift) continue;
+    // Two amounts that differ by less than a whole unit round to the SAME text
+    // under the screen's house format, and a warning reading "says SEK 3,000, but
+    // says SEK 3,000" reads as a bug rather than as the sub-unit drift it is. When
+    // the rounded labels collide, both figures are printed to the minor unit.
+    const planned = money(drift.planned);
+    const authoritative = money(drift.deal);
+    const roundsToTheSameText = planned === authoritative;
+    dealFigureWarnings[cost.key] = {
+      dealName: deal.name,
+      plannedLabel: roundsToTheSameText
+        ? formatMoneyExact(drift.planned.toString(), currency)
+        : planned,
+      dealLabel: roundsToTheSameText
+        ? formatMoneyExact(drift.deal.toString(), currency)
+        : authoritative,
+    };
+  }
+
+  const performingRights = estimatePerformingRightsFee(projection.ticketRevenue, territory);
 
   return {
     kpis: [
@@ -149,17 +217,67 @@ export function budgetPlannerViewFrom(editor: BudgetEditor, currency: string): B
     },
     revenueSources: revenueSources.map(displayRow(money)),
     costBreakdown: costBreakdown.map(displayRow(money)),
-    performingRights: {
-      feeLabel: money(performingRights.fee),
-      rateLabel: `≈ ${ratePercent}% of ticket revenue`,
-      // Said out loud, because the number above them is a planning placeholder and
-      // an operator who mistakes it for a quote will under-budget a real invoice.
+    performingRights: performingRightsDisplay(performingRights, money),
+    dealFigureWarnings,
+  };
+}
+
+/**
+ * What the PRO card says, and the one place that decides how confident it sounds.
+ *
+ * The rule the whole feature turns on: a figure produced by the flat planning rate
+ * must never be dressed as a tariff. So the two branches below differ in their
+ * FIRST assumption line — the one that names where the rate came from — and the
+ * shared lines are the ones that are true either way. An operator mistaking the
+ * placeholder for a quote will under-budget a real invoice, which is the failure
+ * this card exists to prevent.
+ */
+function performingRightsDisplay(
+  estimate: PerformingRightsFeeEstimate,
+  money: (minor: bigint) => string,
+): PerformingRightsDisplay {
+  const ratePercent = estimate.rateBasisPoints / 100;
+  const shared = [
+    "Charged on ticket revenue only; bar and other revenue are outside it.",
+    "Applies the rate to PROJECTED ticket revenue — the fee moves with what actually sells.",
+  ];
+
+  if (estimate.tariffSource === "territory_tariff") {
+    const society = estimate.proName ?? "the local PRO";
+    return {
+      feeLabel: money(estimate.fee),
+      rateLabel: `${ratePercent}% of ticket revenue`,
+      isTerritoryTariff: true,
+      sourceLabel: estimate.country ? `${society} · ${estimate.country}` : society,
+      sourceUrl: estimate.sourceUrl,
       assumptions: [
-        `Flat ${ratePercent}% planning rate — no territory tariff is configured in shoWMe.`,
-        "Charged on ticket revenue only; bar and other revenue are outside it.",
-        "No PRO is set for this event, so no published tariff was consulted.",
+        estimate.sourceNote
+          ? `${ratePercent}% is the rate configured for ${estimate.country} — ${estimate.sourceNote}.`
+          : `${ratePercent}% is the rate configured for ${estimate.country}. No tariff reference was recorded against it.`,
+        ...shared,
+        // Even a real, sourced rate is not a quote. shoWMe files nothing with any
+        // society (`performance_reports` is unwritten), tariffs are negotiated per
+        // venue, and they change yearly.
+        `Still an estimate: shoWMe files nothing with ${society}, and the invoice follows their published tariff for this venue.`,
       ],
-    },
+    };
+  }
+
+  return {
+    feeLabel: money(estimate.fee),
+    rateLabel: `≈ ${ratePercent}% of ticket revenue`,
+    isTerritoryTariff: false,
+    sourceLabel: "Estimate only",
+    sourceUrl: null,
+    assumptions: [
+      estimate.country
+        ? `Flat ${ratePercent}% planning rate — shoWMe has no tariff configured for ${estimate.country}.`
+        : `Flat ${ratePercent}% planning rate — no territory tariff is configured in shoWMe.`,
+      ...shared,
+      estimate.country
+        ? "No PRO is set for this event, so no published tariff was consulted."
+        : "shoWMe could not tell where this show happens — set the venue's country and its PRO rate can be applied.",
+    ],
   };
 }
 

@@ -86,19 +86,37 @@ export function useSelect({
   const selected = items.find((item) => item.value === value) ?? null;
   const filteredSelectedIndex = filtered.findIndex((item) => item.value === value);
 
+/** Breathing room between the trigger and its menu. */
+const GAP = 4;
+/** Never let the menu touch the edge of the window. */
+const VIEWPORT_MARGIN = 8;
+/** Below this a menu is not worth opening as a list — roughly five options. */
+const MINIMUM_MENU_HEIGHT = 240;
+
   const updatePosition = useCallback(() => {
     const element = triggerRef.current;
     if (!element) return;
     const rect = element.getBoundingClientRect();
     const listHeight = Math.max(filtered.length, 1) * OPTION_HEIGHT + 12;
-    const estimated = Math.min(listHeight + (searchable ? SEARCH_ROW_HEIGHT : 0), 320);
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const openUp = spaceBelow < estimated && rect.top > spaceBelow;
+    const wanted = listHeight + (searchable ? SEARCH_ROW_HEIGHT : 0);
+
+    // Open on whichever side has MORE ROOM, not merely when below is too small.
+    // A control low in a card had plenty of space above it and was still opening
+    // downward into a sliver, because "below is insufficient" was only half the
+    // question — the other half is whether up is actually better.
+    const spaceBelow = window.innerHeight - rect.bottom - GAP - VIEWPORT_MARGIN;
+    const spaceAbove = rect.top - GAP - VIEWPORT_MARGIN;
+    const openUp = spaceAbove > spaceBelow && spaceBelow < wanted;
+    const available = openUp ? spaceAbove : spaceBelow;
+
     setMenuStyle({
       left: rect.left,
       width: rect.width,
-      maxHeight: Math.max(160, (openUp ? rect.top : spaceBelow) - 12),
-      ...(openUp ? { bottom: window.innerHeight - rect.top + 4 } : { top: rect.bottom + 4 }),
+      // Never taller than it needs, never shorter than the room allows. The old
+      // floor of 160 was applied even when the viewport could not honour it, so
+      // a menu near an edge both overflowed AND showed three options.
+      maxHeight: Math.max(Math.min(wanted, available), Math.min(MINIMUM_MENU_HEIGHT, available)),
+      ...(openUp ? { bottom: window.innerHeight - rect.top + GAP } : { top: rect.bottom + GAP }),
     });
   }, [filtered.length, searchable]);
 

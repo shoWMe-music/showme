@@ -1,8 +1,8 @@
 import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import type { Capability } from "@showme/shared";
-import { and, desc, eq } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
+import { and, desc, eq, ne } from "drizzle-orm";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
@@ -86,6 +86,18 @@ const EventResponse = z.object({
   holdRank: z.number().nullable().optional(),
   holdAutoPromote: z.boolean().optional(),
   extras: EventExtrasSchema.nullable().optional(),
+});
+
+/**
+ * What an archive/unarchive call answers with — the caller's OWN filing state,
+ * not the event's. Deliberately NOT an `EventResponse`: nothing about the event
+ * changed, so echoing the whole event back would invite the reader to believe
+ * something did.
+ */
+const ArchiveResponse = z.object({
+  id: z.string(),
+  archived: z.boolean(),
+  archivedAt: z.string().nullable(),
 });
 
 const OPERATOR_CAPABILITIES = new Set(PRESET_PERMISSION_SETS.operator_full as Capability[]);
@@ -216,6 +228,81 @@ function venuePrefill(
   if (extrasChanged) fill.extras = extras;
 
   return fill;
+}
+
+// ── Archiving ────────────────────────────────────────────────────────────────
+//
+// Archiving is FILING, not a status, and not a state of the event at all.
+//
+// `events.status` says where the booking got to; archiving says whether the party
+// doing the filing still wants to look at it. A concluded show and a cancelled
+// one are both worth filing away, and filing must not overwrite the word that
+// says which — so `archived` is deliberately NOT a value in the `event_status`
+// enum. It is `event_participants.archived_at` (migration 0020).
+//
+// On the PARTICIPANT, not on the event, because an operator's filing preference
+// is not a fact about anybody else's calendar (`docs/story.md`: the performer's
+// world is "my bookings, my availability, my riders, my money"). Each profile
+// archives its own row; every other party keeps the show on their list. The old
+// app put a boolean on the event document and hid it from everyone on it.
+//
+// The gate is `event.view`, and that is the whole rule. The row being written is
+// the caller's own participation, and the authority needed to have this event in
+// your list in the first place IS `event.view` — so anyone who can see it may
+// decide to stop looking at it. Requiring `event.edit` would mean a `view_only`
+// collaborator or a crew member could never tidy their own list, to nobody's
+// benefit: their filing is invisible to everyone else by construction. No new
+// capability was invented, because the existing vocabulary already had the right
+// word.
+//
+// It costs nothing and frees nothing. The free-tier event cap counts
+// `events.status IN ('confirmed','concluded')` for the HOST profile
+// (`CAP_COUNTING_EVENT_STATUSES` in `lib/entitlements.ts`); these routes never
+// touch `events`, so an operator cannot archive a confirmed show to release a
+// plan slot. That is a property of where the column lives, not a rule anyone has
+// to remember to apply — and `events-archive.test.ts` fails loudly if it changes.
+
+/**
+ * The acting profile's own participant row on this event — the row an archive
+ * writes to.
+ *
+ * The acting profile, not "any row the caller can reach": a user who belongs to
+ * both the venue and the promoter on one show has two filing cabinets, and the
+ * `X-Profile-Id` they are working as says which one they are tidying. `removed`
+ * rows are excluded for the same reason `authorize()` excludes them — a
+ * participation that has ended is not one you file away.
+ */
+async function actingParticipantOnEvent(
+  request: FastifyRequest,
+  eventId: string,
+): Promise<typeof schema.eventParticipants.$inferSelect> {
+  const principal = request.principal;
+  if (!principal) throw new Error("principal missing after authentication");
+  const actingProfileId = principal.actingProfileId;
+  const membership = principal.memberships.find(
+    (candidate) => candidate.profileId === actingProfileId,
+  );
+  if (!actingProfileId || !membership) {
+    throw badRequest("Set X-Profile-Id to a profile you belong to");
+  }
+
+  const [participant] = await request.server.database
+    .select()
+    .from(schema.eventParticipants)
+    .where(
+      and(
+        eq(schema.eventParticipants.eventId, eventId),
+        eq(schema.eventParticipants.profileId, actingProfileId),
+        ne(schema.eventParticipants.status, "removed"),
+      ),
+    );
+  if (!participant) {
+    // Reachable through another of the caller's profiles, but not through this
+    // one — so there is no row of THEIRS to file. Naming the header is the only
+    // useful thing to say, because switching profile is the fix.
+    throw badRequest("Set X-Profile-Id to a profile that is on this event");
+  }
+  return participant;
 }
 
 export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
@@ -464,6 +551,110 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
       });
 
       return serializeEvent(updated, capabilities);
+    },
+  );
+
+  // Archive: file this event away for the ACTING PROFILE only. See the block
+  // above `actingParticipantOnEvent` for why this is not a status, why it lives
+  // on the participant, why `event.view` is the gate, and why it cannot move a
+  // plan slot.
+  app.post(
+    "/events/:id/archive",
+    { schema: { params: EventParams, response: { 200: ArchiveResponse } } },
+    async (request) => {
+      const { database } = request.server;
+      const { id } = request.params;
+
+      await requireEventCapability(request, id, "event.view");
+      const participant = await actingParticipantOnEvent(request, id);
+
+      // Already filed. Answering with the state that holds keeps a double click,
+      // a retry and a stale UI all harmless — and writes no second history line
+      // for a thing that did not happen twice.
+      if (participant.archivedAt) {
+        return { id, archived: true, archivedAt: participant.archivedAt.toISOString() };
+      }
+
+      const actorUserId = request.principal?.userId;
+      const updated = await database.transaction(async (tx) => {
+        const now = new Date();
+        const [after] = await tx
+          .update(schema.eventParticipants)
+          .set({ archivedAt: now, archivedBy: actorUserId, updatedAt: now })
+          .where(eq(schema.eventParticipants.id, participant.id))
+          .returning();
+        if (!after) throw notFound("Event not found");
+
+        await writeAudit(tx, request, {
+          capability: "event.view",
+          action: "event.archive",
+          targetKind: "event_participant",
+          targetId: participant.id,
+          eventId: id,
+          before: participant,
+          after,
+        });
+        // History, scoped to the one participant it is about (`archive` is a
+        // participant-scoped activity kind — see `lib/activity.ts`). An operator
+        // reading "why is this not in my list?" gets an answer; the performer on
+        // the bill is not told the operator has stopped looking, because that is
+        // the operator's filing and not news about the show.
+        await writeActivity(tx, request, {
+          eventId: id,
+          type: "event.archived",
+          targetKind: "archive",
+          targetId: participant.id,
+        });
+        return after;
+      });
+
+      return { id, archived: true, archivedAt: updated.archivedAt?.toISOString() ?? null };
+    },
+  );
+
+  // Unarchive: put it back. Archiving is reversible BY CONSTRUCTION — the column
+  // is nullable and nothing else was touched — so this route restores exactly the
+  // state that existed before, with no reconstruction and nothing to lose.
+  app.post(
+    "/events/:id/unarchive",
+    { schema: { params: EventParams, response: { 200: ArchiveResponse } } },
+    async (request) => {
+      const { database } = request.server;
+      const { id } = request.params;
+
+      await requireEventCapability(request, id, "event.view");
+      const participant = await actingParticipantOnEvent(request, id);
+
+      if (!participant.archivedAt) {
+        return { id, archived: false, archivedAt: null };
+      }
+
+      await database.transaction(async (tx) => {
+        const [after] = await tx
+          .update(schema.eventParticipants)
+          .set({ archivedAt: null, archivedBy: null, updatedAt: new Date() })
+          .where(eq(schema.eventParticipants.id, participant.id))
+          .returning();
+        if (!after) throw notFound("Event not found");
+
+        await writeAudit(tx, request, {
+          capability: "event.view",
+          action: "event.unarchive",
+          targetKind: "event_participant",
+          targetId: participant.id,
+          eventId: id,
+          before: participant,
+          after,
+        });
+        await writeActivity(tx, request, {
+          eventId: id,
+          type: "event.unarchived",
+          targetKind: "archive",
+          targetId: participant.id,
+        });
+      });
+
+      return { id, archived: false, archivedAt: null };
     },
   );
 }

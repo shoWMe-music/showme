@@ -1,9 +1,10 @@
 import { schema } from "@showme/db";
+import { PRO_CODES, isCountryCode, normalizeCountryCode } from "@showme/shared";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { forbidden } from "../errors";
+import { badRequest, forbidden, notFound } from "../errors";
 import { writeAudit } from "../lib/audit";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
 import { serializeProfile } from "../serialize/profile";
@@ -72,6 +73,53 @@ const AuditResponse = z.object({
 const AuditListResponse = z.object({
   items: z.array(AuditResponse),
   nextCursor: z.string().nullable(),
+});
+
+/**
+ * The PRO tariff for one territory (`performing_rights_rates`, migration 0018).
+ *
+ * `country` is the key because a tariff is a fact about a TERRITORY — decisions.md
+ * #17 makes the country stamp the thing that drives "VAT, PRO codes
+ * (STIM/GEMA/PRS), currency", so the PRO is downstream of it, not above it. The
+ * table comment in `packages/db/src/schema/infra.ts` argues the full case.
+ */
+const CountryParams = z.object({
+  country: z
+    .string()
+    .min(1)
+    .describe("ISO 3166-1 alpha-2 country code, e.g. SE. Case-insensitive."),
+});
+
+const SetPerformingRightsRateBody = z.object({
+  /**
+   * The filing destination of record. Four values, because that is what
+   * `performance_reports.pro_code` accepts — most territories are honestly
+   * `none`, and name their society in `proName` instead.
+   */
+  proCode: z.enum(PRO_CODES).default("none"),
+  /** "STIM", "GEMA", "PRS for Music", "SACEM" — what the planner's card prints. */
+  proName: z.string().min(1).max(120),
+  /**
+   * Basis points of ticket revenue. 750 = 7.50%. Never a percentage and never a
+   * float (money.md) — 7.5 sent here is 0.075%, which is why the field is named
+   * for its unit and the range is stated in the error the client gets back.
+   */
+  rateBasisPoints: z.number().int().min(0).max(10_000),
+  /** The published tariff this rate was read off. */
+  sourceUrl: z.string().url().max(2048).nullable().optional(),
+  /** Which tariff, in words — "Tariff M, live concerts, 2026". */
+  sourceNote: z.string().max(500).nullable().optional(),
+});
+
+const PerformingRightsRateResponse = z.object({
+  country: z.string(),
+  proCode: z.string(),
+  proName: z.string(),
+  rateBasisPoints: z.number(),
+  sourceUrl: z.string().nullable(),
+  sourceNote: z.string().nullable(),
+  updatedBy: z.string().nullable(),
+  updatedAt: z.string(),
 });
 
 /** Keyset cursor over a `(timestamp, id)` order — opaque to the client. */
@@ -238,4 +286,156 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
       };
     },
   );
+
+  // ---------------------------------------------------------------------------
+  // PRO rates per territory
+  //
+  // The Budget Planner's PRO fee estimate resolves against these rows. An empty
+  // table is a working state, not a broken one: every event then keeps the flat
+  // 6% `planning_default` it has always had, labelled on the card as nobody's
+  // tariff. Writing a row here is what turns that estimate into a quoted rate,
+  // which is why only a platform admin may do it and why every write is audited.
+  // ---------------------------------------------------------------------------
+
+  // Every configured territory rate, alphabetically by country.
+  app.get(
+    "/admin/performing-rights-rates",
+    { schema: { response: { 200: z.array(PerformingRightsRateResponse) } } },
+    async (request) => {
+      if (!request.principal?.isAdmin) throw forbidden();
+      const { database } = request.server;
+
+      const rows = await database
+        .select()
+        .from(schema.performingRightsRates)
+        .orderBy(asc(schema.performingRightsRates.country));
+
+      return rows.map(serializePerformingRightsRate);
+    },
+  );
+
+  // Set (or replace) one territory's rate. Upsert + audit.
+  app.put(
+    "/admin/performing-rights-rates/:country",
+    {
+      schema: {
+        params: CountryParams,
+        body: SetPerformingRightsRateBody,
+        response: { 200: PerformingRightsRateResponse },
+      },
+    },
+    async (request) => {
+      if (!request.principal?.isAdmin) throw forbidden();
+      const principal = request.principal;
+      const { database } = request.server;
+
+      // Normalize BEFORE validating, so `se` and ` SE ` are accepted and stored
+      // as `SE`. The resolver matches on the normalized form, so a row stored any
+      // other way would sit in this list looking configured while governing no
+      // event at all — the quietest possible failure (audit A-18 made the same
+      // argument for `representations.region`).
+      const country = normalizeCountryCode(request.params.country);
+      if (!isCountryCode(country)) {
+        throw badRequest(
+          `${request.params.country} is not an ISO 3166-1 alpha-2 country code. Send a two-letter code such as SE.`,
+        );
+      }
+
+      const { proCode, proName, rateBasisPoints } = request.body;
+      const sourceUrl = request.body.sourceUrl ?? null;
+      const sourceNote = request.body.sourceNote ?? null;
+
+      const rate = await database.transaction(async (tx) => {
+        const [before] = await tx
+          .select()
+          .from(schema.performingRightsRates)
+          .where(eq(schema.performingRightsRates.country, country));
+
+        const [row] = await tx
+          .insert(schema.performingRightsRates)
+          .values({
+            country,
+            proCode,
+            proName,
+            rateBasisPoints,
+            sourceUrl,
+            sourceNote,
+            updatedBy: principal.userId,
+          })
+          .onConflictDoUpdate({
+            target: schema.performingRightsRates.country,
+            set: {
+              proCode,
+              proName,
+              rateBasisPoints,
+              sourceUrl,
+              sourceNote,
+              updatedBy: principal.userId,
+              updatedAt: new Date(),
+            },
+          })
+          .returning();
+        if (!row) throw new Error("performing rights rate upsert failed");
+
+        await writeAudit(tx, request, {
+          // Null, not a borrowed capability: authority here is `is_admin` and no
+          // capability was checked, so naming one would record a check that never
+          // happened (see `lib/audit.ts`).
+          capability: null,
+          action: "admin.performing_rights_rate.set",
+          targetKind: "performing_rights_rate",
+          before: before ? serializePerformingRightsRate(before) : null,
+          after: serializePerformingRightsRate(row),
+        });
+        return row;
+      });
+
+      return serializePerformingRightsRate(rate);
+    },
+  );
+
+  // Remove a territory's rate — the planner falls back to the qualified estimate.
+  app.delete(
+    "/admin/performing-rights-rates/:country",
+    // No response schema: a 204 has no body, and declaring one makes the type
+    // provider demand a payload the status forbids (the house pattern, `deals.ts`).
+    { schema: { params: CountryParams } },
+    async (request, reply) => {
+      if (!request.principal?.isAdmin) throw forbidden();
+      const { database } = request.server;
+      const country = normalizeCountryCode(request.params.country);
+
+      await database.transaction(async (tx) => {
+        const [deleted] = await tx
+          .delete(schema.performingRightsRates)
+          .where(eq(schema.performingRightsRates.country, country))
+          .returning();
+        if (!deleted) throw notFound(`No PRO rate is configured for ${country}`);
+
+        await writeAudit(tx, request, {
+          capability: null,
+          action: "admin.performing_rights_rate.delete",
+          targetKind: "performing_rights_rate",
+          before: serializePerformingRightsRate(deleted),
+          after: null,
+        });
+      });
+
+      return reply.status(204).send();
+    },
+  );
+}
+
+/** One rate row on the wire. Timestamps as ISO strings, like every other route. */
+function serializePerformingRightsRate(row: typeof schema.performingRightsRates.$inferSelect) {
+  return {
+    country: row.country,
+    proCode: row.proCode,
+    proName: row.proName,
+    rateBasisPoints: row.rateBasisPoints,
+    sourceUrl: row.sourceUrl,
+    sourceNote: row.sourceNote,
+    updatedBy: row.updatedBy,
+    updatedAt: row.updatedAt.toISOString(),
+  };
 }

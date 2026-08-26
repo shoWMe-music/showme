@@ -13,7 +13,7 @@
   min-width: 0;
   font-size: 14px;
   color: var(--text);
-  transition: color .15s;
+  transition: color var(--duration-quick);
 }
 .done {
   color: var(--dim);
@@ -28,6 +28,6 @@
   padding: 4px;
   display: grid;
   place-items: center;
-  transition: color .15s;
+  transition: color var(--duration-quick);
 }
 .delete:hover { color: #EE5746; }

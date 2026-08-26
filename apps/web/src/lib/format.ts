@@ -17,6 +17,29 @@ export function formatMoney(
 }
 
 /**
+ * The same money, to the MINOR UNIT.
+ *
+ * `formatMoney` rounds to whole units, which is what the design asks for and is
+ * right almost everywhere — but it means two different amounts can print the same
+ * text. That is harmless in a total and actively misleading in a sentence whose
+ * whole job is to contrast two figures ("this row says X, the deal says Y"). Use
+ * this where a rounded collision would make the copy contradict itself.
+ */
+export function formatMoneyExact(
+  amountMinor: string | number | null | undefined,
+  currencyCode: string,
+): string {
+  const minor = typeof amountMinor === "string" ? Number(amountMinor) : (amountMinor ?? 0);
+  const major = Number.isFinite(minor) ? minor / 100 : 0;
+  return new Intl.NumberFormat("en-IE", {
+    style: "currency",
+    currency: currencyCode || "EUR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(major);
+}
+
+/**
  * Format a minor-unit amount with NO currency symbol — for the case where the
  * denomination genuinely isn't known. Showing a number under the wrong symbol is
  * worse than showing it under none, so callers must use this instead of letting

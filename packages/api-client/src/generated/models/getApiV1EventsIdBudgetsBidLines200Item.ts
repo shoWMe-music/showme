@@ -29,6 +29,8 @@ export type GetApiV1EventsIdBudgetsBidLines200Item = {
   /** @nullable */
   dealId: string | null;
   /** @nullable */
+  attributedDealId: string | null;
+  /** @nullable */
   details: GetApiV1EventsIdBudgetsBidLines200ItemDetails;
   version: number;
 };

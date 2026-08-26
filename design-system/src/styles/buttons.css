@@ -14,7 +14,7 @@
   font-size: 14.5px;
   font-weight: 500;
   letter-spacing: -0.005em;
-  transition: transform .2s var(--ease-out), background .2s, box-shadow .2s, color .2s;
+  transition: transform var(--duration-base) var(--ease-out), background var(--duration-base), box-shadow var(--duration-base), color var(--duration-base);
   white-space: nowrap;
 }
 
@@ -47,12 +47,12 @@
 .btn--lg { padding: 17px 28px; font-size: 15.5px; }
 
 /* --- trailing arrow slides on hover --- */
-.btn__arrow { transition: transform .25s var(--ease-out); }
+.btn__arrow { transition: transform var(--duration-base) var(--ease-out); }
 .btn:hover .btn__arrow { transform: translateX(3px); }
 
 /* Shared tactile feedback on every variant: gentle hover lift, quick press. */
 .btn:hover { transform: translateY(-1px); }
-.btn:active { transform: translateY(0) scale(.985); transition-duration: .09s; }
+.btn:active { transform: translateY(0) scale(.985); transition-duration: var(--duration-instant); }
 @media (prefers-reduced-motion: reduce) {
   .btn:hover, .btn:active { transform: none; }
 }

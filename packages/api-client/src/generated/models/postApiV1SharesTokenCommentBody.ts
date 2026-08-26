@@ -4,8 +4,13 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PostApiV1SharesTokenCommentBodySection } from './postApiV1SharesTokenCommentBodySection';
 
 export type PostApiV1SharesTokenCommentBody = {
-  /** @minLength 1 */
+  /**
+   * @minLength 1
+   * @maxLength 4000
+   */
   message: string;
+  section?: PostApiV1SharesTokenCommentBodySection;
 };

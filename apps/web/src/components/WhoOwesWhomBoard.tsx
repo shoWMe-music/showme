@@ -90,7 +90,7 @@ function TransferRow({
         padding: "10px 12px",
         border: "1px solid var(--border)",
         borderRadius: 12,
-        background: "var(--elevated)",
+        background: "var(--card)",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>

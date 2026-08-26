@@ -52,7 +52,11 @@ export interface AgreementAuthority {
   canCompose: boolean;
   /** `agreement.manage` — send a draft out, and reopen a confirmed one. */
   canManage: boolean;
-  /** `agreement.confirm` — sign your own line. */
+  /**
+   * `agreement.confirm` at EVENT scope — sign your own line anywhere on this event.
+   * Crew deliberately do not have it; see `dealActionsFor`, which adds the
+   * deal-scoped half.
+   */
   canConfirm: boolean;
 }
 
@@ -64,7 +68,7 @@ export function agreementAuthorityOf(capabilities: readonly string[]): Agreement
   };
 }
 
-/** Which lifecycle moves are available on ONE deal, for THIS caller. */
+/** What one deal offers this caller right now. */
 export interface DealActions {
   /** A draft has never been put to the other side; only a draft can be sent. */
   canSend: boolean;
@@ -74,16 +78,42 @@ export interface DealActions {
   canReopen: boolean;
 }
 
-export function dealActionsFor(deal: Deal, authority: AgreementAuthority): DealActions {
-  const unsignedOwnLine = deal.parties.some(
+/** The event roles whose authority to sign is DEAL-scoped, mirroring `@showme/auth`. */
+const DEAL_SCOPED_CONFIRM_ROLES = new Set(["crew", "crew_lead"]);
+
+/**
+ * Which lifecycle moves are available on ONE deal, for THIS caller.
+ *
+ * `canConfirm` is the one that is not answerable from the event's `capabilities`
+ * alone. Crew hold no `agreement.confirm` on the event — that capability decides the
+ * show's DATE server-side and is nobody's but the act's — yet a crew member NAMED as
+ * a signatory party on an agreement may sign that agreement, and must, or a
+ * venue↔crew deal could never freeze (`packages/auth/src/presets.ts`,
+ * `dealPartyBaselineCapabilities`). The route enforces it; this mirrors it so the
+ * button is offered to exactly the callers `POST /deals/:did/confirm` will accept —
+ * no dead affordance, and no hidden one either.
+ */
+export function dealActionsFor(
+  deal: Deal,
+  authority: AgreementAuthority,
+  roster: readonly Participant[] = [],
+): DealActions {
+  const unsignedOwnLines = deal.parties.filter(
     (party) => party.isYours && party.roleInDeal !== "observer" && party.confirmedAt == null,
   );
+  const signsAsDealParty = unsignedOwnLines.some((party) => {
+    const participant = roster.find((member) => member.id === party.participantId);
+    return participant != null && DEAL_SCOPED_CONFIRM_ROLES.has(participant.role);
+  });
   const frozen = deal.agreementStatus === "confirmed" || deal.agreementStatus === "signed";
   return {
     canSend: authority.canManage && deal.agreementStatus === "draft",
     // A draft is not signable: the terms have not been put to anybody yet, and
     // `agreement_status` moves draft → sent → confirmed in that order (#1).
-    canConfirm: authority.canConfirm && deal.agreementStatus === "sent" && unsignedOwnLine,
+    canConfirm:
+      (authority.canConfirm || signsAsDealParty) &&
+      deal.agreementStatus === "sent" &&
+      unsignedOwnLines.length > 0,
     canReopen: authority.canManage && frozen,
   };
 }

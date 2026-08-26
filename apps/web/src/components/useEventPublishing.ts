@@ -12,8 +12,8 @@ import { publicSiteUrl } from "../lib/availabilityShareLink";
 import { errorMessage } from "../lib/errors";
 
 /**
- * Publishing an event — the state behind the "Public event page" panel in the
- * Event Information edit modal.
+ * Publishing an event — the state behind the "Public event page" panel at the
+ * foot of the Event Information card.
  *
  * WHY IT READS THE EVENT ITSELF instead of taking one as a prop: the flag it
  * shows (`published`) is not part of the shape the details tab passes down, and
@@ -98,7 +98,7 @@ export function useEventPublishing(
   const publishEvent = usePostApiV1EventsIdPublish({
     mutation: {
       onSuccess: () => {
-        toast.success("This event is live on the public internet");
+        toast.success("Event published");
         invalidateEvent();
       },
       onError: (error) => reportFailure(error, "Couldn't publish this event."),
@@ -108,10 +108,10 @@ export function useEventPublishing(
   const patchEvent = usePatchApiV1EventsId({
     mutation: {
       onSuccess: () => {
-        toast.success("The public page has been taken down");
+        toast.success("Event unpublished");
         invalidateEvent();
       },
-      onError: (error) => reportFailure(error, "Couldn't take the public page down."),
+      onError: (error) => reportFailure(error, "Couldn't unpublish this event."),
     },
   });
 

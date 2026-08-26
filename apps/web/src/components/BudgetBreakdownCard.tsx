@@ -61,6 +61,6 @@ const headingStyle = {
 const trackStyle = {
   height: 7,
   borderRadius: 999,
-  background: "var(--elevated)",
+  background: "var(--shape-fill)",
   overflow: "hidden",
 } as const;

@@ -28,16 +28,20 @@ export interface BudgetTemplateTicketTier {
   readonly quantity: number;
 }
 
-/** A named amount — a cost heading, or a custom revenue row. */
+/**
+ * A named amount — a cost heading, or a custom revenue row.
+ *
+ * Just a label and a figure. Rows used to be able to carry `type: 'per_guest'`,
+ * whose amount was then a PER-HEAD figure the planner multiplied by capacity; the
+ * product owner struck that out ("values in custom budget is what the user
+ * inputs"), so a template's amount is now always the whole figure. Payloads
+ * already stored under the old reading are converted on the way in — see
+ * `readBudgetTemplatePayload`.
+ */
 export interface BudgetTemplateNamedAmount {
   readonly label: string;
-  /** Minor units as a decimal string. For a per-guest row, the amount PER HEAD. */
+  /** Minor units as a decimal string — the whole figure. */
   readonly amount: string;
-  /**
-   * How the amount is struck. Absent on a standing cost heading, which is always
-   * a flat figure, and on a template written before custom rows had a type.
-   */
-  readonly type?: "manual" | "per_guest";
 }
 
 export interface BudgetTemplatePayload {
@@ -74,17 +78,25 @@ function array(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-function namedAmounts(value: unknown): BudgetTemplateNamedAmount[] {
+/**
+ * The named rows of a stored payload, with the old per-guest reading converted.
+ *
+ * A row saved as `type: 'per_guest'` holds the amount PER HEAD, and the planner
+ * that wrote it multiplied by the template's capacity before counting it. Loading
+ * that amount literally would quietly shrink the budget by a factor of the room.
+ * So the multiplication is done ONCE, here, on the way in: the row becomes the
+ * figure it always contributed, and the `type` never reaches the planner again.
+ */
+function namedAmounts(value: unknown, capacity: number): BudgetTemplateNamedAmount[] {
   return (
     array(value)
       .map((entry) => {
         const row = entry as Record<string, unknown>;
+        const amount = minorUnits(row?.amount);
         return {
           label: label(row?.label),
-          amount: minorUnits(row?.amount),
-          // Anything but the one known alternative reads as a flat figure —
-          // a template must never load a row whose type nothing implements.
-          ...(row?.type === "per_guest" ? { type: "per_guest" as const } : {}),
+          amount:
+            row?.type === "per_guest" ? (BigInt(amount) * BigInt(capacity)).toString() : amount,
         };
       })
       // A row with no name is not a row — it would load as a blank line the
@@ -108,6 +120,9 @@ export function readBudgetTemplatePayload(value: unknown): BudgetTemplatePayload
     unknown
   >;
   const processing = source.paymentProcessing as Record<string, unknown> | undefined;
+  // Read before the rows, because a legacy per-guest row is worth its amount
+  // TIMES this figure.
+  const capacity = wholeNumber(source.capacity);
   const hasProcessing =
     typeof processing === "object" && processing !== null && "percentBasisPoints" in processing;
 
@@ -121,10 +136,10 @@ export function readBudgetTemplatePayload(value: unknown): BudgetTemplatePayload
       };
     }),
     averageBarSpend: minorUnits(source.averageBarSpend),
-    capacity: wholeNumber(source.capacity),
+    capacity,
     otherRevenue: minorUnits(source.otherRevenue),
-    customRevenue: namedAmounts(source.customRevenue),
-    costs: namedAmounts(source.costs),
+    customRevenue: namedAmounts(source.customRevenue, capacity),
+    costs: namedAmounts(source.costs, capacity),
     ...(hasProcessing
       ? {
           paymentProcessing: {

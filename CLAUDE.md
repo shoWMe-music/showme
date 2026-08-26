@@ -50,6 +50,22 @@ product rule isn't written down, **infer it from story.md's purpose/boundary**, 
 - **Authorization:** ReBAC via joins; `permission_sets.capabilities[]` × profile role; **entitlements** (plan limits) are a separate fresh-read layer.
 - **AI / assistant layer** (2026-07-24, `docs/decisions.md` #16.14–16.15): a Gemini in-app **assistant** + **agent-native** (bring-your-own-AI) surface, both built on the **`authorize(capability)` catalog exposed as tools** — build manual routes tool-shaped so it's a thin add-on. **Naming: `agent` = the booking-agent account kind ONLY; the AI is `assistant`/`ai`.** Platform is **territory-scoped** (`docs/decisions.md` #17): the boundary is **derived from location** — `country` stamp (tax/PRO/currency) + a configurable **`market`** grouping of countries — enforced softly in `authorize()`; re-drawable country→region→city without migration.
 
+## Review gate — after every agent, before the work is accepted
+An agent finishing is not the work landing. Review its diff against the bar below **before** committing it,
+and fix or hand back what fails. This is cheapest at the moment of introduction, while the diff is small and
+attributable to one change.
+- **Reuse over repetition — but only for real repetition.** Three or more existing call sites, not a
+  speculative second one. A helper with one call site is worse than the lines it replaced.
+- **Components stay dumb.** Fetching, mutation and derivation belong in a `use*` hook; the component takes
+  values and emits events. A component that also owns its data is the thing to split.
+- **Nothing hand-rolls what the design system has.** A local `fieldStyle`, a private clipboard helper, a
+  second money formatter — each is a divergence that will drift.
+- **Prefer deleting.** Dead exports, dead affordances and unused branches are a bigger win than any extraction.
+- **Do not overdo it.** A long file that reads top to bottom beats six files you must hold at once. Over-
+  abstraction is a worse outcome than length.
+Findings that are not worth acting on immediately go in `docs/codebase-reuse-audit.md`, including **what was
+deliberately left alone and why** — that section is what stops the next pass re-litigating the same calls.
+
 ## Conventions
 - **Naming: full words, no abbreviations.** `authorize(capability)` not `authorize(cap)`; `capabilities` not `caps`. Readability over brevity — code should be understandable immediately.
 - **Business logic** (settlement math, hold ranking) = plain TS modules, framework-agnostic — the API framework never touches the math.

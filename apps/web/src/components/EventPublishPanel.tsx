@@ -1,4 +1,6 @@
 import { Button, Icon, useToast } from "@showme/design-system";
+import { type CSSProperties, useState } from "react";
+import { ConfirmDialog, useConfirmDialog } from "./ConfirmDialog";
 import { useEventPublishing } from "./useEventPublishing";
 
 export interface EventPublishPanelProps {
@@ -10,25 +12,30 @@ export interface EventPublishPanelProps {
 }
 
 /**
- * "Public event page" — the publish control, inside the Event Information edit
- * modal.
+ * "Public event page" — the publish control, at the foot of the Event
+ * Information card.
  *
- * WHY IT IS NOT A CHECKBOX AMONG THE FIELDS. Every other control in this modal
- * edits a value that is written when the operator presses "Save changes" and
- * thrown away when they press Cancel. Publishing is none of those things: it
- * takes effect the moment it is pressed, it goes through its own route and its
- * own capability (`event.publish`), it writes a line into the event's history
- * that every participant can read — and it puts a page about a real show on the
- * public internet, which is the one action in this modal that a stranger can see
- * the result of. A tick box between "Venue" and "Capacity" would say the
- * opposite of all of that. So it gets its own panel, its own explanation of what
- * a visitor will see, and a button that names the act.
+ * WHY IT IS NOT A CHECKBOX AMONG THE FIELDS. Every other control on that card
+ * edits a value. Publishing is none of those things: it takes effect the moment
+ * it is confirmed, it goes through its own route and its own capability
+ * (`event.publish`), it writes a line into the event's history that every
+ * participant can read — and it puts a page about a real show on the public
+ * internet, which is the one action here that a stranger can see the result of.
+ * A tick box between "Venue" and "Capacity" would say the opposite of all of
+ * that. So it gets its own panel, a button that names the act, and a
+ * confirmation that says what the act exposes.
  *
- * WHAT IT PROMISES IS EXACTLY WHAT `serializePublicEvent` RETURNS
- * (`apps/api/src/serialize/public.ts`) — title, date, venue name, doors and show
- * time, and nothing else. The list below is that allowlist written out, so the
- * operator never has to guess whether their budget or their counterparties are
- * on the internet.
+ * WHY THE PANEL ITSELF CARRIES NO PROSE. It used to explain, in two paragraphs
+ * above the button, what a visitor would and would not see. That is the answer
+ * to "what am I about to expose?" — a question asked BEFORE publishing, not a
+ * block of text scrolled past by someone who already did. The lists now live in
+ * the publish confirmation, where they are the substance of the decision; the
+ * panel is left with the state, the address and the act.
+ *
+ * NAMING follows the previous app (`../showme-settle-fast`): **Publish** /
+ * **Unpublish**, **Published** as the state, "Event published" / "Event
+ * unpublished" as the toasts. It did not confirm before publishing — the modal
+ * is new — but its vocabulary is what operators already have in their hands.
  */
 export function EventPublishPanel({
   eventId,
@@ -37,6 +44,7 @@ export function EventPublishPanel({
 }: EventPublishPanelProps) {
   const toast = useToast();
   const publishing = useEventPublishing(eventId, { hasUnsavedChanges });
+  const confirmation = useConfirmDialog();
 
   if (publishing.isLoading) return null;
 
@@ -50,6 +58,26 @@ export function EventPublishPanel({
       toast.error("Couldn't copy — select the link and copy it by hand.");
     }
   };
+
+  const askToPublish = () =>
+    confirmation.ask({
+      title: "Publish this event?",
+      body: <PublishConsequences />,
+      confirmLabel: "Publish",
+      onConfirm: publishing.publish,
+    });
+
+  // Destructive, so the dialog opens on Cancel rather than on the act: taking a
+  // page down breaks a link that is already out in the world, and the person
+  // holding it gets nothing back.
+  const askToUnpublish = () =>
+    confirmation.ask({
+      title: "Unpublish this event?",
+      body: <UnpublishConsequences />,
+      confirmLabel: "Unpublish",
+      destructive: true,
+      onConfirm: publishing.unpublish,
+    });
 
   return (
     <section
@@ -71,44 +99,119 @@ export function EventPublishPanel({
 
       {publishing.published ? (
         <>
-          <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: "var(--muted)" }}>
-            Anyone with this link can see the show and RSVP to it.
-          </p>
           <PublicLink url={publishing.publicUrl} onCopy={copyLink} />
-          <VisibilityList />
           <div>
             <Button
               variant="ghost"
-              onClick={publishing.unpublish}
+              onClick={askToUnpublish}
               disabled={disabled || publishing.isWorking}
             >
-              {publishing.isWorking ? "Taking it down…" : "Take the page down"}
+              {publishing.isWorking ? "Unpublishing…" : "Unpublish"}
             </Button>
           </div>
         </>
       ) : (
         <>
-          <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: "var(--muted)" }}>
-            Publishing puts a page about this show on the public internet, for anyone with the link
-            — no shoWMe account needed. Everyone on the bill sees in the event's history that you
-            published it.
-          </p>
-          <VisibilityList />
           {publishing.blockedReason && <BlockedNotice reason={publishing.blockedReason} />}
           <div>
             <Button
               variant="primary"
-              onClick={publishing.publish}
+              onClick={askToPublish}
               disabled={disabled || !publishing.canPublish}
             >
-              {publishing.isWorking ? "Publishing…" : "Publish this event"}
+              {publishing.isWorking ? "Publishing…" : "Publish"}
             </Button>
           </div>
         </>
       )}
+
+      <ConfirmDialog {...confirmation.dialogProps} />
     </section>
   );
 }
+
+/**
+ * What publishing exposes — the substance of the publish confirmation.
+ *
+ * The lists are a transcription of `serializePublicEvent`
+ * (`apps/api/src/serialize/public.ts`), which selects six columns and no others:
+ * id, title, eventDate, venueName, doorTime, startTime. Everything named in the
+ * second list is a column that endpoint never reads, so it cannot leak. If that
+ * allowlist ever gains a field, this copy is wrong until it gains the same one.
+ *
+ * Written positively AND negatively because the question an operator actually
+ * has is the second one: an event carries a budget, deals and other people's
+ * fees, and "we only publish the poster" is only reassuring once the things left
+ * out are named.
+ *
+ * Rendered as display-block spans rather than divs because {@link ConfirmDialog}
+ * puts its body inside a `<p>`, which may not contain block-level elements.
+ */
+function PublishConsequences() {
+  return (
+    <>
+      <span style={consequenceParagraph}>
+        The page goes up the moment you confirm. Anyone with the link can open it and RSVP — no
+        shoWMe account needed — and everyone on the bill sees in the event's history that you
+        published it.
+      </span>
+      <span style={consequenceLabel}>Visitors see</span>
+      <span style={consequenceParagraph}>
+        the event name, the date, the venue name, and the doors / show times.
+      </span>
+      <span style={consequenceLabel}>They never see</span>
+      <span style={consequenceParagraph}>
+        the budget, deals or fees, who is on the bill, participants' contact details, your guest
+        list, ticket tiers, capacity, or your notes.
+      </span>
+    </>
+  );
+}
+
+/**
+ * What unpublishing costs — a different consequence, so different words.
+ *
+ * The link is the point. A published page's address has usually been sent
+ * somewhere by the time anyone thinks about taking it down, and unpublishing
+ * does not retract those copies — it turns them into a page reading "This event
+ * isn't public" (`apps/marketing/src/event.ts`). Saying only "the page comes
+ * down" would hide the half that happens to other people.
+ *
+ * The address is derived from the event id, so republishing restores the very
+ * same URL. That is worth saying: it is the difference between a reversible act
+ * and a lost link.
+ */
+function UnpublishConsequences() {
+  return (
+    <>
+      <span style={consequenceParagraph}>
+        The page comes down the moment you confirm. The link itself keeps working, but everyone
+        already holding it — on a poster, in a post, in a message — lands on "This event isn't
+        public" instead of the show.
+      </span>
+      <span style={consequenceFollowingParagraph}>
+        Nothing else changes: the event, the bill, the deals and the budget stay exactly as they
+        are, and you can publish it again at any time. The link will be the same one.
+      </span>
+    </>
+  );
+}
+
+const consequenceParagraph: CSSProperties = { display: "block" };
+
+/**
+ * A paragraph that follows another paragraph, rather than a label. Labels bring
+ * their own gap and the line beneath a label belongs tight against it, so the
+ * space is put on the one span that needs it instead of on the shared rule.
+ */
+const consequenceFollowingParagraph: CSSProperties = { display: "block", marginTop: 10 };
+
+const consequenceLabel: CSSProperties = {
+  display: "block",
+  marginTop: 12,
+  color: "var(--text)",
+  fontWeight: 600,
+};
 
 function StatePill({ published }: { published: boolean }) {
   // `--muted`, not `--dim`, for the off state: --dim is tuned to recede on the
@@ -130,32 +233,15 @@ function StatePill({ published }: { published: boolean }) {
       }}
     >
       <span style={{ width: 6, height: 6, borderRadius: "50%", background: tone }} />
-      {published ? "Live" : "Not published"}
+      {published ? "Published" : "Not published"}
     </span>
   );
 }
 
 /**
- * The allowlist, in words. It is written positively AND negatively because the
- * question an operator actually has is the second one: an event carries a
- * budget, deals and other people's fees, and "we only publish the poster" is
- * only reassuring if the things left out are named.
+ * The precondition, before the click rather than after it — and before the
+ * modal, so a confirmation is never offered for an act the API would refuse.
  */
-function VisibilityList() {
-  return (
-    <div style={{ fontSize: 12.5, lineHeight: 1.6, color: "var(--muted)" }}>
-      <div style={{ color: "var(--text)" }}>Visitors see:</div>
-      <div>the event name, the date, the venue name, and the doors / show times.</div>
-      <div style={{ marginTop: 6, color: "var(--text)" }}>They never see:</div>
-      <div>
-        the budget, deals or fees, who is on the bill, participants' contact details, your guest
-        list, ticket tiers, capacity, or your notes.
-      </div>
-    </div>
-  );
-}
-
-/** The precondition, before the click rather than after it. */
 function BlockedNotice({ reason }: { reason: string }) {
   return (
     <div
@@ -163,8 +249,8 @@ function BlockedNotice({ reason }: { reason: string }) {
         display: "flex",
         alignItems: "flex-start",
         gap: 9,
-        background: "color-mix(in srgb,#F4A046 12%,transparent)",
-        border: "1px solid color-mix(in srgb,#F4A046 30%,transparent)",
+        background: "color-mix(in srgb,var(--brand-amber) 12%,transparent)",
+        border: "1px solid color-mix(in srgb,var(--brand-amber) 30%,transparent)",
         borderRadius: 11,
         padding: "10px 13px",
         color: "#c8842f",
@@ -178,33 +264,121 @@ function BlockedNotice({ reason }: { reason: string }) {
   );
 }
 
+/**
+ * The public link, as one control rather than a field with a button beside it.
+ *
+ * Copy belongs INSIDE the box for the same reason it does in every share dialog
+ * people already know: the button is an action on the value, so putting it
+ * outside makes the reader decide which of two adjacent things it acts on. It
+ * also stops the button stealing width from a URL that is already ellipsised.
+ */
 function PublicLink({ url, onCopy }: { url: string; onCopy: () => void }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        // The same two tokens every input in the app wears — white ground, brand
+        // edge — so a read-only value reads as the same kind of object as a
+        // typed one. It was on --elevated, the warm tint, which in light mode
+        // made it the only beige box on a white card.
+        background: "var(--control-surface)",
+        border: "1px solid var(--control-border)",
+        borderRadius: 10,
+        minHeight: "var(--control-height)",
+        paddingLeft: 11,
+        overflow: "hidden",
+      }}
+    >
+      {/* Still a real link. The Open-link button beside it is the discoverable
+          affordance, but the URL is the thing a reader's eye lands on and
+          reaching for it should work — a link-shaped string that refuses a click
+          is the small kind of broken that makes a page feel dead. */}
       <a
         href={url}
         target="_blank"
         rel="noopener noreferrer"
+        onMouseEnter={(hover) => {
+          hover.currentTarget.style.color = "var(--accent)";
+          hover.currentTarget.style.textDecoration = "underline";
+        }}
+        onMouseLeave={(hover) => {
+          hover.currentTarget.style.color = "var(--text)";
+          hover.currentTarget.style.textDecoration = "none";
+        }}
         style={{
           flex: 1,
           minWidth: 0,
+          alignSelf: "center",
           fontFamily: "var(--font-mono)",
           fontSize: 12,
           color: "var(--text)",
-          background: "var(--elevated)",
-          border: "1px solid var(--border)",
-          borderRadius: 10,
-          padding: "8px 11px",
+          textDecoration: "none",
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
+          transition: "color var(--duration-quick) var(--ease-out)",
         }}
       >
         {url}
       </a>
-      <Button variant="ghost" onClick={onCopy} leftIcon={<Icon name="copy" size={14} />}>
-        Copy
-      </Button>
+      <LinkAction icon="copy" label="Copy" onClick={onCopy} />
+      <LinkAction
+        icon="arrow-right"
+        label="Open link"
+        onClick={() => window.open(url, "_blank", "noopener,noreferrer")}
+      />
     </div>
+  );
+}
+
+/**
+ * One of the two actions living inside the link field.
+ *
+ * Borderless on purpose: a bordered button inside a bordered field draws a box
+ * in a box, and there are two of them. They read as part of the field until you
+ * reach for one, and then they light up — which is the same rule the style guide
+ * gives for everything else, applied to a control that has no edge of its own to
+ * promote (STYLE-GUIDE.md §2: hover is the brand, never a ground).
+ */
+function LinkAction({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: "copy" | "arrow-right";
+  label: string;
+  onClick: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setHovered(true)}
+      onBlur={() => setHovered(false)}
+      title={label}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        flexShrink: 0,
+        alignSelf: "stretch",
+        padding: "0 12px",
+        border: 0,
+        background: "transparent",
+        cursor: "pointer",
+        fontSize: 12.5,
+        fontWeight: 500,
+        whiteSpace: "nowrap",
+        color: hovered ? "var(--accent)" : "var(--muted)",
+        transition: "color var(--duration-quick) var(--ease-out)",
+      }}
+    >
+      <Icon name={icon} size={14} />
+      {label}
+    </button>
   );
 }

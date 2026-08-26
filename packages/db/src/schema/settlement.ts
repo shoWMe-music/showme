@@ -63,7 +63,30 @@ export const budgets = pgTable(
  * A revenue or cost line. `collected_by` (revenue: who receives) / `paid_by`
  * (cost: who fronts) / `payee_participant_id` (cost: who the line is *for* — any
  * participant, e.g. a performer's hotel; NULL = external supplier) are what the
- * reconciliation reads. `deal_id` assigns the line to a deal for accountability.
+ * reconciliation reads.
+ *
+ * TWO WAYS A COST CAN NAME A DEAL, and they are opposite facts about the money —
+ * which is why there are two columns and not one nullable `deal_id` plus a
+ * convention:
+ *
+ * - **`deal_id` — the line IS that deal's own figure.** The guarantee typed into
+ *   "Performer fee" while planning. It is a forecast of what the agreement will
+ *   pay, not cash anybody moved, so the settlement takes the figure from the DEAL
+ *   and drops the line at the engine boundary (`routes/settlement.ts`). Counting
+ *   it would charge the pool once and entitle the payee again — the operator's
+ *   residual short by the whole fee (design-handoff-budget-planner §6).
+ * - **`attributed_deal_id` — a real third-party cost REPORTED UNDER that deal.**
+ *   The 500 of catering booked to the headliner's night so the deal's true cost
+ *   can be read off (2026-08 settlements meeting: *"all project costs assigned to
+ *   specific deals, creating accountability for each agreement"*). Somebody was
+ *   genuinely invoiced, so it is ordinary external cash: it lowers the pool and
+ *   obeys `paid_by` / `payee_participant_id` / `cost_split` exactly as an
+ *   untagged cost does. The settlement never reads this column at all — it is
+ *   accountability, not arithmetic.
+ *
+ * Inferring the difference is what cannot be done. Both readings are legitimate
+ * and the same operator wants both on the same event, so the line has to SAY
+ * which it is, and the planner asks in words at the moment of assignment.
  */
 export const budgetLines = pgTable(
   "budget_lines",
@@ -88,10 +111,23 @@ export const budgetLines = pgTable(
     // stays the authoritative figure settlement reads; this only remembers
     // how the operator arrived at it. NULL for a hand-entered line.
     details: jsonb("details"),
+    // The deal whose OWN FIGURE this line is — settlement takes it from the deal
+    // and ignores the line. See the two-columns note above.
     dealId: uuid("deal_id").references(() => deals.id),
+    // The deal this cost is REPORTED UNDER — a real cost, still settled.
+    attributedDealId: uuid("attributed_deal_id").references(() => deals.id),
     version: integer("version").notNull().default(1), // optimistic lock (decisions #8)
   },
-  (table) => [index("budget_lines_budget_id_idx").on(table.budgetId)],
+  (table) => [
+    index("budget_lines_budget_id_idx").on(table.budgetId),
+    // A line is either a deal's own figure or a cost reported under it; it can
+    // never be both, because the two say opposite things about whether the
+    // settlement should count the money.
+    check(
+      "budget_lines_one_deal_sense",
+      sql`num_nonnulls(${table.dealId}, ${table.attributedDealId}) <= 1`,
+    ),
+  ],
 );
 
 /**
@@ -161,6 +197,18 @@ export const settlementComments = pgTable("settlement_comments", {
   partyParticipantId: uuid("party_participant_id").references(() => eventParticipants.id),
   authorEmail: text("author_email"),
   authorName: text("author_name"),
+  /**
+   * WHICH part of the document the comment is about — `event`, `schedule`,
+   * `riders`, `budget`, `deal` or `settlement` (the share viewer's sections,
+   * which are the share capabilities themselves). NULL for a comment on the
+   * settlement as a whole, which is every row written before this column existed.
+   *
+   * A column and not a prefix on `message`: the old app posted `"[Agreement] …"`
+   * so the operator's inbox could guess what a comment was about, and a guess
+   * parsed out of user-supplied text is not a field — a recipient who types
+   * "[Settlement] " themselves lands wherever the parser puts them.
+   */
+  section: text("section"),
   message: text("message").notNull(),
   attachments: jsonb("attachments"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

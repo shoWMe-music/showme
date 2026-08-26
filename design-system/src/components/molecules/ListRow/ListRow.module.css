@@ -9,7 +9,7 @@
 }
 .interactive {
   cursor: pointer;
-  transition: border-color .2s, background .2s;
+  transition: border-color var(--duration-quick), background var(--duration-quick);
 }
 /* hover: primary-red border only, no background change (both themes) */
 .interactive:hover { border-color: #EE5746; }

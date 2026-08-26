@@ -23,7 +23,7 @@ export function SettlementStepper({ steps }: SettlementStepperProps) {
             ? "var(--brand-gold)"
             : step.state === "active"
               ? "linear-gradient(135deg, var(--brand-red), var(--brand-amber))"
-              : "var(--elevated)";
+              : "var(--shape-fill)";
         const dotColor = step.state === "pending" ? "var(--dim)" : "#fff";
         return (
           <div

@@ -51,7 +51,7 @@ export function AuthScreen() {
         display: "grid",
         placeItems: "center",
         padding: "24px",
-        background: "var(--color-bg, #17110f)",
+        background: "var(--bg)",
       }}
     >
       <Card padding="lg" style={{ width: "100%", maxWidth: 400 }}>
@@ -81,7 +81,7 @@ export function AuthScreen() {
             autoComplete={mode === "signup" ? "new-password" : "current-password"}
             required
           />
-          {error && <p style={{ color: "var(--color-danger, #ee5746)", fontSize: 13 }}>{error}</p>}
+          {error && <p style={{ color: "var(--brand-red)", fontSize: 13 }}>{error}</p>}
           <Button type="submit" disabled={busy} style={{ width: "100%" }}>
             {busy ? "Please wait…" : mode === "signup" ? "Continue" : "Sign in"}
           </Button>
@@ -108,7 +108,7 @@ export function AuthScreen() {
             style={{
               background: "none",
               border: "none",
-              color: "var(--color-brand, #ee5746)",
+              color: "var(--brand-red)",
               cursor: "pointer",
               padding: 0,
             }}

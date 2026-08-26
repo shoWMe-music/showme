@@ -4,12 +4,12 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PostApiV1EventsIdSharesBodyTargetKind } from './postApiV1EventsIdSharesBodyTargetKind';
 import type { PostApiV1EventsIdSharesBodyAccess } from './postApiV1EventsIdSharesBodyAccess';
 import type { PostApiV1EventsIdSharesBodyRecipientsItem } from './postApiV1EventsIdSharesBodyRecipientsItem';
 
 export type PostApiV1EventsIdSharesBody = {
-  /** @minLength 1 */
-  targetKind?: string;
+  targetKind?: PostApiV1EventsIdSharesBodyTargetKind;
   targetId?: string;
   capabilities: string[];
   access: PostApiV1EventsIdSharesBodyAccess;

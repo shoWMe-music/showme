@@ -643,9 +643,29 @@ The strongest possible argument for the one-module approach — six defects in o
    Whether real events had a *separate* organizer party alongside a promoter changes how urgent
    generalized cost splits are.
 
-4. **Should the genre taxonomy be shared across markets?** decisions #17 makes the platform
-   territory-scoped and the old taxonomy is Anglophone. One global `genres` table, or per-market
-   vocabularies? This changes item 6.
+4. ~~**Should the genre taxonomy be shared across markets?**~~ **ANSWERED 2026-08-26 — ONE GLOBAL
+   `genres` TABLE.** decisions #17 (2026-08-02) is the newest decision that touches this, and nothing
+   after it revisits genre. Read straight, #17 settles it rather than leaving it open:
+   - Its load-bearing rule is *"derive the territory boundary from each row's location; never stamp a
+     coarse `market_id` as the only location signal"*. A `genres.market_id` **is** that coarse stamp,
+     and it is the one thing #17 forbids: re-drawing a market (Germany starts standalone, later joins
+     `EU`) would then mean re-keying the vocabulary — precisely the migration #17 exists to avoid.
+   - #17 reserves per-**country** facts for what is *genuinely* per-country — **VAT, PRO codes,
+     currency, registry enrichment**. Genre is none of those. It is a discovery/matching vocabulary,
+     and #17 puts discovery on the derived side: *"City-level discovery/matching is a query/geo
+     concern… not a boundary change"*.
+   - Market scoping then costs nothing extra. The boundary is enforced by folding
+     `WHERE country IN (countries of the principal's market)` over the **rows**; a profile carries a
+     country, so its `profile_genres` links inherit that scoping for free. A global vocabulary with
+     market-scoped *usage* already gives per-market discovery.
+   - Local vocabulary (a Swedish *dansband*, a German *Schlager*) is **rows added to the one table**,
+     not a forked table. Per-market *presentation* — which genres to offer first — is a ranking over
+     usage inside the market, i.e. the re-parameterizable function #17 asks for. If labels ever need
+     translating, that is a `genre_labels(genre_id, locale, label)` side table; still one vocabulary.
+
+   **Not started, and deliberately.** Item 6 is not a small change: new `genres` + `profile_genres`
+   tables, a ~200-row seed, a migration off `profiles.details.genres`, and changes to
+   `routes/profiles.ts`, the profile serializer, search and the profile editor.
 
 5. **Does "performers get no templates" still hold?** It was a hard rule in `firestore.rules:551–556`.
    I found no equivalent in our entitlement layer and cannot tell whether it was dropped deliberately

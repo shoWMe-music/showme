@@ -430,6 +430,135 @@ describe("profiles — authorize + serialize + audit", () => {
     expect(rejected.json().error.message).toContain("costs.0.amount");
   });
 
+  /**
+   * The old app had a hard rule that performers get NO templates
+   * (`firestore.rules:551-556`), and `docs/old-app-analysis-data-model.md` (question
+   * 5) could not tell whether the rebuild dropped it on purpose. The owner settled
+   * it on 2026-08-26: *"performers should have templates."*
+   *
+   * Nothing had to change — `/profiles/:id/templates` is gated on PROFILE ROLE
+   * (`requireProfileRole(... WRITE_ROLES)`) and never once looks at `profiles.kind`,
+   * so the old rule was not carried across. These tests are the proof, and the guard
+   * that stops it being reintroduced as a "missing" check.
+   */
+  it("gives a PERFORMER the full template lifecycle — the old app's ban is gone", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("tmpl-performer", "performer");
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${profileId}/templates`,
+      headers: auth(ownerId),
+      payload: { category: "rider", name: "Tech rider — trio", payload: { channels: 12 } },
+    });
+    expect(created.statusCode).toBe(201);
+    const templateId = created.json().id as string;
+
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${profileId}/templates`,
+      headers: auth(ownerId),
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json()).toHaveLength(1);
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}/templates/${templateId}`,
+      headers: auth(ownerId),
+      payload: { name: "Tech rider — quartet" },
+    });
+    expect(patched.statusCode).toBe(200);
+    expect(patched.json().name).toBe("Tech rider — quartet");
+
+    const removed = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/profiles/${profileId}/templates/${templateId}`,
+      headers: auth(ownerId),
+    });
+    expect(removed.statusCode).toBe(200);
+    expect(removed.json()).toEqual({ deleted: true });
+  });
+
+  it("lets a performer save a BUDGET template too — the category is not kind-gated", async () => {
+    // The category with a real reader (the planner), and therefore the one where a
+    // kind check would most plausibly have been hiding. A performer promoting their
+    // own show wears an OPERATOR role for that event (story.md) and plans a budget
+    // like anybody else; the template library is profile-level and follows them.
+    const { profileId, ownerId } = await seedProfileOwner("tmpl-perf-budget", "performer");
+    const payload = {
+      ticketTiers: [{ name: "Advance", unitAmount: "25000", quantity: 200 }],
+      averageBarSpend: "0",
+      capacity: 250,
+      otherRevenue: "0",
+      customRevenue: [],
+      costs: [{ label: "Backline hire", amount: "300000" }],
+    };
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${profileId}/templates`,
+      headers: auth(ownerId),
+      payload: { category: "budget", name: "Own release show", payload },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().payload).toEqual(payload);
+
+    // …and the SAME payload validation applies to them as to an operator: the rule
+    // that is enforced is the shape, never the account kind.
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${profileId}/templates`,
+      headers: auth(ownerId),
+      payload: {
+        category: "budget",
+        name: "Broken",
+        payload: { ...payload, costs: [{ label: "Backline hire", amount: "3000.00" }] },
+      },
+    });
+    expect(rejected.statusCode).toBe(400);
+  });
+
+  it("gives a team-and-crew and an agent profile templates as well", async () => {
+    for (const [prefix, kind] of [
+      ["tmpl-crew", "team_and_crew"],
+      ["tmpl-agent", "agent"],
+    ] as const) {
+      const { profileId, ownerId } = await seedProfileOwner(prefix, kind);
+      const created = await app.inject({
+        method: "POST",
+        url: `/api/v1/profiles/${profileId}/templates`,
+        headers: auth(ownerId),
+        payload: { category: "terms", name: "Standard terms", payload: { notice: "14 days" } },
+      });
+      expect(created.statusCode).toBe(201);
+    }
+  });
+
+  it("still refuses a template to a member who is not the profile's, whatever the kind", async () => {
+    // Kind is not the gate; MEMBERSHIP is. A stranger gets 404 (no existence leak)
+    // and a `viewer` member gets 403 — the same two answers as every other
+    // profile-scoped write.
+    const { profileId } = await seedProfileOwner("tmpl-guard", "performer");
+    await seedUser("tmpl-guard-stranger", "performer");
+    await seedMember(profileId, "tmpl-guard-viewer", "performer", "viewer");
+
+    const stranger = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${profileId}/templates`,
+      headers: auth("tmpl-guard-stranger"),
+      payload: { category: "rider", name: "Nope", payload: {} },
+    });
+    expect(stranger.statusCode).toBe(404);
+
+    const viewer = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${profileId}/templates`,
+      headers: auth("tmpl-guard-viewer"),
+      payload: { category: "rider", name: "Nope", payload: {} },
+    });
+    expect(viewer.statusCode).toBe(403);
+  });
+
   it("leaves the other categories unvalidated — they have no reader to protect", async () => {
     const { profileId, ownerId } = await seedProfileOwner("tmpl-free", "operator");
 

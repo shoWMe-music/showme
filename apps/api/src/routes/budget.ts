@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
+import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import { ensureEventBudgets } from "../lib/budget-provisioning";
@@ -87,6 +88,7 @@ const CreateLineBody = z.object({
   payeeParticipantId: z.string().uuid().optional(),
   costSplit: CostSplit.nullable().optional(),
   dealId: z.string().uuid().optional(),
+  attributedDealId: z.string().uuid().optional(),
   details: LineDetails.nullable().optional(),
 });
 
@@ -100,6 +102,7 @@ const UpdateLineBody = z.object({
   payeeParticipantId: z.string().uuid().nullable().optional(),
   costSplit: CostSplit.nullable().optional(),
   dealId: z.string().uuid().nullable().optional(),
+  attributedDealId: z.string().uuid().nullable().optional(),
   details: LineDetails.nullable().optional(),
   /** Expected version for optimistic locking (decisions #8); mismatch → 409. */
   expectedVersion: z.number().int().optional(),
@@ -123,6 +126,7 @@ const BudgetLineResponse = z.object({
   payeeParticipantId: z.string().nullable(),
   costSplit: CostSplit.nullable(),
   dealId: z.string().nullable(),
+  attributedDealId: z.string().nullable(),
   details: LineDetails.nullable(),
   version: z.number(),
 });
@@ -228,6 +232,7 @@ type ParticipantReferenceField = (typeof PARTICIPANT_REFERENCE_FIELDS)[number];
 /** The reference-carrying half of a create/update line body. */
 type LineReferences = Partial<Record<ParticipantReferenceField, string | null>> & {
   dealId?: string | null;
+  attributedDealId?: string | null;
   /** Participant ids appear as the KEYS here, so they need the same event check. */
   costSplit?: Record<string, number> | null;
 };
@@ -297,15 +302,20 @@ async function assertLineReferencesBelongToEvent(
     }
   }
 
-  // `deal_id` assigns the line to a deal for accountability; a deal from another
-  // event would attribute this event's cost to a settlement that never reads it.
-  if (typeof line.dealId === "string") {
+  // Both ways a line can name a deal (see `budget_lines` in the schema): `dealId`
+  // says the line IS that deal's own figure, `attributedDealId` says it is a real
+  // cost reported under it. A deal from ANOTHER event is wrong either way — the
+  // first would drop the line from a settlement that never sees the deal, the
+  // second would file this event's cost under a night it has nothing to do with.
+  for (const field of ["dealId", "attributedDealId"] as const) {
+    const value = line[field];
+    if (typeof value !== "string") continue;
     const [deal] = await database
       .select({ id: schema.deals.id })
       .from(schema.deals)
-      .where(and(eq(schema.deals.id, line.dealId), eq(schema.deals.eventId, eventId)));
+      .where(and(eq(schema.deals.id, value), eq(schema.deals.eventId, eventId)));
     if (!deal) {
-      throw badRequest(`dealId ${line.dealId} is not a deal on this event`);
+      throw badRequest(`${field} ${value} is not a deal on this event`);
     }
   }
 }
@@ -361,12 +371,26 @@ function assertCashIsAttributed(line: {
  * 3. **A split on a revenue line** — the rule says who BEARS a cost. Revenue has
  *    a collector, not bearers; `reconcile()` never reads the column on a revenue
  *    line, so accepting it would store a term that does nothing.
+ * 4. **Both ways of naming a deal at once** — `dealId` means the line IS that
+ *    deal's figure (settlement takes it from the deal and drops the line);
+ *    `attributedDealId` means a real cost reported under the deal (settlement
+ *    counts it). Together they ask for the amount to be both ignored and spent.
+ *    The database refuses it too (`budget_lines_one_deal_sense`); this turns that
+ *    into a sentence a client can act on rather than a constraint violation.
  */
 function assertCostRuleIsCoherent(line: {
   kind: "revenue" | "cost";
   payeeParticipantId?: string | null;
   costSplit?: Record<string, number> | null;
+  dealId?: string | null;
+  attributedDealId?: string | null;
 }): void {
+  if (line.dealId && line.attributedDealId) {
+    throw badRequest(
+      "A cost either IS a deal's own figure (dealId) or is a real cost reported under one (attributedDealId) — never both. The first is taken from the deal and never counted as cash; the second lowers the settlement pool like any other cost.",
+    );
+  }
+
   const split = line.costSplit;
   if (!split || Object.keys(split).length === 0) return;
 
@@ -386,6 +410,46 @@ function assertCostRuleIsCoherent(line: {
       `The cost split adds up to ${(total / 100).toFixed(2)}%, which charges out more than the line is worth. It may total less than 100% — the remainder stays a shared cost — but never more.`,
     );
   }
+}
+
+/**
+ * Does this budget belong in the event's history at all?
+ *
+ * Only a SHARED budget does. A `private` budget is one operator's own margin work,
+ * readable by its owning profile alone (`visibleBudgetFilter`), and the feed has no
+ * owner-scoped tier: kind `budget` is the OPERATOR tier, so a row about a private
+ * budget would be handed to every co-promoter holding `budget.view` — precisely the
+ * competitor the private scope exists to keep out. The change is still recorded, in
+ * `audit_log`, which is admin-only and never rendered to a co-host.
+ */
+function belongsInEventHistory(budget: typeof schema.budgets.$inferSelect): boolean {
+  return budget.scope === "shared";
+}
+
+/**
+ * The fields a line PATCH actually moved. Names only, never values: kind `budget`
+ * admits every `budget.view` holder, and `lib/activity.ts` keeps money out of a
+ * summary as an absolute rule rather than a per-kind judgement call.
+ */
+function changedLineFieldNames(
+  before: typeof schema.budgetLines.$inferSelect,
+  after: typeof schema.budgetLines.$inferSelect,
+): string[] {
+  const tracked = [
+    "kind",
+    "source",
+    "label",
+    "amount",
+    "currency",
+    "collectedBy",
+    "paidBy",
+    "payeeParticipantId",
+    "costSplit",
+    "dealId",
+    "attributedDealId",
+    "details",
+  ] as const;
+  return tracked.filter((field) => String(before[field] ?? "") !== String(after[field] ?? ""));
 }
 
 export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
@@ -479,6 +543,15 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
           eventId: id,
           after: serialized,
         });
+        if (belongsInEventHistory(budget)) {
+          await writeActivity(tx, request, {
+            eventId: id,
+            type: "budget.created",
+            targetKind: "budget",
+            targetId: budget.id,
+            summary: { scope: budget.scope },
+          });
+        }
         return serialized;
       });
 
@@ -536,6 +609,18 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
           before: serializeBudget(before, []),
           after: serialized,
         });
+        // The planner's standing assumptions moved — the projected margin the
+        // co-promoters make decisions on. That it moved is the news; by how much
+        // is a figure, and figures stay out of summaries.
+        if (belongsInEventHistory(after)) {
+          await writeActivity(tx, request, {
+            eventId: id,
+            type: "budget.assumptions_updated",
+            targetKind: "budget",
+            targetId: bid,
+            summary: { scope: after.scope },
+          });
+        }
         return serialized;
       });
     },
@@ -571,7 +656,7 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       const { id, bid } = request.params;
 
       await requireEventCapability(request, id, "budget.edit");
-      await loadVisibleBudget(request, id, bid);
+      const budget = await loadVisibleBudget(request, id, bid);
 
       const body = request.body;
       // Every participant/deal reference must point inside this event, and the cash
@@ -597,6 +682,7 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
             payeeParticipantId: body.payeeParticipantId ?? null,
             costSplit: body.costSplit ?? null,
             dealId: body.dealId ?? null,
+            attributedDealId: body.attributedDealId ?? null,
             details: body.details ?? null,
           })
           .returning();
@@ -610,6 +696,19 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
           eventId: id,
           after: serialized,
         });
+        // Kind `budget`, not `budget_line`: the feed's visibility vocabulary is the
+        // BUDGET (operator tier), and a line has no access rule of its own — it is
+        // reachable exactly when its budget is. The line's id travels in the summary
+        // so the history still names which line moved.
+        if (belongsInEventHistory(budget)) {
+          await writeActivity(tx, request, {
+            eventId: id,
+            type: "budget.line_added",
+            targetKind: "budget",
+            targetId: bid,
+            summary: { lineId: line.id, lineKind: line.kind, label: line.label },
+          });
+        }
         return serialized;
       });
 
@@ -626,7 +725,7 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       const { id, bid, lid } = request.params;
 
       await requireEventCapability(request, id, "budget.edit");
-      await loadVisibleBudget(request, id, bid);
+      const budget = await loadVisibleBudget(request, id, bid);
 
       const [before] = await database
         .select()
@@ -660,6 +759,11 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
           request.body.costSplit !== undefined
             ? request.body.costSplit
             : (before.costSplit as Record<string, number> | null),
+        dealId: request.body.dealId !== undefined ? request.body.dealId : before.dealId,
+        attributedDealId:
+          request.body.attributedDealId !== undefined
+            ? request.body.attributedDealId
+            : before.attributedDealId,
       });
 
       const { expectedVersion, amount, ...rest } = request.body;
@@ -693,6 +797,16 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
           before: serializeBudgetLine(before),
           after: serialized,
         });
+        const changed = changedLineFieldNames(before, after);
+        if (belongsInEventHistory(budget) && changed.length > 0) {
+          await writeActivity(tx, request, {
+            eventId: id,
+            type: "budget.line_updated",
+            targetKind: "budget",
+            targetId: bid,
+            summary: { lineId: lid, label: after.label, fields: changed },
+          });
+        }
         return serialized;
       });
 
@@ -715,7 +829,7 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       const { id, bid, lid } = request.params;
 
       await requireEventCapability(request, id, "budget.edit");
-      await loadVisibleBudget(request, id, bid);
+      const budget = await loadVisibleBudget(request, id, bid);
 
       const [before] = await database
         .select()
@@ -742,6 +856,17 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
           eventId: id,
           before: serializeBudgetLine(before),
         });
+        // The line is gone from the budget; the history row that says so is not,
+        // and it names what was removed.
+        if (belongsInEventHistory(budget)) {
+          await writeActivity(tx, request, {
+            eventId: id,
+            type: "budget.line_removed",
+            targetKind: "budget",
+            targetId: bid,
+            summary: { lineId: lid, lineKind: before.kind, label: before.label },
+          });
+        }
       });
 
       return { deleted: true };

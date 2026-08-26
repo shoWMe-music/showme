@@ -58,7 +58,7 @@ export function UpgradeNotice({
           height: 34,
           borderRadius: 10,
           flexShrink: 0,
-          background: "var(--elevated)",
+          background: "var(--shape-fill)",
           color: "var(--text)",
         }}
       >

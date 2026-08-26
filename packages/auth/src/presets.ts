@@ -224,11 +224,87 @@ export function baselineCapabilities(role: EventRole, delegated = false): readon
   }
 }
 
-/** Pool/budget financials — never grantable to an arm's-length party. */
+/**
+ * A party's role ON one deal (mirrors the DB `deal_party_role` enum). `observer`
+ * is the read-only share (decisions #4: "sharing a deal = adding them as a
+ * `deal_party` with `role_in_deal='observer'`") — an observer watches an
+ * agreement, it never signs one.
+ */
+export type DealPartyRole = "payer" | "payee" | "split_member" | "commission" | "observer";
+
+/** What standing as a SIGNATORY on one agreement confers — on that agreement alone. */
+const DEAL_SIGNATORY_FLOOR: readonly Capability[] = ["agreement.confirm"];
+
+/**
+ * The event roles whose confirm authority is DEAL-scoped rather than event-scoped.
+ *
+ * Crew are arm's-length labour: story.md's boundary is that they "see the schedule
+ * and their own deal, never the budget", so `CREW_FLOOR` is deliberately thin and
+ * `agreement.confirm` is deliberately not in it. But an agreement only freezes once
+ * EVERY non-observer party has signed, and a venue↔crew deal has exactly two — the
+ * operator and the crew member. Without a way for the crew side to sign, such a deal
+ * could be sent and could never reach `confirmed`: a dead end.
+ *
+ * The owner's rule (2026-08-26) is narrower than "crew get `agreement.confirm`":
+ * *"crew can confirm an agreement if it is with them — if they are the payee."* So
+ * this is NOT a floor capability. Crew still hold no `agreement.confirm` on the
+ * event, which matters because that is exactly what `POST /events/:id/hold/confirm`
+ * gates on, and no crew member decides whether the show happens. They hold it on ONE
+ * agreement: the one carrying a signatory line they stand behind.
+ *
+ * Performers and their agents are deliberately absent. For them the EVENT floor
+ * already answers the question, and the one case where it deliberately answers "no"
+ * — a performer whose participation is delegated to their agent (decisions #14) — is
+ * a case a deal-scoped re-grant would silently undo: they are still the payee on
+ * their own line, so handing confirm back here would revoke the delegation the
+ * agent's whole authority rests on.
+ */
+const DEAL_SCOPED_CONFIRM_EVENT_ROLES: ReadonlySet<EventRole> = new Set(["crew", "crew_lead"]);
+
+/**
+ * The DEAL-scoped floor (decisions #4's floor, resolved per agreement instead of
+ * per event): what the caller may do on ONE deal purely by standing behind one of
+ * its party lines. Composed by the route as
+ * `effective_on_this_deal = effective_on_the_event ∪ ⋃ dealPartyBaselineCapabilities(...)`
+ * over the caller's OWN lines, so it can only ever widen what the caller may do to
+ * the very agreement they are named on.
+ *
+ * Everything it can return is below the ceiling by construction — no pool/budget
+ * capability and no performer-authored capability is in `DEAL_SIGNATORY_FLOOR` —
+ * which is asserted in `authorize.test.ts` rather than left to reading.
+ */
+export function dealPartyBaselineCapabilities(
+  role: EventRole,
+  roleInDeal: DealPartyRole,
+): readonly Capability[] {
+  if (roleInDeal === "observer") return [];
+  if (!DEAL_SCOPED_CONFIRM_EVENT_ROLES.has(role)) return [];
+  return DEAL_SIGNATORY_FLOOR;
+}
+
+/**
+ * Pool/budget financials — never grantable to an arm's-length party.
+ *
+ * `settlement.edit` and `settlement.finalize` are here for the same reason
+ * `budget.view` is, and their absence was a hole in the ceiling. `POST
+ * /events/:id/settlement/compute` gates on `settlement.edit` and answers with
+ * `serializeSummary`: the event POOL, every party's entitlement/collected/paid/
+ * held/net, and every transfer between them. Nothing in that response is
+ * party-scoped, because the only caller it was ever meant for is the operator
+ * running the reconciliation. Neither capability appears in the `performer`,
+ * `agent` or crew presets — but the ceiling is what makes that a rule instead of a
+ * default, and until now an operator could hand a performer a permission set
+ * carrying `settlement.edit` and the engine would have allowed it. story.md is
+ * explicit that a performer sees only their own slice "even if an operator wanted
+ * to show them (an inviolable ceiling)" — so this is the ceiling catching up with
+ * the routes that grew under it.
+ */
 const POOL_CAPABILITIES: ReadonlySet<Capability> = new Set([
   "budget.view",
   "budget.edit",
   "revenue.edit",
+  "settlement.edit",
+  "settlement.finalize",
 ]);
 
 /**

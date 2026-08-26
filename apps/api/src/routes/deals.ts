@@ -1,11 +1,13 @@
+import { type DealPartyRole, type EventRole, dealPartyBaselineCapabilities } from "@showme/auth";
 import { schema } from "@showme/db";
+import type { Capability } from "@showme/shared";
 import { and, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
 import { writeActivity } from "../lib/activity";
-import { writeAudit } from "../lib/audit";
+import { type Transaction, writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import {
   type DealAuthority,
@@ -13,6 +15,7 @@ import {
   requireDealAccess,
   resolveDealAuthority,
 } from "../lib/deal-authority";
+import { allSignatoriesConfirmed, confirmDealIfComplete } from "../lib/deal-confirmation";
 import { dealPartyRecipients, notifyUsers } from "../lib/notify";
 import { withIdempotency } from "../plugins/idempotency";
 import { isDealVisible, serializeDeal, serializeDealUnredacted } from "../serialize/deal";
@@ -42,6 +45,12 @@ const dealPartyRoleEnum = z.enum(["payer", "payee", "split_member", "commission"
  *
  * `splitBasisPoints` is basis points of the pool (4000 = 40.00%), matching
  * `deals.split_basis_points`. Money stays a minor-unit decimal string on the wire (money.md).
+ *
+ * ONE EXCEPTION, and it is the only place the reading changes: on a party with
+ * `roleInDeal: "commission"`, `splitBasisPoints` is the commission RATE — basis points of
+ * each payee's line on this deal, not of the pool. That is the rate the engine now really
+ * pays (`routes/settlement.ts::commissionBasisPointsFromShare`); a commission party whose
+ * share states no rate is refused rather than settled at zero.
  *
  * `illustrativeAmount` was called `guaranteeAmount` until 2026-08-26 (audit A-36), and the
  * rename is the whole point: the engine never read it as a floor, so a share saying
@@ -363,6 +372,31 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
+  /**
+   * Which of a deal's terms an update actually moved. NAMES only — `guaranteeAmount`,
+   * `splitBasisPoints` and `advanceAmount` are the money the serializer scopes per
+   * party, and kind `deal` admits every party plus the operators. "The guarantee
+   * changed" is history a co-party is entitled to; "the guarantee is now 150 000" is
+   * not, and the deal's own route already decides who may read that figure.
+   */
+  function changedDealTermNames(
+    before: typeof schema.deals.$inferSelect,
+    after: typeof schema.deals.$inferSelect,
+  ): string[] {
+    const tracked = [
+      "name",
+      "structure",
+      "currency",
+      "guaranteeAmount",
+      "advanceAmount",
+      "splitBasisPoints",
+      "paymentTiming",
+      "priority",
+      "status",
+    ] as const;
+    return tracked.filter((field) => String(before[field] ?? "") !== String(after[field] ?? ""));
+  }
+
   // Update a deal — `deal.edit`, optimistic-lock on version, audited.
   app.patch(
     "/deals/:did",
@@ -403,6 +437,23 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
           before,
           after,
         });
+        // The terms moved under a party who may already have confirmed. The web app
+        // saves the whole form, so a PATCH that moved nothing is audited but is not
+        // history — same rule as `event.updated`.
+        const changed = changedDealTermNames(before, after);
+        if (changed.length > 0) {
+          await writeActivity(tx, request, {
+            eventId: before.eventId,
+            type: "deal.updated",
+            targetKind: "deal",
+            targetId: before.id,
+            summary: {
+              name: after.name,
+              fields: changed,
+              agreementStatus: after.agreementStatus,
+            },
+          });
+        }
         return after;
       });
 
@@ -481,6 +532,17 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
   // Confirmation is a per-party act, so it stamps only the deal_parties the caller
   // stands behind. When the last signatory confirms, the live terms FREEZE into
   // `confirmed_snapshot` and the agreement advances to `confirmed`.
+  //
+  // The capability is resolved on THIS DEAL, not on the event:
+  //
+  //     effective_here = effective_on_the_event ∪ ⋃ dealPartyBaselineCapabilities(own lines)
+  //
+  // because one of the parties who must sign — crew — deliberately holds no
+  // `agreement.confirm` at event scope (that is what decides the show's DATE in
+  // `routes/holds.ts`, which is no crew member's call). A venue↔crew deal has exactly
+  // two signatories, so without the deal-scoped half it could be sent and could never
+  // freeze. Order is therefore: `event.view` → 404, not a party → 400, and only then
+  // the capability → 403 — the party question is what the capability now depends on.
   app.post(
     "/deals/:did/confirm",
     { schema: { params: DealParams, response: { 200: DealResponse } } },
@@ -490,7 +552,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
       if (!principal) throw new Error("principal missing after authentication");
 
       const deal = await loadDeal(request, request.params.did);
-      const capabilities = await requireEventCapability(request, deal.eventId, "agreement.confirm");
+      const capabilities = await requireEventCapability(request, deal.eventId, "event.view");
       const viewer = await resolveDealAuthority(request, deal.eventId, capabilities);
 
       const result = await database.transaction(async (tx) => {
@@ -508,6 +570,10 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
         // `deal_party` line"). It stamps that line and no other.
         if (mine.length === 0) throw badRequest("You are not a party to this deal");
 
+        if (!(await maySignOwnLines(tx, capabilities, mine))) {
+          throw forbidden("Missing capability: agreement.confirm");
+        }
+
         const now = new Date();
         for (const party of mine) {
           if (party.confirmedAt) continue; // idempotent — already confirmed
@@ -524,25 +590,15 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
           .from(schema.dealParties)
           .where(eq(schema.dealParties.dealId, deal.id));
         const signatories = fresh.filter((party) => party.roleInDeal !== "observer");
-        const allConfirmed =
-          signatories.length > 0 && signatories.every((party) => party.confirmedAt != null);
-        const alreadyFrozen =
-          deal.agreementStatus === "confirmed" || deal.agreementStatus === "signed";
-
-        let current = deal;
-        if (allConfirmed && !alreadyFrozen) {
-          const [frozen] = await tx
-            .update(schema.deals)
-            .set({
-              agreementStatus: "confirmed",
-              confirmedSnapshot: freezeSnapshot(deal, fresh),
-              version: deal.version + 1,
-              updatedAt: now,
-            })
-            .where(eq(schema.deals.id, deal.id))
-            .returning();
-          if (frozen) current = frozen;
-        }
+        const allConfirmed = allSignatoriesConfirmed(fresh);
+        // The SAME rollup the off-platform door runs (`lib/deal-confirmation.ts`).
+        // Signing in the app and signing by link must not differ by a line in what
+        // signing DOES, and they did while this route carried its own copy of the
+        // freeze — a divergence a test could only catch after it had already
+        // shipped. One module, two authorization stories.
+        const current = await confirmDealIfComplete(tx, deal, fresh, now);
+        const termsFrozen =
+          current.agreementStatus === "confirmed" && deal.agreementStatus !== "confirmed";
 
         await writeAudit(tx, request, {
           capability: "agreement.confirm",
@@ -555,12 +611,32 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
             confirmedParticipantIds: mine.map((party) => party.participantId),
           },
         });
+        // A consent moment, so the row must say HOW FAR ALONG the signatures are —
+        // three parties confirming used to write three indistinguishable rows, and
+        // the feed said "somebody confirmed something".
+        //
+        // The precise participant ids stay in `audit_log` (`confirmedParticipantIds`
+        // above) rather than here. A uuid is not something a person reading a
+        // timeline can use; `actor_display` names who performed the act, and the
+        // deal's own party list — which every party can already read — shows which
+        // lines now carry a `confirmedAt`. This matters most under agent delegation,
+        // where the actor is the agent and the bound party is the performer: the
+        // feed says who acted, the deal says who is bound, the audit says both.
         await writeActivity(tx, request, {
           eventId: deal.eventId,
           type: allConfirmed ? "deal.confirmed" : "deal.party_confirmed",
           targetKind: "deal",
           targetId: deal.id,
-          summary: { name: deal.name, agreementStatus: current.agreementStatus },
+          summary: {
+            name: deal.name,
+            agreementStatus: current.agreementStatus,
+            confirmedCount: signatories.filter((party) => party.confirmedAt != null).length,
+            signatoryCount: signatories.length,
+            // Whether THIS confirmation is the one that froze the terms. The frozen
+            // copy lives in `deals.confirmed_snapshot`; the history says when the
+            // freeze happened and on whose signature.
+            termsFrozen,
+          },
         });
         return { deal: current, parties: fresh };
       });
@@ -711,6 +787,18 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
           eventId: before.eventId,
           before,
         });
+        // Deleting an agreement is the largest single change that can happen to a
+        // party's money, so it goes in the history. Note the reach: `deal_parties`
+        // cascades with the deal, so the party-scoped read can no longer resolve
+        // the erstwhile parties and this row lands for the OPERATORS only. The
+        // forensic record — including who the parties were — is in `audit_log`.
+        await writeActivity(tx, request, {
+          eventId: before.eventId,
+          type: "deal.deleted",
+          targetKind: "deal",
+          targetId: before.id,
+          summary: { name: before.name, agreementStatus: before.agreementStatus },
+        });
       });
 
       return reply.status(204).send();
@@ -718,37 +806,45 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
   );
 }
 
+/** Fetch a deal by id or 404 — the row that carries `eventId` for authorization. */
 /**
- * Freeze a deal's terms + every party's confirmation into an immutable jsonb
- * legal state (decisions #1) — the "render live, snapshot on confirm" step. Money
- * crosses as a STRING (money.md: minor units past 2^53 are unsafe as a number).
+ * May the caller sign the lines they stand behind on this deal?
+ *
+ * The event-level answer comes first — an operator, performer or agent already
+ * carries `agreement.confirm` from the floor/band composition. What is left is the
+ * DEAL-scoped half (`@showme/auth`'s `dealPartyBaselineCapabilities`): a crew member
+ * named as a signatory party on this one agreement may sign this one agreement, and
+ * nothing else, anywhere else. It is resolved from the caller's OWN party lines and
+ * the event role each of those lines belongs to, so it can never reach a deal they
+ * are not named on — and never a line of somebody else's on a deal they are.
  */
-function freezeSnapshot(deal: DealRow, parties: DealPartyRow[]) {
-  return {
-    frozenAt: new Date().toISOString(),
-    terms: {
-      type: deal.type,
-      structure: deal.structure,
-      currency: deal.currency,
-      name: deal.name,
-      guaranteeAmount: deal.guaranteeAmount != null ? deal.guaranteeAmount.toString() : null,
-      advanceAmount: deal.advanceAmount != null ? deal.advanceAmount.toString() : null,
-      splitBasisPoints: deal.splitBasisPoints,
-      paymentTiming: deal.paymentTiming,
-      terms: deal.terms,
-      agreementBodyText: deal.agreementBodyText,
-    },
-    parties: parties.map((party) => ({
-      participantId: party.participantId,
-      roleInDeal: party.roleInDeal,
-      share: party.share,
-      confirmedAt: party.confirmedAt ? party.confirmedAt.toISOString() : null,
-      confirmedBy: party.confirmedBy,
-    })),
-  };
+async function maySignOwnLines(
+  tx: Transaction,
+  capabilities: Set<Capability>,
+  mine: DealPartyRow[],
+): Promise<boolean> {
+  if (capabilities.has("agreement.confirm")) return true;
+
+  const participants = await tx
+    .select({ id: schema.eventParticipants.id, role: schema.eventParticipants.role })
+    .from(schema.eventParticipants)
+    .where(
+      inArray(
+        schema.eventParticipants.id,
+        mine.map((party) => party.participantId),
+      ),
+    );
+  const roleByParticipantId = new Map(participants.map((row) => [row.id, row.role as EventRole]));
+
+  return mine.some((party) => {
+    const eventRole = roleByParticipantId.get(party.participantId);
+    if (!eventRole) return false;
+    return dealPartyBaselineCapabilities(eventRole, party.roleInDeal as DealPartyRole).includes(
+      "agreement.confirm",
+    );
+  });
 }
 
-/** Fetch a deal by id or 404 — the row that carries `eventId` for authorization. */
 async function loadDeal(request: FastifyRequest, dealId: string): Promise<DealRow> {
   const [deal] = await request.server.database
     .select()

@@ -67,7 +67,7 @@ body {
 
 .theme-toggle:hover {
   color: var(--text);
-  border-color: var(--border-strong);
+  border-color: var(--hover-border);
 }
 
 /* ---------- Page column ---------- */
@@ -94,7 +94,7 @@ body {
 
 .hero__banner {
   height: clamp(120px, 26vw, 190px);
-  background-color: var(--elevated);
+  background-color: var(--shape-fill);
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;
@@ -114,7 +114,7 @@ body {
   height: clamp(72px, 15vw, 112px);
   border-radius: 50%;
   border: 5px solid var(--card);
-  background: var(--elevated);
+  background: var(--shape-fill);
   object-fit: cover;
   flex-shrink: 0;
 }
@@ -232,7 +232,7 @@ body {
   align-items: center;
   padding: 4px 11px;
   border-radius: 999px;
-  background: var(--border);
+  background: var(--shape-fill);
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;

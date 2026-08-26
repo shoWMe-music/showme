@@ -256,14 +256,11 @@ export function OnboardingFlow() {
         minHeight: "100dvh",
         display: "flex",
         flexDirection: "column",
-        background: "var(--color-bg, #17110f)",
+        background: "var(--bg)",
       }}
     >
-      <div style={{ height: 3, background: "rgba(255,255,255,0.08)" }}>
-        <div
-          ref={barRef}
-          style={{ height: "100%", width: "0%", background: "var(--color-brand, #ee5746)" }}
-        />
+      <div style={{ height: 3, background: "var(--shape-fill)" }}>
+        <div ref={barRef} style={{ height: "100%", width: "0%", background: "var(--brand-red)" }} />
       </div>
 
       <div style={{ display: "flex", justifyContent: "flex-end", padding: "16px 20px" }}>
@@ -453,11 +450,7 @@ export function OnboardingFlow() {
                 ))}
               </div>
               {error && (
-                <p
-                  style={{ color: "var(--color-danger, #ee5746)", fontSize: 13, marginBottom: 12 }}
-                >
-                  {error}
-                </p>
+                <p style={{ color: "var(--brand-red)", fontSize: 13, marginBottom: 12 }}>{error}</p>
               )}
               <Button onClick={finish} disabled={busy}>
                 {busy ? "Setting things up…" : "Enter shoWMe"}
@@ -491,7 +484,7 @@ const profileRow = {
   alignItems: "center",
   padding: "10px 12px",
   borderRadius: 10,
-  border: "1px solid rgba(255,255,255,0.1)",
+  border: "1px solid var(--border)",
   fontSize: 14,
 } as const;
 

@@ -3,7 +3,7 @@
   display: inline-block;
   position: relative;
   overflow: hidden;
-  background: var(--elevated);
+  background: var(--shape-fill);
   vertical-align: middle;
 }
 .skeleton::after {

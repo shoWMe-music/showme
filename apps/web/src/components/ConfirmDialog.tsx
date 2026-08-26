@@ -107,9 +107,15 @@ export function ConfirmDialog({ open, request, onCancel, onConfirm }: ConfirmDia
         </>
       }
     >
-      <p ref={setBody} style={bodyStyle}>
+      {/* A <div>, not a <p>. `body` is a ReactNode and this component's own
+          contract asks it to carry "what will happen AND what will not" — which
+          invites paragraphs and lists. A <p> cannot legally contain block
+          elements, so callers were forced to fake structure with `display:
+          block` spans, and a browser would silently close the paragraph early
+          around anything genuinely block-level. */}
+      <div ref={setBody} style={bodyStyle}>
         {request.body}
-      </p>
+      </div>
     </Modal>
   );
 }

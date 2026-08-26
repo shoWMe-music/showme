@@ -94,7 +94,7 @@ export function VatSettingsCard({ profileId }: { profileId: string }) {
       )}
 
       {vat.problem && (
-        <p style={{ margin: 0, fontSize: 12.5, color: "var(--danger, #EE5746)" }} role="alert">
+        <p style={{ margin: 0, fontSize: 12.5, color: "var(--brand-red)" }} role="alert">
           {vat.problem}
         </p>
       )}

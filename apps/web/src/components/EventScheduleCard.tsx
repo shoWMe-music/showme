@@ -38,7 +38,7 @@ export function EventScheduleCard({ eventId, eventDate, canEdit }: EventSchedule
     <SectionCard>
       <CardHeader
         icon={<Icon name="clock" size={17} />}
-        iconColor="#F4A046"
+        iconColor="var(--brand-amber)"
         title="Event Schedule"
         action={<MonoPill>{schedule.items.length} items</MonoPill>}
       />
@@ -95,7 +95,7 @@ function ReadOnlyScheduleRow({
       >
         {timeLabel(item.localDateTime)}
       </span>
-      <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#EE5746" }} />
+      <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--brand-red)" }} />
       <span style={{ flex: 1, color: "var(--text)", fontSize: 13.5 }}>{item.label}</span>
       {dayLabel(item.localDateTime, eventDate) && (
         <MonoPill>{dayLabel(item.localDateTime, eventDate)}</MonoPill>

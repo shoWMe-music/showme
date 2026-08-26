@@ -35,7 +35,7 @@ const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 /** Seed a user + profile + active owner membership + a permission set. */
 async function seedMemberWithSet(
   id: string,
-  kind: "operator" | "performer",
+  kind: "operator" | "performer" | "team_and_crew" | "agent",
   capabilities: readonly string[],
 ) {
   const { db } = harness;
@@ -2039,5 +2039,374 @@ describe("settlement — the cost rule and deal-assigned costs", () => {
       .json()
       .breakdowns.reduce((running: bigint, row: { net: string }) => running + BigInt(row.net), 0n);
     expect(netSum).toBe(0n);
+  });
+});
+
+/**
+ * The three money rules the product owner settled on 2026-08-26, driven through
+ * the real route against a real Postgres:
+ *   1. a RENTAL settles off the top, before percentage deals divide what is left
+ *   2. a percentage entitlement is floored at zero — the loss stays with the operator
+ *   3. a `deal_parties.role_in_deal = 'commission'` line actually gets paid
+ */
+describe("settlement — the 2026-08-26 money rules", () => {
+  /**
+   * Pool 1 000 000; venue rents the room for 200 000; the band is on a 50% door
+   * split with a production partner taking a 10% DISCLOSED commission off the
+   * band's line.
+   *
+   * The commission party is `team_and_crew`, not an agent, and that is not an
+   * arbitrary choice: `routes/deals.ts::assertPartiesAreEntitled` refuses an
+   * `agent` participant any role but `observer` (decisions.md #14 — an agent is
+   * never an entitled party on an event deal; its commission is a separate,
+   * private representation settlement). A fixture with an agent here would be a
+   * state the app cannot produce.
+   *
+   *   rental off the top → the split divides 800 000, not 1 000 000
+   *   band line          → 400 000, of which the agency takes 40 000
+   *   operator residual  → 1 000 000 − 200 000 − 400 000 = 400 000
+   *
+   * Before the change the band took 500 000 (half the whole pool) and the agency
+   * took nothing at all.
+   */
+  async function seedRentalAndCommission(prefix: string) {
+    const { db } = harness;
+    const operator = await seedMemberWithSet(
+      `${prefix}-op`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const venue = await seedMemberWithSet(
+      `${prefix}-venue`,
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const band = await seedMemberWithSet(
+      `${prefix}-band`,
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const agency = await seedMemberWithSet(
+      `${prefix}-agency`,
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_technical,
+    );
+
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: operator.profileId,
+        title: "Rental Night",
+        baseCurrency: "SEK",
+        createdBy: operator.userId,
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+
+    const parts = await db
+      .insert(schema.eventParticipants)
+      .values([
+        {
+          eventId: event.id,
+          profileId: operator.profileId,
+          role: "host" as const,
+          permissionSetId: operator.permissionSetId,
+          status: "confirmed" as const,
+        },
+        {
+          eventId: event.id,
+          profileId: venue.profileId,
+          role: "performer" as const,
+          permissionSetId: venue.permissionSetId,
+          status: "confirmed" as const,
+        },
+        {
+          eventId: event.id,
+          profileId: band.profileId,
+          role: "performer" as const,
+          permissionSetId: band.permissionSetId,
+          status: "confirmed" as const,
+        },
+        {
+          eventId: event.id,
+          profileId: agency.profileId,
+          role: "crew_lead" as const,
+          permissionSetId: agency.permissionSetId,
+          status: "confirmed" as const,
+        },
+      ])
+      .returning();
+    const hostPart = parts.find((row) => row.profileId === operator.profileId)?.id as string;
+    const venuePart = parts.find((row) => row.profileId === venue.profileId)?.id as string;
+    const bandPart = parts.find((row) => row.profileId === band.profileId)?.id as string;
+    const agencyPart = parts.find((row) => row.profileId === agency.profileId)?.id as string;
+
+    const [rental] = await db
+      .insert(schema.deals)
+      .values({
+        eventId: event.id,
+        type: "rental",
+        structure: "rental",
+        name: "Venue rental",
+        guaranteeAmount: 200000n,
+        createdBy: operator.userId,
+      })
+      .returning();
+    const [door] = await db
+      .insert(schema.deals)
+      .values({
+        eventId: event.id,
+        type: "performance",
+        structure: "door_split",
+        name: "Band door split",
+        splitBasisPoints: 5000,
+        createdBy: operator.userId,
+      })
+      .returning();
+    if (!rental || !door) throw new Error("deal seed failed");
+
+    await db.insert(schema.dealParties).values([
+      { dealId: rental.id, participantId: hostPart, roleInDeal: "payer" },
+      { dealId: rental.id, participantId: venuePart, roleInDeal: "payee" },
+      { dealId: door.id, participantId: hostPart, roleInDeal: "payer" },
+      { dealId: door.id, participantId: bandPart, roleInDeal: "payee" },
+      {
+        dealId: door.id,
+        participantId: agencyPart,
+        roleInDeal: "commission",
+        share: { splitBasisPoints: 1000, currency: "SEK" }, // 10.00% of the band's line
+      },
+    ]);
+
+    const [budget] = await db.insert(schema.budgets).values({ eventId: event.id }).returning();
+    if (!budget) throw new Error("budget seed failed");
+    await db.insert(schema.budgetLines).values([
+      {
+        budgetId: budget.id,
+        kind: "revenue",
+        label: "Tickets",
+        amount: 1000000n,
+        collectedBy: hostPart,
+      },
+    ]);
+
+    return { event, operator, hostPart, venuePart, bandPart, agencyPart, door };
+  }
+
+  const compute = (eventId: string, uid: string) =>
+    app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/settlement/compute`,
+      headers: auth(uid),
+    });
+
+  it("settles the rental off the top and pays the disclosed commission", async () => {
+    const seed = await seedRentalAndCommission("offtop");
+
+    const response = await compute(seed.event.id, seed.operator.userId);
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    const entitlementOf = (id: string) =>
+      body.breakdowns.find((row: { participantId: string }) => row.participantId === id)
+        ?.entitlement;
+
+    expect(body.pool).toBe("1000000");
+    expect(entitlementOf(seed.venuePart)).toBe("200000"); // rental, off the top
+    expect(entitlementOf(seed.bandPart)).toBe("360000"); // 50% of 800 000, less 10%
+    expect(entitlementOf(seed.agencyPart)).toBe("40000"); // the commission line, now paid
+    expect(entitlementOf(seed.hostPart)).toBe("400000"); // residual
+    const netSum = body.breakdowns.reduce(
+      (total: bigint, row: { net: string }) => total + BigInt(row.net),
+      0n,
+    );
+    expect(netSum).toBe(0n);
+
+    // The state, not just the response: a stored settlement row and a real transfer
+    // to the commission party.
+    const rows = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    expect(rows).toHaveLength(4);
+    const transfers = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.eventId, seed.event.id));
+    const toAgency = transfers.find((row) => row.toParticipant === seed.agencyPart);
+    expect(toAgency?.fromParticipant).toBe(seed.hostPart);
+    expect(toAgency?.amount).toBe(40000n);
+
+    // decisions.md #14 boundary: a DISCLOSED commission is an event deal party and
+    // nothing else. No representation-scoped settlement is created by it — that
+    // private agent↔performer path is driven by `representations`, not by this row
+    // (and the deals route refuses an agent participant an entitled line at all).
+    expect(rows.every((row) => row.representationId === null)).toBe(true);
+  });
+
+  it("refuses a commission party whose share states no rate", async () => {
+    const { db } = harness;
+    const seed = await seedRentalAndCommission("offtop-norate");
+    await db
+      .update(schema.dealParties)
+      .set({ share: null })
+      .where(
+        and(
+          eq(schema.dealParties.dealId, seed.door.id),
+          eq(schema.dealParties.participantId, seed.agencyPart),
+        ),
+      );
+
+    const response = await compute(seed.event.id, seed.operator.userId);
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toContain("commission");
+  });
+
+  /**
+   * A loss-making night on a pure door split: gross 200 000, costs 500 000 →
+   * pool −300 000. The performer's share of the pool is floored at zero; the
+   * operator carries the whole loss through the residual.
+   */
+  async function seedLossMakingDoorSplit(prefix: string, withDeductible: boolean) {
+    const { db } = harness;
+    const operator = await seedMemberWithSet(
+      `${prefix}-op`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const band = await seedMemberWithSet(
+      `${prefix}-band`,
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: operator.profileId,
+        title: "Quiet Night",
+        baseCurrency: "SEK",
+        createdBy: operator.userId,
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+
+    const parts = await db
+      .insert(schema.eventParticipants)
+      .values([
+        {
+          eventId: event.id,
+          profileId: operator.profileId,
+          role: "host" as const,
+          permissionSetId: operator.permissionSetId,
+          status: "confirmed" as const,
+        },
+        {
+          eventId: event.id,
+          profileId: band.profileId,
+          role: "performer" as const,
+          permissionSetId: band.permissionSetId,
+          status: "confirmed" as const,
+        },
+      ])
+      .returning();
+    const hostPart = parts.find((row) => row.profileId === operator.profileId)?.id as string;
+    const bandPart = parts.find((row) => row.profileId === band.profileId)?.id as string;
+
+    const [door] = await db
+      .insert(schema.deals)
+      .values({
+        eventId: event.id,
+        type: "performance",
+        structure: "door_split",
+        name: "50% of the door",
+        splitBasisPoints: 5000,
+        createdBy: operator.userId,
+      })
+      .returning();
+    if (!door) throw new Error("deal seed failed");
+    await db.insert(schema.dealParties).values([
+      { dealId: door.id, participantId: hostPart, roleInDeal: "payer" },
+      { dealId: door.id, participantId: bandPart, roleInDeal: "payee" },
+    ]);
+
+    const [budget] = await db.insert(schema.budgets).values({ eventId: event.id }).returning();
+    if (!budget) throw new Error("budget seed failed");
+    await db.insert(schema.budgetLines).values([
+      {
+        budgetId: budget.id,
+        kind: "revenue",
+        label: "Tickets",
+        amount: 200000n,
+        collectedBy: hostPart,
+      },
+      { budgetId: budget.id, kind: "cost", label: "Sound hire", amount: 500000n, paidBy: hostPart },
+      ...(withDeductible
+        ? [
+            {
+              budgetId: budget.id,
+              kind: "cost" as const,
+              label: "Band hotel, fronted by the operator",
+              amount: 80000n,
+              paidBy: hostPart,
+              payeeParticipantId: bandPart,
+            },
+          ]
+        : []),
+    ]);
+
+    return { event, operator, hostPart, bandPart };
+  }
+
+  it("floors a door-split entitlement at zero and leaves the loss with the operator", async () => {
+    const seed = await seedLossMakingDoorSplit("floor", false);
+
+    const response = await compute(seed.event.id, seed.operator.userId);
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    const rowOf = (id: string) =>
+      body.breakdowns.find((row: { participantId: string }) => row.participantId === id);
+
+    expect(body.pool).toBe("-300000");
+    expect(rowOf(seed.bandPart).entitlement).toBe("0"); // was −150 000
+    expect(rowOf(seed.bandPart).net).toBe("0");
+    expect(rowOf(seed.hostPart).entitlement).toBe("-300000"); // the operator eats it
+    expect(rowOf(seed.hostPart).net).toBe("0"); // it holds exactly what it is owed
+    const netSum = body.breakdowns.reduce(
+      (total: bigint, row: { net: string }) => total + BigInt(row.net),
+      0n,
+    );
+    expect(netSum).toBe(0n);
+
+    // Nobody owes anybody: no transfer is written on a floored settlement.
+    const transfers = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.eventId, seed.event.id));
+    expect(transfers).toHaveLength(0);
+  });
+
+  it("still settles a NEGATIVE net when the performer owes a deductible back", async () => {
+    // The floor is on the share of the pool, not on the net. A performer whose
+    // hotel the operator fronted owes that money back however bad the night was.
+    const seed = await seedLossMakingDoorSplit("floor-deductible", true);
+
+    const response = await compute(seed.event.id, seed.operator.userId);
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    const rowOf = (id: string) =>
+      body.breakdowns.find((row: { participantId: string }) => row.participantId === id);
+
+    expect(rowOf(seed.bandPart).entitlement).toBe("-80000"); // 0 floored share − the hotel
+    expect(rowOf(seed.bandPart).net).toBe("-80000");
+    expect(rowOf(seed.hostPart).net).toBe("80000");
+    const transfers = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.eventId, seed.event.id));
+    expect(transfers).toHaveLength(1);
+    expect(transfers[0]?.fromParticipant).toBe(seed.bandPart);
+    expect(transfers[0]?.toParticipant).toBe(seed.hostPart);
+    expect(transfers[0]?.amount).toBe(80000n);
   });
 });

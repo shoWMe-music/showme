@@ -27,3 +27,25 @@ export const tooManyRequests = (message = "Too many requests") =>
  */
 export const serviceUnavailable = (message = "Service unavailable") =>
   new HttpError(503, message, "service_unavailable");
+
+/**
+ * Did Postgres refuse this write because it collided with a unique index?
+ *
+ * SQLSTATE `23505`. It lives beside the HTTP constructors because that is the
+ * only thing any caller does with the answer: a unique violation is how the
+ * database says "someone already took this", and the honest reply is a 409 that
+ * names what was taken. Four route files each carried an identical private copy
+ * of this predicate; the constant is the kind of thing that must be spelt once.
+ *
+ * Deliberately structural rather than an `instanceof` check — the driver's error
+ * class is not re-exported, and the shape (`{ code }`) is stable across both the
+ * `pg` and `postgres.js` paths the app has used.
+ */
+export function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "23505"
+  );
+}

@@ -1,6 +1,7 @@
-import { useRef } from "react";
-import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
+import { useRef } from "react";
+import { DURATION, EASE } from "@/lib/motion";
 import { useReducedMotion } from "@/lib/useReducedMotion";
 
 /**
@@ -22,17 +23,18 @@ export function useSidebarItemMotion(active: boolean | undefined) {
 
   const { contextSafe } = useGSAP(
     () => {
-      const duration = reducedMotion ? 0 : 0.45;
-      gsap.to(background.current, {
-        autoAlpha: active ? 1 : 0,
-        duration: reducedMotion ? 0 : 0.4,
-        ease: "power3.out",
-      });
+      // The marker MOVES (scaleY) and the wash only repaints, but they are one
+      // state change on one item, so both take the movement duration and land
+      // together. This is also the click that starts a route change: at the old
+      // 0.4/0.45 the highlight was still catching up after the new page had
+      // already arrived.
+      const duration = reducedMotion ? 0 : DURATION.base;
+      gsap.to(background.current, { autoAlpha: active ? 1 : 0, duration, ease: EASE.out });
       gsap.to(marker.current, {
         scaleY: active ? 1 : 0,
         autoAlpha: active ? 1 : 0,
         duration,
-        ease: active ? "power3.out" : "power2.in",
+        ease: active ? EASE.out : EASE.in,
       });
     },
     { scope: root, dependencies: [active, reducedMotion] },
@@ -40,14 +42,14 @@ export function useSidebarItemMotion(active: boolean | undefined) {
 
   const handlePointerEnter = contextSafe(() => {
     if (reducedMotion) return;
-    gsap.to(content.current, { x: 3, duration: 0.3, ease: "power2.out" });
-    gsap.to(icon.current, { scale: 1.12, duration: 0.34, ease: "back.out(2.4)" });
+    gsap.to(content.current, { x: 3, duration: DURATION.base, ease: EASE.soft });
+    gsap.to(icon.current, { scale: 1.12, duration: DURATION.base, ease: EASE.pop });
   });
 
   const handlePointerLeave = contextSafe(() => {
     if (reducedMotion) return;
-    gsap.to(content.current, { x: 0, duration: 0.38, ease: "power2.out" });
-    gsap.to(icon.current, { scale: 1, duration: 0.38, ease: "power2.out" });
+    gsap.to(content.current, { x: 0, duration: DURATION.base, ease: EASE.soft });
+    gsap.to(icon.current, { scale: 1, duration: DURATION.base, ease: EASE.soft });
   });
 
   return { root, background, marker, content, icon, handlePointerEnter, handlePointerLeave };

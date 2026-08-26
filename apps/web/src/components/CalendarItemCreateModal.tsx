@@ -88,7 +88,7 @@ export function CalendarItemCreateModal({ open, onClose, view }: CalendarItemCre
           </div>
         )}
         {view.error && (
-          <p style={{ margin: 0, fontSize: 12.5, color: "var(--danger, #EE5746)" }} role="alert">
+          <p style={{ margin: 0, fontSize: 12.5, color: "var(--brand-red)" }} role="alert">
             {view.error}
           </p>
         )}

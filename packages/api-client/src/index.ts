@@ -16,3 +16,8 @@ export {
 } from "./mutator";
 
 export * from "./generated/default/default";
+// The response/request SHAPES, not just the hooks. A screen that holds one of
+// these payloads in its own state or passes it to a child needs the type by name;
+// without this it can only be spelled `Awaited<ReturnType<typeof getX>>`, which is
+// unreadable and breaks the moment a hook is renamed.
+export * from "./generated/models";

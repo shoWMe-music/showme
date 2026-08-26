@@ -183,8 +183,8 @@ export function useHoldPlacement(options: {
 }
 
 const amberPanel = {
-  border: "1px solid color-mix(in srgb,#F4A046 34%,transparent)",
-  background: "color-mix(in srgb,#F4A046 9%,transparent)",
+  border: "1px solid color-mix(in srgb,var(--brand-amber) 34%,transparent)",
+  background: "color-mix(in srgb,var(--brand-amber) 9%,transparent)",
   borderRadius: 13,
   padding: "13px 15px",
   display: "flex",

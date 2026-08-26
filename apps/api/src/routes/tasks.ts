@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { forbidden, notFound } from "../errors";
+import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { eventCapabilities, requireEventCapability } from "../lib/authorize";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
@@ -159,6 +160,13 @@ async function assertMayUseGroup(request: FastifyRequest, groupId: string): Prom
   if (!group) throw notFound("Work-group not found");
 }
 
+/**
+ * The task fields whose movement is worth a history line. Names only — `budgetAmount`
+ * is money and stays out of a summary (`lib/activity.ts`), and `description` is free
+ * text an event-wide feed has no business echoing.
+ */
+const TRACKED_TASK_FIELDS = ["title", "dueDate", "groupId", "budgetAmount"] as const;
+
 export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -274,6 +282,22 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
           eventId: task.eventId ?? undefined,
           after: serialized,
         });
+        // ONLY an event-scoped task is event history. A personal or profile task is
+        // the owner's own list and has no event to belong to — writing it with a
+        // null `event_id` would put it in a feed nobody can scope and nobody reads.
+        //
+        // `budgetAmount` is deliberately absent from the summary: kind `task` sits
+        // at the `event.view` tier, which is where a `view_only` participant lives,
+        // and a task budget is a figure.
+        if (task.eventId) {
+          await writeActivity(tx, request, {
+            eventId: task.eventId,
+            type: "task.created",
+            targetKind: "task",
+            targetId: task.id,
+            summary: { title: task.title, dueDate: task.dueDate ?? null },
+          });
+        }
         return serialized;
       });
 
@@ -324,6 +348,28 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
           before: serializeTask(before),
           after: serialized,
         });
+        if (after.eventId) {
+          // Completion is the headline — "is the backline booked yet?" is the
+          // question the list exists to answer, so it gets its own type rather
+          // than hiding inside a field list.
+          const completionChanged = before.completed !== after.completed;
+          const changed = TRACKED_TASK_FIELDS.filter(
+            (field) => String(before[field] ?? "") !== String(after[field] ?? ""),
+          );
+          if (completionChanged || changed.length > 0) {
+            await writeActivity(tx, request, {
+              eventId: after.eventId,
+              type: completionChanged
+                ? after.completed
+                  ? "task.completed"
+                  : "task.reopened"
+                : "task.updated",
+              targetKind: "task",
+              targetId: id,
+              summary: { title: after.title, fields: changed },
+            });
+          }
+        }
         return serialized;
       });
 
@@ -350,6 +396,15 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
           eventId: before.eventId ?? undefined,
           before: serializeTask(before),
         });
+        if (before.eventId) {
+          await writeActivity(tx, request, {
+            eventId: before.eventId,
+            type: "task.deleted",
+            targetKind: "task",
+            targetId: id,
+            summary: { title: before.title },
+          });
+        }
       });
 
       return { id, deleted: true };

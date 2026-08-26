@@ -33,11 +33,16 @@ const TemplateTicketTier = z.object({
   quantity: z.number().int().min(0),
 });
 
+/**
+ * A row is a label and a figure. It used to accept `type: 'manual' | 'per_guest'`
+ * too; the per-guest reading was struck out (a row's value is the value), and a
+ * zod object strips unknown keys, so a payload written under the old shape still
+ * validates — it simply stores without the word. Old rows already in `templates`
+ * are converted where they are read, in `readBudgetTemplatePayload`.
+ */
 const TemplateNamedAmount = z.object({
   label: z.string().min(1),
   amount: MinorUnitsAmount,
-  /** How the amount is struck; absent on a flat standing heading. */
-  type: z.enum(["manual", "per_guest"]).optional(),
 });
 
 export const BudgetTemplatePayloadSchema = z.object({

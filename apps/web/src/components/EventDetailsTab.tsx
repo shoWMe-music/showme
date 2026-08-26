@@ -1,25 +1,12 @@
-import { useGetApiV1ProfilesIdStages } from "@showme/api-client";
 import { Avatar, Button, Icon, Select, TextField } from "@showme/design-system";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { formatMoney } from "../lib/format";
-import { EventInformationEditModal } from "./EventInformationEditModal";
+import { EventInlineInformation } from "./EventInlineInformation";
 import { EventScheduleCard } from "./EventScheduleCard";
-import { EventVenuePicker } from "./EventVenuePicker";
 import { RidersDocumentsCard } from "./RidersDocumentsCard";
 import styles from "./eventDetailsFields.module.css";
-import {
-  CardHeader,
-  Eyebrow,
-  GlyphButton,
-  InfoPairGrid,
-  MonoPill,
-  OutlineButton,
-  SectionCard,
-  XIcon,
-} from "./eventUi";
+import { CardHeader, Eyebrow, GlyphButton, MonoPill, SectionCard, XIcon } from "./eventUi";
 import { useEventExtrasEditor } from "./useEventExtrasEditor";
-import { useEventInformationEdit } from "./useEventInformationEdit";
-import { useEventVenueLink } from "./useEventVenueLink";
 
 /** Local, decoupled shapes for the event-detail sections — kept minimal so this
  * file doesn't depend on the exact generated model names (structurally equal). */
@@ -87,7 +74,6 @@ export interface DetailsScheduleEntry {
 }
 export interface EventDetailsTabProps {
   event: DetailsEvent;
-  statusLabel: string;
   operatorName: string;
   performers: DetailsPerformer[];
   riders: DetailsRider[];
@@ -105,7 +91,6 @@ const rowBorder = { borderBottom: "1px solid var(--border)" } as const;
 
 export function EventDetailsTab({
   event,
-  statusLabel,
   operatorName,
   performers,
   riders,
@@ -130,7 +115,6 @@ export function EventDetailsTab({
     <div style={stack}>
       <EventInformationCard
         event={event}
-        statusLabel={statusLabel}
         operatorName={operatorName}
         performers={performers}
         canEdit={canEdit}
@@ -164,82 +148,33 @@ export function EventDetailsTab({
 
 function EventInformationCard({
   event,
-  statusLabel,
   operatorName,
   performers,
   canEdit,
 }: {
   event: DetailsEvent;
-  statusLabel: string;
   operatorName: string;
   performers: DetailsPerformer[];
   canEdit: boolean;
 }) {
-  const edit = useEventInformationEdit(event);
-  const dateLabel = event.eventDate
-    ? new Date(event.eventDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })
-    : "—";
-
-  /**
-   * The venue's rooms, so this card can NAME the one the show is in.
-   *
-   * It used to render "Assigned" — the only thing it could say, because no route
-   * listed a venue's rooms and the event carries an id and nothing else. Which
-   * room a show is in is the whole content of that field: "the basement" and "the
-   * main hall" are different rooms, different capacities and different nights'
-   * availability, and "Assigned" says none of it.
-   *
-   * Skipped when the event stands at no venue profile — the wizard captures a
-   * free-text venue name for a room the operator does not run, and there is
-   * nobody to ask for its rooms.
-   */
-  const rooms = useGetApiV1ProfilesIdStages(event.venueProfileId ?? "", {
-    query: { enabled: Boolean(event.venueProfileId) },
-  });
-  const roomOptions = useMemo(
-    () => (rooms.data ?? []).map((room) => ({ value: room.id, label: room.name })),
-    [rooms.data],
-  );
-  const roomLabel = (() => {
-    if (!event.stageId) return "—";
-    const room = (rooms.data ?? []).find((entry) => entry.id === event.stageId);
-    // A room id we cannot resolve is not "—": the show IS in a room, we just
-    // could not read the list (no venue profile, or the request has not landed).
-    return room?.name ?? "Assigned";
-  })();
   return (
     <SectionCard>
       <CardHeader
         icon={<Icon name="calendar" size={17} />}
         iconColor="#EE5746"
         title="Event Information"
-        action={
-          // Only offered to a caller who actually holds `event.edit` — the same
-          // signal the API's PATCH gate uses, so the affordance can't outrun it.
-          canEdit ? (
-            <OutlineButton onClick={edit.open}>
-              <Icon name="settings" size={14} /> Edit
-            </OutlineButton>
-          ) : undefined
-        }
       />
-      <InfoPairGrid
-        pairs={[
-          { label: "Event Name", value: event.title },
-          { label: "Date", value: dateLabel },
-          { label: "Venue", value: event.venueName ?? "—" },
-          { label: "Room / Stage", value: roomLabel },
-          { label: "Performer", value: performers[0]?.name ?? "—" },
-          {
-            label: "Capacity",
-            value: event.capacity != null ? event.capacity.toLocaleString("en-US") : "—",
-          },
-          { label: "Operator", value: operatorName },
-          { label: "Status", value: statusLabel },
-        ]}
+      {/* No Edit button, and no modal behind it. The six values this card used
+          to hand to a popup or to a control somewhere else — name, date, venue,
+          room, capacity, status — are edited on the rows that show them
+          (`EventInlineInformation`), which is what the old app did and what the
+          operator asked for. */}
+      <EventInlineInformation
+        event={event}
+        operatorName={operatorName}
+        performerName={performers[0]?.name ?? ""}
+        canEdit={canEdit}
       />
-
-      {canEdit && <VenueProfileLink event={event} />}
 
       <div
         style={{
@@ -298,54 +233,7 @@ function EventInformationCard({
           ))
         )}
       </div>
-      <EventInformationEditModal
-        open={edit.draft !== null}
-        draft={edit.draft}
-        roomOptions={roomOptions}
-        onChange={edit.change}
-        onClose={edit.close}
-        onSave={edit.save}
-        onReload={edit.reload}
-        isSaving={edit.isSaving}
-        canSave={edit.canSave}
-        hasConflict={edit.hasConflict}
-      />
     </SectionCard>
-  );
-}
-
-/**
- * Which venue PROFILE this event stands at — the one control that makes a venue's
- * own record of itself travel onto the booking.
- *
- * Separate from the Edit modal on purpose. That modal edits the event's own
- * values, one field at a time, and saves them together. This is not an edit: it
- * identifies a room, and the room then answers for the fields the operator has
- * left blank (capacity, house curfew, amenities, city). Putting it inside the
- * modal would make it read as a fifth text field whose value is written with the
- * rest, which is the opposite of what happens.
- */
-function VenueProfileLink({ event }: { event: DetailsEvent }) {
-  const venue = useEventVenueLink(event);
-  const [draftName, setDraftName] = useState(event.venueName ?? "");
-
-  return (
-    <div style={{ margin: "20px 0 0", display: "flex", flexDirection: "column", gap: 7 }}>
-      <Eyebrow>Venue profile</Eyebrow>
-      <EventVenuePicker
-        value={draftName}
-        onChangeText={setDraftName}
-        onSelectProfile={venue.link}
-        selectedProfileId={event.venueProfileId ?? null}
-        placeholder="Search shoWMe for the venue…"
-      />
-      <span style={{ color: "var(--muted)", fontSize: 12, lineHeight: 1.45 }}>
-        {event.venueProfileId
-          ? "Linked. Anything this event had not filled in — capacity, house curfew, amenities, city — came from the venue's profile, and everything already typed was left alone."
-          : "Pick the room and it fills in what this event is still missing: capacity, house curfew, amenities and city. Nothing already typed is touched."}
-        {venue.isSaving ? " Saving…" : ""}
-      </span>
-    </div>
   );
 }
 
@@ -393,16 +281,19 @@ function GuestListCard({
         title="Guest List"
         action={<MonoPill>{total} tickets</MonoPill>}
       />
+      {/* The limits are settings for the list below, not a separate object, so a
+          tinted box of their own overstated them — and on a white card in light
+          mode the beige ground read as a stray panel. A rule does the same job:
+          it says "these belong together and the list starts after them" without
+          drawing a second surface inside the first. */}
       <div
         style={{
           display: "grid",
           gridTemplateColumns: "1fr 1fr",
           gap: 12,
-          background: "var(--elevated)",
-          border: "1px solid var(--border)",
-          borderRadius: 12,
-          padding: "14px 16px",
+          paddingBottom: 16,
           marginBottom: 16,
+          borderBottom: "1px solid var(--border)",
         }}
       >
         <NumericField

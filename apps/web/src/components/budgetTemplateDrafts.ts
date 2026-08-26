@@ -40,16 +40,19 @@ export function templateFrom(editor: BudgetEditor): BudgetTemplatePayload {
     otherRevenue: toMinorUnits(editor.otherRevenue),
     customRevenue: editor.customRevenue
       .filter((row) => row.label.trim() !== "")
-      .map((row) => ({ ...named(row.label, row.value), type: row.type })),
+      .map((row) => named(row.label, row.value)),
     // Only headings that were actually budgeted. Saving the six standing rows at
     // zero would load as a template that "sets" every cost to nothing, which is a
     // claim about the next show rather than a starting point for it.
+    //
+    // And never a row READ FROM A DEAL. That figure belongs to this event's
+    // agreement; carried into a template it would arrive on the next show as a
+    // stored "Performer fee" line — one act's guarantee budgeted against another
+    // act's night, and a real `budget_lines` row for money the deal already owns.
     costs: editor.costs
+      .filter((cost) => !cost.readFromDeal)
       .filter((cost) => cost.value.trim() !== "" && cost.value.trim() !== "0")
-      .map((cost) => ({
-        ...named(cost.label, cost.value),
-        ...(cost.type ? { type: cost.type } : {}),
-      })),
+      .map((cost) => named(cost.label, cost.value)),
     ...(percentBasisPoints > 0 || flatPerTicket !== "0"
       ? { paymentProcessing: { percentBasisPoints, flatPerTicket } }
       : {}),
@@ -108,7 +111,6 @@ export function draftsFromTemplate(
     id: customIds[index] ?? `${NEW_ROW_PREFIX}custom:${index}`,
     label: row.label,
     value: toMajorUnits(row.amount),
-    type: row.type ?? ("manual" as const),
   }));
   removedLineIds.push(...customIds.slice(payload.customRevenue.length));
 
@@ -136,7 +138,6 @@ export function draftsFromTemplate(
         label: cost.label,
         value: toMajorUnits(cost.amount),
         isCustom: true,
-        type: cost.type ?? ("manual" as const),
       };
     });
 

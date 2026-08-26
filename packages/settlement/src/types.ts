@@ -15,7 +15,13 @@ export interface EscalatorTier {
   splitBasisPoints: number;
 }
 
-/** A disclosed, off-the-top commission — deducted from the payee, credited to `participantId`. */
+/**
+ * A DISCLOSED commission — deducted from the payee's own line, credited to
+ * `participantId`. Populated from a `deal_parties` row with
+ * `role_in_deal = 'commission'`; the arithmetic (and the parallel-vs-cascading
+ * question) lives in `commissions.ts`. A booking **agent**'s private
+ * representation commission is never one of these — see `representation.ts`.
+ */
 export interface DisclosedCommission {
   participantId: string;
   basisPoints: number;

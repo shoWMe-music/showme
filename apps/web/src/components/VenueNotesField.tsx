@@ -21,7 +21,7 @@ export interface VenueNotesFieldProps {
  * `TextField.module.css` and reused.
  *
  * This is a stopgap, and the real fix is a `Textarea` atom in the design system.
- * Every value here (10px radius, 13.5px sans, the #EE5746 focus border) is taken
+ * Every value here (10px radius, 13.5px sans, the --brand-red focus border) is taken
  * from that stylesheet, so a DS textarea can replace this component with no
  * visual change.
  */
@@ -67,7 +67,7 @@ export function VenueNotesField({
           borderRadius: 10,
           // Focus colour is TextField's, tracked in React because a style object
           // cannot express `:focus`.
-          border: `1px solid ${focused ? "#EE5746" : "var(--border)"}`,
+          border: `1px solid ${focused ? "var(--brand-red)" : "var(--border)"}`,
           background: "var(--control-surface)",
           color: "var(--text)",
           fontFamily: "var(--font-sans)",
@@ -75,7 +75,7 @@ export function VenueNotesField({
           lineHeight: 1.55,
           outline: "none",
           resize: "vertical",
-          transition: "border-color .2s",
+          transition: "border-color var(--duration-quick) var(--ease-out)",
         }}
       />
       {hint && <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--dim)" }}>{hint}</p>}

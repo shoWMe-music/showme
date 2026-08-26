@@ -341,3 +341,310 @@ describe("cost bearing — the meeting's 'either a cost split or a single payer'
     assertBalanced(asSplit);
   });
 });
+
+describe("reconcile — a rental settles OFF THE TOP (analysis §3.3, case 1)", () => {
+  /**
+   * The reference app reduced the pool by the venue rental BEFORE any percentage
+   * split (`../showme-settle-fast` `src/lib/models.ts:368`, `:437`), and we did not.
+   * The product owner's answer (2026-08-26) is that it should: a rental is the cost
+   * of the room, and "net door" means after it.
+   *
+   * Pool 10 000, rental 2 000, performer on a 50% door split:
+   *   before → V 2 000, B 5 000 (half of the whole pool), P 3 000
+   *   after  → V 2 000, B 4 000 (half of 8 000),          P 4 000
+   */
+  const input: SettlementInput = {
+    baseCurrency: "EUR",
+    participants: [
+      { participantId: "P", isOperator: true },
+      { participantId: "V" },
+      { participantId: "B" },
+    ],
+    deals: [
+      {
+        dealId: "rental",
+        structure: "rental",
+        payeeParticipantIds: ["V"],
+        guaranteeAmount: eur(2000),
+      },
+      {
+        dealId: "door",
+        structure: "door_split",
+        payeeParticipantIds: ["B"],
+        splitBasisPoints: 5000,
+      },
+    ],
+    budgetLines: [{ kind: "revenue", amount: eur(10000), collectedBy: "P" }],
+  };
+
+  it("splits what is left after the rental, not the whole pool", () => {
+    const result = reconcile(input);
+    const entitlementOf = (id: string) =>
+      result.breakdowns.find((party) => party.participantId === id)?.entitlement;
+
+    expect(result.pool).toBe(eur(10000)); // the pool itself is untouched — only who claims it
+    expect(entitlementOf("V")).toBe(eur(2000));
+    expect(entitlementOf("B")).toBe(eur(4000)); // 50% of 8 000, NOT of 10 000
+    expect(entitlementOf("P")).toBe(eur(4000)); // residual absorbs the difference
+    assertBalanced(result);
+  });
+
+  it("leaves a fixed guarantee that is NOT a rental dividing the same pool", () => {
+    // Same shape with the 2 000 as a plain guarantee: the performer keeps 5 000.
+    const result = reconcile({
+      ...input,
+      deals: [
+        {
+          dealId: "guar",
+          structure: "guarantee",
+          payeeParticipantIds: ["V"],
+          guaranteeAmount: eur(2000),
+        },
+        {
+          dealId: "door",
+          structure: "door_split",
+          payeeParticipantIds: ["B"],
+          splitBasisPoints: 5000,
+        },
+      ],
+    });
+    const entitlementOf = (id: string) =>
+      result.breakdowns.find((party) => party.participantId === id)?.entitlement;
+    expect(entitlementOf("B")).toBe(eur(5000));
+    expect(entitlementOf("P")).toBe(eur(3000));
+    assertBalanced(result);
+  });
+
+  it("stacks two rentals off the top before anyone splits", () => {
+    const result = reconcile({
+      ...input,
+      participants: [...input.participants, { participantId: "V2" }],
+      deals: [
+        ...input.deals,
+        {
+          dealId: "rental-2",
+          structure: "rental",
+          payeeParticipantIds: ["V2"],
+          guaranteeAmount: eur(1000),
+        },
+      ],
+    });
+    const entitlementOf = (id: string) =>
+      result.breakdowns.find((party) => party.participantId === id)?.entitlement;
+    expect(entitlementOf("B")).toBe(eur(3500)); // 50% of (10 000 − 2 000 − 1 000)
+    expect(entitlementOf("P")).toBe(eur(3500));
+    assertBalanced(result);
+  });
+
+  it("does not reduce the pool for a rental that pays nobody", () => {
+    // A rental deal with no payee claims nothing, so it must not shrink what the
+    // door split divides — otherwise money would vanish from the distribution.
+    const result = reconcile({
+      ...input,
+      deals: [
+        {
+          dealId: "rental",
+          structure: "rental",
+          payeeParticipantIds: [],
+          guaranteeAmount: eur(2000),
+        },
+        {
+          dealId: "door",
+          structure: "door_split",
+          payeeParticipantIds: ["B"],
+          splitBasisPoints: 5000,
+        },
+      ],
+    });
+    expect(result.breakdowns.find((party) => party.participantId === "B")?.entitlement).toBe(
+      eur(5000),
+    );
+    assertBalanced(result);
+  });
+});
+
+describe("reconcile — a percentage entitlement never goes negative (analysis case 5)", () => {
+  /**
+   * A loss-making event, pure door split: gross 2 000, costs 5 000 → pool −3 000.
+   * The reference app pays the performer −1 500 (the performer owes for playing);
+   * the product owner's answer (2026-08-26) is "should not be negative no".
+   */
+  const lossMaking: SettlementInput = {
+    baseCurrency: "EUR",
+    participants: [{ participantId: "P", isOperator: true }, { participantId: "B" }],
+    deals: [
+      {
+        dealId: "door",
+        structure: "door_split",
+        payeeParticipantIds: ["B"],
+        splitBasisPoints: 5000,
+      },
+    ],
+    budgetLines: [
+      { kind: "revenue", amount: eur(2000), collectedBy: "P" },
+      { kind: "cost", amount: eur(5000), paidBy: "P" },
+    ],
+  };
+
+  it("floors the performer at zero and leaves the whole loss with the operator", () => {
+    const result = reconcile(lossMaking);
+    expect(result.pool).toBe(eur(-3000));
+    const band = result.breakdowns.find((party) => party.participantId === "B");
+    expect(band?.entitlement).toBe(0n); // was −1 500
+    expect(band?.net).toBe(0n);
+    expect(netOf(result, "P")).toBe(0n); // the operator holds −3 000 and is owed −3 000
+    expect(result.breakdowns.find((party) => party.participantId === "P")?.entitlement).toBe(
+      eur(-3000),
+    );
+    assertBalanced(result);
+  });
+
+  it("floors each line of a multi-performer split, not just the total", () => {
+    const result = reconcile({
+      ...lossMaking,
+      participants: [...lossMaking.participants, { participantId: "B2" }],
+      deals: [
+        {
+          dealId: "door",
+          structure: "door_split",
+          payeeParticipantIds: ["B", "B2"],
+          splitBasisPoints: 5000,
+          partyShares: { B: 6000, B2: 4000 },
+        },
+      ],
+    });
+    for (const id of ["B", "B2"]) {
+      expect(result.breakdowns.find((party) => party.participantId === id)?.entitlement).toBe(0n);
+    }
+    assertBalanced(result);
+  });
+
+  it("still lets a NET go negative once a deductible is applied", () => {
+    // The scope line: the FLOOR is on the share of the pool. A performer who was
+    // advanced more than the night earned genuinely owes it back.
+    const result = reconcile({
+      baseCurrency: "EUR",
+      participants: [{ participantId: "P", isOperator: true }, { participantId: "B" }],
+      deals: [
+        {
+          dealId: "door",
+          structure: "door_split",
+          payeeParticipantIds: ["B"],
+          splitBasisPoints: 5000,
+        },
+      ],
+      budgetLines: [
+        { kind: "revenue", amount: eur(2000), collectedBy: "P" },
+        { kind: "cost", amount: eur(5000), paidBy: "P" },
+        { kind: "cost", amount: eur(800), paidBy: "P", payeeParticipantId: "B" }, // hotel on the band's behalf
+      ],
+    });
+    const band = result.breakdowns.find((party) => party.participantId === "B");
+    expect(band?.entitlement).toBe(eur(-800)); // 0 floored share − the hotel it owes back
+    expect(band?.net).toBe(eur(-800));
+    assertBalanced(result);
+  });
+
+  it("leaves a guarantee on a loss-making event exactly as it was (case 4)", () => {
+    // guarantee_vs_door with a real guarantee: the guarantee already won every
+    // comparison a negative door could enter, so the floor changes nothing.
+    const result = reconcile({
+      baseCurrency: "EUR",
+      participants: [{ participantId: "P", isOperator: true }, { participantId: "B" }],
+      deals: [
+        {
+          dealId: "vs",
+          structure: "guarantee_vs_door",
+          payeeParticipantIds: ["B"],
+          guaranteeAmount: eur(2000),
+          splitBasisPoints: 5000,
+        },
+      ],
+      budgetLines: [
+        { kind: "revenue", amount: eur(1000), collectedBy: "P" },
+        { kind: "cost", amount: eur(4000), paidBy: "P" },
+      ],
+    });
+    expect(result.breakdowns.find((party) => party.participantId === "B")?.entitlement).toBe(
+      eur(2000),
+    );
+    expect(netOf(result, "P")).toBe(eur(-2000)); // the operator eats the loss AND the guarantee
+    assertBalanced(result);
+  });
+});
+
+describe("reconcile — disclosed commissions (analysis case 8)", () => {
+  /** A 1 000 guarantee with a 20% and a 10% commission — the case the analysis ran. */
+  const withCommissions = (commissions: { participantId: string; basisPoints: number }[]) =>
+    reconcile({
+      baseCurrency: "EUR",
+      participants: [
+        { participantId: "P", isOperator: true },
+        { participantId: "B" },
+        { participantId: "AGENCY" },
+        { participantId: "MGMT" },
+      ],
+      deals: [
+        {
+          dealId: "guar",
+          structure: "guarantee",
+          payeeParticipantIds: ["B"],
+          guaranteeAmount: eur(1000),
+          commissions,
+        },
+      ],
+      budgetLines: [{ kind: "revenue", amount: eur(5000), collectedBy: "P" }],
+    });
+
+  it("pays each commission party in PARALLEL off the payee's line (ClickUp 86cba8wmb)", () => {
+    const result = withCommissions([
+      { participantId: "AGENCY", basisPoints: 2000 },
+      { participantId: "MGMT", basisPoints: 1000 },
+    ]);
+    const entitlementOf = (id: string) =>
+      result.breakdowns.find((party) => party.participantId === id)?.entitlement;
+    expect(entitlementOf("AGENCY")).toBe(eur(200));
+    expect(entitlementOf("MGMT")).toBe(eur(100)); // cascading would be 80 — see 86cba8wmb
+    expect(entitlementOf("B")).toBe(eur(700));
+    // The operator's residual is untouched: a commission moves money WITHIN the deal.
+    expect(entitlementOf("P")).toBe(eur(4000));
+    assertBalanced(result);
+  });
+
+  it("commissions each split line separately, and loses no minor unit", () => {
+    const result = reconcile({
+      baseCurrency: "EUR",
+      participants: [
+        { participantId: "P", isOperator: true },
+        { participantId: "B" },
+        { participantId: "B2" },
+        { participantId: "AGENCY" },
+      ],
+      deals: [
+        {
+          dealId: "split",
+          structure: "door_split",
+          payeeParticipantIds: ["B", "B2"],
+          splitBasisPoints: 10000,
+          partyShares: { B: 6000, B2: 4000 },
+          commissions: [{ participantId: "AGENCY", basisPoints: 1000 }],
+        },
+      ],
+      budgetLines: [{ kind: "revenue", amount: 3333n, collectedBy: "P" }],
+    });
+    const entitlementOf = (id: string) =>
+      result.breakdowns.find((party) => party.participantId === id)?.entitlement ?? 0n;
+    // 3333 → 2000/1333; 10% of each is 200 and 133, and the payees keep the rest exactly.
+    expect(entitlementOf("AGENCY")).toBe(333n);
+    expect(entitlementOf("B")).toBe(1800n);
+    expect(entitlementOf("B2")).toBe(1200n);
+    expect(entitlementOf("B") + entitlementOf("B2") + entitlementOf("AGENCY")).toBe(3333n);
+    assertBalanced(result);
+  });
+
+  it("refuses a commission credited to somebody who is not on the event", () => {
+    expect(() => withCommissions([{ participantId: "GHOST", basisPoints: 2000 }])).toThrow(
+      /not a participant on this event/,
+    );
+  });
+});

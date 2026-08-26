@@ -91,14 +91,6 @@ export type {
   SettlementStepState,
 } from "./SettlementStepper";
 
-export { TeamMemberRow } from "./TeamMemberRow";
-export type {
-  TeamAccountState,
-  TeamMember,
-  TeamMemberRowProps,
-  TeamPresence,
-} from "./TeamMemberRow";
-
 export { WhoOwesWhomBoard } from "./WhoOwesWhomBoard";
 export type {
   SettlementLine,

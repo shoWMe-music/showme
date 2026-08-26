@@ -132,6 +132,28 @@ export const eventParticipants = pgTable(
     performerTag: performerTag("performer_tag"),
     status: eventParticipantStatus("status").notNull().default("invited"),
     details: jsonb("details"), // crew_details (call_time, task, pay_note) folded in
+    /**
+     * When this profile filed the event away — ARCHIVING, and deliberately not a
+     * status.
+     *
+     * `events.status` says where the booking got to (`concluded`, `cancelled`);
+     * archiving says whether the holder of this row still wants to look at it. A
+     * concluded show and a cancelled one can both be filed away, and filing must
+     * not destroy the word that tells them apart — so archiving cannot be a value
+     * of `event_status` without losing the fact underneath it.
+     *
+     * It lives on the PARTICIPANT, not on the event, because an operator's filing
+     * preference is not a fact about the performer's calendar (`docs/story.md` —
+     * the performer's world is "my bookings, my availability, my money"). The
+     * operator archives their own row; every other party's row is untouched and
+     * the show stays on their list.
+     *
+     * NULL = not archived, which is what every row written before this column
+     * existed means and what it should mean.
+     */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    /** Who filed it away — the user, for the audit trail's benefit. */
+    archivedBy: text("archived_by").references(() => users.id),
     addedBy: text("added_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

@@ -119,7 +119,7 @@ export function RequestCard({
       {request.message && (
         <div
           style={{
-            background: "var(--elevated)",
+            background: "var(--card)",
             border: "1px solid var(--border)",
             borderRadius: 12,
             padding: "12px 14px",
@@ -148,7 +148,7 @@ export function RequestCard({
             padding: "6px 10px",
             borderRadius: 999,
             border: "1px solid var(--border)",
-            background: "var(--elevated)",
+            background: "var(--shape-fill)",
             color: "var(--text)",
             fontSize: 12.5,
             cursor: onOpenDraftEvent ? "pointer" : "default",

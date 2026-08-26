@@ -12,7 +12,7 @@ import type { Transaction } from "./audit";
  * side's `KIND_CAPABILITY` map makes the row invisible to everyone but nobody's
  * secret leaks — deny-by-default, in that direction on purpose.
  *
- * The three tiers:
+ * The four tiers:
  * - **Event-level** (`event`, `participant`, `invitation`, `schedule`): everyone
  *   on the event who holds the kind's capability. `schedule` is NOT the same tier
  *   as `event` — `view_only` participants can view the event but not its running
@@ -23,18 +23,30 @@ import type { Transaction } from "./audit";
  * - **Party-scoped** (`deal`, `settlement`, `transfer`): only the parties to that
  *   row — resolved by joining the viewer's participants to the target, exactly as
  *   the resource's own route scopes it.
+ * - **Participant-scoped** (`rider`, `setlist`, `archive`): the one participant the row is
+ *   ABOUT, plus the operators. Their resources are scoped by ownership rather than
+ *   by a capability (`scopedEventRiders`, the setlist list route), so no entry in
+ *   `ACTIVITY_KIND_CAPABILITY` could reproduce the rule — `rider.view` is held by
+ *   technical crew whose SPONSOR decides which riders they may open, and by no
+ *   performer at all, not even for their own. For these kinds `targetId` is the
+ *   OWNING `event_participants.id`, not the rider's or setlist's own id; the
+ *   subject's id travels in the summary. See `ACTIVITY_PARTICIPANT_SCOPED_KINDS`.
  */
 export type ActivityTargetKind =
   | "event"
   | "participant"
   | "invitation"
   | "schedule"
+  | "task"
   | "hold"
   | "budget"
   | "share"
   | "deal"
   | "settlement"
-  | "transfer";
+  | "transfer"
+  | "rider"
+  | "setlist"
+  | "archive";
 
 /**
  * The capability that gates each non-party kind. Party-scoped kinds are absent —
@@ -46,10 +58,39 @@ export const ACTIVITY_KIND_CAPABILITY: Partial<Record<ActivityTargetKind, Capabi
   participant: "event.view",
   invitation: "event.view",
   schedule: "schedule.view",
+  // An event-scoped task is readable by anyone holding `event.view` — that is the
+  // literal gate on `GET /tasks?eventId=` — so its history sits at the same tier.
+  task: "event.view",
   hold: "event.edit",
   budget: "budget.view",
   share: "event.edit",
 };
+
+/**
+ * Kinds whose row is visible to the participant it is ABOUT (and to the operators,
+ * via the operator tier), resolved by `target_id IN (the viewer's participant ids)`.
+ *
+ * The rule is ownership, not a capability, which is why these cannot live in
+ * `ACTIVITY_KIND_CAPABILITY`: a rider is visible to its submitter, to the operators,
+ * and to crew only within their sponsor's reach (decisions #12); a setlist is
+ * visible to its author, to the operators, and to whoever it was explicitly shared
+ * with. The two reach-based cases — sponsored crew, an explicit setlist share — get
+ * NO feed row rather than a wrong one: deny-by-default, the same direction the rest
+ * of this module fails in.
+ *
+ * `archive` joined them for the same reason and with a sharper edge: filing an
+ * event away is a preference of ONE profile (`event_participants.archived_at`,
+ * migration 0020), not news about the show. "The venue archived this" belongs in
+ * the venue's own history and nowhere else — a performer must not read it as the
+ * booking being shelved. The operator tier still sees these rows on their own
+ * events, which is the pre-existing shape of that tier and not special to this
+ * kind.
+ *
+ * `target_id` therefore holds the owning `event_participants.id`. That row is never
+ * hard-deleted (`status = 'removed'`), so the history outlives both the rider and
+ * the participant's involvement.
+ */
+export const ACTIVITY_PARTICIPANT_SCOPED_KINDS = ["rider", "setlist", "archive"] as const;
 
 /**
  * The capability that makes a viewer an OPERATOR of the event for feed purposes:

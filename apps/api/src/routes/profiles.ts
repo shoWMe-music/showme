@@ -4,7 +4,7 @@ import { and, asc, eq, gte, ilike, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { badRequest, conflict, forbidden, notFound } from "../errors";
+import { badRequest, conflict, forbidden, isUniqueViolation, notFound } from "../errors";
 import { type Transaction, writeAudit } from "../lib/audit";
 import { requireProfileRole } from "../lib/authorize";
 import { readProfileBusyTime } from "../lib/availability";
@@ -364,16 +364,6 @@ function serializeTemplate(template: TemplateRow): z.infer<typeof TemplateRespon
     createdAt: template.createdAt.toISOString(),
     updatedAt: template.updatedAt.toISOString(),
   };
-}
-
-/** Postgres unique-violation — a uniqueness constraint tripped (slug, or member). */
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "23505"
-  );
 }
 
 /**

@@ -327,7 +327,7 @@ export function TeamInviteMemberModal({
 
 /** An inline explanation that stays put — a refusal the user must be able to read twice. */
 export function Callout({ tone, children }: { tone: "danger" | "warning"; children: ReactNode }) {
-  const color = tone === "danger" ? "var(--brand-red)" : "#F4A046";
+  const color = tone === "danger" ? "var(--brand-red)" : "var(--brand-amber)";
   return (
     <output
       style={{

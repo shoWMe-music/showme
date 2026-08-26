@@ -183,7 +183,7 @@ function FilePreview({ fileName, content }: { fileName: string; content: string 
           margin: 0,
           maxHeight: 190,
           overflow: "auto",
-          background: "var(--elevated)",
+          background: "var(--card)",
           border: "1px solid var(--border)",
           borderRadius: 12,
           padding: "12px 14px",
@@ -229,7 +229,7 @@ function DirectSubmissionTeaser({ society }: { society: string }) {
             fontWeight: 600,
             letterSpacing: 0.4,
             textTransform: "uppercase",
-            background: "var(--elevated)",
+            background: "var(--shape-fill)",
             border: "1px solid var(--border)",
             color: "var(--dim)",
           }}

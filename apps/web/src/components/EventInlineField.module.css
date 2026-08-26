@@ -1,0 +1,358 @@
+/* The Event Information card's label→value grid, when every value in it is a
+   thing you can click into and change.
+
+   It replaces `InfoPairGrid` for this one card, and the geometry is that grid's
+   to the pixel — two columns 40px apart, an 11px row rhythm, a hairline rule
+   under each row.
+
+   THE EDITING STATE IS THAT RULE, PROMOTED. There is no box: no border around
+   the value, no fill, no radius, no inset. Clicking a value swaps a text node
+   for an input of the same size, in the same place, on the same baseline, and
+   promotes the rule the row already had — neutral hairline to coral, and coral
+   to a heavier coral once the control has focus. Because nothing but the colour
+   and weight of an existing line changes, NOTHING ON THE CARD CAN MOVE when a
+   field opens. That is the hard requirement, and an underline satisfies it
+   almost for free.
+
+   The rule is one line, never two. The "2px" focus state is the row's own 1px
+   border plus a 1px box-shadow directly beneath it — a shadow takes no space, so
+   the heavier rule costs no layout either.
+
+   All tokens: `--border` at rest, `--control-border` for "you may type here",
+   `--brand-red` for "you are typing here". */
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 40px;
+  /* Cells keep their own height rather than stretching to the tallest in the
+     row. Nothing here should ever be tall enough to matter — that is the point —
+     but this makes it structurally true rather than merely usually true. */
+  align-items: start;
+}
+
+/* One column on a narrow viewport: a right-aligned control inside a 1fr cell of
+   a two-column grid on a phone leaves no room to read what you typed. */
+@media (max-width: 720px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  /* Every row is exactly 11 + 20 + 11 + 1px of rule, whatever is in it — a
+     resting value, a hovered one, or an open control. The fixed line box is what
+     makes that true rather than a coincidence of the current font. */
+  line-height: 20px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
+  transition: border-color var(--duration-quick) var(--ease-out), background var(--duration-quick)
+    var(--ease-out);
+}
+
+.label {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+  transition: color var(--duration-quick) var(--ease-out);
+}
+
+.value {
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: right;
+  min-width: 0;
+  /* Pinned rather than left to the line box: the Venue value carries a small
+     building glyph, and an inline-flex box aligned on the text baseline grew
+     that one row by fractions of a pixel where the other seven were exact. */
+  height: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A field with nothing in it. It still says what is missing in words — never an
+   em dash, which is not a thing you can act on — and it is still the full-width
+   hit target, so the field you have not filled in is the one you can find. */
+.empty {
+  color: var(--dim);
+  font-weight: 400;
+}
+
+/* The rest state of an EDITABLE row: a real <button>, so it is in the tab order
+   and Enter/Space open it without a line of JavaScript. */
+.trigger {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* WHAT SAYS "YOU MAY CHANGE THIS". On approach the row's own rule warms to the
+   colour an input wears, the ground lifts, and the label comes forward — three
+   signals, none of which need a value to be present, so an empty field
+   advertises itself exactly as loudly as a full one. */
+.trigger:hover,
+.trigger:focus-visible {
+  border-bottom-color: var(--control-border);
+  background: color-mix(in srgb, var(--elevated) 55%, transparent);
+}
+.trigger:hover .label,
+.trigger:focus-visible .label {
+  color: var(--text);
+}
+
+/* Keyboard focus on a closed row is the heavier rule, not a ring: the underline
+   is the whole visual language of this card now, and a focus ring around a
+   full-bleed table row reads as a selected row rather than a focused field.
+   Weight carries it as well as colour, for anyone who cannot use the hue. */
+.trigger:focus-visible {
+  border-bottom-color: var(--brand-red);
+  box-shadow: 0 1px 0 0 var(--brand-red);
+  outline: none;
+}
+
+/* ── The open control, in the value's own footprint ───────────────────────── */
+
+/* The row while one of its fields is open.
+
+   THE PROMOTED RULE IS THE CONTROL'S WIDTH, NOT THE ROW'S. Colouring the row's
+   own 500px hairline said "this control is this wide", which it is not — a
+   ten-character date does not stretch from the label to the right edge. So the
+   row's hairline stays the neutral divider it always was, and the coral rule is
+   drawn ON it, over the span the control actually occupies.
+
+   Still zero layout: an absolutely positioned bar over an existing line. 12px
+   below the control's box is the row's 11px of padding plus the 1px border, so
+   the bar lands exactly on the hairline and hides it. The focused state is 2px
+   — one over the hairline, one below it — which is why the offset moves with the
+   height rather than the bar growing upwards into the value. */
+.editing {
+  border-bottom-color: var(--border);
+}
+
+.controlSlot {
+  position: relative;
+  /* Hugs its content and sits flush right, exactly where the value sat. No
+     negative margins, because there is no box to inset. */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  height: 20px;
+}
+
+.controlSlot::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -12px;
+  height: 1px;
+  background: var(--control-border);
+  transition: background var(--duration-quick) var(--ease-out);
+}
+
+/* Once the control actually has the keyboard, the same rule at twice the
+   weight. Full-strength brand red is reserved for exactly this. A picked field
+   holds its keyboard inside a popover portalled to <body>, where `:focus-within`
+   cannot see it — `.pickerOpen` is the row being told. */
+.editing:focus-within .controlSlot::after,
+.pickerOpen .controlSlot::after {
+  bottom: -13px;
+  height: 2px;
+  background: var(--brand-red);
+}
+
+/* Every control this card opens, stripped to the value it replaced: no border,
+   no fill, no radius, no padding. The underline under the whole row is the only
+   chrome, so the input IS the text. */
+.textSlot input,
+.choiceSlot input {
+  box-sizing: border-box;
+  /* Grows with what is typed, from a minimum wide enough to see a caret and a
+     few characters, and never past the cell. */
+  width: auto;
+  min-width: 8ch;
+  max-width: 100%;
+  field-sizing: content;
+  height: 20px;
+  /* The design system gives every control a 40px floor. These are not controls
+     in a form; they are the value, in the value's own line box. */
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 20px;
+  text-align: right;
+  outline: none;
+  box-shadow: none;
+}
+
+/* The three PICKED fields (day, room, status). The value is drawn read-only, in
+   the same place and at the same size the closed row drew it — the picker
+   floating off this box is the editor. `justify-content: flex-end` is what keeps
+   its right edge on the column the other values line up on. */
+.choiceSlot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  height: 20px;
+}
+
+.choiceSlot input {
+  cursor: pointer;
+}
+
+/* The venue picker draws its own shell (it holds an icon as well as an input);
+   the shell is flattened through its `inputStyle` prop, and only the text needs
+   aligning here. */
+.venueSlot input {
+  text-align: right;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+/* The picker's results list is stretched to its field, and the field now hugs
+   the venue's name — which for a short name leaves a column too narrow to read
+   "The Lantern Hall" on one line. Given a floor, and anchored to the right so it
+   grows into the card rather than off it.
+   (The picker root's three children are the field shell, the dismiss overlay
+   and this list; only the list is a plain div.) */
+.venueSlot > div > div {
+  left: auto;
+  right: 0;
+  min-width: 250px;
+}
+
+/* ── What a field has to say, said WITHOUT moving anything ────────────────── */
+
+/* Help and errors float over the rows below rather than pushing them down.
+   A sentence about how rooms share a calendar is worth reading; it is not worth
+   the whole card jumping every time someone opens the field. */
+.note {
+  position: absolute;
+  /* Offset from the CONTROL, which is the row's 20px line box — so clearing the
+     row's own rule means clearing its 11px of padding as well. Land any closer
+     and the panel is drawn over the very underline that says the field is open. */
+  top: calc(100% + 20px);
+  right: 0;
+  z-index: 30;
+  width: max-content;
+  max-width: 320px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: left;
+  color: var(--muted);
+}
+
+/* Anchored above instead, for the one control that opens a list of its own
+   downwards: the venue picker's results and this note would otherwise be drawn
+   on top of each other in the same few pixels under the field. */
+.noteAbove {
+  top: auto;
+  bottom: calc(100% + 20px);
+}
+
+/* Why the draft cannot be saved yet. Amber, like every other "this is not going
+   to work" notice on the event screen — never red, which this app reserves for
+   something that already failed. */
+.noteError {
+  border-color: color-mix(in srgb, var(--brand-amber) 40%, transparent);
+  color: #c8842f;
+}
+
+/* ── The value's own footnote ─────────────────────────────────────────────── */
+
+/* Where a value came from, when it did not come from the person reading it —
+   "from Main Hall" on a capacity that saving a room set. It sits BETWEEN the
+   label and the value, inside the row's own 20px line box: nothing floats,
+   nothing is covered, and the row's height and right edge are untouched. It
+   shrinks and ellipsises before the value gives up a pixel. */
+.sourceNote {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: .04em;
+  color: var(--dim);
+}
+
+/* ── Inside a picker's panel ──────────────────────────────────────────────── */
+
+/* The option list. Capped rather than allowed to grow: seven statuses at full
+   height is a popover taller than the card it hangs off. */
+.choiceOptions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.choiceOptionTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* What the list is about, above it — the sentence that used to float over the
+   row below this one. In the panel it is read where it is needed and covers
+   nothing. */
+.choiceHint {
+  margin: 0 0 10px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.choiceActions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+/* What Save will ALSO do. Next to the button that will do it, and before it is
+   pressed — a capacity that moves on its own is only startling if the first you
+   hear of it is the new number. */
+.choiceConsequence {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* Save is the affirmative action and sits where the eye finishes; Cancel is
+   quiet, and stays on the far side so the two are never mistaken for a pair of
+   equals. */
+.choiceButtons {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}

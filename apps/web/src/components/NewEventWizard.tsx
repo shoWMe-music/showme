@@ -112,7 +112,10 @@ const labelStyle = {
 const bigField = {
   ...fieldStyle,
   width: "100%",
-  padding: "11px 14px",
+  // 10px, not 11: 11 + 11 + the 18px line box + 2px of border is 42, which
+  // OVERSHOOTS --control-height and puts these fields 2px above the Select
+  // beside them on the same row. At 10 the token binds and the row lines up.
+  padding: "10px 14px",
   borderRadius: 11,
   fontSize: 14,
 };
@@ -428,7 +431,7 @@ export function NewEventWizard({
         position: "fixed",
         inset: 0,
         zIndex: 100,
-        background: "rgba(10,6,4,.55)",
+        background: "color-mix(in srgb, var(--ink-1000) 55%, transparent)",
         backdropFilter: "blur(3px)",
         display: "flex",
         alignItems: "flex-start",
@@ -445,7 +448,7 @@ export function NewEventWizard({
           background: "var(--surface)",
           border: "1px solid var(--border)",
           borderRadius: 22,
-          boxShadow: "0 30px 80px rgba(0,0,0,.4)",
+          boxShadow: "var(--shadow-lg)",
           overflow: "hidden",
         }}
       >
@@ -668,7 +671,9 @@ function WizardStepper({ steps, current }: { steps: readonly StepKey[]; current:
                   fontWeight: 600,
                   color: active || done ? "#fff" : "var(--dim)",
                   background:
-                    active || done ? "linear-gradient(135deg,#EE5746,#F4A046)" : "var(--elevated)",
+                    active || done
+                      ? "linear-gradient(135deg,var(--brand-red),var(--brand-amber))"
+                      : "var(--shape-fill)",
                   border: active || done ? "none" : "1px solid var(--border)",
                 }}
               >
@@ -735,8 +740,10 @@ function RoleStep({
                 padding: 14,
                 borderRadius: 13,
                 cursor: "pointer",
-                border: active ? "1px solid #EE5746" : "1px solid var(--border)",
-                background: active ? "color-mix(in srgb,#EE5746 8%,transparent)" : "var(--card)",
+                border: active ? "1px solid var(--brand-red)" : "1px solid var(--border)",
+                background: active
+                  ? "color-mix(in srgb,var(--brand-red) 8%,transparent)"
+                  : "var(--card)",
               }}
             >
               <span
@@ -748,9 +755,9 @@ function RoleStep({
                   display: "grid",
                   placeItems: "center",
                   background: active
-                    ? "color-mix(in srgb,#EE5746 16%,transparent)"
-                    : "var(--elevated)",
-                  color: active ? "#EE5746" : "var(--muted)",
+                    ? "color-mix(in srgb,var(--brand-red) 16%,transparent)"
+                    : "var(--shape-fill)",
+                  color: active ? "var(--brand-red)" : "var(--muted)",
                 }}
               >
                 <Icon name={meta.icon} size={20} />
@@ -825,7 +832,7 @@ function DetailsStep(props: {
           padding: "12px 14px",
           border: "1px solid var(--border)",
           borderRadius: 11,
-          background: "var(--elevated)",
+          background: "var(--card)",
         }}
       >
         <div>
@@ -869,7 +876,7 @@ function DetailsStep(props: {
                     display: "flex",
                     alignItems: "center",
                     gap: 12,
-                    background: "var(--elevated)",
+                    background: "var(--card)",
                     border: "1px solid var(--border)",
                     borderRadius: 11,
                     padding: "10px 14px",
@@ -1028,9 +1035,12 @@ function DealStep(props: {
           style={{
             display: "flex",
             alignItems: "center",
-            border: "1px solid var(--border)",
-            background: "var(--elevated)",
+            border: "1px solid var(--control-border)",
+            background: "var(--control-surface)",
             borderRadius: 11,
+            // A currency field is a control, so it wears the one control height
+            // rather than whatever its inner <input> line box makes it.
+            minHeight: "var(--control-height)",
             padding: "0 14px",
           }}
         >
@@ -1134,9 +1144,12 @@ function DealStep(props: {
             style={{
               display: "flex",
               alignItems: "center",
-              border: "1px solid var(--border)",
-              background: "var(--elevated)",
+              border: "1px solid var(--control-border)",
+              background: "var(--control-surface)",
               borderRadius: 11,
+              // A currency field is a control, so it wears the one control height
+              // rather than whatever its inner <input> line box makes it.
+              minHeight: "var(--control-height)",
               padding: "0 14px",
             }}
           >
@@ -1205,8 +1218,10 @@ function MiniToggle({ checked, onChange }: { checked: boolean; onChange: () => v
         cursor: "pointer",
         padding: 0,
         position: "relative",
-        background: checked ? "linear-gradient(135deg,#EE5746,#F4A046)" : "var(--border-strong)",
-        transition: "background .15s",
+        background: checked
+          ? "linear-gradient(135deg,var(--brand-red),var(--brand-amber))"
+          : "var(--border-strong)",
+        transition: "background var(--duration-base) var(--ease-out)",
       }}
     >
       <span
@@ -1218,7 +1233,7 @@ function MiniToggle({ checked, onChange }: { checked: boolean; onChange: () => v
           height: 18,
           borderRadius: "50%",
           background: "#fff",
-          transition: "left .15s",
+          transition: "left var(--duration-base) var(--ease-out)",
         }}
       />
     </button>

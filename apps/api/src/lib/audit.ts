@@ -7,7 +7,14 @@ import type { FastifyRequest } from "fastify";
 export type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 export interface AuditEntry {
-  capability: Capability;
+  /**
+   * The capability the actor exercised, or `null` for an action that has none.
+   * Platform-admin routes are the `null` case by design: authority there is the
+   * `users.is_admin` flag and there is NO capability for platform admin
+   * (`routes/admin.ts`), so naming one in the trail would record a check that was
+   * never made. The column is nullable for exactly this.
+   */
+  capability: Capability | null;
   action: string; // e.g. "event.update", "deal.create"
   targetKind: string;
   /** The uuid of the target row; omit for a target with no uuid (e.g. a text-id user). */

@@ -5,9 +5,12 @@ import {
   Icon,
   SectionHeader,
   type Status,
+  TabPanels,
   useToast,
 } from "@showme/design-system";
 import { useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
+import { useAuth } from "../auth/AuthProvider";
 import {
   MiniMonthCalendar,
   RequestCard,
@@ -44,6 +47,9 @@ const FILTERS: { key: string; label: string }[] = [
   { key: "archived", label: "Archived" },
   { key: "expired", label: "Expired" },
 ];
+
+/** The chips in display order — what tells the panel which way to scoot. */
+const FILTER_ORDER = FILTERS.map((option) => option.key);
 
 /**
  * A request is triaged once. `pending` is the live case; `accepted` still allows
@@ -136,6 +142,21 @@ function toCardData(request: RequestItem): RequestCardData {
 
 export function Requests() {
   const toast = useToast();
+  const { session } = useAuth();
+  /**
+   * An OPERATOR is approached; they do not tout.
+   *
+   * story.md gives the operator (venue / promoter / organizer / festival) as the
+   * party who receives interest and decides on it — the offer comes from the act
+   * or their agent, and the operator answers it, counter-offers on it, or turns
+   * it down. "Outgoing" is a performer's and an agent's view of the world, and on
+   * an operator account it was a permanently empty screen with a toggle
+   * advertising it.
+   *
+   * Note this hides a VIEW, never a rule: the server still answers
+   * `direction=outgoing` for anyone who asks, so nothing here is a permission.
+   */
+  const isOperator = session?.kind === "operator";
   // Incoming = requests targeting me; Outgoing = offers/requests I have sent
   // (fix-list #6) — answered by the server, over every page of the inbox.
   const {
@@ -157,6 +178,15 @@ export function Requests() {
     error,
     refetch,
   } = useRequestInbox();
+
+  // Hiding the control is not enough: `direction` is the inbox hook's state and
+  // survives navigation, so an operator who reached `outgoing` before this
+  // change — or through a stale link — would sit on a permanently empty screen
+  // with nothing on the page able to move them off it.
+  useEffect(() => {
+    if (isOperator && direction !== "incoming") setDirection("incoming");
+  }, [isOperator, direction, setDirection]);
+
   const navigate = useNavigate();
   const triage = useRequestTriage({
     requests,
@@ -189,15 +219,17 @@ export function Requests() {
         }
         actions={
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <SegmentedToggle
-              aria-label="Request direction"
-              value={direction}
-              onChange={setDirection}
-              options={[
-                { value: "incoming", label: "Incoming" },
-                { value: "outgoing", label: "Outgoing" },
-              ]}
-            />
+            {!isOperator && (
+              <SegmentedToggle
+                aria-label="Request direction"
+                value={direction}
+                onChange={setDirection}
+                options={[
+                  { value: "incoming", label: "Incoming" },
+                  { value: "outgoing", label: "Outgoing" },
+                ]}
+              />
+            )}
             {pendingCount > 0 ? (
               <Badge status="pending" dot>
                 {pendingCount} pending
@@ -249,18 +281,36 @@ export function Requests() {
               ))}
             </div>
 
-            {visible.length === 0 ? (
-              <Card padding="lg">
-                <div style={{ textAlign: "center", color: "var(--muted)", padding: "24px 0" }}>
-                  <Icon name="inbox" size={28} />
-                  <p style={{ marginTop: 10 }}>No requests match this view.</p>
-                </div>
-              </Card>
-            ) : (
-              visible.map((request) => (
-                <RequestCard key={request.id} request={toCardData(request)} {...triageActions} />
-              ))
-            )}
+            {/* The bucket chips are tabs in everything but name, so the list
+                scoots the way a tab panel does instead of swapping under the
+                cursor. `order` is FILTERS, so moving right pulls the next
+                bucket in from the right. The empty state travels with it —
+                changing filter and landing on "nothing here" is the case where
+                the motion is doing the most work, because otherwise the screen
+                simply blanks. */}
+            <TabPanels
+              activeKey={filter}
+              order={FILTER_ORDER}
+              // The wrapper owns the spacing now. The parent column's gap used to
+              // separate the cards; once they moved inside one child it separated
+              // nothing, and the list rendered flush. Same 16 as everywhere else on
+              // the page — a request card is a distinct decision to make, not a row
+              // in a table.
+              style={{ display: "flex", flexDirection: "column", gap: 16 }}
+            >
+              {visible.length === 0 ? (
+                <Card padding="lg">
+                  <div style={{ textAlign: "center", color: "var(--muted)", padding: "24px 0" }}>
+                    <Icon name="inbox" size={28} />
+                    <p style={{ marginTop: 10 }}>No requests match this view.</p>
+                  </div>
+                </Card>
+              ) : (
+                visible.map((request) => (
+                  <RequestCard key={request.id} request={toCardData(request)} {...triageActions} />
+                ))
+              )}
+            </TabPanels>
           </div>
         </div>
       )}
@@ -335,7 +385,7 @@ function RequestsByDate({
                     padding: "6px 8px",
                     borderRadius: 8,
                     border: "none",
-                    background: key === selectedDay ? "var(--elevated)" : "transparent",
+                    background: key === selectedDay ? "var(--shape-fill)" : "transparent",
                     cursor: "pointer",
                     textAlign: "left",
                   }}

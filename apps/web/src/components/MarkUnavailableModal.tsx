@@ -27,7 +27,7 @@ function formatBlockRange(startDate: string, endDate: string): string {
 
 function Problem({ children }: { children: string }) {
   return (
-    <p style={{ margin: 0, fontSize: 12.5, color: "var(--danger, #EE5746)" }} role="alert">
+    <p style={{ margin: 0, fontSize: 12.5, color: "var(--brand-red)" }} role="alert">
       {children}
     </p>
   );
@@ -91,7 +91,7 @@ export function MarkUnavailableModal({ open, onClose, view }: MarkUnavailableMod
                   padding: "10px 12px",
                   borderRadius: 10,
                   border: "1px solid var(--border)",
-                  background: "var(--elevated)",
+                  background: "var(--card)",
                 }}
               >
                 <span style={{ flex: 1, minWidth: 0 }}>

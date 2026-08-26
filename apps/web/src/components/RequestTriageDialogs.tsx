@@ -310,8 +310,8 @@ function ActionBody({
           rows={4}
           placeholder="What you can do, and what you need from them."
           style={{
-            background: "var(--elevated)",
-            border: "1px solid var(--border)",
+            background: "var(--control-surface)",
+            border: "1px solid var(--control-border)",
             borderRadius: 10,
             color: "var(--text)",
             font: "inherit",
@@ -350,7 +350,7 @@ function Callout({ children, tone }: { children: ReactNode; tone: "neutral" | "d
         borderRadius: 10,
         border: `1px solid ${tone === "danger" ? `color-mix(in srgb, ${accent} 45%, transparent)` : accent}`,
         background:
-          tone === "danger" ? `color-mix(in srgb, ${accent} 10%, transparent)` : "var(--elevated)",
+          tone === "danger" ? `color-mix(in srgb, ${accent} 10%, transparent)` : "var(--card)",
         color: "var(--text)",
         fontSize: 12.5,
         lineHeight: 1.5,

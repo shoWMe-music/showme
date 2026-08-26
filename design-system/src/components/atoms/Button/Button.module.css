@@ -13,10 +13,10 @@
   justify-content: center;
   font-family: inherit;
   cursor: pointer;
-  transition: transform .2s cubic-bezier(.2, .8, .2, 1), box-shadow .2s, filter .2s, border-color .2s, color .2s, background .2s;
+  transition: transform var(--duration-base) var(--ease-out), box-shadow var(--duration-base), filter var(--duration-base), border-color var(--duration-base), color var(--duration-base), background var(--duration-base);
 }
 .btn:hover:not(:disabled) { transform: translateY(-1px); }
-.btn:active:not(:disabled) { transform: translateY(0) scale(.98); }
+.btn:active:not(:disabled) { transform: translateY(0) scale(.98); transition-duration: var(--duration-instant); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 
 .icon { display: inline-flex; align-items: center; justify-content: center; }
@@ -62,7 +62,7 @@
   font-size: 12.5px;
   font-weight: 500;
 }
-.ghost:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
+.ghost:hover:not(:disabled) { color: var(--text); border-color: var(--hover-border); }
 
 /* --- cta: the .btn.btn--primary pill (hero / "Propose representation") --- */
 .cta {

@@ -185,7 +185,7 @@ describe("email templates", () => {
 
     // Absolute, and the token rides in the URL — never as a bare string a human
     // is asked to do something with.
-    const link = `${baseUrl}/?invitation=abc123token`;
+    const link = `${baseUrl}/invitations/abc123token`;
     expect(message.text).toContain(link);
     expect(message.html).toContain(`href="${link}"`);
     expect(new URL(link).origin).toBe(baseUrl);
@@ -205,7 +205,7 @@ describe("email templates", () => {
     expect(message.text).toContain("SHOW-ABCD-EFGH");
     expect(message.text).toContain(`${baseUrl}/`);
     // The secret is typed, not linked — it must not end up in a URL.
-    expect(message.html).not.toContain("invitation=SHOW");
+    expect(message.html).not.toContain("/invitations/SHOW");
   });
 
   it("the invitation email falls back to neutral copy with no inviter or target", () => {

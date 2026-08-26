@@ -1,4 +1,4 @@
-import { PRESET_PERMISSION_SETS } from "@showme/auth";
+import { PRESET_PERMISSION_SETS, effectiveEventCapabilities, resolvePrincipal } from "@showme/auth";
 import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
 import { and, eq } from "drizzle-orm";
@@ -67,7 +67,7 @@ async function seedEvent(
   participants: {
     profileId: string;
     permissionSetId: string;
-    role: "host" | "performer" | "crew";
+    role: "host" | "co_host" | "performer" | "crew" | "crew_lead";
   }[],
   createdBy: string,
 ) {
@@ -1228,6 +1228,448 @@ describe("deals — a delegated performer's deal is confirmable (decisions #14)"
       .from(schema.dealParties)
       .where(eq(schema.dealParties.dealId, fixture.otherDealId));
     expect(parties.every((party) => party.confirmedBy !== fixture.agentUid)).toBe(true);
+  });
+});
+
+/**
+ * The owner's call, 2026-08-26: *"crew can confirm an agreement if it is with them.
+ * If they are the payee."*
+ *
+ * Before it a venue↔crew deal was a DEAD END. Crew hold no `agreement.confirm` at
+ * event scope — deliberately, because that is also what decides the show's DATE in
+ * `routes/holds.ts` — and an agreement freezes only once EVERY non-observer party has
+ * signed. So the operator could send the sound engineer their fee and nothing on the
+ * platform could ever move it past `sent`.
+ *
+ * The grant is DEAL-scoped (`@showme/auth`'s `dealPartyBaselineCapabilities`): the
+ * agreement that names you, and no other.
+ */
+describe("deals — a venue↔crew agreement can actually be confirmed (owner call 2026-08-26)", () => {
+  /** Operator + crew on one event, with a fee deal already sent to both. */
+  async function seedVenueCrewDeal(prefix: string) {
+    const operator = await seedMemberWithSet(
+      `${prefix}-op`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    // The THINNEST crew tier — the floor-plus-nothing bundle (decisions #12). If the
+    // flow terminates for a `crew_schedule_only` door person it terminates for every
+    // richer tier too.
+    const crew = await seedMemberWithSet(
+      `${prefix}-crew`,
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_schedule_only,
+    );
+    const { event, participants } = await seedEvent(
+      operator,
+      [
+        { ...operator, role: "host" },
+        { ...crew, role: "crew" },
+      ],
+      `${prefix}-op`,
+    );
+    const hostPart = participants.find((p) => p.profileId === operator.profileId)?.id as string;
+    const crewPart = participants.find((p) => p.profileId === crew.profileId)?.id as string;
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth(`${prefix}-op`),
+      payload: {
+        type: "fee",
+        name: "Front-of-house engineer",
+        currency: "SEK",
+        guaranteeAmount: "450000",
+        parties: [
+          { participantId: hostPart, roleInDeal: "payer" },
+          { participantId: crewPart, roleInDeal: "payee" },
+        ],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const dealId = created.json().id as string;
+
+    const sent = await app.inject({
+      method: "POST",
+      url: `/api/v1/deals/${dealId}/send`,
+      headers: auth(`${prefix}-op`),
+    });
+    expect(sent.statusCode).toBe(200);
+    expect(sent.json().agreementStatus).toBe("sent");
+
+    return { event, operator, crew, hostPart, crewPart, dealId, prefix };
+  }
+
+  it("still withholds `agreement.confirm` from crew at EVENT scope", async () => {
+    const seed = await seedVenueCrewDeal("vc-scope");
+    const event = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/deals`,
+      headers: auth("vc-scope-crew"),
+    });
+    expect(event.statusCode).toBe(200);
+    // The crew member sees their agreement — `deal.view.own` is in their floor …
+    expect(event.json()).toHaveLength(1);
+    // … and the capability that would let them decide the show's date is still absent.
+    const principal = await resolvePrincipal(harness.db, "vc-scope-crew");
+    if (!principal) throw new Error("principal not resolved");
+    const capabilities = await effectiveEventCapabilities(harness.db, principal, seed.event.id);
+    expect(capabilities.has("agreement.confirm")).toBe(false);
+    expect(capabilities.has("budget.view")).toBe(false);
+  });
+
+  it("drives the deal to `confirmed` — the crew payee signs their own line", async () => {
+    const seed = await seedVenueCrewDeal("vc-happy");
+
+    // The operator signs the payer line; one signatory is still outstanding.
+    const byOperator = await confirm(seed.dealId, "vc-happy-op");
+    expect(byOperator.statusCode).toBe(200);
+    expect(byOperator.json().agreementStatus).toBe("sent");
+
+    // The crew member signs theirs — and the agreement freezes.
+    const byCrew = await confirm(seed.dealId, "vc-happy-crew");
+    expect(byCrew.statusCode).toBe(200);
+    expect(byCrew.json().agreementStatus).toBe("confirmed");
+
+    const [row] = await harness.db
+      .select()
+      .from(schema.deals)
+      .where(eq(schema.deals.id, seed.dealId));
+    expect(row?.agreementStatus).toBe("confirmed");
+    expect(row?.confirmedSnapshot).not.toBeNull();
+
+    const parties = await harness.db
+      .select()
+      .from(schema.dealParties)
+      .where(eq(schema.dealParties.dealId, seed.dealId));
+    expect(parties.every((party) => party.confirmedAt != null)).toBe(true);
+    // Each line is signed by its OWN side — the crew user signed the crew line.
+    expect(parties.find((party) => party.participantId === seed.crewPart)?.confirmedBy).toBe(
+      "vc-happy-crew",
+    );
+    expect(parties.find((party) => party.participantId === seed.hostPart)?.confirmedBy).toBe(
+      "vc-happy-op",
+    );
+  });
+
+  it("refuses a crew member on an agreement they are NOT a party to", async () => {
+    const seed = await seedVenueCrewDeal("vc-other");
+    // A second crew member on the same event, with their own fee deal.
+    const bystander = await seedMemberWithSet(
+      "vc-other-crew2",
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_technical,
+    );
+    const [added] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: seed.event.id,
+        profileId: bystander.profileId,
+        role: "crew",
+        permissionSetId: bystander.permissionSetId,
+        status: "confirmed" as const,
+      })
+      .returning();
+    if (!added) throw new Error("participant seed failed");
+
+    // They are ON the event, and they have an agreement of their OWN here — so this
+    // is not "crew cannot confirm", it is "not this one".
+    const own = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/deals`,
+      headers: auth("vc-other-op"),
+      payload: {
+        type: "fee",
+        name: "Lighting",
+        currency: "SEK",
+        guaranteeAmount: "200000",
+        parties: [
+          { participantId: seed.hostPart, roleInDeal: "payer" },
+          { participantId: added.id, roleInDeal: "payee" },
+        ],
+      },
+    });
+    expect(own.statusCode).toBe(201);
+
+    const rejected = await confirm(seed.dealId, "vc-other-crew2");
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json().error.message).toContain("not a party");
+
+    // Nothing was stamped on the deal they reached for.
+    const parties = await harness.db
+      .select()
+      .from(schema.dealParties)
+      .where(eq(schema.dealParties.dealId, seed.dealId));
+    expect(parties.every((party) => party.confirmedAt == null)).toBe(true);
+    // And they cannot even READ it — visibility is party membership (decisions #4).
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/deals`,
+      headers: auth("vc-other-crew2"),
+    });
+    expect(list.json().map((deal: { id: string }) => deal.id)).toEqual([own.json().id]);
+  });
+
+  it("refuses a crew OBSERVER — a shared agreement is watched, not signed", async () => {
+    const seed = await seedVenueCrewDeal("vc-observer");
+    const observer = await seedMemberWithSet(
+      "vc-observer-crew2",
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_technical,
+    );
+    const [added] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: seed.event.id,
+        profileId: observer.profileId,
+        role: "crew_lead",
+        permissionSetId: observer.permissionSetId,
+        status: "confirmed" as const,
+      })
+      .returning();
+    if (!added) throw new Error("participant seed failed");
+    await harness.db.insert(schema.dealParties).values({
+      dealId: seed.dealId,
+      participantId: added.id,
+      roleInDeal: "observer",
+    });
+
+    // They are a party — they can see it — but an observer has no line to sign, so
+    // the deal-scoped grant gives them nothing.
+    const rejected = await confirm(seed.dealId, "vc-observer-crew2");
+    expect(rejected.statusCode).toBe(403);
+    expect(rejected.json().error.message).toContain("agreement.confirm");
+
+    const parties = await harness.db
+      .select()
+      .from(schema.dealParties)
+      .where(eq(schema.dealParties.dealId, seed.dealId));
+    expect(parties.every((party) => party.confirmedAt == null)).toBe(true);
+  });
+
+  it("does not let a crew signatory sign anybody ELSE's line on their own deal", async () => {
+    const seed = await seedVenueCrewDeal("vc-scoped");
+
+    const byCrew = await confirm(seed.dealId, "vc-scoped-crew");
+    expect(byCrew.statusCode).toBe(200);
+
+    const parties = await harness.db
+      .select()
+      .from(schema.dealParties)
+      .where(eq(schema.dealParties.dealId, seed.dealId));
+    expect(
+      parties.find((party) => party.participantId === seed.crewPart)?.confirmedAt,
+    ).not.toBeNull();
+    // The operator's payer line is untouched — confirm has no parameter for whose
+    // line to sign, and the crew member stands behind exactly one.
+    expect(parties.find((party) => party.participantId === seed.hostPart)?.confirmedAt).toBeNull();
+    // …and the agreement has NOT frozen: a signatory is still outstanding.
+    const [row] = await harness.db
+      .select()
+      .from(schema.deals)
+      .where(eq(schema.deals.id, seed.dealId));
+    expect(row?.agreementStatus).toBe("sent");
+  });
+});
+
+/**
+ * Co-promotion transparency, as the 2026-08 settlements meeting states it
+ * (00:21:42, 00:25:48): *"Operators see all financials; collaborators see only the
+ * portions relevant to their own deals. For co-promotions, all involved parties get
+ * full transparency into the entire financial deal."*
+ *
+ * There is no new mechanism behind that sentence and there must not be one. A
+ * co-promoter reads the whole agreement because they are a PARTY to it and hold
+ * `budget.view` as a managing operator (decisions #4: "co-operator transparency =
+ * co-operators are co-parties on the shared deals and share the budget — not an
+ * override"). The performer standing beside them on the same deal still sees one
+ * line: their own.
+ *
+ * The other half of the sentence — the shared ledger versus each operator's own
+ * margin line — is `budget.test.ts` ("private scope is confidential to its owner"):
+ * a private budget is by construction one operator's own book, never part of the
+ * shared deal, so full transparency into the deal does not reach into it.
+ */
+describe("deals — a co-promoter sees the ENTIRE financial deal (meeting 00:25:48)", () => {
+  it("gives the co-host every line of a deal it co-signs, and the performer only their own", async () => {
+    const host = await seedMemberWithSet(
+      "cp-host",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const coHost = await seedMemberWithSet(
+      "cp-cohost",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const headliner = await seedMemberWithSet(
+      "cp-head",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const support = await seedMemberWithSet(
+      "cp-supp",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+
+    const { event, participants } = await seedEvent(
+      host,
+      [
+        { ...host, role: "host" },
+        { ...coHost, role: "co_host" },
+        { ...headliner, role: "performer" },
+        { ...support, role: "performer" },
+      ],
+      "cp-host",
+    );
+    const idOf = (profileId: string) =>
+      participants.find((party) => party.profileId === profileId)?.id as string;
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("cp-host"),
+      payload: {
+        type: "split",
+        structure: "door_split",
+        name: "Co-promoted door split",
+        currency: "SEK",
+        splitBasisPoints: 7000,
+        parties: [
+          { participantId: idOf(host.profileId), roleInDeal: "payer" },
+          { participantId: idOf(coHost.profileId), roleInDeal: "payer" },
+          {
+            participantId: idOf(headliner.profileId),
+            roleInDeal: "split_member",
+            share: { splitBasisPoints: 7000 },
+          },
+          {
+            participantId: idOf(support.profileId),
+            roleInDeal: "split_member",
+            share: { splitBasisPoints: 3000 },
+          },
+        ],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const dealId = created.json().id as string;
+
+    const read = async (uid: string) => {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/v1/deals/${dealId}`,
+        headers: auth(uid),
+      });
+      expect(response.statusCode).toBe(200);
+      return response.json() as {
+        splitBasisPoints: number | null;
+        parties: { participantId: string; roleInDeal: string; share: unknown; isYours: boolean }[];
+      };
+    };
+
+    const byHost = await read("cp-host");
+    const byCoHost = await read("cp-cohost");
+
+    // The co-promoter's view is the host's view — every line, every share, in full.
+    expect(byCoHost.parties).toHaveLength(4);
+    expect(byCoHost.splitBasisPoints).toBe(7000);
+    expect([...byCoHost.parties].map((party) => party.participantId).sort()).toEqual(
+      [...byHost.parties].map((party) => party.participantId).sort(),
+    );
+    expect(
+      byCoHost.parties.find((party) => party.participantId === idOf(headliner.profileId))?.share,
+    ).toEqual({ splitBasisPoints: 7000 });
+    expect(
+      byCoHost.parties.find((party) => party.participantId === idOf(support.profileId))?.share,
+    ).toEqual({ splitBasisPoints: 3000 });
+
+    // And the performers beside them still see exactly one line each — theirs.
+    const byHeadliner = await read("cp-head");
+    expect(byHeadliner.parties).toHaveLength(1);
+    expect(byHeadliner.parties[0]?.participantId).toBe(idOf(headliner.profileId));
+    expect(byHeadliner.parties[0]?.isYours).toBe(true);
+
+    const bySupport = await read("cp-supp");
+    expect(bySupport.parties).toHaveLength(1);
+    expect(bySupport.parties[0]?.participantId).toBe(idOf(support.profileId));
+  });
+
+  it("still shows a co-host NOTHING of a deal it is not a party to — transparency is party membership", async () => {
+    const host = await seedMemberWithSet(
+      "cp2-host",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const coHost = await seedMemberWithSet(
+      "cp2-cohost",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "cp2-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const crew = await seedMemberWithSet(
+      "cp2-crew",
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_technical,
+    );
+    const { event, participants } = await seedEvent(
+      host,
+      [
+        { ...host, role: "host" },
+        { ...coHost, role: "co_host" },
+        { ...performer, role: "performer" },
+        { ...crew, role: "crew" },
+      ],
+      "cp2-host",
+    );
+    const idOf = (profileId: string) =>
+      participants.find((party) => party.profileId === profileId)?.id as string;
+
+    // A deal the HOST alone strikes with the crew — the co-promoter is not on it.
+    // Being a co_host on the event is not the grant; being a party is.
+    const hostOnly = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("cp2-host"),
+      payload: {
+        type: "fee",
+        name: "House engineer, on the host's own book",
+        currency: "SEK",
+        guaranteeAmount: "150000",
+        parties: [
+          { participantId: idOf(host.profileId), roleInDeal: "payer" },
+          { participantId: idOf(crew.profileId), roleInDeal: "payee" },
+        ],
+      },
+    });
+    expect(hostOnly.statusCode).toBe(201);
+
+    const direct = await app.inject({
+      method: "GET",
+      url: `/api/v1/deals/${hostOnly.json().id}`,
+      headers: auth("cp2-cohost"),
+    });
+    expect(direct.statusCode).toBe(404);
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("cp2-cohost"),
+    });
+    expect(list.json()).toEqual([]);
+
+    // The host, who IS a party, reads it in full — same event, same capability set,
+    // opposite answer. The difference is the party line and nothing else.
+    const byHost = await app.inject({
+      method: "GET",
+      url: `/api/v1/deals/${hostOnly.json().id}`,
+      headers: auth("cp2-host"),
+    });
+    expect(byHost.statusCode).toBe(200);
+    expect(byHost.json().parties).toHaveLength(2);
   });
 });
 

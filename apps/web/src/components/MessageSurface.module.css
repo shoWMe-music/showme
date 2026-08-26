@@ -1,0 +1,334 @@
+/* The event's Messages tab, as ONE surface.
+ *
+ * The rail (which conversation) and the conversation itself are two halves of a
+ * single container, divided by a hairline — not two panels with a gap between
+ * them. That is the whole point of the change: picking a conversation is part of
+ * being in the conversation, so the selection must live inside the same box.
+ *
+ * Two independent scroll regions, one bounded container:
+ *   .surface      fixed height, overflow hidden — clips both scrollers to the
+ *                 rounded corners and stops the page growing with the thread.
+ *   .rail         scrolls on its own (many conversations).
+ *   .scroll       scrolls on its own (many messages), and is the ONLY thing that
+ *                 scrolls in the conversation column — the header above it and
+ *                 the composer below it are flex items that never move.
+ *
+ * Everything is shell tokens (`--card --elevated --border --border-strong --text
+ * --muted --brand-red`) and the duration/easing tokens, so both themes and
+ * `prefers-reduced-motion` follow without a second rule anywhere in here.
+ */
+
+.surface {
+  display: grid;
+  grid-template-columns: minmax(0, 264px) minmax(0, 1fr);
+  /* Bounded, and bounded by the VIEWPORT rather than by the messages: a chat
+     that grows without limit pushes its own composer off the screen, which is
+     the one control it always needs. */
+  height: clamp(420px, 64vh, 720px);
+  overflow: hidden;
+}
+
+/* ── Narrow: the rail becomes a selector ──
+   Not a rail stacked above the conversation. Vertical space is exactly what is
+   scarce here, and a list of conversations sitting on top of the messages spends
+   it on the half you are not reading. One control, one line tall, and the
+   conversation keeps everything else. */
+.surfaceNarrow {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+/* ── The rail ─────────────────────────────────────────────────────────────── */
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  padding: 10px;
+  overflow-y: auto;
+  /* The hairline that divides the two halves. It belongs to the rail rather
+     than to a separate element so there is one rule, not a rule and a gap. */
+  border-right: 1px solid var(--border);
+}
+
+.selectorBar {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.threadRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-quick) var(--ease-out), border-color var(--duration-quick)
+    var(--ease-out);
+}
+
+.threadRow:hover {
+  border-color: var(--hover-border);
+}
+
+/* The selected conversation is a quiet RAISED CHIP, not a filled block: the
+   --shape-fill every other small raised shape in the app uses, plus the brand
+   edge. Hover walks the border to --hover-border; selection takes it the rest
+   of the way to the brand, so the two states never collide. A saturated fill
+   would shout louder than the message it is pointing at. */
+.threadRowActive,
+.threadRowActive:hover {
+  background: var(--shape-fill);
+  border-color: var(--brand-red);
+}
+
+.threadRow:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.threadText {
+  flex: 1;
+  min-width: 0;
+}
+
+.threadTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.threadName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.threadMeta {
+  flex-shrink: 0;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.threadReaders {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── The conversation column ──────────────────────────────────────────────── */
+
+.conversation {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Switching conversations cross-fades the pane. Opacity only — nothing travels,
+   nothing is covered, and no `pointer-events` are suspended, so the composer is
+   typable from the first frame. Built on `--duration-base`, which the reduced-
+   motion block in tokens.css collapses to 0ms, so the preference needs no rule
+   of its own here. */
+.conversationEnter {
+  animation: messagePaneFade var(--duration-base) var(--ease-out) both;
+}
+
+@keyframes messagePaneFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.conversationHeader {
+  flex-shrink: 0;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.conversationTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.conversationTitle {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.conversationReaders {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* The one flexible slot in the column: whatever stands in for the messages
+   while they load or fail still fills the height the messages would. */
+.conversationFill {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+/* ── The thread itself: messages that scroll, a composer that does not ────── */
+
+.thread {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.scroll {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 18px 20px;
+  overflow-y: auto;
+}
+
+/* `margin-top: auto`, NOT `justify-content: flex-end` on the scroller. Both push
+   a short thread down to the bottom edge — a conversation reads from the bottom
+   up — but an auto margin only absorbs space that actually exists, so once the
+   messages overflow it collapses to zero. End-alignment on a scroll container
+   instead pushes the earliest messages out past the top edge, where no browser
+   lets you scroll back to them. */
+.scrollInner {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: auto;
+}
+
+.dayDivider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 0;
+}
+
+.dayChip {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--shape-fill);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.day {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.message {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+/* Yours, on the right, with no avatar — you know who you are. The avatar column
+   is what makes the other party's side scannable, and repeating your own face
+   down the right-hand edge only takes width away from the words. */
+.messageOwn {
+  flex-direction: row-reverse;
+}
+
+.bubbleColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  max-width: min(560px, 78%);
+}
+
+.messageOwn .bubbleColumn {
+  align-items: flex-end;
+}
+
+.bubble {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.55;
+  /* A message is typed text: keep the line breaks someone put in it, and break
+     a pasted URL rather than letting it stretch the bubble past the pane. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The corner nearest its author is tightened, which is what makes a column of
+   bubbles read as two sides of a conversation rather than a stack of cards. */
+.bubbleOther {
+  border-bottom-left-radius: 5px;
+}
+
+.bubbleOwn {
+  border-bottom-right-radius: 5px;
+  border-color: color-mix(in srgb, var(--brand-red) 26%, transparent);
+  background: color-mix(in srgb, var(--brand-red) 12%, transparent);
+}
+
+.messageMeta {
+  display: flex;
+  gap: 6px;
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.messageAuthor {
+  font-weight: 600;
+}
+
+/* A conversation with nothing in it yet — centred in the pane rather than sat at
+   the bottom edge where the messages will be. */
+.emptyThread {
+  margin: auto;
+}
+
+.composer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.composerField {
+  flex: 1;
+  min-width: 0;
+}

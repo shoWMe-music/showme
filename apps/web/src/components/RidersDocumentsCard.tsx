@@ -38,7 +38,7 @@ export function RidersDocumentsCard({ eventId, riders }: RidersDocumentsCardProp
     <SectionCard>
       <CardHeader
         icon={<Icon name="file" size={17} />}
-        iconColor="#EE5746"
+        iconColor="var(--brand-red)"
         title="Riders & Documents"
         action={
           <Button

@@ -8,6 +8,12 @@ export interface TabItem {
   key: string;
   label: ReactNode;
   icon?: ReactNode;
+  /**
+   * A count riding on the label — how many unread messages, how many entries in
+   * the history. Zero and undefined both render nothing: a badge saying "0" is
+   * a badge that should not be there.
+   */
+  badge?: number;
 }
 
 export interface TabsProps {
@@ -28,7 +34,11 @@ export function Tabs({ tabs, value, defaultValue, onChange, className }: TabsPro
   const [internalKey, setInternalKey] = useState(defaultValue ?? tabs[0]?.key);
   const activeKey = value ?? internalKey;
   const tabElements = useRef(new Map<string, HTMLButtonElement>());
-  const indicator = useTabsIndicator(activeKey, () => tabElements.current.get(activeKey) ?? null);
+  const indicator = useTabsIndicator(
+    activeKey,
+    () => tabElements.current.get(activeKey) ?? null,
+    tabs.map((tab) => `${tab.key}:${tab.badge ?? ""}`).join("|"),
+  );
 
   const select = (key: string) => {
     if (value === undefined) setInternalKey(key);
@@ -69,6 +79,7 @@ export function Tabs({ tabs, value, defaultValue, onChange, className }: TabsPro
           >
             {tab.icon && <span className={styles.icon}>{tab.icon}</span>}
             {tab.label}
+            {tab.badge ? <span className={styles.badge}>{tab.badge}</span> : null}
           </button>
         );
       })}

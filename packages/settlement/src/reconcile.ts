@@ -1,8 +1,10 @@
-import { allocate, applyBasisPoints } from "@showme/shared";
+import { allocate } from "@showme/shared";
+import { applyCommissions } from "./commissions";
 import { costBearingOf } from "./cost-bearing";
+import { isOffTheTop } from "./deal-order";
 import { dealEntitlement } from "./entitlement";
 import { greedyTransfers } from "./transfers";
-import type { PartyBreakdown, SettlementInput, SettlementResult } from "./types";
+import type { PartyBreakdown, SettlementDeal, SettlementInput, SettlementResult } from "./types";
 
 const sumBigint = (values: bigint[]): bigint =>
   values.reduce((running, value) => running + value, 0n);
@@ -13,7 +15,9 @@ const sumBigint = (values: bigint[]): bigint =>
  * The orchestration (new; the per-deal math is ported), all in `bigint` minor
  * units so nothing rounds:
  *   1. pool        = Σ revenue − Σ external costs
- *   2. entitlement = each deal's payee share (allocate) + commissions, operator = residual (allocate)
+ *   2. entitlement = off-the-top deals first (they reduce the pool the rest divide),
+ *                    then each remaining deal's payee share (allocate) + commissions,
+ *                    operator = residual (allocate)
  *   3. deductibles = costs on behalf of a party reduce that party's entitlement
  *   4. held        = collected − paid
  *   5. net         = entitlement − held   →   Σ net === 0n exactly, by construction
@@ -49,23 +53,47 @@ export function reconcile(input: SettlementInput): SettlementResult {
     entitlement.set(participantId, (entitlement.get(participantId) ?? 0n) + amount);
   };
 
-  for (const deal of deals) {
-    if (deal.payeeParticipantIds.length === 0) continue;
-    const total = dealEntitlement(deal, pool, ticketsSold);
+  /** Settle one deal against the pool it divides; returns what it claims in total. */
+  const settleDeal = (deal: SettlementDeal, poolForDeal: bigint): bigint => {
+    if (deal.payeeParticipantIds.length === 0) return 0n;
+    const total = dealEntitlement(deal, poolForDeal, ticketsSold);
     const weights = deal.payeeParticipantIds.map((payee) => {
       const share = deal.partyShares?.[payee];
       return share != null ? BigInt(share) : 1n;
     });
     const portions = allocate(total, weights);
     deal.payeeParticipantIds.forEach((payee, index) => {
-      const portion = portions[index] ?? 0n;
-      credit(payee, portion);
-      for (const commission of deal.commissions ?? []) {
-        const amount = applyBasisPoints(portion, commission.basisPoints);
-        credit(payee, -amount);
-        credit(commission.participantId, amount);
+      // Commissions are charged per ENTITLED LINE (`commissions.ts`), so each
+      // payee on a split deal carries only the commission on its own portion.
+      const { payeeAmount, charges } = applyCommissions(portions[index] ?? 0n, deal.commissions);
+      credit(payee, payeeAmount);
+      for (const charge of charges) {
+        // A commission credited to somebody who is not a participant on this event
+        // would leave the books short by exactly that amount — visible only as an
+        // opaque "does not balance" throw two steps later. Name it here instead.
+        if (!entitlement.has(charge.participantId)) {
+          throw new Error(
+            `Deal ${deal.dealId} pays a commission to ${charge.participantId}, who is not a participant on this event.`,
+          );
+        }
+        credit(charge.participantId, charge.amount);
       }
     });
+    return total;
+  };
+
+  // OFF THE TOP FIRST. A rental is settled before the percentage deals and reduces
+  // the pool they divide (`deal-order.ts` for the rule and why it is rentals only) —
+  // 10 000 pool, 2 000 rental, 50% door → the performer takes half of 8 000, not
+  // half of 10 000. Off-the-top deals themselves are computed against the FULL pool:
+  // they are fixed amounts, and the operator's residual is still `pool − Σ everyone`,
+  // so `Σ net = 0` is unaffected by the ordering — only the DISTRIBUTION moves.
+  let splitPool = pool;
+  for (const deal of deals) {
+    if (isOffTheTop(deal)) splitPool -= settleDeal(deal, pool);
+  }
+  for (const deal of deals) {
+    if (!isOffTheTop(deal)) settleDeal(deal, splitPool);
   }
 
   // 2b. Operator residual = pool − Σ all deal entitlements, allocated across operators.

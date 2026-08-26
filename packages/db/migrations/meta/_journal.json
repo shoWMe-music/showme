@@ -120,6 +120,41 @@
       "when": 1788134635003,
       "tag": "0016_a_venue_names_its_rooms",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788221035003,
+      "tag": "0017_a_comment_says_which_part_it_is_about",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788307435003,
+      "tag": "0018_a_pro_rate_is_a_fact_about_a_territory",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788393835003,
+      "tag": "0019_a_cost_says_which_way_it_names_its_deal",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788566635003,
+      "tag": "0020_an_operator_files_a_show_away",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1788653035003,
+      "tag": "0021_a_rate_limit_that_survives_the_code",
+      "breakpoints": true
     }
   ]
 }

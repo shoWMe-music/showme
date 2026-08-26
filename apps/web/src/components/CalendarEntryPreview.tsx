@@ -2,6 +2,7 @@ import { Button, Card, Icon, KeyValueRow, STATUS_COLOR, STATUS_LABEL } from "@sh
 import type { RefObject } from "react";
 import { useEffect } from "react";
 import type { CalendarEvent } from "./CalendarEventChip";
+import { type EventMenuItem, EventRowMenu } from "./EventRowMenu";
 import { PickerPopoverPanel } from "./PickerPopoverPanel";
 
 /** The little card that hangs off a calendar chip when you click it: what this
@@ -20,6 +21,8 @@ const HEADER_HEIGHT = 96;
 const FACT_ROW_HEIGHT = 36;
 const OPEN_EVENT_HEIGHT = 52;
 const CALENDAR_ITEM_NOTE_HEIGHT = 27;
+// The overflow trigger sits BESIDE the title, so it adds no height — and its
+// entries only open on a click the reader makes after the panel is placed.
 
 export interface CalendarEntryPreviewProps {
   entry: CalendarEvent;
@@ -37,6 +40,15 @@ export interface CalendarEntryPreviewProps {
   /** Continue to the event workspace. Absent for a standalone calendar item —
    * there is no page to go to, so no footer button is drawn. */
   onOpenEvent?: () => void;
+  /**
+   * What the entry's overflow menu offers (archive, today). Absent for a
+   * standalone calendar item, which is not an event and has nothing to file.
+   *
+   * The menu opens NESTED — inside this card rather than portalled to `<body>` —
+   * see `EventRowMenu`'s `nested` prop for why a portalled panel inside a panel
+   * that dismisses on outside-pointerdown eats its own click.
+   */
+  menuItems?: EventMenuItem[];
 }
 
 export function CalendarEntryPreview({
@@ -45,6 +57,7 @@ export function CalendarEntryPreview({
   anchor,
   panelRef,
   onOpenEvent,
+  menuItems,
 }: CalendarEntryPreviewProps) {
   const color = STATUS_COLOR[entry.status];
   // "Confirmed" for an event, "Appointment" for a calendar item — the palette is
@@ -52,13 +65,15 @@ export function CalendarEntryPreview({
   const kindLabel = entry.statusLabel ?? STATUS_LABEL[entry.status];
   const facts = entryFacts(entry, time);
 
-  // "Open event" is the panel's only control, so it takes focus as the panel
+  // "Open event" is the panel's primary control, so it takes focus as the panel
   // opens: the panel is portalled to the end of `<body>`, and a Tab from the chip
   // would otherwise walk into the NEXT chip and never reach this button. Found by
-  // query rather than by ref because the button is a design-system component.
+  // query rather than by ref because the button is a design-system component —
+  // and by its OWN marker rather than "the first button", which stopped being
+  // this one the moment the overflow trigger joined the header above it.
   useEffect(() => {
     if (!onOpenEvent) return;
-    panelRef.current?.querySelector<HTMLElement>("button")?.focus();
+    panelRef.current?.querySelector<HTMLElement>("[data-open-event]")?.focus();
   }, [onOpenEvent, panelRef]);
 
   return (
@@ -86,24 +101,38 @@ export function CalendarEntryPreview({
           background: "var(--surface)",
         }}
       >
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
-          <span
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+          <div
             style={{
-              fontSize: 10.5,
-              fontWeight: 600,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              padding: "3px 9px",
-              borderRadius: 999,
-              background: color.tint,
-              color: color.fg,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-start",
+              gap: 6,
+              flex: 1,
+              minWidth: 0,
             }}
           >
-            {kindLabel}
-          </span>
-          <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", lineHeight: 1.35 }}>
-            {entry.eventName}
-          </span>
+            <span
+              style={{
+                fontSize: 10.5,
+                fontWeight: 600,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                padding: "3px 9px",
+                borderRadius: 999,
+                background: color.tint,
+                color: color.fg,
+              }}
+            >
+              {kindLabel}
+            </span>
+            <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", lineHeight: 1.35 }}>
+              {entry.eventName}
+            </span>
+          </div>
+          {menuItems && menuItems.length > 0 && (
+            <EventRowMenu nested items={menuItems} label={`Actions for ${entry.eventName}`} />
+          )}
         </div>
 
         <div style={{ borderTop: "1px solid var(--border)" }}>
@@ -115,6 +144,7 @@ export function CalendarEntryPreview({
         {onOpenEvent ? (
           <Button
             variant="secondary"
+            data-open-event=""
             onClick={onOpenEvent}
             rightIcon={<Icon name="chevron-right" size={14} />}
             style={{ alignSelf: "stretch", justifyContent: "center" }}

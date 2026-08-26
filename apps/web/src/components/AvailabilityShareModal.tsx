@@ -186,7 +186,7 @@ export function AvailabilityShareModal({
               gap: 6,
               padding: 12,
               borderRadius: 12,
-              background: "var(--elevated)",
+              background: "var(--card)",
               border: "1px solid var(--border)",
             }}
           >

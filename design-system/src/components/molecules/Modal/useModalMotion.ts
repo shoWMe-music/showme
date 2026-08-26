@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import gsap from "gsap";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { DURATION, EASE } from "@/lib/motion";
 import { useReducedMotion } from "@/lib/useReducedMotion";
 
 /**
@@ -26,19 +27,19 @@ export function useModalMotion(open: boolean) {
 
     if (open) {
       const timeline = gsap.timeline();
-      timeline.fromTo(scrim.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: reducedMotion ? 0 : 0.2, ease: "power2.out" });
+      timeline.fromTo(scrim.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: reducedMotion ? 0 : DURATION.quick, ease: EASE.soft });
       timeline.fromTo(
         panel.current,
         { autoAlpha: 0, y: reducedMotion ? 0 : 12, scale: reducedMotion ? 1 : 0.96 },
-        { autoAlpha: 1, y: 0, scale: 1, duration: reducedMotion ? 0 : 0.34, ease: "power3.out" },
+        { autoAlpha: 1, y: 0, scale: 1, duration: reducedMotion ? 0 : DURATION.slow, ease: EASE.out },
         reducedMotion ? 0 : "-=0.1",
       );
       return () => { timeline.kill(); };
     }
 
     const timeline = gsap.timeline({ onComplete: () => setRendered(false) });
-    timeline.to(panel.current, { autoAlpha: 0, y: reducedMotion ? 0 : 8, scale: reducedMotion ? 1 : 0.98, duration: reducedMotion ? 0 : 0.2, ease: "power2.in" });
-    timeline.to(scrim.current, { autoAlpha: 0, duration: reducedMotion ? 0 : 0.18, ease: "power2.in" }, reducedMotion ? 0 : "-=0.12");
+    timeline.to(panel.current, { autoAlpha: 0, y: reducedMotion ? 0 : 8, scale: reducedMotion ? 1 : 0.98, duration: reducedMotion ? 0 : DURATION.base, ease: EASE.in });
+    timeline.to(scrim.current, { autoAlpha: 0, duration: reducedMotion ? 0 : DURATION.quick, ease: EASE.in }, reducedMotion ? 0 : "-=0.12");
     return () => { timeline.kill(); };
   }, [open, rendered, reducedMotion]);
 

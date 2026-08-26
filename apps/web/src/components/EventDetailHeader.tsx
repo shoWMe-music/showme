@@ -13,7 +13,13 @@ import { type EventStatusStage, EventStatusTimeline } from "./EventStatusTimelin
 /** The shared event-detail masthead (§3b): title + code + status pill, a
  * publish toggle, a currency select, invite/share actions, an identity sub-row
  * (performer · venue · date), and the status timeline — so every event tab
- * shares one header. Presentational; controls emit callbacks. */
+ * shares one header. Presentational; controls emit callbacks.
+ *
+ * NOTE — this composite is not the header the app renders. `routes/EventDetail.tsx`
+ * draws its own masthead inline and never mounts this one, so `onShareExport`
+ * here has no caller. The live Share & Export button, and the dialog behind it
+ * (`ShareExportModal`), are in that file. Keeping the prop so the two headers
+ * stay the same shape, but the wiring that matters is there, not here. */
 export interface EventParty {
   name: string;
   initials: string;

@@ -1,5 +1,6 @@
 import { Card, STATUSES, STATUS_LABEL, StatusDot } from "@showme/design-system";
 import { type CalendarEvent, CalendarEventChip, type CalendarLabelMode } from "./CalendarEventChip";
+import type { EventMenuItem } from "./EventRowMenu";
 import { WEEKDAYS_SHORT, buildMonthGrid, dayKey, trimTrailingWeeks } from "./calendarGrid";
 import { Eyebrow } from "./primitives";
 
@@ -25,9 +26,16 @@ export interface CalendarMonthGridProps {
   onSelectDay?: (dayKey: string, anchor: DOMRect) => void;
   onSelectEvent?: (eventId: string) => void;
   onCreateAt?: (dayKey: string) => void;
+  /**
+   * What one event's overflow menu offers (archive today). Returns nothing for a
+   * standalone calendar item — a task or a note is not an event and has nothing
+   * to file. The chip hands it to the preview it opens; there is no room for a ⋮
+   * on the chip itself.
+   */
+  eventMenuItems?: (event: CalendarEvent) => EventMenuItem[];
 }
 
-const TODAY_TINT = "rgba(238,87,70,.05)";
+const TODAY_TINT = "color-mix(in srgb, var(--brand-red) 5%, transparent)";
 
 /** The hairline that separates two cells. Drawn only BETWEEN cells — never on the
  * last column or last row — because the card already draws its own 1px border
@@ -50,6 +58,7 @@ export function CalendarMonthGrid({
   onSelectDay,
   onSelectEvent,
   onCreateAt,
+  eventMenuItems,
 }: CalendarMonthGridProps) {
   const cells = trimTrailingWeeks(buildMonthGrid(month));
   const todayKey = dayKey(new Date());
@@ -168,7 +177,7 @@ export function CalendarMonthGrid({
                     fontFamily: "var(--font-mono)",
                     fontSize: 12,
                     fontWeight: isToday ? 700 : 500,
-                    background: isToday ? "#EE5746" : "transparent",
+                    background: isToday ? "var(--brand-red)" : "transparent",
                     color: isToday ? "#fff" : "var(--muted)",
                   }}
                 >
@@ -181,6 +190,7 @@ export function CalendarMonthGrid({
                     event={event}
                     labelMode={labelMode}
                     onSelect={onSelectEvent}
+                    menuItems={eventMenuItems?.(event)}
                   />
                 ))}
 

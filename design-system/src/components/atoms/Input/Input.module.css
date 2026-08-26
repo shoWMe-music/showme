@@ -2,12 +2,21 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 11px 15px;
+  /* Vertical normalised to its siblings' 10px — this was 11px and stood 2px
+     taller than every other control before content differences even applied.
+     The roomier 15px horizontal stays: this backs SearchInput. */
+  padding: 10px 15px;
+  min-height: var(--control-height);
+  line-height: var(--control-line-height);
   border-radius: 12px;
-  border: 1px solid var(--border-strong);
-  background: var(--bg);
+  /* The same two tokens TextField, NumberField and Select use. This component
+     backs SearchInput — the input people touch most — and was left on
+     --border-strong over --bg when the others moved, so in light mode it sat on
+     the page's own beige and read as a hollow outline rather than a sheet. */
+  border: 1px solid var(--control-border);
+  background: var(--control-surface);
   color: var(--text);
-  transition: border-color .2s, box-shadow .2s;
+  transition: border-color var(--duration-quick), box-shadow var(--duration-quick);
   cursor: text;
 }
 .wrap:focus-within {

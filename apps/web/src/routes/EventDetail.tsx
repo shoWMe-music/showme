@@ -22,6 +22,7 @@ import {
   Icon,
   Select,
   type Status,
+  TabPanels,
 } from "@showme/design-system";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
@@ -46,7 +47,7 @@ import { EventCollaboratorInviteModal } from "../components/EventCollaboratorInv
 import { EventCrewPanel } from "../components/EventCrewPanel";
 import { EventDealsTab } from "../components/EventDealsTab";
 import { EventSettlementTab } from "../components/EventSettlementTab";
-import { EventStatusControl } from "../components/EventStatusControl";
+import { ShareExportModal } from "../components/ShareExportModal";
 import { budgetPlannerViewFrom } from "../components/budgetPlannerView";
 import {
   type EventTab,
@@ -59,6 +60,7 @@ import { ErrorState, LoadingState } from "../components/states";
 import { useBudgetEditor } from "../components/useBudgetEditor";
 import { useBudgetSeed } from "../components/useBudgetSeed";
 import { useBudgetToolbar } from "../components/useBudgetToolbar";
+import { usePerformingRightsTerritory } from "../components/usePerformingRightsTerritory";
 import { formatDate } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
 
@@ -94,6 +96,7 @@ export function EventDetail() {
   const [tab, setTab] = useState("details");
   const [displayCurrency, setDisplayCurrency] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   // Which role the invite modal opens on. The header's button asks the open
   // question; the Team / Crew tab's "+ Add Member" has already answered it.
   const [inviteRole, setInviteRole] = useState<string | undefined>(undefined);
@@ -296,10 +299,16 @@ export function EventDetail() {
               Invite Collaborator
             </Button>
           )}
+          {/* This button existed and printed the page. `EventDetailHeader` has
+              carried an `onShareExport` prop since the header was drawn and
+              NOTHING passed it — the API behind it (create · read · OTP · verify
+              · comment) has been complete the whole time with no door in. This is
+              the door: print is still one of the three ways out, but it is a
+              choice inside the dialog now rather than the whole feature. */}
           <Button
             variant="secondary"
             leftIcon={<Icon name="share" size={14} />}
-            onClick={() => window.print()}
+            onClick={() => setShareOpen(true)}
           >
             Share &amp; Export
           </Button>
@@ -307,89 +316,92 @@ export function EventDetail() {
       </div>
 
       <StageRail currentIndex={stageIndex} />
-      {/* The rail SHOWS where the booking stands; this SETS it. An operator with
-          no counterparty — a venue running its own room, or anyone typing in
-          bookings they already have — has to be able to move the event
-          themselves, and could not (see `useEventStatusEditor`). */}
-      {canEdit && (
-        <EventStatusControl
-          event={{ id: event.id, status: event.status, version: event.version }}
-        />
-      )}
+      {/* The rail SHOWS where the booking stands. SETTING it is one of the
+          event's facts, so it is a row on the Event Information card with the
+          rest of them — not a second control above the tabs. */}
       <EventTabsBar tabs={tabs} value={tab} onChange={setTab} />
 
-      {tab === "todo" && <EventTodoTab eventId={eventId} />}
-      {tab === "budget" && canSeeBudget && (
-        <BudgetTab
-          eventId={eventId}
-          currency={currency}
-          eventTitle={event.title}
-          capacity={event.capacity ?? null}
-          performerIdsKey={performerIdsKey}
-        />
-      )}
-      {tab === "details" && (
-        <DetailsTab
-          event={event}
-          statusLabel={display.label}
-          operatorName={operatorName}
-          performers={performersFrom(roster, event)}
-          currency={currency}
-          canEdit={canEdit}
-          onSaveExtras={saveExtras}
-        />
-      )}
-      {tab === "deals" && (
-        <EventDealsTab
-          eventId={eventId}
-          eventTitle={event.title}
-          eventDate={event.eventDate}
-          eventStatusLabel={display.label}
-          // `?? []` only for an API older than this field (a dev server left
-          // running across the change): no capabilities means no action is
-          // offered, which is the safe reading, rather than a crash.
-          capabilities={event.capabilities ?? []}
-          currency={currency}
-          baseCurrency={event.baseCurrency}
-          venueLabel={venueLabel}
-          operatorName={operatorName}
-          event={{
-            id: event.id,
-            version: event.version,
-            extras: event.extras as Record<string, unknown> | null | undefined,
-          }}
-          canEdit={canEdit}
-        />
-      )}
-      {tab === "crew" && (
-        <EventCrewPanel
-          eventId={eventId}
-          crew={crew}
-          canManage={canEdit}
-          onInviteCrew={() => openInvite("crew")}
-        />
-      )}
-      {tab === "settlement" && (
-        <EventSettlementTab
-          eventId={eventId}
-          currency={event.baseCurrency}
-          roster={roster}
-          capabilities={event.capabilities ?? []}
-        />
-      )}
-      {tab === "messages" && <MessagesTab eventId={eventId} roster={roster} />}
-      {tab === "collaborators" && (
-        <CollaboratorsTab
-          eventId={eventId}
-          roster={roster}
-          isPending={participants.isPending}
-          isError={participants.isError}
-          error={participants.error}
-          canManage={canEdit}
-          onInvite={canEdit ? () => openInvite() : undefined}
-        />
-      )}
-      {tab === "history" && <EventHistoryTab eventId={eventId} />}
+      {/* One wrapper for all nine panels: the content scoots in from whichever
+          side the tab moved and cross-fades, instead of flipping while the tab
+          bar slides. Nothing inside changes — each panel is still the same bare
+          `{tab === "x" && <X/>}` it always was, and the panel that is not
+          rendered still is not rendered. `order` is the tab array, so the
+          direction always agrees with the bar (see `useTabPanelMotion`). */}
+      <TabPanels activeKey={tab} order={tabs.map((entry) => entry.key)}>
+        {tab === "todo" && <EventTodoTab eventId={eventId} />}
+        {tab === "budget" && canSeeBudget && (
+          <BudgetTab
+            eventId={eventId}
+            currency={currency}
+            eventTitle={event.title}
+            capacity={event.capacity ?? null}
+            performerIdsKey={performerIdsKey}
+          />
+        )}
+        {tab === "details" && (
+          <DetailsTab
+            event={event}
+            operatorName={operatorName}
+            performers={performersFrom(roster, event)}
+            currency={currency}
+            canEdit={canEdit}
+            onSaveExtras={saveExtras}
+          />
+        )}
+        {tab === "deals" && (
+          <EventDealsTab
+            eventId={eventId}
+            eventTitle={event.title}
+            eventDate={event.eventDate}
+            eventStatusLabel={display.label}
+            // `?? []` only for an API older than this field (a dev server left
+            // running across the change): no capabilities means no action is
+            // offered, which is the safe reading, rather than a crash.
+            capabilities={event.capabilities ?? []}
+            currency={currency}
+            baseCurrency={event.baseCurrency}
+            venueLabel={venueLabel}
+            operatorName={operatorName}
+            event={{
+              id: event.id,
+              version: event.version,
+              extras: event.extras as Record<string, unknown> | null | undefined,
+            }}
+            canEdit={canEdit}
+          />
+        )}
+        {tab === "crew" && (
+          <EventCrewPanel
+            eventId={eventId}
+            crew={crew}
+            canManage={canEdit}
+            onInviteCrew={() => openInvite("crew")}
+          />
+        )}
+        {tab === "settlement" && (
+          <EventSettlementTab
+            eventId={eventId}
+            currency={event.baseCurrency}
+            roster={roster}
+            capabilities={event.capabilities ?? []}
+          />
+        )}
+        {tab === "messages" && <MessagesTab eventId={eventId} roster={roster} />}
+        {tab === "collaborators" && (
+          <CollaboratorsTab
+            eventId={eventId}
+            roster={roster}
+            isPending={participants.isPending}
+            isError={participants.isError}
+            error={participants.error}
+            canManage={canEdit}
+            onInvite={canEdit ? () => openInvite() : undefined}
+          />
+        )}
+        {tab === "history" && <EventHistoryTab eventId={eventId} />}
+      </TabPanels>
+
+      <ShareExportModal open={shareOpen} onClose={() => setShareOpen(false)} eventId={eventId} />
 
       <EventCollaboratorInviteModal
         open={inviteOpen}
@@ -460,7 +472,6 @@ function performersFrom(roster: Participant[], event: EventDetailData): DetailsP
 /** Details tab: fetches schedule / deals / riders and composes the section stack. */
 function DetailsTab({
   event,
-  statusLabel: statusText,
   operatorName,
   performers,
   currency,
@@ -468,7 +479,6 @@ function DetailsTab({
   onSaveExtras,
 }: {
   event: EventDetailData;
-  statusLabel: string;
   operatorName: string;
   performers: DetailsPerformer[];
   currency: string;
@@ -503,7 +513,6 @@ function DetailsTab({
         version: event.version,
         extras: event.extras as EventExtras | null | undefined,
       }}
-      statusLabel={statusText}
       operatorName={operatorName}
       performers={performers}
       riders={riderRows}
@@ -561,6 +570,11 @@ function BudgetTab({
   );
   const seed = useBudgetSeed(eventId, seedSources);
   const editor = useBudgetEditor(eventId, seed);
+  // Which PRO rate governs THIS show. The API resolves the show's country from
+  // the venue and looks up what a platform admin configured for it; the fee
+  // itself is computed here, against the live draft, because the ticket revenue
+  // it is charged on changes with every keystroke.
+  const performingRightsTerritory = usePerformingRightsTerritory(eventId);
   const toolbar = useBudgetToolbar(editor, eventTitle, currency);
   // Which card the "+ Add Field" modal is adding to, or null when it is closed.
   const [customFieldKind, setCustomFieldKind] = useState<CustomFieldKind>(null);
@@ -573,7 +587,7 @@ function BudgetTab({
   // Every figure on the screen, derived once. The arithmetic is `@showme/shared`'s
   // and the unit boundary is `budgetPlannerView`'s (CLAUDE.md: business logic is
   // plain, framework-agnostic TS) — this screen picks a currency and renders.
-  const view = budgetPlannerViewFrom(editor, currency);
+  const view = budgetPlannerViewFrom(editor, currency, performingRightsTerritory);
   const splitTargetRow = editor.costs.find((cost) => cost.key === splitTargetKey);
 
   return (
@@ -594,6 +608,7 @@ function BudgetTab({
         revenueSources={view.revenueSources}
         costBreakdown={view.costBreakdown}
         performingRights={view.performingRights}
+        dealFigureWarnings={view.dealFigureWarnings}
         participants={editor.participants}
         deals={editor.deals}
         defaultParticipantId={editor.defaultParticipantId}
@@ -604,7 +619,7 @@ function BudgetTab({
         onCustomRevenueCollectedByChange={editor.changeCustomRevenueCollectedBy}
         onCostPaidByChange={editor.changeCostPaidBy}
         onCostBearingChange={editor.changeCostBearing}
-        onCostDealChange={editor.changeCostDeal}
+        onCostDealLinkChange={editor.changeCostDealLink}
         onEditCostSplit={setSplitTargetKey}
         ticketTypes={editor.ticketTiers.map((tier) => ({
           id: tier.id,
@@ -642,10 +657,10 @@ function BudgetTab({
         currencySymbol={currencySymbol(currency)}
         participants={editor.participants}
         onClose={() => setCustomFieldKind(null)}
-        onSubmit={(kind, label, amount, type, bearing) =>
+        onSubmit={(kind, label, amount, bearing) =>
           kind === "cost"
-            ? editor.addCustomCost(label, amount, type, bearing)
-            : editor.addCustomRevenue(label, amount, type)
+            ? editor.addCustomCost(label, amount, bearing)
+            : editor.addCustomRevenue(label, amount)
         }
       />
       <CostSplitModal

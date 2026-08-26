@@ -4,26 +4,31 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { GetApiV1InvitationsToken200Status } from './getApiV1InvitationsToken200Status';
+import type { GetApiV1InvitationsToken200Type } from './getApiV1InvitationsToken200Type';
+import type { GetApiV1InvitationsToken200Source } from './getApiV1InvitationsToken200Source';
+import type { GetApiV1InvitationsToken200TargetKind } from './getApiV1InvitationsToken200TargetKind';
+import type { GetApiV1InvitationsToken200Viewer } from './getApiV1InvitationsToken200Viewer';
 
 export type GetApiV1InvitationsToken200 = {
-  id: string;
-  type: string;
-  status: string;
-  source: string;
-  /** @nullable */
-  code: string | null;
-  /** @nullable */
-  token: string | null;
-  /** @nullable */
-  recipientEmail: string | null;
-  /** @nullable */
-  recipientName: string | null;
-  /** @nullable */
-  targetProfileId: string | null;
-  /** @nullable */
-  targetEventId: string | null;
+  status: GetApiV1InvitationsToken200Status;
+  type: GetApiV1InvitationsToken200Type;
+  source: GetApiV1InvitationsToken200Source;
   /** @nullable */
   role: string | null;
   /** @nullable */
-  permissionSetId: string | null;
+  targetKind: GetApiV1InvitationsToken200TargetKind;
+  /** @nullable */
+  targetName: string | null;
+  /** @nullable */
+  targetEventId: string | null;
+  /** @nullable */
+  inviterName: string | null;
+  /** @nullable */
+  recipientName: string | null;
+  /** @nullable */
+  recipientEmail: string | null;
+  boundToEmail: boolean;
+  claimable: boolean;
+  viewer: GetApiV1InvitationsToken200Viewer;
 };

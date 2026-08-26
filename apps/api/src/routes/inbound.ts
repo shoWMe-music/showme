@@ -6,7 +6,14 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { badRequest, conflict, forbidden, notFound, tooManyRequests } from "../errors";
+import {
+  badRequest,
+  conflict,
+  forbidden,
+  isUniqueViolation,
+  notFound,
+  tooManyRequests,
+} from "../errors";
 import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
@@ -306,16 +313,6 @@ function serializeBookingRequest(
     currency: row.currency,
     createdAt: row.createdAt.toISOString(),
   };
-}
-
-/** Postgres unique-violation — the partial pending-dedup / spam-flag constraint tripped. */
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "23505"
-  );
 }
 
 /**

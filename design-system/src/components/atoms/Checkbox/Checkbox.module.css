@@ -13,7 +13,7 @@
   border: 1.5px solid var(--border-strong);
   background: transparent;
   color: #fff;
-  transition: border-color .15s, background .15s;
+  transition: border-color var(--duration-quick), background var(--duration-quick);
 }
 .checked { border-color: #6FC97A; background: #6FC97A; }
 .checkedBrand { border-color: #EE5746; background: #EE5746; }

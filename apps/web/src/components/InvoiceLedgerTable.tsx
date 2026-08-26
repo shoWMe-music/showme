@@ -127,7 +127,7 @@ function InvoiceLedgerRow({
         open();
       }}
       onMouseEnter={(mouse) => {
-        mouse.currentTarget.style.background = "var(--elevated)";
+        mouse.currentTarget.style.background = "var(--shape-fill)";
       }}
       onMouseLeave={(mouse) => {
         mouse.currentTarget.style.background = "transparent";
@@ -142,7 +142,7 @@ function InvoiceLedgerRow({
         background: "transparent",
         fontSize: 13,
         cursor: "pointer",
-        transition: "background .16s",
+        transition: "background var(--duration-quick) var(--ease-out)",
       }}
     >
       <span style={{ minWidth: 0 }}>

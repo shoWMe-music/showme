@@ -14,14 +14,17 @@
   width: 100%;
   box-sizing: border-box;
   padding: 10px 12px;
+  /* One height for every control, whatever the content — see tokens.css. */
+  min-height: var(--control-height);
+  line-height: var(--control-line-height);
   border-radius: 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   background: var(--control-surface);
   color: var(--text);
   font-family: var(--font-sans);
   font-size: 13.5px;
   outline: none;
-  transition: border-color .2s;
+  transition: border-color var(--duration-quick);
 }
 .input::placeholder { color: var(--muted); }
 .input:focus { border-color: #EE5746; }

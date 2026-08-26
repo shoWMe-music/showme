@@ -66,7 +66,7 @@ body {
 
 .theme-toggle:hover {
   color: var(--text);
-  border-color: var(--border-strong);
+  border-color: var(--hover-border);
 }
 
 /* ---------- The column ---------- */
@@ -245,6 +245,14 @@ body {
 .field {
   display: grid;
   gap: 6px;
+  /* WITHOUT THIS, FIELDS IN A ROW DO NOT LINE UP.
+     A grid item stretches to its row by default, so a two-row field (label +
+     control) beside a three-row one (label + control + hint) spreads its rows to
+     match — and its control drifts DOWN the height of the neighbour's hint.
+     `.rsvp__row` puts exactly that pair side by side: "Your name" has no hint,
+     "Your email" has one. Anchoring the rows to the top makes every control in a
+     row start at the same y, whether or not it has a hint under it. */
+  align-content: start;
 }
 
 .field__label {
@@ -269,9 +277,15 @@ body {
   font-size: 15px;
   color: var(--text);
   background: var(--control-surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 11px;
-  padding: 11px 14px;
+  /* One height for every control, from the design system's token — the same
+     floor the app's fields and the availability page's fields wear. Vertical
+     padding trimmed from 11 to 10 so the token binds rather than being
+     overshot by padding alone. */
+  padding: 10px 14px;
+  min-height: var(--control-height);
+  line-height: var(--control-line-height);
   box-sizing: border-box;
 }
 
@@ -282,7 +296,7 @@ body {
 .field__control:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
-  border-color: var(--border-strong);
+  border-color: var(--brand-red);
 }
 
 .field__control[aria-invalid="true"] {

@@ -1,0 +1,34 @@
+-- The OTP rate limit reset itself every time it was reached.
+--
+-- `share_otps` carried the whole of the throttle on ONE row: `rate_window_start`
+-- (when the hour began) and `attempts` (doing double duty as the issue counter and
+-- the wrong-guess counter). And that row is DELETED in two places — when a code
+-- verifies, and when the fifth wrong guess burns it out.
+--
+-- So the counter never reached its limit for long. Ask for three codes, guess wrong
+-- five times, the row is deleted, and the next request starts a fresh hour with a
+-- fresh five guesses. Repeat forever. Two things follow from that, and the second is
+-- the serious one:
+--
+--   * the "3 emails an hour" promise is not kept — a link-holder can mail the
+--     recipient's address as often as they are willing to type;
+--   * a six-digit code is guessable. Five tries per cycle against a fresh random
+--     code is slow, but nothing bounds the number of cycles, and there is no
+--     per-address lockout and no per-IP limit anywhere in front of it.
+--
+-- The fix is to stop deleting the row and stop overloading one counter:
+--
+--   * `issues` counts codes SENT inside the current window, separately from
+--     `attempts`, which goes back to meaning only "wrong guesses against the code
+--     that is live right now";
+--   * `consumed_at` marks a code as spent instead of removing it, so the window
+--     and its counters outlive both a success and a burn-out. A consumed row is
+--     refused by verify and reused by the next issue, which is what keeps the hour
+--     an hour.
+--
+-- Existing rows: `issues` starts at whatever `attempts` had reached, which is the
+-- closest true reading of the old column, and `consumed_at` starts NULL — every
+-- surviving row is by definition a live, unspent code.
+ALTER TABLE "share_otps" ADD COLUMN IF NOT EXISTS "issues" integer NOT NULL DEFAULT 0;
+ALTER TABLE "share_otps" ADD COLUMN IF NOT EXISTS "consumed_at" timestamp with time zone;
+UPDATE "share_otps" SET "issues" = "attempts" WHERE "issues" = 0 AND "attempts" > 0;

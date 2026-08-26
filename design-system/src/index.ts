@@ -57,6 +57,9 @@ export type { ModalProps } from "@/components/molecules/Modal/Modal";
 
 export { Tabs } from "@/components/molecules/Tabs/Tabs";
 export type { TabsProps, TabItem } from "@/components/molecules/Tabs/Tabs";
+export { TabPanels } from "@/components/molecules/Tabs/TabPanels";
+export type { TabPanelsProps } from "@/components/molecules/Tabs/TabPanels";
+export { useTabPanelMotion } from "@/components/molecules/Tabs/useTabPanelMotion";
 
 export { Toggle } from "@/components/atoms/Toggle/Toggle";
 export type { ToggleProps } from "@/components/atoms/Toggle/Toggle";
@@ -101,3 +104,11 @@ export type { IconName, IconProps } from "@/icons";
 
 export { STATUSES, STATUS_LABEL, STATUS_COLOR } from "@/lib/status";
 export type { Status } from "@/lib/status";
+
+/* ── Motion ──
+   The vocabulary every animated surface in the app is built from: the four
+   durations + the easings (mirrors of the `--duration-*` / `--ease-*` tokens),
+   the reduced-motion reader, and the screen entrance for router outlets. */
+export { DURATION, EASE } from "@/lib/motion";
+export { useReducedMotion } from "@/lib/useReducedMotion";
+export { useViewMotion } from "@/lib/useViewMotion";

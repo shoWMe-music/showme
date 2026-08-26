@@ -5,6 +5,7 @@ import {
   chipLabel,
   formatStartTime,
 } from "./CalendarEventChip";
+import { type EventMenuItem, EventRowMenu, rowClickTargetStyle } from "./EventRowMenu";
 import { dayKey, dayTitle } from "./calendarGrid";
 
 /** One day of the Calendar screen (§2), read as an agenda rather than a grid.
@@ -18,6 +19,13 @@ export interface CalendarDayAgendaProps {
   labelMode?: CalendarLabelMode;
   onSelectDay?: (dayKey: string, anchor: DOMRect) => void;
   onSelectEvent?: (eventId: string) => void;
+  /**
+   * What one entry's overflow menu offers (archive today). Returns nothing for a
+   * standalone calendar item — a task or a note is not an event and has nothing
+   * to file. Unlike the month/week chip, an agenda row is wide enough to carry
+   * the ⋮ itself.
+   */
+  eventMenuItems?: (event: CalendarEvent) => EventMenuItem[];
 }
 
 /** Timed entries first, in clock order; undated-within-the-day entries after. */
@@ -38,6 +46,7 @@ export function CalendarDayAgenda({
   labelMode = "both",
   onSelectDay,
   onSelectEvent,
+  eventMenuItems,
 }: CalendarDayAgendaProps) {
   const key = dayKey(day);
   const isToday = key === dayKey(new Date());
@@ -53,7 +62,9 @@ export function CalendarDayAgenda({
           gap: 12,
           padding: "13px 16px",
           borderBottom: "1px solid var(--border)",
-          background: isToday ? "rgba(238,87,70,.05)" : "transparent",
+          background: isToday
+            ? "color-mix(in srgb, var(--brand-red) 5%, transparent)"
+            : "transparent",
         }}
       >
         <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{dayTitle(day)}</span>
@@ -98,27 +109,40 @@ export function CalendarDayAgenda({
             const color = STATUS_COLOR[event.status];
             const time = formatStartTime(event.startTime);
             const clickable = Boolean(event.eventId);
+            const menuItems = eventMenuItems?.(event) ?? [];
             return (
-              <button
+              <div
                 key={event.id}
-                type="button"
-                onClick={() => {
-                  if (event.eventId) onSelectEvent?.(event.eventId);
-                }}
                 style={{
+                  position: "relative",
                   display: "grid",
-                  gridTemplateColumns: "72px 3px minmax(0, 1fr) auto",
+                  // The trailing track is the menu's. `0` when there is nothing
+                  // to offer, so a calendar item's row keeps its old geometry.
+                  gridTemplateColumns: `72px 3px minmax(0, 1fr) auto ${
+                    menuItems.length > 0 ? "32px" : "0px"
+                  }`,
                   alignItems: "center",
                   gap: 12,
                   width: "100%",
                   textAlign: "left",
                   padding: "13px 16px",
-                  border: 0,
                   borderTop: index === 0 ? undefined : "1px solid var(--border)",
                   background: "transparent",
-                  cursor: clickable ? "pointer" : "default",
                 }}
               >
+                {/* The row's click target, so the row can also carry a menu — see
+                    `rowClickTargetStyle`. Only drawn when there is somewhere to
+                    go: a task or a note has no page of its own. */}
+                {clickable && (
+                  <button
+                    type="button"
+                    aria-label={`Open ${event.eventName}`}
+                    onClick={() => {
+                      if (event.eventId) onSelectEvent?.(event.eventId);
+                    }}
+                    style={rowClickTargetStyle}
+                  />
+                )}
                 <span
                   style={{
                     fontFamily: "var(--font-mono)",
@@ -153,7 +177,14 @@ export function CalendarDayAgenda({
                 >
                   {event.statusLabel ?? STATUS_LABEL[event.status]}
                 </span>
-              </button>
+                {/* Positioned, so it paints ABOVE the stretched click target and
+                    takes its own clicks rather than opening the event. */}
+                {menuItems.length > 0 && (
+                  <span style={{ position: "relative", justifySelf: "end" }}>
+                    <EventRowMenu items={menuItems} label={`Actions for ${event.eventName}`} />
+                  </span>
+                )}
+              </div>
             );
           })}
         </div>

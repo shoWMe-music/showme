@@ -368,9 +368,16 @@ export function renderInvitationEmail(input: {
 
   // A code invitation is redeemed by typing the code, so the link lands on the
   // app rather than carrying the secret in a URL; a token invitation carries it.
+  //
+  // `/invitations/<token>`, not the `/?invitation=<token>` this used to send: the
+  // app's other link-is-the-credential surface is `/shares/<token>`, and one
+  // spelling for both is one thing to remember and one place to mask a secret in
+  // the logs. **Both forms still land** — `invitationTokenFromLocation` in
+  // `apps/web/src/router.tsx` reads the query form too, permanently, because
+  // every invitation sent before today carries it and those links must not die.
   const url = input.code
     ? buildApplicationUrl("/", input.baseUrl)
-    : buildApplicationUrl(`/?invitation=${encodeURIComponent(input.token ?? "")}`, input.baseUrl);
+    : buildApplicationUrl(`/invitations/${encodeURIComponent(input.token ?? "")}`, input.baseUrl);
 
   return render({
     subject,

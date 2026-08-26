@@ -1,5 +1,11 @@
 import { Icon, Select } from "@showme/design-system";
-import type { BudgetAttributionOption, BudgetDealOption, CostBearing } from "./useBudgetEditor";
+import type {
+  BudgetAttributionOption,
+  BudgetDealOption,
+  CostBearing,
+  CostDealLink,
+} from "./useBudgetEditor";
+import { NO_DEAL_LINK } from "./useBudgetEditor";
 
 /**
  * WHO HANDLED THIS MONEY — the strip under every line in the Budget Planner.
@@ -20,6 +26,30 @@ import type { BudgetAttributionOption, BudgetDealOption, CostBearing } from "./u
 const SHARED_BEARING_VALUE = "__shared__";
 const SPLIT_BEARING_VALUE = "__split__";
 const NO_DEAL_VALUE = "__none__";
+
+/**
+ * The deal selector offers each deal TWICE, once per sense, so the two are picked
+ * apart rather than set by a second control the operator might never touch.
+ * These prefixes are how one flat `<Select>` carries a two-part answer.
+ */
+const DEAL_FIGURE_PREFIX = "figure:";
+const ATTRIBUTED_PREFIX = "under:";
+
+function dealLinkFromOption(value: string): CostDealLink {
+  if (value.startsWith(DEAL_FIGURE_PREFIX)) {
+    return { kind: "deal_figure", dealId: value.slice(DEAL_FIGURE_PREFIX.length) };
+  }
+  if (value.startsWith(ATTRIBUTED_PREFIX)) {
+    return { kind: "attributed", dealId: value.slice(ATTRIBUTED_PREFIX.length) };
+  }
+  return NO_DEAL_LINK;
+}
+
+function dealOptionValue(link: CostDealLink): string {
+  if (link.kind === "deal_figure") return `${DEAL_FIGURE_PREFIX}${link.dealId}`;
+  if (link.kind === "attributed") return `${ATTRIBUTED_PREFIX}${link.dealId}`;
+  return NO_DEAL_VALUE;
+}
 
 const stripStyle = {
   display: "flex",
@@ -94,17 +124,17 @@ export interface CostAttributionProps {
   paidBy: string;
   fallbackParticipantId: string | null;
   bearing: CostBearing;
-  dealId: string;
+  dealLink: CostDealLink;
   onPaidByChange: (participantId: string) => void;
   onBearingChange: (bearing: CostBearing) => void;
   onEditSplit: () => void;
-  onDealChange: (dealId: string) => void;
+  onDealLinkChange: (link: CostDealLink) => void;
   rowLabel: string;
 }
 
 /**
- * Three selects: who FRONTED the cash, who ultimately BEARS it, and which
- * agreement it belongs to.
+ * Three selects: who FRONTED the cash, who ultimately BEARS it, and how the row
+ * relates to a deal.
  *
  * Paid-by and borne-by are separate on purpose (see `CostBearing`): the operator
  * pays the marketing invoice, and the contract may still split it 50/50. Picking
@@ -117,11 +147,11 @@ export function CostAttribution({
   paidBy,
   fallbackParticipantId,
   bearing,
-  dealId,
+  dealLink,
   onPaidByChange,
   onBearingChange,
   onEditSplit,
-  onDealChange,
+  onDealLinkChange,
   rowLabel,
 }: CostAttributionProps) {
   if (participants.length === 0) return null;
@@ -139,13 +169,16 @@ export function CostAttribution({
     onBearingChange({ kind: "participant", participantId: value });
   };
 
-  // A row that IS an agreement's own figure is a forecast, not cash: the
-  // settlement takes it from the deal and never reads the line. Who fronted it and
-  // who carries it are therefore questions with no answer, and leaving the two
-  // selects on the row would offer settings nothing applies — the dead-affordance
-  // problem that made the old "Cost split: 100% split" readout wrong in the first
-  // place. The row keeps only the control that means something, plus the note.
-  const isDealFigure = dealId !== "";
+  // A row that IS a deal's own figure is a forecast, not cash: the settlement
+  // takes it from the deal and never reads the line. Who fronted it and who
+  // carries it are therefore questions with no answer, and leaving the two selects
+  // on the row would offer settings nothing applies — the dead-affordance problem
+  // that made the old "Cost split: 100% split" readout wrong in the first place.
+  //
+  // A cost merely REPORTED UNDER a deal keeps both, because it is real money
+  // somebody fronted and somebody carries. That difference is the whole reason the
+  // two senses are separate.
+  const isDealFigure = dealLink.kind === "deal_figure";
 
   return (
     <div style={stripStyle}>
@@ -188,23 +221,32 @@ export function CostAttribution({
         </button>
       )}
       {deals.length > 0 && (
-        // Naming the options "a cost of its own" vs "the figure from <deal>" is
-        // load-bearing, not phrasing. Assigning a row to a deal does not merely
-        // TAG it — it declares the row to be that agreement's own figure written
-        // down early, which the settlement then takes from the agreement instead
-        // (see `DealAssignmentNote`). An operator who read the control as a label
-        // would book a real third-party cost against a deal and watch it leave
-        // the settlement, so the control has to say what it does.
-        <Field caption="Deal" width={210}>
+        // EACH DEAL APPEARS TWICE, and the two entries are the two things naming a
+        // deal can mean. One says the row IS that deal's figure written down early
+        // — the settlement takes it from the deal and never counts the line. The
+        // other says a real cost is being reported under the deal — the settlement
+        // counts it like any other. Offering one entry per deal would force the
+        // planner to guess, and either guess is somebody's residual out by the
+        // whole amount; the sentence under the row then says which was chosen.
+        <Field caption="Deal" width={280}>
           <Select
-            value={dealId || NO_DEAL_VALUE}
-            onChange={(value) => onDealChange(value === NO_DEAL_VALUE ? "" : value)}
+            value={dealOptionValue(dealLink)}
+            onChange={(value) => onDealLinkChange(dealLinkFromOption(value))}
             options={[
-              { value: NO_DEAL_VALUE, label: "A cost of its own" },
-              ...deals.map((deal) => ({ value: deal.id, label: `The figure from “${deal.name}”` })),
+              { value: NO_DEAL_VALUE, label: "Not tied to a deal" },
+              ...deals.flatMap((deal) => [
+                {
+                  value: `${DEAL_FIGURE_PREFIX}${deal.id}`,
+                  label: `“${deal.name}” — this IS the deal's figure`,
+                },
+                {
+                  value: `${ATTRIBUTED_PREFIX}${deal.id}`,
+                  label: `“${deal.name}” — a cost reported under it`,
+                },
+              ]),
             ]}
-            searchable={deals.length > 6}
-            aria-label={`Deal this cost belongs to, for ${rowLabel}`}
+            searchable={deals.length > 3}
+            aria-label={`How this cost relates to a deal, for ${rowLabel}`}
           />
         </Field>
       )}
@@ -232,21 +274,23 @@ const splitPillStyle = {
   padding: "3px 9px",
   borderRadius: 999,
   border: "1px solid var(--border)",
-  background: "var(--elevated)",
+  background: "var(--shape-fill)",
   color: "var(--muted)",
   cursor: "pointer",
 } as const;
 
 /**
- * The message under a cost booked against a deal.
+ * The sentence under a cost that names a deal — what the choice above it DID.
  *
- * A row that is really the agreement's own figure — the guarantee typed into
- * "Performer fee" — is a forecast, not cash that moved, and the settlement takes
- * it from the deal instead (see `CostDraft.dealId`). Saying so on the row is the
- * difference between a planner that quietly disagrees with the settlement and one
- * that explains why the two figures are the same money.
+ * Two selector entries that differ by six words are not enough on their own; what
+ * makes the difference legible is spelling out the consequence, on the row, at the
+ * moment it is chosen. One of these says the money is taken from the deal, the
+ * other says the money still comes out of the night. An operator who read the
+ * control as a mere label would otherwise book real catering against a deal and
+ * watch 500 leave the settlement without a word.
  */
-export function DealAssignmentNote({ dealName }: { dealName: string }) {
+export function DealAssignmentNote({ link, dealName }: { link: CostDealLink; dealName: string }) {
+  if (link.kind === "none") return null;
   return (
     <div
       style={{
@@ -259,8 +303,9 @@ export function DealAssignmentNote({ dealName }: { dealName: string }) {
       }}
     >
       <Icon name="link" size={12} />
-      Forecast for “{dealName}”. The settlement takes this figure from the agreement, so it is never
-      counted twice.
+      {link.kind === "deal_figure"
+        ? `Forecast only — this IS the figure in “${dealName}”. The settlement takes it from the deal, so it is never counted twice and never charged to the event.`
+        : `A real cost of the event, reported under “${dealName}”. It still lowers the settlement pool, exactly like an untagged cost.`}
     </div>
   );
 }

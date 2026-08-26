@@ -17,7 +17,7 @@
   font-weight: 500;
   text-align: left;
   cursor: pointer;
-  transition: color .18s;
+  transition: color var(--duration-quick);
 }
 .item.active { color: var(--text); }
 

@@ -74,8 +74,8 @@ export function CalendarFilterChip({
         style={{
           ...style,
           // A filter that is doing something must not look like one that is not.
-          borderColor: hiddenCount > 0 ? "#EE5746" : "var(--border)",
-          color: hiddenCount > 0 ? "#EE5746" : "var(--text)",
+          borderColor: hiddenCount > 0 ? "var(--brand-red)" : "var(--border)",
+          color: hiddenCount > 0 ? "var(--brand-red)" : "var(--text)",
         }}
       >
         <Icon name={icon} size={14} />
@@ -105,7 +105,7 @@ export function CalendarFilterChip({
                 background: "var(--surface)",
                 border: "1px solid var(--border)",
                 borderRadius: 12,
-                boxShadow: "0 18px 44px rgba(0,0,0,.28)",
+                boxShadow: "var(--shadow-lg)",
                 padding: 12,
                 display: "flex",
                 flexDirection: "column",

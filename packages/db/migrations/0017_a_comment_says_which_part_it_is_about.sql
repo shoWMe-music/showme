@@ -1,0 +1,20 @@
+-- A comment could not say which part of the document it was about.
+--
+-- `settlement_comments` is the one comment table an off-platform recipient can
+-- write to (`POST /shares/:token/comment`), and until now it carried only a
+-- message. The share viewer renders a whole document — the event, the schedule,
+-- the riders, the budget, the deal, the settlement — and a comment against it
+-- landed as an undifferentiated line in one list, so "the 20:30 door time is
+-- wrong" and "my split looks 2 000 short" arrived at the operator looking
+-- identical.
+--
+-- The old app solved this by prefixing the message text: `"[Agreement] …"`. That
+-- is a field pretending to be prose. It cannot be filtered on, it cannot be
+-- rendered beside the section it belongs to, and — because the prefix is written
+-- into text the recipient supplies — a recipient who types "[Settlement] "
+-- themselves is indistinguishable from the client that meant it.
+--
+-- So: one nullable column, drawn from the same vocabulary the share viewer's
+-- sections are drawn from (the share capabilities). NULL keeps its meaning for
+-- every row written before today — a comment on the settlement as a whole.
+ALTER TABLE "settlement_comments" ADD COLUMN IF NOT EXISTS "section" text;

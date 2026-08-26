@@ -153,7 +153,7 @@ export function ProfilePublicPreview({
             height: 190,
             background: profile.bannerUrl
               ? `center / cover no-repeat url(${profile.bannerUrl})`
-              : "linear-gradient(120deg, var(--brand-red-glow), var(--brand-red-glow) 40%, var(--elevated))",
+              : "linear-gradient(120deg, var(--brand-red-glow), var(--brand-red-glow) 40%, var(--surface))",
           }}
         />
         <div style={{ padding: "0 28px 28px" }}>
@@ -225,7 +225,7 @@ export function ProfilePublicPreview({
                     padding: "5px 13px",
                     borderRadius: 999,
                     border: "1px solid var(--border)",
-                    background: "var(--elevated)",
+                    background: "var(--shape-fill)",
                     fontSize: 13,
                     fontWeight: 500,
                     color: "var(--text)",
@@ -266,7 +266,7 @@ export function ProfilePublicPreview({
                     gap: 16,
                     padding: "12px 14px",
                     borderRadius: 12,
-                    background: "var(--elevated)",
+                    background: "var(--card)",
                     border: "1px solid var(--border)",
                   }}
                 >
@@ -344,7 +344,7 @@ export function ProfilePublicPreview({
                   justifyContent: "space-between",
                   padding: "10px 14px",
                   borderRadius: 12,
-                  background: "var(--elevated)",
+                  background: "var(--card)",
                   border: "1px solid var(--border)",
                 }}
               >
@@ -375,7 +375,7 @@ export function ProfilePublicPreview({
                 style={{
                   padding: "10px 14px",
                   borderRadius: 12,
-                  background: "var(--elevated)",
+                  background: "var(--card)",
                   border: "1px solid var(--border)",
                 }}
               >
@@ -487,7 +487,7 @@ export function ProfilePublicPreview({
                     padding: "12px 14px",
                     borderRadius: 12,
                     border: "1px solid var(--border)",
-                    background: "var(--elevated)",
+                    background: "var(--card)",
                     color: "var(--text)",
                     fontSize: 13.5,
                     textDecoration: "none",
@@ -523,7 +523,7 @@ function PreviewBanner({ isPublic, slug }: { isPublic: boolean; slug: string }) 
         padding: "11px 16px",
         borderRadius: 12,
         border: `1px solid ${isPublic ? "var(--border)" : "var(--brand-red)"}`,
-        background: "var(--elevated)",
+        background: "var(--card)",
         color: "var(--muted)",
         fontSize: 13.5,
       }}
@@ -574,7 +574,7 @@ function Pill({ children }: { children: React.ReactNode }) {
         padding: "5px 13px",
         borderRadius: 999,
         border: "1px solid var(--border)",
-        background: "var(--elevated)",
+        background: "var(--shape-fill)",
         fontSize: 13,
         fontWeight: 500,
         color: "var(--text)",
