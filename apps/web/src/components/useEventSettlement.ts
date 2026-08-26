@@ -1,6 +1,9 @@
 import {
+  type getApiV1EventsIdDeals,
   type getApiV1EventsIdSettlements,
   getGetApiV1EventsIdSettlementsQueryKey,
+  useGetApiV1EventsIdDeals,
+  useGetApiV1EventsIdParticipants,
   useGetApiV1EventsIdSettlements,
   usePatchApiV1EventsIdTransfersTid,
   usePostApiV1EventsIdSettlementCompute,
@@ -9,12 +12,23 @@ import {
 } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { errorMessage } from "../lib/errors";
+import { formatMoney } from "../lib/format";
+import type { Transfer } from "./WhoOwesWhomBoard";
+import {
+  type EntitlementRule,
+  type LadderRow,
+  describeBasis,
+  entitlementRules,
+  initialsOf,
+  isWholeBoard,
+  ladderRows,
+  netToneOf,
+  transferStateOf,
+} from "./settlementDocument";
 
 type Settlements = Awaited<ReturnType<typeof getApiV1EventsIdSettlements>>;
-type SettlementRow = Settlements["settlements"][number];
-type TransferRow = Settlements["transfers"][number];
 
 /** The settlement statuses at which the figures are frozen (`LOCKED_SETTLEMENT_STATUSES`). */
 const FROZEN_STATUSES = new Set(["finalized", "revised", "partly_paid", "paid", "concluded"]);
@@ -37,11 +51,86 @@ export function settlementAuthorityOf(capabilities: readonly string[]): Settleme
   };
 }
 
+/**
+ * One party's payout card: who they are, what they take, and — the point of the
+ * whole screen — the RULE each part of it settled under.
+ *
+ * Every money field arrives pre-formatted because the engine already decided it.
+ * Nothing on this object is arithmetic done in the browser.
+ */
+export interface SettlementParty {
+  settlementId: string;
+  participantId: string | null;
+  name: string;
+  initials: string;
+  role: string;
+  isYours: boolean;
+  approvedByYou: boolean;
+  /** Null until the event has been reconciled — a real "not yet", not a zero. */
+  entitlement: string | null;
+  collected: string | null;
+  paid: string | null;
+  net: string | null;
+  netTone: "positive" | "negative" | "neutral";
+  /**
+   * The sentences behind the entitlement ("70% of the adjusted net beats the
+   * €50,000 guarantee"). Empty for a settlement snapshotted before the engine
+   * recorded a basis — the card then shows the bare figure rather than inventing
+   * an explanation for it.
+   */
+  rules: EntitlementRule[];
+}
+
+/** One party's sign-off, named, as the roster shows it. */
+export interface SettlementApprovalRow {
+  participantId: string;
+  name: string;
+  role: string;
+  approved: boolean;
+  approvedAt: string | null;
+  isYours: boolean;
+}
+
+/**
+ * One agreement, as the SETTLEMENT saw it: what it paid in total, and who took
+ * which slice of it under which rule.
+ *
+ * Distinct from the event workspace's Deals tab, which is about authoring and
+ * confirming terms. This is the settled reading of the same agreement — built
+ * from the entitlement lines the engine recorded, so a deal that produced no
+ * entitlement for anyone visible simply does not appear.
+ */
+export interface SettlementDealRow {
+  dealId: string;
+  name: string;
+  /** What the whole agreement pays; the shares below divide it. */
+  dealTotal: string;
+  shares: { key: string; name: string; rule: string; amount: string }[];
+}
+
 export interface EventSettlement {
-  settlements: SettlementRow[];
-  transfers: TransferRow[];
+  parties: SettlementParty[];
+  transfers: Transfer[];
   /** Private agent↔performer commissions — only ever the two parties' own (#14). */
   commissions: Settlements["commissions"];
+  /**
+   * Gross takings → adjusted net, or NULL for a caller who may not read the
+   * night's money. Null is the ceiling itself (story.md:44), not a loading state
+   * and not an empty one — the screen must say so rather than render a blank.
+   */
+  ladder: LadderRow[] | null;
+  approvals: SettlementApprovalRow[];
+  approvedCount: number;
+  /** The agreements behind the figures. Empty until the event is reconciled. */
+  deals: SettlementDealRow[];
+  /** The caller's own party line, if they are a party at all. */
+  ownParty: SettlementParty | null;
+  /**
+   * Whether the visible lines are the WHOLE board (Σ net = 0) or a party-scoped
+   * slice. A slice is a redaction, never an accounting error — see `isWholeBoard`.
+   */
+  isWholeBoard: boolean;
+  nameOf: (participantId: string | null | undefined) => string;
   isPending: boolean;
   isError: boolean;
   error: unknown;
@@ -50,6 +139,7 @@ export interface EventSettlement {
   isComputed: boolean;
   /** True once the figures are frozen — no recompute, no second finalize. */
   isFinalized: boolean;
+  status: string;
   isBusy: boolean;
   compute: () => void;
   finalize: () => void;
@@ -58,12 +148,17 @@ export interface EventSettlement {
 }
 
 /**
- * The settlement, from the event workspace.
+ * The settlement, for both surfaces that show one: the event workspace's thin tab
+ * and the full settlement workspace.
  *
- * `POST /events/:id/settlement/compute` had no caller anywhere in the browser, so
- * `GET …/settlements` returned nothing on every event and the tab showed "Nothing
- * settled yet" as a permanent state — the same defect as the Agreement tab, one
- * step later in the same story.
+ * Everything the two screens render is derived HERE — names resolved against the
+ * roster, figures formatted, the basis turned into its sentence, the ladder into
+ * its rungs — so the components take values and emit events, and the two can never
+ * disagree about what a figure means.
+ *
+ * The roster is fetched here rather than passed in: it is the only way to turn a
+ * `participantId` into a person, both screens need it, and TanStack Query dedupes
+ * the request against the copy the event workspace already holds.
  *
  * Finalize is the one action here that cannot be taken back. It freezes an
  * immutable snapshot and **locks the exchange rates** that produced it
@@ -77,10 +172,19 @@ export interface EventSettlement {
 export function useEventSettlement(
   eventId: string,
   capabilities: readonly string[],
+  currency: string,
 ): EventSettlement {
   const queryClient = useQueryClient();
   const toast = useToast();
   const settlements = useGetApiV1EventsIdSettlements(eventId);
+  // Names only. The board is readable without them (an id falls back to a short
+  // stub), so a caller whose permission set stops short of the roster still sees
+  // their own money.
+  const participants = useGetApiV1EventsIdParticipants(eventId);
+  // Names and structures for the Deal Structure tab. Already party-scoped by the
+  // API (`GET /events/:id/deals` returns only deals the caller is a party to), so
+  // a performer's tab narrows to her own agreement without this screen deciding.
+  const deals = useGetApiV1EventsIdDeals(eventId);
 
   const refresh = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: getGetApiV1EventsIdSettlementsQueryKey(eventId) });
@@ -160,18 +264,91 @@ export function useEventSettlement(
     [patchTransfer, settlements.data, eventId, refresh, toast],
   );
 
+  const roster = participants.data;
+
+  const nameOf = useCallback(
+    (participantId: string | null | undefined): string => {
+      const match = (roster ?? []).find((party) => party.id === participantId);
+      if (match) return match.name ?? match.performerTag ?? humanize(match.role);
+      // No roster entry to hand: the short id is honest where an invented label
+      // ("Participant 2") would not be.
+      return participantId ? participantId.slice(0, 8) : "Participant";
+    },
+    [roster],
+  );
+
+  const roleOf = useCallback(
+    (participantId: string | null | undefined): string => {
+      const match = (roster ?? []).find((party) => party.id === participantId);
+      return match ? humanize(match.role) : "Party";
+    },
+    [roster],
+  );
+
   const rows = settlements.data?.settlements ?? [];
 
+  const parties = useMemo(
+    () => rows.map((row) => toParty(row, currency, nameOf, roleOf)),
+    [rows, currency, nameOf, roleOf],
+  );
+
+  const transfers = useMemo(
+    () =>
+      (settlements.data?.transfers ?? [])
+        // A representation transfer is the private agent commission — it belongs
+        // with the commission card, not among the event's who-owes-whom lines (#14).
+        .filter((transfer) => !transfer.representationId)
+        .map((transfer, index) => ({
+          id: transfer.id ?? `transfer-${index}`,
+          from: nameOf(transfer.fromParticipantId),
+          to: nameOf(transfer.toParticipantId),
+          amount: formatMoney(transfer.amount, currency),
+          state: transferStateOf(transfer.state),
+        })),
+    [settlements.data, currency, nameOf],
+  );
+
+  const approvals = useMemo(() => {
+    const mine = new Set(
+      rows.filter((row) => row.isYours).map((row) => row.participantId as string),
+    );
+    return (settlements.data?.approvals ?? []).map((approval) => ({
+      participantId: approval.participantId,
+      name: nameOf(approval.participantId),
+      role: roleOf(approval.participantId),
+      approved: approval.approved,
+      approvedAt: approval.approvedAt,
+      isYours: mine.has(approval.participantId),
+    }));
+  }, [settlements.data, rows, nameOf, roleOf]);
+
+  const ladder = settlements.data?.ladder ?? null;
+
+  const dealRows = useMemo(
+    () => toDealRows(rows, deals.data ?? [], currency, nameOf),
+    [rows, deals.data, currency, nameOf],
+  );
+
   return {
-    settlements: rows,
-    transfers: settlements.data?.transfers ?? [],
+    parties,
+    transfers,
     commissions: settlements.data?.commissions ?? [],
+    ladder: ladder ? ladderRows(ladder, currency) : null,
+    approvals,
+    approvedCount: approvals.filter((approval) => approval.approved).length,
+    deals: dealRows,
+    ownParty: parties.find((party) => party.isYours) ?? null,
+    isWholeBoard: isWholeBoard(
+      rows.filter((row) => row.computed != null).map((row) => row.computed?.net ?? "0"),
+    ),
+    nameOf,
     isPending: settlements.isPending,
     isError: settlements.isError,
     error: settlements.error,
     authority: settlementAuthorityOf(capabilities),
     isComputed: rows.some((row) => row.computed != null),
     isFinalized: rows.some((row) => FROZEN_STATUSES.has(row.status)),
+    status: rows[0]?.status ?? "open",
     isBusy:
       computeSettlement.isPending ||
       finalizeSettlement.isPending ||
@@ -182,4 +359,74 @@ export function useEventSettlement(
     confirmOwn,
     markTransfer,
   };
+}
+
+/** `team_and_crew` → "Team and crew". */
+function humanize(raw: string): string {
+  return raw.replace(/_/g, " ").replace(/^\w/, (character) => character.toUpperCase());
+}
+
+function toParty(
+  row: Settlements["settlements"][number],
+  currency: string,
+  nameOf: (participantId: string | null | undefined) => string,
+  roleOf: (participantId: string | null | undefined) => string,
+): SettlementParty {
+  const name = nameOf(row.participantId);
+  const computed = row.computed;
+  return {
+    settlementId: row.id,
+    participantId: row.participantId,
+    name,
+    initials: initialsOf(name),
+    role: roleOf(row.participantId),
+    isYours: row.isYours,
+    approvedByYou: row.approvedByYou,
+    entitlement: computed ? formatMoney(computed.entitlement, currency) : null,
+    collected: computed ? formatMoney(computed.collected, currency) : null,
+    paid: computed ? formatMoney(computed.paid, currency) : null,
+    net: computed ? formatMoney(computed.net, currency) : null,
+    netTone: computed ? netToneOf(computed.net) : "neutral",
+    rules: computed ? entitlementRules(computed, currency) : [],
+  };
+}
+
+/**
+ * Group every visible entitlement line by the deal it came from.
+ *
+ * The lines are the settlement's own record, so the total shown is what the deal
+ * actually paid — not what its terms projected. A deal the caller can see but
+ * which paid nobody visible produces no row, and a deal whose name the caller
+ * cannot read falls back to its short id rather than to an invented label.
+ */
+function toDealRows(
+  rows: Settlements["settlements"],
+  deals: Awaited<ReturnType<typeof getApiV1EventsIdDeals>>,
+  currency: string,
+  nameOf: (participantId: string | null | undefined) => string,
+): SettlementDealRow[] {
+  const byDeal = new Map<string, SettlementDealRow>();
+  for (const row of rows) {
+    for (const line of row.computed?.lines ?? []) {
+      const existing = byDeal.get(line.dealId);
+      const deal = deals.find((candidate) => candidate.id === line.dealId);
+      const share = {
+        key: `${line.dealId}-${row.id}`,
+        name: nameOf(row.participantId),
+        rule: describeBasis(line.basis, currency),
+        amount: formatMoney(line.amount, currency),
+      };
+      if (existing) {
+        existing.shares.push(share);
+        continue;
+      }
+      byDeal.set(line.dealId, {
+        dealId: line.dealId,
+        name: deal?.name ?? `Deal ${line.dealId.slice(0, 8)}`,
+        dealTotal: formatMoney(line.dealTotal, currency),
+        shares: [share],
+      });
+    }
+  }
+  return [...byDeal.values()];
 }

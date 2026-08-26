@@ -9,10 +9,10 @@ import {
   type Status,
   StatusDot,
 } from "@showme/design-system";
+import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { KpiRow } from "../components";
-import { SettlementDetailModal } from "../components/SettlementDetailModal";
 import { settlementStatusToDisplay, settlementTotals } from "../components/settlementDocument";
 import { ErrorState, LoadingState } from "../components/states";
 import { formatAmount, formatDate, formatMoney } from "../lib/format";
@@ -113,9 +113,8 @@ function buildColumns(isSingleProfile: boolean): DataTableColumn<SettlementItem>
 export function Settlements() {
   const { data, isPending, isError, error } = useGetApiV1Settlements();
   const [filter, setFilter] = useState<FilterKey>("all");
-  /** The settlement whose board is open over the list; null = overlay closed. */
-  const [openSettlement, setOpenSettlement] = useState<SettlementItem | null>(null);
   const { session } = useAuth();
+  const navigate = useNavigate();
 
   // One profile → the viewer is unambiguously the artist on every row.
   const isSingleProfile = (session?.memberships.length ?? 0) === 1;
@@ -198,13 +197,17 @@ export function Settlements() {
               columns={columns}
               rows={rows}
               getRowKey={(row) => row.id}
-              onRowClick={setOpenSettlement}
+              // Into the full settlement workspace, the same document the event
+              // workspace's Settlement tab opens. One settlement surface, reached
+              // from either entry point — "what am I owed" or "how did that show
+              // go" — rather than a second, thinner copy living in an overlay.
+              onRowClick={(row) =>
+                navigate({ to: "/events/$eventId/settlement", params: { eventId: row.event.id } })
+              }
             />
           )}
         </div>
       )}
-
-      <SettlementDetailModal settlement={openSettlement} onClose={() => setOpenSettlement(null)} />
     </>
   );
 }

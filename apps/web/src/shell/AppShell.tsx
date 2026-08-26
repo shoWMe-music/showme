@@ -32,6 +32,11 @@ const PAGE_TITLES: Record<string, { crumb: string; title: string }> = {
 
 function pageTitle(pathname: string): { crumb: string; title: string } {
   if (PAGE_TITLES[pathname]) return PAGE_TITLES[pathname];
+  // The settlement workspace is its own document under the event, so the chrome
+  // names it rather than repeating "Event" over a screen that is about the money.
+  if (/^\/events\/[^/]+\/settlement\/?$/.test(pathname)) {
+    return { crumb: "Money", title: "Settlement" };
+  }
   // Event workspace (/events/:id) — a detail view with no top-level crumb.
   if (pathname.startsWith("/events/")) return { crumb: "Event workspace", title: "Event" };
   return { crumb: "", title: "" };

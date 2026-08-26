@@ -6,9 +6,10 @@ import type { SettlementStep } from "./SettlementStepper";
 import type { TransferState } from "./WhoOwesWhomBoard";
 
 /**
- * Pure readers for a settlement, shared by the Settlements table row and the
- * settlement detail overlay. They live outside both components so the two
- * surfaces can never disagree about what a status means or which figure is which.
+ * Pure readers for a settlement, shared by the Settlements list, the event
+ * workspace's Settlement tab and the full settlement workspace. They live outside
+ * all three so no two surfaces can disagree about what a status means, which
+ * figure is which, or which rule a line settled under.
  *
  * NOTHING here does money arithmetic. The settlement engine
  * (`packages/settlement`) is authoritative and its result is frozen into
@@ -16,27 +17,6 @@ import type { TransferState } from "./WhoOwesWhomBoard";
  * exactly the drift audit A-13 was. Every amount rendered is a field the API
  * served, formatted and nothing else.
  */
-
-/**
- * The row the Settlements list already holds, and the only event context the
- * detail overlay needs.
- *
- * The overlay is handed the row rather than re-fetching it by id (the invoice
- * overlay's pattern) because there is no `GET /settlements/:id` — the list route
- * `GET /settlements` is the only place the event title, its date and the event's
- * base currency are served together with the settlement. The per-event read the
- * overlay *does* make (`GET /events/:id/settlements`) carries neither an event
- * title nor a currency.
- */
-export interface SettlementListRow {
-  id: string;
-  status: string;
-  /** The caller's OWN participant row — which line in the board is theirs. */
-  participantId: string | null;
-  /** `events.base_currency`; every figure in a settlement is denominated in it. */
-  currency: string;
-  event: { id: string; title: string; eventDate: string | null; status: string };
-}
 
 /** `settlement_status` → the design system's status vocabulary + a human label. */
 export function settlementStatusToDisplay(status: string): { status: Status; label: string } {
@@ -58,30 +38,38 @@ export function settlementStatusToDisplay(status: string): { status: Status; lab
   }
 }
 
-/** How far along the settlement process a status sits. */
-const STATUS_STAGE_INDEX: Record<string, number> = {
-  open: 0,
-  draft: 0,
-  pending: 1,
-  pending_review: 1,
-  review: 1,
-  comments_received: 1,
-  finalized: 2,
-  revised: 2,
-  partly_paid: 3,
-  paid: 3,
-  concluded: 3,
-};
+/**
+ * The process rail — and it has TWO stops, not the prototype's seven.
+ *
+ * `settlement_status` has eight values and the API writes exactly two of them:
+ * `open` is the column default (`packages/db/src/schema/settlement.ts:148`) and
+ * `finalized` is written by `POST /events/:id/settlement/finalize`. Nothing in
+ * `apps/api` ever writes `pending_review`, `comments_received`, `revised`,
+ * `partly_paid`, `paid` or `dispute` — measured, not assumed.
+ *
+ * So a seven-stop rail would draw five stops no settlement can ever reach, which
+ * is a dead affordance wearing a progress bar (STYLE-GUIDE §7): it promises a
+ * review-and-dispute workflow this product does not have yet. Payment progress is
+ * real, but it lives on the individual TRANSFERS (owed → paid → handled) and is
+ * shown on the who-owes-whom board, not on the settlement's own status.
+ *
+ * Any other value still renders — a row could carry one from a fixture — and it
+ * simply sits at whichever stop it maps to rather than inventing a stop for itself.
+ */
+const FROZEN_STAGE: ReadonlySet<string> = new Set([
+  "finalized",
+  "revised",
+  "partly_paid",
+  "paid",
+  "concluded",
+]);
 
-const STAGE_LABELS = ["Open", "Pending review", "Finalized", "Paid"];
-
-/** The four-stop process rail for one settlement's status. */
 export function settlementSteps(status: string): SettlementStep[] {
-  const active = STATUS_STAGE_INDEX[status] ?? 0;
-  return STAGE_LABELS.map((label, index) => ({
-    label,
-    state: index < active ? "done" : index === active ? "active" : "pending",
-  }));
+  const frozen = FROZEN_STAGE.has(status);
+  return [
+    { label: "Open", state: frozen ? "done" : "active" },
+    { label: "Finalized", state: frozen ? "active" : "pending" },
+  ];
 }
 
 /** `settlement_transfers.state` → the board's three payment states. */
@@ -252,6 +240,55 @@ export function entitlementRules(computed: ComputedBreakdown, currency: string):
     });
   }
   return rules;
+}
+
+/** One rung of the pool ladder, already formatted. */
+export interface LadderRow {
+  key: string;
+  label: string;
+  value: string;
+  /** Money coming OFF the running figure — rendered as a subtraction. */
+  negative?: boolean;
+  /** The adjusted net: the figure every percentage below it is a share of. */
+  total?: boolean;
+}
+
+/**
+ * Gross takings → adjusted net, the five rungs the engine already computed.
+ *
+ * This is the prototype's "Revenue & deductions" totals block, and it is the whole
+ * reason a settlement reads as arithmetic rather than as an assertion: without the
+ * base, "70% of the adjusted net" names a rule nobody can check. `splitPool` is
+ * that base — the reference app called it `adjustedNet` — and `offTheTop` is the
+ * rentals that settled before the percentage deals divided what was left.
+ *
+ * OPERATOR ONLY, and the caller does not choose: the route serves `ladder: null`
+ * to anyone without `budget.view` (story.md:44), so a party who may not read the
+ * night's takings has nothing here to format. Formats; never computes.
+ */
+export function ladderRows(ladder: PoolLadder, currency: string): LadderRow[] {
+  return [
+    { key: "revenue", label: "Revenue", value: formatMoney(ladder.revenue, currency) },
+    {
+      key: "costs",
+      label: "Costs nobody was charged for",
+      value: formatMoney(ladder.costs, currency),
+      negative: true,
+    },
+    { key: "pool", label: "Pool", value: formatMoney(ladder.pool, currency) },
+    {
+      key: "off-the-top",
+      label: "Rentals settled off the top",
+      value: formatMoney(ladder.offTheTop, currency),
+      negative: true,
+    },
+    {
+      key: "split-pool",
+      label: "Adjusted net",
+      value: formatMoney(ladder.splitPool, currency),
+      total: true,
+    },
+  ];
 }
 
 /* ── The caller's own money, across every event ───────────────────────────────

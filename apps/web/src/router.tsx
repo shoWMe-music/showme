@@ -5,6 +5,7 @@ import { Calendar } from "./routes/Calendar";
 import { Contacts } from "./routes/Contacts";
 import { Dashboard } from "./routes/Dashboard";
 import { EventDetail } from "./routes/EventDetail";
+import { EventSettlement } from "./routes/EventSettlement";
 import { Events } from "./routes/Events";
 import { Invoices } from "./routes/Invoices";
 import { OAuthGoogleCallback } from "./routes/OAuthGoogleCallback";
@@ -33,6 +34,14 @@ const routeTree = rootRoute.addChildren([
     getParentRoute: () => rootRoute,
     path: "/events/$eventId",
     component: EventDetail,
+  }),
+  // The full settlement workspace. A route of its own rather than a tab: it has
+  // its own sub-navigation and its own "Back to event" link, and the Settlements
+  // list opens it directly for people whose entry point is "what am I owed".
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/events/$eventId/settlement",
+    component: EventSettlement,
   }),
   child("/tasks", Tasks),
   child("/reports", Reports),

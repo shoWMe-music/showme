@@ -383,7 +383,6 @@ export function EventDetail() {
           <EventSettlementTab
             eventId={eventId}
             currency={event.baseCurrency}
-            roster={roster}
             capabilities={event.capabilities ?? []}
           />
         )}
