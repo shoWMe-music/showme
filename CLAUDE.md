@@ -57,6 +57,24 @@ product rule isn't written down, **infer it from story.md's purpose/boundary**, 
 
 ## Reference source (do not copy structure)
 The prior app at `../showme-settle-fast` is **reference only** — for **proven domain logic** to port verbatim
-(`src/lib/settlementParties.ts`, `src/lib/settlementUtils.ts`, `functions/src/holdRankLogic.ts`) and its **test suites**
-(the executable spec for edge cases: VAT, guarantee-vs-door, hold promotion). **Do not** carry over its Firestore
-structure or the ~1,700 LOC of denormalization/fan-out — that's exactly what this rebuild deletes.
+(`src/lib/settlementUtils.ts`, `functions/src/holdRankLogic.ts`). **Do not** carry over its Firestore structure or the
+denormalization/fan-out — that's exactly what this rebuild deletes. The ~1,700 LOC figure is if anything conservative:
+measured 2026-08-26, the `accessUids` family alone is 992 LOC, all maintained copies 2,104, and 3,208 counting
+notification fan-out — plus 3,591 LOC of repair and forensic scripts, and 25 of its 40 composite indexes existing only
+to serve the access arrays.
+
+**`settlementParties.ts` was on this list and has been removed from it.** It is not domain logic: its whole job is
+folding away a phantom "Promoter" card that `calculateSettlement` emits unconditionally because the old party
+vocabulary was hardcoded (`promoter | venue | organizer | artist`). `deal_parties` dissolves that problem, so porting
+the helper would import a workaround for a bug we do not have.
+
+**Correction, 2026-08-26 — this file used to call the old test suites "the executable spec for edge cases: VAT,
+guarantee-vs-door, hold promotion". They are not, and building on that belief wasted effort.** Measured: 55 test files,
+**0** referencing `calculateSettlement`, **0** referencing guarantee-vs-door. VAT appears in 10 test files but is never
+*computed* anywhere in the money core — `VatInfo` is attached to fields and read only by a text-suffix renderer.
+`functions/src/holdRankLogic.test.ts` is real, but `vitest.config.ts:11` scopes `include` to `src/**`, so it and the
+other four `functions/` suites have never run in that repo's CI either. The hold-promotion half of the old claim is the
+only part that survives, and even it was never enforced.
+
+Treat the old app's BEHAVIOUR as the reference, established by executing `calculateSettlement` directly — not its
+tests. The findings from doing exactly that are in `docs/old-app-analysis-settlement.md`.
