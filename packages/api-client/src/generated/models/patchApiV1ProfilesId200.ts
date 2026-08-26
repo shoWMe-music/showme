@@ -6,6 +6,7 @@
  */
 import type { PatchApiV1ProfilesId200Location } from './patchApiV1ProfilesId200Location';
 import type { PatchApiV1ProfilesId200VenueDetails } from './patchApiV1ProfilesId200VenueDetails';
+import type { PatchApiV1ProfilesId200SocialLinksItem } from './patchApiV1ProfilesId200SocialLinksItem';
 
 export type PatchApiV1ProfilesId200 = {
   id: string;
@@ -27,6 +28,9 @@ export type PatchApiV1ProfilesId200 = {
   location?: PatchApiV1ProfilesId200Location;
   /** @nullable */
   venueDetails?: PatchApiV1ProfilesId200VenueDetails;
+  socialLinks?: PatchApiV1ProfilesId200SocialLinksItem[];
+  photos?: string[];
+  videos?: string[];
   billing?: unknown;
   createdAt: string;
   updatedAt: string;

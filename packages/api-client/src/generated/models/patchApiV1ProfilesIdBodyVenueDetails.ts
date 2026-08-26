@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PatchApiV1ProfilesIdBodyVenueDetailsCapacitySetupsItem } from './patchApiV1ProfilesIdBodyVenueDetailsCapacitySetupsItem';
 
 export type PatchApiV1ProfilesIdBodyVenueDetails = {
   /**
@@ -26,6 +27,8 @@ export type PatchApiV1ProfilesIdBodyVenueDetails = {
   amenities?: string[];
   /** @maxItems 50 */
   dealTypes?: string[];
+  /** @maxItems 50 */
+  capacitySetups?: PatchApiV1ProfilesIdBodyVenueDetailsCapacitySetupsItem[];
   /**
    * @maxLength 5000
    * @nullable

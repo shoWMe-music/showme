@@ -1,6 +1,6 @@
 import { randomBytes, randomInt } from "node:crypto";
 import { type Database, schema } from "@showme/db";
-import { eq, or } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, or } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -14,6 +14,7 @@ import { notifyUsers } from "../lib/notify";
 import { withIdempotency } from "../plugins/idempotency";
 
 const TokenParams = z.object({ token: z.string().min(1) });
+const EventParams = z.object({ id: z.string().uuid() });
 
 const invitationTypeEnum = z.enum(["profile_member", "event_participant", "code"]);
 const invitationSourceEnum = z.enum([
@@ -48,6 +49,28 @@ const InvitationResponse = z.object({
   targetEventId: z.string().nullable(),
   role: z.string().nullable(),
   permissionSetId: z.string().nullable(),
+});
+
+/**
+ * An invitation as the EVENT sees it — the roster view, for everyone who may
+ * manage who is on the event.
+ *
+ * Deliberately NOT `InvitationResponse`: that shape carries `token`/`code`, the
+ * bearer secrets that redeem the grant. The person who sent the invite already
+ * holds theirs; handing it to every other roster manager would let any of them
+ * accept in the invitee's place. What the roster actually needs is who was asked,
+ * as what, and whether they have answered.
+ */
+const EventInvitationResponse = z.object({
+  id: z.string(),
+  status: z.string(),
+  source: z.string(),
+  recipientEmail: z.string().nullable(),
+  recipientName: z.string().nullable(),
+  role: z.string().nullable(),
+  permissionSetId: z.string().nullable(),
+  createdAt: z.string(),
+  expiresAt: z.string().nullable(),
 });
 
 type InvitationRow = typeof schema.invitations.$inferSelect;
@@ -282,6 +305,58 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
       }
 
       return reply.status(statusCode as 201).send(result);
+    },
+  );
+
+  // The event's OPEN invitations — the other half of its roster.
+  //
+  // `GET /events/:id/participants` only ever returned people who are already ON
+  // the event, and an invitation writes no participant row until it is accepted
+  // (that is the whole point — nothing is granted until they answer). So an
+  // operator who had just invited someone saw their Collaborators tab exactly as
+  // it was before, with no evidence the invite existed. This route is that
+  // evidence.
+  //
+  // Gated on `participants.manage`, not `event.view`: an invitation carries the
+  // recipient's EMAIL, which is contact detail the inviter holds — a performer on
+  // the bill has no claim to the address of everyone else who was approached.
+  // Accepted/declined/used invites are excluded: the accepted ones are already on
+  // the participants list (two rows for one person reads as a duplicate), and a
+  // refusal that lingers as a card looks like an outstanding ask.
+  app.get(
+    "/events/:id/invitations",
+    { schema: { params: EventParams, response: { 200: z.array(EventInvitationResponse) } } },
+    async (request) => {
+      const { database } = request.server;
+      const { id } = request.params;
+
+      await requireEventCapability(request, id, "participants.manage");
+
+      const rows = await database
+        .select()
+        .from(schema.invitations)
+        .where(
+          and(
+            eq(schema.invitations.targetEventId, id),
+            eq(schema.invitations.status, "pending"),
+            // An expired invite is gone everywhere else in this module
+            // (`loadInvitation` 404s on it), so it must not linger here either.
+            or(isNull(schema.invitations.expiresAt), gt(schema.invitations.expiresAt, new Date())),
+          ),
+        )
+        .orderBy(desc(schema.invitations.createdAt));
+
+      return rows.map((invitation) => ({
+        id: invitation.id,
+        status: invitation.status,
+        source: invitation.source,
+        recipientEmail: invitation.recipientEmail,
+        recipientName: invitation.recipientName,
+        role: invitation.role,
+        permissionSetId: invitation.permissionSetId,
+        createdAt: invitation.createdAt.toISOString(),
+        expiresAt: invitation.expiresAt ? invitation.expiresAt.toISOString() : null,
+      }));
     },
   );
 

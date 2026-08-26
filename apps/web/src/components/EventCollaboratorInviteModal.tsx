@@ -7,6 +7,7 @@ import {
   type EventCollaboratorAccess,
   useEventCollaboratorInvite,
 } from "./useEventCollaboratorInvite";
+import { useEventInviteRolePreset } from "./useEventInviteRolePreset";
 
 /**
  * The event workspace's "Invite Collaborator" — the Claude prototype's
@@ -31,6 +32,12 @@ export interface EventCollaboratorInviteModalProps {
   eventTitle: string;
   /** The admin-grade permission set "Full control" attaches; `null` hides the option. */
   fullControlPermissionSetId: string | null;
+  /**
+   * The event role to open on, when the caller already said which one — the
+   * Team / Crew tab's "+ Add Member" means crew. A preset the user can still
+   * change, never a lock; see `useEventInviteRolePreset`.
+   */
+  initialRole?: string;
 }
 
 interface AccessOption {
@@ -67,8 +74,10 @@ export function EventCollaboratorInviteModal({
   eventId,
   eventTitle,
   fullControlPermissionSetId,
+  initialRole,
 }: EventCollaboratorInviteModalProps) {
   const invite = useEventCollaboratorInvite({ open, eventId, fullControlPermissionSetId });
+  useEventInviteRolePreset(open, initialRole, invite.setRole);
   const selectedRole = EVENT_COLLABORATOR_ROLES.find((option) => option.value === invite.role);
   const selectedAccess = ACCESS_OPTIONS.find((option) => option.value === invite.access);
   const canSubmit = invite.email.trim().length > 0 && !invite.pending;

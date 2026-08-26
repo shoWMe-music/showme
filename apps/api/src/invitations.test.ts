@@ -5,6 +5,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
+import type { EmailMessage } from "./lib/email";
 import { invitationRoutes } from "./routes/invitations";
 import { buildTestApp } from "./testing";
 
@@ -841,5 +842,295 @@ describe("invitations — what reaches an event's history", () => {
       .from(schema.activityLog)
       .where(isNull(schema.activityLog.eventId));
     expect(eventless).toHaveLength(0);
+  });
+});
+
+describe("GET /events/:id/invitations — the event's open invitations", () => {
+  /** A host operator + their event, with the host standing on it. */
+  async function seedEventWithHost(prefix: string) {
+    const { db } = harness;
+    const host = await seedOwnerWithProfile(`${prefix}-host`);
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: host.profileId,
+        title: "Open Mic Wednesdays",
+        baseCurrency: "SEK",
+        createdBy: `${prefix}-host`,
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: host.profileId,
+      role: "host",
+      permissionSetId: host.permissionSetId,
+      status: "confirmed",
+    });
+    return { host, event };
+  }
+
+  it("shows an invitation the host just sent, before anybody accepts it", async () => {
+    const { host, event } = await seedEventWithHost("pending-list");
+
+    const invite = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("pending-list-host"), "x-profile-id": host.profileId },
+      payload: {
+        type: "event_participant",
+        source: "collaborator",
+        recipientEmail: "nils@example.com",
+        recipientName: "Nils Andersson",
+        targetEventId: event.id,
+        role: "co_host",
+      },
+    });
+    expect(invite.statusCode).toBe(201);
+
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/invitations`,
+      headers: { ...auth("pending-list-host"), "x-profile-id": host.profileId },
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json()).toHaveLength(1);
+    expect(listed.json()[0]).toMatchObject({
+      status: "pending",
+      recipientEmail: "nils@example.com",
+      recipientName: "Nils Andersson",
+      role: "co_host",
+    });
+    // The redemption secrets are never on this shape — see EventInvitationResponse.
+    expect(listed.json()[0].token).toBeUndefined();
+    expect(listed.json()[0].code).toBeUndefined();
+  });
+
+  it("drops an invitation once it has been answered", async () => {
+    const { db } = harness;
+    const { host, event } = await seedEventWithHost("answered-list");
+
+    const invite = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("answered-list-host"), "x-profile-id": host.profileId },
+      payload: {
+        type: "event_participant",
+        source: "collaborator",
+        recipientEmail: "declined@example.com",
+        targetEventId: event.id,
+        role: "crew",
+      },
+    });
+    const token = invite.json().token as string;
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${token}/decline`,
+      headers: auth("answered-list-host"),
+    });
+
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/invitations`,
+      headers: { ...auth("answered-list-host"), "x-profile-id": host.profileId },
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json()).toHaveLength(0);
+    // The row is still there — it left the LIST, not the record.
+    const rows = await db
+      .select()
+      .from(schema.invitations)
+      .where(eq(schema.invitations.targetEventId, event.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.status).toBe("declined");
+  });
+
+  it("hides an expired invitation, exactly as redemption does", async () => {
+    const { db } = harness;
+    const { host, event } = await seedEventWithHost("expired-list");
+
+    await db.insert(schema.invitations).values({
+      type: "event_participant",
+      source: "collaborator",
+      status: "pending",
+      token: "expired-token-for-the-list",
+      recipientEmail: "late@example.com",
+      targetEventId: event.id,
+      role: "crew",
+      expiresAt: new Date(Date.now() - 1000),
+      createdByUser: "expired-list-host",
+    });
+
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/invitations`,
+      headers: { ...auth("expired-list-host"), "x-profile-id": host.profileId },
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json()).toHaveLength(0);
+  });
+
+  it("refuses a participant who may not manage the roster (it carries emails)", async () => {
+    const { db } = harness;
+    const { host, event } = await seedEventWithHost("roster-guard");
+
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("roster-guard-host"), "x-profile-id": host.profileId },
+      payload: {
+        type: "event_participant",
+        source: "collaborator",
+        recipientEmail: "private@example.com",
+        targetEventId: event.id,
+        role: "performer",
+      },
+    });
+
+    // A performer standing on the bill, with the performer preset — no
+    // `participants.manage`, so no sight of who else was approached.
+    await seedUser("roster-guard-performer", "performer");
+    const [performerProfile] = await db
+      .insert(schema.profiles)
+      .values({
+        kind: "performer",
+        ownerUserId: "roster-guard-performer",
+        name: "roster-guard-performer",
+        slug: "roster-guard-performer",
+      })
+      .returning();
+    if (!performerProfile) throw new Error("performer profile seed failed");
+    await db.insert(schema.profileMembers).values({
+      profileId: performerProfile.id,
+      userId: "roster-guard-performer",
+      role: "owner",
+      status: "active",
+    });
+    const [performerSet] = await db
+      .insert(schema.permissionSets)
+      .values({
+        profileId: performerProfile.id,
+        name: "performer",
+        capabilities: [...PRESET_PERMISSION_SETS.performer],
+      })
+      .returning();
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: performerProfile.id,
+      role: "performer",
+      permissionSetId: performerSet?.id,
+      status: "confirmed",
+    });
+
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/invitations`,
+      headers: { ...auth("roster-guard-performer"), "x-profile-id": performerProfile.id },
+    });
+    expect(listed.statusCode).toBe(403);
+  });
+
+  it("404s a stranger rather than admitting the event exists", async () => {
+    const { event } = await seedEventWithHost("stranger-list");
+    const stranger = await seedOwnerWithProfile("stranger-list-outsider");
+
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/invitations`,
+      headers: { ...auth("stranger-list-outsider"), "x-profile-id": stranger.profileId },
+    });
+    expect(listed.statusCode).toBe(404);
+  });
+});
+
+describe("the invitation email — what actually goes out", () => {
+  /**
+   * The send is best-effort and swallowed on failure (a mail hiccup must never
+   * lose a persisted, redeemable invitation), which is exactly why it needs a
+   * test: a silently broken send looks identical to a working one from the
+   * outside. Nothing leaves the machine — the sink records instead of sending,
+   * the same shape `createNoopEmailSink` has locally.
+   */
+  const sent: EmailMessage[] = [];
+  let emailApp: FastifyInstance;
+
+  beforeAll(async () => {
+    emailApp = buildTestApp(
+      {
+        database: harness.db,
+        tokenVerifier: fakeVerifier,
+        emailSink: {
+          async sendEmail(message) {
+            sent.push(message);
+          },
+        },
+      },
+      [invitationRoutes],
+    );
+    await emailApp.ready();
+  });
+
+  afterAll(async () => {
+    await emailApp?.close();
+  });
+
+  it("addresses the invitee, names the event, and carries a link that redeems", async () => {
+    const { db } = harness;
+    const host = await seedOwnerWithProfile("email-host");
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: host.profileId,
+        title: "Open Mic Wednesdays",
+        baseCurrency: "SEK",
+        createdBy: "email-host",
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: host.profileId,
+      role: "host",
+      permissionSetId: host.permissionSetId,
+      status: "confirmed",
+    });
+
+    const created = await emailApp.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("email-host"), "x-profile-id": host.profileId },
+      payload: {
+        type: "event_participant",
+        source: "collaborator",
+        recipientEmail: "daniel@showme.music",
+        recipientName: "Daniel",
+        targetEventId: event.id,
+        role: "co_host",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const token = created.json().token as string;
+
+    const message = sent.find((entry) => entry.to === "daniel@showme.music");
+    expect(message).toBeDefined();
+    // The subject has to say WHICH event, or the invitation is unidentifiable in
+    // an inbox that may hold several.
+    expect(message?.subject).toContain("Open Mic Wednesdays");
+    expect(message?.subject).toContain("email-host");
+    // The link is the whole payload: it must carry the invitation's own token,
+    // which is what `GET /invitations/:token` then resolves.
+    expect(message?.html).toContain(`?invitation=${token}`);
+    expect(message?.text).toContain(`?invitation=${token}`);
+
+    // …and that link really does resolve to this invitation.
+    const preview = await emailApp.inject({
+      method: "GET",
+      url: `/api/v1/invitations/${token}`,
+      headers: auth("email-host"),
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json().targetEventId).toBe(event.id);
+    expect(preview.json().status).toBe("pending");
   });
 });

@@ -6,6 +6,7 @@
  */
 import type { GetApiV1ProfilesId200Location } from './getApiV1ProfilesId200Location';
 import type { GetApiV1ProfilesId200VenueDetails } from './getApiV1ProfilesId200VenueDetails';
+import type { GetApiV1ProfilesId200SocialLinksItem } from './getApiV1ProfilesId200SocialLinksItem';
 
 export type GetApiV1ProfilesId200 = {
   id: string;
@@ -27,6 +28,9 @@ export type GetApiV1ProfilesId200 = {
   location?: GetApiV1ProfilesId200Location;
   /** @nullable */
   venueDetails?: GetApiV1ProfilesId200VenueDetails;
+  socialLinks?: GetApiV1ProfilesId200SocialLinksItem[];
+  photos?: string[];
+  videos?: string[];
   billing?: unknown;
   createdAt: string;
   updatedAt: string;

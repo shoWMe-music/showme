@@ -1194,7 +1194,11 @@ describe("budget lines — the planner's breakdown survives a round trip", () =>
     });
 
     expect(created.statusCode).toBe(201);
-    expect(created.json().details).toEqual({ basis: "ticket_tier", unitAmount: "25000", quantity: 6 });
+    expect(created.json().details).toEqual({
+      basis: "ticket_tier",
+      unitAmount: "25000",
+      quantity: 6,
+    });
 
     const reread = await app.inject({
       method: "GET",

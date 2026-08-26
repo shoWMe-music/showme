@@ -6,6 +6,8 @@
  */
 import type { PatchApiV1ProfilesIdBodyLocation } from './patchApiV1ProfilesIdBodyLocation';
 import type { PatchApiV1ProfilesIdBodyVenueDetails } from './patchApiV1ProfilesIdBodyVenueDetails';
+import type { PatchApiV1ProfilesIdBodySocialLinksItem } from './patchApiV1ProfilesIdBodySocialLinksItem';
+import type { PatchApiV1ProfilesIdBodySetupsItem } from './patchApiV1ProfilesIdBodySetupsItem';
 
 export type PatchApiV1ProfilesIdBody = {
   /** @minLength 1 */
@@ -22,4 +24,12 @@ export type PatchApiV1ProfilesIdBody = {
   details?: unknown;
   location?: PatchApiV1ProfilesIdBodyLocation;
   venueDetails?: PatchApiV1ProfilesIdBodyVenueDetails;
+  /** @maxItems 30 */
+  socialLinks?: PatchApiV1ProfilesIdBodySocialLinksItem[];
+  /** @maxItems 60 */
+  photos?: string[];
+  /** @maxItems 30 */
+  videos?: string[];
+  /** @maxItems 30 */
+  setups?: PatchApiV1ProfilesIdBodySetupsItem[];
 };

@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { GetApiV1Profiles200ItemVenueDetailsCapacitySetupsItem } from './getApiV1Profiles200ItemVenueDetailsCapacitySetupsItem';
 
 /**
  * @nullable
@@ -17,6 +18,7 @@ export type GetApiV1Profiles200ItemVenueDetails = {
   curfew: string | null;
   amenities: string[];
   dealTypes: string[];
+  capacitySetups: GetApiV1Profiles200ItemVenueDetailsCapacitySetupsItem[];
   /** @nullable */
   cateringNotes: string | null;
   /** @nullable */

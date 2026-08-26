@@ -84,7 +84,18 @@ export function corsOptions(origins: string[]): FastifyCorsOptions {
     origin: origins,
     credentials: false,
     methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["content-type", "authorization", "x-profile-id"],
+    // `x-goog-content-length-range` is the size ceiling a signed upload URL is
+    // bound to (see lib/storage.ts). In production the browser sends it straight
+    // to GCS, whose own CORS policy must allow it; locally it goes to this API's
+    // loopback object sink, which stands in for GCS and enforces the same rule —
+    // so the header has to survive the preflight here too, or a client that drops
+    // it would pass on a laptop and fail in production.
+    allowedHeaders: [
+      "content-type",
+      "authorization",
+      "x-profile-id",
+      "x-goog-content-length-range",
+    ],
     exposedHeaders: ["retry-after"],
     maxAge: 3600,
   };

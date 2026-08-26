@@ -14,7 +14,6 @@ import {
   syncCalendarConnection,
 } from "../lib/calendar-sync";
 import { applyExternalCalendarDeletions } from "../lib/external-calendar";
-import { createSlidingWindowRateLimiter } from "../lib/rate-limit";
 import {
   GOOGLE_CALENDAR_SCOPE,
   GoogleAuthorizationRevokedError,
@@ -25,6 +24,7 @@ import {
   revokeToken,
 } from "../lib/google-calendar";
 import { signOAuthState, verifyOAuthState } from "../lib/oauth-state";
+import { createSlidingWindowRateLimiter } from "../lib/rate-limit";
 import { serializeCalendarConnection } from "../serialize/calendar-connection";
 
 /**
@@ -227,7 +227,6 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
     windowMs: 60_000,
   });
 
-
   /**
    * GOOGLE'S PUSH NOTIFICATION — the one public route in this file.
    *
@@ -298,7 +297,10 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
       // Unknown channel and wrong token are the SAME answer on purpose: a 404
       // either way leaks nothing about which channel ids exist.
-      if (!connection || !channelTokenMatches(notification["x-goog-channel-token"], connection.channelTokenHash)) {
+      if (
+        !connection ||
+        !channelTokenMatches(notification["x-goog-channel-token"], connection.channelTokenHash)
+      ) {
         return reply.status(404).send();
       }
 

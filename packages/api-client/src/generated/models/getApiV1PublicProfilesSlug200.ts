@@ -4,9 +4,14 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { GetApiV1PublicProfilesSlug200SetupsItem } from './getApiV1PublicProfilesSlug200SetupsItem';
+import type { GetApiV1PublicProfilesSlug200SocialLinksItem } from './getApiV1PublicProfilesSlug200SocialLinksItem';
+import type { GetApiV1PublicProfilesSlug200Location } from './getApiV1PublicProfilesSlug200Location';
+import type { GetApiV1PublicProfilesSlug200VenueDetails } from './getApiV1PublicProfilesSlug200VenueDetails';
 
 export type GetApiV1PublicProfilesSlug200 = {
   id: string;
+  slug: string;
   name: string;
   /** @nullable */
   type: string | null;
@@ -17,4 +22,13 @@ export type GetApiV1PublicProfilesSlug200 = {
   avatarUrl: string | null;
   /** @nullable */
   bannerUrl: string | null;
+  genres: string[];
+  setups: GetApiV1PublicProfilesSlug200SetupsItem[];
+  socialLinks: GetApiV1PublicProfilesSlug200SocialLinksItem[];
+  photos: string[];
+  videos: string[];
+  /** @nullable */
+  location: GetApiV1PublicProfilesSlug200Location;
+  /** @nullable */
+  venueDetails: GetApiV1PublicProfilesSlug200VenueDetails;
 };

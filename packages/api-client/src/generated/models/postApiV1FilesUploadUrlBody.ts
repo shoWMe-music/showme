@@ -7,10 +7,18 @@
 import type { PostApiV1FilesUploadUrlBodyKind } from './postApiV1FilesUploadUrlBodyKind';
 
 export type PostApiV1FilesUploadUrlBody = {
-  /** @minLength 1 */
+  /**
+   * @minLength 1
+   * @maxLength 1024
+   */
   path: string;
   /** @minLength 1 */
   contentType: string;
   kind: PostApiV1FilesUploadUrlBodyKind;
+  /**
+   * @minimum 0
+   * @exclusiveMinimum
+   */
+  sizeBytes: number;
   ownerProfileId?: string;
 };

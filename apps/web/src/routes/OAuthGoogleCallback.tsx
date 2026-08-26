@@ -4,8 +4,8 @@ import {
   usePostApiV1IntegrationsCalendarGoogleConnect,
 } from "@showme/api-client";
 import { Button, Card, Icon, Spinner } from "@showme/design-system";
-import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { Eyebrow } from "../components/primitives";
 import { takeRememberedOAuthState } from "../components/useCalendarConnections";
@@ -42,6 +42,11 @@ export function OAuthGoogleCallback() {
   const [message, setMessage] = useState("Finishing the connection…");
   const hasRun = useRef(false);
 
+  // A ONE-SHOT effect, guarded by `hasRun`: it consumes the OAuth code in the URL
+  // the moment this route mounts. A code is single-use, so listing dependencies
+  // would invite a re-run that spends an already-spent code and then reports a
+  // failure for a connection that actually succeeded.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot on mount, see above
   useEffect(() => {
     if (hasRun.current) return;
     hasRun.current = true;

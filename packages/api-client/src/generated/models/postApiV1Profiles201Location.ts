@@ -10,7 +10,15 @@
  */
 export type PostApiV1Profiles201Location = {
   /** @nullable */
+  street: string | null;
+  /** @nullable */
+  postcode: string | null;
+  /** @nullable */
   city: string | null;
   /** @nullable */
   country: string | null;
+  /** @nullable */
+  lat: number | null;
+  /** @nullable */
+  lng: number | null;
 } | null;

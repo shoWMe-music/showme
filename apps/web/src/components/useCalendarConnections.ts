@@ -36,9 +36,7 @@ import { errorMessage } from "../lib/errors";
  * per-tab, so a second tab cannot consume the first tab's flow.
  */
 
-export type CalendarConnection = Awaited<
-  ReturnType<typeof getApiV1IntegrationsCalendar>
->[number];
+export type CalendarConnection = Awaited<ReturnType<typeof getApiV1IntegrationsCalendar>>[number];
 
 /** Where Google returns the user. Registered at Google; re-checked by the API. */
 export const OAUTH_CALLBACK_PATH = "/oauth/google/callback";

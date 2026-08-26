@@ -4,8 +4,10 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PostApiV1FilesUploadUrl201RequiredHeaders } from './postApiV1FilesUploadUrl201RequiredHeaders';
 
 export type PostApiV1FilesUploadUrl201 = {
   fileId: string;
   uploadUrl: string;
+  requiredHeaders: PostApiV1FilesUploadUrl201RequiredHeaders;
 };

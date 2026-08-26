@@ -574,3 +574,237 @@ describe("PATCH /events/:id — the free-tier event cap (entitlement layer)", ()
     expect(response.statusCode).toBe(200);
   });
 });
+
+describe("venue-profile prefill — the venue's own facts fill the blanks", () => {
+  /** A venue profile that has actually filled in its own record (migration 0010). */
+  async function seedVenueProfile(id: string, name: string) {
+    const { db } = harness;
+    await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind: "operator" });
+    const [profile] = await db
+      .insert(schema.profiles)
+      .values({ kind: "operator", type: "venue", ownerUserId: id, name, slug: id })
+      .returning();
+    if (!profile) throw new Error("venue profile seed failed");
+    await db.insert(schema.venueDetails).values({
+      profileId: profile.id,
+      capacity: 420,
+      curfew: "02:00",
+      amenities: ["green_room", "Loading Dock"],
+    });
+    await db
+      .insert(schema.profileLocations)
+      .values({ profileId: profile.id, city: "Stockholm", country: "SE", isPrimary: true });
+    return profile.id;
+  }
+
+  it("fills name, capacity, curfew, amenities and city on create", async () => {
+    const host = await seedMemberWithSet(
+      "prefill-create-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const venueProfileId = await seedVenueProfile("prefill-create-venue", "The Lantern Hall");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("prefill-create-op"), "x-profile-id": host.profileId },
+      payload: { title: "Prefilled", baseCurrency: "SEK", venueProfileId },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const event = response.json();
+    expect(event.venueName).toBe("The Lantern Hall");
+    expect(event.capacity).toBe(420);
+    expect(event.curfew).toBe("02:00:00");
+    expect(event.extras.amenities).toEqual(["green_room", "Loading Dock"]);
+    expect(event.extras.city).toBe("Stockholm");
+    expect(event.extras.country).toBe("SE");
+  });
+
+  it("never overwrites what the operator typed", async () => {
+    const host = await seedMemberWithSet(
+      "prefill-typed-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const venueProfileId = await seedVenueProfile("prefill-typed-venue", "The Lantern Hall");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("prefill-typed-op"), "x-profile-id": host.profileId },
+      payload: {
+        title: "Seated night",
+        baseCurrency: "SEK",
+        venueProfileId,
+        venueName: "The Lantern Hall (Back Room)",
+        capacity: 80,
+        curfew: "23:00",
+        extras: { amenities: ["Piano"], city: "Uppsala" },
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const event = response.json();
+    expect(event.venueName).toBe("The Lantern Hall (Back Room)");
+    expect(event.capacity).toBe(80);
+    expect(event.curfew).toBe("23:00:00");
+    expect(event.extras.amenities).toEqual(["Piano"]);
+    expect(event.extras.city).toBe("Uppsala");
+    // The country was blank in both, so the venue still gets to fill THAT one.
+    expect(event.extras.country).toBe("SE");
+  });
+
+  it("fills the blanks when a venue is attached later, and leaves filled fields alone", async () => {
+    const host = await seedMemberWithSet(
+      "prefill-patch-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const venueProfileId = await seedVenueProfile("prefill-patch-venue", "The Lantern Hall");
+    const event = await seedHostedEvent("Venue later", host, "prefill-patch-op", { capacity: 80 });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("prefill-patch-op"),
+      payload: { venueProfileId },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const updated = response.json();
+    // Blank before → the venue's own answer.
+    expect(updated.venueName).toBe("The Lantern Hall");
+    expect(updated.curfew).toBe("02:00:00");
+    expect(updated.extras.amenities).toEqual(["green_room", "Loading Dock"]);
+    // Already set → untouched.
+    expect(updated.capacity).toBe(80);
+  });
+
+  it("does not re-prefill on an unrelated edit once the operator has cleared a field", async () => {
+    const host = await seedMemberWithSet(
+      "prefill-cleared-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const venueProfileId = await seedVenueProfile("prefill-cleared-venue", "The Lantern Hall");
+    const event = await seedHostedEvent("Cleared", host, "prefill-cleared-op", { venueProfileId });
+
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("prefill-cleared-op"),
+      payload: { capacity: null, title: "Cleared capacity" },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().capacity).toBeNull();
+
+    // A later title edit does not touch the venue link, so nothing is re-read.
+    const renamed = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("prefill-cleared-op"),
+      payload: { title: "Still cleared" },
+    });
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json().capacity).toBeNull();
+  });
+
+  it("survives a venue that has written nothing down", async () => {
+    const host = await seedMemberWithSet(
+      "prefill-bare-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const bare = await seedMemberWithSet(
+      "prefill-bare-venue",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("prefill-bare-op"), "x-profile-id": host.profileId },
+      payload: { title: "Bare venue", baseCurrency: "SEK", venueProfileId: bare.profileId },
+    });
+
+    expect(response.statusCode).toBe(201);
+    // The profile still has a NAME, which is the one fact every profile has.
+    expect(response.json().venueName).toBe("prefill-bare-venue");
+    expect(response.json().capacity).toBeNull();
+  });
+});
+
+describe("PATCH /events/:id — a solo operator drives the status themselves", () => {
+  // The counterparty-consent rules in this product live on the DEAL (each party
+  // confirms its own `deal_parties` row) and on the INVITATION (nothing is
+  // granted until the invitee accepts). The EVENT's status has never been a
+  // handshake — it is the operator's own record of where the booking stands, and
+  // an operator working alone must be able to say so. This locks that in, so a
+  // future "tighten the transitions" change has to argue with a test.
+  it("walks draft → suggested → pending → confirmed → concluded with no counterparty", async () => {
+    const host = await seedMemberWithSet(
+      "solo-status-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const event = await seedHostedEvent("Solo run", host, "solo-status-op", {
+      eventDate: "2026-12-01",
+    });
+
+    for (const status of ["suggested", "pending", "confirmed", "concluded"]) {
+      const response = await app.inject({
+        method: "PATCH",
+        url: `/api/v1/events/${event.id}`,
+        headers: auth("solo-status-op"),
+        payload: { status },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().status).toBe(status);
+    }
+  });
+
+  it("lets the operator correct a status BACKWARDS (onboarding a past booking)", async () => {
+    const host = await seedMemberWithSet(
+      "solo-back-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const event = await seedHostedEvent("Mistyped", host, "solo-back-op", { status: "confirmed" });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("solo-back-op"),
+      payload: { status: "pending" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().status).toBe("pending");
+  });
+
+  it("records the move as its own history line, not a generic update", async () => {
+    const host = await seedMemberWithSet(
+      "solo-history-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const event = await seedHostedEvent("Tracked", host, "solo-history-op", {});
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("solo-history-op"),
+      payload: { status: "confirmed" },
+    });
+
+    const rows = await harness.db
+      .select()
+      .from(schema.activityLog)
+      .where(eq(schema.activityLog.eventId, event.id));
+    const statusLine = rows.find((row) => row.type === "event.status_changed");
+    expect(statusLine).toBeDefined();
+    expect(statusLine?.summary).toMatchObject({ from: "draft", to: "confirmed" });
+  });
+});

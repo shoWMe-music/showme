@@ -88,7 +88,10 @@ function fakeGoogleFetch(google: FakeGoogle): typeof fetch {
       }
       const presented = form.get("refresh_token") ?? "";
       if (google.grantRevoked || google.revokedTokens.has(presented)) {
-        return jsonResponse({ error: "invalid_grant", error_description: "Token has been expired or revoked." }, 400);
+        return jsonResponse(
+          { error: "invalid_grant", error_description: "Token has been expired or revoked." },
+          400,
+        );
       }
       return jsonResponse({
         access_token: "an-access-token",
@@ -157,9 +160,7 @@ async function seedOperator(id: string): Promise<string> {
 async function addMember(profileId: string, id: string, role: "admin" | "editor"): Promise<void> {
   const { db } = harness;
   await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind: "operator" });
-  await db
-    .insert(schema.profileMembers)
-    .values({ profileId, userId: id, role, status: "active" });
+  await db.insert(schema.profileMembers).values({ profileId, userId: id, role, status: "active" });
 }
 
 /** The three real entries, in the shape the live API returns them. */

@@ -1,19 +1,20 @@
 import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import type { Capability } from "@showme/shared";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
 import { changedFieldNames, writeActivity } from "../lib/activity";
+import type { Transaction } from "../lib/audit";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import { assertEventCapAllows } from "../lib/entitlements";
 import { resolveEventTimezone } from "../lib/event-timezone";
 import { withIdempotency } from "../plugins/idempotency";
 import { serializeEvent } from "../serialize/event";
-import { EventExtrasSchema } from "../serialize/event-extras";
+import { type EventExtras, EventExtrasSchema } from "../serialize/event-extras";
 
 const EventParams = z.object({ id: z.string().uuid() });
 
@@ -87,6 +88,134 @@ const EventResponse = z.object({
 
 const OPERATOR_CAPABILITIES = new Set(PRESET_PERMISSION_SETS.operator_full as Capability[]);
 
+// ── Venue-profile prefill ────────────────────────────────────────────────────
+//
+// Placing an event at a venue profile used to carry exactly ONE fact across: the
+// timezone (`resolveEventTimezone`). Everything else the venue had already
+// written down about itself — its name, its capacity, its house curfew, its
+// amenities, the city it stands in — was re-typed onto every event, which is the
+// complaint the venue_details table (migration 0010) was built to end.
+//
+// It is a SUGGESTION, not a sync. A field is only ever filled when it is BLANK:
+// blank in this request and blank on the event. Anything the operator typed —
+// including a "(Back Room)" venue name that differs from the profile's, or a
+// capacity reduced for a seated layout — stands, and stays theirs. The venue is
+// also free to change its own profile afterwards; the event keeps the figure it
+// was booked on, exactly as `timezone` is a snapshot rather than a live read.
+
+/** The facts a venue profile lends an event placed there. */
+interface VenueProfileDefaults {
+  venueName: string | null;
+  capacity: number | null;
+  curfew: string | null;
+  amenities: string[];
+  city: string | null;
+  country: string | null;
+}
+
+/** The event fields a venue profile can fill in — on the row and in `extras`. */
+interface VenueFillableFields {
+  venueName?: string | null;
+  capacity?: number | null;
+  curfew?: string | null;
+  extras?: EventExtras | null;
+}
+
+/** Blank means "nothing there to protect": unset, cleared, or whitespace. */
+function isBlank(value: string | number | null | undefined): boolean {
+  if (value === undefined || value === null) return true;
+  return typeof value === "string" && value.trim() === "";
+}
+
+/**
+ * Read a venue profile's own record of itself. Null when the profile is gone —
+ * the caller then writes what it was given and nothing more, because a missing
+ * venue must never fail an event the operator is otherwise entitled to create.
+ */
+async function loadVenueProfileDefaults(
+  tx: Transaction,
+  venueProfileId: string,
+): Promise<VenueProfileDefaults | null> {
+  const [profile] = await tx
+    .select({ name: schema.profiles.name })
+    .from(schema.profiles)
+    .where(eq(schema.profiles.id, venueProfileId));
+  if (!profile) return null;
+
+  const [details] = await tx
+    .select()
+    .from(schema.venueDetails)
+    .where(eq(schema.venueDetails.profileId, venueProfileId));
+  const [location] = await tx
+    .select({ city: schema.profileLocations.city, country: schema.profileLocations.country })
+    .from(schema.profileLocations)
+    .where(eq(schema.profileLocations.profileId, venueProfileId))
+    .orderBy(desc(schema.profileLocations.isPrimary))
+    .limit(1);
+
+  return {
+    venueName: profile.name,
+    capacity: details?.capacity ?? null,
+    // `venue_details.curfew` is free text ("02:00", but a venue may write
+    // anything) and `events.curfew` is a `time` column. Only a value the column
+    // can actually hold travels; the rest is left for a human to read on the
+    // profile rather than crashing an event create.
+    curfew: details?.curfew && LocalTime.safeParse(details.curfew).success ? details.curfew : null,
+    amenities: details?.amenities ?? [],
+    city: location?.city ?? null,
+    country: location?.country ?? null,
+  };
+}
+
+/**
+ * The subset of `defaults` that fills genuine blanks — nothing else. `provided`
+ * is what this request carries, `current` what the event already holds (empty on
+ * create). Returns only the fields to write, so a caller can spread it over its
+ * own values without re-deciding anything.
+ */
+function venuePrefill(
+  defaults: VenueProfileDefaults,
+  provided: VenueFillableFields,
+  current: VenueFillableFields,
+): VenueFillableFields {
+  const fill: VenueFillableFields = {};
+
+  if (isBlank(provided.venueName) && isBlank(current.venueName) && defaults.venueName) {
+    fill.venueName = defaults.venueName;
+  }
+  if (provided.capacity == null && current.capacity == null && defaults.capacity != null) {
+    fill.capacity = defaults.capacity;
+  }
+  if (isBlank(provided.curfew) && isBlank(current.curfew) && defaults.curfew) {
+    fill.curfew = defaults.curfew;
+  }
+
+  // `extras` is written whole, so the merge base is whichever version this
+  // request will persist: the body's if it sent one, otherwise the stored one.
+  const base: EventExtras = { ...(current.extras ?? {}), ...(provided.extras ?? {}) };
+  const extras: EventExtras = { ...base };
+  let extrasChanged = false;
+
+  const currentAmenities = Array.isArray(base.amenities) ? base.amenities : [];
+  if (currentAmenities.length === 0 && defaults.amenities.length > 0) {
+    extras.amenities = [...defaults.amenities];
+    extrasChanged = true;
+  }
+  // The event has no location column of its own — the venue IS the location, and
+  // `extras.city` is where the create wizard has always written the city line.
+  if (isBlank(base.city as string | undefined) && defaults.city) {
+    extras.city = defaults.city;
+    extrasChanged = true;
+  }
+  if (isBlank(base.country as string | undefined) && defaults.country) {
+    extras.country = defaults.country;
+    extrasChanged = true;
+  }
+  if (extrasChanged) fill.extras = extras;
+
+  return fill;
+}
+
 export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -125,6 +254,12 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
             request.body.venueProfileId,
             request.body.timezone,
           );
+          // The venue's own facts fill whatever this request left blank — see
+          // the prefill block above for why it can only ever fill a blank.
+          const defaults = request.body.venueProfileId
+            ? await loadVenueProfileDefaults(tx, request.body.venueProfileId)
+            : null;
+          const fromVenue = defaults ? venuePrefill(defaults, request.body, {}) : {};
           const [event] = await tx
             .insert(schema.events)
             .values({
@@ -142,6 +277,7 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
               stageId: request.body.stageId,
               notes: request.body.notes,
               extras: request.body.extras,
+              ...fromVenue,
               timezone,
               createdBy: principal.userId,
             })
@@ -259,10 +395,27 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
               )
             : undefined;
 
+        // Placing the event at a venue is the moment its facts become relevant,
+        // so the same fill-the-blanks pass runs here — but measured against the
+        // event as it stands, so a value already on the row is never touched.
+        const nextVenueProfileId = fields.venueProfileId;
+        const defaults = nextVenueProfileId
+          ? await loadVenueProfileDefaults(tx, nextVenueProfileId)
+          : null;
+        const fromVenue = defaults
+          ? venuePrefill(defaults, fields, {
+              venueName: before.venueName,
+              capacity: before.capacity,
+              curfew: before.curfew,
+              extras: (before.extras as EventExtras | null) ?? null,
+            })
+          : {};
+
         const [after] = await tx
           .update(schema.events)
           .set({
             ...fields,
+            ...fromVenue,
             ...(reTimezone !== undefined ? { timezone: reTimezone } : {}),
             version: before.version + 1,
             updatedAt: new Date(),
@@ -286,7 +439,9 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
         // History, not audit: a PATCH that changed nothing is a real request the
         // audit trail must keep, and a line the timeline must not grow — the web
         // app saves the whole form, so most fields arrive unchanged every time.
-        const changed = changedFieldNames(before, fields);
+        // What the venue filled in counts as changed too — an operator reading
+        // the timeline must see that the capacity moved, not just the venue.
+        const changed = changedFieldNames(before, { ...fields, ...fromVenue });
         if (changed.length > 0) {
           // A status move is the headline (`draft` → `confirmed` is the booking
           // itself), so it gets its own type and carries its values: `status` is

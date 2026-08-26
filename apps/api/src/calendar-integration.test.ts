@@ -200,9 +200,9 @@ describe("the authorization URL", () => {
     expect(isRegisteredRedirectUri("http://localhost:8975/oauth/google/callback")).toBe(true);
     expect(isRegisteredRedirectUri("https://evil.example.com/oauth/google/callback")).toBe(false);
     // A prefix match would let this through; membership does not.
-    expect(isRegisteredRedirectUri("https://showme-app.web.app.evil.com/oauth/google/callback")).toBe(
-      false,
-    );
+    expect(
+      isRegisteredRedirectUri("https://showme-app.web.app.evil.com/oauth/google/callback"),
+    ).toBe(false);
   });
 });
 
@@ -285,7 +285,12 @@ describe("normalising Google's events", () => {
   it("treats an all-day entry's exclusive end date as the day before", () => {
     // Google says "the 10th to the 11th" for a holiday that occupies ONE day.
     const single = normalizeGoogleEvent(
-      { id: "day-off", summary: "Day off", start: { date: "2026-10-10" }, end: { date: "2026-10-11" } },
+      {
+        id: "day-off",
+        summary: "Day off",
+        start: { date: "2026-10-10" },
+        end: { date: "2026-10-11" },
+      },
       STOCKHOLM,
     );
     expect(single).toMatchObject({
@@ -293,7 +298,12 @@ describe("normalising Google's events", () => {
     });
 
     const festival = normalizeGoogleEvent(
-      { id: "festival", summary: "Festival", start: { date: "2026-07-02" }, end: { date: "2026-07-06" } },
+      {
+        id: "festival",
+        summary: "Festival",
+        start: { date: "2026-07-02" },
+        end: { date: "2026-07-06" },
+      },
       STOCKHOLM,
     );
     expect(festival).toMatchObject({ event: { date: "2026-07-02", endDate: "2026-07-05" } });
@@ -356,7 +366,12 @@ describe("normalising Google's events", () => {
 
   it("ignores Google's working-location markers", () => {
     const normalized = normalizeGoogleEvent(
-      { id: "wl", eventType: "workingLocation", start: { date: "2026-09-11" }, end: { date: "2026-09-12" } },
+      {
+        id: "wl",
+        eventType: "workingLocation",
+        start: { date: "2026-09-11" },
+        end: { date: "2026-09-12" },
+      },
       STOCKHOLM,
     );
     expect(normalized).toEqual({ kind: "ignored", reason: "working location" });

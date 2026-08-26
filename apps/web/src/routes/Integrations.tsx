@@ -155,13 +155,11 @@ function ConnectionCard({
       </dl>
 
       {needsReconnect && (
-        <p
-          role="alert"
-          style={{ margin: 0, fontSize: 13, color: "#EE5746", lineHeight: 1.5 }}
-        >
-          Google stopped accepting our access on {formatMoment(connection.reauthorizationRequiredAt)}
-          , so nothing has synced since. This usually means the access was removed at
-          myaccount.google.com — connect again to restore it.
+        <p role="alert" style={{ margin: 0, fontSize: 13, color: "#EE5746", lineHeight: 1.5 }}>
+          Google stopped accepting our access on{" "}
+          {formatMoment(connection.reauthorizationRequiredAt)}, so nothing has synced since. This
+          usually means the access was removed at myaccount.google.com — connect again to restore
+          it.
           {connection.lastError ? (
             <span style={{ display: "block", color: "var(--dim)", fontSize: 11.5, marginTop: 4 }}>
               Google said: {connection.lastError}

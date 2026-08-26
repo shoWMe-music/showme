@@ -3,6 +3,8 @@ import { useState } from "react";
 import { formatMoney } from "../lib/format";
 import { EventInformationEditModal } from "./EventInformationEditModal";
 import { EventScheduleCard } from "./EventScheduleCard";
+import { EventVenuePicker } from "./EventVenuePicker";
+import { RidersDocumentsCard } from "./RidersDocumentsCard";
 import styles from "./eventDetailsFields.module.css";
 import {
   CardHeader,
@@ -17,6 +19,7 @@ import {
 } from "./eventUi";
 import { useEventExtrasEditor } from "./useEventExtrasEditor";
 import { useEventInformationEdit } from "./useEventInformationEdit";
+import { useEventVenueLink } from "./useEventVenueLink";
 
 /** Local, decoupled shapes for the event-detail sections — kept minimal so this
  * file doesn't depend on the exact generated model names (structurally equal). */
@@ -30,6 +33,8 @@ export interface DetailsEvent {
   endTime: string | null;
   curfew: string | null;
   venueName: string | null;
+  /** The venue PROFILE this event is placed at, when one is linked. */
+  venueProfileId?: string | null;
   capacity: number | null;
   stageId: string | null;
   version: number;
@@ -138,7 +143,7 @@ export function EventDetailsTab({
         performers={performers}
         canEdit={canEdit}
       />
-      <RidersDocumentsCard riders={riders} />
+      <RidersDocumentsCard eventId={event.id} riders={riders} />
       <EventScheduleCard eventId={event.id} eventDate={event.eventDate} canEdit={canEdit} />
       {canSeeExtras && (
         <AmenitiesCard
@@ -222,6 +227,8 @@ function EventInformationCard({
         ]}
       />
 
+      {canEdit && <VenueProfileLink event={event} />}
+
       <div
         style={{
           display: "flex",
@@ -294,56 +301,38 @@ function EventInformationCard({
   );
 }
 
-function RidersDocumentsCard({ riders }: { riders: DetailsRider[] }) {
+/**
+ * Which venue PROFILE this event stands at — the one control that makes a venue's
+ * own record of itself travel onto the booking.
+ *
+ * Separate from the Edit modal on purpose. That modal edits the event's own
+ * values, one field at a time, and saves them together. This is not an edit: it
+ * identifies a room, and the room then answers for the fields the operator has
+ * left blank (capacity, house curfew, amenities, city). Putting it inside the
+ * modal would make it read as a fifth text field whose value is written with the
+ * rest, which is the opposite of what happens.
+ */
+function VenueProfileLink({ event }: { event: DetailsEvent }) {
+  const venue = useEventVenueLink(event);
+  const [draftName, setDraftName] = useState(event.venueName ?? "");
+
   return (
-    <SectionCard>
-      <CardHeader
-        icon={<Icon name="file" size={17} />}
-        iconColor="#EE5746"
-        title="Riders & Documents"
-        action={
-          // Honestly disabled, not silently inert. Attaching a rider is
-          // `rider.submit` — a capability the operator preset deliberately does
-          // NOT hold (riders are the performer's artifact, decisions #12), and
-          // the flow behind it (upload a file → a library rider → attach it to
-          // the event) has no screen yet. A button that pretends otherwise is
-          // worse than one that says why it can't.
-          <Button
-            variant="ghost"
-            disabled
-            title="Riders are attached by the performer from their own rider library — coming to this screen with the rider-upload flow."
-            leftIcon={<Icon name="upload" size={14} />}
-          >
-            Upload
-          </Button>
-        }
+    <div style={{ margin: "20px 0 0", display: "flex", flexDirection: "column", gap: 7 }}>
+      <Eyebrow>Venue profile</Eyebrow>
+      <EventVenuePicker
+        value={draftName}
+        onChangeText={setDraftName}
+        onSelectProfile={venue.link}
+        selectedProfileId={event.venueProfileId ?? null}
+        placeholder="Search shoWMe for the venue…"
       />
-      {riders.length === 0 ? (
-        <div style={{ color: "var(--dim)", fontSize: 13 }}>No riders or documents yet.</div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {riders.map((rider) => (
-            <div
-              key={rider.id}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-                border: "1px solid var(--border)",
-                borderRadius: 12,
-                padding: "13px 16px",
-              }}
-            >
-              <Icon name="file" size={18} />
-              <span style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 13.5 }}>
-                {rider.name}
-              </span>
-              <MonoPill>{rider.type}</MonoPill>
-            </div>
-          ))}
-        </div>
-      )}
-    </SectionCard>
+      <span style={{ color: "var(--muted)", fontSize: 12, lineHeight: 1.45 }}>
+        {event.venueProfileId
+          ? "Linked. Anything this event had not filled in — capacity, house curfew, amenities, city — came from the venue's profile, and everything already typed was left alone."
+          : "Pick the room and it fills in what this event is still missing: capacity, house curfew, amenities and city. Nothing already typed is touched."}
+        {venue.isSaving ? " Saving…" : ""}
+      </span>
+    </div>
   );
 }
 

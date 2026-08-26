@@ -1,13 +1,16 @@
 import {
   type getApiV1EventsId,
   type getApiV1EventsIdDeals,
+  type getApiV1EventsIdInvitations,
   type getApiV1EventsIdParticipants,
   type getApiV1EventsIdRiders,
   type getApiV1EventsIdSchedule,
   type getApiV1EventsIdSettlements,
+  getGetApiV1EventsIdInvitationsQueryKey,
   getGetApiV1EventsIdQueryKey,
   useGetApiV1EventsId,
   useGetApiV1EventsIdDeals,
+  useGetApiV1EventsIdInvitations,
   useGetApiV1EventsIdParticipants,
   useGetApiV1EventsIdRiders,
   useGetApiV1EventsIdSchedule,
@@ -24,6 +27,7 @@ import {
   Select,
   type Status,
 } from "@showme/design-system";
+import { computeBudgetProjection } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useState } from "react";
@@ -38,7 +42,6 @@ import {
   type EventExtras,
   EventHistoryTab,
   EventMessagesTab,
-  EventTeamCrewTab,
   EventTodoTab,
   type ScheduleEntry,
   type SettlementLine,
@@ -48,6 +51,8 @@ import {
   WhoOwesWhomBoard,
 } from "../components";
 import { EventCollaboratorInviteModal } from "../components/EventCollaboratorInviteModal";
+import { EventCrewPanel } from "../components/EventCrewPanel";
+import { EventStatusControl } from "../components/EventStatusControl";
 import {
   type EventTab,
   EventTabsBar,
@@ -56,12 +61,13 @@ import {
   StageRail,
 } from "../components/eventUi";
 import { ErrorState, LoadingState } from "../components/states";
-import { useBudgetEditor } from "../components/useBudgetEditor";
+import { toMinorUnits, useBudgetEditor } from "../components/useBudgetEditor";
 import { formatDate, formatMoney } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
 
 type EventDetailData = Awaited<ReturnType<typeof getApiV1EventsId>>;
 type Participant = Awaited<ReturnType<typeof getApiV1EventsIdParticipants>>[number];
+type EventInvitation = Awaited<ReturnType<typeof getApiV1EventsIdInvitations>>[number];
 type Deal = Awaited<ReturnType<typeof getApiV1EventsIdDeals>>[number];
 type Settlements = Awaited<ReturnType<typeof getApiV1EventsIdSettlements>>;
 type ScheduleItem = Awaited<ReturnType<typeof getApiV1EventsIdSchedule>>[number];
@@ -93,6 +99,13 @@ export function EventDetail() {
   const [tab, setTab] = useState("details");
   const [displayCurrency, setDisplayCurrency] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
+  // Which role the invite modal opens on. The header's button asks the open
+  // question; the Team / Crew tab's "+ Add Member" has already answered it.
+  const [inviteRole, setInviteRole] = useState<string | undefined>(undefined);
+  const openInvite = (role?: string) => {
+    setInviteRole(role);
+    setInviteOpen(true);
+  };
 
   const { data: event, isPending, isError, error } = useGetApiV1EventsId(eventId);
   const participants = useGetApiV1EventsIdParticipants(eventId);
@@ -262,7 +275,7 @@ export function EventDetail() {
             <Button
               variant="secondary"
               leftIcon={<Icon name="user" size={14} />}
-              onClick={() => setInviteOpen(true)}
+              onClick={() => openInvite()}
             >
               Invite Collaborator
             </Button>
@@ -278,6 +291,15 @@ export function EventDetail() {
       </div>
 
       <StageRail currentIndex={stageIndex} />
+      {/* The rail SHOWS where the booking stands; this SETS it. An operator with
+          no counterparty — a venue running its own room, or anyone typing in
+          bookings they already have — has to be able to move the event
+          themselves, and could not (see `useEventStatusEditor`). */}
+      {canEdit && (
+        <EventStatusControl
+          event={{ id: event.id, status: event.status, version: event.version }}
+        />
+      )}
       <EventTabsBar tabs={tabs} value={tab} onChange={setTab} />
 
       {tab === "todo" && <EventTodoTab eventId={eventId} />}
@@ -302,28 +324,46 @@ export function EventDetail() {
           venueLabel={venueLabel}
         />
       )}
-      {tab === "crew" && <EventTeamCrewTab crew={crew} />}
+      {tab === "crew" && (
+        <EventCrewPanel
+          eventId={eventId}
+          crew={crew}
+          canManage={canEdit}
+          onInviteCrew={() => openInvite("crew")}
+        />
+      )}
       {tab === "settlement" && (
         <SettlementTab eventId={eventId} currency={currency} roster={roster} />
       )}
       {tab === "messages" && <MessagesTab eventId={eventId} roster={roster} />}
       {tab === "collaborators" && (
         <CollaboratorsTab
+          eventId={eventId}
           roster={roster}
           isPending={participants.isPending}
           isError={participants.isError}
           error={participants.error}
-          onInvite={canEdit ? () => setInviteOpen(true) : undefined}
+          canManage={canEdit}
+          onInvite={canEdit ? () => openInvite() : undefined}
         />
       )}
       {tab === "history" && <EventHistoryTab eventId={eventId} />}
 
       <EventCollaboratorInviteModal
         open={inviteOpen}
-        onClose={() => setInviteOpen(false)}
+        onClose={() => {
+          setInviteOpen(false);
+          // The invitation the operator just sent is the thing they will look
+          // for next, so the Collaborators tab must not still be holding the
+          // list from before they opened this modal.
+          queryClient.invalidateQueries({
+            queryKey: getGetApiV1EventsIdInvitationsQueryKey(eventId),
+          });
+        }}
         eventId={eventId}
         eventTitle={event.title}
         fullControlPermissionSetId={hostPermissionSetId}
+        initialRole={inviteRole}
       />
     </>
   );
@@ -417,6 +457,7 @@ function DetailsTab({
         endTime: event.endTime,
         curfew: event.curfew,
         venueName: event.venueName,
+        venueProfileId: event.venueProfileId,
         capacity: event.capacity,
         stageId: event.stageId,
         version: event.version,
@@ -573,32 +614,31 @@ function BudgetTab({ eventId, currency }: { eventId: string; currency: string })
   if (editor.isError) return <ErrorState error={editor.error} title="Couldn't load the budget" />;
 
   const symbol = currencySymbol(currency);
-  const money = (major: number) =>
-    new Intl.NumberFormat("en-IE", {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 0,
-    }).format(major);
 
-  const number = (value: string) => {
+  // The arithmetic is `@showme/shared`'s, not this screen's (CLAUDE.md: business
+  // logic is plain, framework-agnostic TS). The screen's only job here is the
+  // unit boundary — the planner's fields are major-unit strings and the module
+  // works in minor units as bigint (money.md), so `toMinorUnits` is the single
+  // place the factor of 100 lives, borrowed from the editor rather than
+  // re-invented beside it.
+  const wholeNumber = (value: string) => {
     const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
+    return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
   };
-
-  const ticketRevenue = editor.ticketTiers.reduce(
-    (total, tier) => total + number(tier.price) * number(tier.quantity),
-    0,
-  );
-  const barRevenue = number(editor.capacity) * number(editor.averageBarSpend);
-  const totalRevenue = ticketRevenue + barRevenue;
-  const totalCosts = editor.costs.reduce((total, cost) => total + number(cost.value), 0);
-  const profit = totalRevenue - totalCosts;
-  const pricedTiers = editor.ticketTiers.filter((tier) => number(tier.price) > 0);
-  const averageTicketPrice =
-    pricedTiers.length > 0
-      ? pricedTiers.reduce((total, tier) => total + number(tier.price), 0) / pricedTiers.length
-      : 0;
-  const breakEven = averageTicketPrice > 0 ? Math.ceil(totalCosts / averageTicketPrice) : 0;
+  const projection = computeBudgetProjection({
+    ticketTiers: editor.ticketTiers.map((tier) => ({
+      unitAmount: BigInt(toMinorUnits(tier.price)),
+      quantity: wholeNumber(tier.quantity),
+    })),
+    averageBarSpend: BigInt(toMinorUnits(editor.averageBarSpend)),
+    capacity: wholeNumber(editor.capacity),
+    // The planner has no "other revenue" field yet — sponsorship and grants are
+    // budget lines the screen doesn't surface separately. Passing zero states
+    // that honestly rather than folding them in somewhere they'd be invisible.
+    otherRevenue: 0n,
+    costs: editor.costs.map((cost) => BigInt(toMinorUnits(cost.value))),
+  });
+  const money = (minor: bigint) => formatMoney(minor.toString(), currency);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -613,10 +653,14 @@ function BudgetTab({ eventId, currency }: { eventId: string; currency: string })
       <BudgetPlanner
         currencySymbol={symbol}
         kpis={[
-          { label: "Total revenue", value: money(totalRevenue), tone: "green" },
-          { label: "Total costs", value: money(totalCosts), tone: "red" },
-          { label: "Profit / loss", value: money(profit), tone: profit < 0 ? "red" : "green" },
-          { label: "Break-even tickets", value: breakEven, tone: "amber" },
+          { label: "Total revenue", value: money(projection.totalRevenue), tone: "green" },
+          { label: "Total costs", value: money(projection.totalCosts), tone: "red" },
+          {
+            label: "Profit / loss",
+            value: money(projection.profit),
+            tone: projection.profit < 0n ? "red" : "green",
+          },
+          { label: "Break-even tickets", value: projection.breakEvenTickets, tone: "amber" },
         ]}
         ticketTypes={editor.ticketTiers.map((tier) => ({
           id: tier.id,
@@ -624,10 +668,10 @@ function BudgetTab({ eventId, currency }: { eventId: string; currency: string })
           price: tier.price,
           quantity: tier.quantity,
         }))}
-        ticketRevenueTotal={money(ticketRevenue)}
+        ticketRevenueTotal={money(projection.ticketRevenue)}
         capacity={editor.capacity}
         avgBarSpend={editor.averageBarSpend}
-        barRevenue={money(barRevenue)}
+        barRevenue={money(projection.barRevenue)}
         costs={editor.costs}
         onTicketChange={editor.changeTier}
         onAddTicketType={editor.addTier}
@@ -779,19 +823,32 @@ function settlementSteps(settlements: Settlements["settlements"]): SettlementSte
 }
 
 function CollaboratorsTab({
+  eventId,
   roster,
   isPending,
   isError,
   error,
+  canManage,
   onInvite,
 }: {
+  eventId: string;
   roster: Participant[];
   isPending: boolean;
   isError: boolean;
   error: unknown;
+  /** Whether this viewer may manage the roster — only they may read the open invites. */
+  canManage: boolean;
   /** Absent when this viewer may not manage the roster — then the tab is read-only. */
   onInvite?: () => void;
 }) {
+  // The other half of the roster: people who have been ASKED but have not
+  // answered. An invitation writes no participant row until it is accepted, so
+  // until this list existed an operator who had just invited someone saw a tab
+  // that looked exactly as it did before they sent it. Only a roster manager
+  // fetches it — it carries the invitees' email addresses.
+  const invitations = useGetApiV1EventsIdInvitations(eventId, { query: { enabled: canManage } });
+  const pendingInvitations = invitations.data ?? [];
+
   if (isPending) return <LoadingState label="Loading collaborators" />;
   if (isError) return <ErrorState error={error} title="Couldn't load collaborators" />;
 
@@ -817,7 +874,7 @@ function CollaboratorsTab({
     </div>
   ) : null;
 
-  if (roster.length === 0) {
+  if (roster.length === 0 && pendingInvitations.length === 0) {
     return (
       <>
         {heading}
@@ -855,7 +912,6 @@ function CollaboratorsTab({
       >
         {roster.map((party) => {
           const name = participantName(party);
-          const state = apiStatusToDisplay(party.status);
           return (
             <Card
               key={party.id}
@@ -873,14 +929,51 @@ function CollaboratorsTab({
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <Badge status={badgeStatusForParticipant(party.status)} dot>
-                  {state.label}
+                  {participantStatusLabel(party.status)}
                 </Badge>
               </div>
             </Card>
           );
         })}
+        {pendingInvitations.map((invitation) => (
+          <PendingInvitationCard key={invitation.id} invitation={invitation} />
+        ))}
       </div>
     </>
+  );
+}
+
+/**
+ * Someone who has been asked and has not answered. Deliberately the same card as
+ * a real collaborator — they belong on the same roster, they are simply not on
+ * it yet — but never dressed as one: the avatar is neutral, the badge says
+ * Pending, and the line underneath says plainly that nothing is granted until
+ * they accept. Anything less and an operator reads "invited" as "added".
+ */
+function PendingInvitationCard({ invitation }: { invitation: EventInvitation }) {
+  const label = invitation.recipientName ?? invitation.recipientEmail ?? "Invited collaborator";
+  return (
+    <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+        <Avatar initials={initials(label)} tone="amber" size={40} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 600, color: "var(--text)", fontSize: 14 }}>{label}</div>
+          <div style={{ color: "var(--muted)", fontSize: 12 }}>
+            {invitation.role ? statusLabel(invitation.role) : "Collaborator"}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <Badge status="pending" dot>
+          Invite pending
+        </Badge>
+      </div>
+      <div style={{ color: "var(--dim)", fontSize: 12, lineHeight: 1.45 }}>
+        {invitation.recipientEmail
+          ? `Invited ${formatDate(invitation.createdAt, { day: "2-digit", month: "short" })} — nothing is granted until they accept.`
+          : "Nothing is granted until they accept."}
+      </div>
+    </Card>
   );
 }
 
@@ -889,6 +982,28 @@ function badgeStatusForParticipant(raw: string): Status {
   if (raw === "invited" || raw === "pending") return "pending";
   if (raw === "declined" || raw === "removed") return "cancelled";
   return "draft";
+}
+
+/**
+ * A PARTICIPANT's status, in its own words.
+ *
+ * `apiStatusToDisplay` translates the EVENT status vocabulary, and the two enums
+ * only look alike: `event_participant_status` is
+ * `invited | accepted | declined | confirmed | removed`, and `invited` is not in
+ * the event enum at all — so it fell through to the default and a crew member
+ * who had just been added to the bill was labelled "Draft". The badge TONE was
+ * right the whole time, which is exactly how the wrong word survived.
+ */
+const PARTICIPANT_STATUS_LABEL: Record<string, string> = {
+  invited: "Invited",
+  accepted: "Accepted",
+  declined: "Declined",
+  confirmed: "Confirmed",
+  removed: "Removed",
+};
+
+function participantStatusLabel(raw: string): string {
+  return PARTICIPANT_STATUS_LABEL[raw] ?? statusLabel(raw);
 }
 
 /**

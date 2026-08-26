@@ -6,6 +6,7 @@
  */
 import type { PostApiV1Profiles201Location } from './postApiV1Profiles201Location';
 import type { PostApiV1Profiles201VenueDetails } from './postApiV1Profiles201VenueDetails';
+import type { PostApiV1Profiles201SocialLinksItem } from './postApiV1Profiles201SocialLinksItem';
 
 export type PostApiV1Profiles201 = {
   id: string;
@@ -27,6 +28,9 @@ export type PostApiV1Profiles201 = {
   location?: PostApiV1Profiles201Location;
   /** @nullable */
   venueDetails?: PostApiV1Profiles201VenueDetails;
+  socialLinks?: PostApiV1Profiles201SocialLinksItem[];
+  photos?: string[];
+  videos?: string[];
   billing?: unknown;
   createdAt: string;
   updatedAt: string;

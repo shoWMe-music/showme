@@ -1,3 +1,4 @@
+import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
 import { eq } from "drizzle-orm";
@@ -185,5 +186,73 @@ describe("tasks — owner-scoped CRUD", () => {
     });
     expect(deleted.statusCode).toBe(200);
     expect(deleted.json().deleted).toBe(true);
+  });
+});
+
+describe("tasks — the event's shared to-do list", () => {
+  /** An operator standing on their own event, the way the event workspace opens. */
+  async function seedHostOnEvent(prefix: string) {
+    const { db } = harness;
+    const profileId = await seedUserWithProfile(`${prefix}-host`);
+    const [permissionSet] = await db
+      .insert(schema.permissionSets)
+      .values({
+        profileId,
+        name: "operator_full",
+        capabilities: [...PRESET_PERMISSION_SETS.operator_full],
+      })
+      .returning();
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: profileId,
+        title: "Open Mic Wednesdays",
+        baseCurrency: "SEK",
+        createdBy: `${prefix}-host`,
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId,
+      role: "host",
+      permissionSetId: permissionSet?.id,
+      status: "confirmed",
+    });
+    return { profileId, event };
+  }
+
+  it("creates a task from inside an event and lists it under that event", async () => {
+    const { profileId, event } = await seedHostOnEvent("todo-tab");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: { ...auth("todo-tab-host"), "x-profile-id": profileId },
+      payload: { title: "Hire the PA", eventId: event.id },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().eventId).toBe(event.id);
+
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/v1/tasks?eventId=${event.id}`,
+      headers: { ...auth("todo-tab-host"), "x-profile-id": profileId },
+    });
+    expect(list.statusCode).toBe(200);
+    expect(list.json().items.map((task: { title: string }) => task.title)).toEqual(["Hire the PA"]);
+  });
+
+  it("refuses a task on an event the caller cannot see", async () => {
+    const { event } = await seedHostOnEvent("todo-outsider");
+    const outsiderProfileId = await seedUserWithProfile("todo-outsider-stranger");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: { ...auth("todo-outsider-stranger"), "x-profile-id": outsiderProfileId },
+      payload: { title: "Not mine", eventId: event.id },
+    });
+    expect(created.statusCode).toBe(404);
   });
 });

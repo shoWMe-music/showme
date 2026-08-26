@@ -1,10 +1,12 @@
 import { type getApiV1Profiles, useGetApiV1Profiles, usePostApiV1Events } from "@showme/api-client";
 import { Icon, type IconName, Select, useToast } from "@showme/design-system";
+import { currencyOptionsForCountry, defaultCurrencyForCountry } from "@showme/shared";
 import { useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
 import { setActiveProfileId } from "../lib/activeProfile";
 import { errorMessage } from "../lib/errors";
 import { DateTimeField } from "./DateTimeField";
+import { EventVenuePicker, type VenueChoice } from "./EventVenuePicker";
 import {
   type HoldPlacement,
   HoldPriorityField,
@@ -13,6 +15,7 @@ import {
 } from "./HoldPlacement";
 import { PerformerSearch, type PerformerSelection } from "./PerformerSearch";
 import { GlyphButton, GradientButton, XIcon, fieldStyle } from "./eventUi";
+import { useEventVenuePrefill } from "./useEventVenuePrefill";
 
 /** A performer chosen in the wizard — an existing profile, a contact, or a plain
  * draft name. Persisted to `extras.performers`; materialized into participants
@@ -84,7 +87,6 @@ const DEAL_TYPES = [
   { value: "guarantee_vs_door", label: "Guarantee vs Door" },
   { value: "rental", label: "Rental" },
 ];
-const CURRENCIES = ["EUR", "USD", "GBP", "SEK"];
 const RENTAL_PAID_BY = [
   { value: "promoter", label: "Promoter" },
   { value: "venue", label: "Venue" },
@@ -141,11 +143,19 @@ export function NewEventWizard({
   const [performers, setPerformers] = useState<WizardPerformer[]>([]);
   const [artist, setArtist] = useState("");
   const [venue, setVenue] = useState("");
+  // The venue PROFILE behind the name, when one was picked rather than typed.
+  // It is what carries the room's own capacity, curfew, amenities and city onto
+  // the event — the venue wrote them down once, on its profile.
+  const [venueProfileId, setVenueProfileId] = useState<string | null>(null);
   const [city, setCity] = useState("");
   const [date, setDate] = useState(initialDate ?? "");
   const [cap, setCap] = useState("");
   const [ticketing, setTicketing] = useState("");
-  const [currency, setCurrency] = useState("EUR");
+  // `null` = the operator hasn't chosen, so the picker follows the acting
+  // profile's country (decisions #17). Not seeded with a literal: the profile
+  // isn't loaded on the first render, and a default written once would keep a
+  // Stockholm venue on EUR forever after.
+  const [currency, setCurrency] = useState<string | null>(null);
   const [dealType, setDealType] = useState("guarantee_vs_door");
   const [guarantee, setGuarantee] = useState("");
   const [artistSplit, setArtistSplit] = useState("70");
@@ -159,6 +169,13 @@ export function NewEventWizard({
   const selectedProfile =
     operatorProfiles.find((profile) => profile.id === selectedProfileId) ?? operatorProfiles[0];
 
+  // The event's base currency is a per-COUNTRY fact, read off the profile that
+  // will host it (decisions #17) — so switching role on the first step moves the
+  // picker with it, right up until the operator overrides it by hand.
+  const homeCountry = selectedProfile?.location?.country ?? null;
+  const currencyOptions = currencyOptionsForCountry(homeCountry);
+  const effectiveCurrency = currency ?? defaultCurrencyForCountry(homeCountry);
+
   // Hold mode only: the queue for the chosen date, the plan's slot counter, and
   // the create → on_hold → rank sequence. Idle (`enabled: false`) otherwise, so
   // an ordinary create fires not one extra request.
@@ -167,6 +184,31 @@ export function NewEventWizard({
     eventDate: date,
     hostProfileId: selectedProfile?.id,
   });
+
+  // The chosen venue's own record of itself. Offered ONLY into fields the
+  // operator has left blank, and offered into the VISIBLE form rather than
+  // written behind their back — so a capacity they disagree with is one they can
+  // see and change before the event exists. (The API applies the same
+  // fill-a-blank rule server-side, for every other caller.)
+  const venueDefaults = useEventVenuePrefill(venueProfileId);
+  useEffect(() => {
+    if (!venueDefaults) return;
+    if (venueDefaults.city) {
+      setCity((current) => (current.trim() === "" ? (venueDefaults.city ?? "") : current));
+    }
+    if (venueDefaults.capacity != null) {
+      setCap((current) => (current.trim() === "" ? String(venueDefaults.capacity) : current));
+    }
+  }, [venueDefaults]);
+
+  const selectVenueProfile = (choice: VenueChoice | null) => {
+    setVenueProfileId(choice?.profileId ?? null);
+    // The search row already carries the city, so the commonest suggestion lands
+    // at once instead of a request later — still only into an empty field.
+    if (choice?.city) {
+      setCity((current) => (current.trim() === "" ? (choice.city ?? "") : current));
+    }
+  };
 
   const create = usePostApiV1Events({
     mutation: {
@@ -214,11 +256,12 @@ export function NewEventWizard({
     setPerformers([]);
     setArtist("");
     setVenue("");
+    setVenueProfileId(null);
     setCity("");
     setDate("");
     setCap("");
     setTicketing("");
-    setCurrency("EUR");
+    setCurrency(null);
     setDealType("guarantee_vs_door");
     setGuarantee("");
     setArtistSplit("70");
@@ -338,9 +381,10 @@ export function NewEventWizard({
     create.mutate({
       data: {
         title: artist.trim(),
-        baseCurrency: currency,
+        baseCurrency: effectiveCurrency,
         ...(date ? { eventDate: date } : {}),
         ...(venue.trim() ? { venueName: venue.trim() } : {}),
+        ...(venueProfileId ? { venueProfileId } : {}),
         ...(cap && Number.isFinite(Number(cap)) ? { capacity: Number(cap) } : {}),
         extras: {
           createdAsRole: selectedProfile?.type ?? "operator",
@@ -499,6 +543,8 @@ export function NewEventWizard({
                   onRemovePerformer={removePerformer}
                   venue={venue}
                   setVenue={setVenue}
+                  venueProfileId={venueProfileId}
+                  onSelectVenueProfile={selectVenueProfile}
                   city={city}
                   setCity={setCity}
                   date={date}
@@ -507,7 +553,8 @@ export function NewEventWizard({
                   setCap={setCap}
                   ticketing={ticketing}
                   setTicketing={setTicketing}
-                  currency={currency}
+                  currency={effectiveCurrency}
+                  currencyOptions={currencyOptions}
                   setCurrency={setCurrency}
                   holdPlacement={isHold ? holdPlacement : undefined}
                 />
@@ -746,6 +793,8 @@ function DetailsStep(props: {
   onRemovePerformer: (id: string) => void;
   venue: string;
   setVenue: (v: string) => void;
+  venueProfileId: string | null;
+  onSelectVenueProfile: (choice: VenueChoice | null) => void;
   city: string;
   setCity: (v: string) => void;
   date: string;
@@ -755,11 +804,14 @@ function DetailsStep(props: {
   ticketing: string;
   setTicketing: (v: string) => void;
   currency: string;
+  /** Interpretable currencies, the host country's own one first (see lib/currency). */
+  currencyOptions: string[];
   setCurrency: (v: string) => void;
   /** Present only in hold mode — the queue for the date and the plan's truth. */
   holdPlacement?: HoldPlacement;
 }) {
   const dateFieldId = useId();
+  const venueFieldId = useId();
   const isHold = Boolean(props.holdPlacement);
 
   return (
@@ -854,15 +906,22 @@ function DetailsStep(props: {
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        <label>
-          <span style={labelStyle}>Venue *</span>
-          <input
+        {/* `htmlFor` rather than a wrapping label: the input now lives inside
+            `EventVenuePicker`, and a label that wraps a component cannot reach
+            the control it is meant to name. */}
+        <div>
+          <label htmlFor={venueFieldId} style={labelStyle}>
+            Venue *
+          </label>
+          <EventVenuePicker
+            inputId={venueFieldId}
             value={props.venue}
-            onChange={(e) => props.setVenue(e.target.value)}
-            placeholder="e.g. Funkhaus"
-            style={bigField}
+            onChangeText={props.setVenue}
+            onSelectProfile={props.onSelectVenueProfile}
+            selectedProfileId={props.venueProfileId}
+            inputStyle={bigField}
           />
-        </label>
+        </div>
         <label>
           <span style={labelStyle}>City</span>
           <input
@@ -920,7 +979,11 @@ function DetailsStep(props: {
         </label>
         <div>
           <span style={labelStyle}>Currency</span>
-          <Select value={props.currency} onChange={props.setCurrency} options={CURRENCIES} />
+          <Select
+            value={props.currency}
+            onChange={props.setCurrency}
+            options={props.currencyOptions}
+          />
         </div>
       </div>
     </div>

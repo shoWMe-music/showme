@@ -7,6 +7,16 @@
 
 export type PatchApiV1ProfilesIdBodyLocation = {
   /**
+   * @maxLength 300
+   * @nullable
+   */
+  street?: string | null;
+  /**
+   * @maxLength 30
+   * @nullable
+   */
+  postcode?: string | null;
+  /**
    * @maxLength 200
    * @nullable
    */
@@ -16,4 +26,16 @@ export type PatchApiV1ProfilesIdBodyLocation = {
    * @nullable
    */
   country?: string | null;
+  /**
+   * @minimum -90
+   * @maximum 90
+   * @nullable
+   */
+  lat?: number | null;
+  /**
+   * @minimum -180
+   * @maximum 180
+   * @nullable
+   */
+  lng?: number | null;
 };
