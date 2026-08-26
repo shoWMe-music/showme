@@ -1,0 +1,56 @@
+/* The field half of the in-app date picker.
+
+   The browser's calendar popup is chrome, not page content: no CSS reaches it,
+   so the only way to match the design system is to keep it shut and open our own
+   popover instead. That means hiding the indicator glyph — clicking it opens the
+   native picker directly, which no JavaScript can intercept — and drawing our
+   own calendar button in its place. */
+.field {
+  position: relative;
+  display: block;
+}
+
+/* Room for the trigger so a long value never runs underneath it. */
+.field input {
+  padding-right: 40px;
+}
+
+/* Chrome / Edge / Safari. Firefox has no such glyph to hide. */
+.field input::-webkit-calendar-picker-indicator {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}
+
+.trigger {
+  position: absolute;
+  right: 7px;
+  /* Pinned to the input, which is the wrapper's last child — the optional label
+     sits above and must not shift the glyph. */
+  bottom: 8px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.trigger:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

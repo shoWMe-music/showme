@@ -2,7 +2,14 @@
    shared design-system tokens/components. Dark is the default; the topbar
    toggle sets [data-theme="light"] on <html>. */
 html {
-  color-scheme: dark light;
+  /* ONE keyword, tracking the app theme. The browser paints native form UI
+     (date/time inputs, selects, scrollbars) from the FIRST value listed, so
+     "dark light" gave a dark system calendar even in light mode. Dark is the
+     default; the topbar toggle stamps [data-theme="light"] on <html>. */
+  color-scheme: dark;
+}
+html[data-theme="light"] {
+  color-scheme: light;
 }
 body {
   margin: 0;

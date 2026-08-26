@@ -1,4 +1,6 @@
 import { Card, Icon } from "@showme/design-system";
+import type { CSSProperties, KeyboardEventHandler, ReactNode } from "react";
+import { useEffect, useRef } from "react";
 import {
   WEEKDAYS_SHORT,
   buildMonthGrid,
@@ -8,8 +10,9 @@ import {
 } from "./calendarGrid";
 
 /** The compact left-rail month picker (§8) — also reusable on the dashboard /
- * event date-picking. Marks days that have items with a dot and highlights the
- * selected day. Presentational: the screen owns the current month + selection. */
+ * event date-picking (it is the grid inside `DatePickerPopover`). Marks days
+ * that have items with a dot and highlights the selected day. Presentational:
+ * the screen owns the current month + selection. */
 export interface MiniMonthCalendarProps {
   /** Any date within the month to render. */
   month: Date;
@@ -20,6 +23,21 @@ export interface MiniMonthCalendarProps {
   onSelect?: (dayKey: string) => void;
   /** Month step: -1 = previous, +1 = next. */
   onNavigate?: (offset: number) => void;
+  /** Roving-focus day, `yyyy-mm-dd`. When set, that day is the grid's ONLY tab
+   * stop (the standard roving-tabindex grid); omit it and every day stays
+   * tabbable, which is what the always-visible left-rail calendar wants. */
+  focusedDay?: string;
+  /** Move real DOM focus onto `focusedDay`. The popover turns this on only while
+   * the grid has keyboard control, so it never steals focus from someone typing
+   * into the date field next to it. */
+  autoFocusDay?: boolean;
+  /** Key handling for the whole grid — arrow-key navigation belongs to the owner
+   * of `focusedDay`, so the calendar itself stays free of navigation state. */
+  onGridKeyDown?: KeyboardEventHandler<HTMLDivElement>;
+  /** Extra row below the grid (the popover's Today / Clear actions). */
+  footer?: ReactNode;
+  /** Style overrides for the surrounding card (the popover sets its width). */
+  style?: CSSProperties;
 }
 
 export function MiniMonthCalendar({
@@ -28,36 +46,59 @@ export function MiniMonthCalendar({
   selected,
   onSelect,
   onNavigate,
+  focusedDay,
+  autoFocusDay = false,
+  onGridKeyDown,
+  footer,
+  style,
 }: MiniMonthCalendarProps) {
   const marked = new Set(markedDates ?? []);
   const cells = trimTrailingWeeks(buildMonthGrid(month));
   const todayKey = dayKey(new Date());
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  // Follow the roving focus with real DOM focus, so arrow keys keep landing on a
+  // focused element even when the step crosses into another month (the owner
+  // swaps `month` and `focusedDay` together; this runs after that re-render).
+  useEffect(() => {
+    if (!autoFocusDay || !focusedDay) return;
+    gridRef.current?.querySelector<HTMLButtonElement>(`[data-day="${focusedDay}"]`)?.focus();
+  }, [autoFocusDay, focusedDay]);
 
   return (
-    <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+    <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 12, ...style }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <button
           type="button"
           aria-label="Previous month"
           onClick={() => onNavigate?.(-1)}
+          tabIndex={focusedDay ? -1 : undefined}
           style={navButtonStyle}
         >
           <Icon name="chevron-right" size={16} style={{ transform: "rotate(180deg)" }} />
         </button>
-        <span style={{ fontFamily: "var(--font-display)", fontSize: 15, color: "var(--text)" }}>
+        <span
+          aria-live="polite"
+          style={{ fontFamily: "var(--font-display)", fontSize: 15, color: "var(--text)" }}
+        >
           {monthTitle(month)}
         </span>
         <button
           type="button"
           aria-label="Next month"
           onClick={() => onNavigate?.(1)}
+          tabIndex={focusedDay ? -1 : undefined}
           style={navButtonStyle}
         >
           <Icon name="chevron-right" size={16} />
         </button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+      <div
+        ref={gridRef}
+        onKeyDown={onGridKeyDown}
+        style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}
+      >
         {WEEKDAYS_SHORT.map((day) => (
           <span
             key={day}
@@ -79,8 +120,16 @@ export function MiniMonthCalendar({
             <button
               key={cell.key}
               type="button"
+              data-day={cell.key}
               onClick={() => onSelect?.(cell.key)}
               aria-current={isToday ? "date" : undefined}
+              aria-label={cell.date.toLocaleDateString("en-GB", {
+                weekday: "long",
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}
+              tabIndex={focusedDay ? (cell.key === focusedDay ? 0 : -1) : undefined}
               style={{
                 position: "relative",
                 aspectRatio: "1",
@@ -115,6 +164,8 @@ export function MiniMonthCalendar({
           );
         })}
       </div>
+
+      {footer}
     </Card>
   );
 }
