@@ -1,5 +1,6 @@
 import { postApiV1Profiles } from "@showme/api-client";
 import { Button, Input, SelectCard } from "@showme/design-system";
+import { PROFILE_TYPES_BY_KIND } from "@showme/shared";
 import gsap from "gsap";
 import {
   type KeyboardEvent,
@@ -28,7 +29,6 @@ interface KindConfig {
   /** Profile name prompt when it's an organization. */
   profileQuestion: string;
   profilePlaceholder: string;
-  types: string[];
 }
 
 const KIND_ORDER: AccountKind[] = ["operator", "performer", "team_and_crew", "agent"];
@@ -44,7 +44,6 @@ const KIND_CONFIG: Record<AccountKind, KindConfig> = {
     soloBlurb: "It's just me.",
     profileQuestion: "What's your venue or organization called?",
     profilePlaceholder: "The Lantern Hall",
-    types: ["Venue", "Promoter", "Event organizer", "Festival"],
   },
   performer: {
     label: "Performer",
@@ -56,7 +55,6 @@ const KIND_CONFIG: Record<AccountKind, KindConfig> = {
     soloBlurb: "A solo artist — just me.",
     profileQuestion: "What's your act called?",
     profilePlaceholder: "Marlo Vance",
-    types: ["Band", "Solo artist", "DJ", "Duo", "Ensemble"],
   },
   team_and_crew: {
     label: "Crew or production",
@@ -68,7 +66,6 @@ const KIND_CONFIG: Record<AccountKind, KindConfig> = {
     soloBlurb: "It's just me.",
     profileQuestion: "What's your company called?",
     profilePlaceholder: "Northern Sound Co.",
-    types: ["Sound", "Lighting", "Stage", "Backline", "Video", "Production"],
   },
   agent: {
     label: "Booking agent",
@@ -80,7 +77,6 @@ const KIND_CONFIG: Record<AccountKind, KindConfig> = {
     soloBlurb: "I work on my own.",
     profileQuestion: "What's your agency called?",
     profilePlaceholder: "Aurora Bookings",
-    types: ["Booking agency", "Independent agent"],
   },
 };
 
@@ -104,6 +100,13 @@ interface DraftProfile {
   id: string;
   name: string;
   type: string;
+}
+
+/** The key is what the API stores; this is what a person should read. Falls
+ * through for anything unrecognised rather than printing an empty chip. */
+function profileTypeLabel(kind: AccountKind | null, key: string): string {
+  if (!kind) return key;
+  return (PROFILE_TYPES_BY_KIND[kind] ?? []).find((option) => option.key === key)?.label ?? key;
 }
 
 export function OnboardingFlow() {
@@ -141,7 +144,14 @@ export function OnboardingFlow() {
     "profiles",
     "review",
   ];
-  const stepId = steps[index];
+  // `steps` is derived from `hasAccount`, which flips to true the moment
+  // `provisionAccount` succeeds — mid-`finish()`. The array then SHRINKS (welcome,
+  // kind and name collapse to just welcome), and an index that was valid a moment
+  // ago points past the end, so `steps[index]` is undefined and the screen renders
+  // NOTHING but the Back link. That is what a user saw in production: not an error,
+  // an empty page. Clamp on read rather than in an effect, so there is never a
+  // frame where the two disagree.
+  const stepId = steps[Math.min(index, steps.length - 1)];
 
   // A profile needs BOTH a name and a type. The in-progress draft only counts
   // once it's complete; a name with no type yet is "half-filled" and blocks Continue.
@@ -359,7 +369,7 @@ export function OnboardingFlow() {
                     <div key={profile.id} style={profileRow}>
                       <span>
                         <b>{profile.name}</b>
-                        {profile.type ? ` · ${profile.type}` : ""}
+                        {profile.type ? ` · ${profileTypeLabel(activeKind, profile.type)}` : ""}
                       </span>
                       <button type="button" onClick={() => removeProfile(i)} style={ghostText}>
                         Remove
@@ -382,12 +392,12 @@ export function OnboardingFlow() {
                 </p>
               )}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 12 }}>
-                {(config?.types ?? []).map((type) => (
+                {(activeKind ? (PROFILE_TYPES_BY_KIND[activeKind] ?? []) : []).map((option) => (
                   <SelectCard
-                    key={type}
-                    title={type}
-                    selected={draftType === type}
-                    onSelect={() => setDraftType(type)}
+                    key={option.key}
+                    title={option.label}
+                    selected={draftType === option.key}
+                    onSelect={() => setDraftType(option.key)}
                     className="onboarding-chip"
                   />
                 ))}
@@ -434,7 +444,11 @@ export function OnboardingFlow() {
                   <SummaryRow
                     key={profile.id}
                     label={pendingProfiles.length > 1 ? `Profile ${i + 1}` : "Profile"}
-                    value={profile.type ? `${profile.name} · ${profile.type}` : profile.name}
+                    value={
+                      profile.type
+                        ? `${profile.name} · ${profileTypeLabel(activeKind, profile.type)}`
+                        : profile.name
+                    }
                   />
                 ))}
               </div>
