@@ -5,9 +5,10 @@ import { useMemo, useState } from "react";
 import { type CalendarEvent, type CalendarLabelMode, CalendarMonthGrid } from "../components";
 import { AvailabilityShareModal } from "../components/AvailabilityShareModal";
 import { CalendarCreatePopover } from "../components/CalendarCreatePopover";
-import { buildMonthGrid, dayKey, monthTitle } from "../components/calendarGrid";
+import { dayKey, monthTitle } from "../components/calendarGrid";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
+import { useAvailabilityShare } from "../hooks/useAvailabilityShare";
 import { type EventItem, useAllEvents } from "../hooks/useEventList";
 import { apiStatusToDisplay } from "../lib/status";
 import { useNewEvent } from "../shell/NewEventProvider";
@@ -194,22 +195,6 @@ export function Calendar() {
     venue: true,
   });
 
-  // Availability-share form (the modal is a read-only composite; the screen
-  // owns every field). Dates derive from the real calendar below.
-  const [shareCalendar, setShareCalendar] = useState("Promoter events");
-  // Default the share window to today → +30 days so the available-dates list
-  // shows a real, filtered range (not every day of the month).
-  const [shareFrom, setShareFrom] = useState(() => dayKey(new Date()));
-  const [shareTo, setShareTo] = useState(() => {
-    const end = new Date();
-    end.setDate(end.getDate() + 30);
-    return dayKey(end);
-  });
-  const [shareConfirmed, setShareConfirmed] = useState(true);
-  // Held events default to NOT counting as unavailable (matches the design).
-  const [shareHeld, setShareHeld] = useState(false);
-  const [shareWeekdays, setShareWeekdays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
-
   // Query the visible month's window; the API date params are inclusive bounds.
   const from = dayKey(new Date(month.getFullYear(), month.getMonth(), 1));
   const to = dayKey(new Date(month.getFullYear(), month.getMonth() + 1, 0));
@@ -256,29 +241,9 @@ export function Calendar() {
     });
   }, [calendarEvents, performerFilter, venueFilter]);
 
-  // Available (unbooked) dates for the share modal, derived from real data:
-  // in-month days with no blocking event, matching the chosen weekdays.
-  const availableDates = useMemo<string[]>(() => {
-    const blocked = new Set<string>();
-    for (const event of calendarEvents) {
-      const blocks =
-        (shareConfirmed && event.status === "confirmed") || (shareHeld && event.status === "hold");
-      if (blocks) blocked.add(event.date);
-    }
-    const selected = new Set(shareWeekdays);
-    return buildMonthGrid(month)
-      .filter((cell) => cell.inMonth)
-      .filter((cell) => selected.has((cell.date.getDay() + 6) % 7))
-      .filter((cell) => !blocked.has(cell.key))
-      .filter((cell) => (!shareFrom || cell.key >= shareFrom) && (!shareTo || cell.key <= shareTo))
-      .map((cell) => {
-        // Match the design's "Fri · Jul 11" pill format (Ddd · Mmm DD).
-        const weekday = cell.date.toLocaleDateString("en-US", { weekday: "short" });
-        const monthShort = cell.date.toLocaleDateString("en-US", { month: "short" });
-        const day = String(cell.date.getDate()).padStart(2, "0");
-        return `${weekday} · ${monthShort} ${day}`;
-      });
-  }, [calendarEvents, month, shareConfirmed, shareHeld, shareWeekdays, shareFrom, shareTo]);
+  // The share modal is a read-only composite: the hook owns the form, derives the
+  // free days from the real schedule, and builds the public link.
+  const share = useAvailabilityShare(calendarEvents, events.items, MY_CALENDARS[0]?.label ?? "");
 
   const stepMonth = (offset: number) =>
     setMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
@@ -288,22 +253,6 @@ export function Calendar() {
     if (!value) return;
     const parsed = new Date(value);
     if (!Number.isNaN(parsed.getTime())) setMonth(parsed);
-  };
-
-  const toggleShareWeekday = (index: number) =>
-    setShareWeekdays((current) =>
-      current.includes(index) ? current.filter((day) => day !== index) : [...current, index],
-    );
-
-  const copyAvailableDates = () => {
-    if (availableDates.length === 0) {
-      toast.info("No available dates to copy in this range.");
-      return;
-    }
-    navigator.clipboard
-      ?.writeText(availableDates.join(", "))
-      .then(() => toast.success("Available dates copied"))
-      .catch(() => toast.error("Couldn't copy the dates."));
   };
 
   const isPending = calendar.isPending || events.isPending;
@@ -628,23 +577,22 @@ export function Calendar() {
         open={shareOpen}
         onClose={() => setShareOpen(false)}
         calendars={MY_CALENDARS.map((source) => source.label)}
-        calendar={shareCalendar}
-        onCalendarChange={setShareCalendar}
-        from={shareFrom}
-        to={shareTo}
-        onFromChange={setShareFrom}
-        onToChange={setShareTo}
-        showConfirmed={shareConfirmed}
-        onShowConfirmedChange={setShareConfirmed}
-        showHeld={shareHeld}
-        onShowHeldChange={setShareHeld}
-        selectedWeekdays={shareWeekdays}
-        onToggleWeekday={toggleShareWeekday}
-        availableDates={availableDates}
-        onCopyDates={copyAvailableDates}
-        shareLink=""
-        onCopyLink={() => toast.info("Public availability links are coming soon.")}
-        helperText="Public availability links aren't available yet — copy the dates above to share them."
+        calendar={share.calendar}
+        onCalendarChange={share.setCalendar}
+        from={share.from}
+        to={share.to}
+        onFromChange={share.setFrom}
+        onToChange={share.setTo}
+        showConfirmed={share.showConfirmed}
+        onShowConfirmedChange={share.setShowConfirmed}
+        showHeld={share.showHeld}
+        onShowHeldChange={share.setShowHeld}
+        selectedWeekdays={share.selectedWeekdays}
+        onToggleWeekday={share.toggleWeekday}
+        availableDates={share.availableDates}
+        onCopyDates={share.copyDates}
+        shareLink={share.shareLink}
+        onCopyLink={share.copyLink}
       />
 
       {createAt && (

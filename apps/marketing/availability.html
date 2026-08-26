@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shared availability · shoWMe</title>
+  <meta name="description" content="Free dates shared from a shoWMe calendar.">
+  <!-- A shared link is personal, not a landing page: keep it out of search results.
+       The page holds nothing but the free dates the sharer chose to publish, and it
+       is meant for the person who was handed the link. -->
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/src/styles/availability.css">
+</head>
+<body>
+  <header class="page-header">
+    <a href="index.html" class="brand" aria-label="shoWMe home">
+      <span class="brand__mark" aria-hidden="true">
+        <svg viewBox="0 0 100 100" fill="none">
+          <path d="M8 48 A42 42 0 0 1 92 48 L92 92 L8 92 Z" fill="#EE5746"></path>
+          <path d="M50 14 L82 76 L18 76 Z" fill="#FFE1A0"></path>
+          <circle cx="50" cy="76" r="6" fill="#EE5746"></circle>
+          <circle cx="34" cy="76" r="5" fill="#EE5746"></circle>
+          <circle cx="66" cy="76" r="5" fill="#EE5746"></circle>
+          <circle cx="22" cy="76" r="4" fill="#EE5746"></circle>
+          <circle cx="78" cy="76" r="4" fill="#EE5746"></circle>
+        </svg>
+      </span>
+      <span>shoWMe</span>
+    </a>
+    <button type="button" class="theme-toggle" id="theme-toggle" aria-pressed="false">
+      Light mode
+    </button>
+  </header>
+
+  <main class="availability" id="availability" aria-live="polite">
+    <!-- Rendered by src/availability.ts from the link's fragment. Server-rendered
+         markup is impossible here on purpose: the snapshot never leaves the browser. -->
+    <p class="availability__loading">Reading the shared link…</p>
+  </main>
+
+  <footer class="page-footer">
+    <p>Booking and settlement for live events. <a href="index.html">shoWMe</a></p>
+    <p><a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></p>
+  </footer>
+
+<script type="module" src="/src/availability.ts"></script>
+</body></html>

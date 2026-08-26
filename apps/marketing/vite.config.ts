@@ -18,9 +18,19 @@ export default defineConfig({
         terms: resolve(here, "terms.html"),
         cookies: resolve(here, "cookies.html"),
         privacy: resolve(here, "privacy.html"),
+        availability: resolve(here, "availability.html"),
       },
     },
   },
-  server: { port: 5173, strictPort: true },
+  server: {
+    port: 5173,
+    strictPort: true,
+    // Dev only. The availability page reads the API's public routes, and the local
+    // API's CORS allow-list is set by scripts/stack.mjs to the app's origin alone —
+    // so in dev the page calls a same-origin `/api/...` and CORS never enters it.
+    // Production needs no proxy: the deployed API already allows the marketing
+    // origins (see VITE_PUBLIC_API_URL in .env.production).
+    proxy: { "/api": { target: "http://127.0.0.1:8080", changeOrigin: false } },
+  },
   preview: { port: 4173, strictPort: true },
 });

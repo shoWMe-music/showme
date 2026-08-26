@@ -208,7 +208,12 @@ export function AvailabilityShareModal({
           <Eyebrow>Shareable link</Eyebrow>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <div style={{ flex: 1 }}>
-              <Input value={shareLink} readOnly leftIcon={<Icon name="link" size={14} />} />
+              <Input
+                value={shareLink}
+                readOnly
+                aria-label="Shareable link"
+                leftIcon={<Icon name="link" size={14} />}
+              />
             </div>
             {onCopyLink && (
               <Button
