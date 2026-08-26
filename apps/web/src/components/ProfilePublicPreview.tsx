@@ -87,6 +87,12 @@ export interface PublicPreviewEvent {
 
 export interface ProfilePublicPreviewProps {
   profile: PublicPreviewProfile;
+  /**
+   * The bill. Now read off `profile.upcomingShows` — the SAME field the anonymous
+   * page serves — rather than a sibling `comingEvents` built by a second query.
+   * That query filtered on `events.venue_profile_id`, so a performer previewed an
+   * empty bill however many shows they were confirmed on.
+   */
   comingEvents: PublicPreviewEvent[];
   /** Whether the page is actually reachable. False → the banner says so. */
   isPublic: boolean;

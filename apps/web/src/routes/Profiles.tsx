@@ -323,7 +323,7 @@ function ProfilePreviewPanel({ profileId, tone }: { profileId: string; tone: Ava
   return (
     <ProfilePublicPreview
       profile={preview.data.profile}
-      comingEvents={preview.data.comingEvents}
+      comingEvents={preview.data.profile.upcomingShows}
       isPublic={preview.data.isPublic}
       tone={tone}
     />

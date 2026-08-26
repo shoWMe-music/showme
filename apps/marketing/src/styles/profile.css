@@ -281,3 +281,182 @@ body {
 .page-footer a {
   color: var(--muted);
 }
+
+/* ---------- The bill ----------
+   Layout and proportion from the Claude Design export ("3a — soft geometry,
+   tickets first"): the date is a rail on the left, the next show is lifted out
+   of the list into its own slab, and everything is a rounded slab or a pill
+   rather than a table. Every colour, radius and font is a token from our own
+   design system, never the prototype's raw hex. */
+
+.showdate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 58px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--shape-fill);
+  font-family: var(--font-mono);
+  line-height: 1.1;
+}
+
+.showdate__weekday,
+.showdate__month {
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.showdate__day {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ---------- Next show ---------- */
+.nextshow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+  padding: 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 20px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.nextshow__body {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.nextshow__eyebrow {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.nextshow__title {
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.nextshow__venue {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 4px 0 0;
+}
+
+.nextshow__times {
+  color: var(--dim);
+  font-size: 13px;
+  margin: 2px 0 0;
+}
+
+.nextshow__cta {
+  flex: 0 0 auto;
+  padding: 11px 20px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--brand-red), var(--brand-amber));
+  color: var(--ink-1000);
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.nextshow__cta:hover {
+  filter: brightness(1.06);
+}
+
+/* ---------- All dates ---------- */
+.showrail {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.showrail__row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.showrail__row:hover {
+  border-color: var(--hover-border);
+  background: var(--hover-surface);
+}
+
+.showrail__row .showdate {
+  min-width: 52px;
+  padding: 7px 10px;
+  background: transparent;
+}
+
+.showrail__row .showdate__day {
+  font-size: 19px;
+}
+
+.showrail__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.showrail__title {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 14.5px;
+}
+
+.showrail__meta {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.showrail__link {
+  flex: 0 0 auto;
+  padding: 7px 15px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 13px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.showrail__link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+@media (max-width: 520px) {
+  .nextshow__cta,
+  .showrail__link {
+    width: 100%;
+    text-align: center;
+  }
+}

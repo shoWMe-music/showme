@@ -8,6 +8,7 @@ import type { GetApiV1ProfilesIdPublicPreview200ProfileSetupsItem } from './getA
 import type { GetApiV1ProfilesIdPublicPreview200ProfileSocialLinksItem } from './getApiV1ProfilesIdPublicPreview200ProfileSocialLinksItem';
 import type { GetApiV1ProfilesIdPublicPreview200ProfileLocation } from './getApiV1ProfilesIdPublicPreview200ProfileLocation';
 import type { GetApiV1ProfilesIdPublicPreview200ProfileVenueDetails } from './getApiV1ProfilesIdPublicPreview200ProfileVenueDetails';
+import type { GetApiV1ProfilesIdPublicPreview200ProfileUpcomingShowsItem } from './getApiV1ProfilesIdPublicPreview200ProfileUpcomingShowsItem';
 
 export type GetApiV1ProfilesIdPublicPreview200Profile = {
   id: string;
@@ -31,4 +32,5 @@ export type GetApiV1ProfilesIdPublicPreview200Profile = {
   location: GetApiV1ProfilesIdPublicPreview200ProfileLocation;
   /** @nullable */
   venueDetails: GetApiV1ProfilesIdPublicPreview200ProfileVenueDetails;
+  upcomingShows: GetApiV1ProfilesIdPublicPreview200ProfileUpcomingShowsItem[];
 };

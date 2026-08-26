@@ -1,6 +1,6 @@
 import { schema } from "@showme/db";
 import { isPlaceProfile, isProfileTypeForKind, profileTypesForKind } from "@showme/shared";
-import { and, asc, eq, gte, ilike, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, ilike, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -13,11 +13,11 @@ import { assertProfileAdminGrantAllows } from "../lib/entitlements";
 import { withIdempotency } from "../plugins/idempotency";
 import {
   type ProfileRelations,
-  PublicProfileSchema,
+  PublishedProfileSchema,
   serializeProfile,
   serializePublicProfile,
 } from "../serialize/profile";
-import { PUBLICLY_VISIBLE_EVENT_STATUSES } from "./public";
+import { loadPublicShows } from "./public";
 
 const ProfileParams = z.object({ id: z.string().uuid() });
 const MemberParams = z.object({ id: z.string().uuid(), mid: z.string().uuid() });
@@ -236,23 +236,13 @@ const VenueDetailsResponse = z.object({
   contactPhone: z.string().nullable(),
 });
 
-/**
- * The shows a stranger would find on the page. Same rule as
- * `GET /public/events/:id`: `published` AND a status the world was told about.
- * A draft is not a listing, and a cancelled show is no longer one.
- */
-const PublicProfileEventResponse = z.object({
-  id: z.string(),
-  title: z.string(),
-  eventDate: z.string().nullable(),
-  venueName: z.string().nullable(),
-  doorTime: z.string().nullable(),
-  startTime: z.string().nullable(),
-});
-
 const PublicPreviewResponse = z.object({
-  profile: PublicProfileSchema,
-  comingEvents: z.array(PublicProfileEventResponse),
+  /**
+   * EXACTLY what the anonymous route serves, bill included — same schema, not a
+   * lookalike. `profiles.test.ts` asserts the two bodies are equal field for
+   * field; sharing the schema is what keeps that true without vigilance.
+   */
+  profile: PublishedProfileSchema,
   /** False → this page is not reachable by anyone yet. The preview still renders
    * (that is the point of a preview), and the screen says so. */
   isPublic: z.boolean(),
@@ -559,41 +549,6 @@ function assertProfileTypeAllowed(kind: string, type: string | null | undefined)
     .map((option) => option.key)
     .join(", ");
   throw badRequest(`A ${kind} profile cannot be of type "${type}". Allowed: ${allowed}`);
-}
-
-/**
- * The shows a stranger would find listed on this profile's page.
- *
- * The visibility rule is IMPORTED from `routes/public.ts` rather than restated:
- * `published` (the host's publishing intent) AND a status the world was actually
- * told about. Restating it as a local literal is how a preview drifts into
- * showing a draft — which is the bug this whole endpoint replaces.
- *
- * Scoped to the venue, matching what the Profiles screen already lists. Past
- * shows are dropped: "Coming Events" is a claim about the future.
- */
-async function loadPublicUpcomingEvents(database: Database, profileId: string) {
-  const today = new Date().toISOString().slice(0, 10);
-  const rows = await database
-    .select({
-      id: schema.events.id,
-      title: schema.events.title,
-      eventDate: schema.events.eventDate,
-      venueName: schema.events.venueName,
-      doorTime: schema.events.doorTime,
-      startTime: schema.events.startTime,
-    })
-    .from(schema.events)
-    .where(
-      and(
-        eq(schema.events.venueProfileId, profileId),
-        eq(schema.events.published, true),
-        inArray(schema.events.status, [...PUBLICLY_VISIBLE_EVENT_STATUSES]),
-        gte(schema.events.eventDate, today),
-      ),
-    )
-    .orderBy(asc(schema.events.eventDate));
-  return rows;
 }
 
 /**
@@ -912,10 +867,13 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
       if (!profile) throw notFound("Profile not found");
 
       const relations = await loadProfileRelations(database, id);
-      const comingEvents = await loadPublicUpcomingEvents(database, id);
+      // The SAME loader the anonymous page uses. The old `loadPublicUpcomingEvents`
+      // filtered on `events.venue_profile_id` alone, so a performer — who is never
+      // named that way, only through `event_participants` — previewed an empty bill
+      // no matter how many shows they were confirmed on.
+      const upcomingShows = await loadPublicShows(database, id);
       return {
-        profile: serializePublicProfile(profile, relations),
-        comingEvents,
+        profile: { ...serializePublicProfile(profile, relations), upcomingShows },
         isPublic: profile.isPublic,
       };
     },

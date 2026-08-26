@@ -491,6 +491,34 @@ export const PublicProfileSchema = z.object({
     .nullable(),
 });
 
+/**
+ * One show on a public profile's bill — the same shape wherever it is served.
+ *
+ * Only what a stranger may already read off the public event page. Nothing about
+ * tickets: `events` has no price column and no ticket link anything reads, so a
+ * public page says when and where and does not invent what a ticket costs.
+ */
+export const PublicShowSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  eventDate: z.string().nullable(),
+  venueName: z.string().nullable(),
+  doorTime: z.string().nullable(),
+  startTime: z.string().nullable(),
+});
+
+/**
+ * The public profile AS PUBLISHED — the projection plus the bill.
+ *
+ * ONE schema, used by the anonymous route and by the owner's preview, because a
+ * preview whose job is "what a stranger sees" that is assembled separately is a
+ * second projection waiting to drift. `profiles.test.ts` asserts the two agree
+ * field for field, and this is what makes that cheap to keep true.
+ */
+export const PublishedProfileSchema = PublicProfileSchema.extend({
+  upcomingShows: z.array(PublicShowSchema),
+});
+
 export function serializePublicProfile(
   profile: ProfileRow,
   relations?: ProfileRelations,

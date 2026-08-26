@@ -5,7 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 
-export type GetApiV1ProfilesIdPublicPreview200ComingEventsItem = {
+export type GetApiV1PublicProfilesSlug200UpcomingShowsItem = {
   id: string;
   title: string;
   /** @nullable */

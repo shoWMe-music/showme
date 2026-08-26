@@ -5,10 +5,8 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { GetApiV1ProfilesIdPublicPreview200Profile } from './getApiV1ProfilesIdPublicPreview200Profile';
-import type { GetApiV1ProfilesIdPublicPreview200ComingEventsItem } from './getApiV1ProfilesIdPublicPreview200ComingEventsItem';
 
 export type GetApiV1ProfilesIdPublicPreview200 = {
   profile: GetApiV1ProfilesIdPublicPreview200Profile;
-  comingEvents: GetApiV1ProfilesIdPublicPreview200ComingEventsItem[];
   isPublic: boolean;
 };

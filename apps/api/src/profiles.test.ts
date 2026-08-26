@@ -1040,9 +1040,12 @@ describe("profiles — public preview", () => {
       headers: auth(ownerId),
     });
     expect(preview.statusCode).toBe(200);
-    expect(preview.json().comingEvents.map((event: { title: string }) => event.title)).toEqual([
-      "Announced Show",
-    ]);
+    // The bill now lives ON the profile — the same field the anonymous page
+    // serves, so a preview cannot show a different set of shows than the page it
+    // is previewing.
+    expect(
+      preview.json().profile.upcomingShows.map((show: { title: string }) => show.title),
+    ).toEqual(["Announced Show"]);
   });
 
   it("previews an UNPUBLISHED profile that the anonymous route 404s", async () => {

@@ -114,12 +114,109 @@ describe("public profiles", () => {
       videos: [],
       location: null,
       venueDetails: null,
+      // The bill. Empty because this profile is on nothing — and present, because
+      // the page is built around it and an absent field would read as "no shows"
+      // for a reason the page could not distinguish from a broken projection.
+      upcomingShows: [],
     });
     // No owner/billing/details/members leak.
     expect(body.ownerUserId).toBeUndefined();
     expect(body.billing).toBeUndefined();
     expect(body.details).toBeUndefined();
     expect(body.isPublic).toBeUndefined();
+  });
+
+  /**
+   * WHO IS ON THE BILL, and who merely worked the night.
+   *
+   * The first version of `loadPublicShows` asked for every CONFIRMED participant
+   * and leaked twice: a sound engineer's public page advertised the gig as though
+   * it were their tour, and — the one that matters — a booking agency's page
+   * announced to the open web that it represents this performer on this date.
+   * Representation is private between agent and performer (`docs/decisions.md`
+   * #14) and the agent is arm's-length (`docs/story.md`), so a stranger must not
+   * learn the relationship exists at all.
+   */
+  it("bills performers and the room, never the crew or the agent", async () => {
+    const { db } = harness;
+    const eventId = await seedEvent("bill-op", true, {
+      status: "confirmed",
+      eventDate: "2099-09-12",
+      title: "Album Release",
+      venueName: "The Lantern Hall",
+    });
+    for (const [slug, role] of [
+      ["bill-headliner", "performer"],
+      ["bill-support", "support"],
+      ["bill-crew", "crew"],
+      ["bill-agent", "agent"],
+    ] as const) {
+      const profileId = await seedProfile(`${slug}-owner`, slug, true);
+      await db
+        .insert(schema.eventParticipants)
+        .values({ eventId, profileId, role, status: "confirmed" });
+    }
+    const showsFor = async (slug: string) => {
+      const response = await app.inject({ method: "GET", url: `/api/v1/public/profiles/${slug}` });
+      expect(response.statusCode).toBe(200);
+      return response.json().upcomingShows as { title: string }[];
+    };
+
+    // ON the bill.
+    expect(await showsFor("bill-headliner")).toHaveLength(1);
+    expect((await showsFor("bill-headliner"))[0]?.title).toBe("Album Release");
+    expect(await showsFor("bill-support")).toHaveLength(1);
+
+    // NOT on the bill — and these are the assertions that would have caught it.
+    expect(await showsFor("bill-crew")).toEqual([]);
+    expect(await showsFor("bill-agent")).toEqual([]);
+  });
+
+  it("keeps an unpublished or unconfirmed show off the bill", async () => {
+    const { db } = harness;
+    const performerId = await seedProfile("quiet-owner", "quiet-band", true);
+
+    const unpublished = await seedEvent("quiet-op-a", false, {
+      status: "confirmed",
+      eventDate: "2099-10-01",
+      title: "Not Published",
+    });
+    const draft = await seedEvent("quiet-op-b", true, {
+      status: "draft",
+      eventDate: "2099-10-02",
+      title: "Still A Draft",
+    });
+    const past = await seedEvent("quiet-op-c", true, {
+      status: "confirmed",
+      eventDate: "2000-01-01",
+      title: "Long Gone",
+    });
+    for (const eventId of [unpublished, draft, past]) {
+      await db
+        .insert(schema.eventParticipants)
+        .values({ eventId, profileId: performerId, role: "performer", status: "confirmed" });
+    }
+    // Confirmed on a publishable show, but the PERFORMER has not accepted.
+    const invitedOnly = await seedEvent("quiet-op-d", true, {
+      status: "confirmed",
+      eventDate: "2099-10-03",
+      title: "Only Invited",
+    });
+    await db.insert(schema.eventParticipants).values({
+      eventId: invitedOnly,
+      profileId: performerId,
+      role: "performer",
+      status: "invited",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/public/profiles/quiet-band",
+    });
+    expect(response.statusCode).toBe(200);
+    // An unpublished event, a draft, a past date and an unaccepted invitation are
+    // four different reasons to say nothing, and the page says nothing for all four.
+    expect(response.json().upcomingShows).toEqual([]);
   });
 
   it("404s a non-public profile", async () => {

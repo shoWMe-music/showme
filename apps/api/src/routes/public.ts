@@ -1,12 +1,12 @@
 import { schema } from "@showme/db";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, or } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { conflict, forbidden, isUniqueViolation, notFound, tooManyRequests } from "../errors";
 import { readProfileBusyTime } from "../lib/availability";
 import { createSlidingWindowRateLimiter } from "../lib/rate-limit";
-import { type ProfileRelations, PublicProfileSchema } from "../serialize/profile";
+import { type ProfileRelations, PublishedProfileSchema } from "../serialize/profile";
 import { serializePublicEvent, serializePublicProfile } from "../serialize/public";
 
 /**
@@ -24,6 +24,17 @@ import { serializePublicEvent, serializePublicProfile } from "../serialize/publi
  */
 export const PUBLICLY_VISIBLE_EVENT_STATUSES = ["confirmed", "concluded"] as const;
 
+/**
+ * The participant roles a public page may announce — who is ON the bill.
+ *
+ * Performing roles and the roles that programme the night. Deliberately NOT
+ * `crew`/`crew_lead` (labour, not billing) and NOT `agent` (representation is
+ * private between agent and performer, `docs/decisions.md` #14). Named as a
+ * constant so the omission is a decision on the page rather than an accident in
+ * a `where` clause.
+ */
+export const PUBLICLY_BILLED_ROLES = ["host", "co_host", "performer", "support"] as const;
+
 const SlugParams = z.object({ slug: z.string().min(1) });
 const EventParams = z.object({ id: z.string().uuid() });
 
@@ -34,7 +45,11 @@ const EventParams = z.object({ id: z.string().uuid() });
  * public", and the day they disagreed one route would publish what the other
  * withheld.
  */
-const PublicProfileResponse = PublicProfileSchema;
+/**
+ * The profile plus its bill. Shared with the owner's preview
+ * (`routes/profiles.ts`) so the two can never disagree about what is published.
+ */
+const PublicProfileResponse = PublishedProfileSchema;
 
 const PublicEventResponse = z.object({
   id: z.string(),
@@ -165,6 +180,76 @@ function clientIp(request: FastifyRequest): string {
  * the owner's preview of it. `is_primary` picks the location, matching every
  * other reader of that table.
  */
+/**
+ * The shows a stranger may see on this profile, soonest first.
+ *
+ * TWO WAYS a profile is on a bill, and the page needs both. A VENUE is named by
+ * `events.venue_profile_id`; a PERFORMER is never named that way — they join
+ * through `event_participants`, which is the whole point of the participant spine
+ * (no parent/child multi-performer). Asking only the venue question is what made a
+ * performer's public page show nothing: `loadPublicUpcomingEvents` in
+ * `routes/profiles.ts` filters on `venue_profile_id` alone, so every performer
+ * preview has been empty since it was written.
+ *
+ * Only CONFIRMED participation counts. An invited-but-undecided performer is not
+ * on the bill yet, and publishing them would announce a booking that has not been
+ * agreed — from the open web, where the artist cannot take it back.
+ *
+ * And only the roles that are actually ON the bill — measured, because the first
+ * version of this asked for every confirmed participant and leaked two ways:
+ *
+ *   CREW are excluded. A sound engineer is confirmed on the event, but their
+ *   involvement is labour, not billing; their public page is not a tour listing,
+ *   and publishing every room they have worked in is a disclosure they never made.
+ *
+ *   AGENTS are excluded, and this is the one that matters. A booking agency is a
+ *   confirmed participant, so including it would announce from the open web that
+ *   Astra represents this performer on this date. Representation is private
+ *   between agent and performer (`docs/decisions.md` #14) and the agent is
+ *   arm's-length (`docs/story.md`); the operator deals with the agent and never
+ *   sees the cut, and a stranger should not learn the relationship exists at all.
+ *
+ * `host`/`co_host` stay in: an operator's public page IS its programme, which is
+ * the whole of the venue design, and a promoter who is not the room still
+ * programmes the night.
+ *
+ * The publication gate is unchanged and deliberately reused rather than restated:
+ * `published = true` AND a status in `PUBLICLY_VISIBLE_EVENT_STATUSES`. A draft, a
+ * pending hold or an unpublished confirmation stays invisible.
+ */
+export async function loadPublicShows(database: FastifyInstance["database"], profileId: string) {
+  const today = new Date().toISOString().slice(0, 10);
+  const performing = database
+    .select({ eventId: schema.eventParticipants.eventId })
+    .from(schema.eventParticipants)
+    .where(
+      and(
+        eq(schema.eventParticipants.profileId, profileId),
+        eq(schema.eventParticipants.status, "confirmed"),
+        inArray(schema.eventParticipants.role, [...PUBLICLY_BILLED_ROLES]),
+      ),
+    );
+  return await database
+    .select({
+      id: schema.events.id,
+      title: schema.events.title,
+      eventDate: schema.events.eventDate,
+      venueName: schema.events.venueName,
+      doorTime: schema.events.doorTime,
+      startTime: schema.events.startTime,
+    })
+    .from(schema.events)
+    .where(
+      and(
+        or(eq(schema.events.venueProfileId, profileId), inArray(schema.events.id, performing)),
+        eq(schema.events.published, true),
+        inArray(schema.events.status, [...PUBLICLY_VISIBLE_EVENT_STATUSES]),
+        gte(schema.events.eventDate, today),
+      ),
+    )
+    .orderBy(asc(schema.events.eventDate));
+}
+
 async function loadPublicProfileRelations(
   database: FastifyInstance["database"],
   profileId: string,
@@ -225,8 +310,11 @@ export async function publicRoutes(fastify: FastifyInstance): Promise<void> {
       // offers, the owner's links and their gallery. Which of them a stranger
       // actually receives is decided inside `serializePublicProfile` — this
       // handler hands it everything and publishes nothing on its own.
-      const relations = await loadPublicProfileRelations(database, profile.id);
-      return serializePublicProfile(profile, relations);
+      const [relations, shows] = await Promise.all([
+        loadPublicProfileRelations(database, profile.id),
+        loadPublicShows(database, profile.id),
+      ]);
+      return { ...serializePublicProfile(profile, relations), upcomingShows: shows };
     },
   );
 

@@ -7607,6 +7607,45 @@
                           ],
                           "additionalProperties": false,
                           "nullable": true
+                        },
+                        "upcomingShows": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "eventDate": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "venueName": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "doorTime": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "startTime": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "title",
+                              "eventDate",
+                              "venueName",
+                              "doorTime",
+                              "startTime"
+                            ],
+                            "additionalProperties": false
+                          }
                         }
                       },
                       "required": [
@@ -7624,54 +7663,16 @@
                         "photos",
                         "videos",
                         "location",
-                        "venueDetails"
+                        "venueDetails",
+                        "upcomingShows"
                       ],
                       "additionalProperties": false
-                    },
-                    "comingEvents": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": {
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          },
-                          "eventDate": {
-                            "type": "string",
-                            "nullable": true
-                          },
-                          "venueName": {
-                            "type": "string",
-                            "nullable": true
-                          },
-                          "doorTime": {
-                            "type": "string",
-                            "nullable": true
-                          },
-                          "startTime": {
-                            "type": "string",
-                            "nullable": true
-                          }
-                        },
-                        "required": [
-                          "id",
-                          "title",
-                          "eventDate",
-                          "venueName",
-                          "doorTime",
-                          "startTime"
-                        ],
-                        "additionalProperties": false
-                      }
                     },
                     "isPublic": {
                       "type": "boolean"
                     }
                   },
-                  "required": ["profile", "comingEvents", "isPublic"],
+                  "required": ["profile", "isPublic"],
                   "additionalProperties": false
                 }
               }
@@ -15902,6 +15903,45 @@
                       ],
                       "additionalProperties": false,
                       "nullable": true
+                    },
+                    "upcomingShows": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "eventDate": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "venueName": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "doorTime": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "startTime": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "title",
+                          "eventDate",
+                          "venueName",
+                          "doorTime",
+                          "startTime"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
@@ -15919,7 +15959,8 @@
                     "photos",
                     "videos",
                     "location",
-                    "venueDetails"
+                    "venueDetails",
+                    "upcomingShows"
                   ],
                   "additionalProperties": false
                 }
