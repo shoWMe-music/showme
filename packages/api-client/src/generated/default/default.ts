@@ -34,6 +34,7 @@ import type {
   DeleteApiV1EventsIdParticipantsPid200,
   DeleteApiV1GroupsGidMembersMid200,
   DeleteApiV1GroupsGidProfilesPid200,
+  DeleteApiV1IntegrationsCalendarId200,
   DeleteApiV1ProfilesId200,
   DeleteApiV1ProfilesIdContactsCid200,
   DeleteApiV1ProfilesIdMembersMid200,
@@ -75,6 +76,7 @@ import type {
   GetApiV1Health200,
   GetApiV1InsightsProfilesIdRevenue200,
   GetApiV1InsightsProfilesIdSummary200,
+  GetApiV1IntegrationsCalendar200Item,
   GetApiV1InvitationsToken200,
   GetApiV1InvoicesIid200,
   GetApiV1Me200,
@@ -211,6 +213,11 @@ import type {
   PostApiV1GroupsGidMembersBody,
   PostApiV1GroupsGidProfiles200,
   PostApiV1GroupsGidProfilesBody,
+  PostApiV1IntegrationsCalendarGoogleAuthorizationUrl200,
+  PostApiV1IntegrationsCalendarGoogleAuthorizationUrlBody,
+  PostApiV1IntegrationsCalendarGoogleConnect201,
+  PostApiV1IntegrationsCalendarGoogleConnectBody,
+  PostApiV1IntegrationsCalendarIdSync200,
   PostApiV1Invitations201,
   PostApiV1InvitationsBody,
   PostApiV1InvitationsTokenAccept200,
@@ -7276,6 +7283,319 @@ const {mutation: mutationOptions} = options ?
       > => {
 
       const mutationOptions = getPostApiV1EventsIdHandoffMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const getApiV1IntegrationsCalendar = (
+    
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1IntegrationsCalendar200Item[]>(
+      {url: `/api/v1/integrations/calendar`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1IntegrationsCalendarQueryKey = () => {
+    return [
+    `/api/v1/integrations/calendar`
+    ] as const;
+    }
+
+    
+export const getGetApiV1IntegrationsCalendarQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1IntegrationsCalendar>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1IntegrationsCalendar>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1IntegrationsCalendarQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1IntegrationsCalendar>>> = ({ signal }) => getApiV1IntegrationsCalendar(signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1IntegrationsCalendar>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1IntegrationsCalendarQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1IntegrationsCalendar>>>
+export type GetApiV1IntegrationsCalendarQueryError = unknown
+
+
+export function useGetApiV1IntegrationsCalendar<TData = Awaited<ReturnType<typeof getApiV1IntegrationsCalendar>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1IntegrationsCalendar>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1IntegrationsCalendar>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1IntegrationsCalendar>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1IntegrationsCalendar<TData = Awaited<ReturnType<typeof getApiV1IntegrationsCalendar>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1IntegrationsCalendar>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1IntegrationsCalendar>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1IntegrationsCalendar>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1IntegrationsCalendar<TData = Awaited<ReturnType<typeof getApiV1IntegrationsCalendar>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1IntegrationsCalendar>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1IntegrationsCalendar<TData = Awaited<ReturnType<typeof getApiV1IntegrationsCalendar>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1IntegrationsCalendar>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1IntegrationsCalendarQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const postApiV1IntegrationsCalendarGoogleAuthorizationUrl = (
+    postApiV1IntegrationsCalendarGoogleAuthorizationUrlBody: PostApiV1IntegrationsCalendarGoogleAuthorizationUrlBody,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1IntegrationsCalendarGoogleAuthorizationUrl200>(
+      {url: `/api/v1/integrations/calendar/google/authorization-url`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: postApiV1IntegrationsCalendarGoogleAuthorizationUrlBody, signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1IntegrationsCalendarGoogleAuthorizationUrlMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1IntegrationsCalendarGoogleAuthorizationUrl>>, TError,{data: PostApiV1IntegrationsCalendarGoogleAuthorizationUrlBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1IntegrationsCalendarGoogleAuthorizationUrl>>, TError,{data: PostApiV1IntegrationsCalendarGoogleAuthorizationUrlBody}, TContext> => {
+
+const mutationKey = ['postApiV1IntegrationsCalendarGoogleAuthorizationUrl'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1IntegrationsCalendarGoogleAuthorizationUrl>>, {data: PostApiV1IntegrationsCalendarGoogleAuthorizationUrlBody}> = (props) => {
+          const {data} = props ?? {};
+
+          return  postApiV1IntegrationsCalendarGoogleAuthorizationUrl(data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1IntegrationsCalendarGoogleAuthorizationUrlMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1IntegrationsCalendarGoogleAuthorizationUrl>>>
+    export type PostApiV1IntegrationsCalendarGoogleAuthorizationUrlMutationBody = PostApiV1IntegrationsCalendarGoogleAuthorizationUrlBody
+    export type PostApiV1IntegrationsCalendarGoogleAuthorizationUrlMutationError = unknown
+
+    export const usePostApiV1IntegrationsCalendarGoogleAuthorizationUrl = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1IntegrationsCalendarGoogleAuthorizationUrl>>, TError,{data: PostApiV1IntegrationsCalendarGoogleAuthorizationUrlBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1IntegrationsCalendarGoogleAuthorizationUrl>>,
+        TError,
+        {data: PostApiV1IntegrationsCalendarGoogleAuthorizationUrlBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1IntegrationsCalendarGoogleAuthorizationUrlMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const postApiV1IntegrationsCalendarGoogleConnect = (
+    postApiV1IntegrationsCalendarGoogleConnectBody: PostApiV1IntegrationsCalendarGoogleConnectBody,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1IntegrationsCalendarGoogleConnect201>(
+      {url: `/api/v1/integrations/calendar/google/connect`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: postApiV1IntegrationsCalendarGoogleConnectBody, signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1IntegrationsCalendarGoogleConnectMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1IntegrationsCalendarGoogleConnect>>, TError,{data: PostApiV1IntegrationsCalendarGoogleConnectBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1IntegrationsCalendarGoogleConnect>>, TError,{data: PostApiV1IntegrationsCalendarGoogleConnectBody}, TContext> => {
+
+const mutationKey = ['postApiV1IntegrationsCalendarGoogleConnect'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1IntegrationsCalendarGoogleConnect>>, {data: PostApiV1IntegrationsCalendarGoogleConnectBody}> = (props) => {
+          const {data} = props ?? {};
+
+          return  postApiV1IntegrationsCalendarGoogleConnect(data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1IntegrationsCalendarGoogleConnectMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1IntegrationsCalendarGoogleConnect>>>
+    export type PostApiV1IntegrationsCalendarGoogleConnectMutationBody = PostApiV1IntegrationsCalendarGoogleConnectBody
+    export type PostApiV1IntegrationsCalendarGoogleConnectMutationError = unknown
+
+    export const usePostApiV1IntegrationsCalendarGoogleConnect = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1IntegrationsCalendarGoogleConnect>>, TError,{data: PostApiV1IntegrationsCalendarGoogleConnectBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1IntegrationsCalendarGoogleConnect>>,
+        TError,
+        {data: PostApiV1IntegrationsCalendarGoogleConnectBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1IntegrationsCalendarGoogleConnectMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const postApiV1IntegrationsCalendarIdSync = (
+    id: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1IntegrationsCalendarIdSync200>(
+      {url: `/api/v1/integrations/calendar/${id}/sync`, method: 'POST', signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1IntegrationsCalendarIdSyncMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1IntegrationsCalendarIdSync>>, TError,{id: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1IntegrationsCalendarIdSync>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['postApiV1IntegrationsCalendarIdSync'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1IntegrationsCalendarIdSync>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  postApiV1IntegrationsCalendarIdSync(id,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1IntegrationsCalendarIdSyncMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1IntegrationsCalendarIdSync>>>
+    
+    export type PostApiV1IntegrationsCalendarIdSyncMutationError = unknown
+
+    export const usePostApiV1IntegrationsCalendarIdSync = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1IntegrationsCalendarIdSync>>, TError,{id: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1IntegrationsCalendarIdSync>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1IntegrationsCalendarIdSyncMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const deleteApiV1IntegrationsCalendarId = (
+    id: string,
+ ) => {
+      
+      
+      return customFetch<DeleteApiV1IntegrationsCalendarId200>(
+      {url: `/api/v1/integrations/calendar/${id}`, method: 'DELETE'
+    },
+      );
+    }
+  
+
+
+export const getDeleteApiV1IntegrationsCalendarIdMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteApiV1IntegrationsCalendarId>>, TError,{id: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof deleteApiV1IntegrationsCalendarId>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['deleteApiV1IntegrationsCalendarId'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteApiV1IntegrationsCalendarId>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteApiV1IntegrationsCalendarId(id,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteApiV1IntegrationsCalendarIdMutationResult = NonNullable<Awaited<ReturnType<typeof deleteApiV1IntegrationsCalendarId>>>
+    
+    export type DeleteApiV1IntegrationsCalendarIdMutationError = unknown
+
+    export const useDeleteApiV1IntegrationsCalendarId = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteApiV1IntegrationsCalendarId>>, TError,{id: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteApiV1IntegrationsCalendarId>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+
+      const mutationOptions = getDeleteApiV1IntegrationsCalendarIdMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }

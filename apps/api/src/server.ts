@@ -2,6 +2,7 @@ import { createDatabase } from "@showme/db";
 import { buildApp } from "./app";
 import { createFirebaseTokenVerifier } from "./auth/token-verifier";
 import { loadEnv } from "./config";
+import { createCalendarIntegration } from "./lib/calendar-integration";
 import { createLeadSink } from "./lib/clickup";
 import { createEmailSink } from "./lib/email";
 
@@ -26,6 +27,16 @@ const emailSink = createEmailSink({
   brevoSender: env.BREVO_SENDER,
 });
 
+// Null unless all three secrets are present — see lib/calendar-integration.ts.
+// A malformed encryption key still throws here, at boot, rather than on the first
+// user who tries to connect a calendar.
+const calendarIntegration = createCalendarIntegration({
+  googleOAuthClientId: env.GOOGLE_OAUTH_CLIENT_ID,
+  googleOAuthClientSecret: env.GOOGLE_OAUTH_CLIENT_SECRET,
+  calendarTokenEncryptionKey: env.CALENDAR_TOKEN_ENCRYPTION_KEY,
+  webhookUrl: env.GOOGLE_CALENDAR_WEBHOOK_URL,
+});
+
 const splitOrigins = (value: string | undefined) =>
   value
     ?.split(",")
@@ -42,6 +53,7 @@ const app = buildApp({
   emailSink,
   leadsAllowedOrigins,
   corsAllowedOrigins,
+  calendarIntegration,
 });
 
 app

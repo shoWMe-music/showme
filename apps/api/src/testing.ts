@@ -34,6 +34,7 @@ export function buildTestApp(
     "leadsAllowedOrigins",
     dependencies.leadsAllowedOrigins ?? DEFAULT_LEADS_ALLOWED_ORIGINS,
   );
+  app.decorate("calendarIntegration", dependencies.calendarIntegration ?? null);
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   app.setErrorHandler(apiErrorHandler);

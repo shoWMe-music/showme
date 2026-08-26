@@ -10,6 +10,7 @@ import {
 } from "fastify-type-provider-zod";
 import type { TokenVerifier } from "./auth/token-verifier";
 import { HttpError } from "./errors";
+import type { CalendarIntegration } from "./lib/calendar-integration";
 import { type LeadSink, createNoopLeadSink } from "./lib/clickup";
 import { type EmailSink, createNoopEmailSink } from "./lib/email";
 import { loggerOptions } from "./logging";
@@ -29,6 +30,7 @@ import { healthRoutes } from "./routes/health";
 import { holdRoutes } from "./routes/holds";
 import { inboundRoutes } from "./routes/inbound";
 import { insightRoutes } from "./routes/insights";
+import { integrationRoutes } from "./routes/integrations";
 import { invitationRoutes } from "./routes/invitations";
 import { invoiceRoutes } from "./routes/invoices";
 import { meRoutes } from "./routes/me";
@@ -99,6 +101,12 @@ export interface AppDependencies {
   leadsAllowedOrigins?: string[];
   /** Optional — browser origins allowed to call the API (CORS). Defaults to local dev. */
   corsAllowedOrigins?: string[];
+  /**
+   * Optional — Google Calendar OAuth + the token sealer. Absent means the
+   * integration is unavailable (503 on its routes) and everything else works,
+   * which is exactly what a laptop and a test run want.
+   */
+  calendarIntegration?: CalendarIntegration | null;
 }
 
 /** Typed error envelope (decisions #15): { error: { code, message, details? } }. */
@@ -144,6 +152,7 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     "leadsAllowedOrigins",
     dependencies.leadsAllowedOrigins ?? DEFAULT_LEADS_ALLOWED_ORIGINS,
   );
+  app.decorate("calendarIntegration", dependencies.calendarIntegration ?? null);
 
   // Zod is the single source of truth for validation AND serialization → OpenAPI.
   app.setValidatorCompiler(validatorCompiler);
@@ -191,6 +200,7 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
       await api.register(contactRoutes);
       await api.register(invitationRoutes);
       await api.register(inboundRoutes);
+      await api.register(integrationRoutes);
       await api.register(shareRoutes);
       await api.register(representationRoutes);
       await api.register(planRoutes);

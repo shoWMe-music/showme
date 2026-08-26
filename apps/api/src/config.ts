@@ -41,6 +41,31 @@ const EnvSchema = z.object({
   // Comma-separated browser origins allowed to call the API (CORS). The web app
   // and marketing site. Defaults to the local dev/preview origins (see app.ts).
   CORS_ALLOWED_ORIGINS: z.string().optional(),
+  // Google Calendar integration (the Integrations screen). All three are OPTIONAL
+  // and all three are required together — the same shape `createEmailSink` uses
+  // for Brevo, so a laptop and a Testcontainers suite never need Google
+  // credentials. When any is absent the integration is UNAVAILABLE: the routes
+  // answer 503 with a sentence saying so, and nothing else in the API changes
+  // (see `lib/calendar-integration.ts`).
+  //
+  // The client SECRET is here and not in the web app for the reason the whole
+  // three-legged flow exists: a public SPA cannot keep one, so the code→token
+  // exchange happens in the API.
+  GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
+  GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
+  // base64 of 32 random bytes. Seals every stored refresh token (AES-256-GCM) and
+  // derives the MAC key for the OAuth `state`. It lives in Secret Manager and
+  // deliberately NOT in Postgres — that separation is what makes a database-only
+  // compromise yield ciphertext instead of calendars.
+  CALENDAR_TOKEN_ENCRYPTION_KEY: z.string().optional(),
+  // Where Google POSTs calendar change notifications, e.g.
+  // `https://api.showme.music/api/v1/integrations/calendar/google/notifications`.
+  // Optional and independent of the three above: unset means no push channel is
+  // registered and sync stays manual, which is the only possible answer on a
+  // laptop. The host must be HTTPS on a domain USER-VERIFIED against this Cloud
+  // project — Google refuses to watch anything else, and a *.run.app URL can never
+  // qualify (see `lib/google-calendar.ts`).
+  GOOGLE_CALENDAR_WEBHOOK_URL: z.string().url().optional(),
   // pino level for the request/error log (see logging.ts). `info` logs every
   // request; `warn` quiets that down to problems only.
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),

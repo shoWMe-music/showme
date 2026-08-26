@@ -199,6 +199,131 @@ export const calendarItems = pgTable(
 );
 
 /**
+ * ONE PERSON'S LINK TO ONE REMOTE CALENDAR — the row `lib/external-calendar.ts`
+ * says is missing, now that the security decision behind it has been made.
+ *
+ * TWO OWNERS, BOTH REQUIRED, for the same reason `calendar_items` carries both.
+ * `user_id` is WHOSE ACCOUNT the calendar came from — it decides who may see the
+ * titles (`serialize/calendar.ts` withholds them from everyone else). `profile_id`
+ * is WHOSE AVAILABILITY it feeds — availability is profile-scoped, so an import
+ * with no profile occupies nobody. Every row this connection writes is stamped
+ * with both, and one without the other would either leak a private lunch to the
+ * co-members of a profile or block nothing at all.
+ *
+ * THE CREDENTIAL. The refresh token is a long-lived key to a person's entire
+ * calendar, so it is never stored as written: it is sealed with AES-256-GCM
+ * (`lib/token-encryption.ts`) under a key that lives in Secret Manager
+ * (`CALENDAR_TOKEN_ENCRYPTION_KEY`) and never in Postgres. Three columns because
+ * GCM needs three things back: the nonce it was sealed under, the ciphertext, and
+ * the authentication TAG — drop the tag and the mode silently degrades to
+ * unauthenticated CTR, where an attacker who can write this table can flip
+ * arbitrary bits of the plaintext and nothing notices. The seal is additionally
+ * bound to `(user_id, provider, provider_account_id)` as associated data, so a
+ * ciphertext copied onto another user's row fails to open rather than handing the
+ * thief someone else's calendar.
+ *
+ * WHAT A DATABASE-ONLY COMPROMISE YIELDS: which Google account a user connected
+ * and when it last synced. Not the token — that needs the Secret Manager key too.
+ *
+ * `sync_token` sits beside it and is NOT a credential: it is Google's cursor,
+ * useless without the token, and it is the only way a sync ever learns about a
+ * DELETION (a full listing cannot distinguish "gone" from "never mentioned").
+ */
+export const calendarConnections = pgTable(
+  "calendar_connections",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** Whose account this is — who may see the imported titles. */
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Whose availability it feeds. Deleting the profile drops the connection. */
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    /** "google" today; the table is provider-agnostic on purpose. */
+    provider: text("provider").notNull(),
+    /**
+     * The provider's own name for the account — for Google, the calendar's
+     * address (`daniel@showme.music`), read off `events.list`'s `summary`.
+     *
+     * WHY NOT from an identity endpoint: the scope granted is `calendar.events`
+     * and nothing else. `calendars.get` and `calendarList.get` both answer 403
+     * under it (verified against the live API), and asking for `openid email`
+     * purely to render one line of the settings screen would widen the consent
+     * screen for no functional gain. The listing already tells us.
+     */
+    providerAccountId: text("provider_account_id").notNull(),
+    /** Which calendar within that account. "primary" unless a picker ever exists. */
+    providerCalendarId: text("provider_calendar_id").notNull().default("primary"),
+    /** The calendar's own IANA zone — what the imported wall-clock times mean. */
+    calendarTimeZone: text("calendar_time_zone"),
+    /** AES-256-GCM ciphertext of the refresh token, base64. Never the token. */
+    refreshTokenCiphertext: text("refresh_token_ciphertext").notNull(),
+    /** The 12-byte GCM nonce it was sealed under, base64. Unique per seal. */
+    refreshTokenIv: text("refresh_token_iv").notNull(),
+    /** The GCM authentication tag, base64 — what makes tampering detectable. */
+    refreshTokenAuthTag: text("refresh_token_auth_tag").notNull(),
+    /** Exactly what the user consented to, as Google echoed it back. */
+    scope: text("scope").notNull(),
+    /**
+     * Google's `nextSyncToken` — a cursor, not a credential. Present means the
+     * next sync is incremental and will be told about deletions; null means the
+     * next sync is a full listing (first connect, or after a 410 GONE).
+     */
+    syncToken: text("sync_token"),
+    /** When a listing last completed, incremental or full. Null until the first. */
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    /**
+     * When a FULL listing last ran. A sync token inherits the time window of the
+     * full listing that produced it, so a connection left on incremental syncs
+     * forever keeps a horizon that stops moving — this is what the periodic
+     * full re-list is scheduled from (`lib/calendar-sync.ts`).
+     */
+    lastFullSyncAt: timestamp("last_full_sync_at", { withTimezone: true }),
+    /**
+     * When Google last refused to refresh — i.e. the user revoked access from
+     * their own Google account page, which is an ORDINARY event, not an error.
+     * A timestamp rather than a boolean because "since when" is what the screen
+     * has to say. Non-null = "Reconnect"; cleared by the next successful refresh.
+     */
+    reauthorizationRequiredAt: timestamp("reauthorization_required_at", { withTimezone: true }),
+    /** The provider's own words for why, kept for the screen and for support. */
+    lastError: text("last_error"),
+    /**
+     * THE PUSH CHANNEL. `events.watch` registers a webhook and hands back the
+     * `id` we chose and a `resourceId` we did not; both are needed to stop it, and
+     * it EXPIRES (about a week), so the expiry is state the screen reads.
+     *
+     * `channelTokenHash` and not the token: Google echoes the token we registered
+     * back in `X-Goog-Channel-Token` on every ping, and that echo is the ONLY
+     * authentication the receiving route has. Storing the digest means a database
+     * leak cannot be used to forge a ping — the plaintext is generated at
+     * registration, sent to Google, and never written down. A re-registration
+     * mints a new one, so nothing ever needs to read it back.
+     */
+    channelId: text("channel_id"),
+    resourceId: text("resource_id"),
+    channelTokenHash: text("channel_token_hash"),
+    channelExpiresAt: timestamp("channel_expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Reconnecting is an UPDATE, not a second row. Without this, every trip
+    // through the consent screen would leave another live refresh token behind —
+    // each one a key nobody is tracking and disconnect would not revoke.
+    unique("calendar_connections_account_identity").on(
+      table.userId,
+      table.provider,
+      table.providerAccountId,
+    ),
+    // "What is connected for this profile" — the settings screen's only read.
+    index("calendar_connections_profile_idx").on(table.profileId, table.provider),
+  ],
+);
+
+/**
  * A copy of one of OUR events living on somebody else's calendar — the outbound
  * half of calendar sync ("the events in shoWMe should also show in the calendar").
  *
