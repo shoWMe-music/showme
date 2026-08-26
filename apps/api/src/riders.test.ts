@@ -642,7 +642,6 @@ describe("riders — profile library + event instances (copy-on-attach)", () => 
   });
 });
 
-
 /**
  * The capability now says what was already true.
  *
