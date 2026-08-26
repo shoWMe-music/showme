@@ -4,6 +4,47 @@ The standing answer to "what's deployed where". Update it when that changes.
 Account/project map and the domain history live in
 [handoff-2026-08-23-marketing-and-hosting.md](./handoff-2026-08-23-marketing-and-hosting.md).
 
+## 2026-08-26 (evening) — 26 commits, migrations 0017–0021, API 00015, web app
+
+Deployed from `main` at `6eaeb6a`, after lint 0 / typecheck 0 / build 0,
+`apps/api` **796 passed / 49 files**, `@showme/shared` 149, settlement 34, and
+web e2e **34 passed** — every count read off the summary line, never an exit code
+through a pipe.
+
+| | |
+|---|---|
+| Backup | On-demand `1787764227414` ("before migrations 0012-0021"), **verified SUCCESSFUL before any migration ran**. |
+| Database | **17 → 22** applied migrations. Data intact after: 5 users, 5 events, 5 profiles. |
+| API | Cloud Run `showme-api` rev **`00015-2kp`** (was `00014-qsj`), europe-north2. |
+| Web app | `showme-app.web.app`, bundle **`index-D4KSa8no.js`** (was `index-2JNI8cFe.js`). |
+| Marketing | **NOT redeployed.** It lives on the gmail account (`showme-production`) and nothing in these commits touched it. |
+
+**CORRECTION to the section below: production was NOT at 0011.** It was at **0016** —
+`__drizzle_migrations` held 17 rows, and the backup history (`pre-0015 budget
+planning assumptions`, `pre-0016 venue rooms`) says a session on the same day had
+already applied them without updating this file. Only **0017–0021** were pending.
+Reading the table first is what stopped ten migrations being re-run blind; the
+lesson is that this file is a claim, and `__drizzle_migrations` is the fact.
+
+Applied and verified by their real objects, not by guessed table names:
+`settlement_comments.section` (0017) · `performing_rights_rates` (0018) ·
+`budget_lines.attributed_deal_id` (0019) · `event_participants.archived_at` +
+`archived_by` (0020) · `share_otps.rate_window_start` + `issues` (0021).
+
+**Smoke-tested after deploy**: `/api/v1/events` 401 with no token and 401 with a
+bad one; `/api/v1/profiles/:id/stages` **401 rather than 404**, which is what proves
+the running build is the new one and not the stale revision; CORS preflight **204**
+from `https://showme-app.web.app` against the origin the bundle actually calls
+(`showme-api-680839076083.europe-north2.run.app` — the direct Cloud Run URL that
+`apps/web/.env.production` sets, *not* `api.showme.music`), returning a matching
+`access-control-allow-origin` and an `access-control-allow-headers` carrying
+`authorization`. The live bundle hash was confirmed to match the one just built.
+
+**The Cloud SQL proxy authenticates with Application Default Credentials**, which
+`gcloud auth login` does NOT refresh — it failed with `invalid_rapt` until
+`gcloud auth application-default login` was run separately. Firebase is a third,
+independent login. Budget for all three.
+
 ## 2026-08-26 — the big deploy (migrations 0007–0011, API 00008, web app)
 
 Everything below was deployed from `main` at `04dfd16`, after 528 API tests and
