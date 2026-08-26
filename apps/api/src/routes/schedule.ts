@@ -18,7 +18,11 @@ const scheduleCategoryEnum = z.enum(["production", "crew"]);
 const localDateTime = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/);
 
 const CreateScheduleBody = z.object({
-  localDateTime: localDateTime.optional(),
+  // Nullable as well as optional: the add row sends an explicit `null` when the
+  // time box is left blank (a schedule item may legitimately have no time yet),
+  // and the update body below has always accepted that. Create rejecting it was
+  // the reason adding an untimed item failed with a 400.
+  localDateTime: localDateTime.nullable().optional(),
   duration: z.number().int().optional(),
   label: z.string().min(1),
   description: z.string().optional(),

@@ -9,6 +9,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { deals } from "./deals";
@@ -31,15 +32,28 @@ import { profiles, representations } from "./identity";
  */
 
 /** A budget for an event — one shared budget for co-operators, plus optional private ones. */
-export const budgets = pgTable("budgets", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  eventId: uuid("event_id")
-    .notNull()
-    .references(() => events.id, { onDelete: "cascade" }),
-  scope: budgetScope("scope").notNull().default("shared"),
-  ownerProfileId: uuid("owner_profile_id").references(() => profiles.id), // set only for private
-  version: integer("version").notNull().default(1), // optimistic lock (decisions #8)
-});
+export const budgets = pgTable(
+  "budgets",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    scope: budgetScope("scope").notNull().default("shared"),
+    ownerProfileId: uuid("owner_profile_id").references(() => profiles.id), // set only for private
+    version: integer("version").notNull().default(1), // optimistic lock (decisions #8)
+  },
+  (table) => [
+    // Budgets are provisioned on demand, so two concurrent reads can race to
+    // create the same one. These give the INSERT .. ON CONFLICT DO NOTHING
+    // something to conflict on: at most one private budget per owning profile,
+    // and at most one shared ledger per event.
+    uniqueIndex("budgets_one_private_per_owner")
+      .on(table.eventId, table.ownerProfileId)
+      .where(sql`scope = 'private'`),
+    uniqueIndex("budgets_one_shared_per_event").on(table.eventId).where(sql`scope = 'shared'`),
+  ],
+);
 
 /**
  * A revenue or cost line. `collected_by` (revenue: who receives) / `paid_by`
@@ -66,6 +80,10 @@ export const budgetLines = pgTable(
     paidBy: uuid("paid_by").references(() => eventParticipants.id),
     payeeParticipantId: uuid("payee_participant_id").references(() => eventParticipants.id),
     costSplit: jsonb("cost_split"), // split rule (e.g. 50/50) when shared
+    // The planner's breakdown behind `amount` (unit x quantity). `amount`
+    // stays the authoritative figure settlement reads; this only remembers
+    // how the operator arrived at it. NULL for a hand-entered line.
+    details: jsonb("details"),
     dealId: uuid("deal_id").references(() => deals.id),
     version: integer("version").notNull().default(1), // optimistic lock (decisions #8)
   },

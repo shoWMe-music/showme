@@ -202,7 +202,11 @@ describe("budgets — authorize + money-as-string + audit", () => {
       headers: auth(operatorUid),
     });
     expect(list.statusCode).toBe(200);
-    const body = list.json();
+    // The list also carries the operator's own private budget, opened for them
+    // on read (see "provisioned on demand" below). This assertion is about the
+    // shared budget the lines were written to, so pick it out by id rather than
+    // assuming it is the only one.
+    const body = list.json().filter((budget: { id: string }) => budget.id === budgetId);
     expect(body).toHaveLength(1);
     expect(body[0].id).toBe(budgetId);
     expect(body[0].lines).toHaveLength(2);
@@ -472,7 +476,7 @@ describe("budgets — private scope is confidential to its owner (A-06)", () => 
   });
 
   it("hides another operator's private budget from the co-host's list", async () => {
-    const { eventId, coHostUid, sharedBudgetId, privateBudgetId } =
+    const { eventId, coHostUid, coHostProfileId, sharedBudgetId, privateBudgetId } =
       await seedTwoOperatorEvent("priv-list");
 
     const list = await app.inject({
@@ -482,7 +486,15 @@ describe("budgets — private scope is confidential to its owner (A-06)", () => 
     });
     expect(list.statusCode).toBe(200); // the co-host DOES hold budget.view
     const ids = list.json().map((budget: { id: string }) => budget.id);
-    expect(ids).toEqual([sharedBudgetId]);
+    // The co-host sees the shared ledger and the private book opened for THEM,
+    // and — the point of this test — never the other operator's private one.
+    expect(ids).toContain(sharedBudgetId);
+    expect(ids).not.toContain(privateBudgetId);
+    const owners = list
+      .json()
+      .filter((budget: { scope: string }) => budget.scope === "private")
+      .map((budget: { ownerProfileId: string }) => budget.ownerProfileId);
+    expect(owners).toEqual([coHostProfileId]);
     // Not even the private line's label or amount leaks through the shared budget.
     expect(JSON.stringify(list.json())).not.toContain("Promoter margin");
     expect(JSON.stringify(list.json())).not.toContain(privateBudgetId);
@@ -1014,5 +1026,210 @@ describe("budgets — every line must say who held the cash (A-14)", () => {
     expect(withCollector.statusCode).toBe(200);
     expect(withCollector.json().kind).toBe("revenue");
     expect(withCollector.json().collectedBy).toBe(seed.hostParticipantId);
+  });
+});
+
+/**
+ * The bug this covers: `POST /events` created no budget and no route in the web
+ * app ever called `POST /events/:id/budgets`, so the Budget Planner on every new
+ * event was an empty state with nothing behind it and no affordance to get past
+ * it. A production operator hosting their own event could not open a budget at
+ * all — which read as a permission problem and was not one.
+ */
+describe("budgets — provisioned on demand", () => {
+  it("opens a private budget for the operator who reads an event that has none", async () => {
+    const seeded = await seedEvent("provision-solo");
+
+    const before = await harness.db
+      .select()
+      .from(schema.budgets)
+      .where(eq(schema.budgets.eventId, seeded.eventId));
+    expect(before).toHaveLength(0); // seeded straight into the DB, as a legacy event
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seeded.eventId}/budgets`,
+      headers: auth(seeded.operatorUid),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const budgets = response.json();
+    expect(budgets).toHaveLength(1);
+    expect(budgets[0].scope).toBe("private");
+    expect(budgets[0].ownerProfileId).toBe(seeded.operatorProfileId);
+    expect(budgets[0].lines).toEqual([]);
+  });
+
+  it("is idempotent — reading twice does not open a second budget", async () => {
+    const seeded = await seedEvent("provision-twice");
+    const read = () =>
+      app.inject({
+        method: "GET",
+        url: `/api/v1/events/${seeded.eventId}/budgets`,
+        headers: auth(seeded.operatorUid),
+      });
+
+    await read();
+    await read();
+
+    const rows = await harness.db
+      .select()
+      .from(schema.budgets)
+      .where(eq(schema.budgets.eventId, seeded.eventId));
+    expect(rows).toHaveLength(1);
+  });
+
+  it("survives two operators reading at the same moment", async () => {
+    const seeded = await seedEvent("provision-race");
+    const read = () =>
+      app.inject({
+        method: "GET",
+        url: `/api/v1/events/${seeded.eventId}/budgets`,
+        headers: auth(seeded.operatorUid),
+      });
+
+    await Promise.all([read(), read(), read()]);
+
+    const rows = await harness.db
+      .select()
+      .from(schema.budgets)
+      .where(eq(schema.budgets.eventId, seeded.eventId));
+    expect(rows).toHaveLength(1);
+  });
+
+  // The rule the user set: private per profile, plus a shared ledger once the
+  // event is actually co-hosted. A solo operator has nobody to reconcile with.
+  it("adds ONE shared ledger once a co-host joins, and each operator keeps their own private book", async () => {
+    const seeded = await seedEvent("provision-cohost");
+    const coHost = await seedCoHost("provision-cohost", seeded.eventId);
+
+    const hostView = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seeded.eventId}/budgets`,
+      headers: auth(seeded.operatorUid),
+    });
+    const coHostView = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seeded.eventId}/budgets`,
+      headers: auth(coHost.coHostUid),
+    });
+
+    const scopesFor = (response: Awaited<ReturnType<typeof app.inject>>) =>
+      response
+        .json()
+        .map((budget: { scope: string; ownerProfileId: string | null }) => [
+          budget.scope,
+          budget.ownerProfileId,
+        ])
+        .sort();
+
+    // Each sees the one shared ledger plus their OWN private book — never the
+    // other operator's, which is the confidentiality rule the filter enforces.
+    expect(scopesFor(hostView)).toEqual(
+      [
+        ["shared", null],
+        ["private", seeded.operatorProfileId],
+      ].sort(),
+    );
+    expect(scopesFor(coHostView)).toEqual(
+      [
+        ["shared", null],
+        ["private", coHost.coHostProfileId],
+      ].sort(),
+    );
+
+    const shared = await harness.db
+      .select()
+      .from(schema.budgets)
+      .where(eq(schema.budgets.eventId, seeded.eventId));
+    expect(shared.filter((budget) => budget.scope === "shared")).toHaveLength(1);
+  });
+
+  // A performer holds no `budget.view` (the ceiling refuses it), so the read is
+  // refused before provisioning can run. Nothing is created in their name.
+  it("creates nothing for a party who cannot see budgets at all", async () => {
+    const seeded = await seedEvent("provision-performer");
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seeded.eventId}/budgets`,
+      headers: auth(seeded.performerUid),
+    });
+
+    expect(response.statusCode).toBe(403);
+    const rows = await harness.db
+      .select()
+      .from(schema.budgets)
+      .where(eq(schema.budgets.eventId, seeded.eventId));
+    expect(rows).toHaveLength(0);
+  });
+});
+
+/**
+ * `details` is the planner's arithmetic (a tier's price x how many), kept beside
+ * the authoritative `amount` so reopening the planner shows the tiers back
+ * rather than a single collapsed total.
+ */
+describe("budget lines — the planner's breakdown survives a round trip", () => {
+  it("stores and returns unit amount and quantity", async () => {
+    const seeded = await seedEvent("line-details");
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seeded.eventId}/budgets`,
+      headers: auth(seeded.operatorUid),
+    });
+    const budgetId = listed.json()[0].id;
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seeded.eventId}/budgets/${budgetId}/lines`,
+      headers: auth(seeded.operatorUid),
+      payload: {
+        kind: "revenue",
+        label: "Early bird",
+        amount: "150000", // 250.00 x 6, in minor units
+        collectedBy: seeded.hostParticipantId,
+        details: { basis: "ticket_tier", unitAmount: "25000", quantity: 6 },
+      },
+    });
+
+    expect(created.statusCode).toBe(201);
+    expect(created.json().details).toEqual({ basis: "ticket_tier", unitAmount: "25000", quantity: 6 });
+
+    const reread = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seeded.eventId}/budgets`,
+      headers: auth(seeded.operatorUid),
+    });
+    expect(reread.json()[0].lines[0].details).toEqual({
+      basis: "ticket_tier",
+      unitAmount: "25000",
+      quantity: 6,
+    });
+  });
+
+  it("leaves a hand-entered line without a breakdown", async () => {
+    const seeded = await seedEvent("line-no-details");
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seeded.eventId}/budgets`,
+      headers: auth(seeded.operatorUid),
+    });
+    const budgetId = listed.json()[0].id;
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seeded.eventId}/budgets/${budgetId}/lines`,
+      headers: auth(seeded.operatorUid),
+      payload: {
+        kind: "cost",
+        label: "Sound engineer",
+        amount: "40000",
+        paidBy: seeded.hostParticipantId,
+      },
+    });
+
+    expect(created.statusCode).toBe(201);
+    expect(created.json().details).toBeNull();
   });
 });

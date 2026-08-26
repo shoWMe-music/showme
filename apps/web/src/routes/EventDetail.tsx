@@ -1,6 +1,5 @@
 import {
   type getApiV1EventsId,
-  type getApiV1EventsIdBudgets,
   type getApiV1EventsIdDeals,
   type getApiV1EventsIdParticipants,
   type getApiV1EventsIdRiders,
@@ -8,7 +7,6 @@ import {
   type getApiV1EventsIdSettlements,
   getGetApiV1EventsIdQueryKey,
   useGetApiV1EventsId,
-  useGetApiV1EventsIdBudgets,
   useGetApiV1EventsIdDeals,
   useGetApiV1EventsIdParticipants,
   useGetApiV1EventsIdRiders,
@@ -32,7 +30,6 @@ import { useState } from "react";
 import {
   AgreementView,
   BudgetPlanner,
-  type CostRow,
   type CrewMember,
   type DetailsPerformer,
   type DetailsRider,
@@ -47,20 +44,25 @@ import {
   type SettlementLine,
   type SettlementStep,
   SettlementStepper,
-  type TicketTypeRow,
   type Transfer,
   WhoOwesWhomBoard,
 } from "../components";
 import { EventCollaboratorInviteModal } from "../components/EventCollaboratorInviteModal";
-import { type EventTab, EventTabsBar, STATUS_STAGE_INDEX, StageRail } from "../components/eventUi";
+import {
+  type EventTab,
+  EventTabsBar,
+  Eyebrow,
+  STATUS_STAGE_INDEX,
+  StageRail,
+} from "../components/eventUi";
 import { ErrorState, LoadingState } from "../components/states";
+import { useBudgetEditor } from "../components/useBudgetEditor";
 import { formatDate, formatMoney } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
 
 type EventDetailData = Awaited<ReturnType<typeof getApiV1EventsId>>;
 type Participant = Awaited<ReturnType<typeof getApiV1EventsIdParticipants>>[number];
 type Deal = Awaited<ReturnType<typeof getApiV1EventsIdDeals>>[number];
-type Budget = Awaited<ReturnType<typeof getApiV1EventsIdBudgets>>[number];
 type Settlements = Awaited<ReturnType<typeof getApiV1EventsIdSettlements>>;
 type ScheduleItem = Awaited<ReturnType<typeof getApiV1EventsIdSchedule>>[number];
 type Rider = Awaited<ReturnType<typeof getApiV1EventsIdRiders>>[number];
@@ -559,30 +561,17 @@ function toScheduleEntries(items: ScheduleItem[]): ScheduleEntry[] {
     }));
 }
 
-/** Seed the Budget Planner from the event's budget lines, then edit locally. */
+/**
+ * The Budget Planner tab. Reads and WRITES the event's budget lines through
+ * `useBudgetEditor` — it used to edit them into local state and discard them,
+ * on a budget that on a new event did not exist at all.
+ */
 function BudgetTab({ eventId, currency }: { eventId: string; currency: string }) {
-  const { data, isPending, isError, error } = useGetApiV1EventsIdBudgets(eventId);
+  const editor = useBudgetEditor(eventId);
 
-  if (isPending) return <LoadingState label="Loading budget" />;
-  if (isError) return <ErrorState error={error} title="Couldn't load the budget" />;
+  if (editor.isPending) return <LoadingState label="Loading budget" />;
+  if (editor.isError) return <ErrorState error={editor.error} title="Couldn't load the budget" />;
 
-  const budgets = data ?? [];
-  const lines = budgets.flatMap((budget) => budget.lines);
-  if (lines.length === 0) {
-    return (
-      <EmptyState
-        icon={<Icon name="file" />}
-        title="No budget yet"
-        description="Ticket revenue, costs and cash movements will appear here."
-      />
-    );
-  }
-
-  return <BudgetEditor budgets={budgets} currency={currency} />;
-}
-
-function BudgetEditor({ budgets, currency }: { budgets: Budget[]; currency: string }) {
-  const lines = budgets.flatMap((budget) => budget.lines);
   const symbol = currencySymbol(currency);
   const money = (major: number) =>
     new Intl.NumberFormat("en-IE", {
@@ -591,80 +580,91 @@ function BudgetEditor({ budgets, currency }: { budgets: Budget[]; currency: stri
       maximumFractionDigits: 0,
     }).format(major);
 
-  const [ticketTypes, setTicketTypes] = useState<TicketTypeRow[]>(() =>
-    lines
-      .filter((line) => line.kind === "revenue")
-      .map((line) => ({
-        id: line.id,
-        name: line.label,
-        price: (Number(line.amount) / 100).toString(),
-        quantity: "1",
-      })),
-  );
-  const [capacity, setCapacity] = useState("0");
-  const [avgBarSpend, setAvgBarSpend] = useState("0");
-  const [costs, setCosts] = useState<CostRow[]>(() =>
-    lines
-      .filter((line) => line.kind === "cost")
-      .map((line) => ({
-        key: line.id,
-        label: line.label,
-        value: (Number(line.amount) / 100).toString(),
-      })),
-  );
-
-  const num = (value: string) => {
+  const number = (value: string) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
   };
 
-  const ticketRevenue = ticketTypes.reduce(
-    (total, ticket) => total + num(ticket.price) * num(ticket.quantity),
+  const ticketRevenue = editor.ticketTiers.reduce(
+    (total, tier) => total + number(tier.price) * number(tier.quantity),
     0,
   );
-  const barRevenue = num(capacity) * num(avgBarSpend);
+  const barRevenue = number(editor.capacity) * number(editor.averageBarSpend);
   const totalRevenue = ticketRevenue + barRevenue;
-  const totalCosts = costs.reduce((total, cost) => total + num(cost.value), 0);
+  const totalCosts = editor.costs.reduce((total, cost) => total + number(cost.value), 0);
   const profit = totalRevenue - totalCosts;
-  const avgTicketPrice =
-    ticketTypes.length > 0
-      ? ticketTypes.reduce((total, ticket) => total + num(ticket.price), 0) / ticketTypes.length
+  const pricedTiers = editor.ticketTiers.filter((tier) => number(tier.price) > 0);
+  const averageTicketPrice =
+    pricedTiers.length > 0
+      ? pricedTiers.reduce((total, tier) => total + number(tier.price), 0) / pricedTiers.length
       : 0;
-  const breakEven = avgTicketPrice > 0 ? Math.ceil(totalCosts / avgTicketPrice) : 0;
+  const breakEven = averageTicketPrice > 0 ? Math.ceil(totalCosts / averageTicketPrice) : 0;
 
   return (
-    <BudgetPlanner
-      currencySymbol={symbol}
-      kpis={[
-        { label: "Total revenue", value: money(totalRevenue), tone: "green" },
-        { label: "Total costs", value: money(totalCosts), tone: "red" },
-        { label: "Profit / loss", value: money(profit), tone: profit < 0 ? "red" : "green" },
-        { label: "Break-even tickets", value: breakEven, tone: "amber" },
-      ]}
-      ticketTypes={ticketTypes}
-      ticketRevenueTotal={money(ticketRevenue)}
-      capacity={capacity}
-      avgBarSpend={avgBarSpend}
-      barRevenue={money(barRevenue)}
-      costs={costs}
-      onTicketChange={(id, field, value) =>
-        setTicketTypes((rows) =>
-          rows.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
-        )
-      }
-      onAddTicketType={() =>
-        setTicketTypes((rows) => [
-          ...rows,
-          { id: `new-${rows.length}-${Date.now()}`, name: "", price: "0", quantity: "0" },
-        ])
-      }
-      onRemoveTicketType={(id) => setTicketTypes((rows) => rows.filter((row) => row.id !== id))}
-      onCapacityChange={setCapacity}
-      onAvgBarSpendChange={setAvgBarSpend}
-      onCostChange={(key, value) =>
-        setCosts((rows) => rows.map((row) => (row.key === key ? { ...row, value } : row)))
-      }
-    />
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {editor.budgets.length > 1 && (
+        <BudgetScopeSwitch
+          budgets={editor.budgets}
+          selectedBudgetId={editor.selectedBudgetId}
+          onSelect={editor.selectBudget}
+        />
+      )}
+      {editor.readOnlyReason && <Eyebrow>{editor.readOnlyReason}</Eyebrow>}
+      <BudgetPlanner
+        currencySymbol={symbol}
+        kpis={[
+          { label: "Total revenue", value: money(totalRevenue), tone: "green" },
+          { label: "Total costs", value: money(totalCosts), tone: "red" },
+          { label: "Profit / loss", value: money(profit), tone: profit < 0 ? "red" : "green" },
+          { label: "Break-even tickets", value: breakEven, tone: "amber" },
+        ]}
+        ticketTypes={editor.ticketTiers.map((tier) => ({
+          id: tier.id,
+          name: tier.name,
+          price: tier.price,
+          quantity: tier.quantity,
+        }))}
+        ticketRevenueTotal={money(ticketRevenue)}
+        capacity={editor.capacity}
+        avgBarSpend={editor.averageBarSpend}
+        barRevenue={money(barRevenue)}
+        costs={editor.costs}
+        onTicketChange={editor.changeTier}
+        onAddTicketType={editor.addTier}
+        onRemoveTicketType={editor.removeTier}
+        onCapacityChange={editor.changeCapacity}
+        onAvgBarSpendChange={editor.changeAverageBarSpend}
+        onCostChange={editor.changeCost}
+      />
+    </div>
+  );
+}
+
+/**
+ * Which book you are looking at, shown only once there is more than one: an
+ * operator's own private budget and the shared ledger a co-hosted event keeps.
+ */
+function BudgetScopeSwitch({
+  budgets,
+  selectedBudgetId,
+  onSelect,
+}: {
+  budgets: { id: string; scope: string }[];
+  selectedBudgetId: string | null;
+  onSelect: (budgetId: string) => void;
+}) {
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      {budgets.map((budget) => (
+        <Button
+          key={budget.id}
+          variant={budget.id === selectedBudgetId ? "primary" : "ghost"}
+          onClick={() => onSelect(budget.id)}
+        >
+          {budget.scope === "shared" ? "Shared ledger" : "My budget"}
+        </Button>
+      ))}
+    </div>
   );
 }
 

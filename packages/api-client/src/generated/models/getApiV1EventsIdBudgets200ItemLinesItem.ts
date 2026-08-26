@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { GetApiV1EventsIdBudgets200ItemLinesItemDetails } from './getApiV1EventsIdBudgets200ItemLinesItemDetails';
 
 export type GetApiV1EventsIdBudgets200ItemLinesItem = {
   id: string;
@@ -24,5 +25,7 @@ export type GetApiV1EventsIdBudgets200ItemLinesItem = {
   payeeParticipantId: string | null;
   /** @nullable */
   dealId: string | null;
+  /** @nullable */
+  details: GetApiV1EventsIdBudgets200ItemLinesItemDetails;
   version: number;
 };

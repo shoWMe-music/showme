@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PatchApiV1EventsIdBudgetsBidLinesLid200Details } from './patchApiV1EventsIdBudgetsBidLinesLid200Details';
 
 export type PatchApiV1EventsIdBudgetsBidLinesLid200 = {
   id: string;
@@ -24,5 +25,7 @@ export type PatchApiV1EventsIdBudgetsBidLinesLid200 = {
   payeeParticipantId: string | null;
   /** @nullable */
   dealId: string | null;
+  /** @nullable */
+  details: PatchApiV1EventsIdBudgetsBidLinesLid200Details;
   version: number;
 };

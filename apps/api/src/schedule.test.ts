@@ -269,3 +269,54 @@ describe("schedule — authorize + audit", () => {
     expect(post.statusCode).toBe(403);
   });
 });
+
+/**
+ * The add row in `EventScheduleCard` sends an explicit `null` when the time box
+ * is left blank. `CreateScheduleBody.localDateTime` was `.optional()` but not
+ * `.nullable()` — while the update body beside it had always accepted null — so
+ * adding an item without a time failed with a 400 in production. An untimed
+ * item is legitimate: you know the soundcheck is happening before you know when.
+ */
+describe("schedule — an item may be added before its time is known", () => {
+  it("accepts the explicit null the add row sends for a blank time", async () => {
+    const { event } = await seedEventWithParticipants("sched-null");
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/schedule`,
+      headers: auth("sched-null-op"),
+      payload: { localDateTime: null, label: "Doors", category: "production" },
+    });
+
+    expect(created.statusCode).toBe(201);
+    expect(created.json().localDateTime).toBeNull();
+    expect(created.json().label).toBe("Doors");
+  });
+
+  it("still accepts the key being omitted entirely", async () => {
+    const { event } = await seedEventWithParticipants("sched-omitted");
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/schedule`,
+      headers: auth("sched-omitted-op"),
+      payload: { label: "Soundcheck", category: "crew" },
+    });
+
+    expect(created.statusCode).toBe(201);
+    expect(created.json().localDateTime).toBeNull();
+  });
+
+  it("still rejects a time that is not a local date-time", async () => {
+    const { event } = await seedEventWithParticipants("sched-garbage");
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/schedule`,
+      headers: auth("sched-garbage-op"),
+      payload: { localDateTime: "tomorrow-ish", label: "Doors", category: "production" },
+    });
+
+    expect(created.statusCode).toBe(400);
+  });
+});

@@ -7,8 +7,11 @@
 import type { PostApiV1EventsIdScheduleBodyCategory } from './postApiV1EventsIdScheduleBodyCategory';
 
 export type PostApiV1EventsIdScheduleBody = {
-  /** @pattern ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$ */
-  localDateTime?: string;
+  /**
+   * @nullable
+   * @pattern ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$
+   */
+  localDateTime?: string | null;
   duration?: number;
   /** @minLength 1 */
   label: string;

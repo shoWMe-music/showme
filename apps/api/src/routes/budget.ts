@@ -6,6 +6,7 @@ import { z } from "zod";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
+import { ensureEventBudgets } from "../lib/budget-provisioning";
 import {
   type SerializedBudget,
   type SerializedBudgetLine,
@@ -40,6 +41,24 @@ const MinorUnitsAmount = z
   .string()
   .regex(/^-?\d+$/, 'amount must be a whole number of minor units as a string, e.g. "150000"');
 
+/**
+ * The planner's arithmetic behind a line's `amount`: a ticket tier is a price
+ * times a count, a bar take is an average spend times a head count. `amount`
+ * remains the one figure settlement reads — this is only what the operator typed
+ * to reach it, so reopening the planner shows the tiers back rather than a
+ * collapsed total. Absent on a hand-entered line.
+ */
+const LineDetails = z.object({
+  /**
+   * Which of the planner's two multiplications produced this line. Carried in
+   * the data rather than inferred from the label, so renaming a tier cannot
+   * silently turn it into the bar estimate (or the reverse).
+   */
+  basis: z.enum(["ticket_tier", "bar_spend"]).default("ticket_tier"),
+  unitAmount: MinorUnitsAmount,
+  quantity: z.number().int().min(0),
+});
+
 const CreateLineBody = z.object({
   kind: z.enum(["revenue", "cost"]),
   /** Provenance of a revenue line (decisions #15) — `manual` unless synced. */
@@ -52,6 +71,7 @@ const CreateLineBody = z.object({
   paidBy: z.string().uuid().optional(),
   payeeParticipantId: z.string().uuid().optional(),
   dealId: z.string().uuid().optional(),
+  details: LineDetails.nullable().optional(),
 });
 
 const UpdateLineBody = z.object({
@@ -63,6 +83,7 @@ const UpdateLineBody = z.object({
   paidBy: z.string().uuid().nullable().optional(),
   payeeParticipantId: z.string().uuid().nullable().optional(),
   dealId: z.string().uuid().nullable().optional(),
+  details: LineDetails.nullable().optional(),
   /** Expected version for optimistic locking (decisions #8); mismatch → 409. */
   expectedVersion: z.number().int().optional(),
 });
@@ -84,6 +105,7 @@ const BudgetLineResponse = z.object({
   paidBy: z.string().nullable(),
   payeeParticipantId: z.string().nullable(),
   dealId: z.string().nullable(),
+  details: LineDetails.nullable(),
   version: z.number(),
 });
 
@@ -278,6 +300,13 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
 
       await requireEventCapability(request, id, "budget.view");
 
+      // Give the caller's operating profile its budget if it has not got one.
+      // `budget.view` above already established they operate this event, and
+      // provisioning is idempotent, so this is a no-op on every read but the
+      // first. Without it a newly created event has no budget row and the
+      // planner has nothing to open.
+      await ensureEventBudgets(database, id, callerProfileIds(request));
+
       // The access predicate lives in the WHERE: shared budgets for every
       // co-operator, private ones only for their owner.
       const budgets = await database
@@ -409,6 +438,7 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
             paidBy: body.paidBy ?? null,
             payeeParticipantId: body.payeeParticipantId ?? null,
             dealId: body.dealId ?? null,
+            details: body.details ?? null,
           })
           .returning();
         if (!line) throw new Error("budget line create failed");

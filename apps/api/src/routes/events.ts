@@ -154,6 +154,14 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
             permissionSetId: permissionSet.id,
             status: "confirmed",
           });
+          // The host's own budget, opened with the event. Provisioning also runs
+          // lazily on the first budget read (which is what heals events made
+          // before this existed), but doing it here means a brand-new event is
+          // already complete rather than complete-once-someone-looks.
+          await tx
+            .insert(schema.budgets)
+            .values({ eventId: event.id, scope: "private", ownerProfileId: actingProfileId })
+            .onConflictDoNothing();
           await writeAudit(tx, request, {
             capability: "event.edit",
             action: "event.create",

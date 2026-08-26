@@ -6,6 +6,7 @@
  */
 import type { PostApiV1EventsIdBudgetsBidLinesBodyKind } from './postApiV1EventsIdBudgetsBidLinesBodyKind';
 import type { PostApiV1EventsIdBudgetsBidLinesBodySource } from './postApiV1EventsIdBudgetsBidLinesBodySource';
+import type { PostApiV1EventsIdBudgetsBidLinesBodyDetails } from './postApiV1EventsIdBudgetsBidLinesBodyDetails';
 
 export type PostApiV1EventsIdBudgetsBidLinesBody = {
   kind: PostApiV1EventsIdBudgetsBidLinesBodyKind;
@@ -21,4 +22,6 @@ export type PostApiV1EventsIdBudgetsBidLinesBody = {
   paidBy?: string;
   payeeParticipantId?: string;
   dealId?: string;
+  /** @nullable */
+  details?: PostApiV1EventsIdBudgetsBidLinesBodyDetails;
 };

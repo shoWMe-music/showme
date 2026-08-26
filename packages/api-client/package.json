@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "sync-spec": "curl -sS http://localhost:8080/openapi.json -o openapi.json",
+    "sync-spec": "pnpm --filter=@showme/api exec tsx src/dump-openapi.ts > openapi.json",
     "generate": "orval",
     "typecheck": "tsc --noEmit"
   },

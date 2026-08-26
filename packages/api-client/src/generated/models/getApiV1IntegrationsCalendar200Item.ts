@@ -25,6 +25,9 @@ export type GetApiV1IntegrationsCalendar200Item = {
   reauthorizationRequiredAt: string | null;
   /** @nullable */
   lastError: string | null;
+  pushChannelActive: boolean;
+  /** @nullable */
+  channelExpiresAt: string | null;
   manageable: boolean;
   createdAt: string;
 };

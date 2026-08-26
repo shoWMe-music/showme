@@ -25,6 +25,9 @@ export type PostApiV1IntegrationsCalendarGoogleConnect201Connection = {
   reauthorizationRequiredAt: string | null;
   /** @nullable */
   lastError: string | null;
+  pushChannelActive: boolean;
+  /** @nullable */
+  channelExpiresAt: string | null;
   manageable: boolean;
   createdAt: string;
 };
