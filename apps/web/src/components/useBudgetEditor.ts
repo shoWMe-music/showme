@@ -4,10 +4,12 @@ import {
   useDeleteApiV1EventsIdBudgetsBidLinesLid,
   useGetApiV1EventsIdBudgets,
   useGetApiV1EventsIdParticipants,
+  usePatchApiV1EventsIdBudgetsBid,
   usePatchApiV1EventsIdBudgetsBidLinesLid,
   usePostApiV1EventsIdBudgetsBidLines,
 } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
+import type { BudgetInputs } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getActiveProfileId } from "../lib/activeProfile";
@@ -31,19 +33,50 @@ export interface CostDraft {
 }
 
 /**
- * The standing cost headings a promoter budgets against. They exist as ROWS in
- * the planner before they exist as lines in the database: a heading only becomes
- * a `budget_lines` row once it is given a figure, so an untouched budget stays
- * genuinely empty rather than carrying six zero-value lines nobody entered.
+ * The standing cost headings a promoter budgets against, in the design
+ * prototype's wording and the design prototype's ORDER ("shoWMe All View" →
+ * Budget → Costs). They exist as ROWS in the planner before they exist as lines
+ * in the database: a heading only becomes a `budget_lines` row once it is given a
+ * figure, so an untouched budget stays genuinely empty rather than carrying six
+ * zero-value lines nobody entered.
  */
 const STANDARD_COST_HEADINGS = [
-  "Artist fees",
-  "Production",
-  "Marketing",
-  "Staffing",
-  "Venue",
-  "Other",
+  "Performer fee",
+  "Production cost",
+  "Staff cost",
+  "Marketing cost",
+  "Venue cost",
+  "Other cost",
 ] as const;
+
+/**
+ * The headings this screen invented before it was checked against the prototype,
+ * mapped to the ones it should always have used.
+ *
+ * Without this a promoter who had already budgeted 50 000 of "Artist fees" would
+ * open the planner to find an empty "Performer fee" row above their real line
+ * demoted to a custom heading — the same money in two places, which is exactly the
+ * confusion a budget screen cannot afford. Read through the map, the old line IS
+ * the new row; it is relabelled on the next edit that touches it (see the flush
+ * below) rather than by a data migration, because renaming somebody's stored line
+ * behind their back is worse than a row whose label catches up when they use it.
+ */
+const LEGACY_COST_HEADINGS: Record<string, string> = {
+  "Artist fees": "Performer fee",
+  Production: "Production cost",
+  Staffing: "Staff cost",
+  Marketing: "Marketing cost",
+  Venue: "Venue cost",
+  Other: "Other cost",
+};
+
+/** The heading a stored cost line belongs under, old wording or new. */
+function costHeadingOf(label: string): string {
+  return LEGACY_COST_HEADINGS[label] ?? label;
+}
+
+/** The one revenue line that is neither a ticket tier nor the bar estimate. */
+const OTHER_REVENUE_LABEL = "Other revenue";
 
 const NEW_ROW_PREFIX = "new:";
 const SAVE_DEBOUNCE_MILLISECONDS = 700;
@@ -65,6 +98,21 @@ export function toMajorUnits(minor: string): string {
   // puts a figure in front of the operator that nobody entered.
   if (!Number.isFinite(parsed)) return "";
   return (parsed / 100).toString();
+}
+
+/**
+ * Percentages are integer BASIS POINTS on the wire (money.md) — 1.5% is 150, never
+ * a float. The planner's field is a percentage, so these two are the only places
+ * the factor of 100 lives for rates, exactly as `toMinorUnits` is for money.
+ */
+export function toBasisPoints(percent: string): number {
+  const parsed = Number(percent);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.round(parsed * 100);
+}
+
+export function toPercentText(basisPoints: number): string {
+  return (basisPoints / 100).toString();
 }
 
 function numeric(value: string): number {
@@ -89,6 +137,11 @@ export interface BudgetEditor {
   costs: CostDraft[];
   capacity: string;
   averageBarSpend: string;
+  otherRevenue: string;
+  /** What the operator expects their provider to keep — a percentage, as typed. */
+  processingPercent: string;
+  /** …plus a flat charge on every ticket sold, in major units, as typed. */
+  processingFlatPerTicket: string;
   /** True while a debounced write is queued or in flight. */
   isSaving: boolean;
   /** Set when the budget cannot be written to — the reason is shown, not hidden. */
@@ -99,6 +152,9 @@ export interface BudgetEditor {
   changeCost: (key: string, value: string) => void;
   changeCapacity: (value: string) => void;
   changeAverageBarSpend: (value: string) => void;
+  changeOtherRevenue: (value: string) => void;
+  changeProcessingPercent: (value: string) => void;
+  changeProcessingFlatPerTicket: (value: string) => void;
 }
 
 /**
@@ -146,6 +202,7 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
     [toast],
   );
   const mutationOptions = { mutation: { onSuccess: invalidate, onError } };
+  const updateBudget = usePatchApiV1EventsIdBudgetsBid(mutationOptions);
   const createLine = usePostApiV1EventsIdBudgetsBidLines(mutationOptions);
   const updateLine = usePatchApiV1EventsIdBudgetsBidLinesLid(mutationOptions);
   const deleteLine = useDeleteApiV1EventsIdBudgetsBidLinesLid(mutationOptions);
@@ -156,7 +213,12 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
   const serverTiers = useMemo<TicketTierDraft[]>(
     () =>
       lines
-        .filter((line) => line.kind === "revenue" && line.details?.basis !== "bar_spend")
+        .filter(
+          (line) =>
+            line.kind === "revenue" &&
+            line.details?.basis !== "bar_spend" &&
+            line.details?.basis !== "other_revenue",
+        )
         .map((line) => ({
           id: line.id,
           name: line.label,
@@ -173,9 +235,18 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
     [lines],
   );
 
+  // Sponsorship, a grant, a fee from the venue — real money the operator expects
+  // to collect, so it IS a revenue line (like the bar estimate beside it) and not
+  // a planner assumption. `basis` is what tells it apart from a ticket tier;
+  // matching on the label would break the moment somebody renames it.
+  const otherRevenueLine = useMemo(
+    () => lines.find((line) => line.details?.basis === "other_revenue") ?? null,
+    [lines],
+  );
+
   const serverCosts = useMemo<CostDraft[]>(() => {
     const costLines = lines.filter((line) => line.kind === "cost");
-    const byHeading = new Map(costLines.map((line) => [line.label, line]));
+    const byHeading = new Map(costLines.map((line) => [costHeadingOf(line.label), line]));
     const standard = STANDARD_COST_HEADINGS.map((heading) => {
       const line = byHeading.get(heading);
       return {
@@ -187,7 +258,7 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
     // Anything budgeted under a heading of the operator's own is kept too —
     // dropping it would make a real line invisible and un-editable.
     const custom = costLines
-      .filter((line) => !STANDARD_COST_HEADINGS.includes(line.label as never))
+      .filter((line) => !STANDARD_COST_HEADINGS.includes(costHeadingOf(line.label) as never))
       .map((line) => ({ key: line.id, label: line.label, value: toMajorUnits(line.amount) }));
     return [...standard, ...custom];
   }, [lines]);
@@ -197,6 +268,8 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
    * re-seed effect below has exactly one dependency, and that dependency changes
    * only when the server's picture of this budget actually changes.
    */
+  const processing = budget?.planningAssumptions?.paymentProcessing ?? null;
+
   const seed = useMemo(
     () => ({
       budgetId,
@@ -204,14 +277,22 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
       costs: serverCosts,
       capacity: barLine?.details ? barLine.details.quantity.toString() : "",
       averageBarSpend: barLine?.details ? toMajorUnits(barLine.details.unitAmount) : "",
+      otherRevenue: otherRevenueLine ? toMajorUnits(otherRevenueLine.amount) : "",
+      processingPercent: processing ? toPercentText(processing.percentBasisPoints) : "",
+      processingFlatPerTicket: processing ? toMajorUnits(processing.flatPerTicket) : "",
     }),
-    [budgetId, serverTiers, serverCosts, barLine],
+    [budgetId, serverTiers, serverCosts, barLine, otherRevenueLine, processing],
   );
 
   const [tiers, setTiers] = useState<TicketTierDraft[]>(seed.tiers);
   const [costs, setCosts] = useState<CostDraft[]>(seed.costs);
   const [capacity, setCapacity] = useState(seed.capacity);
   const [averageBarSpend, setAverageBarSpend] = useState(seed.averageBarSpend);
+  const [otherRevenue, setOtherRevenue] = useState(seed.otherRevenue);
+  const [processingPercent, setProcessingPercent] = useState(seed.processingPercent);
+  const [processingFlatPerTicket, setProcessingFlatPerTicket] = useState(
+    seed.processingFlatPerTicket,
+  );
 
   // Re-seed from the server only while the person is not mid-edit, so a
   // background refetch cannot yank a half-typed figure out from under them.
@@ -222,6 +303,9 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
     setCosts(seed.costs);
     setCapacity(seed.capacity);
     setAverageBarSpend(seed.averageBarSpend);
+    setOtherRevenue(seed.otherRevenue);
+    setProcessingPercent(seed.processingPercent);
+    setProcessingFlatPerTicket(seed.processingFlatPerTicket);
   }, [seed]);
 
   // ---- draft → server -----------------------------------------------------
@@ -302,8 +386,12 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
       const before = lines.find((line) => line.id === cost.key);
       if (!before) continue;
       const amount = toMinorUnits(typed === "" ? "0" : typed);
-      if (before.amount === amount) continue;
-      updateLine.mutate({ ...target, lid: cost.key, data: { amount } });
+      // A line stored under an old heading is relabelled the first time its figure
+      // is edited — the operator is already changing this row, so the label
+      // catching up with the row it is displayed in surprises nobody.
+      const relabelled = before.label !== cost.label ? { label: cost.label } : {};
+      if (before.amount === amount && before.label === cost.label) continue;
+      updateLine.mutate({ ...target, lid: cost.key, data: { amount, ...relabelled } });
     }
 
     // The bar estimate is one revenue line whose breakdown is spend-per-head
@@ -332,6 +420,51 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
       ) {
         updateLine.mutate({ ...target, lid: barLine.id, data: { amount, details } });
       }
+    }
+
+    // Other revenue is a single amount, so its breakdown is that amount taken
+    // once — `quantity: 1`. The `basis` is what makes it findable on the way back
+    // in, which is the whole reason it carries details at all.
+    if (otherRevenue.trim() !== "") {
+      const amount = toMinorUnits(otherRevenue);
+      const details = { basis: "other_revenue" as const, unitAmount: amount, quantity: 1 };
+      if (!otherRevenueLine) {
+        createLine.mutate({
+          ...target,
+          data: {
+            kind: "revenue",
+            label: OTHER_REVENUE_LABEL,
+            amount,
+            collectedBy: myParticipantId,
+            details,
+          },
+        });
+      } else if (otherRevenueLine.amount !== amount) {
+        updateLine.mutate({ ...target, lid: otherRevenueLine.id, data: { amount, details } });
+      }
+    }
+
+    // The provider's rates go on the BUDGET, not into a line: no cash has moved,
+    // and a cost line would take this estimate into the settlement pool (see the
+    // 0015 migration). Written only when they differ from what the server holds,
+    // so a debounce that fires on an unrelated keystroke does not bump the
+    // budget's version for nothing.
+    const percentBasisPoints = toBasisPoints(processingPercent);
+    const flatPerTicket = toMinorUnits(processingFlatPerTicket);
+    const cleared = processingPercent.trim() === "" && processingFlatPerTicket.trim() === "";
+    const changed = cleared
+      ? processing !== null
+      : processing?.percentBasisPoints !== percentBasisPoints ||
+        processing?.flatPerTicket !== flatPerTicket;
+    if (changed) {
+      updateBudget.mutate({
+        ...target,
+        data: {
+          planningAssumptions: cleared
+            ? null
+            : { paymentProcessing: { percentBasisPoints, flatPerTicket } },
+        },
+      });
     }
   };
 
@@ -395,6 +528,30 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
     [scheduleFlush],
   );
 
+  const changeOtherRevenue = useCallback(
+    (value: string) => {
+      setOtherRevenue(value);
+      scheduleFlush();
+    },
+    [scheduleFlush],
+  );
+
+  const changeProcessingPercent = useCallback(
+    (value: string) => {
+      setProcessingPercent(value);
+      scheduleFlush();
+    },
+    [scheduleFlush],
+  );
+
+  const changeProcessingFlatPerTicket = useCallback(
+    (value: string) => {
+      setProcessingFlatPerTicket(value);
+      scheduleFlush();
+    },
+    [scheduleFlush],
+  );
+
   return {
     isPending: budgetsQuery.isPending || participantsQuery.isPending,
     isError: budgetsQuery.isError,
@@ -406,7 +563,14 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
     costs,
     capacity,
     averageBarSpend,
-    isSaving: createLine.isPending || updateLine.isPending || deleteLine.isPending,
+    otherRevenue,
+    processingPercent,
+    processingFlatPerTicket,
+    isSaving:
+      createLine.isPending ||
+      updateLine.isPending ||
+      deleteLine.isPending ||
+      updateBudget.isPending,
     readOnlyReason,
     changeTier,
     addTier,
@@ -414,5 +578,44 @@ export function useBudgetEditor(eventId: string): BudgetEditor {
     changeCost,
     changeCapacity,
     changeAverageBarSpend,
+    changeOtherRevenue,
+    changeProcessingPercent,
+    changeProcessingFlatPerTicket,
+  };
+}
+
+/**
+ * The planner's draft (major-unit strings, because that is what a person types)
+ * expressed as the arithmetic module's inputs (minor units as bigint, basis points
+ * as integers — money.md).
+ *
+ * A plain function beside the hook rather than a step inside the screen: the unit
+ * boundary is the one place a Budget Planner can quietly lose a factor of a
+ * hundred, and it belongs next to `toMinorUnits` — the other half of the same
+ * conversion — instead of being re-derived in whichever component renders next.
+ */
+export function budgetInputsFrom(editor: BudgetEditor): BudgetInputs {
+  const wholeNumber = (value: string) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
+  };
+  const percentBasisPoints = toBasisPoints(editor.processingPercent);
+  const flatPerTicket = BigInt(toMinorUnits(editor.processingFlatPerTicket));
+  return {
+    ticketTiers: editor.ticketTiers.map((tier) => ({
+      unitAmount: BigInt(toMinorUnits(tier.price)),
+      quantity: wholeNumber(tier.quantity),
+    })),
+    averageBarSpend: BigInt(toMinorUnits(editor.averageBarSpend)),
+    capacity: wholeNumber(editor.capacity),
+    otherRevenue: BigInt(toMinorUnits(editor.otherRevenue)),
+    costs: editor.costs.map((cost) => BigInt(toMinorUnits(cost.value))),
+    // Absent rather than a pair of zeroes when the operator has said nothing: the
+    // projection then reports `paymentProcessingFees` of 0 because there is no
+    // assumption, not because the assumption is that it is free.
+    paymentProcessing:
+      percentBasisPoints > 0 || flatPerTicket > 0n
+        ? { percentBasisPoints, flatPerTicket }
+        : undefined,
   };
 }

@@ -119,6 +119,8 @@ import type {
   PatchApiV1DealsDidBody,
   PatchApiV1EventsId200,
   PatchApiV1EventsIdBody,
+  PatchApiV1EventsIdBudgetsBid200,
+  PatchApiV1EventsIdBudgetsBidBody,
   PatchApiV1EventsIdBudgetsBidLinesLid200,
   PatchApiV1EventsIdBudgetsBidLinesLidBody,
   PatchApiV1EventsIdParticipantsPid200,
@@ -2148,6 +2150,65 @@ const {mutation: mutationOptions} = options ?
       > => {
 
       const mutationOptions = getPostApiV1EventsIdBudgetsMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const patchApiV1EventsIdBudgetsBid = (
+    id: string,
+    bid: string,
+    patchApiV1EventsIdBudgetsBidBody: PatchApiV1EventsIdBudgetsBidBody,
+ ) => {
+      
+      
+      return customFetch<PatchApiV1EventsIdBudgetsBid200>(
+      {url: `/api/v1/events/${id}/budgets/${bid}`, method: 'PATCH',
+      headers: {'Content-Type': 'application/json', },
+      data: patchApiV1EventsIdBudgetsBidBody
+    },
+      );
+    }
+  
+
+
+export const getPatchApiV1EventsIdBudgetsBidMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof patchApiV1EventsIdBudgetsBid>>, TError,{id: string;bid: string;data: PatchApiV1EventsIdBudgetsBidBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof patchApiV1EventsIdBudgetsBid>>, TError,{id: string;bid: string;data: PatchApiV1EventsIdBudgetsBidBody}, TContext> => {
+
+const mutationKey = ['patchApiV1EventsIdBudgetsBid'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof patchApiV1EventsIdBudgetsBid>>, {id: string;bid: string;data: PatchApiV1EventsIdBudgetsBidBody}> = (props) => {
+          const {id,bid,data} = props ?? {};
+
+          return  patchApiV1EventsIdBudgetsBid(id,bid,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PatchApiV1EventsIdBudgetsBidMutationResult = NonNullable<Awaited<ReturnType<typeof patchApiV1EventsIdBudgetsBid>>>
+    export type PatchApiV1EventsIdBudgetsBidMutationBody = PatchApiV1EventsIdBudgetsBidBody
+    export type PatchApiV1EventsIdBudgetsBidMutationError = unknown
+
+    export const usePatchApiV1EventsIdBudgetsBid = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof patchApiV1EventsIdBudgetsBid>>, TError,{id: string;bid: string;data: PatchApiV1EventsIdBudgetsBidBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof patchApiV1EventsIdBudgetsBid>>,
+        TError,
+        {id: string;bid: string;data: PatchApiV1EventsIdBudgetsBidBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPatchApiV1EventsIdBudgetsBidMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }

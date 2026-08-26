@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.0.0
  */
 
-export type PostApiV1EventsIdBudgetsBidLinesBodyDetailsBasis = typeof PostApiV1EventsIdBudgetsBidLinesBodyDetailsBasis[keyof typeof PostApiV1EventsIdBudgetsBidLinesBodyDetailsBasis];
+export type PatchApiV1EventsIdBudgetsBid200LinesItemDetailsBasis = typeof PatchApiV1EventsIdBudgetsBid200LinesItemDetailsBasis[keyof typeof PatchApiV1EventsIdBudgetsBid200LinesItemDetailsBasis];
 
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PostApiV1EventsIdBudgetsBidLinesBodyDetailsBasis = {
+export const PatchApiV1EventsIdBudgetsBid200LinesItemDetailsBasis = {
   ticket_tier: 'ticket_tier',
   bar_spend: 'bar_spend',
   other_revenue: 'other_revenue',

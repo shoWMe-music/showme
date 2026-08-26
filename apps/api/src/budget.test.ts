@@ -1237,3 +1237,217 @@ describe("budget lines — the planner's breakdown survives a round trip", () =>
     expect(created.json().details).toBeNull();
   });
 });
+
+/**
+ * The planner's payment-processing assumption (migration 0015). The rule under
+ * test is as much about what does NOT happen as what does: the rates are recorded
+ * on the budget, and no `budget_lines` row appears — because a line is cash
+ * somebody moved and `reconcile()` would lower the settlement pool by this guess.
+ */
+describe("budgets — planning assumptions are rates on the budget, not cost lines", () => {
+  async function openBudget(prefix: string) {
+    const seeded = await seedEvent(prefix);
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seeded.eventId}/budgets`,
+      headers: auth(seeded.operatorUid),
+    });
+    return { seeded, budget: listed.json()[0] };
+  }
+
+  it("is null on a budget nobody has told what their provider charges", async () => {
+    const { budget } = await openBudget("assumptions-empty");
+    expect(budget.planningAssumptions).toBeNull();
+  });
+
+  it("records the rates and hands them back on the next read", async () => {
+    const { seeded, budget } = await openBudget("assumptions-write");
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seeded.eventId}/budgets/${budget.id}`,
+      headers: auth(seeded.operatorUid),
+      payload: {
+        planningAssumptions: {
+          paymentProcessing: { percentBasisPoints: 150, flatPerTicket: "50" },
+        },
+      },
+    });
+
+    expect(patched.statusCode).toBe(200);
+    expect(patched.json().planningAssumptions).toEqual({
+      paymentProcessing: { percentBasisPoints: 150, flatPerTicket: "50" },
+    });
+
+    const reread = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seeded.eventId}/budgets`,
+      headers: auth(seeded.operatorUid),
+    });
+    const reloaded = reread.json().find((row: { id: string }) => row.id === budget.id);
+    expect(reloaded.planningAssumptions).toEqual({
+      paymentProcessing: { percentBasisPoints: 150, flatPerTicket: "50" },
+    });
+  });
+
+  // The whole reason the column exists: an estimated fee must never reach the
+  // reconciliation as cash.
+  it("writes no budget line, so the settlement pool is untouched", async () => {
+    const { seeded, budget } = await openBudget("assumptions-no-line");
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seeded.eventId}/budgets/${budget.id}`,
+      headers: auth(seeded.operatorUid),
+      payload: {
+        planningAssumptions: {
+          paymentProcessing: { percentBasisPoints: 250, flatPerTicket: "100" },
+        },
+      },
+    });
+
+    const lines = await harness.db
+      .select()
+      .from(schema.budgetLines)
+      .where(eq(schema.budgetLines.budgetId, budget.id));
+    expect(lines).toEqual([]);
+  });
+
+  it("clears the assumption when it is set back to null", async () => {
+    const { seeded, budget } = await openBudget("assumptions-clear");
+    const url = `/api/v1/events/${seeded.eventId}/budgets/${budget.id}`;
+
+    await app.inject({
+      method: "PATCH",
+      url,
+      headers: auth(seeded.operatorUid),
+      payload: {
+        planningAssumptions: {
+          paymentProcessing: { percentBasisPoints: 150, flatPerTicket: "0" },
+        },
+      },
+    });
+    const cleared = await app.inject({
+      method: "PATCH",
+      url,
+      headers: auth(seeded.operatorUid),
+      payload: { planningAssumptions: null },
+    });
+
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().planningAssumptions).toBeNull();
+  });
+
+  it("rejects a percentage that is not integer basis points (money.md)", async () => {
+    const { seeded, budget } = await openBudget("assumptions-float");
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seeded.eventId}/budgets/${budget.id}`,
+      headers: auth(seeded.operatorUid),
+      payload: {
+        planningAssumptions: { paymentProcessing: { percentBasisPoints: 1.5, flatPerTicket: "0" } },
+      },
+    });
+
+    expect(patched.statusCode).toBe(400);
+  });
+
+  it("rejects a flat charge that is not a whole number of minor units", async () => {
+    const { seeded, budget } = await openBudget("assumptions-decimal");
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seeded.eventId}/budgets/${budget.id}`,
+      headers: auth(seeded.operatorUid),
+      payload: {
+        planningAssumptions: {
+          paymentProcessing: { percentBasisPoints: 150, flatPerTicket: "0.50" },
+        },
+      },
+    });
+
+    expect(patched.statusCode).toBe(400);
+  });
+
+  it("rejects a stale version with 409", async () => {
+    const { seeded, budget } = await openBudget("assumptions-stale");
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seeded.eventId}/budgets/${budget.id}`,
+      headers: auth(seeded.operatorUid),
+      payload: {
+        planningAssumptions: {
+          paymentProcessing: { percentBasisPoints: 150, flatPerTicket: "0" },
+        },
+        expectedVersion: budget.version + 5,
+      },
+    });
+
+    expect(patched.statusCode).toBe(409);
+  });
+
+  it("refuses a performer who cannot edit the budget", async () => {
+    const { seeded, budget } = await openBudget("assumptions-performer");
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seeded.eventId}/budgets/${budget.id}`,
+      headers: auth(seeded.performerUid),
+      payload: { planningAssumptions: null },
+    });
+
+    expect(patched.statusCode).toBe(403);
+  });
+
+  it("404s a co-host trying to set assumptions on another operator's private budget", async () => {
+    const seeded = await seedEvent("assumptions-private");
+    const co = await seedCoHost("assumptions-private", seeded.eventId);
+    const mine = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seeded.eventId}/budgets`,
+      headers: auth(seeded.operatorUid),
+    });
+    const privateBudget = mine.json().find((row: { scope: string }) => row.scope === "private");
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seeded.eventId}/budgets/${privateBudget.id}`,
+      headers: auth(co.coHostUid),
+      payload: { planningAssumptions: null },
+    });
+
+    expect(patched.statusCode).toBe(404);
+  });
+});
+
+describe("budget lines — the planner's other-revenue field", () => {
+  it("round-trips an `other_revenue` basis distinct from a ticket tier", async () => {
+    const seeded = await seedEvent("line-other-revenue");
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seeded.eventId}/budgets`,
+      headers: auth(seeded.operatorUid),
+    });
+    const budgetId = listed.json()[0].id;
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seeded.eventId}/budgets/${budgetId}/lines`,
+      headers: auth(seeded.operatorUid),
+      payload: {
+        kind: "revenue",
+        label: "Other revenue",
+        amount: "500000",
+        collectedBy: seeded.hostParticipantId,
+        details: { basis: "other_revenue", unitAmount: "500000", quantity: 1 },
+      },
+    });
+
+    expect(created.statusCode).toBe(201);
+    // Sponsorship must not read back as a ticket type — the planner splits its
+    // revenue rows on exactly this field.
+    expect(created.json().details.basis).toBe("other_revenue");
+  });
+});

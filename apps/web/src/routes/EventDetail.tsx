@@ -27,7 +27,6 @@ import {
   Select,
   type Status,
 } from "@showme/design-system";
-import { computeBudgetProjection } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useState } from "react";
@@ -53,6 +52,7 @@ import {
 import { EventCollaboratorInviteModal } from "../components/EventCollaboratorInviteModal";
 import { EventCrewPanel } from "../components/EventCrewPanel";
 import { EventStatusControl } from "../components/EventStatusControl";
+import { budgetPlannerViewFrom } from "../components/budgetPlannerView";
 import {
   type EventTab,
   EventTabsBar,
@@ -61,7 +61,7 @@ import {
   StageRail,
 } from "../components/eventUi";
 import { ErrorState, LoadingState } from "../components/states";
-import { toMinorUnits, useBudgetEditor } from "../components/useBudgetEditor";
+import { useBudgetEditor } from "../components/useBudgetEditor";
 import { formatDate, formatMoney } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
 
@@ -613,32 +613,10 @@ function BudgetTab({ eventId, currency }: { eventId: string; currency: string })
   if (editor.isPending) return <LoadingState label="Loading budget" />;
   if (editor.isError) return <ErrorState error={editor.error} title="Couldn't load the budget" />;
 
-  const symbol = currencySymbol(currency);
-
-  // The arithmetic is `@showme/shared`'s, not this screen's (CLAUDE.md: business
-  // logic is plain, framework-agnostic TS). The screen's only job here is the
-  // unit boundary — the planner's fields are major-unit strings and the module
-  // works in minor units as bigint (money.md), so `toMinorUnits` is the single
-  // place the factor of 100 lives, borrowed from the editor rather than
-  // re-invented beside it.
-  const wholeNumber = (value: string) => {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
-  };
-  const projection = computeBudgetProjection({
-    ticketTiers: editor.ticketTiers.map((tier) => ({
-      unitAmount: BigInt(toMinorUnits(tier.price)),
-      quantity: wholeNumber(tier.quantity),
-    })),
-    averageBarSpend: BigInt(toMinorUnits(editor.averageBarSpend)),
-    capacity: wholeNumber(editor.capacity),
-    // The planner has no "other revenue" field yet — sponsorship and grants are
-    // budget lines the screen doesn't surface separately. Passing zero states
-    // that honestly rather than folding them in somewhere they'd be invisible.
-    otherRevenue: 0n,
-    costs: editor.costs.map((cost) => BigInt(toMinorUnits(cost.value))),
-  });
-  const money = (minor: bigint) => formatMoney(minor.toString(), currency);
+  // Every figure on the screen, derived once. The arithmetic is `@showme/shared`'s
+  // and the unit boundary is `budgetPlannerView`'s (CLAUDE.md: business logic is
+  // plain, framework-agnostic TS) — this screen picks a currency and renders.
+  const view = budgetPlannerViewFrom(editor, currency);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -651,34 +629,36 @@ function BudgetTab({ eventId, currency }: { eventId: string; currency: string })
       )}
       {editor.readOnlyReason && <Eyebrow>{editor.readOnlyReason}</Eyebrow>}
       <BudgetPlanner
-        currencySymbol={symbol}
-        kpis={[
-          { label: "Total revenue", value: money(projection.totalRevenue), tone: "green" },
-          { label: "Total costs", value: money(projection.totalCosts), tone: "red" },
-          {
-            label: "Profit / loss",
-            value: money(projection.profit),
-            tone: projection.profit < 0n ? "red" : "green",
-          },
-          { label: "Break-even tickets", value: projection.breakEvenTickets, tone: "amber" },
-        ]}
+        currencySymbol={currencySymbol(currency)}
+        kpis={view.kpis}
+        results={view.results}
+        breakEven={view.breakEven}
+        revenueSources={view.revenueSources}
+        costBreakdown={view.costBreakdown}
+        performingRights={view.performingRights}
         ticketTypes={editor.ticketTiers.map((tier) => ({
           id: tier.id,
           name: tier.name,
           price: tier.price,
           quantity: tier.quantity,
         }))}
-        ticketRevenueTotal={money(projection.ticketRevenue)}
+        ticketRevenueTotal={view.ticketRevenueTotal}
         capacity={editor.capacity}
         avgBarSpend={editor.averageBarSpend}
-        barRevenue={money(projection.barRevenue)}
+        barRevenue={view.barRevenue}
+        otherRevenue={editor.otherRevenue}
         costs={editor.costs}
+        processingPercent={editor.processingPercent}
+        processingFlatPerTicket={editor.processingFlatPerTicket}
         onTicketChange={editor.changeTier}
         onAddTicketType={editor.addTier}
         onRemoveTicketType={editor.removeTier}
         onCapacityChange={editor.changeCapacity}
         onAvgBarSpendChange={editor.changeAverageBarSpend}
+        onOtherRevenueChange={editor.changeOtherRevenue}
         onCostChange={editor.changeCost}
+        onProcessingPercentChange={editor.changeProcessingPercent}
+        onProcessingFlatPerTicketChange={editor.changeProcessingFlatPerTicket}
       />
     </div>
   );

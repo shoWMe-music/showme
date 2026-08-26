@@ -1,0 +1,43 @@
+-- A budget could not remember what its ticketing provider charges.
+--
+-- The design prototype's Budget screen has an input the rebuild never had:
+-- "Payment processing fees", a percentage plus a flat amount per ticket, sitting
+-- at the bottom of the Costs card. Every ticketing agent and payment rail prices
+-- that way ("x% + y per transaction"), and on a 60 EUR ticket in a 1 600-cap room
+-- it is the difference between a show that clears and one that does not — so a
+-- planner that cannot express it is not planning the same event the operator is.
+--
+-- WHY NOT A `budget_lines` ROW, which is where every other figure on that screen
+-- goes. Because a line is CASH SOMEBODY MOVED, and this is not. `reconcile()`
+-- (packages/settlement/src/reconcile.ts) reads cost lines twice: step 1 lowers the
+-- settlement pool by every payee-less cost, and step 4 credits `paid` to whoever
+-- `paid_by` names. An ESTIMATED provider fee posted as a line would therefore take
+-- money out of the pool that no provider has invoiced and no participant has
+-- fronted, and the settlement's `Σ net = 0` would be balancing around a guess.
+-- The fee belongs to the projection on the planning screen and stops at its edge;
+-- when a real charge lands, an operator records THAT as a line, with its actual
+-- amount and the participant who paid it.
+--
+-- This is also why the column holds RATES, not an amount. Rates are the operator's
+-- assumption; the money is derived from them by `computeBudgetProjection()` at
+-- render time and is never stored. Nothing downstream can mistake a stored rate
+-- for a settled figure.
+--
+-- WHY jsonb AND NOT TWO COLUMNS: the normalize-vs-jsonb rule (PLAN.md, `data-model`)
+-- puts read-with-parent leaves in `jsonb` and only the queried-across spine in
+-- columns. Nothing joins, filters or aggregates on a processing rate — it is read
+-- exactly once, with its own budget row, to draw one screen — and the set of
+-- planner assumptions is the half of this feature most likely to grow (a VAT
+-- assumption, a no-show allowance). Growing a key is not a migration; growing a
+-- column pair per assumption is.
+--
+-- SHAPE (validated by Zod at the route, `apps/api/src/routes/budget.ts`):
+--   {"paymentProcessing": {"percentBasisPoints": 150, "flatPerTicket": "50"}}
+-- Basis points and minor units, per docs/money.md — percentages are integers, never
+-- a float, and money crosses as a string because a JS number loses precision past
+-- 2^53. `flatPerTicket` is per ticket SOLD, not per ticket in the room.
+--
+-- NULLABLE, and stays nullable. A budget whose operator has not said what their
+-- provider charges has no assumption to record, and defaulting it to some rate
+-- would put a cost in front of them that they never agreed to.
+ALTER TABLE "budgets" ADD COLUMN IF NOT EXISTS "planning_assumptions" jsonb;

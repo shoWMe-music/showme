@@ -41,6 +41,10 @@ export const budgets = pgTable(
       .references(() => events.id, { onDelete: "cascade" }),
     scope: budgetScope("scope").notNull().default("shared"),
     ownerProfileId: uuid("owner_profile_id").references(() => profiles.id), // set only for private
+    // The planner's standing assumptions — today what the operator expects a
+    // payment/ticketing provider to keep. NOT lines: nobody has paid this money,
+    // and `reconcile()` reads lines as cash that actually moved (0015).
+    planningAssumptions: jsonb("planning_assumptions"),
     version: integer("version").notNull().default(1), // optimistic lock (decisions #8)
   },
   (table) => [

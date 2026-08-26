@@ -54,7 +54,7 @@ const LineDetails = z.object({
    * the data rather than inferred from the label, so renaming a tier cannot
    * silently turn it into the bar estimate (or the reverse).
    */
-  basis: z.enum(["ticket_tier", "bar_spend"]).default("ticket_tier"),
+  basis: z.enum(["ticket_tier", "bar_spend", "other_revenue"]).default("ticket_tier"),
   unitAmount: MinorUnitsAmount,
   quantity: z.number().int().min(0),
 });
@@ -109,11 +109,38 @@ const BudgetLineResponse = z.object({
   version: z.number(),
 });
 
+/**
+ * The planner's standing assumptions (migration 0015) — RATES, never amounts.
+ *
+ * Kept off `budget_lines` on purpose: a line is cash somebody moved, and
+ * `reconcile()` lowers the settlement pool by every payee-less cost line. An
+ * estimated provider fee posted as a line would balance the books around a guess.
+ * The money is derived from these rates by `computeBudgetProjection()` when the
+ * screen renders and is never stored.
+ */
+const PlanningAssumptions = z.object({
+  paymentProcessing: z
+    .object({
+      /** Basis points of ticket revenue (money.md: percentages are integers). */
+      percentBasisPoints: z.number().int().min(0).max(10_000),
+      /** Minor units per ticket SOLD. */
+      flatPerTicket: MinorUnitsAmount,
+    })
+    .nullable(),
+});
+
+const UpdateBudgetBody = z.object({
+  planningAssumptions: PlanningAssumptions.nullable(),
+  /** Expected version for optimistic locking (decisions #8); mismatch → 409. */
+  expectedVersion: z.number().int().optional(),
+});
+
 const BudgetResponse = z.object({
   id: z.string(),
   eventId: z.string(),
   scope: z.string(),
   ownerProfileId: z.string().nullable(),
+  planningAssumptions: PlanningAssumptions.nullable(),
   version: z.number(),
   lines: z.array(BudgetLineResponse),
 });
@@ -381,6 +408,61 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       });
 
       return reply.status(201).send(created);
+    },
+  );
+
+  /**
+   * Record the planner's standing assumptions on a budget.
+   *
+   * Separate from the line routes because this is not a line: no cash moved, so
+   * nothing here reaches `reconcile()`. `budget.edit` all the same — the figure it
+   * changes is the projected margin the operator makes decisions on.
+   */
+  app.patch(
+    "/events/:id/budgets/:bid",
+    { schema: { params: BudgetParams, body: UpdateBudgetBody, response: { 200: BudgetResponse } } },
+    async (request) => {
+      const { database } = request.server;
+      const { id, bid } = request.params;
+
+      await requireEventCapability(request, id, "budget.edit");
+      const before = await loadVisibleBudget(request, id, bid);
+
+      const { planningAssumptions, expectedVersion } = request.body;
+      const where =
+        expectedVersion != null
+          ? and(eq(schema.budgets.id, bid), eq(schema.budgets.version, expectedVersion))
+          : eq(schema.budgets.id, bid);
+
+      return await database.transaction(async (tx) => {
+        const [after] = await tx
+          .update(schema.budgets)
+          .set({ planningAssumptions, version: before.version + 1 })
+          .where(where)
+          .returning();
+        if (!after) {
+          // The row exists (loadVisibleBudget found it) but the version moved.
+          throw conflict("Budget was changed by someone else; reload and retry");
+        }
+
+        // The response is the whole budget, lines included, so the planner can
+        // reseed from one payload rather than re-reading the list behind it.
+        const lines = await tx
+          .select()
+          .from(schema.budgetLines)
+          .where(eq(schema.budgetLines.budgetId, bid));
+        const serialized = serializeBudget(after, lines);
+        await writeAudit(tx, request, {
+          capability: "budget.edit",
+          action: "budget.update",
+          targetKind: "budget",
+          targetId: bid,
+          eventId: id,
+          before: serializeBudget(before, []),
+          after: serialized,
+        });
+        return serialized;
+      });
     },
   );
 

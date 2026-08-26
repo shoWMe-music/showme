@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PostApiV1EventsIdBudgets201PlanningAssumptions } from './postApiV1EventsIdBudgets201PlanningAssumptions';
 import type { PostApiV1EventsIdBudgets201LinesItem } from './postApiV1EventsIdBudgets201LinesItem';
 
 export type PostApiV1EventsIdBudgets201 = {
@@ -12,6 +13,8 @@ export type PostApiV1EventsIdBudgets201 = {
   scope: string;
   /** @nullable */
   ownerProfileId: string | null;
+  /** @nullable */
+  planningAssumptions: PostApiV1EventsIdBudgets201PlanningAssumptions;
   version: number;
   lines: PostApiV1EventsIdBudgets201LinesItem[];
 };

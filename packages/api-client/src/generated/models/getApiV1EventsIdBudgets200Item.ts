@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { GetApiV1EventsIdBudgets200ItemPlanningAssumptions } from './getApiV1EventsIdBudgets200ItemPlanningAssumptions';
 import type { GetApiV1EventsIdBudgets200ItemLinesItem } from './getApiV1EventsIdBudgets200ItemLinesItem';
 
 export type GetApiV1EventsIdBudgets200Item = {
@@ -12,6 +13,8 @@ export type GetApiV1EventsIdBudgets200Item = {
   scope: string;
   /** @nullable */
   ownerProfileId: string | null;
+  /** @nullable */
+  planningAssumptions: GetApiV1EventsIdBudgets200ItemPlanningAssumptions;
   version: number;
   lines: GetApiV1EventsIdBudgets200ItemLinesItem[];
 };

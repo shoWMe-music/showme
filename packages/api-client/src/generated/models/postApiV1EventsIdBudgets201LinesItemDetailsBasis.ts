@@ -12,4 +12,5 @@ export type PostApiV1EventsIdBudgets201LinesItemDetailsBasis = typeof PostApiV1E
 export const PostApiV1EventsIdBudgets201LinesItemDetailsBasis = {
   ticket_tier: 'ticket_tier',
   bar_spend: 'bar_spend',
+  other_revenue: 'other_revenue',
 } as const;

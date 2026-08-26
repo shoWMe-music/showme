@@ -1,11 +1,15 @@
 import { Button, Card, Icon, Input, KeyValueRow } from "@showme/design-system";
+import { BudgetBreakEvenChart } from "./BudgetBreakEvenChart";
+import { BudgetBreakdownCard } from "./BudgetBreakdownCard";
 import { type KpiItem, KpiRow } from "./KpiRow";
+import { PerformingRightsEstimateCard } from "./PerformingRightsEstimateCard";
+import type {
+  BreakEvenDisplay,
+  BreakdownDisplayRow,
+  PerformingRightsDisplay,
+} from "./budgetPlannerView";
 import { Eyebrow } from "./primitives";
 
-/** The Budget Planner (§3b, shot 04): a KPI band over a two-column
- * revenue/costs live-recompute editor. Presentational — every figure is a
- * controlled field and totals are computed by the screen (math lives in
- * framework-agnostic TS per CLAUDE.md); this component only renders + emits. */
 export interface TicketTypeRow {
   id: string;
   name: string;
@@ -31,7 +35,18 @@ export interface BudgetPlannerProps {
   avgBarSpend: string;
   /** Computed bar revenue, formatted. */
   barRevenue: string;
+  /** Sponsorship, a grant, a fee — revenue that is neither ticketing nor bar. */
+  otherRevenue: string;
   costs: CostRow[];
+  /** What the operator expects their payment/ticketing provider to keep. */
+  processingPercent: string;
+  processingFlatPerTicket: string;
+  /** The seven Results tiles. */
+  results: KpiItem[];
+  breakEven: BreakEvenDisplay;
+  revenueSources: BreakdownDisplayRow[];
+  costBreakdown: BreakdownDisplayRow[];
+  performingRights: PerformingRightsDisplay;
   currencySymbol?: string;
   advisory?: string;
   onTicketChange?: (id: string, field: "name" | "price" | "quantity", value: string) => void;
@@ -39,9 +54,20 @@ export interface BudgetPlannerProps {
   onRemoveTicketType?: (id: string) => void;
   onCapacityChange?: (value: string) => void;
   onAvgBarSpendChange?: (value: string) => void;
+  onOtherRevenueChange?: (value: string) => void;
   onCostChange?: (key: string, value: string) => void;
+  onProcessingPercentChange?: (value: string) => void;
+  onProcessingFlatPerTicketChange?: (value: string) => void;
 }
 
+/** The Budget Planner (§3b, shot 04). The design prototype's Budget screen has
+ * eight sections and this renders all of them, in its order: the KPI band, the
+ * two-column revenue/costs editor, Results, Break-even Analysis, Revenue Sources
+ * and Cost Breakdown side by side, and the PRO fee estimate.
+ *
+ * Presentational — every figure is a controlled field and nothing here is
+ * computed (math lives in framework-agnostic TS per CLAUDE.md, reached through
+ * `budgetPlannerView`); this component only renders + emits. */
 export function BudgetPlanner({
   kpis,
   ticketTypes,
@@ -49,7 +75,15 @@ export function BudgetPlanner({
   capacity,
   avgBarSpend,
   barRevenue,
+  otherRevenue,
   costs,
+  processingPercent,
+  processingFlatPerTicket,
+  results,
+  breakEven,
+  revenueSources,
+  costBreakdown,
+  performingRights,
   currencySymbol = "€",
   advisory = "This is an estimate only and should be reviewed before final decisions.",
   onTicketChange,
@@ -57,7 +91,10 @@ export function BudgetPlanner({
   onRemoveTicketType,
   onCapacityChange,
   onAvgBarSpendChange,
+  onOtherRevenueChange,
   onCostChange,
+  onProcessingPercentChange,
+  onProcessingFlatPerTicketChange,
 }: BudgetPlannerProps) {
   const money = (value: string, onChange?: (value: string) => void) => (
     <div style={{ width: 130 }}>
@@ -162,6 +199,10 @@ export function BudgetPlanner({
             {money(avgBarSpend, onAvgBarSpendChange)}
           </div>
           <KeyValueRow label="Bar revenue" value={barRevenue} mono valueColor="#6FC97A" />
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ flex: 1, color: "var(--text)", fontSize: 14 }}>Other revenue</span>
+            {money(otherRevenue, onOtherRevenueChange)}
+          </div>
         </Card>
 
         <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -172,11 +213,85 @@ export function BudgetPlanner({
               {money(cost.value, (value) => onCostChange?.(cost.key, value))}
             </div>
           ))}
+          <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <span style={{ color: "var(--text)", fontSize: 13 }}>Payment processing fees</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 96 }}>
+                <Input
+                  value={processingPercent}
+                  inputMode="decimal"
+                  aria-label="Payment processing percentage"
+                  trailing={<span style={{ color: "var(--muted)" }}>%</span>}
+                  onChange={(event) => onProcessingPercentChange?.(event.target.value)}
+                />
+              </div>
+              <span style={{ color: "var(--muted)", fontSize: 12 }}>+</span>
+              <div style={{ width: 110 }}>
+                <Input
+                  value={processingFlatPerTicket}
+                  inputMode="decimal"
+                  aria-label="Payment processing amount per ticket"
+                  leftIcon={<span style={{ color: "var(--muted)" }}>{currencySymbol}</span>}
+                  onChange={(event) => onProcessingFlatPerTicketChange?.(event.target.value)}
+                />
+              </div>
+              <span style={{ color: "var(--muted)", fontSize: 12 }}>/ ticket</span>
+            </div>
+          </div>
         </Card>
+      </div>
+
+      <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <h4 style={sectionHeadingStyle}>Results</h4>
+        {/* Wide enough that a six-figure total is never clipped — the prototype
+            lays Results out four across, and these tiles hold currency + amount. */}
+        <KpiRow items={results} minTileWidth={230} />
+      </Card>
+
+      <BudgetBreakEvenChart breakEven={breakEven} />
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+          gap: 16,
+          alignItems: "start",
+        }}
+      >
+        <BudgetBreakdownCard
+          title="Revenue Sources"
+          rows={revenueSources}
+          emptyLabel="No revenue data yet"
+        />
+        <BudgetBreakdownCard
+          title="Cost Breakdown"
+          rows={costBreakdown}
+          emptyLabel="No cost data yet"
+        />
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+          gap: 16,
+          alignItems: "start",
+        }}
+      >
+        <PerformingRightsEstimateCard performingRights={performingRights} />
       </div>
     </div>
   );
 }
+
+const sectionHeadingStyle = {
+  fontFamily: "var(--font-display)",
+  fontWeight: 600,
+  fontSize: 14,
+  color: "var(--text)",
+  margin: 0,
+} as const;
 
 const iconButtonStyle = {
   display: "inline-flex",

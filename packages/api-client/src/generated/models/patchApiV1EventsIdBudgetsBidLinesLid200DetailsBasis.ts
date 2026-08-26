@@ -12,4 +12,5 @@ export type PatchApiV1EventsIdBudgetsBidLinesLid200DetailsBasis = typeof PatchAp
 export const PatchApiV1EventsIdBudgetsBidLinesLid200DetailsBasis = {
   ticket_tier: 'ticket_tier',
   bar_spend: 'bar_spend',
+  other_revenue: 'other_revenue',
 } as const;

@@ -3,8 +3,24 @@ export {
   type BudgetInputs,
   type BudgetProjection,
   computeBudgetProjection,
+  type PaymentProcessingAssumption,
   type TicketTier,
 } from "./budget-planning";
+export {
+  type BreakdownRow,
+  type BreakdownSlice,
+  computeBreakdown,
+} from "./budget-breakdown";
+export {
+  type BreakEvenChart,
+  type BreakEvenChartInputs,
+  computeBreakEvenChart,
+} from "./break-even-chart";
+export {
+  estimatePerformingRightsFee,
+  PERFORMING_RIGHTS_PLANNING_RATE_BASIS_POINTS,
+  type PerformingRightsFeeEstimate,
+} from "./performing-rights";
 export {
   type E2eAccount,
   type E2eAccountKind,
