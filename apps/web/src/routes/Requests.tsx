@@ -1,4 +1,3 @@
-import { usePostApiV1BookingRequestsIdFlagSpam } from "@showme/api-client";
 import {
   Badge,
   Card,
@@ -8,17 +7,19 @@ import {
   type Status,
   useToast,
 } from "@showme/design-system";
+import { useNavigate } from "@tanstack/react-router";
 import {
   MiniMonthCalendar,
   RequestCard,
   type RequestCardData,
   SegmentedToggle,
 } from "../components";
+import { RequestTriageDialogs } from "../components/RequestTriageDialogs";
 import { dayKey } from "../components/calendarGrid";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
+import { useRequestTriage } from "../components/useRequestTriage";
 import { type RequestItem, useRequestInbox } from "../hooks/useRequestInbox";
-import { errorMessage } from "../lib/errors";
 import { formatAmount, formatDate, formatMoney, relativeTime } from "../lib/format";
 
 /** Booking-request status → design-system status vocabulary + a display label. */
@@ -43,6 +44,14 @@ const FILTERS: { key: string; label: string }[] = [
   { key: "archived", label: "Archived" },
   { key: "expired", label: "Expired" },
 ];
+
+/**
+ * A request is triaged once. `pending` is the live case; `accepted` still allows
+ * work (a draft, an offer) because saying yes is not the same as having planned
+ * the show. The rest are settled, and the only honest action left is undoing them.
+ */
+const TRIAGEABLE_STATUSES = new Set(["pending", "accepted"]);
+const RESTORABLE_STATUSES = new Set(["declined", "archived", "flagged"]);
 
 function initials(label: string): string {
   const parts = label.trim().split(/\s+/).filter(Boolean);
@@ -116,6 +125,12 @@ function toCardData(request: RequestItem): RequestCardData {
     fee: formatFee(request),
     email: request.email ?? undefined,
     message: request.pitch ?? undefined,
+    // `eventId` is served by `GET /booking-requests` (it is on the response
+    // schema) but the generated types predate it, so it is read defensively here
+    // rather than being invisible until the client is regenerated.
+    draftEventId: (request as { eventId?: string | null }).eventId ?? undefined,
+    canTriage: TRIAGEABLE_STATUSES.has(request.status),
+    canRestore: RESTORABLE_STATUSES.has(request.status),
   };
 }
 
@@ -142,15 +157,11 @@ export function Requests() {
     error,
     refetch,
   } = useRequestInbox();
-  const flagSpam = usePostApiV1BookingRequestsIdFlagSpam({
-    mutation: {
-      onSuccess: () => {
-        toast.success("Request blocked");
-        void refetch();
-      },
-      onError: (mutationError) =>
-        toast.error(errorMessage(mutationError, "Couldn't block the request.")),
-    },
+  const navigate = useNavigate();
+  const triage = useRequestTriage({
+    requests,
+    refetch,
+    onSuccess: (message) => toast.success(message),
   });
 
   // Triage belongs to the RECIPIENT of a request. On the outgoing view these are
@@ -160,11 +171,9 @@ export function Requests() {
   const triageActions =
     direction === "incoming"
       ? {
-          onCreateDraft: () => toast.info("Draft flow coming soon"),
-          onMakeOffer: () => toast.info("Offer flow coming soon"),
-          onDecline: () => toast.info("Decline flow coming soon"),
-          onBlock: (id: string) => flagSpam.mutate({ id, data: { kind: "spam" } }),
-          onArchive: () => toast.info("Archive flow coming soon"),
+          ...triage.handlers,
+          onOpenDraftEvent: (eventId: string) =>
+            navigate({ to: "/events/$eventId", params: { eventId } }),
         }
       : {};
 
@@ -255,6 +264,8 @@ export function Requests() {
           </div>
         </div>
       )}
+
+      <RequestTriageDialogs triage={triage} onOpenEvents={() => navigate({ to: "/events" })} />
     </>
   );
 }

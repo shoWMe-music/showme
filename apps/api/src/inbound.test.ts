@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
+import type { EmailMessage } from "./lib/email";
 import { inboundRoutes } from "./routes/inbound";
 import { buildTestApp } from "./testing";
 
@@ -31,6 +32,23 @@ afterAll(async () => {
 
 const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 
+/** In DEFAULT_LEADS_ALLOWED_ORIGINS, so buildTestApp's default allows it. */
+const PUBLIC_ORIGIN = "http://localhost:5173";
+
+let clientIpCounter = 0;
+
+/**
+ * Headers for an anonymous public-form POST: the allowed Origin the server-side
+ * guard demands, plus a FRESH client IP per call. The IP has to vary because the
+ * route's rate limiter lives on the plugin registration — every test in this file
+ * shares one window, so a fixed IP would make the sixth public request in the
+ * whole suite fail for a reason no test was written to check.
+ */
+function publicFormHeaders() {
+  clientIpCounter += 1;
+  return { origin: PUBLIC_ORIGIN, "x-forwarded-for": `198.51.100.${clientIpCounter}` };
+}
+
 type AccountKind = "operator" | "performer" | "agent";
 
 /** The full name a seeded person carries — what an offer should fall back to. */
@@ -51,7 +69,17 @@ async function seedOwnerWithProfile(id: string, kind: AccountKind = "operator") 
   await seedUser(id, kind);
   const [profile] = await db
     .insert(schema.profiles)
-    .values({ kind, ownerUserId: id, name: profileName(id), slug: id, claimedAt: new Date() })
+    .values({
+      kind,
+      ownerUserId: id,
+      name: profileName(id),
+      slug: id,
+      claimedAt: new Date(),
+      // Public by default in these fixtures: `POST /booking-requests` only
+      // addresses a PUBLIC profile, so a private one would 404 every public case.
+      // The one test that needs a private target flips it back.
+      isPublic: true,
+    })
     .returning();
   if (!profile) throw new Error("profile seed failed");
   await db
@@ -116,6 +144,7 @@ describe("inbound — public booking request + listing", () => {
     const created = await app.inject({
       method: "POST",
       url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
       payload: {
         source: "public_form",
         targetProfileId: owner.profileId,
@@ -154,6 +183,7 @@ describe("inbound — public booking request + listing", () => {
     const created = await app.inject({
       method: "POST",
       url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
       payload: {
         source: "public_form",
         targetProfileId: owner.profileId,
@@ -477,39 +507,160 @@ describe("inbound — an agent offers on behalf of the act it represents (decisi
   });
 });
 
-describe("inbound — spam flag", () => {
-  it("409s a second flag with the same kind from the same reporter", async () => {
-    const target = await seedOwnerWithProfile("inb-spam-tgt");
-    const reporter = await seedOwnerWithProfile("inb-spam-rep", "performer");
+describe("inbound — Block reports the SENDER and clears the request", () => {
+  /** Every spam flag standing against a profile — who has been ACCUSED. */
+  async function flagsAgainst(profileId: string) {
+    return harness.db
+      .select()
+      .from(schema.spamFlags)
+      .where(eq(schema.spamFlags.targetProfileId, profileId));
+  }
 
+  it("files the report against the sender's profile, never the recipient's, and flags the request", async () => {
+    const venue = await seedOwnerWithProfile("blk-venue");
+    const performer = await seedOwnerWithProfile("blk-perf", "performer");
+
+    const offer = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("blk-perf"), "x-profile-id": performer.profileId },
+      payload: { targetProfileId: venue.profileId, wantedDate: "2027-05-05" },
+    });
+    expect(offer.statusCode).toBe(201);
+    const offerId = offer.json().id;
+
+    const blocked = await app.inject({
+      method: "POST",
+      url: `/api/v1/booking-requests/${offerId}/flag-spam`,
+      headers: { ...auth("blk-venue"), "x-profile-id": venue.profileId },
+      payload: { kind: "spam" },
+    });
+    expect(blocked.statusCode).toBe(201);
+    expect(blocked.json().reportedProfileId).toBe(performer.profileId);
+    expect(blocked.json().status).toBe("flagged");
+
+    // The ACCUSED is the sender. `spam_flags.target_profile_id` is the column
+    // `canUseFeature("not_spam_suspended")` counts against, so filing it under the
+    // recipient (as this route used to) suspended the victim, not the spammer.
+    const againstSender = await flagsAgainst(performer.profileId);
+    expect(againstSender).toHaveLength(1);
+    expect(againstSender[0]?.reporterProfileId).toBe(venue.profileId);
+    expect(againstSender[0]?.contextId).toBe(offerId);
+    expect(await flagsAgainst(venue.profileId)).toHaveLength(0);
+
+    // …and the request leaves the inbox instead of sitting there pending.
+    const [row] = await harness.db
+      .select()
+      .from(schema.bookingRequests)
+      .where(eq(schema.bookingRequests.id, offerId));
+    expect(row?.status).toBe("flagged");
+  });
+
+  it("is idempotent: blocking a second request from the same sender adds no second row", async () => {
+    const venue = await seedOwnerWithProfile("blk2-venue");
+    const performer = await seedOwnerWithProfile("blk2-perf", "performer");
+    const headers = { ...auth("blk2-perf"), "x-profile-id": performer.profileId };
+
+    const send = (wantedDate: string) =>
+      app.inject({
+        method: "POST",
+        url: "/api/v1/offers",
+        headers,
+        payload: { targetProfileId: venue.profileId, wantedDate },
+      });
+    const block = (id: string) =>
+      app.inject({
+        method: "POST",
+        url: `/api/v1/booking-requests/${id}/flag-spam`,
+        headers: { ...auth("blk2-venue"), "x-profile-id": venue.profileId },
+        payload: { kind: "spam" },
+      });
+
+    const first = await send("2027-06-01");
+    const second = await send("2027-06-02");
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(201);
+
+    expect((await block(first.json().id)).statusCode).toBe(201);
+    // The second block is the same reporter naming the same profile — nothing new
+    // for a DISTINCT-reporter count, so it must not 409 and leave the operator
+    // staring at a request they just told us to remove.
+    expect((await block(second.json().id)).statusCode).toBe(201);
+
+    expect(await flagsAgainst(performer.profileId)).toHaveLength(1);
+    const rows = await harness.db
+      .select()
+      .from(schema.bookingRequests)
+      .where(eq(schema.bookingRequests.senderProfileId, performer.profileId));
+    expect(rows.every((row) => row.status === "flagged")).toBe(true);
+  });
+
+  it("flags a public-form request even though there is no profile to accuse", async () => {
+    const venue = await seedOwnerWithProfile("blk3-venue");
     const created = await app.inject({
       method: "POST",
       url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
       payload: {
         source: "public_form",
-        targetProfileId: target.profileId,
+        targetProfileId: venue.profileId,
         contactName: "Spammer",
         email: "spam@example.com",
       },
     });
     const id = created.json().id;
-    const headers = { ...auth("inb-spam-rep"), "x-profile-id": reporter.profileId };
 
-    const first = await app.inject({
+    const blocked = await app.inject({
       method: "POST",
       url: `/api/v1/booking-requests/${id}/flag-spam`,
-      headers,
-      payload: { kind: "unsolicited" },
+      headers: { ...auth("blk3-venue"), "x-profile-id": venue.profileId },
+      payload: { kind: "spam" },
     });
-    expect(first.statusCode).toBe(201);
+    expect(blocked.statusCode).toBe(201);
+    // Nobody is accused: an anonymous sender has no profile, and inventing one
+    // (or accusing the venue) is worse than recording only the audit entry.
+    expect(blocked.json().reportedProfileId).toBeNull();
+    expect(await flagsAgainst(venue.profileId)).toHaveLength(0);
 
-    const second = await app.inject({
+    const [row] = await harness.db
+      .select()
+      .from(schema.bookingRequests)
+      .where(eq(schema.bookingRequests.id, id));
+    expect(row?.status).toBe("flagged");
+  });
+
+  it("404s a caller who is not on the target profile, writing nothing", async () => {
+    const venue = await seedOwnerWithProfile("blk4-venue");
+    const stranger = await seedOwnerWithProfile("blk4-stranger", "performer");
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: {
+        source: "public_form",
+        targetProfileId: venue.profileId,
+        contactName: "Ada",
+        email: "ada@example.com",
+      },
+    });
+    const id = created.json().id;
+
+    // Before the fix this endpoint had NO authorization: any signed-in user who
+    // knew a request id could file a report against someone else's profile.
+    const response = await app.inject({
       method: "POST",
       url: `/api/v1/booking-requests/${id}/flag-spam`,
-      headers,
-      payload: { kind: "unsolicited" },
+      headers: { ...auth("blk4-stranger"), "x-profile-id": stranger.profileId },
+      payload: { kind: "spam" },
     });
-    expect(second.statusCode).toBe(409);
+    expect(response.statusCode).toBe(404);
+    expect(await flagsAgainst(venue.profileId)).toHaveLength(0);
+
+    const [row] = await harness.db
+      .select()
+      .from(schema.bookingRequests)
+      .where(eq(schema.bookingRequests.id, id));
+    expect(row?.status).toBe("pending");
   });
 });
 
@@ -597,5 +748,564 @@ describe("inbound — send_offer entitlement gate (decisions #4/§C)", () => {
       payload: { targetProfileId: target.profileId, wantedDate: "2027-09-09" },
     });
     expect(response.statusCode).toBe(201);
+  });
+});
+
+describe("inbound — the public form is an anonymous, hardened endpoint", () => {
+  /**
+   * A fresh app is a fresh rate-limit window (the limiter is scoped to the plugin
+   * registration), so a test that deliberately exhausts the budget cannot spend
+   * the shared app's budget for every test after it.
+   */
+  function buildPublicApp(): FastifyInstance {
+    return buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [inboundRoutes]);
+  }
+
+  /** How many requests exist for a target — the "nothing was written" assertion. */
+  async function countRequestsFor(profileId: string): Promise<number> {
+    const rows = await harness.db
+      .select()
+      .from(schema.bookingRequests)
+      .where(eq(schema.bookingRequests.targetProfileId, profileId));
+    return rows.length;
+  }
+
+  const body = (targetProfileId: string, overrides: Record<string, unknown> = {}) => ({
+    source: "public_form",
+    targetProfileId,
+    contactName: "Ada Booker",
+    email: "ada@example.com",
+    pitch: "We would love to play.",
+    ...overrides,
+  });
+
+  it("403s a POST with a disallowed or missing Origin, writing nothing", async () => {
+    const owner = await seedOwnerWithProfile("pub-origin");
+
+    const forged = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: { origin: "https://evil.example", "x-forwarded-for": "198.51.100.200" },
+      payload: body(owner.profileId),
+    });
+    expect(forged.statusCode).toBe(403);
+
+    // A non-browser client sends no Origin at all — refused for the same reason.
+    const anonymous = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      payload: body(owner.profileId),
+    });
+    expect(anonymous.statusCode).toBe(403);
+
+    expect(await countRequestsFor(owner.profileId)).toBe(0);
+  });
+
+  it("rate-limits after 5 submissions from one IP, while another IP still gets through", async () => {
+    const owner = await seedOwnerWithProfile("pub-rate");
+    const publicApp = buildPublicApp();
+    await publicApp.ready();
+
+    // Distinct dates so the per-email dedup never fires — the limiter is what is
+    // under test, and a 409 would look like a pass for the wrong reason.
+    const send = (ip: string, day: number) =>
+      publicApp.inject({
+        method: "POST",
+        url: "/api/v1/booking-requests",
+        headers: { origin: PUBLIC_ORIGIN, "x-forwarded-for": ip },
+        payload: body(owner.profileId, { wantedDate: `2027-03-${String(day).padStart(2, "0")}` }),
+      });
+
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      expect((await send("203.0.113.9", attempt)).statusCode).toBe(201);
+    }
+    const sixth = await send("203.0.113.9", 6);
+    expect(sixth.statusCode).toBe(429);
+    expect(sixth.headers["retry-after"]).toBe("60");
+
+    // Per-IP, not global: a different visitor is unaffected.
+    expect((await send("203.0.113.10", 7)).statusCode).toBe(201);
+    expect(await countRequestsFor(owner.profileId)).toBe(6);
+    await publicApp.close();
+  });
+
+  it("bounds and sanitizes the free text an anonymous sender can store", async () => {
+    const owner = await seedOwnerWithProfile("pub-text");
+
+    const tooLongPitch = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: body(owner.profileId, { pitch: "x".repeat(5001) }),
+    });
+    expect(tooLongPitch.statusCode).toBe(400);
+
+    const tooLongName = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: body(owner.profileId, { contactName: "x".repeat(201) }),
+    });
+    expect(tooLongName.statusCode).toBe(400);
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: body(owner.profileId, {
+        contactName: "  Ada \u0000\u0009 Booker  ",
+        email: "Ada@Example.COM",
+        pitch: "Line one  \r\nLine two  ",
+      }),
+    });
+    expect(accepted.statusCode).toBe(201);
+
+    const [row] = await harness.db
+      .select()
+      .from(schema.bookingRequests)
+      .where(eq(schema.bookingRequests.id, accepted.json().id));
+    // Control characters gone, whitespace collapsed, email normalized — the same
+    // treatment the authenticated offer body has always given its input.
+    expect(row?.contactName).toBe("Ada Booker");
+    expect(row?.email).toBe("ada@example.com");
+    expect(row?.pitch).toBe("Line one  \nLine two");
+    expect(await countRequestsFor(owner.profileId)).toBe(1);
+  });
+
+  it("400s a wantedDate that is not a real calendar date, rather than 500ing on the date column", async () => {
+    const owner = await seedOwnerWithProfile("pub-date");
+
+    for (const wantedDate of ["banana", "2026-13-01", "2026-02-30", "01/09/2026"]) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/booking-requests",
+        headers: publicFormHeaders(),
+        payload: body(owner.profileId, { wantedDate }),
+      });
+      expect(response.statusCode).toBe(400);
+    }
+
+    // The positive control: the same body with a real date is accepted, so the
+    // 400s above are the date rule and not the shape of the payload.
+    const good = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: body(owner.profileId, { wantedDate: "2026-02-28" }),
+    });
+    expect(good.statusCode).toBe(201);
+    expect(await countRequestsFor(owner.profileId)).toBe(1);
+  });
+
+  it("404s an unknown target instead of surfacing a foreign-key 500", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: body("00000000-0000-4000-8000-000000000000"),
+    });
+    expect(response.statusCode).toBe(404);
+    expect(response.json().error.message).toBe("Profile not found");
+  });
+
+  it("404s a profile that is not public — a private inbox is not addressable from the open web", async () => {
+    const owner = await seedOwnerWithProfile("pub-private");
+    await harness.db
+      .update(schema.profiles)
+      .set({ isPublic: false })
+      .where(eq(schema.profiles.id, owner.profileId));
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: body(owner.profileId),
+    });
+    // Same non-answer as an unknown id, so neither can be probed for the other.
+    expect(response.statusCode).toBe(404);
+    expect(await countRequestsFor(owner.profileId)).toBe(0);
+  });
+
+  it("409s a repeat of a PENDING request, and takes it again once it is declined", async () => {
+    const owner = await seedOwnerWithProfile("pub-dedup");
+    const send = () =>
+      app.inject({
+        method: "POST",
+        url: "/api/v1/booking-requests",
+        headers: publicFormHeaders(),
+        payload: body(owner.profileId, { wantedDate: "2027-04-04" }),
+      });
+
+    const first = await send();
+    expect(first.statusCode).toBe(201);
+    expect((await send()).statusCode).toBe(409);
+    expect(await countRequestsFor(owner.profileId)).toBe(1);
+
+    // Dedup covers PENDING only — a declined request can be re-sent, exactly the
+    // rule the `booking_requests_pending_dedup` index states for on-platform senders.
+    const declined = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/booking-requests/${first.json().id}`,
+      headers: auth("pub-dedup"),
+      payload: { status: "declined" },
+    });
+    expect(declined.statusCode).toBe(200);
+    expect((await send()).statusCode).toBe(201);
+    expect(await countRequestsFor(owner.profileId)).toBe(2);
+  });
+});
+
+describe("inbound — triage moves a request through its statuses", () => {
+  it("declines, archives, and restores a request to pending", async () => {
+    const owner = await seedOwnerWithProfile("tri-owner");
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: {
+        source: "public_form",
+        targetProfileId: owner.profileId,
+        contactName: "Ada",
+        email: "ada@example.com",
+        wantedDate: "2027-07-07",
+      },
+    });
+    const id = created.json().id;
+    const patch = (status: string) =>
+      app.inject({
+        method: "PATCH",
+        url: `/api/v1/booking-requests/${id}`,
+        headers: auth("tri-owner"),
+        payload: { status },
+      });
+
+    expect((await patch("declined")).json().status).toBe("declined");
+    expect((await patch("archived")).json().status).toBe("archived");
+    // Restore: without `pending` in the accepted set, archiving is a one-way door
+    // and the screen's Restore button would have nothing to call.
+    expect((await patch("pending")).json().status).toBe("pending");
+
+    const [row] = await harness.db
+      .select()
+      .from(schema.bookingRequests)
+      .where(eq(schema.bookingRequests.id, id));
+    expect(row?.status).toBe("pending");
+
+    // `expired` is the reaper's word, not a human's — the API does not take it.
+    expect((await patch("expired")).statusCode).toBe(400);
+  });
+});
+
+describe("inbound — Create Draft turns a request into a draft event", () => {
+  /**
+   * A primary location with a country — which is where an event's currency comes
+   * from (currency is a per-country fact, decisions.md #17). Without one there is
+   * nothing to denominate the budget in, and the route says so rather than
+   * guessing; the last test in this block drives that refusal.
+   */
+  async function seedPrimaryLocation(profileId: string, country: string) {
+    await harness.db
+      .insert(schema.profileLocations)
+      .values({ profileId, country, city: "Stockholm", isPrimary: true });
+  }
+
+  /** A public-form request aimed at `profileId`, with a date and a fee asked. */
+  async function seedPublicRequest(profileId: string, wantedDate = "2027-08-08") {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: {
+        source: "public_form",
+        targetProfileId: profileId,
+        contactName: "Ada Booker",
+        email: "ada@example.com",
+        artistName: "The Adas",
+        wantedDate,
+        pitch: "Touring in August.",
+        offerFeeMin: "65000",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    return created.json().id as string;
+  }
+
+  it("creates a draft event linked to the request, hosted by the recipient", async () => {
+    const owner = await seedOwnerWithProfile("draft-owner");
+    await seedPrimaryLocation(owner.profileId, "SE");
+    const requestId = await seedPublicRequest(owner.profileId);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/booking-requests/${requestId}/draft-event`,
+      headers: { ...auth("draft-owner"), "x-profile-id": owner.profileId },
+      payload: {},
+    });
+    expect(response.statusCode).toBe(201);
+    const created = response.json();
+    expect(created.status).toBe("draft");
+    expect(created.title).toBe("The Adas"); // named after the ACT
+    expect(created.eventDate).toBe("2027-08-08"); // the date they asked for
+    // Denomination is derived, never guessed: SEK from the venue's own country.
+    expect(created.baseCurrency).toBe("SEK");
+
+    const [event] = await harness.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.id, created.eventId));
+    expect(event?.hostProfileId).toBe(owner.profileId);
+    expect(event?.status).toBe("draft");
+    expect(event?.eventDate).toBe("2027-08-08");
+    // The contact, the fee and the pitch survive into the event the operator opens.
+    expect(event?.notes).toContain("ada@example.com");
+    expect(event?.notes).toContain("Touring in August.");
+    expect(event?.notes).toContain("650");
+
+    // The host stands on their own event, or they cannot open it.
+    const participants = await harness.db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.eventId, created.eventId));
+    expect(participants).toHaveLength(1);
+    expect(participants[0]?.role).toBe("host");
+
+    // The request now points at the draft — and is STILL pending, because
+    // starting work is not answering the sender.
+    const [row] = await harness.db
+      .select()
+      .from(schema.bookingRequests)
+      .where(eq(schema.bookingRequests.id, requestId));
+    expect(row?.eventId).toBe(created.eventId);
+    expect(row?.status).toBe("pending");
+
+    const audit = await harness.db
+      .select()
+      .from(schema.auditLog)
+      .where(eq(schema.auditLog.targetId, created.eventId));
+    expect(audit.some((entry) => entry.action === "booking_request.draft_event")).toBe(true);
+  });
+
+  it("spends no event-cap slot, and reports the counter that confirming WILL spend", async () => {
+    const owner = await seedOwnerWithProfile("draft-cap");
+    await seedPrimaryLocation(owner.profileId, "SE");
+    const requestId = await seedPublicRequest(owner.profileId, "2027-08-09");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/booking-requests/${requestId}/draft-event`,
+      headers: { ...auth("draft-cap"), "x-profile-id": owner.profileId },
+      payload: {},
+    });
+    expect(response.statusCode).toBe(201);
+    const cap = response.json().eventCap;
+    // A draft is outside CAP_COUNTING_EVENT_STATUSES, so the used counter has not
+    // moved — the cost lands at `confirmed`, which is what `chargedAtConfirm` says.
+    expect(cap.used).toBe(0);
+    expect(cap.limit).toBeGreaterThan(0);
+    expect(cap.allowed).toBe(true);
+    expect(cap.chargedAtConfirm).toBe(true);
+  });
+
+  it("409s a second draft for the same request", async () => {
+    const owner = await seedOwnerWithProfile("draft-twice");
+    await seedPrimaryLocation(owner.profileId, "SE");
+    const requestId = await seedPublicRequest(owner.profileId, "2027-08-10");
+    const draft = () =>
+      app.inject({
+        method: "POST",
+        url: `/api/v1/booking-requests/${requestId}/draft-event`,
+        headers: { ...auth("draft-twice"), "x-profile-id": owner.profileId },
+        payload: {},
+      });
+
+    expect((await draft()).statusCode).toBe(201);
+    expect((await draft()).statusCode).toBe(409);
+
+    const events = await harness.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.hostProfileId, owner.profileId));
+    expect(events).toHaveLength(1);
+  });
+
+  it("refuses to guess a currency when the venue has no country, and takes an explicit one", async () => {
+    const owner = await seedOwnerWithProfile("draft-nocurrency");
+    const requestId = await seedPublicRequest(owner.profileId, "2027-08-12");
+    const draft = (payload: Record<string, unknown>) =>
+      app.inject({
+        method: "POST",
+        url: `/api/v1/booking-requests/${requestId}/draft-event`,
+        headers: { ...auth("draft-nocurrency"), "x-profile-id": owner.profileId },
+        payload,
+      });
+
+    // `base_currency` denominates the whole budget and settlement, so a default
+    // would be a wrong number rather than a missing one.
+    const refused = await draft({});
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error.message).toContain("currency");
+
+    const accepted = await draft({ baseCurrency: "eur" });
+    expect(accepted.statusCode).toBe(201);
+    expect(accepted.json().baseCurrency).toBe("EUR"); // normalized
+  });
+
+  it("refuses a non-operator recipient and a stranger", async () => {
+    const performer = await seedOwnerWithProfile("draft-perf", "performer");
+    const stranger = await seedOwnerWithProfile("draft-stranger");
+    const requestId = await seedPublicRequest(performer.profileId, "2027-08-11");
+
+    // Only operators host events (story.md: the operator runs the show).
+    const asPerformer = await app.inject({
+      method: "POST",
+      url: `/api/v1/booking-requests/${requestId}/draft-event`,
+      headers: { ...auth("draft-perf"), "x-profile-id": performer.profileId },
+      payload: {},
+    });
+    expect(asPerformer.statusCode).toBe(403);
+    expect(asPerformer.json().error.message).toContain("operator");
+
+    const asStranger = await app.inject({
+      method: "POST",
+      url: `/api/v1/booking-requests/${requestId}/draft-event`,
+      headers: { ...auth("draft-stranger"), "x-profile-id": stranger.profileId },
+      payload: {},
+    });
+    expect(asStranger.statusCode).toBe(404);
+
+    const events = await harness.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.hostProfileId, performer.profileId));
+    expect(events).toHaveLength(0);
+  });
+});
+
+describe("inbound — Make Offer counters back to whoever asked", () => {
+  it("notifies an on-platform sender and records the terms in the audit trail", async () => {
+    const venue = await seedOwnerWithProfile("co-venue");
+    const performer = await seedOwnerWithProfile("co-perf", "performer");
+
+    const offer = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("co-perf"), "x-profile-id": performer.profileId },
+      payload: { targetProfileId: venue.profileId, wantedDate: "2027-09-09" },
+    });
+    const requestId = offer.json().id;
+
+    const countered = await app.inject({
+      method: "POST",
+      url: `/api/v1/booking-requests/${requestId}/counter-offer`,
+      headers: { ...auth("co-venue"), "x-profile-id": venue.profileId },
+      payload: {
+        message: "We can do the 9th, but the fee is lower.",
+        offerFeeMin: "45000",
+        offerFeeMax: "55000",
+      },
+    });
+    expect(countered.statusCode).toBe(201);
+    expect(countered.json()).toMatchObject({ channel: "notification", delivered: true });
+
+    // The requester HEARS it — the whole point of the button.
+    const notifications = await harness.db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, "co-perf"));
+    const counter = notifications.find((row) => row.type === "booking_request.counter_offer");
+    expect(counter).toBeDefined();
+    expect(counter?.body).toContain("We can do the 9th");
+    expect((counter?.metadata as { offerFeeMin?: string })?.offerFeeMin).toBe("45000");
+
+    // …and the terms are in the forensic record, not only in a feed row.
+    const audit = await harness.db
+      .select()
+      .from(schema.auditLog)
+      .where(eq(schema.auditLog.targetId, requestId));
+    const entry = audit.find((row) => row.action === "booking_request.counter_offer");
+    expect(entry).toBeDefined();
+
+    // A counter is not an answer: the request stays pending until they reply.
+    const [row] = await harness.db
+      .select()
+      .from(schema.bookingRequests)
+      .where(eq(schema.bookingRequests.id, requestId));
+    expect(row?.status).toBe("pending");
+  });
+
+  it("emails a public-form sender, since their address is the only way back to them", async () => {
+    const sent: EmailMessage[] = [];
+    const emailApp = buildTestApp(
+      {
+        database: harness.db,
+        tokenVerifier: fakeVerifier,
+        emailSink: {
+          async sendEmail(message) {
+            sent.push(message);
+          },
+        },
+      },
+      [inboundRoutes],
+    );
+    await emailApp.ready();
+
+    const venue = await seedOwnerWithProfile("co-pub-venue");
+    const created = await emailApp.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: { origin: PUBLIC_ORIGIN, "x-forwarded-for": "203.0.113.55" },
+      payload: {
+        source: "public_form",
+        targetProfileId: venue.profileId,
+        contactName: "Ada Booker",
+        email: "ada@example.com",
+        wantedDate: "2027-10-10",
+      },
+    });
+    const requestId = created.json().id;
+
+    const countered = await emailApp.inject({
+      method: "POST",
+      url: `/api/v1/booking-requests/${requestId}/counter-offer`,
+      headers: { ...auth("co-pub-venue"), "x-profile-id": venue.profileId },
+      payload: { message: "Yes — 10 Oct works.", offerFeeMin: "50000" },
+    });
+    expect(countered.statusCode).toBe(201);
+    expect(countered.json()).toMatchObject({
+      channel: "email",
+      deliveredTo: "ada@example.com",
+      delivered: true,
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.to).toBe("ada@example.com");
+    expect(sent[0]?.text).toContain("Yes — 10 Oct works.");
+    // Reply-to is the operator's own address: an anonymous sender has no account
+    // to answer in, so the reply has to land in a real mailbox.
+    expect(sent[0]?.replyTo).toBe("co-pub-venue@example.com");
+    await emailApp.close();
+  });
+
+  it("404s a caller who is not on the target profile", async () => {
+    const venue = await seedOwnerWithProfile("co-guard-venue");
+    const stranger = await seedOwnerWithProfile("co-guard-stranger");
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: {
+        source: "public_form",
+        targetProfileId: venue.profileId,
+        contactName: "Ada",
+        email: "ada@example.com",
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/booking-requests/${created.json().id}/counter-offer`,
+      headers: { ...auth("co-guard-stranger"), "x-profile-id": stranger.profileId },
+      payload: { message: "Let me answer someone else's inbox." },
+    });
+    expect(response.statusCode).toBe(404);
   });
 });

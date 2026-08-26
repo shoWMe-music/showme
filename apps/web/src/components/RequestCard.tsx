@@ -28,6 +28,15 @@ export interface RequestCardData {
   fee: string;
   email?: string;
   phone?: string;
+  /** The draft event this request was turned into ("Create Draft"), if any. */
+  draftEventId?: string;
+  /**
+   * Which half of the action bar applies. A request that has been declined,
+   * archived or flagged is not triaged again — the only honest action left is
+   * putting it back, and offering "Decline" on a declined request is noise.
+   */
+  canTriage?: boolean;
+  canRestore?: boolean;
   /** Pre-formatted capacity (e.g. "5,000"). */
   capacity?: string;
   message?: string;
@@ -41,6 +50,10 @@ export interface RequestCardProps {
   onDecline?: (id: string) => void;
   onBlock?: (id: string) => void;
   onArchive?: (id: string) => void;
+  /** Back to pending, from declined/archived/flagged. */
+  onRestore?: (id: string) => void;
+  /** Open the draft event this request already produced. */
+  onOpenDraftEvent?: (eventId: string) => void;
 }
 
 export function RequestCard({
@@ -51,7 +64,13 @@ export function RequestCard({
   onDecline,
   onBlock,
   onArchive,
+  onRestore,
+  onOpenDraftEvent,
 }: RequestCardProps) {
+  // Default true so the existing callers (and the outgoing view, which passes no
+  // handlers at all) keep behaving exactly as before.
+  const canTriage = request.canTriage ?? true;
+  const canRestore = request.canRestore ?? false;
   return (
     <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -116,30 +135,59 @@ export function RequestCard({
         </div>
       )}
 
+      {request.draftEventId && (
+        <button
+          type="button"
+          onClick={() => onOpenDraftEvent?.(request.draftEventId as string)}
+          disabled={!onOpenDraftEvent}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            alignSelf: "flex-start",
+            padding: "6px 10px",
+            borderRadius: 999,
+            border: "1px solid var(--border)",
+            background: "var(--elevated)",
+            color: "var(--text)",
+            fontSize: 12.5,
+            cursor: onOpenDraftEvent ? "pointer" : "default",
+          }}
+        >
+          <Icon name="calendar" size={14} />
+          Draft event created
+        </button>
+      )}
+
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-        {onCreateDraft && (
+        {canTriage && onCreateDraft && !request.draftEventId && (
           <Button variant="secondary" onClick={() => onCreateDraft(request.id)}>
             Create Draft
           </Button>
         )}
-        {onMakeOffer && (
+        {canTriage && onMakeOffer && (
           <Button variant="primary" onClick={() => onMakeOffer(request.id)}>
             Make Offer
           </Button>
         )}
-        {onDecline && (
+        {canTriage && onDecline && (
           <Button variant="ghost" onClick={() => onDecline(request.id)}>
             Decline
           </Button>
         )}
-        {onBlock && (
+        {canTriage && onBlock && (
           <Button variant="ghost" onClick={() => onBlock(request.id)}>
             Block
           </Button>
         )}
-        {onArchive && (
+        {canTriage && onArchive && (
           <Button variant="ghost" onClick={() => onArchive(request.id)}>
             Archive
+          </Button>
+        )}
+        {canRestore && onRestore && (
+          <Button variant="secondary" onClick={() => onRestore(request.id)}>
+            Restore
           </Button>
         )}
       </div>

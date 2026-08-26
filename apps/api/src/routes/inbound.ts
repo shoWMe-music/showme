@@ -1,16 +1,20 @@
 import { randomBytes } from "node:crypto";
+import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import { currencyForCountry } from "@showme/shared";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { badRequest, conflict, forbidden, notFound } from "../errors";
+import { badRequest, conflict, forbidden, notFound, tooManyRequests } from "../errors";
+import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
 import { canUseFeature } from "../lib/entitlements";
+import { resolveEventTimezone } from "../lib/event-timezone";
 import { notifyProfileMembers } from "../lib/notify";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
+import { createSlidingWindowRateLimiter } from "../lib/rate-limit";
 import { isRepresentationActiveAt } from "../lib/representation-rules";
 
 const IdParams = z.object({ id: z.string().uuid() });
@@ -50,16 +54,46 @@ const emailAddress = z
 /** A bounded, sanitized link (music / video). */
 const linkUrl = z.string().transform(cleanSingleLine).pipe(z.string().url().max(500));
 
-const bookingRequestStatus = z.enum(["accepted", "declined", "archived", "flagged"]);
+/**
+ * A calendar date for the `date` columns (`wanted_date`, `events.event_date`).
+ * Postgres parses a `date` literal itself, so an unvalidated string reached the
+ * driver and came back as a 22007 — surfaced to the caller as a bare 500 (audit:
+ * `{"wantedDate":"banana"}`). The round-trip check rejects the dates that LOOK
+ * right and are not: 2026-02-30 normalizes to March 2nd, so comparing the
+ * normalized value back against the input is what catches it.
+ */
+const calendarDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected a calendar date, e.g. 2026-09-01")
+  .refine((value) => {
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }, "Not a real calendar date");
 
+/**
+ * The statuses a recipient may move a request to. `pending` is included so an
+ * archive or a decline can be UNDONE — the screen offers "Restore", and without
+ * it archiving is a one-way door with no route back. `expired` is deliberately
+ * absent: it is the reaper's word, not a human's.
+ */
+const bookingRequestStatus = z.enum(["pending", "accepted", "declined", "archived", "flagged"]);
+
+/**
+ * The PUBLIC body — the one an anonymous browser can post, which makes it the
+ * one that has to be tightest. It was the weakest in this file: bare
+ * `z.string()` for `contactName` and `pitch` (no bound, no control-character
+ * stripping) against an unbounded `text` column, and an unchecked `wantedDate`
+ * into a `date` column. It now uses exactly the sanitizers the AUTHENTICATED
+ * `CreateOfferBody` below already used.
+ */
 const CreatePublicRequestBody = z.object({
   source: z.literal("public_form"),
   targetProfileId: z.string().uuid(),
-  contactName: z.string().min(1),
-  email: z.string().email(),
-  artistName: z.string().min(1).optional(),
-  wantedDate: z.string().optional(),
-  pitch: z.string().optional(),
+  contactName: singleLineText(200),
+  email: emailAddress,
+  artistName: singleLineText(200).optional(),
+  wantedDate: calendarDate.optional(),
+  pitch: multipleLineText(5000).optional(),
   offerFeeMin: MinorUnits.optional(),
   offerFeeMax: MinorUnits.optional(),
 });
@@ -82,7 +116,7 @@ const UpdateStatusBody = z.object({ status: bookingRequestStatus });
  */
 const CreateOfferBody = z.object({
   targetProfileId: z.string().uuid(),
-  wantedDate: z.string(),
+  wantedDate: calendarDate,
   offerFeeMin: MinorUnits.optional(),
   offerFeeMax: MinorUnits.optional(),
   // Who is offering. Defaulted from the sender when omitted — never left blank.
@@ -101,6 +135,38 @@ const CreateOfferBody = z.object({
 });
 
 const FlagSpamBody = z.object({ kind: z.string().min(1) });
+
+/**
+ * Turn a request into a DRAFT event (§8 "Create Draft"). Everything is optional:
+ * the title, the date and the currency are all derivable from the request, and
+ * the body only exists so a recipient can correct them before the row is written.
+ */
+const CreateDraftEventBody = z
+  .object({
+    title: singleLineText(200).optional(),
+    eventDate: calendarDate.optional(),
+    /** ISO 4217, upper-cased. Derived from the request/venue when omitted. */
+    baseCurrency: z
+      .string()
+      .transform((value) => value.trim().toUpperCase())
+      .pipe(z.string().length(3))
+      .optional(),
+  })
+  .nullish();
+
+/**
+ * The recipient's terms in reply — "Make Offer" (§8). A counter is a MESSAGE with
+ * numbers on it, not a new request: it is delivered to whoever asked (their
+ * notification feed if they have an account, their email if they came off the
+ * public form) and recorded in the audit trail. See the route for why it does not
+ * reuse `POST /offers` and why it does not move the request's status.
+ */
+const CounterOfferBody = z.object({
+  message: multipleLineText(2000),
+  wantedDate: calendarDate.optional(),
+  offerFeeMin: MinorUnits.optional(),
+  offerFeeMax: MinorUnits.optional(),
+});
 
 const HandoffBody = z
   .object({ name: z.string().min(1).optional(), recipientEmail: z.string().email().optional() })
@@ -139,6 +205,10 @@ const BookingRequestResponse = z.object({
   artistFee: z.string().nullable(),
   offerFeeMin: z.string().nullable(),
   offerFeeMax: z.string().nullable(),
+  // The draft event this request was turned into, if any ("Create Draft"). The
+  // screen needs it to show that the work has already been started — without it
+  // the only feedback is a 409 on the second click.
+  eventId: z.string().nullable(),
   // Denomination of the three amounts above; null when the venue's country is
   // unknown, and then the amount must be rendered without a currency symbol.
   currency: z.string().nullable(),
@@ -151,8 +221,48 @@ const ListResponse = z.object({
 });
 
 const CreatedIdResponse = z.object({ id: z.string() });
-const FlagResponse = z.object({ id: z.string(), flagged: z.literal(true) });
+const FlagResponse = z.object({
+  id: z.string(),
+  flagged: z.literal(true),
+  /** The request's status after blocking — `flagged`, so it leaves the inbox. */
+  status: z.string(),
+  /** The profile the report was filed AGAINST; null when the sender has no account. */
+  reportedProfileId: z.string().nullable(),
+});
 const HandoffResponse = z.object({ profileId: z.string(), invitationId: z.string() });
+
+/**
+ * What "Create Draft" produces, plus the plan consequence stated out loud. A
+ * draft costs NOTHING today — the free-tier event cap is charged where an event
+ * enters the counted set (`confirmed`/`concluded`, `assertEventCapAllows`), not
+ * at creation. Returning the live counter lets the screen say that honestly
+ * instead of either hiding the cost or inventing one.
+ */
+const DraftEventResponse = z.object({
+  requestId: z.string(),
+  eventId: z.string(),
+  title: z.string(),
+  eventDate: z.string().nullable(),
+  baseCurrency: z.string(),
+  status: z.string(),
+  eventCap: z.object({
+    allowed: z.boolean(),
+    used: z.number().nullable(),
+    limit: z.number().nullable(),
+    /** Always true: the cap bites when the event is confirmed, not now. */
+    chargedAtConfirm: z.literal(true),
+  }),
+});
+
+const CounterOfferResponse = z.object({
+  requestId: z.string(),
+  /** How the terms reached the requester — their feed, their email, or nowhere. */
+  channel: z.enum(["notification", "email", "none"]),
+  /** The email address it was sent to, when the channel is email. */
+  deliveredTo: z.string().nullable(),
+  /** False when delivery failed; the terms are still in the audit trail. */
+  delivered: z.boolean(),
+});
 
 type BookingRequestRow = typeof schema.bookingRequests.$inferSelect;
 
@@ -192,6 +302,7 @@ function serializeBookingRequest(
     artistFee: row.artistFee?.toString() ?? null,
     offerFeeMin: row.offerFeeMin?.toString() ?? null,
     offerFeeMax: row.offerFeeMax?.toString() ?? null,
+    eventId: row.eventId,
     currency: row.currency,
     createdAt: row.createdAt.toISOString(),
   };
@@ -271,6 +382,90 @@ async function profileDisplayName(
   return profile?.name ?? null;
 }
 
+/** A minor-unit amount as major units with its code, e.g. "SEK 65000". Bare when unknown. */
+function formatMinorUnits(minorUnits: string | bigint, currency: string | null): string {
+  const major = (Number(minorUnits) / 100).toLocaleString("en-GB", { maximumFractionDigits: 2 });
+  return currency ? `${currency} ${major}` : major;
+}
+
+/**
+ * The one-line summary of a counter's numbers, for the notification body and the
+ * email. Empty when the reply carries no numbers at all — a counter may be purely
+ * a question ("which weekend?"), and inventing "no fee" would be a lie.
+ */
+function counterOfferTerms(offer: {
+  offerFeeMin?: string;
+  offerFeeMax?: string;
+  currency: string | null;
+  wantedDate: string | null;
+}): string {
+  const parts: string[] = [];
+  if (offer.offerFeeMin && offer.offerFeeMax && offer.offerFeeMax !== offer.offerFeeMin) {
+    parts.push(
+      `${formatMinorUnits(offer.offerFeeMin, offer.currency)}–${formatMinorUnits(offer.offerFeeMax, offer.currency)}`,
+    );
+  } else if (offer.offerFeeMin ?? offer.offerFeeMax) {
+    parts.push(
+      formatMinorUnits((offer.offerFeeMin ?? offer.offerFeeMax) as string, offer.currency),
+    );
+  }
+  if (offer.wantedDate) parts.push(`for ${offer.wantedDate}`);
+  return parts.join(" ");
+}
+
+/**
+ * The draft event's notes: who asked, how to answer them, what they asked for,
+ * and what they said. The fee is written here rather than into a deal on purpose
+ * — a fee becomes real when both parties agree it, and the request is one party
+ * talking. Everything else would be lost the moment the operator opens the event.
+ */
+function draftEventNotes(bookingRequest: BookingRequestRow): string {
+  const askedFee = bookingRequest.artistFee ?? bookingRequest.offerFeeMin;
+  const lines = [
+    `From a booking request${bookingRequest.wantedDate ? ` for ${bookingRequest.wantedDate}` : ""}.`,
+    bookingRequest.contactName
+      ? `Contact: ${bookingRequest.contactName}${bookingRequest.email ? ` <${bookingRequest.email}>` : ""}`
+      : null,
+    bookingRequest.artistName ? `Act: ${bookingRequest.artistName}` : null,
+    askedFee != null
+      ? `Asked fee: ${formatMinorUnits(askedFee, bookingRequest.currency)}${
+          bookingRequest.offerFeeMax != null && bookingRequest.offerFeeMax !== askedFee
+            ? `–${formatMinorUnits(bookingRequest.offerFeeMax, bookingRequest.currency)}`
+            : ""
+        } (asked, not agreed — set the real terms in the deal)`
+      : null,
+    bookingRequest.pitch ? `\n${bookingRequest.pitch}` : null,
+  ];
+  return lines.filter((line): line is string => line !== null).join("\n");
+}
+
+/**
+ * Client IP for rate-limit keying — prefer the proxy's forwarded-for (Cloud Run).
+ *
+ * Deliberately duplicated from `routes/public.ts` rather than shared: these two
+ * are three-line reads of the request, and the public-form defenses are easier to
+ * audit when the whole set sits in the file that needs them. If a third public
+ * endpoint appears, move all three into `lib/`.
+ */
+function clientIp(request: FastifyRequest): string {
+  const forwarded = request.headers["x-forwarded-for"];
+  const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+  if (raw) return raw.split(",")[0]?.trim() || request.ip;
+  return request.ip;
+}
+
+/**
+ * Server-side origin guard, the same one `POST /public/leads` uses and for the
+ * same reason: CORS is enforced by the BROWSER, so it stops a page on another
+ * origin but not a script. This 403 rejects server-side, so the endpoint is only
+ * reachable from the pages we ship (`LEADS_ALLOWED_ORIGINS` — the marketing site
+ * that hosts the availability form). A missing Origin is refused too.
+ */
+function isAllowedPublicOrigin(request: FastifyRequest): boolean {
+  const origin = request.headers.origin;
+  return typeof origin === "string" && request.server.leadsAllowedOrigins.includes(origin);
+}
+
 /** An opaque link token for the handoff invitation — never guessable, never typed. */
 function generateToken(): string {
   return randomBytes(24).toString("hex");
@@ -279,9 +474,29 @@ function generateToken(): string {
 export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
+  /**
+   * Per-instance limiter for the public booking form: 5 submissions per IP per
+   * minute, the same budget the lead form uses. Scoped to this plugin
+   * registration so test apps never share a window.
+   *
+   * Honest about its reach: `lib/rate-limit.ts` keeps its state in the PROCESS,
+   * and the API runs on Cloud Run with several instances and scale-to-zero — so a
+   * determined flood spread across instances (or arriving after a cold start)
+   * sees a fresh window. It stops casual abuse and accidental double-submits, not
+   * a distributed one; the global answer is Cloud Armor at the edge.
+   */
+  const publicRequestRateLimiter = createSlidingWindowRateLimiter({ limit: 5, windowMs: 60_000 });
+
   // Create from the PUBLIC booking form — no auth, no principal. Anyone on the open
   // web can pitch a target profile; we only ever hand back the new id (never any
   // other request), so the endpoint can't be used to enumerate a profile's inbox.
+  //
+  // This is a reachable, anonymous INSERT — the marketing availability page posts
+  // to it from a stranger's browser — so it carries the same layered defenses as
+  // `POST /public/leads`: an origin allow-list, a per-IP rate limit, and hard
+  // bounds on every field (`CreatePublicRequestBody`). On top of those it refuses
+  // a target that is not a real, PUBLIC profile, and refuses a repeat of a
+  // request that is already pending.
   app.post(
     "/booking-requests",
     {
@@ -292,23 +507,82 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
       const { database } = request.server;
       const body = request.body;
 
-      const [created] = await database
-        .insert(schema.bookingRequests)
-        .values({
-          source: "public_form",
-          status: "pending",
-          targetProfileId: body.targetProfileId,
-          contactName: body.contactName,
-          email: body.email,
-          artistName: body.artistName,
-          wantedDate: body.wantedDate,
-          pitch: body.pitch,
-          offerFeeMin: body.offerFeeMin != null ? BigInt(body.offerFeeMin) : undefined,
-          offerFeeMax: body.offerFeeMax != null ? BigInt(body.offerFeeMax) : undefined,
-          currency: await venueCurrency(database, body.targetProfileId),
-        })
-        .returning();
-      if (!created) throw new Error("booking request create failed");
+      if (!isAllowedPublicOrigin(request)) throw forbidden("Origin not allowed");
+
+      if (!publicRequestRateLimiter.take(clientIp(request))) {
+        reply.header("retry-after", "60");
+        throw tooManyRequests("Too many requests — please try again in a minute");
+      }
+
+      // The target must exist AND be public. Without this, a bad uuid was an FK
+      // violation surfaced as a 500, and — worse — a profile that had never
+      // published anything was addressable from a public form, which is exactly
+      // the "no existence leak" rule `routes/public.ts` holds everywhere else. A
+      // non-public or unknown profile is the same 404, so neither can be probed.
+      const [target] = await database
+        .select({ id: schema.profiles.id })
+        .from(schema.profiles)
+        .where(
+          and(eq(schema.profiles.id, body.targetProfileId), eq(schema.profiles.isPublic, true)),
+        );
+      if (!target) throw notFound("Profile not found");
+
+      // Dedup a public sender the only way an anonymous sender CAN be identified:
+      // their email, on the same target and date, while the earlier request is
+      // still pending. The `booking_requests_pending_dedup` index cannot do this —
+      // its first column is `sender_user_id`, NULL here, and Postgres treats NULLs
+      // as distinct — so today two identical public submissions both land. This
+      // closes the double-submit and the repeat-pitch; it is a read-then-write, so
+      // two SIMULTANEOUS posts can still slip through (the insert below still
+      // catches a 23505 if a partial index is ever added). Dateless requests are
+      // NOT deduped, matching the index's own rule: two undated asks are two
+      // different messages, not a duplicate.
+      if (body.wantedDate) {
+        const [duplicate] = await database
+          .select({ id: schema.bookingRequests.id })
+          .from(schema.bookingRequests)
+          .where(
+            and(
+              eq(schema.bookingRequests.targetProfileId, body.targetProfileId),
+              eq(schema.bookingRequests.source, "public_form"),
+              eq(schema.bookingRequests.status, "pending"),
+              eq(schema.bookingRequests.wantedDate, body.wantedDate),
+              sql`lower(${schema.bookingRequests.email}) = ${body.email}`,
+            ),
+          )
+          .limit(1);
+        if (duplicate) throw conflict("You already have a pending request for this date");
+      }
+
+      let created: BookingRequestRow;
+      try {
+        const [inserted] = await database
+          .insert(schema.bookingRequests)
+          .values({
+            source: "public_form",
+            status: "pending",
+            targetProfileId: body.targetProfileId,
+            contactName: body.contactName,
+            email: body.email,
+            artistName: body.artistName,
+            wantedDate: body.wantedDate,
+            pitch: body.pitch,
+            offerFeeMin: body.offerFeeMin != null ? BigInt(body.offerFeeMin) : undefined,
+            offerFeeMax: body.offerFeeMax != null ? BigInt(body.offerFeeMax) : undefined,
+            currency: await venueCurrency(database, body.targetProfileId),
+          })
+          .returning();
+        if (!inserted) throw new Error("booking request create failed");
+        created = inserted;
+      } catch (error) {
+        // Same treatment the two `/offers` handlers give it: a dedup index is a
+        // 409, never a 500. It cannot fire for an anonymous sender today (see the
+        // note above), so this is the guard for the day that changes.
+        if (isUniqueViolation(error)) {
+          throw conflict("You already have a pending request for this date");
+        }
+        throw error;
+      }
 
       // Realtime + feed: a request from the open web needs to reach the venue's
       // inbox. Best-effort — the request is already persisted and triageable, so a
@@ -601,9 +875,33 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // Report a request as spam — one flag per (target, reporter, kind); the second
-  // trips the unique constraint → 409. Suspension is COMPUTED elsewhere from the
-  // distinct-reporter count, never stored here.
+  /**
+   * Block a request: report the SENDER as spam and take the request out of the
+   * inbox. Three things were wrong with the first version, all of them reachable
+   * from the screen's "Block" button:
+   *
+   * 1. **It accused the wrong profile.** The flag was filed against
+   *    `target_profile_id` — the request's RECIPIENT. `spam_flags.target_profile_id`
+   *    is the ACCUSED (`canUseFeature(… "not_spam_suspended")` counts distinct
+   *    reporters against exactly that column), so blocking a spammer accrued
+   *    suspension against your own venue. The accused is the SENDER's profile; the
+   *    represented act on an agent's offer is never accused, because the agency is
+   *    the party that sent it.
+   * 2. **Anyone could call it.** There was no authorization at all: any signed-in
+   *    user who knew a request id could file a report and (now) change its status.
+   *    Authority is the same as triage — owner/admin of the profile the request
+   *    was sent TO.
+   * 3. **It left the request pending.** The report was filed and the request sat
+   *    in the inbox forever, while `flagged` — a status the screen has a filter
+   *    chip for — was unreachable. Blocking now flags the request too.
+   *
+   * A second block of the same sender is not an error and not new information
+   * (the count is DISTINCT reporters): the flag insert is idempotent and the
+   * request is flagged either way. A public-form sender has no profile to accuse,
+   * so nothing is filed — the request is still flagged, and the report is in the
+   * audit trail. Reputation for anonymous senders (an email blocklist) is not
+   * modelled; see the report rather than inventing it here.
+   */
   app.post(
     "/booking-requests/:id/flag-spam",
     {
@@ -619,42 +917,349 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
       }
       const reporterProfileId = principal.actingProfileId;
 
-      const [target] = await database
+      const [before] = await database
         .select()
         .from(schema.bookingRequests)
         .where(eq(schema.bookingRequests.id, id));
-      if (!target) throw notFound("Booking request not found");
+      if (!before) throw notFound("Booking request not found");
 
-      try {
-        await database.transaction(async (tx) => {
-          const [flag] = await tx
+      requireProfileRole(request, before.targetProfileId, ["owner", "admin"]);
+
+      const reportedProfileId = before.senderProfileId;
+
+      const flagged = await database.transaction(async (tx) => {
+        if (reportedProfileId) {
+          await tx
             .insert(schema.spamFlags)
             .values({
-              targetProfileId: target.targetProfileId,
+              targetProfileId: reportedProfileId,
               reporterProfileId,
               reporterUserId: principal.userId,
               kind: request.body.kind,
               contextKind: "booking_request",
               contextId: id,
             })
-            .returning();
-          if (!flag) throw new Error("spam flag create failed");
-          await writeAudit(tx, request, {
-            capability: "event.view",
-            action: "spam.flag",
-            targetKind: "booking_request",
-            targetId: id,
-            after: flag,
-          });
-        });
-      } catch (error) {
-        if (isUniqueViolation(error)) {
-          throw conflict("You have already flagged this");
+            // unique(target, reporter, kind) — the same reporter reporting the same
+            // profile again adds nothing to a DISTINCT-reporter count, so it is a
+            // no-op rather than a 409 the operator cannot act on.
+            .onConflictDoNothing();
         }
-        throw error;
+        const [after] = await tx
+          .update(schema.bookingRequests)
+          .set({ status: "flagged", updatedAt: new Date() })
+          .where(eq(schema.bookingRequests.id, id))
+          .returning();
+        if (!after) throw notFound("Booking request not found");
+        await writeAudit(tx, request, {
+          capability: "event.view",
+          action: "spam.flag",
+          targetKind: "booking_request",
+          targetId: id,
+          before,
+          after: { ...after, reportedProfileId, kind: request.body.kind },
+        });
+        return after;
+      });
+
+      return reply
+        .status(201)
+        .send({ id, flagged: true as const, status: flagged.status, reportedProfileId });
+    },
+  );
+
+  /**
+   * "Create Draft" (§8): turn a request into a DRAFT EVENT. The request predates
+   * the event and outlives it — `booking_requests.event_id` is the link the schema
+   * already carries — so this is one operation, not "create an event and hope the
+   * user remembers which request it came from".
+   *
+   * What it costs: NOTHING against the free-tier event cap. The cap counts events
+   * in `confirmed`/`concluded` (`assertEventCapAllows`), and a draft is neither —
+   * exactly like `POST /events`, which lands on the `draft` column default by
+   * construction. The response carries the live counter so the screen can say
+   * "confirming it later is what spends a slot" instead of guessing.
+   *
+   * What it does NOT do: accept the request. A draft is the recipient starting
+   * work, not an answer to the sender — the request stays `pending` until someone
+   * declines it or offers terms. And it creates no deal: the asked fee is written
+   * into the event's notes, because the fee only becomes real when both parties
+   * agree it, which is the deal flow.
+   */
+  app.post(
+    "/booking-requests/:id/draft-event",
+    {
+      schema: {
+        params: IdParams,
+        body: CreateDraftEventBody,
+        response: { 201: DraftEventResponse },
+      },
+    },
+    async (request, reply) => {
+      const { database } = request.server;
+      const { id } = request.params;
+      const body = request.body ?? {};
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+
+      const [bookingRequest] = await database
+        .select()
+        .from(schema.bookingRequests)
+        .where(eq(schema.bookingRequests.id, id));
+      if (!bookingRequest) throw notFound("Booking request not found");
+
+      // Same authority as triage: this is the recipient acting on their own inbox.
+      const membership = requireProfileRole(request, bookingRequest.targetProfileId, [
+        "owner",
+        "admin",
+      ]);
+      // The same rule `POST /events` enforces — an event is hosted by an operator
+      // (story.md: the operator runs the show and carries the residual).
+      if (membership.kind !== "operator") {
+        throw forbidden("Only operator profiles can create events");
+      }
+      if (bookingRequest.eventId) {
+        throw conflict("This request already has an event");
       }
 
-      return reply.status(201).send({ id, flagged: true as const });
+      // Currency is not guessable: an event's `base_currency` is the money the
+      // whole budget and settlement are denominated in, so a wrong default is
+      // worse than a refusal. The request's own stamp comes first (it was taken
+      // from the venue's country at creation), then the venue's country now.
+      const baseCurrency =
+        body.baseCurrency ??
+        bookingRequest.currency ??
+        (await venueCurrency(database, bookingRequest.targetProfileId));
+      if (!baseCurrency) {
+        throw badRequest(
+          "Set a country on your profile's primary location, or pass a currency, before creating an event from a request",
+        );
+      }
+
+      const [targetProfile] = await database
+        .select({ name: schema.profiles.name, type: schema.profiles.type })
+        .from(schema.profiles)
+        .where(eq(schema.profiles.id, bookingRequest.targetProfileId));
+
+      // The draft is named after the ACT, which is what a venue's calendar shows —
+      // falling back to the person who wrote in, and only then to a placeholder.
+      const title =
+        body.title ?? bookingRequest.artistName ?? bookingRequest.contactName ?? "Booking request";
+      const eventDate = body.eventDate ?? bookingRequest.wantedDate ?? undefined;
+
+      const created = await database.transaction(async (tx) => {
+        const [permissionSet] = await tx
+          .insert(schema.permissionSets)
+          .values({
+            profileId: bookingRequest.targetProfileId,
+            name: "operator_full",
+            capabilities: [...PRESET_PERMISSION_SETS.operator_full],
+          })
+          .returning();
+        if (!permissionSet) throw new Error("permission set create failed");
+
+        // A venue hosting its own show is its own venue; a promoter is not, and
+        // stamping it would put the wrong address (and timezone) on the event.
+        const venueProfileId =
+          targetProfile?.type === "venue" ? bookingRequest.targetProfileId : undefined;
+        const timezone = await resolveEventTimezone(tx, venueProfileId, undefined);
+
+        const [event] = await tx
+          .insert(schema.events)
+          .values({
+            hostProfileId: bookingRequest.targetProfileId,
+            title,
+            baseCurrency,
+            eventDate,
+            venueProfileId,
+            venueName: venueProfileId ? (targetProfile?.name ?? undefined) : undefined,
+            notes: draftEventNotes(bookingRequest),
+            timezone,
+            createdBy: principal.userId,
+          })
+          .returning();
+        if (!event) throw new Error("draft event create failed");
+
+        await tx.insert(schema.eventParticipants).values({
+          eventId: event.id,
+          profileId: bookingRequest.targetProfileId,
+          role: "host",
+          permissionSetId: permissionSet.id,
+          status: "confirmed",
+        });
+
+        const [linked] = await tx
+          .update(schema.bookingRequests)
+          .set({ eventId: event.id, updatedAt: new Date() })
+          .where(eq(schema.bookingRequests.id, id))
+          .returning();
+        if (!linked) throw notFound("Booking request not found");
+
+        await writeAudit(tx, request, {
+          capability: "event.edit",
+          action: "booking_request.draft_event",
+          targetKind: "event",
+          targetId: event.id,
+          eventId: event.id,
+          before: bookingRequest,
+          after: { event, bookingRequestId: id },
+        });
+        await writeActivity(tx, request, {
+          eventId: event.id,
+          type: "event.created",
+          targetKind: "event",
+          targetId: event.id,
+          summary: { title: event.title, fromBookingRequestId: id },
+        });
+
+        return event;
+      });
+
+      // A FRESH read of the entitlement layer (decisions #4 — never conflated with
+      // authorization, never cached): what the plan allows RIGHT NOW, so the
+      // screen can name the consequence of confirming this draft later.
+      const cap = await canUseFeature(database, bookingRequest.targetProfileId, "create_event");
+
+      return reply.status(201).send({
+        requestId: id,
+        eventId: created.id,
+        title: created.title,
+        eventDate: created.eventDate ?? null,
+        baseCurrency: created.baseCurrency,
+        status: created.status,
+        eventCap: {
+          allowed: cap.allowed,
+          used: cap.used ?? null,
+          limit: cap.limit ?? null,
+          chargedAtConfirm: true as const,
+        },
+      });
+    },
+  );
+
+  /**
+   * "Make Offer" (§8): the recipient's counter — terms sent back to whoever asked.
+   *
+   * WHY NOT `POST /offers`. That route is the performer→venue direction and it is
+   * built out of that direction: it stamps `source = 'performer_offer'`, derives
+   * `sender_type` from the sending profile as performer-or-agency, meters the
+   * sender against the artist plan's `send_offer` entitlement, and — the part that
+   * settles it — addresses its recipient by `target_profile_id`. A public-form
+   * sender has NO profile (that is the whole point of the public form), so there
+   * is nothing to address. Reusing it would file the venue's reply as a performer
+   * offer FROM the venue and drop every anonymous requester on the floor.
+   *
+   * WHAT THIS IS INSTEAD, honestly stated: a counter-offer is a MESSAGE on the
+   * request, delivered to the person who asked — their notification feed when they
+   * have an account, their email when they came in off the public form — and
+   * recorded in the audit trail with its numbers. The request's status does NOT
+   * move: the ball is with the requester, and `pending` is the truth until they
+   * answer. There is no threaded reply model for booking requests (no
+   * `countered` status, no message table on the request), and inventing one is a
+   * schema + product decision, not something to smuggle into a button.
+   */
+  app.post(
+    "/booking-requests/:id/counter-offer",
+    {
+      schema: { params: IdParams, body: CounterOfferBody, response: { 201: CounterOfferResponse } },
+    },
+    async (request, reply) => {
+      const { database } = request.server;
+      const { id } = request.params;
+      const body = request.body;
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+
+      const [bookingRequest] = await database
+        .select()
+        .from(schema.bookingRequests)
+        .where(eq(schema.bookingRequests.id, id));
+      if (!bookingRequest) throw notFound("Booking request not found");
+
+      requireProfileRole(request, bookingRequest.targetProfileId, ["owner", "admin"]);
+
+      const [sender] = await database
+        .select({ profileName: schema.profiles.name, userEmail: schema.users.email })
+        .from(schema.profiles)
+        .innerJoin(schema.users, eq(schema.users.id, principal.userId))
+        .where(eq(schema.profiles.id, bookingRequest.targetProfileId))
+        .limit(1);
+
+      const offeredDate = body.wantedDate ?? bookingRequest.wantedDate ?? null;
+      const terms = counterOfferTerms({
+        offerFeeMin: body.offerFeeMin,
+        offerFeeMax: body.offerFeeMax,
+        currency: bookingRequest.currency,
+        wantedDate: offeredDate,
+      });
+      const fromName = sender?.profileName ?? "the venue";
+
+      // The audit row is the RECORD of the counter — written first, in its own
+      // transaction, so a mail hiccup can never lose what was offered.
+      await database.transaction(async (tx) => {
+        await writeAudit(tx, request, {
+          capability: "event.view",
+          action: "booking_request.counter_offer",
+          targetKind: "booking_request",
+          targetId: id,
+          after: {
+            message: body.message,
+            wantedDate: offeredDate,
+            offerFeeMin: body.offerFeeMin ?? null,
+            offerFeeMax: body.offerFeeMax ?? null,
+            currency: bookingRequest.currency,
+          },
+        });
+      });
+
+      // Delivery. An on-platform requester gets it in their feed; a public-form
+      // requester gets an email with the venue's address as reply-to, because that
+      // email IS the only channel back to them. Failure is reported to the caller
+      // (`delivered: false`) rather than swallowed: "I sent your terms" has to be
+      // true, and the operator can act on a failure they can see.
+      let channel: "notification" | "email" | "none" = "none";
+      let deliveredTo: string | null = null;
+      let delivered = false;
+      try {
+        if (bookingRequest.senderProfileId) {
+          channel = "notification";
+          await notifyProfileMembers(database, bookingRequest.senderProfileId, principal.userId, {
+            type: "booking_request.counter_offer",
+            title: `${fromName} replied with terms`,
+            body: terms ? `${terms} — ${body.message}` : body.message,
+            link: "/requests",
+            metadata: {
+              bookingRequestId: id,
+              wantedDate: offeredDate,
+              offerFeeMin: body.offerFeeMin ?? null,
+              offerFeeMax: body.offerFeeMax ?? null,
+              currency: bookingRequest.currency,
+            },
+          });
+          delivered = true;
+        } else if (bookingRequest.email) {
+          channel = "email";
+          deliveredTo = bookingRequest.email;
+          await request.server.emailSink.sendEmail({
+            to: bookingRequest.email,
+            subject: `${fromName} replied to your booking request`,
+            text: [
+              `${bookingRequest.contactName ?? "Hi"},`,
+              "",
+              `${fromName} has replied to your request${terms ? ` with ${terms}` : ""}:`,
+              "",
+              body.message,
+              "",
+              "Reply to this email to continue the conversation.",
+            ].join("\n"),
+            replyTo: sender?.userEmail ?? undefined,
+          });
+          delivered = true;
+        }
+      } catch (error) {
+        request.log.error({ error, bookingRequestId: id }, "counter-offer delivery failed");
+      }
+
+      return reply.status(201).send({ requestId: id, channel, deliveredTo, delivered });
     },
   );
 
@@ -715,6 +1320,23 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
           targetId: id,
           eventId: id,
           after: { profileId: stub.id, invitationId: invitation.id },
+        });
+        // Handing a booking to another venue IS event history — the event exists,
+        // and everyone standing on it should be able to see that it changed hands.
+        // `invitation` is the target kind because the invitation is the thing that
+        // was created, and it reads under `event.view` (ACTIVITY_KIND_CAPABILITY),
+        // so the audience is exactly the event's participants.
+        //
+        // The other three writes in this file deliberately get NO activity row:
+        // `booking_request.update` (triage) and `spam.flag` happen on the REQUEST,
+        // and `offer.create` happens before any event exists — an activity row is
+        // scoped to an event, so there would be nothing to attach them to.
+        await writeActivity(tx, request, {
+          eventId: id,
+          type: "event.handoff",
+          targetKind: "invitation",
+          targetId: invitation.id,
+          summary: { profileId: stub.id, invitationId: invitation.id, role: invitation.role },
         });
 
         return { profileId: stub.id, invitationId: invitation.id };
