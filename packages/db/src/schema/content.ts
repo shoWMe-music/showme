@@ -1,7 +1,9 @@
+import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   bigint,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -84,7 +86,28 @@ export const scheduleItems = pgTable(
   (table) => [index("schedule_items_event_id_idx").on(table.eventId)],
 );
 
-/** A typed event message with `visibility` (operators can keep internal notes). */
+/**
+ * A message in one of an event's THREADS. An event is not one conversation: the
+ * operator is the hub and every counterparty meets them on their own edge of the
+ * event, seeing only their slice (story.md, "the event is the shared object where
+ * every party meets; each person sees only their slice of it").
+ *
+ * A thread is identified by `(visibility, thread_participant_id)`, and NOTHING
+ * else — deliberately no `threads` table:
+ *   - `all`       + NULL         → the EVENT ROOM (everyone with `event.view`).
+ *   - `operators` + NULL         → the OPERATORS back office (host/co_host).
+ *   - `party`     + participant  → that counterparty's PARTY THREAD.
+ *
+ * A thread has no attributes of its own — no title, no lifecycle, and crucially no
+ * membership list. Its readers are DERIVED per request from the participation graph
+ * (`apps/api/src/lib/message-threads.ts`), the same way every other visibility rule
+ * here is a `WHERE` rather than a stored set (decisions #3). A `threads` table would
+ * be a second membership store that can drift from `event_participants` — which is
+ * exactly the `accessUids` fan-out this rebuild deletes. So: one nullable key column
+ * on the message, and the rule stays the only source of truth.
+ *
+ * The CHECK is what keeps the two representations from disagreeing.
+ */
 export const eventMessages = pgTable(
   "event_messages",
   {
@@ -96,12 +119,27 @@ export const eventMessages = pgTable(
       .notNull()
       .references(() => users.id),
     senderParticipantId: uuid("sender_participant_id").references(() => eventParticipants.id),
+    /**
+     * The counterparty whose thread this is — set for `party`, NULL otherwise. No
+     * `ON DELETE`, matching every other reference to a participant: those rows are
+     * never hard-deleted (see `event_participants`), so an accidental delete must
+     * fail loudly rather than silently orphan a conversation.
+     */
+    threadParticipantId: uuid("thread_participant_id").references(() => eventParticipants.id),
     body: text("body").notNull(),
     attachments: jsonb("attachments"),
     visibility: messageVisibility("visibility").notNull().default("all"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("event_messages_event_id_idx").on(table.eventId)],
+  (table) => [
+    index("event_messages_event_id_idx").on(table.eventId),
+    // Reading one thread is the hot path — the UI opens a single thread at a time.
+    index("event_messages_thread_idx").on(table.eventId, table.threadParticipantId),
+    check(
+      "event_messages_thread_key_matches_scope",
+      sql`(${table.visibility} = 'party') = (${table.threadParticipantId} IS NOT NULL)`,
+    ),
+  ],
 );
 
 /** A performer's setlist for an event — one per participant. Crew see it if shared. */

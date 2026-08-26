@@ -10,7 +10,6 @@ import {
   useGetApiV1EventsId,
   useGetApiV1EventsIdBudgets,
   useGetApiV1EventsIdDeals,
-  useGetApiV1EventsIdMessages,
   useGetApiV1EventsIdParticipants,
   useGetApiV1EventsIdRiders,
   useGetApiV1EventsIdSchedule,
@@ -26,7 +25,6 @@ import {
   Icon,
   Select,
   type Status,
-  Toggle,
 } from "@showme/design-system";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
@@ -34,7 +32,6 @@ import { useState } from "react";
 import {
   AgreementView,
   BudgetPlanner,
-  CommentThread,
   type CostRow,
   type CrewMember,
   type DetailsPerformer,
@@ -43,13 +40,13 @@ import {
   EventDetailsTab,
   type EventExtras,
   EventHistoryTab,
+  EventMessagesTab,
   EventTeamCrewTab,
   EventTodoTab,
   type ScheduleEntry,
   type SettlementLine,
   type SettlementStep,
   SettlementStepper,
-  type ThreadComment,
   type TicketTypeRow,
   type Transfer,
   WhoOwesWhomBoard,
@@ -85,19 +82,6 @@ function initials(label: string): string {
 /** A participant's display name — real profile name, else its role tag. */
 function participantName(participant: Participant): string {
   return participant.name ?? participant.performerTag ?? statusLabel(participant.role);
-}
-
-function relativeTime(iso: string): string {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return "";
-  const seconds = Math.round((Date.now() - then) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
 }
 
 export function EventDetail() {
@@ -166,12 +150,6 @@ export function EventDetail() {
 
   const saveExtras = (next: EventExtras) => {
     patchEvent.mutate({ id: eventId, data: { extras: next, expectedVersion: event.version } });
-  };
-  const togglePublished = () => {
-    patchEvent.mutate({
-      id: eventId,
-      data: { published: !event.published, expectedVersion: event.version },
-    });
   };
 
   const currencyOptions = Array.from(new Set([event.baseCurrency, "EUR", "USD", "GBP"]));
@@ -270,14 +248,6 @@ export function EventDetail() {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <Icon name={event.published ? "eye" : "eye-off"} size={16} />
-            <Toggle
-              checked={event.published}
-              onChange={canEdit ? togglePublished : undefined}
-              label={event.published ? "Published" : "Unpublished"}
-            />
-          </span>
           <div style={{ width: 116 }}>
             <Select
               value={currency}
@@ -921,40 +891,18 @@ function badgeStatusForParticipant(raw: string): Status {
   return "draft";
 }
 
+/**
+ * Messages are per-party threads now, not one per-event thread — the screen just
+ * hands the roster down so a sender can be named. The rule (who is in which
+ * thread) is the server's, in `apps/api/src/lib/message-threads.ts`.
+ */
 function MessagesTab({ eventId, roster }: { eventId: string; roster: Participant[] }) {
-  const { data, isPending, isError, error } = useGetApiV1EventsIdMessages(eventId);
-
-  if (isPending) return <LoadingState label="Loading messages" />;
-  if (isError) return <ErrorState error={error} title="Couldn't load messages" />;
-
-  const messages = data ?? [];
-  if (messages.length === 0) {
-    return (
-      <EmptyState
-        icon={<Icon name="mail" />}
-        title="No messages yet"
-        description="The per-event thread will appear here."
-      />
-    );
-  }
-
-  const nameFor = (participantId: string | null): string => {
-    const match = roster.find((party) => party.id === participantId);
-    return match ? participantName(match) : "Member";
-  };
-
-  const comments: ThreadComment[] = messages.map((message) => {
-    const author = nameFor(message.senderParticipantId);
-    return {
-      id: message.id,
-      author,
-      initials: initials(author),
-      time: relativeTime(message.createdAt),
-      body: message.body,
-    };
-  });
-
-  return <CommentThread comments={comments} eyebrow="Messages" readOnly />;
+  return (
+    <EventMessagesTab
+      eventId={eventId}
+      roster={roster.map((party) => ({ id: party.id, name: participantName(party) }))}
+    />
+  );
 }
 
 function currencySymbol(currency: string): string {
