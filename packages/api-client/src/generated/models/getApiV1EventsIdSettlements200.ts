@@ -9,6 +9,7 @@ import type { GetApiV1EventsIdSettlements200TransfersItem } from './getApiV1Even
 import type { GetApiV1EventsIdSettlements200CommissionsItem } from './getApiV1EventsIdSettlements200CommissionsItem';
 import type { GetApiV1EventsIdSettlements200Ladder } from './getApiV1EventsIdSettlements200Ladder';
 import type { GetApiV1EventsIdSettlements200ApprovalsItem } from './getApiV1EventsIdSettlements200ApprovalsItem';
+import type { GetApiV1EventsIdSettlements200DeliveryItem } from './getApiV1EventsIdSettlements200DeliveryItem';
 
 export type GetApiV1EventsIdSettlements200 = {
   settlements: GetApiV1EventsIdSettlements200SettlementsItem[];
@@ -17,4 +18,5 @@ export type GetApiV1EventsIdSettlements200 = {
   /** @nullable */
   ladder: GetApiV1EventsIdSettlements200Ladder;
   approvals: GetApiV1EventsIdSettlements200ApprovalsItem[];
+  delivery: GetApiV1EventsIdSettlements200DeliveryItem[];
 };

@@ -12,7 +12,7 @@ import { buildTestApp } from "./testing";
 /** Fake verifier: the bearer token IS the uid, so tests just send `Bearer <uid>`. */
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -39,7 +39,7 @@ async function seedMemberWithSet(
   capabilities: readonly string[],
 ) {
   const { db } = harness;
-  await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind });
+  await db.insert(schema.users).values({ id, email: `${id}@example.showme.test`, kind });
   const [profile] = await db
     .insert(schema.profiles)
     .values({ kind, ownerUserId: id, name: id, slug: id })
@@ -225,6 +225,69 @@ describe("settlement — compute", () => {
   });
 });
 
+/**
+ * "Not reconciled yet" and "you are not a party" are DIFFERENT ANSWERS, and this
+ * pins the difference at the seam the screens read.
+ *
+ * Reported from the running app: the host operator of a confirmed event with a
+ * confirmed door-split deal was told "You are not a party to this settlement" on
+ * its own show. Nothing was wrong with party resolution — `reconcileEvent` builds
+ * its participants from every `event_participants` row and the operator takes the
+ * residual, so the host is always a party once the engine has run. The event had
+ * simply never been computed, so `settlements` was empty and the browser read an
+ * empty list as a statement about the reader.
+ *
+ * The route has no way to say "not yet" other than an empty list, so this is what
+ * the empty list is allowed to mean: nothing has been run, for anybody. The moment
+ * it has, the same caller's own line is there and flagged `isYours`. A change that
+ * ever made the host's line absent from a computed event would fail the second
+ * half — which is the assertion the copy fix is standing on.
+ */
+describe("settlement — an unreconciled event (empty is 'not yet', not 'not you')", () => {
+  it("serves the host an empty settlement before compute and its own line after", async () => {
+    const seed = await seedWorkedExample("notyet");
+
+    const before = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlements`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(before.statusCode).toBe(200);
+    const beforeBody = before.json();
+    // Empty for the HOST — the party that collects the door and absorbs the
+    // residual. Not a permission answer: it holds `budget.view` and still gets a
+    // null ladder, because `ladderOf` reads the ladder off a stored settlement row
+    // and there is none.
+    expect(beforeBody.settlements).toHaveLength(0);
+    expect(beforeBody.ladder).toBeNull();
+    expect(beforeBody.transfers).toHaveLength(0);
+
+    const compute = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(compute.statusCode).toBe(200);
+
+    const after = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlements`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(after.statusCode).toBe(200);
+    const afterBody = after.json();
+    const own = afterBody.settlements.find(
+      (row: { participantId: string }) => row.participantId === seed.pPart,
+    );
+    expect(own).toBeDefined();
+    expect(own.isYours).toBe(true);
+    // The operator's line is the residual, and on this event it is holding the
+    // cash — the negative net is exactly what "the host is a party" looks like.
+    expect(own.computed.net).toBe("-400000");
+    expect(afterBody.ladder).not.toBeNull();
+  });
+});
+
 describe("settlement — visibility (decisions #4)", () => {
   it("shows the paying operator every line it funds but a performer only their own", async () => {
     const seed = await seedWorkedExample("vis");
@@ -398,7 +461,7 @@ async function seedAgentRepresentation(
   const agentUserId = `${prefix}-agent`;
   await db
     .insert(schema.users)
-    .values({ id: agentUserId, email: `${agentUserId}@x.com`, kind: "agent" });
+    .values({ id: agentUserId, email: `${agentUserId}@x.showme.test`, kind: "agent" });
   const [agentProfile] = await db
     .insert(schema.profiles)
     .values({ kind: "agent", ownerUserId: agentUserId, name: agentUserId, slug: agentUserId })
@@ -1988,11 +2051,22 @@ describe("settlement — a foreign budget-line reference is diagnosable (A-14)",
     expect(blocked.statusCode).toBe(409);
     const error = blocked.json().error;
     expect(error.code).toBe("conflict");
-    expect(error.message).toContain(poisoned.id); // the offending line, by id
+
+    // The line the engine actually read is the SETTLEMENT's copy of the poisoned
+    // row (0025), so that is the id it names and the row that has to be fixed.
+    // Naming the budget line would send the operator to correct a forecast the
+    // settlement has already stopped listening to.
+    const [copied] = await harness.db
+      .select()
+      .from(schema.settlementLines)
+      .where(eq(schema.settlementLines.originBudgetLineId, poisoned.id));
+    if (!copied) throw new Error("settlement copy not taken");
+
+    expect(error.message).toContain(copied.id); // the offending line, by id
     expect(error.message).toContain("Merch (mis-attributed)"); // …and by label
     expect(error.message).toContain("collectedBy"); // …and the field at fault
     expect(error.message).toContain(
-      `DELETE /events/${seed.event.id}/budgets/${budget.id}/lines/${poisoned.id}`,
+      `DELETE /events/${seed.event.id}/settlement/lines/${copied.id}`,
     ); // …and the way out
 
     // No settlement was persisted off a budget that cannot balance.
@@ -2003,7 +2077,9 @@ describe("settlement — a foreign budget-line reference is diagnosable (A-14)",
     expect(rows).toHaveLength(0);
 
     // The way out actually works: remove the line, compute again, books balance.
-    await harness.db.delete(schema.budgetLines).where(eq(schema.budgetLines.id, poisoned.id));
+    // Deleting the BUDGET line here would change nothing — the copy is sealed,
+    // which is the whole point of it.
+    await harness.db.delete(schema.settlementLines).where(eq(schema.settlementLines.id, copied.id));
     const recovered = await app.inject({
       method: "POST",
       url: `/api/v1/events/${seed.event.id}/settlement/compute`,
@@ -2041,7 +2117,7 @@ describe("settlement — an unattributed budget line is diagnosable (A-14)", () 
   }
 
   it("409s naming a revenue line that nobody collected", async () => {
-    const { seed, budgetId, line } = await seedUnattributedLine("ghost-rev", {
+    const { seed, line } = await seedUnattributedLine("ghost-rev", {
       kind: "revenue",
       label: "Ghost revenue",
     });
@@ -2054,11 +2130,19 @@ describe("settlement — an unattributed budget line is diagnosable (A-14)", () 
     expect(blocked.statusCode).toBe(409);
     const error = blocked.json().error;
     expect(error.code).toBe("conflict");
-    expect(error.message).toContain(line.id);
+    // The engine reads the SETTLEMENT's copy, so that is the row it names and
+    // the row that has to be corrected (0025).
+    const [copied] = await harness.db
+      .select()
+      .from(schema.settlementLines)
+      .where(eq(schema.settlementLines.originBudgetLineId, line.id));
+    if (!copied) throw new Error("settlement copy not taken");
+
+    expect(error.message).toContain(copied.id);
     expect(error.message).toContain("Ghost revenue");
     expect(error.message).toContain("collectedBy");
     expect(error.message).toContain(
-      `DELETE /events/${seed.event.id}/budgets/${budgetId}/lines/${line.id}`,
+      `DELETE /events/${seed.event.id}/settlement/lines/${copied.id}`,
     );
 
     // Nothing persisted off books that cannot balance.
@@ -2068,8 +2152,9 @@ describe("settlement — an unattributed budget line is diagnosable (A-14)", () 
       .where(eq(schema.settlements.eventId, seed.event.id));
     expect(rows).toHaveLength(0);
 
-    // The named DELETE is a real way out.
-    await harness.db.delete(schema.budgetLines).where(eq(schema.budgetLines.id, line.id));
+    // The named DELETE is a real way out. It removes the settlement's line;
+    // deleting the forecast would change nothing, the copy being sealed.
+    await harness.db.delete(schema.settlementLines).where(eq(schema.settlementLines.id, copied.id));
     const recovered = await app.inject({
       method: "POST",
       url: `/api/v1/events/${seed.event.id}/settlement/compute`,
@@ -2091,7 +2176,15 @@ describe("settlement — an unattributed budget line is diagnosable (A-14)", () 
       headers: auth(seed.operator.userId),
     });
     expect(blocked.statusCode).toBe(409);
-    expect(blocked.json().error.message).toContain(line.id);
+    // The engine reads the SETTLEMENT's copy, so that is the row it names and
+    // the row that has to be corrected (0025).
+    const [copied] = await harness.db
+      .select()
+      .from(schema.settlementLines)
+      .where(eq(schema.settlementLines.originBudgetLineId, line.id));
+    if (!copied) throw new Error("settlement copy not taken");
+
+    expect(blocked.json().error.message).toContain(copied.id);
     expect(blocked.json().error.message).toContain("Ghost cost");
     expect(blocked.json().error.message).toContain("paidBy");
   });
@@ -2765,6 +2858,18 @@ describe("settlement — the budget snapshot (decisions #16.8)", () => {
   };
 
   /** Move the seeded "Tickets" line — the box office coming in. */
+  /**
+   * Restate what the night ACTUALLY took — on the settlement's own copy.
+   *
+   * Not on `budget_lines`. Since 0025 the settlement holds a copy of the budget
+   * and the budget is never changed from the settlement, so editing the forecast
+   * here would restate the plan and leave the actual untouched — which is the
+   * behaviour this whole split exists to prevent.
+   *
+   * Returns the BUDGET line's id, because that is what planned-vs-actual pairs
+   * the two sides on (`origin_budget_line_id`) and therefore what a caller finds
+   * the row by.
+   */
   async function restateTickets(eventId: string, amount: bigint) {
     const budget = await budgetOf(eventId);
     const [line] = await harness.db
@@ -2774,10 +2879,15 @@ describe("settlement — the budget snapshot (decisions #16.8)", () => {
         and(eq(schema.budgetLines.budgetId, budget.id), eq(schema.budgetLines.label, "Tickets")),
       );
     if (!line) throw new Error("tickets line missing");
+    const [copied] = await harness.db
+      .select()
+      .from(schema.settlementLines)
+      .where(eq(schema.settlementLines.originBudgetLineId, line.id));
+    if (!copied) throw new Error("settlement copy not taken — compute first");
     await harness.db
-      .update(schema.budgetLines)
+      .update(schema.settlementLines)
       .set({ amount })
-      .where(eq(schema.budgetLines.id, line.id));
+      .where(eq(schema.settlementLines.id, copied.id));
     return { budgetId: budget.id, lineId: line.id };
   }
 
@@ -2880,12 +2990,15 @@ describe("settlement — the budget snapshot (decisions #16.8)", () => {
     const seed = await seedWorkedExample("snap-churn");
     await computeFor(seed.event.id, seed.operator.userId);
 
-    const budget = await budgetOf(seed.event.id);
-    // A cost nobody planned for, and the planned one that never happened.
+    // A cost nobody planned for, and a planned one that never happened — both on
+    // the SETTLEMENT's copy, which is where a night's surprises are recorded. Done
+    // to the budget these would be forecast revisions and the settlement, sealed,
+    // would rightly ignore them.
     const [added] = await harness.db
-      .insert(schema.budgetLines)
+      .insert(schema.settlementLines)
       .values({
-        budgetId: budget.id,
+        eventId: seed.event.id,
+        // No origin: it was never budgeted, which is what makes it `added`.
         kind: "cost",
         label: "Broken window",
         amount: 40000n,
@@ -2893,9 +3006,12 @@ describe("settlement — the budget snapshot (decisions #16.8)", () => {
       })
       .returning();
     await harness.db
-      .delete(schema.budgetLines)
+      .delete(schema.settlementLines)
       .where(
-        and(eq(schema.budgetLines.budgetId, budget.id), eq(schema.budgetLines.label, "Sound hire")),
+        and(
+          eq(schema.settlementLines.eventId, seed.event.id),
+          eq(schema.settlementLines.label, "Sound hire"),
+        ),
       );
     await computeFor(seed.event.id, seed.operator.userId);
 
@@ -3033,23 +3149,37 @@ describe("settlement — the budget snapshot (decisions #16.8)", () => {
     });
     await computeFor(seed.event.id, seed.operator.userId);
 
-    // The owner sees their own private line, and nothing is withheld from them.
+    /**
+     * A PRIVATE BUDGET NEVER BECOMES A SETTLEMENT LINE.
+     *
+     * "If you have a co host, the shared budget is the one that is copied, and
+     * the other party never sees that — they only see relevant data to their part
+     * of the deal" (the product owner, 2026-08-27). So the co-promoter's own
+     * margin stays their internal accounting: it does not enter the settlement,
+     * does not move the pool the parties divide, and cannot leak to the host
+     * because it was never copied.
+     *
+     * Which makes the privacy question structural rather than a filter anybody
+     * has to remember to apply — the strongest form the guarantee can take.
+     */
     const asOwner = (await plannedVsActual(seed.event.id, coHost.userId)).json();
-    expect(asOwner.actual.withheldBudgetCount).toBe(0);
-    expect(asOwner.actual.pool).toBe("803000"); // 1 000 000 − 150 000 − 47 000
+    // Even to its OWNER, the settled side excludes it — it is not settlement money.
+    expect(asOwner.actual.pool).toBe("850000"); // 1 000 000 − 150 000, the shared budget
     expect(
-      asOwner.lines.some((line: { label: string }) => line.label === "Co-promoter's own fee"),
-    ).toBe(true);
+      asOwner.lines.some(
+        (line: { label: string; actual: unknown }) =>
+          line.label === "Co-promoter's own fee" && line.actual !== null,
+      ),
+    ).toBe(false);
 
-    // The other operator sees neither the line nor the amount, and is TOLD so
-    // rather than handed totals that quietly fail to add up.
+    // The host never sees the line or the amount anywhere in the payload.
     const asHost = (await plannedVsActual(seed.event.id, seed.operator.userId)).json();
-    expect(asHost.actual.withheldBudgetCount).toBe(1);
     expect(asHost.actual.pool).toBe("850000");
     expect(JSON.stringify(asHost)).not.toContain("Co-promoter's own fee");
     expect(JSON.stringify(asHost)).not.toContain("47000");
-    // The settlement's pool is withheld too — it covers a line they cannot see.
-    expect(asHost.settlementPool).toBeNull();
+    // The PLAN still withholds it the way it always did — the forecast is still
+    // grouped by budget, and one of those budgets is not the host's to read.
+    expect(asHost.plan.withheldBudgetCount).toBe(1);
   });
 
   /**
@@ -3092,5 +3222,180 @@ describe("settlement — the budget snapshot (decisions #16.8)", () => {
     const fee = body.lines.find((line: { lineId: string }) => line.lineId === feeLine?.id);
     expect(fee.actual.countsTowardPool).toBe(false);
     expect(fee.poolEffect).toBe("0");
+  });
+});
+
+describe("settlement lines — the settlement's own copy of the budget", () => {
+  /**
+   * "The settlement has a copy of the budget. The budget is never changed from
+   * the settlement" (the product owner, 2026-08-27). These pin both halves.
+   */
+  const linesOf = (eventId: string) =>
+    harness.db
+      .select()
+      .from(schema.settlementLines)
+      .where(eq(schema.settlementLines.eventId, eventId));
+
+  const budgetFor = async (eventId: string) => {
+    const [budget] = await harness.db
+      .select()
+      .from(schema.budgets)
+      .where(eq(schema.budgets.eventId, eventId));
+    if (!budget) throw new Error("budget missing");
+    return budget;
+  };
+
+  it("copies the budget on the first compute, and never again", async () => {
+    const seed = await seedWorkedExample("copy-once");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const copied = await linesOf(seed.event.id);
+    expect(copied.length).toBeGreaterThan(0);
+    expect(copied.every((line) => line.originBudgetLineId !== null)).toBe(true);
+
+    // A budget edited AFTER the copy is a forecast revised after the fact. The
+    // settlement is sealed from it: recomputing must not pull the change in.
+    const budget = await budgetFor(seed.event.id);
+    await harness.db.insert(schema.budgetLines).values({
+      budgetId: budget.id,
+      kind: "cost",
+      label: "Late idea",
+      amount: 5000n,
+      paidBy: seed.pPart,
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const after = await linesOf(seed.event.id);
+    expect(after).toHaveLength(copied.length);
+    expect(after.some((line) => line.label === "Late idea")).toBe(false);
+  });
+
+  it("settles what the SETTLEMENT says, leaving the budget untouched", async () => {
+    const seed = await seedWorkedExample("copy-edit");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const [tickets] = (await linesOf(seed.event.id)).filter((line) => line.label === "Tickets");
+    if (!tickets) throw new Error("tickets copy missing");
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.event.id}/settlement/lines/${tickets.id}`,
+      headers: auth(seed.operator.userId),
+      payload: { amount: "840000", expectedVersion: tickets.version },
+    });
+    expect(patched.statusCode).toBe(200);
+
+    const recomputed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    // 840 000 − 150 000 of costs.
+    expect(recomputed.json().pool).toBe("690000");
+
+    // THE RULE: the forecast is exactly where it was.
+    const budget = await budgetFor(seed.event.id);
+    const [forecast] = await harness.db
+      .select()
+      .from(schema.budgetLines)
+      .where(
+        and(eq(schema.budgetLines.budgetId, budget.id), eq(schema.budgetLines.label, "Tickets")),
+      );
+    expect(forecast?.amount).toBe(1000000n);
+  });
+
+  it("adds a line nobody budgeted for, and settles it", async () => {
+    const seed = await seedWorkedExample("copy-add");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/lines`,
+      headers: auth(seed.operator.userId),
+      payload: { kind: "cost", label: "Broken window", amount: "40000", paidBy: seed.pPart },
+    });
+    expect(added.statusCode).toBe(201);
+    // Never budgeted, so it pairs with no forecast line — which is the truth.
+    expect(added.json().originBudgetLineId).toBeNull();
+
+    const recomputed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(recomputed.json().pool).toBe("810000"); // 850 000 − 40 000
+  });
+
+  it("refuses every write once the figures are finalized", async () => {
+    const seed = await seedWorkedExample("copy-frozen");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const [line] = await linesOf(seed.event.id);
+    if (!line) throw new Error("copy missing");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+
+    // Finalize freezes an immutable snapshot; a line edited underneath it would
+    // silently contradict the legal record.
+    for (const attempt of [
+      app.inject({
+        method: "PATCH",
+        url: `/api/v1/events/${seed.event.id}/settlement/lines/${line.id}`,
+        headers: auth(seed.operator.userId),
+        payload: { amount: "1" },
+      }),
+      app.inject({
+        method: "POST",
+        url: `/api/v1/events/${seed.event.id}/settlement/lines`,
+        headers: auth(seed.operator.userId),
+        payload: { kind: "cost", label: "Too late", amount: "100", paidBy: seed.pPart },
+      }),
+      app.inject({
+        method: "DELETE",
+        url: `/api/v1/events/${seed.event.id}/settlement/lines/${line.id}`,
+        headers: auth(seed.operator.userId),
+      }),
+    ]) {
+      expect((await attempt).statusCode).toBe(409);
+    }
+  });
+
+  it("refuses a party who may read the settlement but not restate it", async () => {
+    const seed = await seedWorkedExample("copy-guard");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    // The performer holds `settlement.view.own` and no `settlement.edit` — the
+    // night's figures are not theirs to rewrite.
+    const blocked = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/lines`,
+      headers: auth(seed.band.userId),
+      payload: { kind: "cost", label: "My taxi", amount: "5000", paidBy: seed.pPart },
+    });
+    expect(blocked.statusCode).toBe(403);
   });
 });

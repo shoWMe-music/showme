@@ -20,4 +20,5 @@ export type PatchApiV1EventsIdSettlementsSid200Computed = {
   commissionEarned?: string;
   deductibles?: string;
   residual?: string;
+  prepaid?: string;
 } | null;

@@ -1,5 +1,10 @@
 /** Pure, presentational-friendly helpers for the two month calendars. No React,
- * no data fetching — just date arithmetic so the grid components stay dumb. */
+ * no data fetching — just date arithmetic so the grid components stay dumb.
+ *
+ * Every heading it builds is printed by the shared formatters in `lib/format`,
+ * so a calendar title reads the same as the same date anywhere else in the app. */
+
+import { formatDate, formatDay, formatDayWithWeekday, formatMonthYear } from "../lib/format";
 
 export const WEEKDAYS_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 
@@ -54,7 +59,7 @@ export function trimTrailingWeeks(cells: MonthCell[]): MonthCell[] {
 }
 
 export function monthTitle(reference: Date): string {
-  return reference.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+  return formatMonthYear(reference);
 }
 
 /** Which span of days the Calendar screen is showing. */
@@ -133,26 +138,21 @@ export function weekTitle(reference: Date): string {
   const first = cells[0]?.date ?? reference;
   const last = cells[6]?.date ?? reference;
   if (first.getFullYear() !== last.getFullYear()) {
-    const format = (date: Date) =>
-      date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-    return `${format(first)} – ${format(last)}`;
+    return `${formatDay(dayKey(first))} – ${formatDay(dayKey(last))}`;
   }
   if (first.getMonth() !== last.getMonth()) {
-    const shortMonth = (date: Date) =>
-      `${date.getDate()} ${date.toLocaleDateString("en-GB", { month: "short" })}`;
-    return `${shortMonth(first)} – ${shortMonth(last)} ${last.getFullYear()}`;
+    // The year is printed once, at the end, so the shared day format is asked
+    // for without it — the one shape `formatDate` exists to serve.
+    const dayAndMonth = (date: Date) =>
+      formatDate(dayKey(date), { day: "numeric", month: "short" });
+    return `${dayAndMonth(first)} – ${dayAndMonth(last)} ${last.getFullYear()}`;
   }
   return `${first.getDate()} – ${last.getDate()} ${monthTitle(first)}`;
 }
 
-/** "Thursday, 20 August 2026". */
+/** "Thu, 20 Aug 2026" — the app's date, with the weekday the day view is about. */
 export function dayTitle(reference: Date): string {
-  return reference.toLocaleDateString("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  return formatDayWithWeekday(dayKey(reference));
 }
 
 /** The screen heading for the current view. */

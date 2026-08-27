@@ -1,5 +1,6 @@
 import { Badge, Button, Card, Icon } from "@showme/design-system";
 import { Link } from "@tanstack/react-router";
+import { PRO_FILING_AVAILABLE } from "../lib/proFilingAvailability";
 import { SettlementPartyCard } from "./SettlementPartyCard";
 import { Eyebrow } from "./primitives";
 import { settlementStatusToDisplay } from "./settlementDocument";
@@ -45,6 +46,11 @@ export function EventSettlementTab({ eventId, currency, capabilities }: EventSet
   // everyone else (`OPERATOR_FILING_CAPABILITIES`). Asking for it here means the
   // link appears only for someone who could actually file — a pointer to a screen
   // that would turn them away is worse than no pointer.
+  //
+  // It is moot while `PRO_FILING_AVAILABLE` is false: nobody can file yet, so the
+  // button is not drawn at all. A disabled "coming soon" chip would be worse here
+  // than absence — this tab is about `Σ net = 0` between the parties on the bill,
+  // and a society's royalties are a different money stream that never enters it.
   const canFile = capabilities.includes("performance_report.file");
 
   return (
@@ -66,8 +72,18 @@ export function EventSettlementTab({ eventId, currency, capabilities }: EventSet
           {headline ?? "Not reconciled yet"}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {/* "No settlement rows" and "no settlement row FOR YOU" are different
+              facts, and this line used to conflate them: `ownParty` is null for
+              everyone — the host included — until somebody runs the reconcile,
+              so an unreconciled event told its own operator they had no stake in
+              it. The payload is already party-scoped, so an empty `parties` can
+              only mean nothing has been computed yet. */}
           <span className="muted">
-            {settlement.ownParty ? "Your payout" : "You are not a party to this settlement"}
+            {settlement.ownParty
+              ? "Your payout"
+              : settlement.parties.length === 0
+                ? "This event hasn't been reconciled yet"
+                : "You are not a party to this settlement"}
           </span>
           <Badge status={status.status} dot>
             {status.label}
@@ -94,7 +110,7 @@ export function EventSettlementTab({ eventId, currency, capabilities }: EventSet
          * about filing while looking at the show, and it must never become a
          * place where PRO content lives.
          */}
-        {canFile && (
+        {PRO_FILING_AVAILABLE && canFile && (
           <Link to="/reports">
             <Button variant="secondary" leftIcon={<Icon name="trending-up" size={14} />}>
               Report to PRO

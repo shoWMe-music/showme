@@ -1,6 +1,7 @@
 import type { schema } from "@showme/db";
 import type { Capability } from "@showme/shared";
 import type { EventExtras } from "./event-extras";
+import { resolveImageUrl } from "./image";
 
 type EventRow = typeof schema.events.$inferSelect;
 
@@ -18,11 +19,23 @@ export interface SerializedEvent {
   curfew: string | null;
   /** IANA zone snapshotted from the venue (decisions #10) — anchors all local times. */
   timezone: string | null;
+  /**
+   * Whose event this is. Already implied by everything on screen (the operator's
+   * name heads the page) and needed as an ID by exactly one thing: a poster
+   * upload, which must land in the HOST profile's storage folder or the API
+   * refuses to attach it.
+   */
+  hostProfileId: string;
   venueProfileId: string | null;
   venueName: string | null;
   capacity: number | null;
   stageId: string | null;
   notes: string | null;
+  /**
+   * The poster, resolved down the file-then-URL ladder (`serialize/image.ts`).
+   * Signed per response when it is an upload, so it is never stored in this form.
+   */
+  imageUrl: string | null;
   version: number;
   /**
    * The caller's OWN effective capabilities on this event — not a widening of
@@ -51,7 +64,11 @@ export interface SerializedEvent {
  * rank is the operator's private competitive info) nor the operator's guest
  * list. Widening this later is a one-branch change; the raw data is untouched.
  */
-export function serializeEvent(event: EventRow, capabilities: Set<Capability>): SerializedEvent {
+export function serializeEvent(
+  event: EventRow,
+  capabilities: Set<Capability>,
+  imageUrls?: Map<string, string>,
+): SerializedEvent {
   const base: SerializedEvent = {
     id: event.id,
     title: event.title,
@@ -64,11 +81,13 @@ export function serializeEvent(event: EventRow, capabilities: Set<Capability>): 
     endTime: event.endTime,
     curfew: event.curfew,
     timezone: event.timezone,
+    hostProfileId: event.hostProfileId,
     venueProfileId: event.venueProfileId,
     venueName: event.venueName,
     capacity: event.capacity,
     stageId: event.stageId,
     notes: event.notes,
+    imageUrl: resolveImageUrl(event.imageFileId, event.imageUrl, imageUrls),
     version: event.version,
     capabilities: [...capabilities].sort(),
   };

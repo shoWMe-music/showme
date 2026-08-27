@@ -1,8 +1,10 @@
-import { Button, EmptyState, Icon, TabPanels } from "@showme/design-system";
+import { Button, EmptyState, Icon, StatusDot, TabPanels } from "@showme/design-system";
 import { useNavigate } from "@tanstack/react-router";
 import type { CSSProperties } from "react";
+import { DateText } from "../components/DateText";
 import { type EventMenuItem, EventRowMenu, rowClickTargetStyle } from "../components/EventRowMenu";
 import { GradientButton } from "../components/eventUi";
+import { settlementStatusToDisplay } from "../components/settlementDocument";
 import { ErrorState, LoadMore, LoadingState } from "../components/states";
 import { useEventArchive } from "../hooks/useEventArchive";
 import { type EventFilterKey, type EventItem, useEventList } from "../hooks/useEventList";
@@ -86,14 +88,6 @@ function eventMeta(status: string): { color: string; label: string } {
   return EV_META[status] ?? { color: "#8C7A6C", label: "Draft" };
 }
 
-/** "Jul 04" — month short + 2-digit day, no year (matches the prototype list). */
-function shortDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString("en-US", { month: "short", day: "2-digit" });
-}
-
 /** The last track is the overflow menu's — fixed, because it holds one 28px
  * button and must not steal width from the columns that carry information. */
 const GRID_COLUMNS = "2.4fr 1.5fr 1fr .8fr 1.2fr 1fr 32px";
@@ -106,7 +100,7 @@ export function Events() {
     setFilter,
     view,
     setView,
-    items: rows,
+    items,
     isPending,
     isError,
     error,
@@ -114,6 +108,7 @@ export function Events() {
     isLoadingMore,
     loadMore,
   } = useEventList();
+  const rows = items;
   // Filing an event away, from either view. The hook owns the calls, the toast
   // (with its Undo) and the cache invalidation; the rows below just draw what it
   // says the menu offers.
@@ -368,8 +363,9 @@ interface EventViewProps {
 }
 
 /** The List view — a bordered card with a mono header row and one grid row per
- * event. The events-list payload carries only title, date and status, so Venue,
- * Cap and Settlement render an honest "—" (no faked venue name/capacity). */
+ * event. Every column draws a real fact the list payload carries; a cell falls
+ * back to "—" only where the event genuinely has nothing to say (no venue named,
+ * no act booked, no settlement run). */
 function EventList({ rows, onOpen, menuItems }: EventViewProps) {
   return (
     <div
@@ -407,6 +403,13 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
       </div>
       {rows.map((event) => {
         const meta = eventMeta(event.status);
+        // No settlement row yet means nobody has run one — the absence is the
+        // answer, so the cell says so rather than borrowing a stage from the
+        // ladder. Everything else goes through the shared reader, so this cell and
+        // the settlement workspace cannot disagree about what a status means.
+        const settlement = event.settlementStatus
+          ? settlementStatusToDisplay(event.settlementStatus)
+          : { status: "draft" as const, label: "Not started" };
         return (
           // Hover tint only; the row's keyboard affordance is the stretched
           // button inside it, which is a real focusable control.
@@ -451,12 +454,18 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
               >
                 {event.title}
               </span>
-              <span style={{ display: "block", color: "var(--muted)", fontSize: 12.5 }}>—</span>
+              <span style={{ display: "block", color: "var(--muted)", fontSize: 12.5 }}>
+                {event.headlinePerformerName ?? "—"}
+              </span>
             </span>
-            <span style={{ color: "var(--muted)", fontSize: 13 }}>—</span>
-            <span style={{ fontFamily: "var(--font-mono)", color: "var(--text)", fontSize: 13 }}>
-              {shortDate(event.eventDate)}
-            </span>
+            <span style={{ color: "var(--muted)", fontSize: 13 }}>{event.venueName ?? "—"}</span>
+            {/* Unlinked: the row already IS a link (the stretched button above),
+                and a link inside a link is not a thing. */}
+            <DateText
+              value={event.eventDate}
+              link={false}
+              style={{ fontFamily: "var(--font-mono)", color: "var(--text)", fontSize: 13 }}
+            />
             <span
               style={{
                 fontFamily: "var(--font-mono)",
@@ -465,7 +474,7 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
                 textAlign: "right",
               }}
             >
-              —
+              {event.capacity ?? "—"}
             </span>
             <span>
               <span style={badgeStyle(meta.color)}>
@@ -473,11 +482,17 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
                 {meta.label}
               </span>
             </span>
-            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ display: "inline-flex", color: "var(--dim)", fontSize: 12 }}>
-                <span style={dotStyle("#8C7A6C")} />
-                <span style={{ marginLeft: 6 }}>—</span>
-              </span>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                color: "var(--dim)",
+                fontSize: 12,
+              }}
+            >
+              <StatusDot status={settlement.status} size={6} />
+              {settlement.label}
             </span>
             {/* Positioned, so it paints ABOVE the stretched click target and
                 takes its own clicks rather than opening the event. */}
@@ -492,9 +507,9 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
 }
 
 /** The Board view — the four fixed status columns, each holding the events in
- * that status. Cards carry only the title + date honestly ("— cap" since the
- * list payload has no capacity). Draft/suggested/cancelled events fall outside
- * the four columns, exactly as in the prototype.
+ * that status. A card names the show, the act on it, the date and the room's
+ * capacity. Draft/suggested/cancelled events fall outside the four columns,
+ * exactly as in the prototype.
  *
  * The per-column count is a real count: `useEventList` drains the keyset cursor
  * in board view, so `rows` is every event the chip selects. */
@@ -606,7 +621,7 @@ function EventBoard({ rows, onOpen, menuItems }: EventViewProps) {
                     margin: "2px 0 8px",
                   }}
                 >
-                  —
+                  {event.headlinePerformerName ?? "—"}
                 </span>
                 <span
                   style={{
@@ -617,8 +632,10 @@ function EventBoard({ rows, onOpen, menuItems }: EventViewProps) {
                     color: "var(--muted)",
                   }}
                 >
-                  <span>{shortDate(event.eventDate)}</span>
-                  <span>— cap</span>
+                  {/* Unlinked for the same reason as the list row: the card is
+                      already one click target, stretched over the whole of it. */}
+                  <DateText value={event.eventDate} link={false} />
+                  <span>{event.capacity != null ? `${event.capacity} cap` : "— cap"}</span>
                 </span>
               </div>
             ))}

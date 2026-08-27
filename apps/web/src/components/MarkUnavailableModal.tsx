@@ -1,4 +1,5 @@
 import { Button, Icon, Modal, TextField } from "@showme/design-system";
+import { formatDay } from "../lib/format";
 import { DateTimeField } from "./DateTimeField";
 import { Eyebrow } from "./primitives";
 import type { MarkUnavailableView } from "./useMarkUnavailable";
@@ -15,14 +16,10 @@ export interface MarkUnavailableModalProps {
   view: MarkUnavailableView;
 }
 
-/** "30 Aug 2026" / "30 Aug – 1 Sep 2026" — a range reads as one phrase. */
+/** "30 Aug 2026" / "30 Aug 2026 – 1 Sept 2026" — a range reads as one phrase. */
 function formatBlockRange(startDate: string, endDate: string): string {
-  const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
-  const format = (date: Date) =>
-    date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-  if (startDate === endDate) return format(start);
-  return `${format(start)} – ${format(end)}`;
+  if (startDate === endDate) return formatDay(startDate);
+  return `${formatDay(startDate)} – ${formatDay(endDate)}`;
 }
 
 function Problem({ children }: { children: string }) {

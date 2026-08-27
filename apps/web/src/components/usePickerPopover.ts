@@ -8,7 +8,14 @@ import {
 } from "react";
 
 export interface PickerPopoverOptions {
-  inputRef: RefObject<HTMLInputElement | null>;
+  /**
+   * The control the panel hangs off. `HTMLElement`, not `HTMLInputElement`: all
+   * this hook ever asks of it is `getBoundingClientRect()` and `focus()`, and
+   * three callers anchor a BUTTON rather than a field (`EventRowMenu`,
+   * `useCalendarEntryPreview`, `CalendarJumpToDate`). Typing it to the narrowest
+   * caller made each of them cast through `unknown` to say something true.
+   */
+  inputRef: RefObject<HTMLElement | null>;
 }
 
 /**

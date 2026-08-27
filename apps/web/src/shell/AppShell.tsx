@@ -18,7 +18,7 @@ const PAGE_TITLES: Record<string, { crumb: string; title: string }> = {
   "/calendar": { crumb: "Schedule", title: "Calendar" },
   "/events": { crumb: "All events", title: "Events" },
   "/tasks": { crumb: "To do", title: "Tasks" },
-  "/reports": { crumb: "PRO royalties", title: "Performance Reports" },
+  "/reports": { crumb: "Your shows", title: "Setlists" },
   "/settlements": { crumb: "Money", title: "Settlements" },
   "/projections": { crumb: "Forecast", title: "Financial Projections" },
   "/requests": { crumb: "Bookings", title: "Requests" }, // direction-neutral; the page states which way

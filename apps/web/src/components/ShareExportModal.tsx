@@ -1,5 +1,5 @@
 import { Badge, Button, Checkbox, Icon, Input, Modal } from "@showme/design-system";
-import { formatDate } from "../lib/format";
+import { formatDay } from "../lib/format";
 import { SHARE_SCOPES, type ShareScope, shareScopeLabel } from "../lib/shareScope";
 import { Eyebrow } from "./primitives";
 import { ErrorState, LoadingState } from "./states";
@@ -336,7 +336,7 @@ function LinkRow({ link, onRevoke }: { link: OwnedLink; onRevoke: () => void }) 
           <span key={recipient.email} style={{ color: "var(--muted)", fontSize: 12 }}>
             {recipient.name ? `${recipient.name} · ` : ""}
             {recipient.email} —{" "}
-            {recipient.lastSeenAt ? `opened ${formatDate(recipient.lastSeenAt)}` : "not opened yet"}
+            {recipient.lastSeenAt ? `opened ${formatDay(recipient.lastSeenAt)}` : "not opened yet"}
             {recipient.claimed ? " · has a shoWMe account" : ""}
           </span>
         ))}

@@ -51,15 +51,125 @@ export function formatAmount(amountMinor: string | number | null | undefined): s
   return new Intl.NumberFormat("en-IE", { maximumFractionDigits: 0 }).format(major);
 }
 
-/** Format an ISO date string. Returns a placeholder for null/invalid dates. */
+/**
+ * Parse a date the app might hand us, in LOCAL time.
+ *
+ * Three shapes arrive here and only one of them is safe to give to `new Date()`
+ * directly:
+ *   - `yyyy-mm-dd` — a `date` column (`events.event_date`, `tasks.due_date`).
+ *     `new Date("2026-09-13")` parses this as UTC midnight, so west of Greenwich
+ *     `toLocaleDateString` prints the twelfth. Split it and build a local date.
+ *   - `yyyy-mm-ddThh:mm` — offset-free local wall clock (decisions #10). Same
+ *     trap, same fix; the clock half is dropped, since callers here want the day.
+ *   - a full ISO timestamp with a zone — `new Date()` is correct for these.
+ *
+ * Returns `null` for anything unparseable, so every formatter below can render a
+ * placeholder rather than "Invalid Date".
+ */
+export function parseDayLocal(value: string | null | undefined): Date | null {
+  if (!value) return null;
+
+  // Offset-FREE only, and anchored at both ends. The anchor is the whole point:
+  // an unanchored pattern also matches the head of `2026-09-13T14:30:00.000Z`,
+  // which sends a zoned instant down the local-midnight branch — throwing its
+  // clock away and naming the UTC day rather than the reader's. Every call site
+  // that formats a real timestamp inherits that, so the `Z`/`±hh:mm` forms must
+  // fall through to `new Date()`, which resolves them correctly.
+  const offsetFree = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?)?$/.exec(
+    value,
+  );
+  if (offsetFree) {
+    const [, year, month, day, hour, minute] = offsetFree;
+    const local = new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour ?? 0),
+      Number(minute ?? 0),
+    );
+    return Number.isNaN(local.getTime()) ? null : local;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/**
+ * THE date format for this app: day first, month abbreviated, **year always**.
+ *
+ * Both halves of that are deliberate. Day-first because the product is European
+ * (`docs/decisions.md` #17 — territory-scoped, SE/DE/UK first), and a bare
+ * "09/13" is ambiguous to the reader it was written for. The year because a
+ * booking calendar routinely holds next year's shows beside this year's, and a
+ * date without one is a date you have to go and check.
+ *
+ * Every date a person reads goes through here or one of its siblings. Ad-hoc
+ * `toLocaleDateString` calls are how the app ended up printing four formats
+ * across three locales.
+ */
+export function formatDay(value: string | null | undefined): string {
+  const date = parseDayLocal(value);
+  if (!date) return "—";
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** `formatDay` with the weekday in front — "Mon, 2 Nov 2026". For a single date
+ * a reader is being asked to act on, where which-day-of-the-week is the point. */
+export function formatDayWithWeekday(value: string | null | undefined): string {
+  const date = parseDayLocal(value);
+  if (!date) return "—";
+  return date.toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/** "September 2026" — a calendar heading. */
+export function formatMonthYear(value: Date | string | null | undefined): string {
+  const date = value instanceof Date ? value : parseDayLocal(value);
+  if (!date || Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+}
+
+/** The `yyyy-mm-dd` key for a date, in LOCAL time — the form day lookups and the
+ * calendar's `?date=` link both travel in. */
+export function dayKey(value: Date | string | null | undefined): string | null {
+  const date = value instanceof Date ? value : parseDayLocal(value);
+  if (!date || Number.isNaN(date.getTime())) return null;
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+/**
+ * Format a date with explicit options. Prefer `formatDay` — this exists for the
+ * handful of places that genuinely need a different shape, and it parses through
+ * `parseDayLocal` so they inherit the off-by-one fix too.
+ */
 export function formatDate(
   iso: string | null | undefined,
   options: Intl.DateTimeFormatOptions = { day: "2-digit", month: "short", year: "numeric" },
 ): string {
-  if (!iso) return "—";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
+  const date = parseDayLocal(iso);
+  if (!date) return "—";
   return date.toLocaleDateString("en-GB", options);
+}
+
+/**
+ * The clock, in 24-hour form — "19:00".
+ *
+ * Five screens hand-rolled this with identical options before it existed
+ * (`en-GB`, `{hour: "2-digit", minute: "2-digit"}`), which is what a shared
+ * helper is actually for. Parses through `parseDayLocal`, so an offset-free
+ * `yyyy-mm-ddThh:mm` keeps the wall clock it was written with (decisions #10)
+ * rather than being shifted into the reader's zone.
+ */
+export function formatTime(value: string | null | undefined): string {
+  const date = parseDayLocal(value);
+  if (!date) return "—";
+  return date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
 /**

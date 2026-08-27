@@ -7,4 +7,5 @@
 
 export type PostApiV1EventsIdShares201 = {
   token: string;
+  emailed: string[];
 };

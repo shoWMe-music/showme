@@ -20,4 +20,5 @@ export type GetApiV1EventsIdSettlements200SettlementsItemComputed = {
   commissionEarned?: string;
   deductibles?: string;
   residual?: string;
+  prepaid?: string;
 } | null;

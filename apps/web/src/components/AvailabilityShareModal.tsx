@@ -51,7 +51,7 @@ export interface AvailabilityShareModalProps {
   /** Selected weekday indices, Monday = 0 … Sunday = 6. */
   selectedWeekdays: number[];
   onToggleWeekday?: (index: number) => void;
-  /** Pre-formatted available-date labels, e.g. "Fri · Jul 11". */
+  /** Pre-formatted available-date labels, e.g. "Fri, 11 Jul 2026". */
   availableDates: string[];
   onCopyDates?: () => void;
   shareLink: string;
@@ -141,7 +141,7 @@ export function AvailabilityShareModal({
             checked={showHeld}
             onChange={onShowHeldChange}
             tone="brand"
-            label="Held events"
+            label="Dates on hold"
           />
         </div>
 

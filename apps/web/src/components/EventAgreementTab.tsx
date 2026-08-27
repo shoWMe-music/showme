@@ -7,7 +7,7 @@ import {
 import { Button, EmptyState, Icon } from "@showme/design-system";
 import { DEAL_STRUCTURE_OPTIONS, DEAL_TYPE_OPTIONS, PAYMENT_TIMING_OPTIONS } from "@showme/shared";
 import { useState } from "react";
-import { formatDate, formatMoney } from "../lib/format";
+import { formatDay, formatMoney, formatTime } from "../lib/format";
 import type { AgreementField } from "./AgreementView";
 import { DealAgreementCard, type DealPartyLine, shareLabelOf } from "./DealAgreementCard";
 import { DealComposerModal, type DealPartyChoice } from "./DealComposerModal";
@@ -237,10 +237,7 @@ function agreementSummary(
 ): AgreementField[] {
   return [
     { label: "Event", value: event.eventTitle },
-    {
-      label: "Date",
-      value: formatDate(event.eventDate, { day: "2-digit", month: "short", year: "numeric" }),
-    },
+    { label: "Date", value: formatDay(event.eventDate) },
     { label: "Venue", value: event.venueLabel },
     { label: "Operator", value: event.operatorName },
     { label: "Deal", value: deal.name },
@@ -293,12 +290,7 @@ function toScheduleEntries(items: ScheduleItem[]): ScheduleEntry[] {
     .slice()
     .sort((left, right) => (left.localDateTime ?? "").localeCompare(right.localDateTime ?? ""))
     .map((item) => ({
-      time: item.localDateTime
-        ? new Date(item.localDateTime).toLocaleTimeString("en-GB", {
-            hour: "2-digit",
-            minute: "2-digit",
-          })
-        : "—",
+      time: formatTime(item.localDateTime),
       label: item.label,
     }));
 }

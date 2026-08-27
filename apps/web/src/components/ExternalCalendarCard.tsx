@@ -1,4 +1,5 @@
 import { Card, Icon } from "@showme/design-system";
+import { formatDayWithWeekday } from "../lib/format";
 import { Eyebrow } from "./primitives";
 import type {
   ExternalCalendarEntriesView,
@@ -30,29 +31,12 @@ export interface ExternalCalendarCardProps {
   onOpenEvent: (eventId: string) => void;
 }
 
-/** "Fri 10 Oct", or "10–14 Oct" for an entry that runs across days. */
+/** "Fri, 10 Oct 2026", or a `→` range for an entry that runs across days. */
 function whenLabel(entry: ExternalCalendarEntry): string {
-  const day = formatDay(entry.date);
-  if (entry.endDate !== entry.date) return `${day} → ${formatDay(entry.endDate)}`;
+  const day = formatDayWithWeekday(entry.date);
+  if (entry.endDate !== entry.date) return `${day} → ${formatDayWithWeekday(entry.endDate)}`;
   if (entry.isAllDay) return `${day} · all day`;
   return `${day} · ${entry.startTime}–${entry.endTime}`;
-}
-
-/**
- * `2026-10-10` → `Sat 10 Oct`, built from the string's own parts.
- *
- * NOT `new Date("2026-10-10")`: a date-only ISO string is parsed as UTC midnight,
- * so reading it back with local getters returns the 9th anywhere west of
- * Greenwich. A bare date has no zone to convert from — it is already the day.
- */
-function formatDay(isoDate: string): string {
-  const [year, month, day] = isoDate.split("-").map(Number);
-  if (!year || !month || !day) return isoDate;
-  return new Date(year, month - 1, day).toLocaleDateString("en-GB", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  });
 }
 
 export function ExternalCalendarCard({

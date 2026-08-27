@@ -20,6 +20,8 @@ export type PostApiV1EventsIdPublish200 = {
   /** @nullable */
   venueName: string | null;
   /** @nullable */
+  capacity: number | null;
+  /** @nullable */
   stageId: string | null;
   version: number;
   /** @nullable */

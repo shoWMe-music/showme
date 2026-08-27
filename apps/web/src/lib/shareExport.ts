@@ -1,5 +1,5 @@
 import { type CsvColumn, minorToDecimalString, money, toCsv } from "@showme/shared";
-import { formatMoney } from "./format";
+import { dayKey, formatDay, formatMoney } from "./format";
 
 /**
  * The event as a spreadsheet — the CSV half of Share & Export.
@@ -290,11 +290,10 @@ export function shareExportDocumentHtml(
     )
     .join("");
 
-  const printedOn = new Date().toLocaleDateString("en-IE", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  // `dayKey` first, so the stamp is the printer's own calendar day: `formatDay`
+  // reads a full timestamp as its UTC day, which is the day before for anyone
+  // printing after evening in a positive offset.
+  const printedOn = formatDay(dayKey(new Date()));
 
   return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(
     input.eventTitle,

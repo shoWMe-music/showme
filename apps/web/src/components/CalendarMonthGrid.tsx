@@ -5,7 +5,6 @@ import {
   dayCellBackground,
   unavailableSuffix,
 } from "./CalendarUnavailableMark";
-import type { EventMenuItem } from "./EventRowMenu";
 import { WEEKDAYS_SHORT, buildMonthGrid, dayKey, trimTrailingWeeks } from "./calendarGrid";
 import { Eyebrow } from "./primitives";
 import type { UnavailableDays } from "./useMarkUnavailable";
@@ -22,6 +21,9 @@ export type { CalendarEvent, CalendarLabelMode } from "./CalendarEventChip";
 export interface CalendarMonthGridProps {
   /** Any date within the month to render. */
   month: Date;
+  /** `yyyy-mm-dd` of the day the reader was sent to or jumped to, ringed so they
+   * can see which one it was. Omit for a grid nobody was pointed at. */
+  selectedDay?: string;
   events: CalendarEvent[];
   /** Days the acting profile has blocked, keyed `yyyy-mm-dd`. Omit for a grid
    * that has no availability to show (the mini month, a preview). */
@@ -35,16 +37,13 @@ export interface CalendarMonthGridProps {
   onSelectDay?: (dayKey: string, anchor: DOMRect) => void;
   onSelectEvent?: (eventId: string) => void;
   onCreateAt?: (dayKey: string) => void;
-  /**
-   * What one event's overflow menu offers (archive today). Returns nothing for a
-   * standalone calendar item — a task or a note is not an event and has nothing
-   * to file. The chip hands it to the preview it opens; there is no room for a ⋮
-   * on the chip itself.
-   */
-  eventMenuItems?: (event: CalendarEvent) => EventMenuItem[];
 }
 
 const TODAY_TINT = "color-mix(in srgb, var(--brand-red) 5%, transparent)";
+
+/** A ring rather than a border, so marking a day cannot shift the number inside
+ * the 24px circle by a pixel. */
+const SELECTED_RING = "0 0 0 1px var(--brand-red)";
 
 /** The hairline that separates two cells. Drawn only BETWEEN cells — never on the
  * last column or last row — because the card already draws its own 1px border
@@ -60,6 +59,7 @@ const CELL_RULE = "1px solid var(--border)";
 
 export function CalendarMonthGrid({
   month,
+  selectedDay,
   events,
   unavailableDays,
   labelMode = "both",
@@ -68,7 +68,6 @@ export function CalendarMonthGrid({
   onSelectDay,
   onSelectEvent,
   onCreateAt,
-  eventMenuItems,
 }: CalendarMonthGridProps) {
   const cells = trimTrailingWeeks(buildMonthGrid(month));
   const todayKey = dayKey(new Date());
@@ -129,6 +128,9 @@ export function CalendarMonthGrid({
             const visible = maxPerDay != null ? dayEvents.slice(0, maxPerDay) : dayEvents;
             const overflow = dayEvents.length - visible.length;
             const isToday = cell.key === todayKey;
+            // Today already wears the filled circle; ringing it as well would
+            // just thicken it.
+            const isSelected = cell.key === selectedDay && !isToday;
             const isUnavailable = unavailableDays?.has(cell.key) ?? false;
             const unavailableReason = unavailableDays?.get(cell.key) ?? null;
 
@@ -160,7 +162,7 @@ export function CalendarMonthGrid({
                   ...rules,
                   background: dayCellBackground(
                     isUnavailable,
-                    isToday ? TODAY_TINT : "transparent",
+                    isToday || isSelected ? TODAY_TINT : "transparent",
                   ),
                   cursor: onSelectDay ? "pointer" : "default",
                 }}
@@ -172,6 +174,7 @@ export function CalendarMonthGrid({
                   // needs no ARIA. It measures the CELL's rectangle, not its own, so the
                   // popover lands where a click would have put it.
                   aria-label={`Select ${cell.key}${unavailableSuffix(isUnavailable, unavailableReason)}`}
+                  aria-current={isSelected ? "date" : undefined}
                   onClick={(clickEvent) => {
                     clickEvent.stopPropagation();
                     const cellElement = clickEvent.currentTarget.parentElement;
@@ -191,9 +194,10 @@ export function CalendarMonthGrid({
                     marginBottom: 5,
                     fontFamily: "var(--font-mono)",
                     fontSize: 12,
-                    fontWeight: isToday ? 700 : 500,
+                    fontWeight: isToday || isSelected ? 700 : 500,
                     background: isToday ? "var(--brand-red)" : "transparent",
-                    color: isToday ? "#fff" : "var(--muted)",
+                    color: isToday ? "#fff" : isSelected ? "var(--brand-red)" : "var(--muted)",
+                    boxShadow: isSelected ? SELECTED_RING : undefined,
                   }}
                 >
                   {/* The rule has to go on an INLINE span, not on the button:
@@ -214,7 +218,6 @@ export function CalendarMonthGrid({
                     event={event}
                     labelMode={labelMode}
                     onSelect={onSelectEvent}
-                    menuItems={eventMenuItems?.(event)}
                   />
                 ))}
 

@@ -1,6 +1,7 @@
 import { Card, Icon } from "@showme/design-system";
 import type { CSSProperties, KeyboardEventHandler, ReactNode } from "react";
 import { useEffect, useRef } from "react";
+import { formatDayWithWeekday } from "../lib/format";
 import {
   WEEKDAYS_SHORT,
   buildMonthGrid,
@@ -123,12 +124,7 @@ export function MiniMonthCalendar({
               data-day={cell.key}
               onClick={() => onSelect?.(cell.key)}
               aria-current={isToday ? "date" : undefined}
-              aria-label={cell.date.toLocaleDateString("en-GB", {
-                weekday: "long",
-                day: "numeric",
-                month: "long",
-                year: "numeric",
-              })}
+              aria-label={formatDayWithWeekday(cell.key)}
               tabIndex={focusedDay ? (cell.key === focusedDay ? 0 : -1) : undefined}
               style={{
                 position: "relative",

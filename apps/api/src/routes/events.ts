@@ -1,18 +1,28 @@
 import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
-import type { Capability } from "@showme/shared";
-import { and, desc, eq, ne } from "drizzle-orm";
+import {
+  type Capability,
+  type DealDraft,
+  basisPointsToPercent,
+  dealDraftProblems,
+  minorToDecimalString,
+} from "@showme/shared";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
 import { changedFieldNames, writeActivity } from "../lib/activity";
+import { autoAssignAgentOnPerformerJoin } from "../lib/agent-assignment";
 import type { Transaction } from "../lib/audit";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import { assertEventCapAllows } from "../lib/entitlements";
 import { resolveEventTimezone } from "../lib/event-timezone";
+import { notifyProfileMembers } from "../lib/notify";
+import { assertProfileImageFiles, signProfileImageUrls } from "../lib/profile-media";
 import { withIdempotency } from "../plugins/idempotency";
+import { serializeDealUnredacted } from "../serialize/deal";
 import { serializeEvent } from "../serialize/event";
 import { type EventExtras, EventExtrasSchema } from "../serialize/event-extras";
 
@@ -22,6 +32,325 @@ const EventParams = z.object({ id: z.string().uuid() });
 const LocalTime = z
   .string()
   .regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/, "Expected HH:MM (24h) local time");
+
+/**
+ * A show's poster may only be a file the host profile uploaded into its own
+ * storage folder.
+ *
+ * `assertProfileImageFiles` is the profile editor's check, unchanged — the
+ * ownership question is identical ("is this file this profile's?") and the answer
+ * must not be allowed to differ between a venue's avatar and its show's poster.
+ * `undefined` means the caller said nothing about the picture; `null` means they
+ * removed it. Neither names a file, so neither is checked.
+ */
+async function assertEventImageFile(
+  database: Parameters<typeof assertProfileImageFiles>[0],
+  hostProfileId: string,
+  imageFileId: string | null | undefined,
+): Promise<void> {
+  if (!imageFileId) return;
+  await assertProfileImageFiles(database, hostProfileId, [imageFileId]);
+}
+
+/**
+ * The poster, in the two forms the schema keeps — an uploaded FILE or an external
+ * ADDRESS (see migration 0026). Declared once and spread into both bodies,
+ * because "how a show names its picture" must not be able to differ between
+ * creating one and editing one.
+ *
+ * Setting one does not clear the other: the read side resolves the ladder (file
+ * wins), so the editor sends `imageFileId` on upload and both as `null` to take
+ * the poster off — exactly the contract the profile editor already follows.
+ */
+const httpImageUrl = z
+  .string()
+  .url()
+  .max(2000)
+  .refine(
+    (value) => value.startsWith("https://") || value.startsWith("http://"),
+    "An image address must be http(s).",
+  );
+
+const EventImageFields = {
+  imageFileId: z.string().uuid().nullable().optional(),
+  imageUrl: httpImageUrl.nullable().optional(),
+};
+
+// ── The bill, and the agreement, stated at create ────────────────────────────
+//
+// The create wizard's second step asks for the deal, and until now the answer
+// went into `events.extras.dealDraft`, which NOTHING reads (ClickUp 86cbaxu52):
+// the operator typed a guarantee and a split, the screen said the settlement was
+// being set up, and `select count(*) from deals where event_id = …` answered 0.
+//
+// A deal cannot be stated without saying who it is WITH, and a `deal_parties`
+// row keys to an `event_participants` row — which does not exist while the event
+// is still being created. So the two arrive together: `participants` names the
+// profiles joining the bill, `deal.parties` names them again by their ROLE in
+// the agreement, and the resolver below turns both into rows inside the one
+// transaction that creates the event.
+//
+// The parties are named by PROFILE, deliberately. A participant id is something
+// only the server can know here, and inventing a client-side placeholder for one
+// would be a second identity to keep straight. Every profile a deal names must
+// be either the host or one of the participants this same request adds — a deal
+// may not reach for a stranger.
+//
+// Two things this deliberately does NOT do:
+//   - it does not accept `commission` as a party role. decisions #14 puts an
+//     agent's commission in its own representation-scoped settlement, and the
+//     one remaining reading (a disclosed, off-the-top commission) is not wired
+//     into the engine — offering it would be offering a term nothing pays.
+//   - it does not accept a `cost_split` in any form (decisions #16.3: a deal
+//     starts with none and the operator opts in later).
+
+const CreateEventDealParty = z.object({
+  /**
+   * A PROFILE, not an `event_participants` id: no participant exists until this
+   * request creates them. The row created for this profile IS the deal party.
+   */
+  profileId: z.string().uuid(),
+  /**
+   * `commission` is absent on purpose — see the block above. `payer` funds the
+   * agreement; `payee` / `split_member` are the lines the engine pays.
+   */
+  roleInDeal: z.enum(["payer", "payee", "split_member", "observer"]),
+  /** Basis points of THIS deal's payout, read only when several lines share it. */
+  share: z
+    .object({ splitBasisPoints: z.number().int().min(0).max(10000) })
+    .strict()
+    .optional(),
+});
+
+const CreateEventDeal = z.object({
+  type: z.enum(schema.dealType.enumValues),
+  /**
+   * Absent = a paper-only agreement (`deals.structure` NULL): recorded, signed,
+   * never computed. The four named here are the whole of `dealEntitlement()`
+   * (decisions #16.2) — a shape outside them is paper, not a fifth structure.
+   */
+  structure: z.enum(["guarantee", "door_split", "guarantee_vs_door", "rental"]).optional(),
+  name: z.string().min(1),
+  /** Minor units as a decimal string (money.md) — parsed to bigint server-side. */
+  guaranteeAmount: z
+    .string()
+    .regex(/^-?\d+$/)
+    .optional(),
+  advanceAmount: z
+    .string()
+    .regex(/^-?\d+$/)
+    .optional(),
+  /** Basis points of the POOL (4000 = 40.00%), matching `deals.split_basis_points`. */
+  splitBasisPoints: z.number().int().min(0).max(10000).optional(),
+  paymentTiming: z.enum(["before_event", "at_settlement", "due_date"]).optional(),
+  parties: z.array(CreateEventDealParty).min(1),
+});
+
+/**
+ * A profile joining the bill as the event is created.
+ *
+ * `performer` and `support` only. `crew` carries a sponsor stamp (decisions #12)
+ * and `agent` an auto-assignment rule (#14) that both belong to the routes that
+ * own them; a co-host is a grant of authority that should be asked for out loud
+ * rather than folded into a create.
+ */
+const CreateEventParticipant = z.object({
+  profileId: z.string().uuid(),
+  role: z.enum(["performer", "support"]).default("performer"),
+  performerTag: z.enum(["headliner", "support", "dj", "opener"]).optional(),
+});
+
+type CreateEventDealBody = z.infer<typeof CreateEventDeal>;
+
+/**
+ * The stated deal, in the shape `dealDraftProblems()` already judges.
+ *
+ * That validator is the composer's, and it stays the only one: every rule it
+ * states (an agreement needs a party, an entitled line, a fixed amount for a
+ * fixed structure, shares that divide the payout exactly) is a rule this path
+ * needs too, and a second copy would be a second answer. It reads MAJOR units
+ * and percentages as typed, so the minor-unit wire values are converted back —
+ * cheaper than teaching two modules two number formats.
+ *
+ * `participantId` carries a PROFILE id here. The rules it feeds are
+ * identity-agnostic (is a line filled in, is it duplicated, do the shares add
+ * up), and every one of these profiles becomes a participant a few lines later.
+ */
+function dealDraftFromBody(deal: CreateEventDealBody, currency: string): DealDraft {
+  const major = (minor: string | undefined): string =>
+    minor == null ? "" : minorToDecimalString({ amount: BigInt(minor), currency });
+  return {
+    name: deal.name,
+    type: deal.type,
+    structure: deal.structure ?? null,
+    currency,
+    guaranteeAmount: major(deal.guaranteeAmount),
+    advanceAmount: major(deal.advanceAmount),
+    splitPercent: deal.splitBasisPoints == null ? "" : basisPointsToPercent(deal.splitBasisPoints),
+    paymentTiming: deal.paymentTiming ?? "at_settlement",
+    parties: deal.parties.map((party, index) => ({
+      key: `party-${index}`,
+      participantId: party.profileId,
+      roleInDeal: party.roleInDeal,
+      sharePercent: party.share == null ? "" : basisPointsToPercent(party.share.splitBasisPoints),
+    })),
+  };
+}
+
+/**
+ * Refuse a deal the settlement engine could not reconcile, before anything is
+ * written — a 400 saying which rule broke, rather than a row that settles as
+ * nothing.
+ */
+function assertDealIsSettleable(
+  deal: CreateEventDealBody,
+  currency: string,
+  reachableProfileIds: ReadonlySet<string>,
+): void {
+  for (const party of deal.parties) {
+    if (!reachableProfileIds.has(party.profileId)) {
+      throw badRequest("Every deal party must be a participant on this event");
+    }
+  }
+  const problems = dealDraftProblems(dealDraftFromBody(deal, currency));
+  if (problems.length > 0) throw badRequest(problems.join(" "));
+}
+
+/**
+ * Join the profiles named on the bill, and answer with participant id per
+ * profile — the host's own row included, because the host is a party to its own
+ * agreements and `deal_parties` needs the id either way.
+ */
+async function joinParticipants(
+  tx: Transaction,
+  request: FastifyRequest,
+  input: {
+    eventId: string;
+    hostParticipantId: string;
+    hostProfileId: string;
+    participants: z.infer<typeof CreateEventParticipant>[];
+  },
+): Promise<Map<string, string>> {
+  const participantIdByProfile = new Map<string, string>([
+    [input.hostProfileId, input.hostParticipantId],
+  ]);
+  if (input.participants.length === 0) return participantIdByProfile;
+  const principal = request.principal;
+  if (!principal) throw new Error("principal missing after authentication");
+
+  for (const joining of input.participants) {
+    if (participantIdByProfile.has(joining.profileId)) continue;
+    const [participant] = await tx
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: input.eventId,
+        profileId: joining.profileId,
+        role: joining.role,
+        performerTag: joining.performerTag,
+        // `invited`, the column's own default: being named on a bill somebody
+        // else is drawing up is not the same as having agreed to play it.
+        status: "invited",
+        addedBy: principal.userId,
+      })
+      .returning();
+    if (!participant) throw new Error("participant create failed");
+    participantIdByProfile.set(joining.profileId, participant.id);
+
+    await writeAudit(tx, request, {
+      capability: "participants.manage",
+      action: "participant.add",
+      targetKind: "event_participant",
+      targetId: participant.id,
+      eventId: input.eventId,
+      after: participant,
+    });
+    await writeActivity(tx, request, {
+      eventId: input.eventId,
+      type: "participant.added",
+      targetKind: "event",
+      targetId: input.eventId,
+      summary: { profileId: participant.profileId, role: participant.role },
+    });
+    // The FUTURE-events rule (decisions #14) is a property of a performer
+    // joining an event, not of the route they joined through — so it runs here
+    // for the same reason it runs on `POST /events/:id/participants`.
+    const [event] = await tx
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.id, input.eventId));
+    if (event) await autoAssignAgentOnPerformerJoin(tx, event, participant.profileId);
+  }
+  return participantIdByProfile;
+}
+
+/** Write the stated agreement as a real `deals` + `deal_parties` record. */
+async function createStatedDeal(
+  tx: Transaction,
+  request: FastifyRequest,
+  input: {
+    eventId: string;
+    deal: CreateEventDealBody;
+    currency: string;
+    participantIdByProfile: ReadonlyMap<string, string>;
+  },
+): Promise<void> {
+  const principal = request.principal;
+  if (!principal) throw new Error("principal missing after authentication");
+  const stated = input.deal;
+
+  const [deal] = await tx
+    .insert(schema.deals)
+    .values({
+      eventId: input.eventId,
+      type: stated.type,
+      structure: stated.structure,
+      name: stated.name,
+      // The event's base currency IS the payout currency of a deal stated while
+      // the event is being created — there is not yet a second one to choose.
+      currency: input.currency,
+      guaranteeAmount: stated.guaranteeAmount != null ? BigInt(stated.guaranteeAmount) : undefined,
+      advanceAmount: stated.advanceAmount != null ? BigInt(stated.advanceAmount) : undefined,
+      splitBasisPoints: stated.splitBasisPoints,
+      paymentTiming: stated.paymentTiming,
+      // `status` stays the column default (`draft`): terms one side typed are a
+      // proposal until the parties confirm them.
+      createdBy: principal.userId,
+    })
+    .returning();
+  if (!deal) throw new Error("deal create failed");
+
+  const parties = await tx
+    .insert(schema.dealParties)
+    .values(
+      stated.parties.map((party) => {
+        const participantId = input.participantIdByProfile.get(party.profileId);
+        if (!participantId) throw new Error("deal party participant missing");
+        return {
+          dealId: deal.id,
+          participantId,
+          roleInDeal: party.roleInDeal,
+          share: party.share ?? null,
+        };
+      }),
+    )
+    .returning();
+
+  await writeAudit(tx, request, {
+    capability: "deal.edit",
+    action: "deal.create",
+    targetKind: "deal",
+    targetId: deal.id,
+    eventId: input.eventId,
+    after: serializeDealUnredacted(deal, parties),
+  });
+  await writeActivity(tx, request, {
+    eventId: input.eventId,
+    type: "deal.created",
+    targetKind: "deal",
+    targetId: deal.id,
+    summary: { name: deal.name, type: deal.type },
+  });
+}
 
 const CreateEventBody = z.object({
   title: z.string().min(1),
@@ -37,8 +366,13 @@ const CreateEventBody = z.object({
   stageId: z.string().uuid().optional(),
   notes: z.string().optional(),
   extras: EventExtrasSchema.optional(),
+  ...EventImageFields,
   /** Explicit IANA zone override; otherwise snapshotted from the venue (decisions #10). */
   timezone: z.string().optional(),
+  /** Profiles joining the bill with the event — see the block above. */
+  participants: z.array(CreateEventParticipant).optional(),
+  /** The agreement stated while creating the event — see the block above. */
+  deal: CreateEventDeal.optional(),
 });
 
 const UpdateEventBody = z.object({
@@ -58,6 +392,7 @@ const UpdateEventBody = z.object({
   capacity: z.number().int().nonnegative().nullable().optional(),
   stageId: z.string().uuid().nullable().optional(),
   extras: EventExtrasSchema.nullable().optional(),
+  ...EventImageFields,
   timezone: z.string().optional(),
   /** Expected version for optimistic locking (decisions #8); mismatch → 409. */
   expectedVersion: z.number().int().optional(),
@@ -75,11 +410,14 @@ const EventResponse = z.object({
   endTime: z.string().nullable(),
   curfew: z.string().nullable(),
   timezone: z.string().nullable(),
+  hostProfileId: z.string(),
   venueProfileId: z.string().nullable(),
   venueName: z.string().nullable(),
   capacity: z.number().nullable(),
   stageId: z.string().nullable(),
   notes: z.string().nullable(),
+  /** Signed per response when the poster is an upload — never a stored value. */
+  imageUrl: z.string().nullable(),
   version: z.number(),
   /** The caller's OWN effective capabilities here — what the workspace may offer. */
   capabilities: z.array(z.string()),
@@ -328,6 +666,40 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
       }
       const { database } = request.server;
 
+      // The bill and the agreement, checked BEFORE anything is written. The
+      // creator is the host of the event it is creating and receives the
+      // `operator_full` set in this same transaction, which carries both
+      // `participants.manage` and `deal.edit` — there is no earlier event to
+      // authorize against, so the gate is the operator-kind check above plus
+      // the fact that these rows can only ever be the caller's own event's.
+      const joiningProfileIds = [
+        ...new Set((request.body.participants ?? []).map((party) => party.profileId)),
+      ];
+      if (joiningProfileIds.includes(actingProfileId)) {
+        throw badRequest("The host is already on the event and cannot be added again");
+      }
+      if (joiningProfileIds.length > 0) {
+        const found = await database
+          .select({ id: schema.profiles.id })
+          .from(schema.profiles)
+          .where(inArray(schema.profiles.id, joiningProfileIds));
+        if (found.length !== joiningProfileIds.length) {
+          throw badRequest("Every participant must be a profile that exists");
+        }
+      }
+      if (request.body.deal) {
+        assertDealIsSettleable(
+          request.body.deal,
+          request.body.baseCurrency,
+          new Set([actingProfileId, ...joiningProfileIds]),
+        );
+      }
+
+      // Whom to tell, once the transaction has actually committed. Empty on an
+      // idempotent replay, because the closure below does not run a second time
+      // — a retried create must not re-announce itself.
+      let joinedProfileIds: string[] = [];
+
       const { statusCode, body } = await withIdempotency(request, "POST /events", async () => {
         const created = await database.transaction(async (tx) => {
           const [permissionSet] = await tx
@@ -349,6 +721,13 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
             ? await loadVenueProfileDefaults(tx, request.body.venueProfileId)
             : null;
           const fromVenue = defaults ? venuePrefill(defaults, request.body, {}) : {};
+          // The poster must be a file THIS profile uploaded, into its own storage
+          // folder. Without the check an operator could point their show at a
+          // file id belonging to another profile and publish a picture out of
+          // somebody else's folder — the same rule, and the same helper, that
+          // guards a profile's avatar.
+          await assertEventImageFile(tx, actingProfileId, request.body.imageFileId);
+
           const [event] = await tx
             .insert(schema.events)
             .values({
@@ -366,19 +745,25 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
               stageId: request.body.stageId,
               notes: request.body.notes,
               extras: request.body.extras,
+              imageFileId: request.body.imageFileId,
+              imageUrl: request.body.imageUrl,
               ...fromVenue,
               timezone,
               createdBy: principal.userId,
             })
             .returning();
           if (!event || !permissionSet) throw new Error("event create failed");
-          await tx.insert(schema.eventParticipants).values({
-            eventId: event.id,
-            profileId: actingProfileId,
-            role: "host",
-            permissionSetId: permissionSet.id,
-            status: "confirmed",
-          });
+          const [hostParticipant] = await tx
+            .insert(schema.eventParticipants)
+            .values({
+              eventId: event.id,
+              profileId: actingProfileId,
+              role: "host",
+              permissionSetId: permissionSet.id,
+              status: "confirmed",
+            })
+            .returning();
+          if (!hostParticipant) throw new Error("host participant create failed");
           // The host's own budget, opened with the event. Provisioning also runs
           // lazily on the first budget read (which is what heals events made
           // before this existed), but doing it here means a brand-new event is
@@ -404,10 +789,59 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
             targetId: event.id,
             summary: { status: event.status },
           });
+
+          // The rest of the bill, and the agreement stated over it — written
+          // AFTER the event's own history line, so the story reads in the order
+          // it happened. Same transaction on purpose: a deal whose parties are
+          // half-written is not a deal, and a wizard that reported success on
+          // the event while dropping the terms is the bug this closes.
+          const participantIdByProfile = await joinParticipants(tx, request, {
+            eventId: event.id,
+            hostParticipantId: hostParticipant.id,
+            hostProfileId: actingProfileId,
+            participants: request.body.participants ?? [],
+          });
+          if (request.body.deal) {
+            await createStatedDeal(tx, request, {
+              eventId: event.id,
+              deal: request.body.deal,
+              currency: request.body.baseCurrency,
+              participantIdByProfile,
+            });
+          }
+          joinedProfileIds = joiningProfileIds;
           return event;
         });
-        return { statusCode: 201, body: serializeEvent(created, OPERATOR_CAPABILITIES) };
+        const imageUrls = await signProfileImageUrls(database, request.server.storageSigner, [
+          created.imageFileId,
+        ]);
+        return {
+          statusCode: 201,
+          body: serializeEvent(created, OPERATOR_CAPABILITIES, imageUrls),
+        };
       });
+
+      // Being added to somebody's bill is news. Best-effort and after the
+      // commit, exactly as `POST /events/:id/participants` does it: a delivery
+      // failure must never undo an event that is already created.
+      for (const profileId of joinedProfileIds) {
+        try {
+          await notifyProfileMembers(database, profileId, principal.userId, {
+            type: "event.participant_added",
+            title: `Added to "${body.title}"`,
+            body: `You were added to "${body.title}".`,
+            eventId: body.id,
+            actorDisplay: request.firebaseUser?.name ?? undefined,
+            link: `/events/${body.id}`,
+            metadata: { eventId: body.id },
+          });
+        } catch (error) {
+          request.log.error(
+            { error, eventId: body.id, profileId },
+            "participant-add notification failed",
+          );
+        }
+      }
 
       return reply.status(statusCode as 201).send(body);
     },
@@ -425,7 +859,12 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
       const [event] = await database.select().from(schema.events).where(eq(schema.events.id, id));
       if (!event) throw notFound("Event not found");
 
-      return serializeEvent(event, capabilities);
+      // An uploaded poster is bytes in a private bucket, so what goes on the wire
+      // is a URL signed for this response — see `serialize/image.ts`.
+      const imageUrls = await signProfileImageUrls(database, request.server.storageSigner, [
+        event.imageFileId,
+      ]);
+      return serializeEvent(event, capabilities, imageUrls);
     },
   );
 
@@ -449,6 +888,11 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
       // this path and the hold paths can never drift. Composed AFTER authorization,
       // never conflated with it.
       await assertEventCapAllows(database, before, fields.status);
+
+      // The poster is checked against the event's HOST, not the caller's acting
+      // profile: an agent or a co-host may hold `event.edit` here, and the file
+      // that ends up on the row has to live in the folder the event belongs to.
+      await assertEventImageFile(database, before.hostProfileId, fields.imageFileId);
 
       // A-22's preconditions live on `POST /events/:id/publish`, which is the
       // audited path and the one that writes an `event.published` history line.
@@ -550,7 +994,10 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
         return after;
       });
 
-      return serializeEvent(updated, capabilities);
+      const imageUrls = await signProfileImageUrls(database, request.server.storageSigner, [
+        updated.imageFileId,
+      ]);
+      return serializeEvent(updated, capabilities, imageUrls);
     },
   );
 

@@ -9,7 +9,7 @@ import {
   TextField,
 } from "@showme/design-system";
 import { formatDurationClock } from "@showme/shared";
-import { formatDate, formatMoney } from "../lib/format";
+import { formatDate, formatDay, formatMoney } from "../lib/format";
 import { FILING_FORMATS, type FilingFormat, MISSING_FILING_FIELDS } from "../lib/proFilingExport";
 import { Eyebrow } from "./primitives";
 import { ErrorState, LoadingState } from "./states";
@@ -112,7 +112,7 @@ function FilingSummary({ report }: { report: ReportState }) {
           the society (decisions.md #17). "—" when the venue has no address. */}
       <KeyValueRow label="Territory" value={report.territory ?? "—"} />
       <KeyValueRow label="Event" value={report.filing?.eventTitle || "—"} />
-      <KeyValueRow label="Date" value={report.filing?.eventDate ?? "—"} />
+      <KeyValueRow label="Date" value={formatDay(report.filing?.eventDate)} />
       <KeyValueRow label="Venue" value={report.filing?.venueName ?? "—"} />
       <KeyValueRow
         label={report.performers.length === 1 ? "Performer" : "Performers"}

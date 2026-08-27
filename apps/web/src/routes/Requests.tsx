@@ -12,6 +12,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import {
+  DateText,
   MiniMonthCalendar,
   RequestCard,
   type RequestCardData,
@@ -23,7 +24,7 @@ import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
 import { useRequestTriage } from "../components/useRequestTriage";
 import { type RequestItem, useRequestInbox } from "../hooks/useRequestInbox";
-import { formatAmount, formatDate, formatMoney, relativeTime } from "../lib/format";
+import { formatAmount, formatDay, formatMoney, relativeTime } from "../lib/format";
 
 /** Booking-request status → design-system status vocabulary + a display label. */
 const REQUEST_STATUS: Record<string, { status: Status; label: string }> = {
@@ -124,7 +125,7 @@ function toCardData(request: RequestItem): RequestCardData {
     contactLine: contactLine(request),
     status: meta.status,
     statusLabel: meta.label,
-    wantedDate: formatDate(request.wantedDate, { day: "2-digit", month: "short", year: "numeric" }),
+    wantedDate: formatDay(request.wantedDate),
     source: request.source
       ? request.source.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase())
       : "—",
@@ -266,9 +267,11 @@ export function Requests() {
           <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
               {selectedDay && (
-                <span style={{ fontFamily: "var(--font-display)", fontSize: 16, marginRight: 8 }}>
-                  {formatDate(selectedDay, { weekday: "long", day: "2-digit", month: "long" })}
-                </span>
+                <DateText
+                  value={selectedDay}
+                  weekday
+                  style={{ fontFamily: "var(--font-display)", fontSize: 16, marginRight: 8 }}
+                />
               )}
               {FILTERS.map((option) => (
                 <Chip
@@ -395,10 +398,11 @@ function RequestsByDate({
                       fontFamily: "var(--font-mono)",
                       fontSize: 12,
                       color: "var(--muted)",
-                      minWidth: 52,
+                      minWidth: 96,
+                      whiteSpace: "nowrap",
                     }}
                   >
-                    {formatDate(request.wantedDate, { day: "2-digit", month: "short" })}
+                    {formatDay(request.wantedDate)}
                   </span>
                   <span style={{ color: "var(--text)", fontSize: 13 }}>
                     {requesterName(request)}

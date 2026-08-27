@@ -94,50 +94,92 @@ export function EventVenuePicker({
     setOpen(false);
   };
 
+  // Two states, and they now LOOK different (ClickUp 86cbaxyjy). A picked venue
+  // is a committed chip; free text is a text field. The field used to be one
+  // control in both cases, so typing over a chosen venue silently unlinked the
+  // profile while everything that profile had lent the event — its city, its
+  // capacity — stayed behind under a different room's name. A capacity is not a
+  // decoration: it caps the ticket inventory and draws the break-even line.
+  //
+  // Unlinking is therefore an ACT: the operator takes the chip off, and the
+  // caller (which is the only side that knows what it filled in from the
+  // profile) drops what came with it.
   return (
     <div style={{ position: "relative" }}>
-      <span
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          ...fieldStyle,
-          // `inputStyle` LAST, so a caller can actually change the shell — the
-          // padding used to be re-applied after it, which silently pinned this
-          // field to 9px while the field beside it in the create-event wizard
-          // took the 11px it asked for, and left the event card no way to size
-          // the control down to a table row.
-          padding: "9px 12px",
-          ...inputStyle,
-        }}
-      >
-        {selectedProfileId ? <Icon name="building" size={15} /> : <Icon name="search" size={15} />}
-        <input
-          id={inputId}
-          aria-label={inputAriaLabel}
-          value={value}
-          onFocus={() => setOpen(true)}
-          onChange={(changeEvent) => {
-            onChangeText(changeEvent.target.value);
-            // Typing over a chosen venue unlinks it — the name and the profile
-            // must never disagree about which room this is.
-            if (selectedProfileId) onSelectProfile(null);
-            setOpen(true);
-          }}
-          placeholder={placeholder}
+      {selectedProfileId ? (
+        <span
           style={{
-            flex: 1,
-            minWidth: 0,
-            border: 0,
-            background: "transparent",
-            color: "var(--text)",
-            fontSize: 14,
-            outline: "none",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            ...fieldStyle,
+            padding: "9px 12px",
+            ...inputStyle,
           }}
-        />
-      </span>
+        >
+          <Icon name="building" size={15} />
+          <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: "var(--text)" }}>{value}</span>
+          <button
+            type="button"
+            aria-label={`Unlink ${value || "venue profile"}`}
+            onClick={() => onSelectProfile(null)}
+            style={{
+              display: "grid",
+              placeItems: "center",
+              width: 22,
+              height: 22,
+              borderRadius: 7,
+              border: "1px solid var(--border)",
+              background: "var(--button-surface)",
+              color: "var(--muted)",
+              cursor: "pointer",
+              padding: 0,
+            }}
+          >
+            <Icon name="x" size={13} />
+          </button>
+        </span>
+      ) : (
+        <span
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            ...fieldStyle,
+            // `inputStyle` LAST, so a caller can actually change the shell — the
+            // padding used to be re-applied after it, which silently pinned this
+            // field to 9px while the field beside it in the create-event wizard
+            // took the 11px it asked for, and left the event card no way to size
+            // the control down to a table row.
+            padding: "9px 12px",
+            ...inputStyle,
+          }}
+        >
+          <Icon name="search" size={15} />
+          <input
+            id={inputId}
+            aria-label={inputAriaLabel}
+            value={value}
+            onFocus={() => setOpen(true)}
+            onChange={(changeEvent) => {
+              onChangeText(changeEvent.target.value);
+              setOpen(true);
+            }}
+            placeholder={placeholder}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              border: 0,
+              background: "transparent",
+              color: "var(--text)",
+              fontSize: 14,
+              outline: "none",
+            }}
+          />
+        </span>
+      )}
 
-      {open && (
+      {open && !selectedProfileId && (
         <>
           <button
             type="button"

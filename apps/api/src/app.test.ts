@@ -10,7 +10,7 @@ import type { TokenVerifier } from "./auth/token-verifier";
 /** Fake verifier: the bearer token IS the uid, so tests just send `Bearer <uid>`. */
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -30,7 +30,7 @@ afterAll(async () => {
 
 /** Seed a provisioned user (bare — no memberships). */
 async function seedUser(id: string, kind: "operator" | "performer") {
-  await harness.db.insert(schema.users).values({ id, email: `${id}@example.com`, kind });
+  await harness.db.insert(schema.users).values({ id, email: `${id}@example.showme.test`, kind });
 }
 
 /** Seed a user + profile + active membership + a permission set, return the ids. */
@@ -254,6 +254,206 @@ describe("events — authorize + serialize + audit", () => {
       payload: { title: "Nope" },
     });
     expect(forbidden.statusCode).toBe(403);
+  });
+});
+
+describe("the deal the create wizard states (ClickUp 86cbaxu52)", () => {
+  /**
+   * The wizard's second step used to post its terms as `extras.dealDraft`, which
+   * nothing read: the operator typed a guarantee and a split, the screen said the
+   * settlement was being set up, and `select count(*) from deals` answered 0.
+   * These pin the two halves that fix it — the deal is really written, and a deal
+   * the engine could not reconcile is refused rather than written as nothing.
+   */
+  it("writes the stated deal as real deals + deal_parties rows, with the party joined to the event", async () => {
+    const { db } = harness;
+    const operator = await seedMemberWithSet(
+      "deal-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "deal-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("deal-op"), "x-profile-id": operator.profileId },
+      payload: {
+        title: "Nils Frahm",
+        baseCurrency: "SEK",
+        participants: [{ profileId: performer.profileId, role: "performer" }],
+        deal: {
+          type: "performance",
+          structure: "guarantee_vs_door",
+          name: "deal-perf",
+          // Minor units as a string (money.md) — 5 000.00 SEK.
+          guaranteeAmount: "500000",
+          splitBasisPoints: 7000,
+          paymentTiming: "at_settlement",
+          parties: [
+            { profileId: operator.profileId, roleInDeal: "payer" },
+            { profileId: performer.profileId, roleInDeal: "payee" },
+          ],
+        },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const eventId = created.json().id;
+
+    const deals = await db.select().from(schema.deals).where(eq(schema.deals.eventId, eventId));
+    expect(deals).toHaveLength(1);
+    const deal = deals[0];
+    if (!deal) throw new Error("deal missing");
+    expect(deal).toMatchObject({
+      type: "performance",
+      structure: "guarantee_vs_door",
+      currency: "SEK",
+      guaranteeAmount: 500000n,
+      splitBasisPoints: 7000,
+      // Terms one side typed are a proposal until the parties confirm them.
+      status: "draft",
+    });
+
+    const participants = await db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.eventId, eventId));
+    expect(participants).toHaveLength(2);
+    const performerParticipant = participants.find((row) => row.profileId === performer.profileId);
+    expect(performerParticipant).toMatchObject({ role: "performer", status: "invited" });
+
+    const parties = await db
+      .select()
+      .from(schema.dealParties)
+      .where(eq(schema.dealParties.dealId, deal.id));
+    expect(parties).toHaveLength(2);
+    // Named by PROFILE on the wire, resolved to the participant rows this same
+    // request created — that resolution is the whole point of the new fields.
+    const payee = parties.find((party) => party.roleInDeal === "payee");
+    expect(payee?.participantId).toBe(performerParticipant?.id);
+    const payer = parties.find((party) => party.roleInDeal === "payer");
+    expect(payer?.participantId).toBe(
+      participants.find((row) => row.profileId === operator.profileId)?.id,
+    );
+  });
+
+  it("refuses a structure with no figure for the engine to settle, and creates nothing", async () => {
+    const { db } = harness;
+    const operator = await seedMemberWithSet(
+      "deal-op-bad",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "deal-perf-bad",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+
+    const refused = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("deal-op-bad"), "x-profile-id": operator.profileId },
+      payload: {
+        title: "No figure",
+        baseCurrency: "SEK",
+        participants: [{ profileId: performer.profileId, role: "performer" }],
+        deal: {
+          type: "performance",
+          // A guarantee that states no guarantee settles as nothing.
+          structure: "guarantee",
+          name: "deal-perf-bad",
+          parties: [
+            { profileId: operator.profileId, roleInDeal: "payer" },
+            { profileId: performer.profileId, roleInDeal: "payee" },
+          ],
+        },
+      },
+    });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error.message).toMatch(/fixed amount/i);
+
+    // Refused BEFORE the transaction — no half-made event left behind.
+    const events = await db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.hostProfileId, operator.profileId));
+    expect(events).toHaveLength(0);
+  });
+
+  it("refuses a deal party that is not on the event", async () => {
+    const operator = await seedMemberWithSet(
+      "deal-op-stranger",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const stranger = await seedMemberWithSet(
+      "deal-stranger",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+
+    const refused = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("deal-op-stranger"), "x-profile-id": operator.profileId },
+      payload: {
+        title: "Reaching for a stranger",
+        baseCurrency: "SEK",
+        deal: {
+          type: "performance",
+          structure: "guarantee",
+          name: "stranger",
+          guaranteeAmount: "100000",
+          parties: [
+            { profileId: operator.profileId, roleInDeal: "payer" },
+            { profileId: stranger.profileId, roleInDeal: "payee" },
+          ],
+        },
+      },
+    });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error.message).toMatch(/participant on this event/i);
+  });
+
+  it("refuses a nobody-is-paid agreement", async () => {
+    const operator = await seedMemberWithSet(
+      "deal-op-unpaid",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "deal-perf-unpaid",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+
+    const refused = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("deal-op-unpaid"), "x-profile-id": operator.profileId },
+      payload: {
+        title: "Nobody is paid",
+        baseCurrency: "SEK",
+        participants: [{ profileId: performer.profileId, role: "performer" }],
+        deal: {
+          type: "performance",
+          structure: "guarantee",
+          name: "unpaid",
+          guaranteeAmount: "100000",
+          parties: [
+            { profileId: operator.profileId, roleInDeal: "payer" },
+            { profileId: performer.profileId, roleInDeal: "observer" },
+          ],
+        },
+      },
+    });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error.message).toMatch(/Nobody on this agreement is paid/i);
   });
 });
 

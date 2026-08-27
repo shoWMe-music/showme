@@ -17,4 +17,5 @@ export type PostApiV1EventsIdSettlementCompute200BreakdownsItem = {
   commissionEarned?: string;
   deductibles?: string;
   residual?: string;
+  prepaid?: string;
 };

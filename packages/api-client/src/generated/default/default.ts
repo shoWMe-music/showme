@@ -32,6 +32,7 @@ import type {
   DeleteApiV1EventsIdBudgetsBidLinesLidBody,
   DeleteApiV1EventsIdGroupsGid200,
   DeleteApiV1EventsIdParticipantsPid200,
+  DeleteApiV1EventsIdSettlementLinesLid200,
   DeleteApiV1GroupsGidMembersMid200,
   DeleteApiV1GroupsGidProfilesPid200,
   DeleteApiV1IntegrationsCalendarId200,
@@ -72,6 +73,7 @@ import type {
   GetApiV1EventsIdSetlists200Item,
   GetApiV1EventsIdSetlistsSetlistIdShares200Item,
   GetApiV1EventsIdSettlementComments200Item,
+  GetApiV1EventsIdSettlementLines200Item,
   GetApiV1EventsIdSettlementPlannedVsActual200,
   GetApiV1EventsIdSettlements200,
   GetApiV1EventsIdShares200Item,
@@ -137,6 +139,8 @@ import type {
   PatchApiV1EventsIdParticipantsPidBody,
   PatchApiV1EventsIdScheduleSid200,
   PatchApiV1EventsIdScheduleSidBody,
+  PatchApiV1EventsIdSettlementLinesLid200,
+  PatchApiV1EventsIdSettlementLinesLidBody,
   PatchApiV1EventsIdSettlementsSid200,
   PatchApiV1EventsIdSettlementsSidBody,
   PatchApiV1EventsIdTransfersTid200,
@@ -223,6 +227,10 @@ import type {
   PostApiV1EventsIdSettlementCommentsBody,
   PostApiV1EventsIdSettlementCompute200,
   PostApiV1EventsIdSettlementFinalize200,
+  PostApiV1EventsIdSettlementInvitations201,
+  PostApiV1EventsIdSettlementInvitationsBody,
+  PostApiV1EventsIdSettlementLines201,
+  PostApiV1EventsIdSettlementLinesBody,
   PostApiV1EventsIdSettlementStatus200,
   PostApiV1EventsIdSettlementStatusBody,
   PostApiV1EventsIdSettlementsSidConfirm200,
@@ -3429,6 +3437,325 @@ const {mutation: mutationOptions} = options ?
       > => {
 
       const mutationOptions = getPostApiV1EventsIdSettlementStatusMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const postApiV1EventsIdSettlementInvitations = (
+    id: string,
+    postApiV1EventsIdSettlementInvitationsBody: PostApiV1EventsIdSettlementInvitationsBody,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1EventsIdSettlementInvitations201>(
+      {url: `/api/v1/events/${id}/settlement/invitations`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: postApiV1EventsIdSettlementInvitationsBody, signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1EventsIdSettlementInvitationsMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdSettlementInvitations>>, TError,{id: string;data: PostApiV1EventsIdSettlementInvitationsBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdSettlementInvitations>>, TError,{id: string;data: PostApiV1EventsIdSettlementInvitationsBody}, TContext> => {
+
+const mutationKey = ['postApiV1EventsIdSettlementInvitations'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1EventsIdSettlementInvitations>>, {id: string;data: PostApiV1EventsIdSettlementInvitationsBody}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  postApiV1EventsIdSettlementInvitations(id,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1EventsIdSettlementInvitationsMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1EventsIdSettlementInvitations>>>
+    export type PostApiV1EventsIdSettlementInvitationsMutationBody = PostApiV1EventsIdSettlementInvitationsBody
+    export type PostApiV1EventsIdSettlementInvitationsMutationError = unknown
+
+    export const usePostApiV1EventsIdSettlementInvitations = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdSettlementInvitations>>, TError,{id: string;data: PostApiV1EventsIdSettlementInvitationsBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1EventsIdSettlementInvitations>>,
+        TError,
+        {id: string;data: PostApiV1EventsIdSettlementInvitationsBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1EventsIdSettlementInvitationsMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const getApiV1EventsIdSettlementLines = (
+    id: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1EventsIdSettlementLines200Item[]>(
+      {url: `/api/v1/events/${id}/settlement/lines`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1EventsIdSettlementLinesQueryKey = (id?: string,) => {
+    return [
+    `/api/v1/events/${id}/settlement/lines`
+    ] as const;
+    }
+
+    
+export const getGetApiV1EventsIdSettlementLinesQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1EventsIdSettlementLines>>, TError = unknown>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdSettlementLines>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1EventsIdSettlementLinesQueryKey(id);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1EventsIdSettlementLines>>> = ({ signal }) => getApiV1EventsIdSettlementLines(id, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdSettlementLines>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1EventsIdSettlementLinesQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1EventsIdSettlementLines>>>
+export type GetApiV1EventsIdSettlementLinesQueryError = unknown
+
+
+export function useGetApiV1EventsIdSettlementLines<TData = Awaited<ReturnType<typeof getApiV1EventsIdSettlementLines>>, TError = unknown>(
+ id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdSettlementLines>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1EventsIdSettlementLines>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1EventsIdSettlementLines>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1EventsIdSettlementLines<TData = Awaited<ReturnType<typeof getApiV1EventsIdSettlementLines>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdSettlementLines>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1EventsIdSettlementLines>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1EventsIdSettlementLines>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1EventsIdSettlementLines<TData = Awaited<ReturnType<typeof getApiV1EventsIdSettlementLines>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdSettlementLines>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1EventsIdSettlementLines<TData = Awaited<ReturnType<typeof getApiV1EventsIdSettlementLines>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdSettlementLines>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1EventsIdSettlementLinesQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const postApiV1EventsIdSettlementLines = (
+    id: string,
+    postApiV1EventsIdSettlementLinesBody: PostApiV1EventsIdSettlementLinesBody,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1EventsIdSettlementLines201>(
+      {url: `/api/v1/events/${id}/settlement/lines`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: postApiV1EventsIdSettlementLinesBody, signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1EventsIdSettlementLinesMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdSettlementLines>>, TError,{id: string;data: PostApiV1EventsIdSettlementLinesBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdSettlementLines>>, TError,{id: string;data: PostApiV1EventsIdSettlementLinesBody}, TContext> => {
+
+const mutationKey = ['postApiV1EventsIdSettlementLines'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1EventsIdSettlementLines>>, {id: string;data: PostApiV1EventsIdSettlementLinesBody}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  postApiV1EventsIdSettlementLines(id,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1EventsIdSettlementLinesMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1EventsIdSettlementLines>>>
+    export type PostApiV1EventsIdSettlementLinesMutationBody = PostApiV1EventsIdSettlementLinesBody
+    export type PostApiV1EventsIdSettlementLinesMutationError = unknown
+
+    export const usePostApiV1EventsIdSettlementLines = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdSettlementLines>>, TError,{id: string;data: PostApiV1EventsIdSettlementLinesBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1EventsIdSettlementLines>>,
+        TError,
+        {id: string;data: PostApiV1EventsIdSettlementLinesBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1EventsIdSettlementLinesMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const patchApiV1EventsIdSettlementLinesLid = (
+    id: string,
+    lid: string,
+    patchApiV1EventsIdSettlementLinesLidBody: PatchApiV1EventsIdSettlementLinesLidBody,
+ ) => {
+      
+      
+      return customFetch<PatchApiV1EventsIdSettlementLinesLid200>(
+      {url: `/api/v1/events/${id}/settlement/lines/${lid}`, method: 'PATCH',
+      headers: {'Content-Type': 'application/json', },
+      data: patchApiV1EventsIdSettlementLinesLidBody
+    },
+      );
+    }
+  
+
+
+export const getPatchApiV1EventsIdSettlementLinesLidMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof patchApiV1EventsIdSettlementLinesLid>>, TError,{id: string;lid: string;data: PatchApiV1EventsIdSettlementLinesLidBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof patchApiV1EventsIdSettlementLinesLid>>, TError,{id: string;lid: string;data: PatchApiV1EventsIdSettlementLinesLidBody}, TContext> => {
+
+const mutationKey = ['patchApiV1EventsIdSettlementLinesLid'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof patchApiV1EventsIdSettlementLinesLid>>, {id: string;lid: string;data: PatchApiV1EventsIdSettlementLinesLidBody}> = (props) => {
+          const {id,lid,data} = props ?? {};
+
+          return  patchApiV1EventsIdSettlementLinesLid(id,lid,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PatchApiV1EventsIdSettlementLinesLidMutationResult = NonNullable<Awaited<ReturnType<typeof patchApiV1EventsIdSettlementLinesLid>>>
+    export type PatchApiV1EventsIdSettlementLinesLidMutationBody = PatchApiV1EventsIdSettlementLinesLidBody
+    export type PatchApiV1EventsIdSettlementLinesLidMutationError = unknown
+
+    export const usePatchApiV1EventsIdSettlementLinesLid = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof patchApiV1EventsIdSettlementLinesLid>>, TError,{id: string;lid: string;data: PatchApiV1EventsIdSettlementLinesLidBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof patchApiV1EventsIdSettlementLinesLid>>,
+        TError,
+        {id: string;lid: string;data: PatchApiV1EventsIdSettlementLinesLidBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPatchApiV1EventsIdSettlementLinesLidMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const deleteApiV1EventsIdSettlementLinesLid = (
+    id: string,
+    lid: string,
+ ) => {
+      
+      
+      return customFetch<DeleteApiV1EventsIdSettlementLinesLid200>(
+      {url: `/api/v1/events/${id}/settlement/lines/${lid}`, method: 'DELETE'
+    },
+      );
+    }
+  
+
+
+export const getDeleteApiV1EventsIdSettlementLinesLidMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteApiV1EventsIdSettlementLinesLid>>, TError,{id: string;lid: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof deleteApiV1EventsIdSettlementLinesLid>>, TError,{id: string;lid: string}, TContext> => {
+
+const mutationKey = ['deleteApiV1EventsIdSettlementLinesLid'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteApiV1EventsIdSettlementLinesLid>>, {id: string;lid: string}> = (props) => {
+          const {id,lid} = props ?? {};
+
+          return  deleteApiV1EventsIdSettlementLinesLid(id,lid,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteApiV1EventsIdSettlementLinesLidMutationResult = NonNullable<Awaited<ReturnType<typeof deleteApiV1EventsIdSettlementLinesLid>>>
+    
+    export type DeleteApiV1EventsIdSettlementLinesLidMutationError = unknown
+
+    export const useDeleteApiV1EventsIdSettlementLinesLid = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteApiV1EventsIdSettlementLinesLid>>, TError,{id: string;lid: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteApiV1EventsIdSettlementLinesLid>>,
+        TError,
+        {id: string;lid: string},
+        TContext
+      > => {
+
+      const mutationOptions = getDeleteApiV1EventsIdSettlementLinesLidMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }

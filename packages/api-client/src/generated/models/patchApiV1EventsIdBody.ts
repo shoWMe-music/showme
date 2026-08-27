@@ -49,6 +49,13 @@ export type PatchApiV1EventsIdBody = {
   stageId?: string | null;
   /** @nullable */
   extras?: PatchApiV1EventsIdBodyExtras;
+  /** @nullable */
+  imageFileId?: string | null;
+  /**
+   * @maxLength 2000
+   * @nullable
+   */
+  imageUrl?: string | null;
   timezone?: string;
   expectedVersion?: number;
 };

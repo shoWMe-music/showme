@@ -1,6 +1,6 @@
 import { Button, Modal, TextField } from "@showme/design-system";
 import type { ReactNode } from "react";
-import { formatDate } from "../lib/format";
+import { formatDay } from "../lib/format";
 import { DatePickerField } from "./DatePickerField";
 import { Eyebrow } from "./primitives";
 import type { RequestTriage, RequestTriageAction } from "./useRequestTriage";
@@ -95,8 +95,8 @@ export function RequestTriageDialogs({ triage, onOpenEvents }: RequestTriageDial
           <>
             <Paragraph>
               <Strong>{draft.title}</Strong> is now a draft event
-              {draft.eventDate ? ` on ${formatDate(draft.eventDate)}` : ""}, in {draft.baseCurrency}
-              . The request stays in your inbox as pending — starting the work is not an answer to{" "}
+              {draft.eventDate ? ` on ${formatDay(draft.eventDate)}` : ""}, in {draft.baseCurrency}.
+              The request stays in your inbox as pending — starting the work is not an answer to{" "}
               {requester}.
             </Paragraph>
             <Callout tone={draft.eventCap.allowed ? "neutral" : "danger"}>

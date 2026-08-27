@@ -1,7 +1,17 @@
 import { type getApiV1Profiles, useGetApiV1Profiles, usePostApiV1Events } from "@showme/api-client";
 import { Icon, type IconName, Select, useToast } from "@showme/design-system";
-import { currencyOptionsForCountry, defaultCurrencyForCountry } from "@showme/shared";
-import { useEffect, useId, useState } from "react";
+import {
+  DEAL_STRUCTURE_OPTIONS,
+  type DealDraft,
+  type DealStructure,
+  createDealPayload,
+  currencyOptionsForCountry,
+  dealDraftProblems,
+  defaultCurrencyForCountry,
+  structureNeedsGuarantee,
+  structureNeedsSplit,
+} from "@showme/shared";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { setActiveProfileId } from "../lib/activeProfile";
 import { errorMessage } from "../lib/errors";
@@ -15,11 +25,14 @@ import {
 } from "./HoldPlacement";
 import { PerformerSearch, type PerformerSelection } from "./PerformerSearch";
 import { GlyphButton, GradientButton, XIcon, fieldStyle } from "./eventUi";
+import { suggestedDealName } from "./useDealComposer";
 import { useEventVenuePrefill } from "./useEventVenuePrefill";
 
 /** A performer chosen in the wizard — an existing profile, a contact, or a plain
- * draft name. Persisted to `extras.performers`; materialized into participants
- * (profile → real; contact/draft → off-platform stub) after the event exists. */
+ * draft name. A PROFILE becomes a real `event_participants` row when the deal
+ * step names it as a party (`POST /events` writes both in one transaction); a
+ * contact or a typed draft is recorded in `extras.performers` and joined later,
+ * because neither is yet somebody the settlement can pay. */
 interface WizardPerformer {
   id: string;
   name: string;
@@ -40,10 +53,17 @@ const SOURCE_LABEL: Record<WizardPerformer["source"], string> = {
  * The Create-Event wizard (Your Role → Event Details → Deal Structure), matching
  * the design export. The "Your Role" step lists the operator profiles the user
  * actually owns — one card each; with a single profile the step is skipped
- * entirely and we open on Event Details. Everything captured persists to the
- * real event: step fields map to columns, and role / ticketing / deal-draft to
- * `events.extras` (a passthrough jsonb). Creates the event as the chosen profile
- * (sets `X-Profile-Id`) and hands the new id back so the screen navigates in.
+ * entirely and we open on Event Details (which is why the header counts the
+ * steps rather than claiming three).
+ *
+ * Everything captured persists to the real event: step fields map to columns,
+ * role / ticketing / city to `events.extras` (a passthrough jsonb), and the deal
+ * step to REAL `deals` + `deal_parties` rows written in the same transaction as
+ * the event. It used to go to `extras.dealDraft`, which nothing read — the
+ * operator stated terms and the app threw them away (ClickUp 86cbaxu52).
+ *
+ * Creates the event as the chosen profile (sets `X-Profile-Id`) and hands the
+ * new id back so the screen navigates in.
  */
 export interface NewEventWizardProps {
   open: boolean;
@@ -81,17 +101,71 @@ function typeMeta(type: string | null): { label: string; icon: IconName } {
   return { label, icon: "building" };
 }
 
-const DEAL_TYPES = [
-  { value: "guarantee", label: "Guarantee" },
-  { value: "door_split", label: "Door Split" },
-  { value: "guarantee_vs_door", label: "Guarantee vs Door" },
-  { value: "rental", label: "Rental" },
-];
-const RENTAL_PAID_BY = [
-  { value: "promoter", label: "Promoter" },
-  { value: "venue", label: "Venue" },
-  { value: "performer", label: "Performer" },
-];
+/**
+ * The shapes the settlement engine can actually reconcile — read off the closed
+ * set in `@showme/shared/deal-terms`, never re-typed here. The paper-only option
+ * is left out: this step exists to state figures, and an agreement with none is
+ * composed on the event's own Agreement tab where its body text can be written.
+ */
+const DEAL_STRUCTURES = DEAL_STRUCTURE_OPTIONS.filter(
+  (option): option is typeof option & { value: DealStructure } => option.value !== null,
+).map((option) => ({ value: option.value, label: option.label }));
+
+/**
+ * The agreement the deal step states, in the vocabulary the engine settles.
+ *
+ * `deal_parties` is 1..N and kind-agnostic, so the two ends are named by what
+ * they DO — not by "artist / promoter / venue", the fixed vocabulary this
+ * rebuild deleted (CLAUDE.md on `settlementParties.ts`). The host FUNDS a
+ * booking and IS PAID for a rental, which is why `rental` is the one structure
+ * that turns the two roles around.
+ *
+ * Every party is named by PROFILE id: participants do not exist until the event
+ * does, and `POST /events` resolves each profile to the participant row it
+ * creates for it in the same transaction.
+ */
+function stateDeal(input: {
+  host: { profileId: string; name: string };
+  performer: { profileId: string; name: string };
+  structure: DealStructure;
+  currency: string;
+  guaranteeAmount: string;
+  splitPercent: string;
+}): DealDraft {
+  const hostIsPaid = input.structure === "rental";
+  const parties: DealDraft["parties"] = [
+    {
+      key: "host",
+      participantId: input.host.profileId,
+      roleInDeal: hostIsPaid ? "payee" : "payer",
+      sharePercent: "",
+    },
+    {
+      key: "performer",
+      participantId: input.performer.profileId,
+      roleInDeal: hostIsPaid ? "payer" : "payee",
+      sharePercent: "",
+    },
+  ];
+  return {
+    // "Deal naming uses the name of the person or entity on the agreement"
+    // (2026-08 settlements meeting) — the same helper the composer names by.
+    name: suggestedDealName(parties, [
+      { id: input.host.profileId, label: input.host.name },
+      { id: input.performer.profileId, label: input.performer.name },
+    ]),
+    type: hostIsPaid ? "rental" : "performance",
+    structure: input.structure,
+    currency: input.currency,
+    guaranteeAmount: structureNeedsGuarantee(input.structure) ? input.guaranteeAmount : "",
+    splitPercent: structureNeedsSplit(input.structure) ? input.splitPercent : "",
+    // Neither is asked for here: an advance is a payment plan and a cost split
+    // starts empty by decision (#16.3). Both are set on the event's Deals tab.
+    advanceAmount: "",
+    paymentTiming: "at_settlement",
+    parties,
+  };
+}
 
 type StepKey = "role" | "details" | "deal";
 const STEP_LABEL: Record<StepKey, string> = {
@@ -159,13 +233,12 @@ export function NewEventWizard({
   // isn't loaded on the first render, and a default written once would keep a
   // Stockholm venue on EUR forever after.
   const [currency, setCurrency] = useState<string | null>(null);
-  const [dealType, setDealType] = useState("guarantee_vs_door");
+  const [dealStructure, setDealStructure] = useState<DealStructure>("guarantee_vs_door");
   const [guarantee, setGuarantee] = useState("");
-  const [artistSplit, setArtistSplit] = useState("70");
-  const [promoterSplit, setPromoterSplit] = useState("20");
-  const [venueSplit, setVenueSplit] = useState("10");
-  const [venueRental, setVenueRental] = useState("");
-  const [rentalPaidBy, setRentalPaidBy] = useState("promoter");
+  /** The performer's share OF THE POOL, as a percent — the deal's own split. */
+  const [performerSplit, setPerformerSplit] = useState("70");
+  /** Which linked performer this agreement is with (the others get their own). */
+  const [dealWithPerformerId, setDealWithPerformerId] = useState("");
 
   // Declared above the early return (and above the hook below) so the hook order
   // is identical on every render — the wizard's own rule, see the Escape effect.
@@ -194,22 +267,64 @@ export function NewEventWizard({
   // see and change before the event exists. (The API applies the same
   // fill-a-blank rule server-side, for every other caller.)
   const venueDefaults = useEventVenuePrefill(venueProfileId);
+  /**
+   * Exactly what the linked room LENT this event, so unlinking it can take back
+   * its own facts and nothing else (ClickUp 86cbaxyjy).
+   *
+   * A ref rather than state: it records what a fill did, it never draws
+   * anything, and re-rendering on it would be a render nobody asked for. The
+   * writes below sit inside the state updaters because that is the only place
+   * that knows whether the field was blank enough to fill — they write the same
+   * value every time, so a double-invoked updater changes nothing.
+   */
+  const lentByVenue = useRef<{ city: string | null; capacity: string | null }>({
+    city: null,
+    capacity: null,
+  });
   useEffect(() => {
     if (!venueDefaults) return;
-    if (venueDefaults.city) {
-      setCity((current) => (current.trim() === "" ? (venueDefaults.city ?? "") : current));
+    const lentCity = venueDefaults.city;
+    if (lentCity) {
+      setCity((current) => {
+        if (current.trim() !== "") return current;
+        lentByVenue.current.city = lentCity;
+        return lentCity;
+      });
     }
-    if (venueDefaults.capacity != null) {
-      setCap((current) => (current.trim() === "" ? String(venueDefaults.capacity) : current));
+    const lentCapacity = venueDefaults.capacity;
+    if (lentCapacity != null) {
+      setCap((current) => {
+        if (current.trim() !== "") return current;
+        lentByVenue.current.capacity = String(lentCapacity);
+        return String(lentCapacity);
+      });
     }
   }, [venueDefaults]);
 
   const selectVenueProfile = (choice: VenueChoice | null) => {
-    setVenueProfileId(choice?.profileId ?? null);
+    if (!choice) {
+      // Taking the chip off gives the room its facts back. A figure the operator
+      // typed over is theirs and stays — but a capacity that arrived with The
+      // Lantern Hall must not still be sitting there under a different name,
+      // capping the ticket inventory and drawing the break-even line for a room
+      // this show is no longer in.
+      const { city: lentCity, capacity: lentCapacity } = lentByVenue.current;
+      setCity((current) => (lentCity !== null && current === lentCity ? "" : current));
+      setCap((current) => (lentCapacity !== null && current === lentCapacity ? "" : current));
+      lentByVenue.current = { city: null, capacity: null };
+      setVenueProfileId(null);
+      return;
+    }
+    setVenueProfileId(choice.profileId);
     // The search row already carries the city, so the commonest suggestion lands
     // at once instead of a request later — still only into an empty field.
-    if (choice?.city) {
-      setCity((current) => (current.trim() === "" ? (choice.city ?? "") : current));
+    const offeredCity = choice.city;
+    if (offeredCity) {
+      setCity((current) => {
+        if (current.trim() !== "") return current;
+        lentByVenue.current.city = offeredCity;
+        return offeredCity;
+      });
     }
   };
 
@@ -260,18 +375,16 @@ export function NewEventWizard({
     setArtist("");
     setVenue("");
     setVenueProfileId(null);
+    lentByVenue.current = { city: null, capacity: null };
     setCity("");
     setDate("");
     setCap("");
     setTicketing("");
     setCurrency(null);
-    setDealType("guarantee_vs_door");
+    setDealStructure("guarantee_vs_door");
     setGuarantee("");
-    setArtistSplit("70");
-    setPromoterSplit("20");
-    setVenueSplit("10");
-    setVenueRental("");
-    setRentalPaidBy("promoter");
+    setPerformerSplit("70");
+    setDealWithPerformerId("");
   };
 
   // Escape closes it, like any modal with `aria-modal`. Registered before the
@@ -300,9 +413,34 @@ export function NewEventWizard({
   const currentKey = stepKeys[clampedIndex];
   const isLast = clampedIndex === stepKeys.length - 1;
 
-  const dealIsGuarantee = dealType === "guarantee";
-  const splitTotal = Number(artistSplit) + Number(promoterSplit) + Number(venueSplit);
   const artistLabel = multiPerformer ? "Festival / event name" : "Artist / performer";
+
+  // The agreement can only be stated once the wizard knows WHO it is with. That
+  // is a linked performer profile: a typed name is nobody the settlement can
+  // pay, and minting a profile for someone who never asked for one is not a
+  // decision this wizard takes on its own (old-app-analysis-flows-creation, Q5).
+  const linkedPerformers = performers.filter(
+    (performer): performer is WizardPerformer & { profileId: string } =>
+      Boolean(performer.profileId),
+  );
+  const dealPerformer =
+    linkedPerformers.find((performer) => performer.profileId === dealWithPerformerId) ??
+    linkedPerformers[0];
+  const dealDraft =
+    dealPerformer && selectedProfile
+      ? stateDeal({
+          host: { profileId: selectedProfile.id, name: selectedProfile.name },
+          performer: { profileId: dealPerformer.profileId, name: dealPerformer.name },
+          structure: dealStructure,
+          currency: effectiveCurrency,
+          guaranteeAmount: guarantee,
+          splitPercent: performerSplit,
+        })
+      : null;
+  // The composer's own validator, unchanged: a draft it refuses is one the
+  // engine would settle as nothing, so the wizard refuses it here rather than
+  // sending it and reading back a 400.
+  const dealProblems = dealDraft ? dealDraftProblems(dealDraft) : [];
   // A hold is a claim on a DATE — the API pools competing holds by
   // `(event_date, venue, stage)`, so a dateless hold competes with nothing and
   // means nothing. That is why hold mode requires the date the ordinary create
@@ -317,7 +455,7 @@ export function NewEventWizard({
           venue.trim() !== "" &&
           (!multiPerformer || performers.length > 0) &&
           (!isHold || (date !== "" && !holdPlacement.poolIsPending))
-        : true;
+        : dealProblems.length === 0;
 
   // Hold mode stays busy through BOTH writes (create, then the status move), so
   // the button never reads "done" while the second half is still in flight.
@@ -360,8 +498,14 @@ export function NewEventWizard({
                 email: selection.email,
               }
             : { id, name: selection.name, source: "draft" };
-      return [...list, entry];
+      // One act unless this is a multi-performer bill: a single-performer event
+      // has exactly one, and choosing again is correcting the choice.
+      return multiPerformer ? [...list, entry] : [entry];
     });
+    // The act's name is the obvious title of a single-performer show — offered
+    // only into a BLANK field, the same rule the venue prefill follows, so a
+    // title the operator typed is never overwritten by a later pick.
+    setArtist((current) => (!multiPerformer && current.trim() === "" ? selection.name : current));
   };
   const removePerformer = (id: string) =>
     setPerformers((list) => list.filter((performer) => performer.id !== id));
@@ -381,6 +525,27 @@ export function NewEventWizard({
     // Create AS the chosen profile — the api-client sends the active profile id
     // as `X-Profile-Id`, so point it at the selection before firing.
     if (selectedProfile) setActiveProfileId(selectedProfile.id);
+    // The stated agreement, and the party it is with. Both travel WITH the
+    // create so the deal is written in the same transaction as the event —
+    // until 2026-08-27 this step's figures went into `extras.dealDraft`, which
+    // nothing read, and `select count(*) from deals` answered 0 (86cbaxu52).
+    const statedDeal = dealDraft && dealProblems.length === 0 ? createDealPayload(dealDraft) : null;
+    const withDeal =
+      statedDeal && dealPerformer
+        ? {
+            participants: [{ profileId: dealPerformer.profileId, role: "performer" as const }],
+            deal: {
+              ...statedDeal,
+              // The parties are named by PROFILE: no participant row exists
+              // until this request creates one, and the API resolves each
+              // profile to the row it makes for it.
+              parties: statedDeal.parties.map(({ participantId, ...line }) => ({
+                ...line,
+                profileId: participantId,
+              })),
+            },
+          }
+        : {};
     create.mutate({
       data: {
         title: artist.trim(),
@@ -407,16 +572,8 @@ export function NewEventWizard({
             : {}),
           ...(city.trim() ? { city: city.trim() } : {}),
           ...(ticketing.trim() ? { ticketing: { provider: ticketing.trim() } } : {}),
-          dealDraft: {
-            dealType,
-            guarantee: guarantee ? Number(guarantee) : null,
-            artistSplit: Number(artistSplit),
-            promoterSplit: Number(promoterSplit),
-            venueSplit: Number(venueSplit),
-            venueRental: venueRental ? Number(venueRental) : null,
-            venueRentalPaidBy: rentalPaidBy,
-          },
         },
+        ...withDeal,
       },
     });
   };
@@ -476,7 +633,11 @@ export function NewEventWizard({
             <p style={{ color: "var(--muted)", fontSize: 13, margin: "4px 0 0" }}>
               {isHold
                 ? "A hold is an event you pencil in — the act confirms or declines the date."
-                : "Set up an event in three quick steps."}
+                : // The count follows the stepper, which is two steps for an
+                  // operator with one profile and three for one who has to pick
+                  // which of theirs is hosting. The copy said "three" for
+                  // everyone, and a stepper showing two made a liar of it.
+                  `Set up an event in ${stepKeys.length === 3 ? "three" : "two"} quick steps.`}
             </p>
           </div>
           <button
@@ -564,22 +725,18 @@ export function NewEventWizard({
               )}
               {currentKey === "deal" && (
                 <DealStep
-                  dealType={dealType}
-                  setDealType={setDealType}
-                  dealIsGuarantee={dealIsGuarantee}
+                  structure={dealStructure}
+                  setStructure={setDealStructure}
                   guarantee={guarantee}
                   setGuarantee={setGuarantee}
-                  artistSplit={artistSplit}
-                  setArtistSplit={setArtistSplit}
-                  promoterSplit={promoterSplit}
-                  setPromoterSplit={setPromoterSplit}
-                  venueSplit={venueSplit}
-                  setVenueSplit={setVenueSplit}
-                  splitTotal={splitTotal}
-                  venueRental={venueRental}
-                  setVenueRental={setVenueRental}
-                  rentalPaidBy={rentalPaidBy}
-                  setRentalPaidBy={setRentalPaidBy}
+                  performerSplit={performerSplit}
+                  setPerformerSplit={setPerformerSplit}
+                  currency={effectiveCurrency}
+                  hostName={selectedProfile?.name ?? ""}
+                  performers={linkedPerformers}
+                  dealPerformerId={dealPerformer?.profileId ?? ""}
+                  setDealPerformerId={setDealWithPerformerId}
+                  problems={dealProblems}
                 />
               )}
             </>
@@ -856,61 +1013,69 @@ function DetailsStep(props: {
         />
       </label>
 
-      {props.multiPerformer && (
-        <div>
-          <span style={labelStyle}>Performers *</span>
+      {/* Who is actually playing — asked in BOTH modes now, because a linked
+          performer PROFILE is what the deal step needs to have another party to
+          agree with. Optional for a single act (a name on its own is a fine
+          booking), required for a bill. */}
+      <div>
+        <span style={labelStyle}>
+          {props.multiPerformer ? "Performers *" : "Performer profile"}
+        </span>
+        {(props.multiPerformer || props.performers.length === 0) && (
           <PerformerSearch
             contactsProfileId={props.contactsProfileId}
             onSelect={props.onAddPerformer}
           />
-          {props.performers.length === 0 ? (
-            <div style={{ color: "var(--dim)", fontSize: 12, marginTop: 10 }}>
-              Add at least one performer.
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
-              {props.performers.map((performer) => (
-                <div
-                  key={performer.id}
+        )}
+        {props.performers.length === 0 ? (
+          <div style={{ color: "var(--dim)", fontSize: 12, marginTop: 10 }}>
+            {props.multiPerformer
+              ? "Add at least one performer."
+              : "Optional — link the act's shoWMe profile and the deal you set next is recorded against them."}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+            {props.performers.map((performer) => (
+              <div
+                key={performer.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  background: "var(--card)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 11,
+                  padding: "10px 14px",
+                }}
+              >
+                <span style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 14 }}>
+                  {performer.name}
+                </span>
+                <span
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    background: "var(--card)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 9.5,
+                    letterSpacing: ".06em",
+                    textTransform: "uppercase",
+                    color: "var(--muted)",
                     border: "1px solid var(--border)",
-                    borderRadius: 11,
-                    padding: "10px 14px",
+                    borderRadius: 999,
+                    padding: "2px 8px",
                   }}
                 >
-                  <span style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 14 }}>
-                    {performer.name}
-                  </span>
-                  <span
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 9.5,
-                      letterSpacing: ".06em",
-                      textTransform: "uppercase",
-                      color: "var(--muted)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 999,
-                      padding: "2px 8px",
-                    }}
-                  >
-                    {SOURCE_LABEL[performer.source]}
-                  </span>
-                  <GlyphButton
-                    ariaLabel={`Remove ${performer.name}`}
-                    onClick={() => props.onRemovePerformer(performer.id)}
-                  >
-                    <XIcon size={15} />
-                  </GlyphButton>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+                  {SOURCE_LABEL[performer.source]}
+                </span>
+                <GlyphButton
+                  ariaLabel={`Remove ${performer.name}`}
+                  onClick={() => props.onRemovePerformer(performer.id)}
+                >
+                  <XIcon size={15} />
+                </GlyphButton>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         {/* `htmlFor` rather than a wrapping label: the input now lives inside
@@ -997,149 +1162,98 @@ function DetailsStep(props: {
   );
 }
 
+/**
+ * The deal step — the terms, and the two parties they are between.
+ *
+ * It states ONE agreement: the host and one act. A bill with several acts is
+ * several agreements, not one four-way split, and the event's Deals tab is where
+ * the others (and any rental, commission or shared pot) are composed. What this
+ * step will not do is show a figure it cannot record: with no linked performer
+ * profile there is nobody to agree with, so it says so instead of collecting
+ * numbers that would go nowhere.
+ */
 function DealStep(props: {
-  dealType: string;
-  setDealType: (v: string) => void;
-  dealIsGuarantee: boolean;
+  structure: DealStructure;
+  setStructure: (value: DealStructure) => void;
   guarantee: string;
-  setGuarantee: (v: string) => void;
-  artistSplit: string;
-  setArtistSplit: (v: string) => void;
-  promoterSplit: string;
-  setPromoterSplit: (v: string) => void;
-  venueSplit: string;
-  setVenueSplit: (v: string) => void;
-  splitTotal: number;
-  venueRental: string;
-  setVenueRental: (v: string) => void;
-  rentalPaidBy: string;
-  setRentalPaidBy: (v: string) => void;
+  setGuarantee: (value: string) => void;
+  performerSplit: string;
+  setPerformerSplit: (value: string) => void;
+  /** The event's base currency, chosen on the previous step. */
+  currency: string;
+  hostName: string;
+  performers: { profileId: string; name: string }[];
+  dealPerformerId: string;
+  setDealPerformerId: (value: string) => void;
+  /** What is still wrong with the terms, in the composer's own words. */
+  problems: string[];
 }) {
-  const splitField = {
-    ...fieldStyle,
-    width: "100%",
-    textAlign: "center" as const,
-    fontFamily: "var(--font-mono)",
-    opacity: props.dealIsGuarantee ? 0.5 : 1,
-  };
+  const isRental = props.structure === "rental";
+  const performer = props.performers.find(
+    (candidate) => candidate.profileId === props.dealPerformerId,
+  );
+
+  if (!performer) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ ...labelStyle, marginBottom: 0 }}>Deal</div>
+        <div
+          style={{
+            border: "1px solid var(--border)",
+            borderRadius: 12,
+            background: "var(--card)",
+            padding: "16px 18px",
+            color: "var(--muted)",
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}
+        >
+          A deal is an agreement <em>between parties</em>, so it needs the other side named. Link
+          the act&rsquo;s shoWMe profile on the previous step and the terms you set here are
+          recorded as a real deal on the event. Without one, the event is created on its own and the
+          deal is composed later, from its Deals tab.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 15 }}>
       <div>
-        <span style={labelStyle}>Deal type</span>
-        <Select value={props.dealType} onChange={props.setDealType} options={DEAL_TYPES} />
-      </div>
-
-      <label>
-        <span style={labelStyle}>Performer guarantee</span>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            border: "1px solid var(--control-border)",
-            background: "var(--control-surface)",
-            borderRadius: 11,
-            // A currency field is a control, so it wears the one control height
-            // rather than whatever its inner <input> line box makes it.
-            minHeight: "var(--control-height)",
-            padding: "0 14px",
-          }}
-        >
-          <span style={{ color: "var(--muted)", fontFamily: "var(--font-mono)" }}>€</span>
-          <input
-            type="number"
-            value={props.guarantee}
-            onChange={(e) => props.setGuarantee(e.target.value)}
-            placeholder="0"
-            style={{
-              flex: 1,
-              border: 0,
-              background: "transparent",
-              color: "var(--text)",
-              fontSize: 14,
-              padding: "11px 8px",
-              outline: "none",
-              fontFamily: "var(--font-mono)",
-            }}
+        <span style={labelStyle}>Deal with</span>
+        {props.performers.length > 1 ? (
+          <Select
+            value={props.dealPerformerId}
+            onChange={props.setDealPerformerId}
+            options={props.performers.map((candidate) => ({
+              value: candidate.profileId,
+              label: candidate.name,
+            }))}
           />
+        ) : (
+          <div style={{ fontSize: 14, color: "var(--text)" }}>{performer.name}</div>
+        )}
+        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>
+          {isRental
+            ? `${performer.name} pays ${props.hostName || "you"} for the room.`
+            : props.hostName
+              ? `${props.hostName} pays ${performer.name} under this agreement.`
+              : `You pay ${performer.name} under this agreement.`}
         </div>
-      </label>
+      </div>
 
       <div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 8,
-          }}
-        >
-          <span style={{ ...labelStyle, marginBottom: 0 }}>Revenue split %</span>
-          <span
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: 11,
-              color: props.splitTotal === 100 ? "#6FC97A" : "#F4A046",
-            }}
-          >
-            Total {props.splitTotal}%
-          </span>
-        </div>
-        {props.dealIsGuarantee && (
-          <div
-            style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 8, fontStyle: "italic" }}
-          >
-            Revenue split is not applicable for Guarantee deals.
-          </div>
-        )}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-          <label>
-            <span
-              style={{ display: "block", fontSize: 11.5, color: "var(--muted)", marginBottom: 5 }}
-            >
-              Performer
-            </span>
-            <input
-              type="number"
-              value={props.artistSplit}
-              disabled={props.dealIsGuarantee}
-              onChange={(e) => props.setArtistSplit(e.target.value)}
-              style={splitField}
-            />
-          </label>
-          <label>
-            <span
-              style={{ display: "block", fontSize: 11.5, color: "var(--muted)", marginBottom: 5 }}
-            >
-              Promoter
-            </span>
-            <input
-              type="number"
-              value={props.promoterSplit}
-              disabled={props.dealIsGuarantee}
-              onChange={(e) => props.setPromoterSplit(e.target.value)}
-              style={splitField}
-            />
-          </label>
-          <label>
-            <span
-              style={{ display: "block", fontSize: 11.5, color: "var(--muted)", marginBottom: 5 }}
-            >
-              Venue
-            </span>
-            <input
-              type="number"
-              value={props.venueSplit}
-              disabled={props.dealIsGuarantee}
-              onChange={(e) => props.setVenueSplit(e.target.value)}
-              style={splitField}
-            />
-          </label>
-        </div>
+        <span style={labelStyle}>Deal structure</span>
+        <Select
+          value={props.structure}
+          onChange={(value) => props.setStructure(value as DealStructure)}
+          options={DEAL_STRUCTURES}
+        />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+      {structureNeedsGuarantee(props.structure) && (
         <label>
-          <span style={labelStyle}>Venue rental</span>
+          <span style={labelStyle}>{isRental ? "Room rental fee" : "Performer guarantee"}</span>
           <div
             style={{
               display: "flex",
@@ -1153,11 +1267,16 @@ function DealStep(props: {
               padding: "0 14px",
             }}
           >
-            <span style={{ color: "var(--muted)", fontFamily: "var(--font-mono)" }}>€</span>
+            {/* The event's own currency, not a hardcoded euro (86cbaxz0z). The
+                CODE rather than the symbol, as the deal composer does: "kr" is
+                three different currencies and the wrong one is worse than none. */}
+            <span style={{ color: "var(--muted)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
+              {props.currency}
+            </span>
             <input
               type="number"
-              value={props.venueRental}
-              onChange={(e) => props.setVenueRental(e.target.value)}
+              value={props.guarantee}
+              onChange={(changeEvent) => props.setGuarantee(changeEvent.target.value)}
               placeholder="0"
               style={{
                 flex: 1,
@@ -1173,32 +1292,88 @@ function DealStep(props: {
             />
           </div>
         </label>
-        <div>
-          <span style={labelStyle}>Rental paid by</span>
-          <Select
-            value={props.rentalPaidBy}
-            onChange={props.setRentalPaidBy}
-            options={RENTAL_PAID_BY}
-          />
-        </div>
-      </div>
+      )}
 
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 9,
-          background: "color-mix(in srgb,#6FC97A 10%,transparent)",
-          border: "1px solid color-mix(in srgb,#6FC97A 26%,transparent)",
-          borderRadius: 11,
-          padding: "11px 14px",
-          color: "#5aa568",
-          fontSize: 12.5,
-        }}
-      >
-        <Icon name="check" size={15} />
-        Creating this event also sets up its settlement once the deal is confirmed.
-      </div>
+      {structureNeedsSplit(props.structure) && (
+        <label>
+          <span style={labelStyle}>{performer.name}&rsquo;s share of the pool</span>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              border: "1px solid var(--control-border)",
+              background: "var(--control-surface)",
+              borderRadius: 11,
+              minHeight: "var(--control-height)",
+              padding: "0 14px",
+            }}
+          >
+            <input
+              type="number"
+              value={props.performerSplit}
+              onChange={(changeEvent) => props.setPerformerSplit(changeEvent.target.value)}
+              placeholder="70"
+              style={{
+                flex: 1,
+                minWidth: 0,
+                border: 0,
+                background: "transparent",
+                color: "var(--text)",
+                fontSize: 14,
+                padding: "11px 8px",
+                outline: "none",
+                fontFamily: "var(--font-mono)",
+              }}
+            />
+            <span style={{ color: "var(--muted)", fontFamily: "var(--font-mono)" }}>%</span>
+          </div>
+          {/* No "promoter %" and no "venue %" beside it. The pool is revenue less
+              external costs, the deals come out of it, and whatever is left IS the
+              operator's — the engine pays it as the residual (settlement skill).
+              A second percentage box would be the operator dividing their own
+              remainder with themselves. */}
+          <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>
+            Of revenue less the costs paid to outside suppliers. What is left over is yours.
+          </div>
+        </label>
+      )}
+
+      {props.problems.length > 0 ? (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            background: "color-mix(in srgb,#F4A046 10%,transparent)",
+            border: "1px solid color-mix(in srgb,#F4A046 26%,transparent)",
+            borderRadius: 11,
+            padding: "11px 14px",
+            color: "#b97a2a",
+            fontSize: 12.5,
+          }}
+        >
+          {props.problems.map((problem) => (
+            <span key={problem}>{problem}</span>
+          ))}
+        </div>
+      ) : (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 9,
+            background: "color-mix(in srgb,#6FC97A 10%,transparent)",
+            border: "1px solid color-mix(in srgb,#6FC97A 26%,transparent)",
+            borderRadius: 11,
+            padding: "11px 14px",
+            color: "#5aa568",
+            fontSize: 12.5,
+          }}
+        >
+          <Icon name="check" size={15} />
+          Saved with the event as a draft deal — the settlement reads it once both sides confirm.
+        </div>
+      )}
     </div>
   );
 }

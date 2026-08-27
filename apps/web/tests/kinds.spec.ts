@@ -35,7 +35,7 @@ const OPERATOR_NAV = [
   "Calendar",
   "Events",
   "Tasks",
-  "Performance Reports",
+  "Setlists",
   "Settlements",
   "Financial Projections",
   "Requests",
@@ -52,20 +52,26 @@ const without = (...hidden: string[]) => OPERATOR_NAV.filter((label) => !hidden.
 
 const EXPECTED_NAV: Record<E2eAccountName, string[]> = {
   operator: [...OPERATOR_NAV],
+  // A co-promoter is an operator and gets the operator's nav — the account kind
+  // gates the dashboard, and co-hosting is a role on one event, not a lesser kind.
+  coHost: [...OPERATOR_NAV],
   // No PRO filing (the operator files; the performer authors the setlist) and no
   // projections (only operator profiles host events, and the budget is not theirs).
-  performerA: without("Performance Reports", "Financial Projections"),
-  performerB: without("Performance Reports", "Financial Projections"),
+  performerA: without("Setlists", "Financial Projections"),
+  performerB: without("Setlists", "Financial Projections"),
   // …and no fan CRM: crew are an arm's-length service, not talent.
-  teamAndCrew: without("Performance Reports", "Financial Projections", "Audience"),
+  teamAndCrew: without("Setlists", "Financial Projections", "Audience"),
   // …and no fan CRM: the act's following belongs to the act, not its agency.
-  agent: without("Performance Reports", "Financial Projections", "Audience"),
+  agent: without("Setlists", "Financial Projections", "Audience"),
 };
 
 /** For each kind: the exact event titles it should reach on the Events list. */
 const VISIBLE_EVENTS: Record<E2eAccountName, string[]> = {
   // Host of every event → reaches all five.
   operator: [...ALL_EVENTS],
+  // Co-promotes the release only — an operator reaches the events it is ON, not
+  // every event on the platform.
+  coHost: [EVENT.albumRelease],
   // Headliner on the release + performer on the concluded show.
   performerA: [EVENT.albumRelease, EVENT.springWarmup],
   // Support act on the release only.

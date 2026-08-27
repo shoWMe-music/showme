@@ -1,6 +1,7 @@
 import { useGetApiV1ProfilesIdStages } from "@showme/api-client";
 import { Icon, StatusDot, TextField } from "@showme/design-system";
 import { type ReactNode, useMemo } from "react";
+import { formatDay } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
 import { EventInlineDateChoice, EventInlineOptionChoice } from "./EventInlineChoice";
 import {
@@ -29,19 +30,6 @@ export interface EventInlineInformationProps {
   /** The caller holds `event.edit` — the same signal the API's PATCH gate uses,
    * so the affordance cannot outrun it. */
   canEdit: boolean;
-}
-
-/** `yyyy-mm-dd` as the card has always read it ("05 Dec"). Built from the parts
- * rather than `new Date(value)`, which parses the ISO date form as UTC and lands
- * on the previous wall-clock day west of Greenwich. */
-function formatEventDate(value: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return "";
-  const [, year, month, day] = match;
-  return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-  });
 }
 
 /**
@@ -153,7 +141,13 @@ export function EventInlineInformation({
 
         <EventInlineField
           label={EVENT_INLINE_FIELD_LABEL.eventDate}
-          valueText={formatEventDate(inline.values.eventDate)}
+          // The house format ("13 Sept 2026"), not this card's own shorter one:
+          // it used to print "05 Dec" with no year, on a screen that routinely
+          // holds next year's shows. Kept as TEXT rather than a `DateText` — the
+          // row IS the control for this field, and a link inside a click target
+          // is not a thing. "" (not "—") when unset, so the row still offers
+          // its "Add a date" empty label.
+          valueText={inline.values.eventDate ? formatDay(inline.values.eventDate) : ""}
           emptyLabel="Add a date"
           editable={canEdit}
           isEditing={isEditing("eventDate")}
@@ -194,7 +188,7 @@ export function EventInlineInformation({
           noteAbove
           hint={
             event.venueProfileId
-              ? "Linked to a venue profile. Anything this event had not filled in — capacity, house curfew, amenities, city — came from it, and everything already typed was left alone. Typing a different name unlinks it."
+              ? "Linked to a venue profile. Anything this event had not filled in — capacity, house curfew, amenities, city — came from it, and everything already typed was left alone. Take the chip off to unlink it."
               : "Type any name, or pick the room off shoWMe and it fills in what this event is still missing: capacity, house curfew, amenities and city. Nothing already typed is touched."
           }
         >

@@ -24,6 +24,9 @@ export { BudgetTemplateDialogs } from "./BudgetTemplateDialogs";
 export { CalendarMonthGrid } from "./CalendarMonthGrid";
 export type { CalendarEvent, CalendarLabelMode, CalendarMonthGridProps } from "./CalendarMonthGrid";
 
+export { DateText } from "./DateText";
+export type { DateTextProps } from "./DateText";
+
 export { CommentThread } from "./CommentThread";
 export type { CommentThreadProps, ThreadComment } from "./CommentThread";
 

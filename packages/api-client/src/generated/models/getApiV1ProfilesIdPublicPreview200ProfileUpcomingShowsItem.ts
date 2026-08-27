@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { GetApiV1ProfilesIdPublicPreview200ProfileUpcomingShowsItemLineupItem } from './getApiV1ProfilesIdPublicPreview200ProfileUpcomingShowsItemLineupItem';
 
 export type GetApiV1ProfilesIdPublicPreview200ProfileUpcomingShowsItem = {
   id: string;
@@ -13,7 +14,14 @@ export type GetApiV1ProfilesIdPublicPreview200ProfileUpcomingShowsItem = {
   /** @nullable */
   venueName: string | null;
   /** @nullable */
+  city: string | null;
+  /** @nullable */
+  country: string | null;
+  /** @nullable */
   doorTime: string | null;
   /** @nullable */
   startTime: string | null;
+  /** @nullable */
+  imageUrl: string | null;
+  lineup: GetApiV1ProfilesIdPublicPreview200ProfileUpcomingShowsItemLineupItem[];
 };

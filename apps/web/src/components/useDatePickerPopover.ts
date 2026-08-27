@@ -53,7 +53,7 @@ export interface DatePickerPopoverOptions {
   /** The field's current `yyyy-mm-dd` (or `yyyy-mm-ddThh:mm`) value; undefined
    * for an uncontrolled field, where the input's own DOM value is read instead. */
   value?: string;
-  inputRef: RefObject<HTMLInputElement | null>;
+  inputRef: RefObject<HTMLElement | null>;
   /** Whether the panel has controls after the grid (the wall-clock row of a
    * `datetime-local` field). When it does, Tab must walk INTO them rather than
    * closing the panel, and `PickerPopoverPanel` wraps it at the far end. */
@@ -65,6 +65,16 @@ export interface DatePickerPopoverOptions {
  * the components so both stay presentational. The open/close/dismiss half lives
  * in `usePickerPopover`, which the time-only field shares.
  */
+/**
+ * The text in the anchor, when the anchor is a field at all. A button anchor
+ * (`CalendarJumpToDate`) has no `value`, and asking for one is not an error —
+ * it just means the picker falls through to its next source for which month to
+ * open on.
+ */
+function anchorFieldValue(anchor: HTMLElement | null | undefined): string | undefined {
+  return anchor instanceof HTMLInputElement ? anchor.value : undefined;
+}
+
 export function useDatePickerPopover({
   value,
   inputRef,
@@ -91,7 +101,8 @@ export function useDatePickerPopover({
       seededDay.current = null;
       return;
     }
-    const target = parseDayKey(value) ?? parseDayKey(inputRef.current?.value) ?? new Date();
+    const target =
+      parseDayKey(value) ?? parseDayKey(anchorFieldValue(inputRef.current)) ?? new Date();
     const targetDay = dayKey(target);
     // Only a change of DAY may move the roving focus. On a `datetime-local`
     // field this effect re-runs every time the user nudges the clock, and

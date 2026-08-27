@@ -7,6 +7,7 @@ import {
 import type { Status } from "@showme/design-system";
 import { useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
+import { formatDay } from "../lib/format";
 import { MAX_PAGE_SIZE, infiniteKey, useCursorList } from "./useCursorList";
 
 export type Task = Awaited<ReturnType<typeof getApiV1Tasks>>["items"][number];
@@ -37,23 +38,26 @@ export function scopeOf(task: Task): TaskScope {
   return "personal";
 }
 
-/** "18 Jul 2026 12:00" when the due date carries a time, else "18 Jul 2026".
- * Lives here rather than on a screen because the list rows and the board cards
- * must render the same task's due date identically. */
+/**
+ * "18 Sept 2026 12:00" when the due date carries a time, else "18 Sept 2026".
+ *
+ * The day half is `formatDay` — the app's one date format (day first, year
+ * always), which also owns the off-by-one fix this used to hand-roll:
+ * `tasks.due_date` is a DATE column, so the API sends a bare "yyyy-mm-dd", and
+ * `new Date()` reads that as UTC midnight and renders the PREVIOUS day west of
+ * Greenwich. The clock half is read straight out of the string rather than
+ * re-parsed, so a due time cannot be shifted into another day by a zone.
+ *
+ * Lives here rather than on a screen because three surfaces render the same
+ * task's due date — the Tasks list, its board cards, and the event workspace's
+ * To Do tab — and one task must not read as three different deadlines.
+ */
 export function formatTaskDueDate(iso: string): string {
-  // `tasks.due_date` is a DATE column, so the API sends a bare "yyyy-mm-dd".
-  // `new Date()` reads that as UTC midnight, which renders as the PREVIOUS day
-  // for anyone west of Greenwich — so build the day from its own parts instead.
-  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-  const date = dateOnly
-    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
-    : new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  const day = date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-  const hasTime = /\d{2}:\d{2}/.test(iso) && !iso.includes("T00:00:00");
-  if (!hasTime) return day;
-  const time = date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  return `${day} ${time}`;
+  const day = formatDay(iso);
+  if (day === "—") return iso;
+  const clock = /T(\d{2}:\d{2})/.exec(iso);
+  if (!clock?.[1] || clock[1] === "00:00") return day;
+  return `${day} ${clock[1]}`;
 }
 
 /** The group a task is filed under, or the ungrouped sentinel. */

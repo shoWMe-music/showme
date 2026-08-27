@@ -1,5 +1,17 @@
 import { schema } from "@showme/db";
-import { and, asc, eq, exists, getTableColumns, inArray, isNull, ne, not, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  getTableColumns,
+  inArray,
+  isNull,
+  ne,
+  not,
+  sql,
+} from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -83,6 +95,13 @@ const EventResponse = z.object({
    * cost: it advertised a search it could not perform.
    */
   venueName: z.string().nullable(),
+  /**
+   * Same story as `venueName` one field up, and the same fix: `serializeEvent`
+   * has always returned the capacity and this schema never declared it, so
+   * Fastify stripped it and the Events list drew an em-dash under "Cap" for a
+   * number the detail page shows in full.
+   */
+  capacity: z.number().nullable(),
   stageId: z.string().nullable(),
   version: z.number(),
   holdRank: z.number().nullable().optional(),
@@ -100,7 +119,29 @@ const EventResponse = z.object({
  * me my events". `POST /events/:id/publish` returns the event and has no reader
  * scope to answer it from.
  */
-const ListEventResponse = EventResponse.extend({ archived: z.boolean() });
+const ListEventResponse = EventResponse.extend({
+  archived: z.boolean(),
+  /**
+   * WHO IS PLAYING — the top of the bill, or null for an event with nobody on it
+   * yet. A list row names the show and then the act, and without this it named
+   * the show twice.
+   *
+   * A list-only field because it is a JOIN, not a column: `serializeEvent` shapes
+   * one `events` row and has no roster to read. Resolved in one batched query for
+   * the whole page (see the route), never per row.
+   */
+  headlinePerformerName: z.string().nullable(),
+  /**
+   * WHERE THE MONEY GOT TO — the caller's own `settlements.status` on this event,
+   * or null when nobody has run the settlement yet (the rows are written by the
+   * first compute, so their absence is itself the answer: not started).
+   *
+   * Reader-scoped like `archived`, and for the same reason — a settlement is
+   * party-scoped (decisions #4), so the only line this list can honestly show is
+   * one the caller is a party to.
+   */
+  settlementStatus: z.string().nullable(),
+});
 
 const ListResponse = z.object({
   items: z.array(ListEventResponse),
@@ -204,11 +245,116 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
         id: event.id,
       }));
 
+      // The two facts a row shows beside the title that are not columns on
+      // `events` — who is playing, and where the money got to. Both are joins, so
+      // both are read ONCE FOR THE WHOLE PAGE. Asking per row would put an N+1
+      // behind a keyset list, which is the one thing a keyset list exists to
+      // avoid.
+      const eventIds = items.map((event) => event.id);
+
+      // The top of the bill. Ordered so the headline act wins — the tagged
+      // `headliner` first, then a `performer` over a `support`, then whoever was
+      // added first — and the first row per event is the one taken below.
+      //
+      // No widening: reaching this point means the caller can see the event, and
+      // `GET /events/:id/participants` already serves these names to every reader
+      // who can. The list is showing a name they could already ask for.
+      const performerRows =
+        eventIds.length === 0
+          ? []
+          : await database
+              .select({
+                eventId: schema.eventParticipants.eventId,
+                name: schema.profiles.name,
+              })
+              .from(schema.eventParticipants)
+              .innerJoin(
+                schema.profiles,
+                eq(schema.profiles.id, schema.eventParticipants.profileId),
+              )
+              .where(
+                and(
+                  inArray(schema.eventParticipants.eventId, eventIds),
+                  inArray(schema.eventParticipants.role, ["performer", "support"]),
+                  ne(schema.eventParticipants.status, "removed"),
+                ),
+              )
+              .orderBy(
+                sql`case
+                  when ${schema.eventParticipants.performerTag} = 'headliner' then 0
+                  when ${schema.eventParticipants.role} = 'performer' then 1
+                  else 2 end`,
+                asc(schema.eventParticipants.createdAt),
+              );
+
+      const headlineByEvent = new Map<string, string>();
+      for (const row of performerRows) {
+        if (!headlineByEvent.has(row.eventId)) headlineByEvent.set(row.eventId, row.name);
+      }
+
+      // The caller's OWN settlement on each event — party-scoped by the same join
+      // the list itself is (`settlements ⋈ event_participants ⋈ profile_members`),
+      // so nobody is shown a line they are not a party to (decisions #4).
+      //
+      // One row per event is enough to answer for the event: every party
+      // settlement on an event carries the SAME status by construction — the
+      // review route walks all of them in one transaction and `syncPaymentStatus`
+      // writes them together — so the caller's row is the night's status, not just
+      // their own. Newest write first, so a page read mid-transition reports the
+      // later word rather than an arbitrary one.
+      //
+      // Representation rows are excluded: a private agent↔performer commission is
+      // those two parties' business (decisions #14), and letting it answer for the
+      // event would leak its existence through the status.
+      const settlementRows =
+        eventIds.length === 0
+          ? []
+          : await database
+              .select({
+                eventId: schema.settlements.eventId,
+                status: schema.settlements.status,
+              })
+              .from(schema.settlements)
+              .innerJoin(
+                schema.eventParticipants,
+                eq(schema.eventParticipants.id, schema.settlements.participantId),
+              )
+              .innerJoin(
+                schema.profileMembers,
+                eq(schema.profileMembers.profileId, schema.eventParticipants.profileId),
+              )
+              .where(
+                and(
+                  inArray(schema.settlements.eventId, eventIds),
+                  eq(schema.profileMembers.userId, principal.userId),
+                  eq(schema.profileMembers.status, "active"),
+                  isNull(schema.settlements.representationId),
+                ),
+              )
+              .orderBy(desc(schema.settlements.updatedAt));
+
+      const settlementByEvent = new Map<string, string>();
+      for (const row of settlementRows) {
+        if (!settlementByEvent.has(row.eventId)) settlementByEvent.set(row.eventId, row.status);
+      }
+
       // Serialize each by the caller's capabilities on that specific event.
+      //
+      // NO POSTERS HERE, deliberately. `ListEventResponse` does not declare
+      // `imageUrl` and nothing on a list screen draws one, so signing them would
+      // be a storage round trip per page in exchange for a field Fastify would
+      // strip on the way out. The detail read, the two public surfaces and the
+      // editor all carry it; when a list wants a thumbnail, the signer already
+      // takes a batch.
       const serialized = await Promise.all(
         items.map(async (event) => {
           const capabilities = await eventCapabilities(request, event.id);
-          return { ...serializeEvent(event, capabilities), archived: event.archived };
+          return {
+            ...serializeEvent(event, capabilities),
+            archived: event.archived,
+            headlinePerformerName: headlineByEvent.get(event.id) ?? null,
+            settlementStatus: settlementByEvent.get(event.id) ?? null,
+          };
         }),
       );
 

@@ -1,14 +1,9 @@
-import {
-  getGetApiV1TasksQueryKey,
-  useDeleteApiV1TasksId,
-  useGetApiV1Activity,
-  useGetApiV1Tasks,
-  usePatchApiV1TasksId,
-  usePostApiV1Tasks,
-} from "@showme/api-client";
+import { useGetApiV1Activity } from "@showme/api-client";
 import { Icon } from "@showme/design-system";
-import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEventTasks } from "../hooks/useEventTasks";
+import { formatTaskDueDate } from "../hooks/useTaskBoard";
+import { ConfirmDialog, useConfirmDialog } from "./ConfirmDialog";
+import { TaskFormModal } from "./TaskFormModal";
 import { describeActivity } from "./eventHistory";
 import { GlyphButton, GradientButton, MonoPill, SectionCard, fieldStyle } from "./eventUi";
 import { ErrorState, LoadingState } from "./states";
@@ -31,28 +26,13 @@ function relativeTime(iso: string): string {
 // ── To Do ─────────────────────────────────────────────────────────────────
 
 export function EventTodoTab({ eventId }: { eventId: string }) {
-  const queryClient = useQueryClient();
-  const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: getGetApiV1TasksQueryKey({ eventId }) });
+  const board = useEventTasks(eventId);
+  // `DELETE /tasks/:id` is a hard delete with no undo, and the bin sits one row
+  // away from the checkbox that merely completes it.
+  const confirmDelete = useConfirmDialog();
 
-  const { data, isPending, isError, error } = useGetApiV1Tasks({ eventId });
-  const create = usePostApiV1Tasks({ mutation: { onSuccess: invalidate } });
-  const patch = usePatchApiV1TasksId({ mutation: { onSuccess: invalidate } });
-  const remove = useDeleteApiV1TasksId({ mutation: { onSuccess: invalidate } });
-  const [draft, setDraft] = useState("");
-
-  if (isPending) return <LoadingState label="Loading tasks" />;
-  if (isError) return <ErrorState error={error} title="Couldn't load tasks" />;
-
-  const tasks = data?.items ?? [];
-  const active = tasks.filter((task) => !task.completed).length;
-
-  const add = () => {
-    const title = draft.trim();
-    if (!title) return;
-    create.mutate({ data: { title, eventId } });
-    setDraft("");
-  };
+  if (board.isPending) return <LoadingState label="Loading tasks" />;
+  if (board.isError) return <ErrorState error={board.error} title="Couldn't load tasks" />;
 
   return (
     <div>
@@ -78,24 +58,24 @@ export function EventTodoTab({ eventId }: { eventId: string }) {
           >
             To Do
           </h3>
-          <MonoPill>{active} active</MonoPill>
+          <MonoPill>{board.activeCount} active</MonoPill>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <input
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => event.key === "Enter" && add()}
+            value={board.draft}
+            onChange={(event) => board.setDraft(event.target.value)}
+            onKeyDown={(event) => event.key === "Enter" && board.addDraft()}
             placeholder="Add a task…"
             style={{ ...fieldStyle, width: 210 }}
           />
-          <GradientButton onClick={add} disabled={create.isPending}>
+          <GradientButton onClick={board.addDraft} disabled={board.isAdding}>
             + Add
           </GradientButton>
         </div>
       </div>
 
       <SectionCard style={{ padding: 0, overflow: "hidden" }}>
-        {tasks.length === 0 ? (
+        {board.tasks.length === 0 ? (
           <div style={{ textAlign: "center", padding: "64px 20px", color: "var(--muted)" }}>
             <Icon name="check" size={30} />
             <div
@@ -112,12 +92,12 @@ export function EventTodoTab({ eventId }: { eventId: string }) {
             <div style={{ fontSize: 13 }}>Create your first task to start tracking.</div>
           </div>
         ) : (
-          tasks.map((task, index) => (
+          board.tasks.map((task, index) => (
             <div
               key={task.id}
               style={{
                 display: "flex",
-                alignItems: "center",
+                alignItems: "flex-start",
                 gap: 14,
                 padding: "14px 20px",
                 borderTop: index === 0 ? "none" : "1px solid var(--border)",
@@ -126,7 +106,7 @@ export function EventTodoTab({ eventId }: { eventId: string }) {
               <button
                 type="button"
                 aria-label={task.completed ? "Mark incomplete" : "Mark complete"}
-                onClick={() => patch.mutate({ id: task.id, data: { completed: !task.completed } })}
+                onClick={() => board.toggleCompleted(task)}
                 style={{
                   width: 22,
                   height: 22,
@@ -142,23 +122,89 @@ export function EventTodoTab({ eventId }: { eventId: string }) {
               >
                 {task.completed && <Icon name="check" size={14} />}
               </button>
-              <span
+              {/* The due date and the note, which this tab used to drop on the
+                  floor: the SAME task showed a deadline and a note on /tasks and
+                  a bare title here, so an operator working out of the event
+                  workspace could not see what they had written down. Same fields,
+                  same formatter, same order as the Tasks list rows. */}
+              <div
                 style={{
                   flex: 1,
-                  fontSize: 14,
-                  color: task.completed ? "var(--muted)" : "var(--text)",
-                  textDecoration: task.completed ? "line-through" : "none",
+                  minWidth: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
                 }}
               >
-                {task.title}
-              </span>
-              <GlyphButton ariaLabel="Delete task" onClick={() => remove.mutate({ id: task.id })}>
+                <span
+                  style={{
+                    fontSize: 14,
+                    color: task.completed ? "var(--muted)" : "var(--text)",
+                    textDecoration: task.completed ? "line-through" : "none",
+                  }}
+                >
+                  {task.title}
+                </span>
+                {task.dueDate && (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 12,
+                      color: "var(--muted)",
+                    }}
+                  >
+                    <Icon name="clock" size={13} />
+                    {formatTaskDueDate(task.dueDate)}
+                  </span>
+                )}
+                {task.description && (
+                  <span style={{ fontSize: 13, fontStyle: "italic", color: "var(--muted)" }}>
+                    “{task.description}”
+                  </span>
+                )}
+              </div>
+              <GlyphButton ariaLabel="Edit task" onClick={() => board.openEditor(task)}>
+                <Icon name="pencil" size={16} />
+              </GlyphButton>
+              <GlyphButton
+                ariaLabel="Delete task"
+                onClick={() =>
+                  confirmDelete.ask({
+                    title: "Delete this task?",
+                    body: (
+                      <>
+                        <strong>{task.title}</strong> is deleted for everyone on this event. There
+                        is no undo — completing it instead keeps the record.
+                      </>
+                    ),
+                    confirmLabel: "Delete task",
+                    destructive: true,
+                    onConfirm: () => board.remove(task),
+                  })
+                }
+              >
                 <Icon name="trash" size={16} />
               </GlyphButton>
             </div>
           ))
         )}
       </SectionCard>
+
+      {/* The SAME dialog /tasks opens — title, work-group, note, due date. This
+          tab used to offer a checkbox and a bin and nothing else. */}
+      <ConfirmDialog {...confirmDelete.dialogProps} />
+
+      <TaskFormModal
+        open={board.editorOpen}
+        task={board.editing}
+        groups={board.groups}
+        eventId={eventId}
+        onClose={board.closeEditor}
+        onSaved={board.onSaved}
+      />
     </div>
   );
 }

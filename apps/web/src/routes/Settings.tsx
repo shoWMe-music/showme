@@ -29,7 +29,7 @@ import { VatSettingsCard } from "../components/VatSettingsCard";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
 import { errorMessage } from "../lib/errors";
-import { formatDate } from "../lib/format";
+import { formatDay } from "../lib/format";
 import { usePageTransition } from "../shell/usePageTransition";
 
 type PayoutAccount = Awaited<ReturnType<typeof getApiV1ProfilesIdPayoutAccounts>>[number];
@@ -427,7 +427,7 @@ function PlanCard({ profileId }: { profileId: string }) {
         <KeyValueRow label="Seats" value={String(seats)} mono />
         <KeyValueRow label="Source" value={source} />
         <KeyValueRow label="Credit balance" value={String(creditBalance)} mono />
-        <KeyValueRow label="Renews" value={renewalAt ? formatDate(renewalAt) : "—"} />
+        <KeyValueRow label="Renews" value={renewalAt ? formatDay(renewalAt) : "—"} />
       </div>
     </PanelCard>
   );

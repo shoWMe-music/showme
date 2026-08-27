@@ -28,7 +28,19 @@ const child = (path: string, component: FunctionComponent) =>
 
 const routeTree = rootRoute.addChildren([
   child("/", Dashboard),
-  child("/calendar", Calendar),
+  // The calendar takes an optional `?date=yyyy-mm-dd`, which is what makes every
+  // date printed elsewhere in the app a link back to the night it names
+  // (`components/DateText`). Unparseable or absent, it falls through to today,
+  // so a hand-typed URL can never strand the reader on a blank month.
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/calendar",
+    component: Calendar,
+    validateSearch: (search: Record<string, unknown>): { date?: string } => {
+      const date = search.date;
+      return typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date) ? { date } : {};
+    },
+  }),
   child("/events", Events),
   createRoute({
     getParentRoute: () => rootRoute,

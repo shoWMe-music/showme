@@ -43,4 +43,9 @@ export type PatchApiV1ProfilesIdBody = {
   videos?: string[];
   /** @maxItems 30 */
   setups?: PatchApiV1ProfilesIdBodySetupsItem[];
+  /**
+   * @maxLength 140
+   * @nullable
+   */
+  tagline?: string | null;
 };

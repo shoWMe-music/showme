@@ -8,6 +8,7 @@ import {
   type AvailabilitySnapshot,
   buildAvailabilityShareLink,
 } from "../lib/availabilityShareLink";
+import { formatDayWithWeekday } from "../lib/format";
 import type { CalendarSource } from "./useCalendarSources";
 import type { EventItem } from "./useEventList";
 
@@ -29,7 +30,8 @@ import type { EventItem } from "./useEventList";
 /** How far a share window may reach, so a hand-typed year can't build a 100k-date link. */
 const MAX_WINDOW_DAYS = 366;
 
-/** Statuses that make a night busy, keyed by the modal's two "show as unavailable" toggles. */
+/** Statuses that make a night busy, keyed by the modal's two "show as unavailable"
+ * toggles — "Confirmed events" and "Dates on hold". */
 type BusyToggles = { confirmed: boolean; held: boolean };
 
 /** Monday = 0 … Sunday = 6, matching the modal's weekday pills. */
@@ -62,7 +64,7 @@ interface BlockedRange {
  * Every event, reduced to what the room math needs.
  *
  * `occupies` is decided HERE rather than in the shared module, because it is a
- * display choice the sharer makes with the two checkboxes — a held date is busy
+ * display choice the sharer makes with the two checkboxes — a date on hold is busy
  * for one venue and merely pencilled-in for another.
  *
  * A source that is NOT a venue (a performer, a crew member, a promoter, an agent)
@@ -95,15 +97,6 @@ function bookingsFor(
       occupies,
     };
   });
-}
-
-/** The design's "Fri · Jul 11" pill format (Ddd · Mmm DD). */
-function formatDateChip(isoDate: string): string {
-  const date = new Date(`${isoDate}T00:00:00`);
-  const weekday = date.toLocaleDateString("en-US", { weekday: "short" });
-  const month = date.toLocaleDateString("en-US", { month: "short" });
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${weekday} · ${month} ${day}`;
 }
 
 export interface AvailabilityShareView {
@@ -145,7 +138,8 @@ export function useAvailabilityShare(
     return dayKey(end);
   });
   const [showConfirmed, setShowConfirmed] = useState(true);
-  // Held events default to NOT counting as unavailable (matches the design).
+  // Dates on hold default to NOT counting as unavailable (matches the design) —
+  // a hold is a pencil, and a pencilled night is still a night you can offer.
   const [showHeld, setShowHeld] = useState(false);
   const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
 
@@ -200,7 +194,14 @@ export function useAvailabilityShare(
       .filter((isoDate) => !busy.has(isoDate));
   }, [selected, events, availability.data, from, to, selectedWeekdays, showConfirmed, showHeld]);
 
-  const availableDates = useMemo(() => availableDateKeys.map(formatDateChip), [availableDateKeys]);
+  // "Thu, 28 Aug 2026" — the app's one date format (`lib/format`), weekday first
+  // because a free NIGHT is chosen by which day of the week it falls on, and with
+  // the year because these chips are routinely pasted into a mail about next
+  // season. The chips used to be a private `en-US`, yearless "Thu · Aug 28".
+  const availableDates = useMemo(
+    () => availableDateKeys.map(formatDayWithWeekday),
+    [availableDateKeys],
+  );
 
   const shareLink = useMemo(() => {
     if (!selected?.profileSlug || !selected.profileIsPublic) return "";
@@ -255,8 +256,11 @@ export function useAvailabilityShare(
       }
       // The label rides along so a pasted list says WHICH room it is about — the
       // recipient is usually being told about one of several.
+      // Joined on a middot, not a comma: each label already carries one ("Thu, 28
+      // Aug 2026"), and a comma-joined list of comma-bearing dates reads as twice
+      // as many dates as there are.
       const prefix = selected?.fullLabel ? `${selected.fullLabel}: ` : "";
-      copyToClipboard(`${prefix}${availableDates.join(", ")}`, "Available dates copied");
+      copyToClipboard(`${prefix}${availableDates.join(" · ")}`, "Available dates copied");
     },
     copyLink: () => {
       if (!shareLink) {

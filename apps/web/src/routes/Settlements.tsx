@@ -15,7 +15,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { KpiRow } from "../components";
 import { settlementStatusToDisplay, settlementTotals } from "../components/settlementDocument";
 import { ErrorState, LoadingState } from "../components/states";
-import { formatAmount, formatDate, formatMoney } from "../lib/format";
+import { formatAmount, formatDay, formatMoney } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
 
 type SettlementItem = Awaited<ReturnType<typeof getApiV1Settlements>>["items"][number];
@@ -64,7 +64,7 @@ function buildColumns(isSingleProfile: boolean): DataTableColumn<SettlementItem>
     {
       header: "Date",
       width: "1fr",
-      render: (row) => formatDate(row.event.eventDate, { day: "2-digit", month: "short" }),
+      render: (row) => formatDay(row.event.eventDate),
     },
     {
       header: "Event status",

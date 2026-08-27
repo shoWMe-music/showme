@@ -1,6 +1,6 @@
 import { Badge, Button } from "@showme/design-system";
 import type { KeyboardEvent, MouseEvent } from "react";
-import { formatDate, formatMoney } from "../lib/format";
+import { formatDay, formatMoney } from "../lib/format";
 import {
   INVOICE_STATE_STATUS,
   type InvoiceRecord,
@@ -181,7 +181,7 @@ function InvoiceLedgerRow({
       {/* No category field on the invoice payload yet — honest placeholder. */}
       <span className="muted">—</span>
 
-      <span>{formatDate(invoice.dueDate)}</span>
+      <span>{formatDay(invoice.dueDate)}</span>
 
       <span style={{ textAlign: "right" }}>
         {formatMoney(invoice.total, invoice.currency ?? "EUR")}

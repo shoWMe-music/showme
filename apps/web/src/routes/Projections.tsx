@@ -15,10 +15,10 @@ import {
 import { useQueries } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
-import { KpiRow, SegmentedToggle } from "../components";
+import { DateText, KpiRow, SegmentedToggle } from "../components";
 import { ErrorState, LoadingState } from "../components/states";
 import { type EventItem, useAllEvents } from "../hooks/useEventList";
-import { formatDate, formatMoney } from "../lib/format";
+import { formatMoney } from "../lib/format";
 import { isDestinationForKind } from "../shell/navigation";
 type BudgetList = Awaited<ReturnType<typeof getApiV1EventsIdBudgets>>;
 
@@ -218,8 +218,10 @@ function ProjectionsScreen() {
           <span style={{ color: "var(--text)", fontWeight: 600 }}>
             {row.event.title || "Untitled event"}
           </span>
+          {/* Rows here are plain `<div>`s (no `onRowClick`), so the date is free to
+              be the link to that night on the calendar. */}
           <span style={{ color: "var(--muted)", fontSize: 12 }}>
-            {row.event.eventDate ? formatDate(row.event.eventDate) : row.event.status}
+            {row.event.eventDate ? <DateText value={row.event.eventDate} /> : row.event.status}
           </span>
         </div>
       ),

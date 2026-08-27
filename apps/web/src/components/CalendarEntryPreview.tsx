@@ -1,13 +1,17 @@
 import { Button, Card, Icon, KeyValueRow, STATUS_COLOR, STATUS_LABEL } from "@showme/design-system";
 import type { RefObject } from "react";
 import { useEffect } from "react";
+import { formatDayWithWeekday } from "../lib/format";
 import type { CalendarEvent } from "./CalendarEventChip";
-import { type EventMenuItem, EventRowMenu } from "./EventRowMenu";
 import { PickerPopoverPanel } from "./PickerPopoverPanel";
 
 /** The little card that hangs off a calendar chip when you click it: what this
  * entry is, when it is, who it involves — and, for a real event, the way through
  * to its workspace.
+ *
+ * READ-ONLY, deliberately. Nothing here changes an event: the calendar is a view
+ * of the schedule, and the acts that alter a show (archiving among them) live on
+ * the Events list and in the event workspace, which is where "Open event" goes.
  *
  * Everything on it comes from the chip's own data. Deliberately no fetch: the
  * month grid draws dozens of chips, and a request per click would turn a glance
@@ -21,8 +25,6 @@ const HEADER_HEIGHT = 96;
 const FACT_ROW_HEIGHT = 36;
 const OPEN_EVENT_HEIGHT = 52;
 const CALENDAR_ITEM_NOTE_HEIGHT = 27;
-// The overflow trigger sits BESIDE the title, so it adds no height — and its
-// entries only open on a click the reader makes after the panel is placed.
 
 export interface CalendarEntryPreviewProps {
   entry: CalendarEvent;
@@ -40,15 +42,6 @@ export interface CalendarEntryPreviewProps {
   /** Continue to the event workspace. Absent for a standalone calendar item —
    * there is no page to go to, so no footer button is drawn. */
   onOpenEvent?: () => void;
-  /**
-   * What the entry's overflow menu offers (archive, today). Absent for a
-   * standalone calendar item, which is not an event and has nothing to file.
-   *
-   * The menu opens NESTED — inside this card rather than portalled to `<body>` —
-   * see `EventRowMenu`'s `nested` prop for why a portalled panel inside a panel
-   * that dismisses on outside-pointerdown eats its own click.
-   */
-  menuItems?: EventMenuItem[];
 }
 
 export function CalendarEntryPreview({
@@ -57,7 +50,6 @@ export function CalendarEntryPreview({
   anchor,
   panelRef,
   onOpenEvent,
-  menuItems,
 }: CalendarEntryPreviewProps) {
   const color = STATUS_COLOR[entry.status];
   // "Confirmed" for an event, "Appointment" for a calendar item — the palette is
@@ -68,9 +60,7 @@ export function CalendarEntryPreview({
   // "Open event" is the panel's primary control, so it takes focus as the panel
   // opens: the panel is portalled to the end of `<body>`, and a Tab from the chip
   // would otherwise walk into the NEXT chip and never reach this button. Found by
-  // query rather than by ref because the button is a design-system component —
-  // and by its OWN marker rather than "the first button", which stopped being
-  // this one the moment the overflow trigger joined the header above it.
+  // query rather than by ref because the button is a design-system component.
   useEffect(() => {
     if (!onOpenEvent) return;
     panelRef.current?.querySelector<HTMLElement>("[data-open-event]")?.focus();
@@ -101,38 +91,32 @@ export function CalendarEntryPreview({
           background: "var(--surface)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-          <div
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-start",
+            gap: 6,
+            minWidth: 0,
+          }}
+        >
+          <span
             style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "flex-start",
-              gap: 6,
-              flex: 1,
-              minWidth: 0,
+              fontSize: 10.5,
+              fontWeight: 600,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              padding: "3px 9px",
+              borderRadius: 999,
+              background: color.tint,
+              color: color.fg,
             }}
           >
-            <span
-              style={{
-                fontSize: 10.5,
-                fontWeight: 600,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                padding: "3px 9px",
-                borderRadius: 999,
-                background: color.tint,
-                color: color.fg,
-              }}
-            >
-              {kindLabel}
-            </span>
-            <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", lineHeight: 1.35 }}>
-              {entry.eventName}
-            </span>
-          </div>
-          {menuItems && menuItems.length > 0 && (
-            <EventRowMenu nested items={menuItems} label={`Actions for ${entry.eventName}`} />
-          )}
+            {kindLabel}
+          </span>
+          <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", lineHeight: 1.35 }}>
+            {entry.eventName}
+          </span>
         </div>
 
         <div style={{ borderTop: "1px solid var(--border)" }}>
@@ -164,7 +148,7 @@ export function CalendarEntryPreview({
 /** The facts worth showing, in reading order, with the empty ones left out — a
  * preview that prints "Performer —" is worse than one that prints nothing. */
 function entryFacts(entry: CalendarEvent, time: string | null): { label: string; value: string }[] {
-  const facts = [{ label: "Date", value: formatEntryDate(entry.date) }];
+  const facts = [{ label: "Date", value: formatDayWithWeekday(entry.date) }];
   // Only calendar items carry a clock time; an event is dated, not timed.
   if (time) facts.push({ label: "Time", value: time });
   if (entry.performer) {
@@ -174,21 +158,4 @@ function entryFacts(entry: CalendarEvent, time: string | null): { label: string;
     facts.push({ label: entry.eventId ? "Performer" : "Related to", value: entry.performer });
   }
   return facts;
-}
-
-/** `2026-09-12` → `Sat, 12 Sep 2026`. Parsed field by field rather than through
- * `new Date(dayKey)`, which the ES spec reads as UTC midnight and so renders as
- * the day before for every user west of Greenwich. Short form, because the row
- * it sits in is barely 180px wide. */
-function formatEntryDate(dayKey: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dayKey);
-  if (!match) return dayKey;
-  const [, year, month, day] = match;
-  if (!year || !month || !day) return dayKey;
-  return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString("en-GB", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
 }

@@ -6,7 +6,7 @@ import { type ShareComment, ShareSectionCard } from "../components/ShareSectionC
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
 import { type ShareDocument, useShareViewer } from "../hooks/useShareViewer";
-import { formatDate, formatMoney } from "../lib/format";
+import { formatDay, formatMoney } from "../lib/format";
 
 /**
  * ONE viewer, for everyone.
@@ -121,7 +121,7 @@ function ShareDocumentBody({
         <ShareSectionCard {...sectionProps("event", "The show", "the show")}>
           <div style={fieldGridStyle}>
             <KeyValueRow label="Event" value={document.event.title} />
-            <KeyValueRow label="Date" value={formatDate(document.event.eventDate)} />
+            <KeyValueRow label="Date" value={formatDay(document.event.eventDate)} />
             <KeyValueRow label="Venue" value={document.event.venueName ?? "—"} />
             <KeyValueRow
               label="Doors"
@@ -254,7 +254,7 @@ function ShareDocumentBody({
                 Your line · {party.roleInDeal.replace(/_/g, " ")}
               </span>
               <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
-                {party.confirmedAt ? `Confirmed ${formatDate(party.confirmedAt)}` : "Not confirmed"}
+                {party.confirmedAt ? `Confirmed ${formatDay(party.confirmedAt)}` : "Not confirmed"}
               </span>
             </div>
           ))}
@@ -288,7 +288,7 @@ function ShareDocumentBody({
               </Button>
             ) : document.settlement.approvedAt ? (
               <Badge status="confirmed" dot>
-                Approved {formatDate(document.settlement.approvedAt)}
+                Approved {formatDay(document.settlement.approvedAt)}
               </Badge>
             ) : undefined
           }
@@ -379,7 +379,7 @@ function ShareFooter({ document }: { document: ShareDocument }) {
         <span style={{ color: "var(--muted)", fontSize: 12.5, lineHeight: 1.6 }}>
           This page reads the event as it stands right now — it is not a copy, and whoever shared it
           can switch it off at any time.
-          {document.expiresAt ? ` It stops working on ${formatDate(document.expiresAt)}.` : ""}
+          {document.expiresAt ? ` It stops working on ${formatDay(document.expiresAt)}.` : ""}
         </span>
       </div>
       {document.viewer.email && (

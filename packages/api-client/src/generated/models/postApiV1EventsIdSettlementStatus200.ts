@@ -8,4 +8,5 @@
 export type PostApiV1EventsIdSettlementStatus200 = {
   status: string;
   updated: number;
+  emailed: string[];
 };

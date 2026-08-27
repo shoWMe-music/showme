@@ -1,6 +1,6 @@
 import { type getApiV1InvoicesIid, useGetApiV1InvoicesIid } from "@showme/api-client";
 import { Badge, Button, Card, KeyValueRow, Modal } from "@showme/design-system";
-import { formatDate, formatMoney } from "../lib/format";
+import { formatDay, formatMoney } from "../lib/format";
 import {
   INVOICE_STATE_STATUS,
   type InvoiceLineItem,
@@ -91,8 +91,8 @@ function InvoiceDocument({ invoice }: { invoice: InvoiceDetail }) {
 
       <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <Eyebrow>Dates</Eyebrow>
-        <KeyValueRow label="Issued" value={formatDate(invoice.issuedAt)} />
-        <KeyValueRow label="Due" value={formatDate(invoice.dueDate)} />
+        <KeyValueRow label="Issued" value={formatDay(invoice.issuedAt)} />
+        <KeyValueRow label="Due" value={formatDay(invoice.dueDate)} />
       </Card>
 
       <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 10 }}>

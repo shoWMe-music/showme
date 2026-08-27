@@ -9,6 +9,8 @@
  * `GET /activity`, whose WHERE clause is the single place "who may see this" is
  * decided — see `apps/api/src/lib/activity.ts` for the tiers.
  */
+import { formatDay } from "../lib/format";
+
 /**
  * The headline for each activity type the API writes. Keyed by `type`, because the
  * type IS the sentence — the summary carries the particulars, never the verb.
@@ -142,11 +144,16 @@ function activityDetailLines(record: Record<string, unknown>): string[] {
   const role = stringField(record, "role");
   if (role) lines.push(`Role: ${humanize(role)}`);
 
+  // Both of these used to be pushed as the raw `yyyy-mm-dd` off the wire, which
+  // is the one date shape a reader has to decode rather than read. The clock half
+  // is sliced from the string, not parsed: it is an offset-free wall clock
+  // (decisions #10) and re-interpreting it in the reader's zone would move it.
   const localDateTime = stringField(record, "localDateTime");
-  if (localDateTime) lines.push(localDateTime.replace("T", " "));
+  if (localDateTime)
+    lines.push(`${formatDay(localDateTime)} ${localDateTime.slice(11, 16)}`.trim());
 
   const dueDate = stringField(record, "dueDate");
-  if (dueDate) lines.push(`Due ${dueDate}`);
+  if (dueDate) lines.push(`Due ${formatDay(dueDate)}`);
 
   const riderType = stringField(record, "riderType");
   if (riderType) lines.push(`${humanize(riderType)} rider`);

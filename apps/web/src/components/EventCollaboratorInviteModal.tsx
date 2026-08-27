@@ -47,13 +47,28 @@ interface AccessOption {
 }
 
 /**
+ * The panel's own furniture, shared with `EventCollaboratorEditModal`.
+ *
+ * The two modals ask the same two questions about the same person — one before
+ * they are on the event and one after — so a paragraph that sits differently, or
+ * a hint in a different grey, reads as two unrelated grants. Exported here rather
+ * than copied, and here rather than in a `styles.ts` nobody would find, because
+ * this is where the wording they decorate already lives.
+ */
+export const COLLABORATOR_PANEL_STYLE = {
+  paragraph: { margin: 0, color: "var(--muted)", fontSize: 13, lineHeight: 1.55 },
+  fieldGroup: { display: "flex", flexDirection: "column", gap: 6 },
+  hint: { color: "var(--muted)", fontSize: 12, lineHeight: 1.45 },
+} as const;
+
+/**
  * The two grants the web app can honestly offer. "Standard" attaches NO permission
  * set, which is not a downgrade — `baselineCapabilities` gives every role an
  * inalienable floor regardless (decisions #4). "Full control" attaches the host's
  * own admin-grade set, and its price is named in the label rather than discovered
  * as a 403 (audit A-21 — charged to the event host's plan, re-checked on accept).
  */
-const ACCESS_OPTIONS: AccessOption[] = [
+export const ACCESS_OPTIONS: AccessOption[] = [
   {
     value: "standard",
     label: "Standard for the role",
@@ -111,7 +126,7 @@ export function EventCollaboratorInviteModal({
       }
     >
       {invite.sentTo ? (
-        <p style={paragraphStyle}>
+        <p style={COLLABORATOR_PANEL_STYLE.paragraph}>
           <strong style={{ color: "var(--text)" }}>{invite.sentTo}</strong> has been invited to{" "}
           {eventTitle} as {selectedRole?.label.toLowerCase() ?? "a collaborator"}. They get an email
           with a join link, and appear on the Collaborators tab once they accept it — nothing is
@@ -122,7 +137,7 @@ export function EventCollaboratorInviteModal({
           onSubmit={invite.submit}
           style={{ display: "flex", flexDirection: "column", gap: 14 }}
         >
-          <p style={paragraphStyle}>
+          <p style={COLLABORATOR_PANEL_STYLE.paragraph}>
             They get access to this event's workspace and an email invite. Their own account is
             untouched — this is standing on{" "}
             <strong style={{ color: "var(--text)" }}>{eventTitle}</strong> only.
@@ -141,7 +156,7 @@ export function EventCollaboratorInviteModal({
             onFirstNameChange={invite.setFirstName}
             onLastNameChange={invite.setLastName}
           />
-          <div style={fieldGroupStyle}>
+          <div style={COLLABORATOR_PANEL_STYLE.fieldGroup}>
             <Eyebrow>Role on this event</Eyebrow>
             <Select
               value={invite.role}
@@ -152,10 +167,12 @@ export function EventCollaboratorInviteModal({
               }))}
               aria-label="Role on this event"
             />
-            {selectedRole && <span style={hintStyle}>{selectedRole.description}</span>}
+            {selectedRole && (
+              <span style={COLLABORATOR_PANEL_STYLE.hint}>{selectedRole.description}</span>
+            )}
           </div>
           {invite.canGrantFullControl && (
-            <div style={fieldGroupStyle}>
+            <div style={COLLABORATOR_PANEL_STYLE.fieldGroup}>
               <Eyebrow>Access</Eyebrow>
               <Select
                 value={invite.access}
@@ -166,11 +183,13 @@ export function EventCollaboratorInviteModal({
                 }))}
                 aria-label="Access"
               />
-              {selectedAccess && <span style={hintStyle}>{selectedAccess.description}</span>}
+              {selectedAccess && (
+                <span style={COLLABORATOR_PANEL_STYLE.hint}>{selectedAccess.description}</span>
+              )}
             </div>
           )}
           {invite.refusal && (
-            <Callout>
+            <CollaboratorCallout>
               <span style={{ display: "block", fontWeight: 600 }}>{invite.refusal}</span>
               {invite.access === "full_control" && (
                 <span style={{ display: "block", marginTop: 4 }}>
@@ -179,7 +198,7 @@ export function EventCollaboratorInviteModal({
                   later once the host account is on a paid plan.
                 </span>
               )}
-            </Callout>
+            </CollaboratorCallout>
           )}
           <button type="submit" hidden aria-hidden />
         </form>
@@ -188,8 +207,9 @@ export function EventCollaboratorInviteModal({
   );
 }
 
-/** An inline refusal that stays put — the user must be able to read it twice. */
-function Callout({ children }: { children: ReactNode }) {
+/** An inline refusal that stays put — the user must be able to read it twice.
+ * Shared with `EventCollaboratorEditModal`, whose save is refused the same ways. */
+export function CollaboratorCallout({ children }: { children: ReactNode }) {
   return (
     <output
       style={{
@@ -207,22 +227,3 @@ function Callout({ children }: { children: ReactNode }) {
     </output>
   );
 }
-
-const paragraphStyle = {
-  margin: 0,
-  color: "var(--muted)",
-  fontSize: 13,
-  lineHeight: 1.55,
-} as const;
-
-const fieldGroupStyle = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 6,
-} as const;
-
-const hintStyle = {
-  color: "var(--muted)",
-  fontSize: 12,
-  lineHeight: 1.45,
-} as const;

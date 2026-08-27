@@ -18,11 +18,14 @@ import {
 import { Link, useParams } from "@tanstack/react-router";
 import { useState } from "react";
 import { ConfirmDialog, useConfirmDialog } from "../components/ConfirmDialog";
+import { DateText } from "../components/DateText";
+import { SettlementActualsCard } from "../components/SettlementActualsCard";
 import {
   CurrencyPreviewNotice,
   SettlementCurrencyControl,
   useCurrencyPreview,
 } from "../components/SettlementCurrencyPreview";
+import { SettlementDeliveryCard } from "../components/SettlementDeliveryCard";
 import { SettlementPartyCard } from "../components/SettlementPartyCard";
 import { SettlementStepper } from "../components/SettlementStepper";
 import { type SettlementLine, WhoOwesWhomBoard } from "../components/WhoOwesWhomBoard";
@@ -41,7 +44,9 @@ import {
   type SettlementParty,
   useEventSettlement,
 } from "../components/useEventSettlement";
-import { formatDate, formatMoney } from "../lib/format";
+import { useSettlementLines } from "../components/useSettlementLines";
+import { formatDay, formatMoney } from "../lib/format";
+import { PRO_FILING_AVAILABLE } from "../lib/proFilingAvailability";
 import { apiStatusToDisplay } from "../lib/status";
 
 /**
@@ -130,12 +135,22 @@ export function EventSettlement() {
               </>
             )}
           </h2>
-          <div style={{ color: "var(--muted)", fontSize: 14 }}>
+          <div
+            style={{
+              color: "var(--muted)",
+              fontSize: 14,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              flexWrap: "wrap",
+            }}
+          >
             {/* The design puts the city here ("Funkhaus · Berlin · Jul 04"). The
                 event payload carries no city of its own — it lives on the venue
                 PROFILE — so the line renders what it has rather than a blank
                 separator, and gains the city when the event serves one. */}
-            {[event.data.venueName, formatDate(event.data.eventDate)].filter(Boolean).join(" · ")}
+            {event.data.venueName && <span>{event.data.venueName} ·</span>}
+            <DateText value={event.data.eventDate} />
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -147,15 +162,20 @@ export function EventSettlement() {
           </Badge>
           {/* A POINTER to the PRO filing, which lives on its own screen — royalties
               are a different money stream and never enter this page's Σ net = 0.
-              Shown only to someone who could actually file. */}
+              Dark until shoWMe has agreements with the societies (ClickUp
+              86cbaxydb, `lib/proFilingAvailability`): pointing at a screen whose
+              filing actions are all "coming soon" is a promise, not a shortcut.
+              The capability check stays beside the flag so that flipping the flag
+              still shows the link only to someone who could actually file. */}
           <SettlementCurrencyControl preview={preview} />
-          {(event.data.capabilities ?? []).includes("performance_report.file") && (
-            <Link to="/reports">
-              <Button variant="secondary" leftIcon={<Icon name="trending-up" size={14} />}>
-                Report to PRO
-              </Button>
-            </Link>
-          )}
+          {PRO_FILING_AVAILABLE &&
+            (event.data.capabilities ?? []).includes("performance_report.file") && (
+              <Link to="/reports">
+                <Button variant="secondary" leftIcon={<Icon name="trending-up" size={14} />}>
+                  Report to PRO
+                </Button>
+              </Link>
+            )}
         </div>
       </div>
 
@@ -183,7 +203,7 @@ export function EventSettlement() {
       ) : tab === "deals" ? (
         <DealStructureTab settlement={settlement} />
       ) : tab === "financials" ? (
-        <FinancialsTab eventId={eventId} />
+        <FinancialsTab eventId={eventId} settlement={settlement} currency={baseCurrency} />
       ) : tab === "comments" ? (
         <CommentsTab settlement={settlement} eventId={eventId} />
       ) : tab === "payout" ? (
@@ -212,7 +232,7 @@ function OverviewTab({ event, settlement }: { event: EventData; settlement: Even
       <div style={TWO_COLUMN}>
         <Card padding="lg" style={CARD_COLUMN}>
           <CardTitle>Event Details</CardTitle>
-          <KeyValueRow label="Date" value={formatDate(event.eventDate)} />
+          <KeyValueRow label="Date" value={<DateText value={event.eventDate} />} />
           <KeyValueRow label="Venue" value={event.venueName ?? "Not set"} />
           <KeyValueRow
             label="Capacity"
@@ -345,6 +365,7 @@ function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
       owed: party.entitlement as string,
       collected: party.collected as string,
       paid: party.paid as string,
+      prepaid: party.prepaid,
       net: party.net as string,
       netTone: party.netTone,
     }));
@@ -363,23 +384,23 @@ function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
          * under review. A row of five buttons asks the reader to work out which
          * one they want; a row of two or three tells them.
          *
-         * So: recalculating is offered only before the figures are sent out, and
-         * re-issuing only after they have come back. Finalize and dispute keep
-         * their own conditions.
+         * So: re-issuing is offered only while the figures can still move, and
+         * finalize and dispute keep their own conditions. Recalculating stays
+         * available for as long as the API will honour it — right up to finalize
+         * — because answering a comment MEANS changing a figure, and a review
+         * loop whose last step is missing is not a loop.
          */}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {settlement.authority.canCompute &&
-            !settlement.isFinalized &&
-            (!settlement.isComputed || settlement.status === "open") && (
-              <Button
-                variant={settlement.isComputed ? "secondary" : "primary"}
-                disabled={settlement.isBusy}
-                leftIcon={<Icon name="receipt" size={14} />}
-                onClick={settlement.compute}
-              >
-                {settlement.isComputed ? "Recalculate" : "Run the settlement"}
-              </Button>
-            )}
+          {settlement.authority.canCompute && !settlement.isFinalized && (
+            <Button
+              variant={settlement.isComputed ? "secondary" : "primary"}
+              disabled={settlement.isBusy}
+              leftIcon={<Icon name="receipt" size={14} />}
+              onClick={settlement.compute}
+            >
+              {settlement.isComputed ? "Recalculate" : "Run the settlement"}
+            </Button>
+          )}
           {settlement.authority.canFinalize && settlement.isComputed && !settlement.isFinalized && (
             <Button variant="primary" disabled={settlement.isBusy} onClick={askToFinalize}>
               Finalize
@@ -476,6 +497,12 @@ function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
             <ApprovalRoster settlement={settlement} />
             <TotalPayouts settlement={settlement} />
           </div>
+
+          {/* Sending it out sits directly under the sign-off roster, because it
+              answers the question the roster raises: somebody is still Pending —
+              have they even been told? Renders for the operator only; the API
+              returns an empty delivery list to everyone else. */}
+          <SettlementDeliveryCard settlement={settlement} />
         </>
       )}
 
@@ -483,12 +510,12 @@ function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
         <Card key={commission.id} padding="lg" style={CARD_COLUMN}>
           <Eyebrow>Agent commission — private to you and your agent</Eyebrow>
           <KeyValueRow
-            label={`${settlement.nameOf(commission.performerParticipantId)} entitlement`}
+            label={commission.performerLabel}
             value={commission.performerEntitlement}
             mono
           />
           <KeyValueRow
-            label={`Commission to ${settlement.nameOf(commission.agentParticipantId)}`}
+            label={commission.commissionLabel}
             value={commission.commission}
             mono
             total
@@ -510,7 +537,13 @@ function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
  * `POST …/confirm` has no inverse, so offering one would be a button that 404s.
  */
 function ApprovalRoster({ settlement }: { settlement: EventSettlementData }) {
-  const own = settlement.ownParty;
+  // Every signature this reader may give, which is usually just their own. An
+  // agent holding a delegated performer's authority (decisions.md #14) can have
+  // two, so the button lives on the ROSTER ROW rather than once at the foot — a
+  // single "sign off on my settlement" cannot say which line it means.
+  const signable = settlement.approvals.filter(
+    (approval) => approval.signableSettlementId != null && !approval.approved,
+  );
   return (
     <Card padding="lg" style={CARD_COLUMN}>
       <div
@@ -543,20 +576,27 @@ function ApprovalRoster({ settlement }: { settlement: EventSettlementData }) {
           }
         />
       ))}
-      {own && settlement.authority.canConfirm && !own.approvedByYou && (
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+      {settlement.authority.canConfirm && signable.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <span style={{ color: "var(--text)", fontSize: 13 }}>
             Do these figures match your books?
           </span>
-          <span style={{ flex: 1 }} />
-          <Button
-            variant="primary"
-            disabled={settlement.isBusy}
-            leftIcon={<Icon name="check" size={14} />}
-            onClick={() => settlement.confirmOwn(own.settlementId)}
-          >
-            Sign off on my settlement
-          </Button>
+          {signable.map((approval) => (
+            <div
+              key={approval.participantId}
+              style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}
+            >
+              <span style={{ flex: 1 }} />
+              <Button
+                variant="primary"
+                disabled={settlement.isBusy}
+                leftIcon={<Icon name="check" size={14} />}
+                onClick={() => settlement.confirmOwn(approval.signableSettlementId as string)}
+              >
+                {approval.isYours ? "Sign off on my settlement" : `Sign off for ${approval.name}`}
+              </Button>
+            </div>
+          ))}
         </div>
       )}
     </Card>
@@ -564,16 +604,35 @@ function ApprovalRoster({ settlement }: { settlement: EventSettlementData }) {
 }
 
 /**
- * The pool ladder, or the CEILING stated plainly.
+ * The pool ladder, the NOT-YET, or the CEILING — three different absences of a
+ * figure, and the panel must not tell the reader the wrong one.
  *
- * `ladder` is null for anyone without `budget.view`, and that is not an empty
- * state to paper over: story.md:44 makes the event's takings and costs something a
- * performer never sees, "even if an operator wanted to show them". So the panel
- * says whose view it is rather than rendering a row of dashes that reads like a
- * loading failure.
+ * `ladder` is null in two unrelated situations, and saying "this is the
+ * operator's view" in both is how an OPERATOR came to be told it could not see
+ * its own event's takings:
+ *   - **nothing computed yet** — `ladderOf` reads the ladder off a stored
+ *     settlement row, and an event nobody has reconciled has none. Everybody gets
+ *     null here, the host included.
+ *   - **the ceiling** — the API withholds it from anyone without `budget.view`,
+ *     and that is not an empty state to paper over: story.md:44 makes the event's
+ *     takings and costs something a performer never sees, "even if an operator
+ *     wanted to show them".
+ *
+ * `parties` separates them. The settlement payload is party-scoped, so a reader
+ * who can see at least one settled line is on a reconciled event and a missing
+ * ladder there is the ceiling; no lines at all means the reconciliation has not
+ * been run, for this reader or anyone.
  */
 function PoolLadderRows({ settlement }: { settlement: EventSettlementData }) {
   if (!settlement.ladder) {
+    if (settlement.parties.length === 0) {
+      return (
+        <span className="muted" style={{ display: "flex", gap: 6, fontSize: 12.5 }}>
+          <Icon name="receipt" size={14} />
+          This event has not been reconciled yet, so there are no takings and costs to show.
+        </span>
+      );
+    }
     return (
       <span className="muted" style={{ display: "flex", gap: 6, fontSize: 12.5 }}>
         <Icon name="eye-off" size={14} />
@@ -657,7 +716,7 @@ function SettlementThread({ settlement }: { settlement: EventSettlementData }) {
                     {comment.isYours ? `${comment.author} (you)` : comment.author}
                   </b>
                   <span className="muted" style={{ fontSize: 11.5 }}>
-                    {formatDate(comment.createdAt)}
+                    {formatDay(comment.createdAt)}
                   </span>
                 </div>
                 <p style={{ margin: "2px 0 0", fontSize: 13.5, lineHeight: 1.5 }}>
@@ -739,7 +798,7 @@ function RevisionHistory({ eventId }: { eventId: string }) {
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, color: "var(--text)" }}>{described.title}</div>
                   <div className="muted" style={{ fontSize: 11.5 }}>
-                    {formatDate(entry.createdAt)}
+                    {formatDay(entry.createdAt)}
                   </div>
                 </div>
               </div>
@@ -799,8 +858,17 @@ function TotalPayouts({ settlement }: { settlement: EventSettlementData }) {
  * `Σ lines[].poolEffect === variance.pool` exactly, so every krona of the variance
  * is attributable to a row — the API asserts it and this screen simply shows it.
  */
-function FinancialsTab({ eventId }: { eventId: string }) {
+function FinancialsTab({
+  eventId,
+  settlement,
+  currency,
+}: { eventId: string; settlement: EventSettlementData; currency: string }) {
   const comparison = useGetApiV1EventsIdSettlementPlannedVsActual(eventId);
+  // The event's BASE currency, never the cosmetic preview: these inputs are the
+  // real figures being recorded, and money.md is explicit that a display currency
+  // never touches what is owed. Typing 400 into a EUR-previewed SEK settlement
+  // must record 400 SEK.
+  const editor = useSettlementLines(eventId, currency);
 
   if (comparison.isPending) return <LoadingState label="Loading the plan" />;
   // 403 is the ceiling, not a fault: only a party who may read the whole night's
@@ -837,6 +905,16 @@ function FinancialsTab({ eventId }: { eventId: string }) {
 
   return (
     <div style={{ ...CARD_COLUMN, maxWidth: 860 }}>
+      {/* Entry first, comparison second: you arrive here to correct a figure, and
+          the variance is what you check afterwards. */}
+      {settlement.authority.canCompute && (
+        <SettlementActualsCard
+          editor={editor}
+          currency={currency}
+          isFinalized={settlement.isFinalized}
+          onRecalculate={settlement.compute}
+        />
+      )}
       <Card padding="lg" style={CARD_COLUMN}>
         <CardTitle subtitle="What this night was budgeted to make, against what it actually did.">
           Planned vs actual

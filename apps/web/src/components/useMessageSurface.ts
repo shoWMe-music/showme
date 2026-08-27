@@ -1,5 +1,6 @@
 import { useReducedMotion } from "@showme/design-system";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { dayKey, formatDate } from "../lib/format";
 import type { ThreadComment } from "./CommentThread";
 
 /**
@@ -98,26 +99,21 @@ export interface MessageDay {
   comments: ThreadComment[];
 }
 
-const DAY_FORMAT = new Intl.DateTimeFormat("en-GB", {
+/** A divider spells the day out in full — it is read once per scroll, not
+ * scanned in a column, so the long form is clearer than the house short one. */
+const DIVIDER_SHAPE: Intl.DateTimeFormatOptions = {
   weekday: "long",
   day: "numeric",
   month: "long",
   year: "numeric",
-});
-
-/** The local calendar day of an ISO timestamp, as `YYYY-MM-DD`. */
-function localDayKey(date: Date): string {
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${day}`;
-}
+};
 
 function dayLabel(date: Date, today: Date): string {
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
-  if (localDayKey(date) === localDayKey(today)) return "Today";
-  if (localDayKey(date) === localDayKey(yesterday)) return "Yesterday";
-  return DAY_FORMAT.format(date);
+  if (dayKey(date) === dayKey(today)) return "Today";
+  if (dayKey(date) === dayKey(yesterday)) return "Yesterday";
+  return formatDate(dayKey(date), DIVIDER_SHAPE);
 }
 
 /**
@@ -139,7 +135,7 @@ export function useMessageDays(comments: ThreadComment[]): MessageDay[] {
         days[days.length - 1]?.comments.push(comment);
         continue;
       }
-      const key = localDayKey(date);
+      const key = dayKey(date) ?? "unknown";
       const current = days[days.length - 1];
       if (current?.key === key) current.comments.push(comment);
       else days.push({ key, label: dayLabel(date, today), comments: [comment] });

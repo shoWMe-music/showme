@@ -42,10 +42,14 @@ import {
 } from "../components";
 import { BudgetCustomFieldModal, type CustomFieldKind } from "../components/BudgetCustomFieldModal";
 import { BudgetTemplateDialogs } from "../components/BudgetTemplateDialogs";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CostSplitModal } from "../components/CostSplitModal";
+import { DateText } from "../components/DateText";
+import { EventCollaboratorEditModal } from "../components/EventCollaboratorEditModal";
 import { EventCollaboratorInviteModal } from "../components/EventCollaboratorInviteModal";
 import { EventCrewPanel } from "../components/EventCrewPanel";
 import { EventDealsTab } from "../components/EventDealsTab";
+import { EventRowMenu } from "../components/EventRowMenu";
 import { EventSettlementTab } from "../components/EventSettlementTab";
 import { ShareExportModal } from "../components/ShareExportModal";
 import { budgetPlannerViewFrom } from "../components/budgetPlannerView";
@@ -61,7 +65,8 @@ import { useBudgetEditor } from "../components/useBudgetEditor";
 import { useBudgetSeed } from "../components/useBudgetSeed";
 import { useBudgetToolbar } from "../components/useBudgetToolbar";
 import { usePerformingRightsTerritory } from "../components/usePerformingRightsTerritory";
-import { formatDate } from "../lib/format";
+import { useEventCollaborators } from "../hooks/useEventCollaborators";
+import { formatDay } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
 
 type EventDetailData = Awaited<ReturnType<typeof getApiV1EventsId>>;
@@ -120,7 +125,16 @@ export function EventDetail() {
   const display = apiStatusToDisplay(event.status);
   const currency = displayCurrency ?? event.baseCurrency;
   const roster = participants.data ?? [];
-  const canEdit = event.holdAutoPromote !== undefined; // operator-only fields present
+  // Each of these is the capability the route behind the button actually
+  // authorizes. They replace a single `canEdit = event.holdAutoPromote !==
+  // undefined`, which inferred authority from the PRESENCE of an operator-only
+  // field — the exact disguise `serialize/event.ts` says `capabilities[]` exists
+  // to remove: it read TRUE for a host and FALSE for an agent, who nonetheless
+  // holds `deal.edit` and `agreement.manage` (decisions #14). `?? []` covers an
+  // API older than the field: no capabilities means no action is offered, which
+  // is the safe reading.
+  const capabilities = event.capabilities ?? [];
+  const canEditEvent = capabilities.includes("event.edit");
 
   // The one admin-grade permission set the web app can name. There is no route to
   // list or create permission sets, so the only bundle it can offer a collaborator
@@ -164,7 +178,10 @@ export function EventDetail() {
   // and `GET /events/:id/budgets` 403s for everyone else, so offering the tab to a
   // performer offered a door onto an error. (design-handoff-budget-planner §Scope:
   // "the whole screen is operator-only… there is no redacted variant to design".)
-  const canSeeBudget = (event.capabilities ?? []).includes("budget.view");
+  const canSeeBudget = capabilities.includes("budget.view");
+  // Who may change the roster. `participants.manage` is the exact capability both
+  // the PATCH and the DELETE on `/events/:id/participants/:pid` authorize.
+  const canManageParticipants = capabilities.includes("participants.manage");
 
   const tabs: EventTab[] = [
     { key: "todo", label: "To Do" },
@@ -273,11 +290,9 @@ export function EventDetail() {
             <span style={{ color: "var(--dim)" }}>·</span>
             <IdentityChip initials={initials(venueLabel)} label={venueLabel} tone="amber" />
             <span style={{ color: "var(--dim)" }}>·</span>
-            <span style={{ fontFamily: "var(--font-mono)" }}>
-              {event.eventDate
-                ? formatDate(event.eventDate, { day: "2-digit", month: "short" })
-                : "—"}
-            </span>
+            {/* The one date on this screen a reader wants to LEAVE for: it is
+                the night itself, so it carries the hop to the calendar. */}
+            <DateText value={event.eventDate} style={{ fontFamily: "var(--font-mono)" }} />
           </div>
         </div>
 
@@ -290,7 +305,7 @@ export function EventDetail() {
               aria-label="Display currency"
             />
           </div>
-          {canEdit && (
+          {canManageParticipants && (
             <Button
               variant="secondary"
               leftIcon={<Icon name="user" size={14} />}
@@ -344,7 +359,7 @@ export function EventDetail() {
             operatorName={operatorName}
             performers={performersFrom(roster, event)}
             currency={currency}
-            canEdit={canEdit}
+            canEdit={canEditEvent}
             onSaveExtras={saveExtras}
           />
         )}
@@ -367,14 +382,18 @@ export function EventDetail() {
               version: event.version,
               extras: event.extras as Record<string, unknown> | null | undefined,
             }}
-            canEdit={canEdit}
+            canEdit={canEditEvent}
           />
         )}
         {tab === "crew" && (
           <EventCrewPanel
             eventId={eventId}
             crew={crew}
-            canManage={canEdit}
+            canManage={
+              capabilities.includes("crew.manage") ||
+              capabilities.includes("participants.manage") ||
+              capabilities.includes("crew.submit")
+            }
             canManageCrew={(event.capabilities ?? []).includes("crew.manage")}
             onInviteCrew={() => openInvite("crew")}
           />
@@ -390,12 +409,18 @@ export function EventDetail() {
         {tab === "collaborators" && (
           <CollaboratorsTab
             eventId={eventId}
+            hostProfileId={event.hostProfileId}
             roster={roster}
             isPending={participants.isPending}
             isError={participants.isError}
             error={participants.error}
-            canManage={canEdit}
-            onInvite={canEdit ? () => openInvite() : undefined}
+            // The caller's OWN capabilities, not the operator-field tell: both
+            // writes behind this tab authorize `participants.manage`, so gating
+            // on anything else offers a button whose click is a 403 (or hides one
+            // that would have worked — see `serialize/event.ts`).
+            canManage={canManageParticipants}
+            fullControlPermissionSetId={hostPermissionSetId}
+            onInvite={canManageParticipants ? () => openInvite() : undefined}
           />
         )}
         {tab === "history" && <EventHistoryTab eventId={eventId} />}
@@ -518,6 +543,8 @@ function DetailsTab({
         curfew: event.curfew,
         venueName: event.venueName,
         venueProfileId: event.venueProfileId,
+        hostProfileId: event.hostProfileId,
+        imageUrl: event.imageUrl,
         capacity: event.capacity,
         stageId: event.stageId,
         version: event.version,
@@ -722,20 +749,27 @@ function BudgetScopeSwitch({
 
 function CollaboratorsTab({
   eventId,
+  hostProfileId,
   roster,
   isPending,
   isError,
   error,
   canManage,
+  fullControlPermissionSetId,
   onInvite,
 }: {
   eventId: string;
+  /** The event's anchor profile — its participant row is the one the API protects. */
+  hostProfileId: string;
   roster: Participant[];
   isPending: boolean;
   isError: boolean;
   error: unknown;
-  /** Whether this viewer may manage the roster — only they may read the open invites. */
+  /** The caller holds `participants.manage` — only they may read the open invites,
+   * edit a collaborator, or remove one. */
   canManage: boolean;
+  /** The admin-grade set an edit may raise someone to; `null` hides the option. */
+  fullControlPermissionSetId: string | null;
   /** Absent when this viewer may not manage the roster — then the tab is read-only. */
   onInvite?: () => void;
 }) {
@@ -746,6 +780,12 @@ function CollaboratorsTab({
   // fetches it — it carries the invitees' email addresses.
   const invitations = useGetApiV1EventsIdInvitations(eventId, { query: { enabled: canManage } });
   const pendingInvitations = invitations.data ?? [];
+  const collaborators = useEventCollaborators({
+    eventId,
+    hostProfileId,
+    canManage,
+    fullControlPermissionSetId,
+  });
 
   if (isPending) return <LoadingState label="Loading collaborators" />;
   if (isError) return <ErrorState error={error} title="Couldn't load collaborators" />;
@@ -818,12 +858,23 @@ function CollaboratorsTab({
             >
               <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
                 <Avatar initials={initials(name)} tone={roleTone(party.role)} size={40} />
-                <div style={{ minWidth: 0 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontWeight: 600, color: "var(--text)", fontSize: 14 }}>{name}</div>
                   <div style={{ color: "var(--muted)", fontSize: 12 }}>
                     {statusLabel(party.role)}
                   </div>
                 </div>
+                {/* The same overflow menu an event row carries, for the same
+                    reason: two actions that must not sit on the card as buttons,
+                    one of which is destructive. It renders only for a caller who
+                    holds `participants.manage` — `menuItemsFor` returns nothing
+                    otherwise — and each entry that is refused says why. */}
+                {canManage && (
+                  <EventRowMenu
+                    label={`Actions for ${name}`}
+                    items={collaborators.menuItemsFor(party, name)}
+                  />
+                )}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <Badge status={badgeStatusForParticipant(party.status)} dot>
@@ -837,6 +888,9 @@ function CollaboratorsTab({
           <PendingInvitationCard key={invitation.id} invitation={invitation} />
         ))}
       </div>
+
+      <EventCollaboratorEditModal editor={collaborators.editor} />
+      <ConfirmDialog {...collaborators.confirmDialogProps} />
     </>
   );
 }
@@ -868,7 +922,7 @@ function PendingInvitationCard({ invitation }: { invitation: EventInvitation }) 
       </div>
       <div style={{ color: "var(--dim)", fontSize: 12, lineHeight: 1.45 }}>
         {invitation.recipientEmail
-          ? `Invited ${formatDate(invitation.createdAt, { day: "2-digit", month: "short" })} — nothing is granted until they accept.`
+          ? `Invited ${formatDay(invitation.createdAt)} — nothing is granted until they accept.`
           : "Nothing is granted until they accept."}
       </div>
     </Card>

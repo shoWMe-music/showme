@@ -23,6 +23,7 @@ export type IconName =
   | "x"
   | "building"
   | "clock"
+  | "pencil"
   | "trash"
   | "arrow-right"
   | "trending-up"
@@ -37,6 +38,7 @@ export type IconName =
   | "copy"
   | "link"
   | "calendar-check"
+  | "image"
   | "sun"
   | "moon";
 
@@ -108,6 +110,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M12 7v5l3 2" />
     </>
   ),
+  pencil: <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" />,
   trash: <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14" />,
   "arrow-right": <path d="M5 12h14M13 6l6 6-6 6" />,
   "trending-up": (
@@ -165,6 +168,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <circle cx="12" cy="5" r="1.4" />
       <circle cx="12" cy="12" r="1.4" />
       <circle cx="12" cy="19" r="1.4" />
+    </>
+  ),
+  image: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <path d="M21 15l-5-5L5 21" />
     </>
   ),
   copy: (

@@ -1,4 +1,4 @@
-import { type RefObject, useRef } from "react";
+import { useRef } from "react";
 import { usePickerPopover } from "./usePickerPopover";
 
 /**
@@ -23,7 +23,7 @@ export function useCalendarEntryPreview(
 ) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popover = usePickerPopover({
-    inputRef: triggerRef as unknown as RefObject<HTMLInputElement | null>,
+    inputRef: triggerRef,
   });
 
   return {

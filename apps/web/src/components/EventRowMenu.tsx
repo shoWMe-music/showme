@@ -1,5 +1,5 @@
 import { Card, Icon } from "@showme/design-system";
-import { type CSSProperties, type RefObject, useRef } from "react";
+import { type CSSProperties, useRef } from "react";
 import { PickerPopoverPanel } from "./PickerPopoverPanel";
 import { usePickerPopover } from "./usePickerPopover";
 
@@ -72,11 +72,7 @@ function estimatedHeight(items: EventMenuItem[]): number {
 export function EventRowMenu({ items, label, nested = false }: EventRowMenuProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popover = usePickerPopover({
-    // The shell is typed for the date/time FIELDS it was written for, but all it
-    // ever does to the ref is `getBoundingClientRect()` and `focus()` — both of
-    // which a <button> has. One cast, in one place, exactly as
-    // `useCalendarEntryPreview` makes it.
-    inputRef: triggerRef as unknown as RefObject<HTMLInputElement | null>,
+    inputRef: triggerRef,
   });
 
   const entries = items.map((item) => (

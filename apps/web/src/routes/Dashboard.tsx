@@ -11,7 +11,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { settlementStatusToDisplay, settlementTotals } from "../components/settlementDocument";
 import { ErrorState, LoadingState } from "../components/states";
-import { formatAmount, formatDate, formatMoney } from "../lib/format";
+import { formatAmount, formatDay, formatMoney } from "../lib/format";
 
 type TaskItem = { id: string; title: string; dueDate: string | null; completed: boolean };
 
@@ -166,7 +166,7 @@ export function Dashboard() {
       icon: "calendar",
       color: "#F4A046",
       title: `Confirm ${event.title}`,
-      detail: `Pending event · ${formatDate(event.eventDate, { day: "2-digit", month: "short" })} · needs a decision`,
+      detail: `Pending event · ${formatDay(event.eventDate)} · needs a decision`,
       action: "Review",
       onAction: () => openEvent(event.id),
     });
@@ -179,7 +179,7 @@ export function Dashboard() {
       icon: "inbox",
       color: "#6FA8E0",
       title: `Reply to ${requester}`,
-      detail: `Booking request · ${formatDate(request.wantedDate, { day: "2-digit", month: "short" })}`,
+      detail: `Booking request · ${formatDay(request.wantedDate)}`,
       action: "Review",
       onAction: () => navigate({ to: "/requests" }),
     });
@@ -190,9 +190,7 @@ export function Dashboard() {
       icon: "check",
       color: "#6FC97A",
       title: task.title,
-      detail: task.dueDate
-        ? `Task · due ${formatDate(task.dueDate, { day: "2-digit", month: "short" })}`
-        : "Task · open",
+      detail: task.dueDate ? `Task · due ${formatDay(task.dueDate)}` : "Task · open",
       action: "Open",
       onAction: () => navigate({ to: "/tasks" }),
     });
@@ -529,7 +527,7 @@ export function Dashboard() {
                     <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
                       <span style={{ fontWeight: 600, fontSize: 13.5 }}>{row.event.title}</span>
                       <span className="muted" style={{ fontSize: 12 }}>
-                        {row.event.eventDate ? formatDate(row.event.eventDate) : "Date to come"}
+                        {row.event.eventDate ? formatDay(row.event.eventDate) : "Date to come"}
                       </span>
                     </span>
                     <span style={{ display: "flex", alignItems: "center", gap: 12 }}>

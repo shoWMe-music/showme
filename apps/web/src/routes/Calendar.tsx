@@ -1,16 +1,15 @@
 import { type getApiV1Calendar, useGetApiV1Calendar } from "@showme/api-client";
 import { Card, Icon, type Status, useToast } from "@showme/design-system";
-import { useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { type CalendarEvent, type CalendarLabelMode, CalendarMonthGrid } from "../components";
 import { AvailabilityShareModal } from "../components/AvailabilityShareModal";
 import { CalendarCreatePopover } from "../components/CalendarCreatePopover";
 import { CalendarDayAgenda } from "../components/CalendarDayAgenda";
 import { CalendarFilterChip } from "../components/CalendarFilterChip";
 import { CalendarItemCreateModal } from "../components/CalendarItemCreateModal";
+import { CalendarJumpToDate } from "../components/CalendarJumpToDate";
 import { CalendarWeekGrid } from "../components/CalendarWeekGrid";
-import { DateTimeField } from "../components/DateTimeField";
-import type { EventMenuItem } from "../components/EventRowMenu";
 import { ExternalCalendarCard } from "../components/ExternalCalendarCard";
 import { MarkUnavailableModal } from "../components/MarkUnavailableModal";
 import { MyCalendarsCard } from "../components/MyCalendarsCard";
@@ -36,9 +35,9 @@ import {
 } from "../components/useMarkUnavailable";
 import { useAvailabilityShare } from "../hooks/useAvailabilityShare";
 import { useCalendarSources } from "../hooks/useCalendarSources";
-import { useEventArchive } from "../hooks/useEventArchive";
 import { type EventItem, useAllEvents } from "../hooks/useEventList";
 import { buildCalendarInventory, placeEvents } from "../lib/calendarInventory";
+import { formatDay, parseDayLocal } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
 import { useNewEvent } from "../shell/NewEventProvider";
 
@@ -251,6 +250,25 @@ function primaryButtonStyle(): React.CSSProperties {
   };
 }
 
+/** The lozenge beside the prev/next squares — "Today", and the jump-to-date
+ * trigger that sits with it. One height and one border for the whole cluster. */
+function navPillStyle(): React.CSSProperties {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+    padding: "0 15px",
+    height: 36,
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    background: "var(--surface)",
+    color: "var(--text)",
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: "pointer",
+  };
+}
+
 /** A 36×36 square icon button (prev/next month). */
 function navSquareStyle(): React.CSSProperties {
   return {
@@ -298,32 +316,34 @@ function segmentButtonStyle(active: boolean, weight: number): React.CSSPropertie
 function CalendarGridForView({
   view,
   anchorDate,
+  selectedDay,
   events,
   unavailableDays,
   labelMode,
   onSelectDay,
   onSelectEvent,
-  eventMenuItems,
 }: {
   view: CalendarView;
   anchorDate: Date;
+  /** The day the reader was sent to (`?date=`) or jumped to, marked so they can
+   * see WHICH night they landed on. The day view is that day, so it needs none. */
+  selectedDay: string | null;
   events: CalendarEvent[];
   unavailableDays: UnavailableDays;
   labelMode: CalendarLabelMode;
   onSelectDay: (dayKey: string, anchor: DOMRect) => void;
   onSelectEvent: (eventId: string) => void;
-  eventMenuItems: (event: CalendarEvent) => EventMenuItem[];
 }) {
   if (view === "week") {
     return (
       <CalendarWeekGrid
         week={anchorDate}
+        selectedDay={selectedDay ?? undefined}
         events={events}
         unavailableDays={unavailableDays}
         labelMode={labelMode}
         onSelectDay={onSelectDay}
         onSelectEvent={onSelectEvent}
-        eventMenuItems={eventMenuItems}
       />
     );
   }
@@ -336,20 +356,19 @@ function CalendarGridForView({
         labelMode={labelMode}
         onSelectDay={onSelectDay}
         onSelectEvent={onSelectEvent}
-        eventMenuItems={eventMenuItems}
       />
     );
   }
   return (
     <CalendarMonthGrid
       month={anchorDate}
+      selectedDay={selectedDay ?? undefined}
       events={events}
       unavailableDays={unavailableDays}
       labelMode={labelMode}
       showLegend={false}
       onSelectDay={onSelectDay}
       onSelectEvent={onSelectEvent}
-      eventMenuItems={eventMenuItems}
     />
   );
 }
@@ -358,15 +377,23 @@ export function Calendar() {
   const navigate = useNavigate();
   const toast = useToast();
   const { openNewEvent, canCreateEvent } = useNewEvent();
+  // `?date=yyyy-mm-dd`: what makes every date printed elsewhere in the app a link
+  // back to the night it names (`components/DateText`). Validated by the route,
+  // so it is either a well-formed day or absent.
+  const { date: linkedDay } = useSearch({ from: "/calendar" });
 
   // One cursor for all three views: the month, week or day it lands in is what
   // gets drawn, so switching view keeps the reader where they already were.
-  const [anchorDate, setAnchorDate] = useState(() => new Date());
+  // Seeded from the link so the first paint is already the right month — an
+  // effect alone would show one frame of today and then jump.
+  const [anchorDate, setAnchorDate] = useState(() => parseDayLocal(linkedDay) ?? new Date());
+  // Which day the calendar is POINTED AT, marked on the grid. Only a link or a
+  // jump sets it: stepping the period is browsing, not landing somewhere.
+  const [selectedDay, setSelectedDay] = useState<string | null>(linkedDay ?? null);
   const [view, setView] = useState<CalendarView>("month");
   const [labelMode, setLabelMode] = useState<CalendarLabelMode>("eventName");
   const [performerFilter, setPerformerFilter] = useState("");
   const [venueFilter, setVenueFilter] = useState("");
-  const [dateJump, setDateJump] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
   const [unavailableOpen, setUnavailableOpen] = useState(false);
   // The day "CREATE" popover: which day was clicked + the cell rect to anchor to.
@@ -495,11 +522,6 @@ export function Calendar() {
   // route that actually knows about them.
   const share = useAvailabilityShare(events.items, calendarSources.sources);
 
-  // Filing a show away from the calendar. Same hook, same toast (with its Undo)
-  // and same cache invalidation as the Events screen — archiving is one act with
-  // one set of consequences, however the reader reached it.
-  const archive = useEventArchive();
-
   const periodTitle = viewTitle(view, anchorDate);
 
   // The rail's read-out: every calendar the reader has and what each is holding
@@ -595,31 +617,28 @@ export function Calendar() {
     setAnchorDate((current) => stepByView(view, current, offset));
   const viewNoun = view === "month" ? "month" : view === "week" ? "week" : "day";
 
-  const onDateJump = (value: string) => {
-    setDateJump(value);
-    if (!value) return;
-    // `new Date("2026-08-29")` is UTC midnight, so anywhere west of Greenwich the
-    // anchor landed on the 28th and Day view showed the wrong day. The field's
-    // value is a LOCAL calendar date; build the Date from its parts so it stays
-    // one. (Same trap as `toDayKey` above.)
-    const [year, month, day] = value.split("-").map(Number);
-    if (!year || !month || !day) return;
-    const parsed = new Date(year, month - 1, day);
-    if (!Number.isNaN(parsed.getTime())) setAnchorDate(parsed);
-  };
-
   /**
-   * The ⋮ on a calendar entry.
+   * Point the calendar at one day: the anchor moves so the period around it is
+   * drawn, and the day itself is marked so the reader can see where they landed.
    *
-   * Only real EVENTS get one: a task, an appointment, a note or an imported
-   * entry has no `eventId`, is not an event, and has nothing to file away. An
-   * entry drawn here is never already archived — the grid reads `useAllEvents`,
-   * which leaves filed-away shows out — so the menu always offers Archive and
-   * the way back lives on the Events screen's Archived filter, which is where the
-   * toast points.
+   * `parseDayLocal` rather than `new Date(day)`, which the ES spec reads as UTC
+   * midnight — anywhere west of Greenwich that anchored the day BEFORE the one
+   * asked for, and Day view then showed the wrong night.
    */
-  const eventMenuItems = (entry: CalendarEvent): EventMenuItem[] =>
-    entry.eventId ? archive.menuItems({ id: entry.eventId, title: entry.eventName }) : [];
+  const goToDay = useCallback((day: string) => {
+    const parsed = parseDayLocal(day);
+    if (!parsed) return;
+    setAnchorDate(parsed);
+    setSelectedDay(day);
+  }, []);
+
+  // A `?date=` that changes while this screen is already mounted — one date link
+  // followed from another. Deliberately keyed on the LINK alone: stepping the
+  // month never touches the URL, so browsing away from the linked day cannot be
+  // undone by this effect.
+  useEffect(() => {
+    if (linkedDay) goToDay(linkedDay);
+  }, [linkedDay, goToDay]);
 
   const isPending = calendar.isPending || events.isPending;
 
@@ -660,18 +679,8 @@ export function Calendar() {
             </button>
             <button
               type="button"
-              style={{
-                padding: "0 15px",
-                height: 36,
-                borderRadius: 10,
-                border: "1px solid var(--border)",
-                background: "var(--surface)",
-                color: "var(--text)",
-                fontSize: 13,
-                fontWeight: 500,
-                cursor: "pointer",
-              }}
-              onClick={() => setAnchorDate(new Date())}
+              style={navPillStyle()}
+              onClick={() => goToDay(dayKey(new Date()))}
             >
               Today
             </button>
@@ -683,6 +692,13 @@ export function Calendar() {
             >
               <Icon name="chevron-right" size={17} />
             </button>
+            {/* Beside Today, not among the filters: this moves the reader, it
+                does not narrow what they see. */}
+            <CalendarJumpToDate
+              value={selectedDay ?? dayKey(anchorDate)}
+              onSelect={goToDay}
+              style={navPillStyle()}
+            />
           </div>
           <div style={segmentContainerStyle()} role="tablist" aria-label="Calendar view">
             {VIEW_OPTIONS.map((option) => (
@@ -872,15 +888,6 @@ export function Calendar() {
             aria-label="Filter by venue or room"
             style={filterInputStyle()}
           />
-          {/* Ours, not Chrome's: every other date field in the app opens the
-              in-app picker, and a native popup here arrived in system blue. */}
-          <DateTimeField
-            type="date"
-            value={dateJump}
-            onChange={(event) => onDateJump(event.target.value)}
-            aria-label="Jump to date"
-            style={{ ...filterInputStyle(), width: "auto" }}
-          />
         </div>
 
         {/* Grid + right rail */}
@@ -900,10 +907,10 @@ export function Calendar() {
             <CalendarGridForView
               view={view}
               anchorDate={anchorDate}
+              selectedDay={selectedDay}
               events={visibleEvents}
               unavailableDays={unavailableDays}
               labelMode={labelMode}
-              eventMenuItems={eventMenuItems}
               onSelectEvent={(eventId) => navigate({ to: "/events/$eventId", params: { eventId } })}
               onSelectDay={(selectedDayKey, anchor) =>
                 setCreateAt({ dayKey: selectedDayKey, anchor })
@@ -1034,10 +1041,7 @@ export function Calendar() {
       {createAt && (
         <CalendarCreatePopover
           anchor={createAt.anchor}
-          title={new Date(`${createAt.dayKey}T00:00:00`).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-          })}
+          title={formatDay(createAt.dayKey)}
           onClose={() => setCreateAt(null)}
           // Blocking a day is not creating anything, so it sits in its own group
           // under the create list. Hidden entirely for a role the API would

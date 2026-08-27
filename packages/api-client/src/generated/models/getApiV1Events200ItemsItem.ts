@@ -20,10 +20,16 @@ export type GetApiV1Events200ItemsItem = {
   /** @nullable */
   venueName: string | null;
   /** @nullable */
+  capacity: number | null;
+  /** @nullable */
   stageId: string | null;
   version: number;
   /** @nullable */
   holdRank?: number | null;
   holdAutoPromote?: boolean;
   archived: boolean;
+  /** @nullable */
+  headlinePerformerName: string | null;
+  /** @nullable */
+  settlementStatus: string | null;
 };

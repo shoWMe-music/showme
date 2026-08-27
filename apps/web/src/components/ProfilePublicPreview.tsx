@@ -1,5 +1,6 @@
 import { Avatar, type AvatarTone, Card, Icon } from "@showme/design-system";
 import { parseVideoLink } from "@showme/shared";
+import { formatDay } from "../lib/format";
 import { VenueSpecsCard } from "./VenueSpecsCard";
 import { VideoEmbed } from "./VideoEmbed";
 
@@ -67,6 +68,8 @@ export interface PublicPreviewProfile {
   type: string | null;
   kind: string;
   bio: string | null;
+  /** The line under the name on the public page. Null until the owner writes one. */
+  tagline: string | null;
   avatarUrl: string | null;
   bannerUrl: string | null;
   genres: string[];
@@ -127,10 +130,6 @@ function formatPublicAddress(location: PublicPreviewLocation | null): string | n
   return parts.length > 0 ? parts.join(", ") : null;
 }
 
-function formatEventDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "2-digit" });
-}
-
 export function ProfilePublicPreview({
   profile,
   comingEvents,
@@ -184,6 +183,21 @@ export function ProfilePublicPreview({
               {profile.name}
             </h2>
           </div>
+
+          {/* The line under the name — the first thing the public page sets, so
+              the preview has to show whether it is set at all. An unwritten one
+              says so rather than leaving a gap the owner cannot interpret. */}
+          <p
+            style={{
+              margin: "6px 0 0",
+              fontFamily: "var(--font-serif)",
+              fontStyle: "italic",
+              fontSize: 17,
+              color: profile.tagline ? "var(--accent)" : "var(--dim)",
+            }}
+          >
+            {profile.tagline ?? "No tagline yet."}
+          </p>
 
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
             {profile.genres.length > 0 ? (
@@ -272,10 +286,11 @@ export function ProfilePublicPreview({
                       color: "var(--muted)",
                       fontFamily: "var(--font-mono)",
                       fontSize: 13,
-                      minWidth: 52,
+                      minWidth: 96,
+                      whiteSpace: "nowrap",
                     }}
                   >
-                    {event.eventDate ? formatEventDate(event.eventDate) : "—"}
+                    {formatDay(event.eventDate)}
                   </span>
                   <span style={{ fontWeight: 600, color: "var(--text)", flex: 1 }}>
                     {event.title}

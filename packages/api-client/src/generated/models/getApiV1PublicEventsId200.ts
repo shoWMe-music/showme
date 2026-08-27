@@ -16,4 +16,6 @@ export type GetApiV1PublicEventsId200 = {
   doorTime: string | null;
   /** @nullable */
   startTime: string | null;
+  /** @nullable */
+  imageUrl: string | null;
 };

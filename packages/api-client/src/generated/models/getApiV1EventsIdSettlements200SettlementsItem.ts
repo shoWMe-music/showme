@@ -16,4 +16,5 @@ export type GetApiV1EventsIdSettlements200SettlementsItem = {
   version: number;
   isYours: boolean;
   approvedByYou: boolean;
+  signableByYou: boolean;
 };

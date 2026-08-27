@@ -20,6 +20,8 @@ export type GetApiV1ProfilesIdPublicPreview200Profile = {
   /** @nullable */
   bio: string | null;
   /** @nullable */
+  tagline: string | null;
+  /** @nullable */
   avatarUrl: string | null;
   /** @nullable */
   bannerUrl: string | null;

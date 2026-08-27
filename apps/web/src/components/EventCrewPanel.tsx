@@ -172,8 +172,9 @@ function TeamPickerModal({ panel }: { panel: ReturnType<typeof useEventCrewPanel
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <p style={{ margin: 0, color: "var(--muted)", fontSize: 13, lineHeight: 1.55 }}>
-          Everyone in the team joins as crew on this event. People already on the bill are skipped,
-          never duplicated.
+          Everyone in the team joins as crew on this event. Anyone already on the bill is skipped,
+          never duplicated — and a team member without a shoWMe account can't be placed on an event,
+          so invite them with “+ Add Member” instead.
         </p>
         {panel.groupsPending && (
           <span style={{ color: "var(--muted)", fontSize: 13 }}>Loading your teams…</span>

@@ -73,7 +73,7 @@ export const NAV: readonly NavItem[] = [
   //     only ever see a setlist explicitly shared to their participant row.
   //   · agent — a booking agent handles live bookings only, "not publishing"
   //     (story.md); PRO royalties are the writer's income, not the agent's.
-  { label: "Performance Reports", icon: "trending-up", to: "/reports", kinds: ["operator"] },
+  { label: "Setlists", icon: "trending-up", to: "/reports", kinds: ["operator"] },
   // `GET /settlements` is party-scoped: one settlement row per participant, so a
   // performer's payouts, a crew fee and an agent's net-0 line all live here. This
   // is the money screen for everyone — never cut it for looking operator-ish.

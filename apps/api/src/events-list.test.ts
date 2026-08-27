@@ -12,7 +12,7 @@ import { buildTestApp } from "./testing";
 /** Fake verifier: the bearer token IS the uid, so tests just send `Bearer <uid>`. */
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -42,7 +42,7 @@ async function seedMemberWithSet(
   capabilities: readonly string[],
 ) {
   const { db } = harness;
-  await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind });
+  await db.insert(schema.users).values({ id, email: `${id}@example.showme.test`, kind });
   const [profile] = await db
     .insert(schema.profiles)
     .values({ kind, ownerUserId: id, name: id, slug: id })
@@ -299,7 +299,7 @@ describe("DELETE /events/:id", () => {
     const { db } = harness;
     await db.insert(schema.users).values({
       id: "api-del-op",
-      email: "api-del-op@example.com",
+      email: "api-del-op@example.showme.test",
       kind: "operator",
     });
     const [profile] = await db
@@ -489,6 +489,100 @@ describe("POST /events/:id/notify", () => {
   });
 });
 
+describe("PATCH /events/:id — the poster (migration 0026)", () => {
+  /**
+   * A file row + the storage path the API insists on, exactly as
+   * `POST /files/upload-url` would have written them. Inserted directly because
+   * this suite does not mount the files routes — the rule under test is what the
+   * EVENT does with a file id, not how the id was minted.
+   */
+  async function seedUploadedImage(profileId: string, ownerUserId: string, name: string) {
+    const [file] = await harness.db
+      .insert(schema.files)
+      .values({
+        ownerUserId,
+        ownerProfileId: profileId,
+        kind: "photo",
+        path: `profiles/${profileId}/media/${name}`,
+        contentType: "image/png",
+        sizeBytes: 4096,
+      })
+      .returning();
+    if (!file) throw new Error("file seed failed");
+    return file;
+  }
+
+  it("attaches a poster the host uploaded, and serves it as a signed URL", async () => {
+    const host = await seedMemberWithSet("poster-host", "operator", ["event.view", "event.edit"]);
+    const event = await seedHostedEvent("Poster Show", host, "poster-host");
+    const file = await seedUploadedImage(host.profileId, "poster-host", "poster.png");
+
+    const saved = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("poster-host"),
+      payload: { imageFileId: file.id },
+    });
+    expect(saved.statusCode).toBe(200);
+    // The WIRE carries a URL minted per read FROM THE FILE'S PATH — this suite's
+    // signer is the offline fake, so the assertion is on the shape rather than on
+    // a real signature. What it proves is that the response went through the
+    // signer at all, which is the half that used to be missing.
+    expect(saved.json().imageUrl).toBe(
+      `https://fake.storage.local/download/${encodeURIComponent(file.path)}`,
+    );
+
+    // The ROW stores the FILE. Storing the signed URL instead would give the show
+    // a poster that works for fifteen minutes.
+    const [row] = await harness.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.id, event.id));
+    expect(row?.imageFileId).toBe(file.id);
+    expect(row?.imageUrl).toBeNull();
+  });
+
+  it("refuses a poster uploaded to a different profile", async () => {
+    const host = await seedMemberWithSet("poster-mine", "operator", ["event.view", "event.edit"]);
+    const stranger = await seedMemberWithSet("poster-theirs", "operator", ["event.view"]);
+    const event = await seedHostedEvent("Borrowed Poster", host, "poster-mine");
+    const theirs = await seedUploadedImage(stranger.profileId, "poster-theirs", "theirs.png");
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("poster-mine"),
+      payload: { imageFileId: theirs.id },
+    });
+    // 400, not 403: the caller may edit this event. The file is the problem, and
+    // the message says which one.
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toContain("not uploaded to this profile");
+
+    const [row] = await harness.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.id, event.id));
+    expect(row?.imageFileId).toBeNull();
+  });
+
+  it("takes the poster off when both halves are cleared", async () => {
+    const host = await seedMemberWithSet("poster-clear", "operator", ["event.view", "event.edit"]);
+    const event = await seedHostedEvent("Cleared Poster", host, "poster-clear", {
+      imageUrl: "https://cdn.example/old-poster.png",
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("poster-clear"),
+      payload: { imageFileId: null, imageUrl: null },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().imageUrl).toBeNull();
+  });
+});
+
 describe("PATCH /events/:id — the free-tier event cap (entitlement layer)", () => {
   /** A free_operator host already sitting ON the cap: 3 counted events in the window. */
   async function seedHostAtCap(prefix: string) {
@@ -579,7 +673,9 @@ describe("venue-profile prefill — the venue's own facts fill the blanks", () =
   /** A venue profile that has actually filled in its own record (migration 0010). */
   async function seedVenueProfile(id: string, name: string) {
     const { db } = harness;
-    await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind: "operator" });
+    await db
+      .insert(schema.users)
+      .values({ id, email: `${id}@example.showme.test`, kind: "operator" });
     const [profile] = await db
       .insert(schema.profiles)
       .values({ kind: "operator", type: "venue", ownerUserId: id, name, slug: id })
@@ -806,5 +902,178 @@ describe("PATCH /events/:id — a solo operator drives the status themselves", (
     const statusLine = rows.find((row) => row.type === "event.status_changed");
     expect(statusLine).toBeDefined();
     expect(statusLine?.summary).toMatchObject({ from: "draft", to: "confirmed" });
+  });
+});
+
+/**
+ * The list row's own facts.
+ *
+ * Every one of these was an em-dash on `/events` while the same event's detail
+ * page showed the value in full — three of them because the row had nothing to
+ * draw, and `capacity` because `EventResponse` never declared a field
+ * `serializeEvent` was already returning, so Fastify stripped it on the way out.
+ * That is the same failure that hid `venueName`, which is why both are asserted
+ * here: a schema that silently drops a field is invisible until someone reads the
+ * screen.
+ */
+describe("GET /events — the facts a row draws", () => {
+  it("carries the venue name and the capacity all the way through serialization", async () => {
+    const caller = await seedMemberWithSet(
+      "row-venue-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    await seedHostedEvent("Lantern Night", caller, "row-venue-op", {
+      venueName: "The Lantern Hall",
+      capacity: 400,
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/events",
+      headers: auth("row-venue-op"),
+    });
+    expect(response.statusCode).toBe(200);
+    const [row] = response.json().items as { venueName: string; capacity: number }[];
+    expect(row?.venueName).toBe("The Lantern Hall");
+    expect(row?.capacity).toBe(400);
+  });
+
+  it("names the top of the bill — the headliner, not whoever was added first", async () => {
+    const caller = await seedMemberWithSet(
+      "row-bill-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const opener = await seedMemberWithSet(
+      "row-bill-opener",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const headliner = await seedMemberWithSet(
+      "row-bill-headliner",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const event = await seedHostedEvent("Double Bill", caller, "row-bill-op");
+    // Support goes on the bill FIRST, so ordering by insertion alone would name
+    // the wrong act.
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: opener.profileId,
+      role: "support",
+      status: "confirmed",
+    });
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: headliner.profileId,
+      role: "performer",
+      performerTag: "headliner",
+      status: "confirmed",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/events",
+      headers: auth("row-bill-op"),
+    });
+    expect(response.statusCode).toBe(200);
+    const row = (
+      response.json().items as { id: string; headlinePerformerName: string | null }[]
+    ).find((item) => item.id === event.id);
+    expect(row?.headlinePerformerName).toBe("row-bill-headliner");
+  });
+
+  it("leaves the bill empty when nobody is on it yet", async () => {
+    const caller = await seedMemberWithSet(
+      "row-nobill-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    await seedHostedEvent("Nobody booked", caller, "row-nobill-op");
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/events",
+      headers: auth("row-nobill-op"),
+    });
+    expect(response.statusCode).toBe(200);
+    const [row] = response.json().items as { headlinePerformerName: string | null }[];
+    expect(row?.headlinePerformerName).toBeNull();
+  });
+
+  it("reports the caller's settlement status, and null until someone runs one", async () => {
+    const caller = await seedMemberWithSet(
+      "row-settle-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const settled = await seedHostedEvent("Reconciled", caller, "row-settle-op");
+    const untouched = await seedHostedEvent("Not reconciled", caller, "row-settle-op");
+
+    const [hostParticipant] = await harness.db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.eventId, settled.id));
+    if (!hostParticipant) throw new Error("host participant seed failed");
+    await harness.db.insert(schema.settlements).values({
+      eventId: settled.id,
+      participantId: hostParticipant.id,
+      status: "finalized",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/events",
+      headers: auth("row-settle-op"),
+    });
+    expect(response.statusCode).toBe(200);
+    const rows = response.json().items as { id: string; settlementStatus: string | null }[];
+    expect(rows.find((row) => row.id === settled.id)?.settlementStatus).toBe("finalized");
+    // No settlement rows at all means nobody has run it — the absence IS the
+    // answer, and the screen says "Not started" rather than inventing a stage.
+    expect(rows.find((row) => row.id === untouched.id)?.settlementStatus).toBeNull();
+  });
+
+  it("never answers with a settlement the caller is not a party to", async () => {
+    const caller = await seedMemberWithSet(
+      "row-scope-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "row-scope-performer",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const event = await seedHostedEvent("Someone else's line", caller, "row-scope-op");
+    const [performerParticipant] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: performer.profileId,
+        role: "performer",
+        status: "confirmed",
+      })
+      .returning();
+    if (!performerParticipant) throw new Error("performer participant seed failed");
+    await harness.db.insert(schema.settlements).values({
+      eventId: event.id,
+      participantId: performerParticipant.id,
+      status: "dispute",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/events",
+      headers: auth("row-scope-op"),
+    });
+    expect(response.statusCode).toBe(200);
+    const row = (response.json().items as { id: string; settlementStatus: string | null }[]).find(
+      (item) => item.id === event.id,
+    );
+    // The performer's line is theirs (decisions #4). The host holds no settlement
+    // row here, so the honest answer is nothing — not the other party's status.
+    expect(row?.settlementStatus).toBeNull();
   });
 });

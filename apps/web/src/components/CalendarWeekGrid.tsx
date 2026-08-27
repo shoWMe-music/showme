@@ -5,7 +5,6 @@ import {
   dayCellBackground,
   unavailableSuffix,
 } from "./CalendarUnavailableMark";
-import type { EventMenuItem } from "./EventRowMenu";
 import { WEEKDAYS_SHORT, buildWeekGrid, dayKey } from "./calendarGrid";
 import type { UnavailableDays } from "./useMarkUnavailable";
 
@@ -19,22 +18,22 @@ import type { UnavailableDays } from "./useMarkUnavailable";
 export interface CalendarWeekGridProps {
   /** Any date within the week to render. */
   week: Date;
+  /** `yyyy-mm-dd` of the day the reader was sent to or jumped to, ringed so they
+   * can see which one it was. */
+  selectedDay?: string;
   events: CalendarEvent[];
   /** Days the acting profile has blocked, keyed `yyyy-mm-dd`. */
   unavailableDays?: UnavailableDays;
   labelMode?: CalendarLabelMode;
   onSelectDay?: (dayKey: string, anchor: DOMRect) => void;
   onSelectEvent?: (eventId: string) => void;
-  /**
-   * What one event's overflow menu offers (archive today). Returns nothing for a
-   * standalone calendar item — a task or a note is not an event and has nothing
-   * to file. The chip hands it to the preview it opens; there is no room for a ⋮
-   * on the chip itself.
-   */
-  eventMenuItems?: (event: CalendarEvent) => EventMenuItem[];
 }
 
 const TODAY_TINT = "color-mix(in srgb, var(--brand-red) 5%, transparent)";
+
+/** A ring rather than a border, so marking a day cannot shift the number inside
+ * the 24px circle by a pixel. */
+const SELECTED_RING = "0 0 0 1px var(--brand-red)";
 
 /** Drawn only BETWEEN columns — the card draws the outer edge itself, and the two
  * flush against each other would read as a doubled 2px border. */
@@ -49,12 +48,12 @@ const CELL_RULE = "1px solid var(--border)";
 
 export function CalendarWeekGrid({
   week,
+  selectedDay,
   events,
   unavailableDays,
   labelMode = "both",
   onSelectDay,
   onSelectEvent,
-  eventMenuItems,
 }: CalendarWeekGridProps) {
   const cells = buildWeekGrid(week);
   const todayKey = dayKey(new Date());
@@ -76,6 +75,9 @@ export function CalendarWeekGrid({
       >
         {cells.map((cell, columnIndex) => {
           const isToday = cell.key === todayKey;
+          // Today already wears the filled circle; ringing it as well would just
+          // thicken it.
+          const isSelected = cell.key === selectedDay && !isToday;
           const isUnavailable = unavailableDays?.has(cell.key) ?? false;
           return (
             <div
@@ -109,9 +111,10 @@ export function CalendarWeekGrid({
                   borderRadius: "50%",
                   fontFamily: "var(--font-mono)",
                   fontSize: 12,
-                  fontWeight: isToday ? 700 : 500,
+                  fontWeight: isToday || isSelected ? 700 : 500,
                   background: isToday ? "var(--brand-red)" : "transparent",
-                  color: isToday ? "#fff" : "var(--muted)",
+                  color: isToday ? "#fff" : isSelected ? "var(--brand-red)" : "var(--muted)",
+                  boxShadow: isSelected ? SELECTED_RING : undefined,
                 }}
               >
                 {/* Inline span, for the same reason as the month grid: this
@@ -130,6 +133,7 @@ export function CalendarWeekGrid({
         {cells.map((cell, columnIndex) => {
           const dayEvents = byDay.get(cell.key) ?? [];
           const isToday = cell.key === todayKey;
+          const isSelected = cell.key === selectedDay;
           const isUnavailable = unavailableDays?.has(cell.key) ?? false;
           const unavailableReason = unavailableDays?.get(cell.key) ?? null;
           return (
@@ -155,7 +159,10 @@ export function CalendarWeekGrid({
                 display: "flex",
                 flexDirection: "column",
                 borderRight: columnIndex === cells.length - 1 ? undefined : CELL_RULE,
-                background: dayCellBackground(isUnavailable, isToday ? TODAY_TINT : "transparent"),
+                background: dayCellBackground(
+                  isUnavailable,
+                  isToday || isSelected ? TODAY_TINT : "transparent",
+                ),
                 cursor: onSelectDay ? "pointer" : "default",
               }}
             >
@@ -169,7 +176,6 @@ export function CalendarWeekGrid({
                   labelMode={labelMode}
                   showTime
                   onSelect={onSelectEvent}
-                  menuItems={eventMenuItems?.(event)}
                 />
               ))}
             </div>

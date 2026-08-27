@@ -79,3 +79,51 @@ test("every collaborator on the event is shown, with role and status", async ({ 
   await expect(page.getByText("Host", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Confirmed").first()).toBeVisible();
 });
+
+/**
+ * The tab used to render read-only cards: an avatar, a name, a role and a
+ * Confirmed pill, and no way to change any of it — while
+ * `PATCH/DELETE /events/:id/participants/:pid` had been sitting there the whole
+ * time (ClickUp 86cbaxuvj).
+ *
+ * What is asserted here is the REFUSALS as much as the actions, because the two
+ * are one feature: the API protects the host's row on both routes, so an Edit or
+ * a Remove offered on the host is a button whose click is a 403. Deliberately
+ * non-mutating — the writes themselves are proven against Postgres, and a spec
+ * that removed a seeded collaborator would move the ground under every other
+ * test in the file.
+ */
+test("edit and remove are offered per collaborator, and refused on the host", async ({ page }) => {
+  await openCollaborators(page);
+
+  const editEntry = page.getByRole("menuitem", { name: /^Edit/ });
+  const removeEntry = page.getByRole("menuitem", { name: /^Remove/ });
+
+  // The host anchors the event: both entries exist and both say WHY, rather than
+  // silently vanishing (which reads as a missing feature) or 403-ing on click.
+  await page.getByRole("button", { name: "Actions for The Lantern Hall" }).click();
+  await expect(editEntry).toBeDisabled();
+  await expect(editEntry).toContainText(/anchors this event/i);
+  await expect(removeEntry).toBeDisabled();
+  await expect(removeEntry).toContainText(/cannot be removed/i);
+  await page.keyboard.press("Escape");
+
+  // A booking agent's row is the projection of a representation (decisions #14),
+  // so its role is not an operator's to retype — the API would happily write it.
+  await page.getByRole("button", { name: "Actions for Astra Booking Agency" }).click();
+  await expect(editEntry).toBeDisabled();
+  await expect(editEntry).toContainText(/through the performer they represent/i);
+  await page.keyboard.press("Escape");
+
+  // Anyone else: both live, and Edit opens the role/access form.
+  await page.getByRole("button", { name: "Actions for Priya Sound" }).click();
+  await expect(removeEntry).toBeEnabled();
+  await editEntry.click();
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Edit Priya Sound");
+  await expect(dialog.getByRole("button", { name: "Role on this event" })).toContainText("Crew");
+  // Nothing has been changed, so there is nothing to save.
+  await expect(dialog.getByRole("button", { name: "Save changes" })).toBeDisabled();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+});

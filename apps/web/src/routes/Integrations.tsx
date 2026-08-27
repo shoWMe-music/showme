@@ -7,6 +7,7 @@ import {
   type CalendarConnectionsView,
   useCalendarConnections,
 } from "../components/useCalendarConnections";
+import { formatDay, formatTime } from "../lib/format";
 import { usePageTransition } from "../shell/usePageTransition";
 
 /**
@@ -236,14 +237,12 @@ function relativeTime(iso: string | null): string {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
+/**
+ * The house day plus the clock — "9 Sept 2026, 14:30". A sync stamp without a
+ * year is unreadable the moment a connection has been quiet for a season.
+ */
 function formatMoment(iso: string | null): string {
   if (!iso) return "—";
-  const moment = new Date(iso);
-  if (Number.isNaN(moment.getTime())) return "—";
-  return moment.toLocaleString("en-GB", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  if (Number.isNaN(new Date(iso).getTime())) return "—";
+  return `${formatDay(iso)}, ${formatTime(iso)}`;
 }

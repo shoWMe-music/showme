@@ -24,6 +24,7 @@ export type GetApiV1EventsId200 = {
   curfew: string | null;
   /** @nullable */
   timezone: string | null;
+  hostProfileId: string;
   /** @nullable */
   venueProfileId: string | null;
   /** @nullable */
@@ -34,6 +35,8 @@ export type GetApiV1EventsId200 = {
   stageId: string | null;
   /** @nullable */
   notes: string | null;
+  /** @nullable */
+  imageUrl: string | null;
   version: number;
   capabilities: string[];
   /** @nullable */

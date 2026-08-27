@@ -5,6 +5,8 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { PostApiV1EventsBodyExtras } from './postApiV1EventsBodyExtras';
+import type { PostApiV1EventsBodyParticipantsItem } from './postApiV1EventsBodyParticipantsItem';
+import type { PostApiV1EventsBodyDeal } from './postApiV1EventsBodyDeal';
 
 export type PostApiV1EventsBody = {
   /** @minLength 1 */
@@ -27,5 +29,14 @@ export type PostApiV1EventsBody = {
   stageId?: string;
   notes?: string;
   extras?: PostApiV1EventsBodyExtras;
+  /** @nullable */
+  imageFileId?: string | null;
+  /**
+   * @maxLength 2000
+   * @nullable
+   */
+  imageUrl?: string | null;
   timezone?: string;
+  participants?: PostApiV1EventsBodyParticipantsItem[];
+  deal?: PostApiV1EventsBodyDeal;
 };
