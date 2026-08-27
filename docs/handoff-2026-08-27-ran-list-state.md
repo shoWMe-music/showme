@@ -92,6 +92,9 @@ and say which in a comment.
 | [86cbaxxj9](https://app.clickup.com/t/86cbaxxj9) | In-house teams |
 | [86cbaxwmt](https://app.clickup.com/t/86cbaxwmt) | Rooms/capacity consolidation |
 | [86cbaxw5k](https://app.clickup.com/t/86cbaxw5k) | Calendar `.ics` import |
+| [86cbaxv7j](https://app.clickup.com/t/86cbaxv7j) | One deal menu + "Other — agreed manually" |
+| [86cbaxv2a](https://app.clickup.com/t/86cbaxv2a) | Terms + template, and the wizard's deal auto-sends |
+| [86cbaxvb9](https://app.clickup.com/t/86cbaxvb9) | Settlement "Deal Structure" tab folded away |
 | [86cbazcc7](https://app.clickup.com/t/86cbazcc7) | Partially — 2 of its 4 items done; description already updated |
 
 ### 3b. Six tasks that DO NOT EXIST and need creating
@@ -118,7 +121,15 @@ Full scope for the first four is in `backlog-2026-08-27-feature-scopes.md`.
    which `notify.ts` explicitly forbids. Proper fix: move `notify.ts` into
    `@showme/db` beside `representation-termination.ts`. Touches every emitting
    route, so it wants its own change.
-6. **Off-platform participant cannot be added to an event** — the other half of
+6. **A deal can be confirmed without ever being sent** — `POST /deals/:did/confirm`
+   (`apps/api/src/routes/deals.ts`) does not gate on `agreement_status`, so
+   `draft → confirmed` skips `sent` entirely and the state machine the enum
+   documents is not enforced. This is not academic: it is why the wizard's
+   auto-send undo had to hold in FRONT of the send rather than retract after it
+   — a party can sign inside a retract window, and retracting would then be
+   voiding a signature. Decide whether confirm should require `sent`, or whether
+   the enum is aspirational.
+7. **Off-platform participant cannot be added to an event** — the other half of
    [86cbaxxcu](https://app.clickup.com/t/86cbaxxcu), which shipped only the honest
    reporting. A venue's own stage manager can sit on the Team roster as a Contact
    and remain unbookable. See `docs/off-platform-access.md`.
@@ -144,9 +155,7 @@ Full scope for the first four is in `backlog-2026-08-27-feature-scopes.md`.
 
 | | Blocked on |
 |---|---|
-| Deals rollback to V2 ([86cbaxv2a](https://app.clickup.com/t/86cbaxv2a)) | Ran. He settled on "keep it in creation AND keep the tab", but the agreement/confirmation flow and T&C template need specifying. |
-| Deal-kind menu ([86cbaxv7j](https://app.clickup.com/t/86cbaxv7j)) | Ran. One menu or two. Note `custom`/free-text was deliberately removed (decisions #16.2) because it broke the engine. |
-| Settlement "Deal Structure" tab ([86cbaxvb9](https://app.clickup.com/t/86cbaxvb9)) | Ran. Keep and make legible before a settlement runs, or fold into the Settlement tab. |
+| ~~Deals rollback~~ · ~~deal-kind menu~~ · ~~settlement Deal Structure tab~~ | **DECIDED AND BUILT 2026-08-27 evening** — see §7. |
 | Events list vs the design ([86cbaxu87](https://app.clickup.com/t/86cbaxu87), data half shipped) | **`/design consent`** from Daniel. Per the `claude-design` skill the prototype must be RENDERED and looked at — never read as HTML or rebuilt from a description. That has gone wrong twice. |
 | Access giving ([86cbaxvqk](https://app.clickup.com/t/86cbaxvqk)) | The API gaps in [86cbazcc7](https://app.clickup.com/t/86cbazcc7): `permissionSetId` is optional-but-not-nullable, so access is a one-way door — "revoke to standard" has no meaning yet — and no route lists permission sets, so the UI cannot name the bundle it grants. |
 | File uploads ([86cbaxw0w](https://app.clickup.com/t/86cbaxw0w)) | **Ran.** Not reproducible: `FIREBASE_STORAGE_BUCKET` and both BREVO secrets ARE set in production (read off the live service). Best remaining guess is he hit the rider Upload button, disabled for operators by design. Ask him what he clicked before building anything. |
@@ -184,3 +193,31 @@ Full scope for the first four is in `backlog-2026-08-27-feature-scopes.md`.
 
 Reproduce it yourself before scoping it. Every one of those was found by driving
 the running stack, and none would have been found by reading.
+
+
+---
+
+## 7. The deal-flow decisions — taken 2026-08-27 evening, and built
+
+Ran's three deal complaints were the last thing genuinely blocked on a person.
+Daniel ruled: **if Ran asked for something it should exist; if it is too big for
+the creation flow, exclude it there and put it on the Deals tab.** That resolved
+most of it, and the rest was answered directly.
+
+| Decision | Outcome |
+|---|---|
+| One menu or two | **One**, using the settlement shapes. The wizard already did it Ran's way; the composer moved to match. `DEAL_STRUCTURE_OPTIONS` is now derived from the kind table so they cannot drift apart again. |
+| "Other (manual)" | **Label change only.** "Paper agreement only" → **"Other — agreed manually"**. Still `structure: null`. A free-text *computed* shape cannot exist (decisions #16.2); the helper text now says so out loud instead of offering a box that settles as nothing. |
+| T&C box + template | **Built, on the Deals tab, not the creation flow.** Bounded by his own two statements — he asked for it, and he said "we are not an agreements app" — so: a text field and reusable templates, no clause library, no e-signature. |
+| Auto-send | **Yes, with a 6s undo that holds in front of the send.** Not a preference: `confirm` does not gate on `agreement_status`, so a party can sign inside a retract window. |
+| Settlement "Deal Structure" tab | **Deleted**, cards folded into that workspace's own Settlement tab. Ran did not ask for the tab — he said he did not understand it — so this one was ours to decide. |
+
+**No migration was needed for any of it.** `deals.agreement_body_text` already
+existed with three readers and no writer, and `templates.category` has carried
+`terms` since migration 0000 — so terms ride the same template mechanism the
+budget already uses. One template system, not two.
+
+### What is left of Ran's 30
+**Two**, both blocked on something outside the code:
+- **Events-list design comparison** ([86cbaxu87](https://app.clickup.com/t/86cbaxu87), data half shipped) — needs `/design consent`.
+- **Access giving** ([86cbaxvqk](https://app.clickup.com/t/86cbaxvqk)) — needs the participants-API question answered first: `permissionSetId` is optional-but-not-nullable, so "revoke to standard" has no meaning yet.
