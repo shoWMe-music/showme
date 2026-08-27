@@ -530,3 +530,133 @@ describe("decisions #8 — concurrency & idempotency", () => {
     expect(stale.statusCode).toBe(409);
   });
 });
+
+describe("what a venue lends the show it hosts (ClickUp 86cbaxvku)", () => {
+  /**
+   * A venue writes its amenities, its PA, its catering, its rooms and its
+   * load-in down ONCE, on its profile. Placing an event there copies them onto
+   * the event — and it is a copy: an agreement freezes at confirmation, so a
+   * venue that sells its PA in March must not rewrite what it promised in
+   * January. These pin the copy, the receipt that explains it, and the fact that
+   * the profile can never reach back into a show it already lent to.
+   */
+  async function seedVenue(id: string) {
+    const venue = await seedMemberWithSet(id, "operator", PRESET_PERMISSION_SETS.operator_full);
+    await harness.db.insert(schema.venueDetails).values({
+      profileId: venue.profileId,
+      capacity: 400,
+      soundSystem: "d&b audiotechnik V-Series",
+      curfew: "02:00",
+      amenities: ["pa_system", "backline"],
+      dealTypes: ["door_split", "rental"],
+      cateringNotes: "Hot meal for up to six.",
+      accommodationNotes: "Two twin rooms across the square.",
+      artistLogisticsNotes: "Load-in through the courtyard gate.",
+    });
+    return venue;
+  }
+
+  it("copies the venue's own record onto the event, with a receipt naming what came from where", async () => {
+    const venue = await seedVenue("carry-op");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("carry-op"), "x-profile-id": venue.profileId },
+      payload: { title: "Copied", baseCurrency: "SEK", venueProfileId: venue.profileId },
+    });
+    expect(created.statusCode).toBe(201);
+    const event = created.json();
+    expect(event.capacity).toBe(400);
+    expect(event.curfew).toBe("02:00:00");
+    expect(event.extras.amenities).toEqual(["pa_system", "backline"]);
+    expect(event.extras.soundSystem).toBe("d&b audiotechnik V-Series");
+    expect(event.extras.cateringNotes).toBe("Hot meal for up to six.");
+    expect(event.extras.accommodationNotes).toBe("Two twin rooms across the square.");
+    expect(event.extras.artistLogisticsNotes).toBe("Load-in through the courtyard gate.");
+    // The receipt is what lets the screen say where these came from — and offer
+    // to take them off again.
+    expect(event.extras.venueCarryOver.profileId).toBe(venue.profileId);
+    expect(event.extras.venueCarryOver.fields).toContain("cateringNotes");
+
+    // `deal_types` is an advertised PREFERENCE, not terms, and nothing on the
+    // event settles from it — so it must not ride along as if it did.
+    expect(event.extras.dealTypes).toBeUndefined();
+  });
+
+  it("never overwrites what the operator stated, and never re-syncs after a profile edit", async () => {
+    const venue = await seedVenue("resync-op");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("resync-op"), "x-profile-id": venue.profileId },
+      payload: {
+        title: "Seated layout",
+        baseCurrency: "SEK",
+        venueProfileId: venue.profileId,
+        capacity: 220,
+        extras: { cateringNotes: "Vegan only, agreed with the promoter." },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const eventId = created.json().id;
+    expect(created.json().capacity).toBe(220);
+    expect(created.json().extras.cateringNotes).toBe("Vegan only, agreed with the promoter.");
+
+    // The venue sells its PA and rewrites its catering, AFTER the booking.
+    await harness.db
+      .update(schema.venueDetails)
+      .set({ amenities: [], soundSystem: null, cateringNotes: "Sandwiches." })
+      .where(eq(schema.venueDetails.profileId, venue.profileId));
+
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${eventId}`,
+      headers: { ...auth("resync-op"), "x-profile-id": venue.profileId },
+    });
+    expect(read.json().extras.amenities).toEqual(["pa_system", "backline"]);
+    expect(read.json().extras.soundSystem).toBe("d&b audiotechnik V-Series");
+    expect(read.json().extras.cateringNotes).toBe("Vegan only, agreed with the promoter.");
+  });
+
+  it("puts a show in a room of the venue it is at, and refuses any other room", async () => {
+    const venue = await seedVenue("room-op");
+    const other = await seedVenue("room-other-op");
+    const [backRoom] = await harness.db
+      .insert(schema.stages)
+      .values({ venueProfileId: venue.profileId, name: "Back Room", capacity: 80 })
+      .returning();
+    if (!backRoom) throw new Error("stage seed failed");
+
+    const wrongVenue = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("room-other-op"), "x-profile-id": other.profileId },
+      payload: {
+        title: "Wrong building",
+        baseCurrency: "SEK",
+        venueProfileId: other.profileId,
+        stageId: backRoom.id,
+      },
+    });
+    expect(wrongVenue.statusCode).toBe(400);
+    expect(wrongVenue.json().error.message).toMatch(/does not belong to this venue/i);
+
+    // The room's own capacity is the specific one, and it wins: 400 is the
+    // building, and it caps ticket inventory for a room that holds 80.
+    const inTheRoom = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("room-op"), "x-profile-id": venue.profileId },
+      payload: {
+        title: "Back Room show",
+        baseCurrency: "SEK",
+        venueProfileId: venue.profileId,
+        stageId: backRoom.id,
+      },
+    });
+    expect(inTheRoom.statusCode).toBe(201);
+    expect(inTheRoom.json().capacity).toBe(80);
+  });
+});

@@ -40,6 +40,21 @@ export interface DetailsEvent {
 
 export interface EventExtras {
   amenities?: string[];
+  /** The venue's own prose, COPIED onto the event when it was placed there —
+   * never a live read of the profile (`EventHospitalityCard` explains why). */
+  soundSystem?: string | null;
+  cateringNotes?: string | null;
+  accommodationNotes?: string | null;
+  artistLogisticsNotes?: string | null;
+  city?: string | null;
+  country?: string | null;
+  /** The receipt for that copy: which room, when, and exactly what arrived. */
+  venueCarryOver?: {
+    profileId: string;
+    venueName: string;
+    copiedAt: string;
+    fields: string[];
+  };
   ticketTiers?: TicketTier[];
   guestList?: {
     limitTotal?: number | null;

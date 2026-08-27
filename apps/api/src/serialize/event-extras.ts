@@ -27,9 +27,47 @@ const GuestEntry = z.object({
   invitedBy: z.string(),
 });
 
+/**
+ * WHAT THE VENUE LENT THIS SHOW, and when — the receipt for a COPY.
+ *
+ * A venue writes its amenities, its catering and its load-in once, on its
+ * profile; placing an event there copies them onto the event so nobody retypes
+ * them (ClickUp 86cbaxvku). The copy is a copy: an agreement freezes at
+ * confirmation, so a venue that sells its PA in March must not rewrite what it
+ * promised in January. Nothing here is ever re-read from the profile.
+ *
+ * The stamp exists because a value that silently appeared and cannot be
+ * explained is worse than a blank field. It names the room, the moment, and
+ * exactly which leaves arrived that way — which is what lets the event screen
+ * say "from The Lantern Hall's profile" and offer to take those, and only
+ * those, back off again.
+ *
+ * `venueName` is stored rather than looked up for the same reason the values
+ * are: it is what the room was CALLED when it lent them, and a rename later
+ * must not rewrite the receipt.
+ */
+const VenueCarryOver = z.object({
+  profileId: z.string(),
+  venueName: z.string(),
+  /** ISO instant the copy was taken. */
+  copiedAt: z.string(),
+  /** The leaf names filled by this copy — `extras` keys plus event columns. */
+  fields: z.array(z.string()),
+});
+
 export const EventExtrasSchema = z
   .object({
     amenities: z.array(z.string()).optional(),
+    /** House PA as the venue writes it ("d&b audiotechnik V-Series"). Copied. */
+    soundSystem: z.string().nullable().optional(),
+    cateringNotes: z.string().nullable().optional(),
+    accommodationNotes: z.string().nullable().optional(),
+    /** Load-in, back entrance, artist parking (decisions #16.7). Copied. */
+    artistLogisticsNotes: z.string().nullable().optional(),
+    /** Where the show stands. The event has no location column — the venue is it. */
+    city: z.string().nullable().optional(),
+    country: z.string().nullable().optional(),
+    venueCarryOver: VenueCarryOver.optional(),
     ticketTiers: z.array(TicketTier).optional(),
     guestList: z
       .object({

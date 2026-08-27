@@ -1,12 +1,19 @@
-import { type getApiV1Profiles, useGetApiV1Profiles, usePostApiV1Events } from "@showme/api-client";
+import {
+  type getApiV1Profiles,
+  useGetApiV1Profiles,
+  useGetApiV1ProfilesId,
+  usePostApiV1Events,
+} from "@showme/api-client";
 import { Icon, type IconName, Select, useToast } from "@showme/design-system";
 import {
   DEAL_STRUCTURE_OPTIONS,
   type DealDraft,
   type DealStructure,
+  amenityLabel,
   createDealPayload,
   currencyOptionsForCountry,
   dealDraftProblems,
+  dealTypeLabel,
   defaultCurrencyForCountry,
   structureNeedsGuarantee,
   structureNeedsSplit,
@@ -16,6 +23,7 @@ import { createPortal } from "react-dom";
 import { setActiveProfileId } from "../lib/activeProfile";
 import { errorMessage } from "../lib/errors";
 import { DateTimeField } from "./DateTimeField";
+import { EventRoomPicker } from "./EventRoomPicker";
 import { EventVenuePicker, type VenueChoice } from "./EventVenuePicker";
 import {
   type HoldPlacement,
@@ -167,6 +175,42 @@ function stateDeal(input: {
   };
 }
 
+/**
+ * What the chosen venue is about to lend this show, in plain words.
+ *
+ * The copy happens server-side whether or not this sentence is printed
+ * (`apps/api/src/routes/events.ts`, "Venue-profile prefill"), so the point here
+ * is not the mechanism — it is that a value which appears on an event out of
+ * nowhere is a value nobody can explain. Naming it before the event exists is
+ * cheaper than explaining it afterwards.
+ *
+ * It lists only what the venue ACTUALLY has: a room with no catering note must
+ * not be advertised as lending one.
+ */
+function describeVenueCarryOver(
+  details: {
+    amenities?: string[];
+    soundSystem?: string | null;
+    curfew?: string | null;
+    cateringNotes?: string | null;
+    accommodationNotes?: string | null;
+    artistLogisticsNotes?: string | null;
+  } | null,
+): string[] {
+  if (!details) return [];
+  const carried: string[] = [];
+  const amenities = details.amenities ?? [];
+  if (amenities.length > 0) {
+    carried.push(amenities.map(amenityLabel).join(", "));
+  }
+  if (details.soundSystem?.trim()) carried.push(details.soundSystem.trim());
+  if (details.curfew?.trim()) carried.push(`curfew ${details.curfew.trim()}`);
+  if (details.cateringNotes?.trim()) carried.push("catering notes");
+  if (details.accommodationNotes?.trim()) carried.push("accommodation notes");
+  if (details.artistLogisticsNotes?.trim()) carried.push("artist load-in notes");
+  return carried;
+}
+
 type StepKey = "role" | "details" | "deal";
 const STEP_LABEL: Record<StepKey, string> = {
   role: "Your Role",
@@ -224,6 +268,8 @@ export function NewEventWizard({
   // It is what carries the room's own capacity, curfew, amenities and city onto
   // the event — the venue wrote them down once, on its profile.
   const [venueProfileId, setVenueProfileId] = useState<string | null>(null);
+  /** Which ROOM of that venue — `events.stage_id`, blank at creation until now. */
+  const [stageId, setStageId] = useState<string | null>(null);
   const [city, setCity] = useState("");
   const [date, setDate] = useState(initialDate ?? "");
   const [cap, setCap] = useState("");
@@ -267,6 +313,17 @@ export function NewEventWizard({
   // see and change before the event exists. (The API applies the same
   // fill-a-blank rule server-side, for every other caller.)
   const venueDefaults = useEventVenuePrefill(venueProfileId);
+  // The same venue profile, read for what it SAYS rather than for what it fills
+  // in: which deal shapes it will sign, and which of its house notes are about
+  // to be copied onto this show. `useEventVenuePrefill` above supplies the
+  // values that land in form fields; this is the sentence printed beside them,
+  // off the same cached query.
+  const venueProfile = useGetApiV1ProfilesId(venueProfileId ?? "", {
+    query: { enabled: Boolean(venueProfileId) },
+  });
+  const venueDetails = venueProfile.data?.venueDetails ?? null;
+  const venueCarries = describeVenueCarryOver(venueDetails);
+  const venueDealTypes = venueDetails?.dealTypes ?? [];
   /**
    * Exactly what the linked room LENT this event, so unlinking it can take back
    * its own facts and nothing else (ClickUp 86cbaxyjy).
@@ -301,7 +358,32 @@ export function NewEventWizard({
     }
   }, [venueDefaults]);
 
+  /**
+   * Choosing a room moves the capacity with it, on the same fill-a-blank terms
+   * as everything else the venue lends: a figure the operator typed is theirs
+   * and stands, but the building's 400 sitting under a show in the 80-capacity
+   * Back Room would cap the ticket inventory and draw the break-even line for a
+   * room this show is not in.
+   *
+   * The decision is taken OUT HERE, against this render's `cap`, rather than
+   * inside a `setCap` updater. React may invoke an updater twice, and this one
+   * would not survive it: the first pass moves what the venue is recorded as
+   * having lent, so the second pass reads its own footprint, decides the figure
+   * was the operator's, and puts 400 back. Measured live, 2026-08-27.
+   */
+  const selectRoom = (room: { id: string; capacity: number | null } | null) => {
+    setStageId(room?.id ?? null);
+    if (room?.capacity == null) return;
+    if (cap.trim() !== "" && cap !== lentByVenue.current.capacity) return;
+    lentByVenue.current.capacity = String(room.capacity);
+    setCap(String(room.capacity));
+  };
+
   const selectVenueProfile = (choice: VenueChoice | null) => {
+    // A room belongs to ONE venue, so it cannot survive the venue changing —
+    // and the API refuses the pair outright ("That room does not belong to this
+    // venue"), which is a 400 nobody should have to read to understand this.
+    setStageId(null);
     if (!choice) {
       // Taking the chip off gives the room its facts back. A figure the operator
       // typed over is theirs and stays — but a capacity that arrived with The
@@ -375,6 +457,7 @@ export function NewEventWizard({
     setArtist("");
     setVenue("");
     setVenueProfileId(null);
+    setStageId(null);
     lentByVenue.current = { city: null, capacity: null };
     setCity("");
     setDate("");
@@ -553,6 +636,7 @@ export function NewEventWizard({
         ...(date ? { eventDate: date } : {}),
         ...(venue.trim() ? { venueName: venue.trim() } : {}),
         ...(venueProfileId ? { venueProfileId } : {}),
+        ...(stageId ? { stageId } : {}),
         ...(cap && Number.isFinite(Number(cap)) ? { capacity: Number(cap) } : {}),
         extras: {
           createdAsRole: selectedProfile?.type ?? "operator",
@@ -709,6 +793,9 @@ export function NewEventWizard({
                   setVenue={setVenue}
                   venueProfileId={venueProfileId}
                   onSelectVenueProfile={selectVenueProfile}
+                  stageId={stageId}
+                  onSelectRoom={selectRoom}
+                  venueCarries={venueCarries}
                   city={city}
                   setCity={setCity}
                   date={date}
@@ -736,6 +823,8 @@ export function NewEventWizard({
                   performers={linkedPerformers}
                   dealPerformerId={dealPerformer?.profileId ?? ""}
                   setDealPerformerId={setDealWithPerformerId}
+                  venueName={venue}
+                  venueDealTypes={venueDealTypes}
                   problems={dealProblems}
                 />
               )}
@@ -959,6 +1048,10 @@ function DetailsStep(props: {
   setVenue: (v: string) => void;
   venueProfileId: string | null;
   onSelectVenueProfile: (choice: VenueChoice | null) => void;
+  stageId: string | null;
+  onSelectRoom: (room: { id: string; capacity: number | null } | null) => void;
+  /** What the chosen venue will copy onto this show, in plain words. */
+  venueCarries: string[];
   city: string;
   setCity: (v: string) => void;
   date: string;
@@ -1105,6 +1198,18 @@ function DetailsStep(props: {
         </label>
       </div>
 
+      {/* Draws itself only when the chosen venue actually has rooms listed. */}
+      <EventRoomPicker
+        venueProfileId={props.venueProfileId}
+        value={props.stageId}
+        onChange={props.onSelectRoom}
+        labelStyle={labelStyle}
+      />
+
+      {props.venueCarries.length > 0 && (
+        <VenueCarryOverPreview venueName={props.venue} carries={props.venueCarries} />
+      )}
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         {/* The one field here that is not a bare <input>: its calendar is the
             app's own popover, not the browser's. `bigField` keeps the box
@@ -1163,6 +1268,34 @@ function DetailsStep(props: {
 }
 
 /**
+ * "This room will also bring …" — said before the event exists, not discovered
+ * afterwards. The values themselves are copied by the API; what this adds is
+ * that nobody has to wonder where they came from, and the promise that they
+ * stop being the venue's the moment the show is created.
+ */
+function VenueCarryOverPreview({ venueName, carries }: { venueName: string; carries: string[] }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 10,
+        padding: "11px 14px",
+        border: "1px solid var(--border)",
+        borderRadius: 11,
+        background: "var(--card)",
+      }}
+    >
+      <Icon name="building" size={15} />
+      <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: "var(--muted)", lineHeight: 1.5 }}>
+        {venueName || "This venue"} also brings <strong>{carries.join(" · ")}</strong> onto the
+        event. They are copied once, and yours to edit or remove afterwards — changing the
+        venue&rsquo;s profile later will not change this show.
+      </div>
+    </div>
+  );
+}
+
+/**
  * The deal step — the terms, and the two parties they are between.
  *
  * It states ONE agreement: the host and one act. A bill with several acts is
@@ -1185,6 +1318,9 @@ function DealStep(props: {
   performers: { profileId: string; name: string }[];
   dealPerformerId: string;
   setDealPerformerId: (value: string) => void;
+  /** The room, and the deal shapes it advertises. Shown, never applied — see below. */
+  venueName: string;
+  venueDealTypes: string[];
   /** What is still wrong with the terms, in the composer's own words. */
   problems: string[];
 }) {
@@ -1249,6 +1385,21 @@ function DealStep(props: {
           onChange={(value) => props.setStructure(value as DealStructure)}
           options={DEAL_STRUCTURES}
         />
+        {/* The venue's advertised shapes are shown here and go no further. They
+            are a PREFERENCE, not terms (`venue_details.deal_types`: "advertised
+            preference, never terms"), and the two vocabularies are not the same
+            one: the profile offers "Guarantee + Door Split" — a guarantee and a
+            share on top — where the engine settles `guarantee_vs_door`, the
+            GREATER of the two. Defaulting one to the other would be the app
+            quietly choosing what a show settles as, on a hint the venue wrote
+            for promoters to read. So it informs the operator's choice and never
+            makes it. */}
+        {props.venueDealTypes.length > 0 && (
+          <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>
+            {props.venueName || "This venue"} says it signs{" "}
+            {props.venueDealTypes.map(dealTypeLabel).join(", ")}.
+          </div>
+        )}
       </div>
 
       {structureNeedsGuarantee(props.structure) && (

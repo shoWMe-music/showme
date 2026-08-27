@@ -454,6 +454,20 @@ const OPERATOR_CAPABILITIES = new Set(PRESET_PERMISSION_SETS.operator_full as Ca
 // capacity reduced for a seated layout — stands, and stays theirs. The venue is
 // also free to change its own profile afterwards; the event keeps the figure it
 // was booked on, exactly as `timezone` is a snapshot rather than a live read.
+//
+// COPY, NEVER LINK — and that is a domain rule, not an implementation shortcut.
+// An agreement freezes at confirmation, so a venue that sells its PA in March
+// must not rewrite what it promised in January. There is deliberately no live
+// read of `venue_details` anywhere on the event's read path.
+//
+// What travels was widened on 2026-08-27 (ClickUp 86cbaxvku) from
+// name/capacity/curfew/amenities/city to also carry the four things the venue
+// had written down and the operator was still retyping every time: its house PA,
+// its catering, its accommodation and its artist load-in notes. Each copy leaves
+// a receipt in `extras.venueCarryOver` naming what arrived that way, because a
+// value that silently appeared and cannot be explained is worse than a blank
+// field — the event screen reads that stamp to say where these came from, and to
+// take them back off again.
 
 /** The facts a venue profile lends an event placed there. */
 interface VenueProfileDefaults {
@@ -461,9 +475,29 @@ interface VenueProfileDefaults {
   capacity: number | null;
   curfew: string | null;
   amenities: string[];
-  city: string | null;
-  country: string | null;
+  /**
+   * The free-text leaves, keyed by the `extras` leaf each one lands on — the
+   * city included, because an event has no location column and `extras.city` is
+   * where the create wizard has always written the line.
+   */
+  notes: Partial<Record<VenueNoteLeaf, string | null>>;
 }
+
+/**
+ * The `extras` leaves that are a straight copy of one free-text venue field.
+ * `city` and `country` join them because the rule is identical — fill the leaf
+ * when it is blank — and a sixth hand-written branch of the same `if` was five
+ * chances to get one of them subtly wrong.
+ */
+const VENUE_NOTE_LEAVES = [
+  "city",
+  "country",
+  "soundSystem",
+  "cateringNotes",
+  "accommodationNotes",
+  "artistLogisticsNotes",
+] as const;
+type VenueNoteLeaf = (typeof VENUE_NOTE_LEAVES)[number];
 
 /** The event fields a venue profile can fill in — on the row and in `extras`. */
 interface VenueFillableFields {
@@ -514,9 +548,67 @@ async function loadVenueProfileDefaults(
     // profile rather than crashing an event create.
     curfew: details?.curfew && LocalTime.safeParse(details.curfew).success ? details.curfew : null,
     amenities: details?.amenities ?? [],
-    city: location?.city ?? null,
-    country: location?.country ?? null,
+    notes: {
+      city: location?.city ?? null,
+      country: location?.country ?? null,
+      soundSystem: details?.soundSystem ?? null,
+      cateringNotes: details?.cateringNotes ?? null,
+      accommodationNotes: details?.accommodationNotes ?? null,
+      // PRIVATE on the profile (decisions #16.7) and private here: `extras` is
+      // only served to a caller holding `event.edit` (serialize/event.ts), so
+      // copying the load-in note onto the event does not publish it.
+      artistLogisticsNotes: details?.artistLogisticsNotes ?? null,
+    },
   };
+}
+
+/**
+ * The room's OWN capacity, when the event names one.
+ *
+ * A stage is a room, not a seating setup (`schema/events.ts`), so The Lantern
+ * Hall's 400 is the wrong number for a show in its 80-capacity Back Room — and
+ * capacity is not decoration: it caps the ticket inventory and draws the
+ * break-even line. The more specific figure wins, and only ever into a blank.
+ *
+ * A stage belonging to a different venue returns null rather than throwing: the
+ * mismatch is refused up front by `assertStageBelongsToVenue`, and a prefill
+ * helper is the wrong place to have that argument twice.
+ */
+async function loadStageCapacity(
+  tx: Transaction,
+  venueProfileId: string,
+  stageId: string,
+): Promise<number | null> {
+  const [stage] = await tx
+    .select({ capacity: schema.stages.capacity })
+    .from(schema.stages)
+    .where(and(eq(schema.stages.id, stageId), eq(schema.stages.venueProfileId, venueProfileId)));
+  return stage?.capacity ?? null;
+}
+
+/**
+ * A show may only be put in a room of the venue it is at.
+ *
+ * `events.stage_id` has pointed at `stages` since migration 0000 with nothing
+ * checking the pair, which was harmless while no route could set it and is not
+ * now that the create wizard offers a Room picker. Naming another venue's room
+ * would put a show in a building it is not in — and the calendar pools holds by
+ * `(event_date, venue, stage)`, so it would also let a hold compete in a queue
+ * it has no claim on.
+ */
+async function assertStageBelongsToVenue(
+  tx: Transaction,
+  venueProfileId: string | null | undefined,
+  stageId: string,
+): Promise<void> {
+  if (!venueProfileId) {
+    throw badRequest("Set the venue before choosing one of its rooms");
+  }
+  const [stage] = await tx
+    .select({ id: schema.stages.id })
+    .from(schema.stages)
+    .where(and(eq(schema.stages.id, stageId), eq(schema.stages.venueProfileId, venueProfileId)));
+  if (!stage) throw badRequest("That room does not belong to this venue");
 }
 
 /**
@@ -524,46 +616,69 @@ async function loadVenueProfileDefaults(
  * is what this request carries, `current` what the event already holds (empty on
  * create). Returns only the fields to write, so a caller can spread it over its
  * own values without re-deciding anything.
+ *
+ * `stageCapacity` is the chosen room's own figure, which outranks the building's
+ * where they differ — see `loadStageCapacity`.
  */
 function venuePrefill(
   defaults: VenueProfileDefaults,
   provided: VenueFillableFields,
   current: VenueFillableFields,
+  venueProfileId: string,
+  stageCapacity: number | null = null,
 ): VenueFillableFields {
   const fill: VenueFillableFields = {};
+  /** Every leaf this copy actually filled — the receipt written at the end. */
+  const copied: string[] = [];
 
   if (isBlank(provided.venueName) && isBlank(current.venueName) && defaults.venueName) {
     fill.venueName = defaults.venueName;
+    copied.push("venueName");
   }
-  if (provided.capacity == null && current.capacity == null && defaults.capacity != null) {
-    fill.capacity = defaults.capacity;
+  const capacity = stageCapacity ?? defaults.capacity;
+  if (provided.capacity == null && current.capacity == null && capacity != null) {
+    fill.capacity = capacity;
+    copied.push("capacity");
   }
   if (isBlank(provided.curfew) && isBlank(current.curfew) && defaults.curfew) {
     fill.curfew = defaults.curfew;
+    copied.push("curfew");
   }
 
   // `extras` is written whole, so the merge base is whichever version this
   // request will persist: the body's if it sent one, otherwise the stored one.
   const base: EventExtras = { ...(current.extras ?? {}), ...(provided.extras ?? {}) };
   const extras: EventExtras = { ...base };
-  let extrasChanged = false;
 
   const currentAmenities = Array.isArray(base.amenities) ? base.amenities : [];
   if (currentAmenities.length === 0 && defaults.amenities.length > 0) {
     extras.amenities = [...defaults.amenities];
-    extrasChanged = true;
+    copied.push("amenities");
   }
-  // The event has no location column of its own — the venue IS the location, and
-  // `extras.city` is where the create wizard has always written the city line.
-  if (isBlank(base.city as string | undefined) && defaults.city) {
-    extras.city = defaults.city;
-    extrasChanged = true;
+  // The venue's own free text — its PA, its catering, its rooms, its load-in —
+  // and the city it stands in, which is the event's only location: an event has
+  // no location column, the venue IS the location.
+  for (const leaf of VENUE_NOTE_LEAVES) {
+    const offered = defaults.notes[leaf];
+    if (isBlank(base[leaf] as string | undefined) && !isBlank(offered)) {
+      extras[leaf] = offered;
+      copied.push(leaf);
+    }
   }
-  if (isBlank(base.country as string | undefined) && defaults.country) {
-    extras.country = defaults.country;
-    extrasChanged = true;
-  }
-  if (extrasChanged) fill.extras = extras;
+
+  if (copied.length === 0) return fill;
+
+  // The receipt replaces any earlier one: an event moved from one room to
+  // another was not lent these by the first venue, and a stale name on the
+  // stamp would explain the values wrongly, which is worse than not explaining
+  // them at all.
+  extras.venueCarryOver = {
+    profileId: venueProfileId,
+    venueName: defaults.venueName ?? "",
+    copiedAt: new Date().toISOString(),
+    fields: copied,
+  };
+  fill.extras = extras;
 
   return fill;
 }
@@ -715,12 +830,24 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
             request.body.venueProfileId,
             request.body.timezone,
           );
+          // A show goes in a room of the venue it is at, or in no room at all.
+          if (request.body.stageId) {
+            await assertStageBelongsToVenue(tx, request.body.venueProfileId, request.body.stageId);
+          }
           // The venue's own facts fill whatever this request left blank — see
           // the prefill block above for why it can only ever fill a blank.
-          const defaults = request.body.venueProfileId
-            ? await loadVenueProfileDefaults(tx, request.body.venueProfileId)
+          const venueProfileId = request.body.venueProfileId;
+          const defaults = venueProfileId
+            ? await loadVenueProfileDefaults(tx, venueProfileId)
             : null;
-          const fromVenue = defaults ? venuePrefill(defaults, request.body, {}) : {};
+          const stageCapacity =
+            venueProfileId && request.body.stageId
+              ? await loadStageCapacity(tx, venueProfileId, request.body.stageId)
+              : null;
+          const fromVenue =
+            defaults && venueProfileId
+              ? venuePrefill(defaults, request.body, {}, venueProfileId, stageCapacity)
+              : {};
           // The poster must be a file THIS profile uploaded, into its own storage
           // folder. Without the check an operator could point their show at a
           // file id belonging to another profile and publish a picture out of
@@ -928,6 +1055,12 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
               )
             : undefined;
 
+        // A show goes in a room of the venue it is at — checked against the
+        // venue this PATCH leaves behind, not the one it started with.
+        const venueAfter =
+          fields.venueProfileId !== undefined ? fields.venueProfileId : before.venueProfileId;
+        if (fields.stageId) await assertStageBelongsToVenue(tx, venueAfter, fields.stageId);
+
         // Placing the event at a venue is the moment its facts become relevant,
         // so the same fill-the-blanks pass runs here — but measured against the
         // event as it stands, so a value already on the row is never touched.
@@ -935,14 +1068,26 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
         const defaults = nextVenueProfileId
           ? await loadVenueProfileDefaults(tx, nextVenueProfileId)
           : null;
-        const fromVenue = defaults
-          ? venuePrefill(defaults, fields, {
-              venueName: before.venueName,
-              capacity: before.capacity,
-              curfew: before.curfew,
-              extras: (before.extras as EventExtras | null) ?? null,
-            })
-          : {};
+        const stageAfter = fields.stageId !== undefined ? fields.stageId : before.stageId;
+        const stageCapacity =
+          nextVenueProfileId && stageAfter
+            ? await loadStageCapacity(tx, nextVenueProfileId, stageAfter)
+            : null;
+        const fromVenue =
+          defaults && nextVenueProfileId
+            ? venuePrefill(
+                defaults,
+                fields,
+                {
+                  venueName: before.venueName,
+                  capacity: before.capacity,
+                  curfew: before.curfew,
+                  extras: (before.extras as EventExtras | null) ?? null,
+                },
+                nextVenueProfileId,
+                stageCapacity,
+              )
+            : {};
 
         const [after] = await tx
           .update(schema.events)
