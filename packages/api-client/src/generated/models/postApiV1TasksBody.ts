@@ -4,7 +4,6 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
-import type { PostApiV1TasksBodyRemindersItem } from './postApiV1TasksBodyRemindersItem';
 
 export type PostApiV1TasksBody = {
   /** @minLength 1 */
@@ -20,5 +19,5 @@ export type PostApiV1TasksBody = {
   budgetType?: string;
   /** @minLength 1 */
   budgetAmount?: string;
-  reminders?: PostApiV1TasksBodyRemindersItem[];
+  remindAt?: string;
 };

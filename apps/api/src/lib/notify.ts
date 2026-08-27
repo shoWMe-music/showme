@@ -9,9 +9,10 @@ import { publish } from "./publish";
  * WHAT A PERSON IS ALLOWED TO HAVE AN OPINION ABOUT.
  *
  * Not invented: every key below is a grouping of `type` strings the app already
- * emits, which is why there is no `tasks` category — nothing writes a `task.*`
- * notification yet, and a switch for a thing that never happens is a lie in the
- * settings screen. Add the category in the same change that adds the emitter.
+ * emits. A switch for a thing that never happens is a lie in the settings
+ * screen, so a category arrives in the same change as its emitter — which is how
+ * `tasks` got here, alongside the reminder sweep in `apps/jobs` that writes the
+ * first `task.*` notification this app has ever sent.
  *
  * `emailDefault` is the deliberate half. The rule it follows: EMAIL IS ON WHERE
  * NOT SEEING IT COSTS MONEY OR A DATE, and off where the notification is only
@@ -56,6 +57,18 @@ export const NOTIFICATION_CATEGORIES = [
     description: "You are added to an event, or an invitation you sent is answered.",
     emailDefault: false,
   },
+  {
+    key: "tasks",
+    label: "Task reminders",
+    description: "A task you own, or one handed to you, reaches the time you asked to be reminded.",
+    // Off, by the rule above and the clearest case of it. A reminder is a nudge
+    // the user set for themselves about work only they can do — situational
+    // awareness by definition, not a date or a payment they could lose by not
+    // seeing it. It is also the one category whose volume the user dials
+    // directly, so it is the one most able to teach somebody to filter our mail.
+    // The sweep sends no mail today; this says what it would do if it did.
+    emailDefault: false,
+  },
 ] as const;
 
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number]["key"];
@@ -73,6 +86,7 @@ const CATEGORY_BY_TYPE_PREFIX: Record<string, NotificationCategory> = {
   settlement: "settlements",
   event: "events",
   invitation: "events",
+  task: "tasks",
 };
 
 /**

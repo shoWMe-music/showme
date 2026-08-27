@@ -29,6 +29,9 @@ export interface TaskForm {
   setDescription: (description: string) => void;
   dueDate: string;
   setDueDate: (dueDate: string) => void;
+  /** A `datetime-local` string ("yyyy-mm-ddThh:mm") in the reader's OWN zone. */
+  remindAt: string;
+  setRemindAt: (remindAt: string) => void;
   groupId: string;
   setGroupId: (groupId: string) => void;
   assigneeParticipantId: string;
@@ -46,6 +49,49 @@ export interface TaskForm {
   submitting: boolean;
   canSubmit: boolean;
   submit: () => void;
+}
+
+/**
+ * THE REMINDER CROSSES A ZONE BOUNDARY IN BOTH DIRECTIONS, and these two are it.
+ *
+ * `tasks.remind_at` is an absolute instant (the API takes and returns ISO-8601
+ * UTC); a `datetime-local` input speaks wall-clock with no zone at all. So the
+ * field shows the instant AS THIS READER'S CLOCK — "remind me at nine" means
+ * nine where they are, which is what docs/timezones.md calls a user-local
+ * reminder — and the submit resolves it back to the moment that wall-clock names
+ * here. `new Date("2026-09-01T09:00")` is parsed in the browser's zone, which is
+ * exactly the resolution wanted; the same string with a `Z` would not be.
+ *
+ * Note this is the OPPOSITE of what `dueDate` does two lines below, and both are
+ * right: a due DATE is a calendar day and must travel verbatim or it lands on the
+ * wrong one, while a reminder is a moment and must be converted or it fires at
+ * the wrong time.
+ */
+function instantToLocalInput(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "";
+  const pad = (part: number) => String(part).padStart(2, "0");
+  const day = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+  return `${day}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+
+function localInputToInstant(local: string): string | null {
+  if (!local) return null;
+  const at = new Date(local);
+  return Number.isNaN(at.getTime()) ? null : at.toISOString();
+}
+
+/**
+ * The task's reminder instant, read defensively.
+ *
+ * `Task` comes from `@showme/api-client`, a build artefact: `GET /tasks`
+ * serializes `remindAt` today, but the generated type only learns that when orval
+ * is re-run against the API's OpenAPI document. Delete this the moment it has
+ * been — the same note `useTaskBoard`'s `Task` carries about the assignee fields.
+ */
+function remindAtOf(task: Task | null): string | null {
+  return (task as { remindAt?: string | null } | null)?.remindAt ?? null;
 }
 
 /** Which event's roster the assignee list comes from: the task's own when
@@ -70,6 +116,7 @@ export function useTaskForm({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [remindAt, setRemindAt] = useState("");
   const [groupId, setGroupId] = useState("");
   const [assigneeParticipantId, setAssigneeParticipantId] = useState("");
 
@@ -81,6 +128,7 @@ export function useTaskForm({
     setDescription(task?.description ?? "");
     // "yyyy-mm-dd" — the exact shape a `type="date"` input round-trips.
     setDueDate(task?.dueDate ? task.dueDate.slice(0, 10) : "");
+    setRemindAt(instantToLocalInput(remindAtOf(task)));
     setGroupId(task?.groupId ?? "");
     setAssigneeParticipantId(task?.assigneeParticipantId ?? "");
   }, [open, task]);
@@ -127,6 +175,7 @@ export function useTaskForm({
   // used to shift it: `tasks.due_date` is a DATE, so an evening pick east of
   // Greenwich (or a small-hours pick west of it) landed on the wrong day.
   const due = dueDate || undefined;
+  const remind = localInputToInstant(remindAt);
   const canAssign = formEventId != null;
 
   const submit = () => {
@@ -141,6 +190,9 @@ export function useTaskForm({
         title: title.trim(),
         description: description.trim() || null,
         dueDate: due ?? null,
+        // Always sent, never omitted: clearing the field has to mean "take the
+        // reminder off", and an omitted key would leave the old instant armed.
+        remindAt: remind,
         groupId: groupId || null,
         ...(canAssign ? { assigneeParticipantId: assigneeParticipantId || null } : {}),
       };
@@ -151,6 +203,7 @@ export function useTaskForm({
       title: title.trim(),
       ...(description.trim() ? { description: description.trim() } : {}),
       ...(due ? { dueDate: due } : {}),
+      ...(remind ? { remindAt: remind } : {}),
       ...(groupId ? { groupId } : {}),
       ...(eventId ? { eventId } : {}),
       ...(canAssign && assigneeParticipantId ? { assigneeParticipantId } : {}),
@@ -167,6 +220,8 @@ export function useTaskForm({
     setDescription,
     dueDate,
     setDueDate,
+    remindAt,
+    setRemindAt,
     groupId,
     setGroupId,
     assigneeParticipantId,

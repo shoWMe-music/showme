@@ -676,7 +676,6 @@ export * from './postApiV1SharesTokenVerify200';
 export * from './postApiV1SharesTokenVerifyBody';
 export * from './postApiV1Tasks201';
 export * from './postApiV1TasksBody';
-export * from './postApiV1TasksBodyRemindersItem';
 export * from './putApiV1AdminPerformingRightsRatesCountry200';
 export * from './putApiV1AdminPerformingRightsRatesCountryBody';
 export * from './putApiV1AdminPerformingRightsRatesCountryBodyProCode';

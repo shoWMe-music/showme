@@ -6,6 +6,7 @@ import {
   reapExpiredOffers,
   reapExpiredShares,
 } from "./reapers";
+import { sweepDueTaskReminders } from "./task-reminders";
 
 /**
  * Result of one scheduled-jobs run. Each numeric field is the number of rows the
@@ -17,6 +18,8 @@ export interface JobRunResult {
   shares: number;
   /** Agreed-future representation terminations whose moment arrived (decisions #14). */
   representationTerminations: number;
+  /** Tasks whose `remind_at` came due and were rung (`task-reminders.ts`). */
+  taskReminders: number;
   exchangeRates: number;
   errors: string[];
 }
@@ -26,7 +29,7 @@ function describeError(error: unknown): string {
 }
 
 /**
- * Orchestrator for the scheduled jobs. Runs all five jobs, each isolated in its
+ * Orchestrator for the scheduled jobs. Runs all six, each isolated in its
  * own try/catch so one failure never aborts the others — a failed job leaves its
  * count at 0 and pushes a short message to `errors`.
  */
@@ -39,6 +42,7 @@ export async function runScheduledJobs(
     handoffs: 0,
     shares: 0,
     representationTerminations: 0,
+    taskReminders: 0,
     exchangeRates: 0,
     errors: [],
   };
@@ -65,6 +69,12 @@ export async function runScheduledJobs(
     result.representationTerminations = await reapDueRepresentationTerminations(db, now);
   } catch (error) {
     result.errors.push(`representationTerminations: ${describeError(error)}`);
+  }
+
+  try {
+    result.taskReminders = await sweepDueTaskReminders(db, now);
+  } catch (error) {
+    result.errors.push(`taskReminders: ${describeError(error)}`);
   }
 
   try {

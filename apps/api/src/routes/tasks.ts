@@ -12,12 +12,6 @@ import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
 
 const TaskParams = z.object({ id: z.string().uuid() });
 
-const ReminderInput = z.object({
-  date: z.string().min(1),
-  time: z.string().min(1).optional(),
-  label: z.string().min(1).optional(),
-});
-
 // `budgetAmount` arrives as a STRING and is parsed to bigint minor units
 // (money.md) — never a JS number, which loses precision past 2^53.
 const CreateTaskBody = z.object({
@@ -35,7 +29,10 @@ const CreateTaskBody = z.object({
   assigneeParticipantId: z.string().uuid().optional(),
   budgetType: z.string().optional(),
   budgetAmount: z.string().min(1).optional(),
-  reminders: z.array(ReminderInput).optional(),
+  // An ABSOLUTE instant, ISO-8601 (`schema.tasks.remindAt` explains why it is not
+  // an offset from `dueDate`). The client resolves the wall-clock the user picked
+  // in the user's own zone; the API stores the moment, never the wall-clock.
+  remindAt: z.string().datetime().optional(),
 });
 
 const UpdateTaskBody = z.object({
@@ -47,6 +44,8 @@ const UpdateTaskBody = z.object({
   /** Null hands the task back to nobody in particular — an explicit unassign. */
   assigneeParticipantId: z.string().uuid().nullable().optional(),
   budgetAmount: z.string().min(1).nullable().optional(),
+  /** A new instant re-arms the reminder; null takes it off entirely. */
+  remindAt: z.string().datetime().nullable().optional(),
 });
 
 const ListQuery = PaginationQuery.extend({
@@ -72,6 +71,9 @@ const TaskResponse = z.object({
   completed: z.boolean(),
   completedAt: z.string().nullable(),
   dueDate: z.string().nullable(),
+  remindAt: z.string().nullable(),
+  /** When the sweep rang this reminder. Non-null ⇒ it has fired and will not again. */
+  remindedAt: z.string().nullable(),
   budgetType: z.string().nullable(),
   budgetAmount: z.string().nullable(),
   createdAt: z.string(),
@@ -113,6 +115,8 @@ function serializeTask(task: TaskRow, assigneeName: string | null): z.infer<type
     completed: task.completed,
     completedAt: task.completedAt ? task.completedAt.toISOString() : null,
     dueDate: task.dueDate,
+    remindAt: task.remindAt ? task.remindAt.toISOString() : null,
+    remindedAt: task.remindedAt ? task.remindedAt.toISOString() : null,
     budgetType: task.budgetType,
     budgetAmount: task.budgetAmount != null ? task.budgetAmount.toString() : null,
     createdAt: task.createdAt.toISOString(),
@@ -256,6 +260,10 @@ async function assertMayAssignParticipant(
  * is money and stays out of a summary (`lib/activity.ts`), and `description` is free
  * text an event-wide feed has no business echoing.
  */
+// `remindAt` is deliberately absent: a reminder is the private nudge one person
+// set for themselves, not a fact about the show, and an event-wide feed line every
+// time somebody re-snoozed their own alarm is noise the To Do tab does not need.
+// It is still in the audit trail's before/after like every other column.
 const TRACKED_TASK_FIELDS = [
   "title",
   "dueDate",
@@ -333,7 +341,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // Create a task in a personal / profile / event scope, plus any reminders.
+  // Create a task in a personal / profile / event scope.
   app.post(
     "/tasks",
     { schema: { body: CreateTaskBody, response: { 201: TaskResponse } } },
@@ -371,23 +379,13 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
             title: body.title,
             description: body.description ?? null,
             dueDate: body.dueDate ?? null,
+            remindAt: body.remindAt ? new Date(body.remindAt) : null,
             budgetType: body.budgetType ?? null,
             budgetAmount: body.budgetAmount != null ? BigInt(body.budgetAmount) : null,
             createdBy: principal.userId,
           })
           .returning();
         if (!task) throw new Error("task create failed");
-
-        if (body.reminders && body.reminders.length > 0) {
-          await tx.insert(schema.taskReminders).values(
-            body.reminders.map((reminder) => ({
-              taskId: task.id,
-              date: reminder.date,
-              time: reminder.time ?? null,
-              label: reminder.label ?? null,
-            })),
-          );
-        }
 
         const serialized = serializeTask(task, assigneeName);
         await writeAudit(tx, request, {
@@ -435,6 +433,15 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
       if (body.title !== undefined) fields.title = body.title;
       if (body.description !== undefined) fields.description = body.description;
       if (body.dueDate !== undefined) fields.dueDate = body.dueDate;
+      // Setting a reminder RE-ARMS it: `reminded_at` goes back to null, so the
+      // sweep will ring an instant the user has just moved even if the previous
+      // one already fired. Without this, "remind me again tomorrow" would be
+      // stored and then silently ignored — the fire-once mark outliving the
+      // reminder it was about. Clearing to null disarms it the same way.
+      if (body.remindAt !== undefined) {
+        fields.remindAt = body.remindAt ? new Date(body.remindAt) : null;
+        fields.remindedAt = null;
+      }
       if (body.budgetAmount !== undefined) {
         fields.budgetAmount = body.budgetAmount != null ? BigInt(body.budgetAmount) : null;
       }
@@ -505,7 +512,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // Delete — reminders cascade via the FK.
+  // Delete.
   app.delete(
     "/tasks/:id",
     { schema: { params: TaskParams, response: { 200: DeleteResponse } } },

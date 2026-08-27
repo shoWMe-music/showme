@@ -5,7 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
 import type { EmailMessage } from "./lib/email";
-import { notifyUsers } from "./lib/notify";
+import { NOTIFICATION_CATEGORY_KEYS, notifyUsers } from "./lib/notify";
 import { notificationRoutes } from "./routes/notifications";
 import { buildTestApp } from "./testing";
 
@@ -170,6 +170,7 @@ describe("notification preferences", () => {
       "deals",
       "settlements",
       "events",
+      "tasks",
     ]);
     // In-app is on everywhere; email is on for the four that cost money or a date
     // and off for `events`, which is situational awareness (`NOTIFICATION_CATEGORIES`).
@@ -343,9 +344,9 @@ describe("notifyUsers honours the preference", () => {
 
   it("delivers an UNCATEGORISED type regardless — the safe direction", async () => {
     await seedUser("gate-unknown");
-    // Every category switched off, and a type no category claims.
+    // Every category the catalog knows, switched off.
     await harness.db.insert(schema.notificationPreferences).values(
-      ["bookings", "holds", "deals", "settlements", "events"].map((category) => ({
+      NOTIFICATION_CATEGORY_KEYS.map((category) => ({
         userId: "gate-unknown",
         category,
         inApp: false,
@@ -353,8 +354,12 @@ describe("notifyUsers honours the preference", () => {
       })),
     );
 
+    // A prefix on purpose belonging to no category — this test USED to use
+    // `task.reminder`, which stopped proving anything the moment the reminder
+    // sweep brought a `tasks` category with it. Read from the catalog rather than
+    // a hand-copied list, so the next category cannot make it vacuous again.
     await notifyUsers(harness.db, ["gate-unknown"], null, {
-      type: "task.reminder",
+      type: "unclassified.thing",
       title: "nobody has classified this yet",
     });
     expect(await notificationsOf("gate-unknown")).toHaveLength(1);

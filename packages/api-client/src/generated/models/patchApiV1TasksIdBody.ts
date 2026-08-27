@@ -25,4 +25,6 @@ export type PatchApiV1TasksIdBody = {
    * @nullable
    */
   budgetAmount?: string | null;
+  /** @nullable */
+  remindAt?: string | null;
 };

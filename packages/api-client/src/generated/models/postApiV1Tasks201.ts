@@ -28,6 +28,10 @@ export type PostApiV1Tasks201 = {
   /** @nullable */
   dueDate: string | null;
   /** @nullable */
+  remindAt: string | null;
+  /** @nullable */
+  remindedAt: string | null;
+  /** @nullable */
   budgetType: string | null;
   /** @nullable */
   budgetAmount: string | null;

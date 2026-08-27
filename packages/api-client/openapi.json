@@ -12498,6 +12498,14 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "remindAt": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "remindedAt": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "budgetType": {
                             "type": "string",
                             "nullable": true
@@ -12526,6 +12534,8 @@
                           "completed",
                           "completedAt",
                           "dueDate",
+                          "remindAt",
+                          "remindedAt",
                           "budgetType",
                           "budgetAmount",
                           "createdAt",
@@ -12592,27 +12602,9 @@
                     "type": "string",
                     "minLength": 1
                   },
-                  "reminders": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "date": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "time": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "label": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "required": ["date"],
-                      "additionalProperties": false
-                    }
+                  "remindAt": {
+                    "type": "string",
+                    "format": "date-time"
                   }
                 },
                 "required": ["title"],
@@ -12674,6 +12666,14 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "remindAt": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "remindedAt": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "budgetType": {
                       "type": "string",
                       "nullable": true
@@ -12702,6 +12702,8 @@
                     "completed",
                     "completedAt",
                     "dueDate",
+                    "remindAt",
+                    "remindedAt",
                     "budgetType",
                     "budgetAmount",
                     "createdAt",
@@ -12753,6 +12755,11 @@
                   "budgetAmount": {
                     "type": "string",
                     "minLength": 1,
+                    "nullable": true
+                  },
+                  "remindAt": {
+                    "type": "string",
+                    "format": "date-time",
                     "nullable": true
                   }
                 },
@@ -12825,6 +12832,14 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "remindAt": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "remindedAt": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "budgetType": {
                       "type": "string",
                       "nullable": true
@@ -12853,6 +12868,8 @@
                     "completed",
                     "completedAt",
                     "dueDate",
+                    "remindAt",
+                    "remindedAt",
                     "budgetType",
                     "budgetAmount",
                     "createdAt",
@@ -13838,7 +13855,7 @@
                         "properties": {
                           "category": {
                             "type": "string",
-                            "enum": ["bookings", "holds", "deals", "settlements", "events"]
+                            "enum": ["bookings", "holds", "deals", "settlements", "events", "tasks"]
                           },
                           "label": {
                             "type": "string"
@@ -13891,7 +13908,7 @@
                       "properties": {
                         "category": {
                           "type": "string",
-                          "enum": ["bookings", "holds", "deals", "settlements", "events"]
+                          "enum": ["bookings", "holds", "deals", "settlements", "events", "tasks"]
                         },
                         "inApp": {
                           "type": "boolean"
@@ -13927,7 +13944,7 @@
                         "properties": {
                           "category": {
                             "type": "string",
-                            "enum": ["bookings", "holds", "deals", "settlements", "events"]
+                            "enum": ["bookings", "holds", "deals", "settlements", "events", "tasks"]
                           },
                           "label": {
                             "type": "string"

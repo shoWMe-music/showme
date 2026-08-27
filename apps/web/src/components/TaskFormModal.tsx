@@ -139,6 +139,16 @@ export function TaskFormModal({
           value={form.dueDate}
           onChange={(event) => form.setDueDate(event.target.value)}
         />
+        {/* A due DATE and a reminder INSTANT, deliberately two fields. A day says
+            when the work is owed; a reminder says when to be interrupted about
+            it, which is a time — and is worth setting on a task with no due date
+            at all. Empty means no reminder; clearing it takes one off. */}
+        <DateTimeField
+          label="Remind me"
+          type="datetime-local"
+          value={form.remindAt}
+          onChange={(event) => form.setRemindAt(event.target.value)}
+        />
       </form>
     </Modal>
   );

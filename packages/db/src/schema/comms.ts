@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -130,37 +131,62 @@ export const auditLog = pgTable("audit_log", {
 });
 
 /** Unified todos — event, profile, or personal (nullable scope owners). */
-export const tasks = pgTable("tasks", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  eventId: uuid("event_id").references(() => events.id, { onDelete: "cascade" }),
-  ownerProfileId: uuid("owner_profile_id").references(() => profiles.id),
-  ownerUserId: text("owner_user_id").references(() => users.id),
-  // Optional named work-group (reusable roster) this task belongs to — drives
-  // the Tasks screen's group-by-work-group view. Null = ungrouped/scope-only.
-  groupId: uuid("group_id").references(() => groups.id, { onDelete: "set null" }),
-  title: text("title").notNull(),
-  description: text("description"),
-  completed: boolean("completed").notNull().default(false),
-  completedAt: timestamp("completed_at", { withTimezone: true }),
-  dueDate: date("due_date"),
-  assigneeParticipantId: uuid("assignee_participant_id").references(() => eventParticipants.id),
-  budgetType: text("budget_type"),
-  budgetAmount: bigint("budget_amount", { mode: "bigint" }), // minor units (money.md)
-  createdBy: text("created_by").references(() => users.id),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-/** Scheduled reminders for a task (kept a table so reminder jobs can query by date). */
-export const taskReminders = pgTable("task_reminders", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  taskId: uuid("task_id")
-    .notNull()
-    .references(() => tasks.id, { onDelete: "cascade" }),
-  date: date("date").notNull(),
-  time: time("time"),
-  label: text("label"),
-});
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventId: uuid("event_id").references(() => events.id, { onDelete: "cascade" }),
+    ownerProfileId: uuid("owner_profile_id").references(() => profiles.id),
+    ownerUserId: text("owner_user_id").references(() => users.id),
+    // Optional named work-group (reusable roster) this task belongs to — drives
+    // the Tasks screen's group-by-work-group view. Null = ungrouped/scope-only.
+    groupId: uuid("group_id").references(() => groups.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    description: text("description"),
+    completed: boolean("completed").notNull().default(false),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    dueDate: date("due_date"),
+    assigneeParticipantId: uuid("assignee_participant_id").references(() => eventParticipants.id),
+    /**
+     * THE INSTANT to speak up at — absolute, never an offset from `dueDate`.
+     *
+     * `dueDate` is a DATE: a calendar day with no clock and no zone. An offset
+     * ("two hours before it is due") has nothing to subtract from until somebody
+     * also decides what o'clock a day ends and in whose time zone, and it would
+     * silently move — sometimes into the past — every time the due date is
+     * edited. A reminder is also perfectly legitimate on a task with NO due date
+     * ("ring the promoter Thursday at ten"), which an offset cannot express at
+     * all. So the client resolves the wall-clock the user picked in their own
+     * zone and stores the resulting UTC instant — exactly the rule
+     * docs/timezones.md states for local-time reminders.
+     */
+    remindAt: timestamp("remind_at", { withTimezone: true }),
+    /**
+     * When the sweep actually spoke — the FIRE-ONCE mark. Set, `remind_at` has
+     * been honoured and is never honoured again; null, it is still owed.
+     *
+     * A stamp rather than clearing `remind_at`, because clearing it would delete
+     * the user's own setting: the edit dialog could not tell "no reminder was
+     * ever set" from "it already went", and a later Google Tasks sync would have
+     * nothing left to push. Re-arming is explicit — `PATCH /tasks/:id` with a new
+     * `remindAt` clears this back to null.
+     */
+    remindedAt: timestamp("reminded_at", { withTimezone: true }),
+    budgetType: text("budget_type"),
+    budgetAmount: bigint("budget_amount", { mode: "bigint" }), // minor units (money.md)
+    createdBy: text("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // The sweep's exact question, and nothing else asks it: "which reminders are
+    // owed?". Partial, so the index holds only the handful of tasks with an
+    // unfired reminder rather than a row per task — and a fired one leaves it.
+    index("tasks_pending_reminder_idx")
+      .on(table.remindAt)
+      .where(sql`${table.remindAt} is not null and ${table.remindedAt} is null`),
+  ],
+);
 
 /**
  * Unified calendar entries — event/profile/personal; task, appointment, note, or

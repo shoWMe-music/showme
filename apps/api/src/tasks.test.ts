@@ -49,31 +49,19 @@ async function seedUserWithProfile(id: string): Promise<string> {
 }
 
 describe("tasks — owner-scoped CRUD", () => {
-  it("creates a personal task with a reminder and lists it", async () => {
+  it("creates a personal task and lists it", async () => {
     await seedUserWithProfile("t-personal");
 
     const created = await app.inject({
       method: "POST",
       url: "/api/v1/tasks",
       headers: auth("t-personal"),
-      payload: {
-        title: "Call the venue",
-        dueDate: "2026-08-01",
-        reminders: [{ date: "2026-07-30", time: "09:00", label: "Ping" }],
-      },
+      payload: { title: "Call the venue", dueDate: "2026-08-01" },
     });
     expect(created.statusCode).toBe(201);
     expect(created.json().ownerUserId).toBe("t-personal");
     expect(created.json().ownerProfileId).toBeNull();
     const taskId = created.json().id;
-
-    // The reminder row was persisted alongside the task.
-    const reminders = await harness.db
-      .select()
-      .from(schema.taskReminders)
-      .where(eq(schema.taskReminders.taskId, taskId));
-    expect(reminders).toHaveLength(1);
-    expect(reminders[0]?.label).toBe("Ping");
 
     const list = await app.inject({
       method: "GET",
@@ -465,5 +453,118 @@ describe("tasks — the assignee", () => {
     });
     expect(created.statusCode).toBe(400);
     expect(created.json().error.message).toContain("Only a task on an event");
+  });
+});
+
+describe("tasks — the reminder", () => {
+  it("stores remind_at as the instant it was sent, and returns it unfired", async () => {
+    await seedUserWithProfile("t-remind");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: auth("t-remind"),
+      payload: { title: "Ring the promoter", remindAt: "2026-09-01T07:00:00.000Z" },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().remindAt).toBe("2026-09-01T07:00:00.000Z");
+    // Nothing has fired it yet — that is the sweep's job, in `apps/jobs`.
+    expect(created.json().remindedAt).toBeNull();
+
+    // The state, not just the response: the column holds the same instant.
+    const [row] = await harness.db
+      .select({ remindAt: schema.tasks.remindAt, remindedAt: schema.tasks.remindedAt })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, created.json().id));
+    expect(row?.remindAt?.toISOString()).toBe("2026-09-01T07:00:00.000Z");
+    expect(row?.remindedAt).toBeNull();
+  });
+
+  it("refuses a reminder that is not an instant", async () => {
+    await seedUserWithProfile("t-remind-shape");
+
+    // A bare calendar day is exactly the thing `remind_at` exists NOT to be: it
+    // names no clock and no zone, so there is no moment to fire at.
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: auth("t-remind-shape"),
+      payload: { title: "Vague", remindAt: "2026-09-01" },
+    });
+    expect(created.statusCode).toBe(400);
+  });
+
+  it("RE-ARMS a fired reminder when a new instant is set, and disarms it on null", async () => {
+    await seedUserWithProfile("t-remind-rearm");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: auth("t-remind-rearm"),
+      payload: { title: "Snooze me", remindAt: "2026-09-01T07:00:00.000Z" },
+    });
+    const taskId = created.json().id;
+
+    // Stand in for the sweep having already rung this one.
+    await harness.db
+      .update(schema.tasks)
+      .set({ remindedAt: new Date("2026-09-01T07:00:30.000Z") })
+      .where(eq(schema.tasks.id, taskId));
+
+    const moved = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/tasks/${taskId}`,
+      headers: auth("t-remind-rearm"),
+      payload: { remindAt: "2026-09-02T07:00:00.000Z" },
+    });
+    expect(moved.statusCode).toBe(200);
+    expect(moved.json().remindAt).toBe("2026-09-02T07:00:00.000Z");
+    // The whole point: the fire-once mark must not outlive the reminder it was
+    // about, or "remind me again tomorrow" is stored and silently never rung.
+    expect(moved.json().remindedAt).toBeNull();
+
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/tasks/${taskId}`,
+      headers: auth("t-remind-rearm"),
+      payload: { remindAt: null },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().remindAt).toBeNull();
+
+    const [row] = await harness.db
+      .select({ remindAt: schema.tasks.remindAt, remindedAt: schema.tasks.remindedAt })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, taskId));
+    expect(row?.remindAt).toBeNull();
+    expect(row?.remindedAt).toBeNull();
+  });
+
+  it("leaves an untouched reminder alone when other fields are patched", async () => {
+    await seedUserWithProfile("t-remind-untouched");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: auth("t-remind-untouched"),
+      payload: { title: "Keep it", remindAt: "2026-09-01T07:00:00.000Z" },
+    });
+    const taskId = created.json().id;
+    await harness.db
+      .update(schema.tasks)
+      .set({ remindedAt: new Date("2026-09-01T07:00:30.000Z") })
+      .where(eq(schema.tasks.id, taskId));
+
+    const renamed = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/tasks/${taskId}`,
+      headers: auth("t-remind-untouched"),
+      payload: { title: "Keep it, renamed" },
+    });
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json().remindAt).toBe("2026-09-01T07:00:00.000Z");
+    // An omitted `remindAt` is not a re-arm — otherwise ticking a task's title
+    // would make an already-rung bell ring again.
+    expect(renamed.json().remindedAt).toBe("2026-09-01T07:00:30.000Z");
   });
 });

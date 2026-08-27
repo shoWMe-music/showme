@@ -28,6 +28,10 @@ export type GetApiV1Tasks200ItemsItem = {
   /** @nullable */
   dueDate: string | null;
   /** @nullable */
+  remindAt: string | null;
+  /** @nullable */
+  remindedAt: string | null;
+  /** @nullable */
   budgetType: string | null;
   /** @nullable */
   budgetAmount: string | null;
