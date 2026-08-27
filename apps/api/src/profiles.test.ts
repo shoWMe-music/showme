@@ -194,7 +194,8 @@ describe("profiles — authorize + serialize + audit", () => {
       payload: {
         location: { city: "Stockholm", country: "se" },
         venueDetails: {
-          capacity: 400,
+          // No `capacity` — it belongs to a room now, and this route no longer
+          // accepts one. See "a capacity is a room's" below.
           soundSystem: "Funktion-One",
           curfew: "02:00",
           // Blank and duplicate entries are dropped, and a venue's own wording
@@ -207,7 +208,7 @@ describe("profiles — authorize + serialize + audit", () => {
     });
     expect(saved.statusCode).toBe(200);
     expect(saved.json().venueDetails.amenities).toEqual(["pa_system", "Green Room"]);
-    expect(saved.json().venueDetails.capacity).toBe(400);
+    expect(saved.json().venueDetails.curfew).toBe("02:00");
     expect(saved.json().location).toEqual({
       street: null,
       postcode: null,
@@ -232,7 +233,6 @@ describe("profiles — authorize + serialize + audit", () => {
       .select()
       .from(schema.venueDetails)
       .where(eq(schema.venueDetails.profileId, profileId));
-    expect(venueRow?.capacity).toBe(400);
     expect(venueRow?.soundSystem).toBe("Funktion-One");
     expect(venueRow?.contactEmail).toBe("book@lantern.showme.test");
 
@@ -244,7 +244,7 @@ describe("profiles — authorize + serialize + audit", () => {
       headers: auth("venue-details-owner"),
       payload: {
         location: { city: "Göteborg", country: "SE" },
-        venueDetails: { capacity: 250 },
+        venueDetails: { curfew: "01:00" },
       },
     });
     expect(again.statusCode).toBe(200);
@@ -274,7 +274,7 @@ describe("profiles — authorize + serialize + audit", () => {
       method: "PATCH",
       url: `/api/v1/profiles/${profileId}`,
       headers: auth("venue-viewer-watcher"),
-      payload: { venueDetails: { capacity: 999 } },
+      payload: { venueDetails: { curfew: "03:00" } },
     });
     expect(response.statusCode).toBe(403);
 
@@ -297,10 +297,9 @@ describe("profiles — authorize + serialize + audit", () => {
       method: "PATCH",
       url: `/api/v1/profiles/${venue.profileId}`,
       headers: auth("room-venue-owner"),
-      payload: { type: "venue", venueDetails: { capacity: 400, curfew: "02:00" } },
+      payload: { type: "venue", venueDetails: { curfew: "02:00" } },
     });
     expect(saved.statusCode).toBe(200);
-    expect(saved.json().venueDetails.capacity).toBe(400);
     expect(saved.json().venueDetails.curfew).toBe("02:00");
 
     // NEGATIVE — a performer, the OWNER of their own profile, so nothing about
@@ -312,7 +311,7 @@ describe("profiles — authorize + serialize + audit", () => {
       method: "PATCH",
       url: `/api/v1/profiles/${performer.profileId}`,
       headers: auth("room-performer-owner"),
-      payload: { name: "Renamed By The Same Request", venueDetails: { capacity: 400 } },
+      payload: { name: "Renamed By The Same Request", venueDetails: { curfew: "02:00" } },
     });
     expect(refused.statusCode).toBe(403);
     // The REASON, not the bare status — a 403 on this route is also what a
@@ -341,7 +340,7 @@ describe("profiles — authorize + serialize + audit", () => {
       method: "PATCH",
       url: `/api/v1/profiles/${promoter.profileId}`,
       headers: auth("room-promoter-owner"),
-      payload: { type: "promoter", venueDetails: { capacity: 400 } },
+      payload: { type: "promoter", venueDetails: { curfew: "02:00" } },
     });
     expect(promoterRefused.statusCode).toBe(403);
   });
@@ -936,50 +935,122 @@ describe("profiles — the field inventory ported from the previous app", () => 
     expect(tooLong.statusCode).toBe(400);
   });
 
-  it("gives capacity setups stable ids and exactly one headline", async () => {
-    const { profileId, ownerId } = await seedProfileOwner("capacity-setups", "operator");
-
-    // Nobody flagged a main — the first setup becomes it, because a non-empty
-    // list must have an answer to "what is this room's headline capacity".
-    const none = await app.inject({
+  /**
+   * A CAPACITY IS A ROOM'S — the one model that replaced three.
+   *
+   * A venue used to be asked for its capacity three times on one profile screen:
+   * a flat `venue_details.capacity`, a "capacity setups" list beside it, and a
+   * capacity on every room. This pins what is left: the room owns the number and
+   * its alternate arrangements, the profile route refuses to take one, and
+   * `venue_details.capacity` follows the largest room so the venue search, the
+   * public chip and `events.capacity` keep reading one figure.
+   */
+  it("takes a capacity only on a room, and derives the venue's from the largest", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("room-capacity", "operator");
+    await app.inject({
       method: "PATCH",
       url: `/api/v1/profiles/${profileId}`,
       headers: auth(ownerId),
-      payload: {
-        venueDetails: {
-          capacitySetups: [
-            { name: "Standing only", capacityStanding: 400 },
-            { name: "Theater seating", capacitySitting: 220 },
-            // A row the owner added and never named is dropped, not rejected.
-            { name: "   " },
-          ],
-        },
-      },
+      payload: { type: "venue" },
     });
-    expect(none.statusCode).toBe(200);
-    const setups = none.json().venueDetails.capacitySetups;
-    expect(setups).toHaveLength(2);
-    expect(setups.map((setup: { isMain: boolean }) => setup.isMain)).toEqual([true, false]);
-    expect(setups[0].id).toBeTruthy();
 
-    // Two mains is a state the previous app's UI could produce. Only the first
-    // survives, so "the headline capacity" always has one answer.
-    const both = await app.inject({
+    // The profile form cannot set a capacity any more. Not a 400 — the field is
+    // simply not in the schema, so it is stripped — but nothing must be written:
+    // a silently-accepted capacity would be overwritten by the next room edit.
+    const rejected = await app.inject({
       method: "PATCH",
       url: `/api/v1/profiles/${profileId}`,
       headers: auth(ownerId),
+      payload: { venueDetails: { capacity: 999, curfew: "02:00" } },
+    });
+    expect(rejected.statusCode).toBe(200);
+    expect(rejected.json().venueDetails.capacity).toBeNull();
+
+    const main = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${profileId}/stages`,
+      headers: auth(ownerId),
       payload: {
-        venueDetails: {
-          capacitySetups: [
-            { id: "a", name: "Standing only", capacityStanding: 400, isMain: true },
-            { id: "b", name: "Theater seating", capacitySitting: 220, isMain: true },
-          ],
-        },
+        name: "Main Room",
+        capacity: 400,
+        capacitySetups: [
+          { name: "Standing only", capacity: 400 },
+          { name: "Theater seating", capacity: 220 },
+          // A row the owner added and never named is dropped, not rejected.
+          { name: "   ", capacity: 10 },
+        ],
       },
     });
-    expect(
-      both.json().venueDetails.capacitySetups.map((s: { isMain: boolean }) => s.isMain),
-    ).toEqual([true, false]);
+    expect(main.statusCode).toBe(201);
+    const mainSetups = main.json().capacitySetups;
+    expect(mainSetups.map((setup: { name: string }) => setup.name)).toEqual([
+      "Standing only",
+      "Theater seating",
+    ]);
+    // Ids are minted so the editor can key a row it is mid-edit on.
+    expect(mainSetups[0].id).toBeTruthy();
+
+    // The state, not just the response: the venue's headline capacity followed.
+    const [afterMain] = await harness.db
+      .select()
+      .from(schema.venueDetails)
+      .where(eq(schema.venueDetails.profileId, profileId));
+    expect(afterMain?.capacity).toBe(400);
+
+    // A smaller second room does not become the venue's number.
+    const back = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${profileId}/stages`,
+      headers: auth(ownerId),
+      payload: { name: "Back Room", capacity: 80 },
+    });
+    expect(back.statusCode).toBe(201);
+    expect(back.json().capacitySetups).toEqual([]);
+    const [afterBack] = await harness.db
+      .select()
+      .from(schema.venueDetails)
+      .where(eq(schema.venueDetails.profileId, profileId));
+    expect(afterBack?.capacity).toBe(400);
+
+    // Growing the small room past the big one moves the venue's figure with it.
+    const grown = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}/stages/${back.json().id}`,
+      headers: auth(ownerId),
+      payload: { capacity: 900 },
+    });
+    expect(grown.statusCode).toBe(200);
+    const [afterGrown] = await harness.db
+      .select()
+      .from(schema.venueDetails)
+      .where(eq(schema.venueDetails.profileId, profileId));
+    expect(afterGrown?.capacity).toBe(900);
+
+    // And deleting it puts the venue back on the main hall — the derived number
+    // is recomputed on every room write, never left behind by one.
+    const removed = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/profiles/${profileId}/stages/${back.json().id}`,
+      headers: auth(ownerId),
+    });
+    expect(removed.statusCode).toBe(200);
+    const [afterRemoved] = await harness.db
+      .select()
+      .from(schema.venueDetails)
+      .where(eq(schema.venueDetails.profileId, profileId));
+    expect(afterRemoved?.capacity).toBe(400);
+
+    // Setups are the room's, and are read back with it.
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${profileId}/stages`,
+      headers: auth(ownerId),
+    });
+    expect(listed.statusCode).toBe(200);
+    const rooms = listed.json();
+    expect(rooms).toHaveLength(1);
+    expect(rooms[0].name).toBe("Main Room");
+    expect(rooms[0].capacitySetups).toHaveLength(2);
   });
 });
 

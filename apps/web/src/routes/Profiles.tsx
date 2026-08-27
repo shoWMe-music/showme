@@ -32,12 +32,7 @@ import {
 } from "../components/ProfilePhotoGalleryField";
 import { ProfilePublicPreview } from "../components/ProfilePublicPreview";
 import { ProfileRoomsCard } from "../components/ProfileRoomsCard";
-import {
-  type ProfileCapacitySetupDraft,
-  ProfileCapacitySetupsField,
-  type ProfileSetupDraft,
-  ProfileSetupsField,
-} from "../components/ProfileSetupsField";
+import { type ProfileSetupDraft, ProfileSetupsField } from "../components/ProfileSetupsField";
 import { ProfileVideoListField } from "../components/ProfileVideoListField";
 import {
   EMPTY_VENUE_DETAILS,
@@ -295,8 +290,10 @@ export function Profiles() {
               <ProfileEditor profile={detail.data} onSaved={() => void detail.refetch()} />
               {/* Its own card, not a field in the form above: rooms are separate
                   records that events point at (`events.stage_id`), so they save
-                  as you go. Only a place has them — a promoter or a booking
-                  agency is an organisation, not a building. */}
+                  as you go. It is also the ONLY place a capacity is entered —
+                  the form above used to ask for one too, and so did a third list
+                  of "capacity setups". Only a place has rooms: a promoter or a
+                  booking agency is an organisation, not a building. */}
               {isPlaceProfile(detail.data.kind, detail.data.type) && (
                 <ProfileRoomsCard profileId={detail.data.id} />
               )}
@@ -354,7 +351,6 @@ function ProfilePreviewPanel({ profileId, tone }: { profileId: string; tone: Ava
 function toVenueDraft(venueDetails: ProfileDetail["venueDetails"]): VenueDetailsDraft {
   if (!venueDetails) return EMPTY_VENUE_DETAILS;
   return {
-    capacity: venueDetails.capacity === null ? "" : String(venueDetails.capacity),
     soundSystem: venueDetails.soundSystem ?? "",
     curfew: venueDetails.curfew ?? "",
     amenities: venueDetails.amenities ?? [],
@@ -366,19 +362,6 @@ function toVenueDraft(venueDetails: ProfileDetail["venueDetails"]): VenueDetails
     contactEmail: venueDetails.contactEmail ?? "",
     contactPhone: venueDetails.contactPhone ?? "",
   };
-}
-
-function toCapacitySetupDrafts(
-  venueDetails: ProfileDetail["venueDetails"],
-): ProfileCapacitySetupDraft[] {
-  return (venueDetails?.capacitySetups ?? []).map((setup) => ({
-    id: setup.id,
-    name: setup.name,
-    capacitySitting: setup.capacitySitting === null ? "" : String(setup.capacitySitting),
-    capacityStanding: setup.capacityStanding === null ? "" : String(setup.capacityStanding),
-    isMain: setup.isMain,
-    notes: setup.notes ?? "",
-  }));
 }
 
 /** Form draft → API body. An emptied field is sent as `null`, not as `""`:
@@ -397,25 +380,15 @@ function toOptionalInteger(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function fromVenueDraft(draft: VenueDetailsDraft, capacitySetups: ProfileCapacitySetupDraft[]) {
+function fromVenueDraft(draft: VenueDetailsDraft) {
   return {
-    capacity: toOptionalInteger(draft.capacity),
+    // No `capacity` and no `capacitySetups`: both belong to a ROOM now, and the
+    // rooms card writes them straight to `/profiles/:id/stages`. The profile's
+    // own capacity column is the largest room, derived by the server.
     soundSystem: blankToNull(draft.soundSystem),
     curfew: blankToNull(draft.curfew),
     amenities: draft.amenities,
     dealTypes: draft.dealTypes,
-    // Half-typed rows (no name yet) are dropped rather than rejected — the owner
-    // clicked "add" and then saved, which is not an error worth a red box.
-    capacitySetups: capacitySetups
-      .filter((setup) => setup.name.trim() !== "")
-      .map((setup) => ({
-        id: setup.id,
-        name: setup.name.trim(),
-        capacitySitting: toOptionalInteger(setup.capacitySitting),
-        capacityStanding: toOptionalInteger(setup.capacityStanding),
-        isMain: setup.isMain,
-        notes: blankToNull(setup.notes),
-      })),
     cateringNotes: blankToNull(draft.cateringNotes),
     accommodationNotes: blankToNull(draft.accommodationNotes),
     artistLogisticsNotes: blankToNull(draft.artistLogisticsNotes),
@@ -499,9 +472,6 @@ function ProfileEditor({
   const [isPublic, setIsPublic] = useState(profile.isPublic);
   const [profileType, setProfileType] = useState(profile.type ?? "");
   const [venue, setVenue] = useState<VenueDetailsDraft>(() => toVenueDraft(profile.venueDetails));
-  const [capacitySetups, setCapacitySetups] = useState<ProfileCapacitySetupDraft[]>(() =>
-    toCapacitySetupDrafts(profile.venueDetails),
-  );
 
   const upload = useProfileImageUpload(profile.id);
 
@@ -569,7 +539,6 @@ function ProfileEditor({
     setIsPublic(profile.isPublic);
     setProfileType(profile.type ?? "");
     setVenue(toVenueDraft(profile.venueDetails));
-    setCapacitySetups(toCapacitySetupDrafts(profile.venueDetails));
   }, [profile.id, profile.updatedAt]);
 
   const patch = usePatchApiV1ProfilesId({
@@ -639,7 +608,7 @@ function ProfileEditor({
           )
           .filter((photo): photo is { fileId: string } | { url: string } => photo !== null),
         videos,
-        ...(showsVenueFields ? { venueDetails: fromVenueDraft(venue, capacitySetups) } : {}),
+        ...(showsVenueFields ? { venueDetails: fromVenueDraft(venue) } : {}),
       },
     });
   };
@@ -789,7 +758,6 @@ function ProfileEditor({
           <>
             <hr style={{ border: 0, borderTop: "1px solid var(--border)", margin: "4px 0" }} />
             <VenueDetailsFields value={venue} onChange={setVenue} />
-            <ProfileCapacitySetupsField value={capacitySetups} onChange={setCapacitySetups} />
             <hr style={{ border: 0, borderTop: "1px solid var(--border)", margin: "4px 0" }} />
           </>
         )}

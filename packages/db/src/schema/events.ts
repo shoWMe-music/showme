@@ -84,11 +84,13 @@ export const events = pgTable("events", {
  * festival runs concurrent events by putting them on different stages. The stages
  * available to an event are those whose `venue_profile_id` is the event's venue.
  *
- * NOT the same thing as `venue_details.capacity_setups`. A stage is a ROOM — a
- * separate space that can hold its own show on the same night. A capacity setup
- * is a named ARRANGEMENT of one room ("Theater seating" 220 / "Standing only"
- * 400): the same four walls, counted differently. Two rooms can be booked twice
- * on a Friday; two setups of one room cannot.
+ * A room CONTAINS its alternate arrangements (`capacity_setups`, migration 0029),
+ * which is the difference stated as structure rather than as a warning label. A
+ * room is a separate space that can hold its own show on the same night; a setup
+ * is one room counted another way ("Theater seating" 220 / "Standing only" 400) —
+ * the same four walls. Two rooms can be booked twice on a Friday; two setups of
+ * one room cannot. Nesting says that; the three flat fields this replaced needed
+ * a paragraph of copy to say it and still confused people.
  *
  * `events.stage_id` is `ON DELETE SET NULL` (see `events` above), which is the
  * schema's answer to "what happens to the shows when a room is deleted": the
@@ -104,7 +106,15 @@ export const stages = pgTable(
       .notNull()
       .references(() => profiles.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    /** The headline number for this room — what a show in it is stamped with. */
     capacity: integer("capacity"),
+    /**
+     * Alternate arrangements of THIS room: `[{ id, name, capacity }]` —
+     * "Theater seating" 220, "Standing only" 400. jsonb because they are read
+     * with the room, never filtered on and never pointed at; `capacity` above is
+     * the figure search, the public chip and `events.capacity` all use.
+     */
+    capacitySetups: jsonb("capacity_setups"),
   },
   (table) => [
     // "The rooms of this venue" is now a real query — it draws the room picker on

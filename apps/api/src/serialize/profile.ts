@@ -47,8 +47,6 @@ export interface SerializedVenueDetails {
   curfew: string | null;
   amenities: string[];
   dealTypes: string[];
-  /** Named seating/standing configurations — see `VenueCapacitySetup`. */
-  capacitySetups: VenueCapacitySetup[];
   cateringNotes: string | null;
   accommodationNotes: string | null;
   artistLogisticsNotes: string | null;
@@ -58,22 +56,22 @@ export interface SerializedVenueDetails {
 }
 
 /**
- * One named way of arranging the room — "Theater seating", "Standing only",
- * "Mixed". Ported from the previous app's `venueCapacitySetups`
- * (`../showme-settle-fast/src/pages/ProfileEditPage.tsx:605`), where exactly one
- * setup carried `isMain` and became the headline capacity.
+ * One named way of arranging ONE ROOM — "Theater seating" 220, "Standing only"
+ * 400. Stored in `stages.capacity_setups` (jsonb) since migration 0029, because
+ * these are read with their room, never filtered on and never pointed at.
  *
- * Stored in `venue_details.capacity_setups` (jsonb) because these are read with
- * their parent row and never filtered on — the headline number that a promoter
- * *does* search by is the plain `capacity` column beside it.
+ * It used to hang off `venue_details` beside a flat `capacity`, with a
+ * seated/standing pair, an `isMain` radio and a notes line — which made a
+ * capacity enterable in three places on one screen and needed a paragraph of copy
+ * to explain the difference. The room now owns both: `stages.capacity` is the
+ * headline (what search, the public chip and `events.capacity` read), and these
+ * are the same walls counted another way. The NAME says which arrangement it is,
+ * so one number is the whole of it.
  */
-export interface VenueCapacitySetup {
+export interface RoomCapacitySetup {
   id: string;
   name: string;
-  capacitySitting: number | null;
-  capacityStanding: number | null;
-  isMain: boolean;
-  notes: string | null;
+  capacity: number | null;
 }
 
 /** A link the owner put on their profile — "Spotify" → an https URL. */
@@ -221,10 +219,10 @@ export function readPerformerSetups(details: unknown): SerializedPerformerSetup[
   return setups;
 }
 
-/** Capacity setups — `venue_details.capacity_setups`. */
-export function readCapacitySetups(value: unknown): VenueCapacitySetup[] {
+/** A room's alternate arrangements — `stages.capacity_setups`. */
+export function readCapacitySetups(value: unknown): RoomCapacitySetup[] {
   if (!Array.isArray(value)) return [];
-  const setups: VenueCapacitySetup[] = [];
+  const setups: RoomCapacitySetup[] = [];
   for (const entry of value) {
     const record = asRecord(entry);
     const name = readOptionalString(record.name);
@@ -232,10 +230,7 @@ export function readCapacitySetups(value: unknown): VenueCapacitySetup[] {
     setups.push({
       id: readOptionalString(record.id) ?? name,
       name,
-      capacitySitting: readOptionalNumber(record.capacitySitting),
-      capacityStanding: readOptionalNumber(record.capacityStanding),
-      isMain: record.isMain === true,
-      notes: readOptionalString(record.notes),
+      capacity: readOptionalNumber(record.capacity),
     });
   }
   return setups;
@@ -261,7 +256,6 @@ function serializeVenueDetails(row: VenueDetailsRow): SerializedVenueDetails {
     curfew: row.curfew,
     amenities: row.amenities ?? [],
     dealTypes: row.dealTypes ?? [],
-    capacitySetups: readCapacitySetups(row.capacitySetups),
     cateringNotes: row.cateringNotes,
     accommodationNotes: row.accommodationNotes,
     artistLogisticsNotes: row.artistLogisticsNotes,
@@ -448,7 +442,6 @@ export interface PublicVenueDetails {
   curfew: string | null;
   amenities: string[];
   dealTypes: string[];
-  capacitySetups: VenueCapacitySetup[];
   cateringNotes: string | null;
   accommodationNotes: string | null;
   audienceLogisticsNotes: string | null;
@@ -478,7 +471,6 @@ function serializePublicVenueDetails(row: VenueDetailsRow): PublicVenueDetails {
     curfew: row.curfew,
     amenities: row.amenities ?? [],
     dealTypes: row.dealTypes ?? [],
-    capacitySetups: readCapacitySetups(row.capacitySetups),
     cateringNotes: row.cateringNotes,
     accommodationNotes: row.accommodationNotes,
     // artistLogisticsNotes / contactEmail / contactPhone are NOT here. Their
@@ -499,15 +491,6 @@ function serializePublicVenueDetails(row: VenueDetailsRow): PublicVenueDetails {
  * field the other withholds. One schema, imported by both, next to the function
  * that fills it, so a field can only become public in one place.
  */
-const VenueCapacitySetupSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  capacitySitting: z.number().nullable(),
-  capacityStanding: z.number().nullable(),
-  isMain: z.boolean(),
-  notes: z.string().nullable(),
-});
-
 export const PublicProfileSchema = z.object({
   id: z.string(),
   slug: z.string(),
@@ -542,7 +525,6 @@ export const PublicProfileSchema = z.object({
       curfew: z.string().nullable(),
       amenities: z.array(z.string()),
       dealTypes: z.array(z.string()),
-      capacitySetups: z.array(VenueCapacitySetupSchema),
       cateringNotes: z.string().nullable(),
       accommodationNotes: z.string().nullable(),
       audienceLogisticsNotes: z.string().nullable(),

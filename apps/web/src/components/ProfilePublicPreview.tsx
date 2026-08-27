@@ -48,14 +48,6 @@ export interface PublicPreviewVenueDetails {
   curfew: string | null;
   amenities: string[];
   dealTypes: string[];
-  capacitySetups: {
-    id: string;
-    name: string;
-    capacitySitting: number | null;
-    capacityStanding: number | null;
-    isMain: boolean;
-    notes: string | null;
-  }[];
   cateringNotes: string | null;
   accommodationNotes: string | null;
   audienceLogisticsNotes: string | null;
@@ -377,56 +369,13 @@ export function ProfilePublicPreview({
           cannot render them even by accident. */}
       {profile.venueDetails && <VenueSpecsCard venue={profile.venueDetails} />}
 
-      {profile.venueDetails && profile.venueDetails.capacitySetups.length > 0 && (
-        <Card>
-          <CardHeading icon={<Icon name="users" />} title="Capacity Setups" />
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
-            {profile.venueDetails.capacitySetups.map((setup) => (
-              <div
-                key={setup.id}
-                style={{
-                  padding: "10px 14px",
-                  borderRadius: 12,
-                  background: "var(--card)",
-                  border: "1px solid var(--border)",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontWeight: 600, color: "var(--text)", fontSize: 14, flex: 1 }}>
-                    {setup.name}
-                  </span>
-                  {setup.isMain && (
-                    <span
-                      style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: 10.5,
-                        letterSpacing: "0.12em",
-                        textTransform: "uppercase",
-                        color: "var(--brand-red)",
-                      }}
-                    >
-                      Main
-                    </span>
-                  )}
-                  <span style={{ color: "var(--muted)", fontSize: 13 }}>
-                    {[
-                      setup.capacitySitting === null ? null : `${setup.capacitySitting} seated`,
-                      setup.capacityStanding === null ? null : `${setup.capacityStanding} standing`,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ") || "—"}
-                  </span>
-                </div>
-                {setup.notes && (
-                  <p style={{ margin: "6px 0 0", fontSize: 13, color: "var(--muted)" }}>
-                    {setup.notes}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
+      {/* NO capacity-setups card. It used to render one, and it was the one thing
+          in this preview a stranger could NOT actually see: the public page
+          (`apps/marketing/src/profile.ts`) reads a whitelist that never included
+          setups, so Preview was showing more than the page it claims to be. The
+          setups are a room's own alternate arrangements now (migration 0029) and
+          live on the venue's rooms card; the capacity a stranger reads is the
+          chip in Venue Specs above. */}
 
       {/* Photos. Absent when there are none, because that is what the public page
           does — a "No photos yet" card on a stranger's page tells them nothing

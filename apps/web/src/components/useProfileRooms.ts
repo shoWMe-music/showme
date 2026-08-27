@@ -9,9 +9,11 @@ import { useToast } from "@showme/design-system";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { errorMessage } from "../lib/errors";
+import type { RoomSetupDraft } from "./ProfileSetupsField";
 
 /**
- * THE ROOMS OF A VENUE, as its owner edits them.
+ * THE ROOMS OF A VENUE, and their capacities — the one place a capacity is
+ * entered.
  *
  * Rooms are rows in `stages`, not a jsonb leaf on the profile, because an event
  * POINTS AT one (`events.stage_id`) — and a jsonb entry has nothing to point at.
@@ -20,16 +22,20 @@ import { errorMessage } from "../lib/errors";
  * that batched them would have to invent temporary ids and then reconcile them
  * against events that already reference the real ones.
  *
- * Not to be confused with CAPACITY SETUPS, which are on the same screen and are a
- * genuinely different thing: a setup is one room counted two ways ("Theater
- * seating" 220 / "Standing only" 400). Two rooms can be booked twice on a Friday;
- * two setups of one room cannot.
+ * A room CARRIES its alternate setups ("Theater seating" 220 — the same walls
+ * counted another way). They used to be a separate list on the profile beside a
+ * separate flat capacity field, which asked one venue for its capacity three
+ * times; the nesting is what makes the difference legible without a disclaimer.
+ * `venue_details.capacity` still exists as the largest room's figure, but the
+ * server derives it — nothing here writes it.
  */
 
 export interface RoomRow {
   id: string;
   name: string;
   capacity: number | null;
+  /** The same room counted another way. Empty for most rooms. */
+  capacitySetups: RoomSetupDraft[];
   /** Shows currently placed in this room — what deleting it would unassign. */
   eventCount: number;
 }
@@ -49,6 +55,13 @@ export interface ProfileRoomsView {
   isAdding: boolean;
   rename: (roomId: string, name: string) => void;
   changeCapacity: (roomId: string, capacity: string) => void;
+  changeSetups: (roomId: string, setups: RoomSetupDraft[]) => void;
+  /**
+   * The capacity of a venue that has one room, or none yet — the flat case the
+   * card shows without any hierarchy. Creating the room on first use is what
+   * keeps it flat: the owner types a number, not a floor plan.
+   */
+  saveSoleRoomCapacity: (capacity: string) => void;
   remove: (roomId: string) => void;
   isSaving: boolean;
 }
@@ -123,8 +136,20 @@ export function useProfileRooms(profileId: string): ProfileRoomsView {
     id: room.id,
     name: room.name,
     capacity: room.capacity,
+    capacitySetups: room.capacitySetups.map((setup) => ({
+      id: setup.id,
+      name: setup.name,
+      capacity: setup.capacity === null ? "" : String(setup.capacity),
+    })),
     eventCount: room.eventCount,
   }));
+
+  const toSetupBodies = (setups: RoomSetupDraft[]) =>
+    setups.map((setup) => ({
+      id: setup.id,
+      name: setup.name,
+      capacity: toOptionalInteger(setup.capacity),
+    }));
 
   return {
     rooms: list,
@@ -156,6 +181,29 @@ export function useProfileRooms(profileId: string): ProfileRoomsView {
         sid: roomId,
         data: { capacity: toOptionalInteger(capacity) },
       });
+    },
+    changeSetups: (roomId, setups) => {
+      update.mutate({
+        id: profileId,
+        sid: roomId,
+        data: { capacitySetups: toSetupBodies(setups) },
+      });
+    },
+    saveSoleRoomCapacity: (capacity) => {
+      const [sole] = list;
+      if (sole) {
+        update.mutate({
+          id: profileId,
+          sid: sole.id,
+          data: { capacity: toOptionalInteger(capacity) },
+        });
+        return;
+      }
+      // No room yet. "Main Room" is the name the add-a-room field has always
+      // suggested, and a one-room venue never has to see it.
+      const parsed = toOptionalInteger(capacity);
+      if (parsed === null) return;
+      create.mutate({ id: profileId, data: { name: "Main Room", capacity: parsed } });
     },
     remove: (roomId) => remove.mutate({ id: profileId, sid: roomId }),
     isSaving: update.isPending || remove.isPending,

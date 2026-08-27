@@ -4,11 +4,12 @@ import { VenueChipSelectField } from "./VenueChipSelectField";
 import { VenueNotesField } from "./VenueNotesField";
 
 /**
- * The editable venue facts. Mirrors `venue_details` one-for-one, minus the
- * columns nothing edits yet (`capacitySetups`).
+ * The editable venue facts. Mirrors `venue_details`, minus `capacity` — that is
+ * entered on a ROOM now (`ProfileRoomsCard`), and the column is a derived mirror
+ * of the venue's largest one. It was here as well, and in the capacity-setups
+ * list, and on every room: three boxes for one number on one screen.
  */
 export interface VenueDetailsDraft {
-  capacity: string;
   soundSystem: string;
   curfew: string;
   amenities: string[];
@@ -22,7 +23,6 @@ export interface VenueDetailsDraft {
 }
 
 export const EMPTY_VENUE_DETAILS: VenueDetailsDraft = {
-  capacity: "",
   soundSystem: "",
   curfew: "",
   amenities: [],
@@ -78,7 +78,9 @@ export function VenueDetailsFields({ value, onChange }: VenueDetailsFieldsProps)
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 26 }}>
-      <FieldGroup title="The room">
+      {/* House-wide facts. Capacity is NOT here — it is a room's, and the rooms
+          card below is the one place it is entered. */}
+      <FieldGroup title="The house">
         <div
           style={{
             display: "grid",
@@ -86,15 +88,6 @@ export function VenueDetailsFields({ value, onChange }: VenueDetailsFieldsProps)
             gap: 14,
           }}
         >
-          <TextField
-            label="Capacity"
-            type="number"
-            min={0}
-            inputMode="numeric"
-            value={value.capacity}
-            placeholder="e.g. 400"
-            onChange={(event) => set("capacity", event.target.value)}
-          />
           <TextField
             label="Sound system"
             value={value.soundSystem}

@@ -23,6 +23,8 @@ import { withIdempotency } from "../plugins/idempotency";
 import {
   type ProfileRelations,
   PublishedProfileSchema,
+  type RoomCapacitySetup,
+  readCapacitySetups,
   serializeProfile,
   serializePublicProfile,
 } from "../serialize/profile";
@@ -63,21 +65,19 @@ const ProfileLocationBody = z.object({
 });
 
 /**
- * A named arrangement of the room. Ported from the previous app's
- * `venueCapacitySetups` (`../showme-settle-fast/src/pages/ProfileEditPage.tsx:605`):
- * "Theater seating" / "Standing only" / "Mixed", one of them the headline.
+ * A named arrangement of ONE ROOM — "Theater seating" 220, "Standing only" 400.
+ * Sent as a whole list on the room that owns it (`PATCH /profiles/:id/stages/:sid`),
+ * not on the profile: since migration 0029 a capacity is only ever entered against
+ * a room, and this is that room counted another way.
  *
- * `isMain` is accepted per row rather than as an index because that is how the
- * old data is shaped; the route below enforces the invariant the old UI only
- * enforced by convention — at most one main, and if any setup exists exactly one.
+ * The name carries the arrangement, so one number is the whole of it — the old
+ * shape's seated/standing pair, `isMain` radio and notes line are gone, and with
+ * them the three separate places a venue used to be asked for a capacity.
  */
-const VenueCapacitySetupBody = z.object({
+const RoomCapacitySetupBody = z.object({
   id: z.string().min(1).max(100).optional(),
   name: z.string().min(1).max(200),
-  capacitySitting: z.number().int().min(0).max(5_000_000).nullable().optional(),
-  capacityStanding: z.number().int().min(0).max(5_000_000).nullable().optional(),
-  isMain: z.boolean().optional(),
-  notes: z.string().max(2000).nullable().optional(),
+  capacity: z.number().int().min(0).max(5_000_000).nullable().optional(),
 });
 
 /**
@@ -108,12 +108,15 @@ const PerformerSetupBody = z.object({
  * They are bounded and de-duplicated instead.
  */
 const VenueDetailsBody = z.object({
-  capacity: z.number().int().min(0).max(5_000_000).nullable().optional(),
+  // NO `capacity` and no `capacitySetups`. A capacity belongs to a ROOM
+  // (migration 0029): it is entered on `/profiles/:id/stages`, and
+  // `venue_details.capacity` is a derived mirror of the largest room, rewritten
+  // by those handlers. Accepting it here would be a fourth writer of a number
+  // this endpoint no longer owns — and the next room edit would overwrite it.
   soundSystem: z.string().max(200).nullable().optional(),
   curfew: z.string().max(50).nullable().optional(),
   amenities: z.array(z.string().min(1).max(100)).max(100).optional(),
   dealTypes: z.array(z.string().min(1).max(100)).max(50).optional(),
-  capacitySetups: z.array(VenueCapacitySetupBody).max(50).optional(),
   cateringNotes: z.string().max(5000).nullable().optional(),
   accommodationNotes: z.string().max(5000).nullable().optional(),
   artistLogisticsNotes: z.string().max(5000).nullable().optional(),
@@ -240,19 +243,22 @@ const UnavailabilityEntry = z.object({
 const ReplaceUnavailabilityBody = z.object({ entries: z.array(UnavailabilityEntry) });
 
 /**
- * A room of a venue. `capacity` is this room's own — a 400-cap main hall and a
- * 90-cap basement are two different bookings — and is separate from
- * `venue_details.capacity`, which is the building's headline number.
+ * A room of a venue, and THE place a capacity is entered. `capacity` is this
+ * room's own — a 400-cap main hall and a 90-cap basement are two different
+ * bookings — and `venue_details.capacity` is now a mirror of the largest of them,
+ * rewritten by these handlers rather than typed on the profile form.
  */
 const StageBody = z.object({
   name: z.string().min(1).max(200),
   capacity: z.number().int().min(0).max(5_000_000).nullable().optional(),
+  capacitySetups: z.array(RoomCapacitySetupBody).max(50).optional(),
 });
 
 /** Every field optional: renaming a room must not require restating its capacity. */
 const UpdateStageBody = z.object({
   name: z.string().min(1).max(200).optional(),
   capacity: z.number().int().min(0).max(5_000_000).nullable().optional(),
+  capacitySetups: z.array(RoomCapacitySetupBody).max(50).optional(),
 });
 
 const CreateTemplateBody = z.object({
@@ -275,15 +281,6 @@ const ProfileLocationResponse = z.object({
   lng: z.number().nullable(),
 });
 
-const VenueCapacitySetupResponse = z.object({
-  id: z.string(),
-  name: z.string(),
-  capacitySitting: z.number().nullable(),
-  capacityStanding: z.number().nullable(),
-  isMain: z.boolean(),
-  notes: z.string().nullable(),
-});
-
 const SocialLinkResponse = z.object({
   platform: z.string(),
   url: z.string(),
@@ -295,7 +292,6 @@ const VenueDetailsResponse = z.object({
   curfew: z.string().nullable(),
   amenities: z.array(z.string()),
   dealTypes: z.array(z.string()),
-  capacitySetups: z.array(VenueCapacitySetupResponse),
   cateringNotes: z.string().nullable(),
   accommodationNotes: z.string().nullable(),
   artistLogisticsNotes: z.string().nullable(),
@@ -379,6 +375,10 @@ const StageResponse = z.object({
   venueProfileId: z.string(),
   name: z.string(),
   capacity: z.number().nullable(),
+  /** The same room counted another way — "Theater seating" 220. */
+  capacitySetups: z.array(
+    z.object({ id: z.string(), name: z.string(), capacity: z.number().nullable() }),
+  ),
   /** How many events are placed in this room — what a delete would unassign. */
   eventCount: z.number(),
 });
@@ -443,6 +443,18 @@ async function loadStage(
     .where(and(eq(schema.stages.id, stageId), eq(schema.stages.venueProfileId, venueProfileId)));
   if (!stage) throw notFound("Room not found");
   return stage;
+}
+
+/**
+ * A room on the wire. `capacity_setups` is jsonb, so what comes back is whatever
+ * was written last — `readCapacitySetups` is the one defensive reader for it, and
+ * routing every response through here means a malformed blob renders as "no
+ * setups" rather than failing the response schema.
+ */
+function serializeStage<Row extends { capacitySetups: unknown }>(
+  row: Row,
+): Omit<Row, "capacitySetups"> & { capacitySetups: RoomCapacitySetup[] } {
+  return { ...row, capacitySetups: readCapacitySetups(row.capacitySetups) };
 }
 
 /** How many events sit in this room — the number a delete would unassign. */
@@ -651,49 +663,62 @@ function assertProfileTypeAllowed(kind: string, type: string | null | undefined)
 }
 
 /**
- * Give the capacity setups stable ids and exactly one headline.
+ * Give a room's alternate arrangements stable ids, and drop the half-typed ones.
  *
- * "Exactly one main" is the invariant the old app's UI enforced by convention and
- * never in storage (`ProfileEditPage.tsx:626` set the flag on click, `:637`
- * repaired it on delete) — so its data has rows with two mains and rows with
- * none, and "the venue's headline capacity" was whichever one rendered first.
- * Here it is enforced on write: the first setup flagged main wins, and if none is
- * flagged the first setup becomes it, so a non-empty list always has an answer.
+ * A row whose name is blank is somebody mid-edit, not an error worth a red box —
+ * the same rule every other list on this screen follows. Ids are minted from the
+ * position when the client did not send one; they only have to be stable within
+ * the blob, which is why a jsonb array can carry them at all — nothing outside it
+ * ever references a setup.
  *
- * Ids are minted from the position when the client did not send one. They only
- * have to be stable within the row, which is why a jsonb array can carry them at
- * all — nothing outside this blob ever references a setup.
+ * There is no headline flag to enforce any more. It used to pick which setup was
+ * "the venue's capacity", and the room's own `capacity` column answers that now.
  */
 function normalizeCapacitySetups(
-  setups: {
-    id?: string;
-    name: string;
-    capacitySitting?: number | null;
-    capacityStanding?: number | null;
-    isMain?: boolean;
-    notes?: string | null;
-  }[],
-): {
-  id: string;
-  name: string;
-  capacitySitting: number | null;
-  capacityStanding: number | null;
-  isMain: boolean;
-  notes: string | null;
-}[] {
-  const named = setups
+  setups: { id?: string; name: string; capacity?: number | null }[],
+): { id: string; name: string; capacity: number | null }[] {
+  return setups
     .map((setup, index) => ({ ...setup, name: setup.name.trim(), index }))
-    .filter((setup) => setup.name !== "");
-  const mainIndex = named.findIndex((setup) => setup.isMain === true);
-  const headline = mainIndex === -1 ? 0 : mainIndex;
-  return named.map((setup, position) => ({
-    id: setup.id?.trim() || `VCS-${setup.index + 1}`,
-    name: setup.name,
-    capacitySitting: setup.capacitySitting ?? null,
-    capacityStanding: setup.capacityStanding ?? null,
-    isMain: position === headline,
-    notes: setup.notes?.trim() || null,
-  }));
+    .filter((setup) => setup.name !== "")
+    .map((setup) => ({
+      id: setup.id?.trim() || `VCS-${setup.index + 1}`,
+      name: setup.name,
+      capacity: setup.capacity ?? null,
+    }));
+}
+
+/**
+ * Rewrite `venue_details.capacity` to the venue's LARGEST room.
+ *
+ * The flat field is no longer typed anywhere (migration 0029) — a capacity is
+ * entered on a room — but the column has to survive, because three readers need
+ * one number per venue and none of them can join `stages`: the venue search
+ * (`venue_details_capacity_idx`), the public page's chip, and `routes/events.ts`,
+ * which stamps `events.capacity` at creation from the chosen room OR from this
+ * number when the show names no room. Leaving it stale would misprice the ticket
+ * inventory and the break-even line of every show booked at the building.
+ *
+ * Largest because both meanings agree on it: "can this venue hold 400?" is
+ * answered by its biggest space, and a show placed at the building without naming
+ * a room is presumed to be in the main one.
+ *
+ * Upserted, because a venue may have named its rooms before it ever opened the
+ * details form — and a venue with no rooms left goes back to null, which is
+ * honest: nothing is known about how many people fit.
+ */
+async function syncVenueCapacityFromRooms(tx: Transaction, venueProfileId: string): Promise<void> {
+  const [largest] = await tx
+    .select({ capacity: sql<number | null>`max(${schema.stages.capacity})` })
+    .from(schema.stages)
+    .where(eq(schema.stages.venueProfileId, venueProfileId));
+  const capacity = largest?.capacity ?? null;
+  await tx
+    .insert(schema.venueDetails)
+    .values({ profileId: venueProfileId, capacity })
+    .onConflictDoUpdate({
+      target: schema.venueDetails.profileId,
+      set: { capacity, updatedAt: new Date() },
+    });
 }
 
 /**
@@ -1199,7 +1224,8 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
         if (request.body.venueDetails !== undefined) {
           const body = request.body.venueDetails;
           const venueFields: Partial<typeof schema.venueDetails.$inferInsert> = {};
-          if (body.capacity !== undefined) venueFields.capacity = body.capacity;
+          // `capacity` is deliberately absent: it is derived from the venue's
+          // rooms (`syncVenueCapacityFromRooms`) and this form no longer asks.
           if (body.soundSystem !== undefined) venueFields.soundSystem = body.soundSystem;
           if (body.curfew !== undefined) venueFields.curfew = body.curfew;
           if (body.amenities !== undefined) {
@@ -1207,9 +1233,6 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
           }
           if (body.dealTypes !== undefined) {
             venueFields.dealTypes = normalizeStringList(body.dealTypes);
-          }
-          if (body.capacitySetups !== undefined) {
-            venueFields.capacitySetups = normalizeCapacitySetups(body.capacitySetups);
           }
           if (body.cateringNotes !== undefined) venueFields.cateringNotes = body.cateringNotes;
           if (body.accommodationNotes !== undefined) {
@@ -1576,11 +1599,16 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
    * event page could say no more than "Room / Stage: Assigned", and the calendar
    * could not offer a real calendar to check availability against.
    *
-   * A room is NOT a `venue_details.capacity_setups` entry. A setup is one room
-   * counted two ways ("Theater seating" 220 / "Standing only" 400); a room is a
-   * separate space that holds its own show the same night. That difference is the
-   * whole reason these are rows with ids rather than another jsonb leaf: an event
-   * points AT a room, and a jsonb entry has nothing to point at.
+   * A room CONTAINS its alternate arrangements (`capacitySetups`) — the same room
+   * counted another way, "Theater seating" 220 next to a 400 standing capacity.
+   * They used to sit on the profile beside a flat `venue_details.capacity`, which
+   * asked a venue for its capacity three times on one screen and needed a written
+   * disclaimer to explain the difference. Nesting is that disclaimer, structurally.
+   * A room stays a ROW while a setup is a jsonb leaf because an event points AT a
+   * room (`events.stage_id`), and a jsonb entry has nothing to point at.
+   *
+   * These three handlers are also the only writers of `venue_details.capacity`,
+   * which is now the largest room's figure — see `syncVenueCapacityFromRooms`.
    *
    * Authorization is the venue profile's own — `requireProfileRole`, exactly as
    * the members, unavailability and templates sections use it. Reading is open to
@@ -1609,6 +1637,7 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
           venueProfileId: schema.stages.venueProfileId,
           name: schema.stages.name,
           capacity: schema.stages.capacity,
+          capacitySetups: schema.stages.capacitySetups,
           eventCount: sql<number>`count(${schema.events.id})::int`,
         })
         .from(schema.stages)
@@ -1617,7 +1646,7 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
         .groupBy(schema.stages.id)
         .orderBy(asc(schema.stages.name));
 
-      return rows;
+      return rows.map(serializeStage);
     },
   );
 
@@ -1652,9 +1681,19 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
         .transaction(async (tx) => {
           const [stage] = await tx
             .insert(schema.stages)
-            .values({ venueProfileId: id, name, capacity: request.body.capacity ?? null })
+            .values({
+              venueProfileId: id,
+              name,
+              capacity: request.body.capacity ?? null,
+              capacitySetups: request.body.capacitySetups
+                ? normalizeCapacitySetups(request.body.capacitySetups)
+                : null,
+            })
             .returning();
           if (!stage) throw new Error("stage create failed");
+          // Same transaction as the room, so the venue's headline capacity can
+          // never be one commit behind the room it is derived from.
+          await syncVenueCapacityFromRooms(tx, id);
           await writeAudit(tx, request, {
             capability: "profile.edit",
             action: "stage.create",
@@ -1662,7 +1701,7 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
             targetId: stage.id,
             after: stage,
           });
-          return { ...stage, eventCount: 0 };
+          return serializeStage({ ...stage, eventCount: 0 });
         })
         .catch((error: unknown) => {
           // The (venue_profile_id, name) unique index from migration 0016. A room
@@ -1697,6 +1736,9 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
         fields.name = name;
       }
       if (request.body.capacity !== undefined) fields.capacity = request.body.capacity;
+      if (request.body.capacitySetups !== undefined) {
+        fields.capacitySetups = normalizeCapacitySetups(request.body.capacitySetups);
+      }
 
       const updated = await database
         .transaction(async (tx) => {
@@ -1706,6 +1748,7 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
             .where(eq(schema.stages.id, sid))
             .returning();
           if (!after) throw notFound("Room not found");
+          await syncVenueCapacityFromRooms(tx, id);
           await writeAudit(tx, request, {
             capability: "profile.edit",
             action: "stage.update",
@@ -1722,7 +1765,7 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
           throw error;
         });
 
-      return { ...updated, eventCount: await countEventsInStage(database, sid) };
+      return serializeStage({ ...updated, eventCount: await countEventsInStage(database, sid) });
     },
   );
 
@@ -1759,6 +1802,7 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
           .where(eq(schema.stages.id, sid))
           .returning();
         if (!deleted) throw notFound("Room not found");
+        await syncVenueCapacityFromRooms(tx, id);
         await writeAudit(tx, request, {
           capability: "profile.edit",
           action: "stage.delete",

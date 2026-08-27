@@ -1,4 +1,5 @@
-import { Button, Checkbox, Icon, TextField } from "@showme/design-system";
+import { Button, Icon, TextField } from "@showme/design-system";
+import { useState } from "react";
 import { FieldLabel } from "./ProfileLinkListField";
 
 /** A performer line-up: "Full Band", 5 people. Ported from the old app's `setups`. */
@@ -82,149 +83,142 @@ export function ProfileSetupsField({ value, onChange }: ProfileSetupsFieldProps)
   );
 }
 
-/** A named way of arranging the room, with its seated/standing split. */
-export interface ProfileCapacitySetupDraft {
+/**
+ * One alternate arrangement of a room — "Theater seating" 220, "Standing only"
+ * 400. `capacity` is a string because it comes from a number input that can be
+ * empty; `id` is the server's, and is what keys the row while it is edited.
+ */
+export interface RoomSetupDraft {
   id: string;
   name: string;
-  capacitySitting: string;
-  capacityStanding: string;
-  isMain: boolean;
-  notes: string;
-}
-
-export interface ProfileCapacitySetupsFieldProps {
-  value: ProfileCapacitySetupDraft[];
-  onChange: (next: ProfileCapacitySetupDraft[]) => void;
+  capacity: string;
 }
 
 /**
- * CAPACITY SETUPS — "Theater seating" 220, "Standing only" 400, one of them the
- * headline. Ported from `ProfileEditPage.tsx:605`.
+ * ALTERNATE SETUPS OF ONE ROOM — nested inside the room they belong to.
  *
- * `venue_details.capacity_setups` has held these since migration 0010 and nothing
- * has ever written to it: a room that can be seated or standing had one number to
- * offer, which is not how a promoter picks a room.
+ * The venue used to be asked for a capacity three times on one screen: a flat
+ * "The room → Capacity", a "Capacity setups" list, and a room list under its own
+ * heading — with a sentence on the rooms card explaining that the setups were
+ * "one room counted two ways". Setups now live INSIDE the room, so the nesting
+ * says that and the sentence is gone.
  *
- * "Main" is a radio, not a checkbox set, even though it is stored per row: exactly
- * one setup is the headline capacity, and the server enforces that on write
- * (`normalizeCapacitySetups`). Checking a new one here unchecks the others so the
- * form cannot show a state the server would then quietly repair.
+ * What went with the sentence: the seated/standing pair (the NAME already says
+ * which arrangement it is), the "headline capacity" radio (the room's own
+ * capacity is the headline), and the notes line. A name and a number is the whole
+ * of it.
+ *
+ * Like the room fields around it, this saves as you go: a row commits on blur,
+ * and adding or removing one commits immediately. There are no blank rows to
+ * strand — a new setup is typed into the add row and only then exists.
  */
-export function ProfileCapacitySetupsField({ value, onChange }: ProfileCapacitySetupsFieldProps) {
-  const update = (index: number, patch: Partial<ProfileCapacitySetupDraft>) => {
-    onChange(value.map((setup, position) => (position === index ? { ...setup, ...patch } : setup)));
-  };
+export function RoomSetupsField({
+  value,
+  onChange,
+}: {
+  value: RoomSetupDraft[];
+  onChange: (next: RoomSetupDraft[]) => void;
+}) {
+  const [draftName, setDraftName] = useState("");
+  const [draftCapacity, setDraftCapacity] = useState("");
 
-  const setMain = (index: number) => {
-    onChange(value.map((setup, position) => ({ ...setup, isMain: position === index })));
-  };
-
-  const remove = (index: number) => {
-    const next = value.filter((_, position) => position !== index);
-    // Deleting the headline has to promote another one, or the room has no
-    // headline capacity at all.
-    if (next.length > 0 && !next.some((setup) => setup.isMain)) {
-      const [first, ...rest] = next;
-      if (first) onChange([{ ...first, isMain: true }, ...rest]);
-      return;
-    }
-    onChange(next);
+  const add = () => {
+    const name = draftName.trim();
+    if (name === "") return;
+    onChange([...value, { id: `VCS-${value.length + 1}`, name, capacity: draftCapacity.trim() }]);
+    setDraftName("");
+    setDraftCapacity("");
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <FieldLabel>Capacity setups</FieldLabel>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <FieldLabel>Alternate setups</FieldLabel>
       <p style={{ margin: 0, fontSize: 12.5, color: "var(--dim)" }}>
-        Alternate configurations — “Theater seating”, “Standing only”, “Banquet”. One is the
-        headline a promoter sees first.
+        The same room counted another way — “Theater seating”, “Banquet”. Optional.
       </p>
-      {value.map((setup, index) => (
-        <div
+      {value.map((setup) => (
+        <SetupRow
           key={setup.id}
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 10,
-            padding: 12,
-            borderRadius: 12,
-            border: "1px solid var(--border)",
-            background: "var(--card)",
-          }}
-        >
-          <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
-            <div style={{ flex: 1 }}>
-              <TextField
-                label="Name"
-                value={setup.name}
-                placeholder="e.g. Theater seating"
-                onChange={(event) => update(index, { name: event.target.value })}
-              />
-            </div>
-            <div style={{ width: 120, flexShrink: 0 }}>
-              <TextField
-                label="Seated"
-                type="number"
-                min={0}
-                inputMode="numeric"
-                value={setup.capacitySitting}
-                onChange={(event) => update(index, { capacitySitting: event.target.value })}
-              />
-            </div>
-            <div style={{ width: 120, flexShrink: 0 }}>
-              <TextField
-                label="Standing"
-                type="number"
-                min={0}
-                inputMode="numeric"
-                value={setup.capacityStanding}
-                onChange={(event) => update(index, { capacityStanding: event.target.value })}
-              />
-            </div>
-            <Button
-              variant="ghost"
-              aria-label={`Remove ${setup.name || "setup"}`}
-              onClick={() => remove(index)}
-            >
-              <Icon name="trash" size={15} />
-            </Button>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Checkbox
-              checked={setup.isMain}
-              onChange={() => setMain(index)}
-              label="Headline capacity"
-            />
-            <div style={{ flex: 1 }}>
-              <TextField
-                value={setup.notes}
-                placeholder="Notes — e.g. back rows removed for a taller stage"
-                onChange={(event) => update(index, { notes: event.target.value })}
-              />
-            </div>
-          </div>
-        </div>
-      ))}
-      <div>
-        <Button
-          variant="secondary"
-          leftIcon={<Icon name="plus" />}
-          onClick={() =>
-            onChange([
-              ...value,
-              {
-                id: `VCS-${Date.now()}`,
-                name: "",
-                capacitySitting: "",
-                capacityStanding: "",
-                isMain: value.length === 0,
-                notes: "",
-              },
-            ])
+          setup={setup}
+          onCommit={(next) =>
+            onChange(value.map((row) => (row.id === setup.id ? { ...row, ...next } : row)))
           }
+          onRemove={() => onChange(value.filter((row) => row.id !== setup.id))}
+        />
+      ))}
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+        <div style={{ flex: 1 }}>
+          <TextField
+            value={draftName}
+            placeholder="e.g. Theater seating"
+            onChange={(event) => setDraftName(event.target.value)}
+          />
+        </div>
+        <div style={{ width: 110, flexShrink: 0 }}>
+          <TextField
+            type="number"
+            min={0}
+            inputMode="numeric"
+            value={draftCapacity}
+            placeholder="e.g. 220"
+            onChange={(event) => setDraftCapacity(event.target.value)}
+          />
+        </div>
+        <Button
+          variant="ghost"
+          leftIcon={<Icon name="plus" size={14} />}
+          disabled={draftName.trim() === ""}
+          onClick={add}
         >
-          Add capacity setup
+          Add setup
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * One setup row, holding its own draft so typing does not fire a request per
+ * keystroke. Committed on blur, and only when the value actually moved — the same
+ * shape the room's own name and capacity fields use.
+ */
+function SetupRow({
+  setup,
+  onCommit,
+  onRemove,
+}: {
+  setup: RoomSetupDraft;
+  onCommit: (next: { name: string; capacity: string }) => void;
+  onRemove: () => void;
+}) {
+  const [name, setName] = useState(setup.name);
+  const [capacity, setCapacity] = useState(setup.capacity);
+
+  const commit = () => {
+    // An emptied name is a half-finished edit, not a request to unname a setup.
+    if (name.trim() === "") return;
+    if (name.trim() === setup.name && capacity.trim() === setup.capacity) return;
+    onCommit({ name: name.trim(), capacity: capacity.trim() });
+  };
+
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+      <div style={{ flex: 1 }}>
+        <TextField value={name} onChange={(event) => setName(event.target.value)} onBlur={commit} />
+      </div>
+      <div style={{ width: 110, flexShrink: 0 }}>
+        <TextField
+          type="number"
+          min={0}
+          inputMode="numeric"
+          value={capacity}
+          onChange={(event) => setCapacity(event.target.value)}
+          onBlur={commit}
+        />
+      </div>
+      <Button variant="ghost" aria-label={`Remove ${setup.name}`} onClick={onRemove}>
+        <Icon name="trash" size={15} />
+      </Button>
     </div>
   );
 }

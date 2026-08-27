@@ -320,7 +320,17 @@ export const venueDetails = pgTable(
     profileId: uuid("profile_id")
       .primaryKey()
       .references(() => profiles.id, { onDelete: "cascade" }),
-    capacity: integer("capacity"), // total, when the venue is not split into stages
+    /**
+     * The venue's headline capacity — DERIVED, never typed (migration 0029).
+     *
+     * It is the capacity of the venue's largest room, rewritten by the
+     * `/profiles/:id/stages` handlers whenever a room is added, edited or
+     * removed. It stays a column on the profile because two readers need it as
+     * one — the venue search below, and the public page's chip — and because
+     * `routes/events.ts` stamps `events.capacity` from it when a show names no
+     * room. Capacity is ENTERED on the room; this is the projection of that.
+     */
+    capacity: integer("capacity"),
     /** House PA, as a venue writes it: "Funktion-One", "d&b audiotechnik". Free
      * text on purpose — it is a make and model, not a category. Prototype
      * "Venue Specs" card (shoWMe All View.dc.html:3351). */
@@ -339,9 +349,6 @@ export const venueDetails = pgTable(
     audienceLogisticsNotes: text("audience_logistics_notes"), // publishable
     contactEmail: text("contact_email"), // PRIVATE — booking contact, never public
     contactPhone: text("contact_phone"), // PRIVATE
-    /** Named seating/standing configurations, read only with the parent row and
-     * never filtered on — the one leaf here that earns jsonb. */
-    capacitySetups: jsonb("capacity_setups"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
