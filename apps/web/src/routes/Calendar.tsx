@@ -42,6 +42,7 @@ import { buildCalendarInventory, placeEvents } from "../lib/calendarInventory";
 import { formatDay, parseDayLocal } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
 import { useNewEvent } from "../shell/NewEventProvider";
+import styles from "./Calendar.module.css";
 
 type CalendarItem = Awaited<ReturnType<typeof getApiV1Calendar>>[number];
 
@@ -920,14 +921,7 @@ export function Calendar() {
         </div>
 
         {/* Grid + right rail */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) 232px",
-            gap: 20,
-            alignItems: "start",
-          }}
-        >
+        <div className={styles.gridAndRail}>
           {isPending ? (
             <LoadingState label="Loading calendar" />
           ) : calendar.isError && events.isError ? (

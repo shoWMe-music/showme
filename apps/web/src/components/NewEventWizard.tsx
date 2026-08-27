@@ -233,6 +233,28 @@ const labelStyle = {
   color: "var(--muted)",
   marginBottom: 6,
 } as const;
+/**
+ * Every two-up field row in this wizard, and `minmax(0, 1fr)` rather than `1fr`
+ * on purpose. A bare `1fr` is `minmax(auto, 1fr)`: the track refuses to go below
+ * its content's min-content width, and an `<input>`'s min-content is its
+ * intrinsic size — the browser's own `size="20"` default, measured in whatever
+ * font actually rendered. So the row had a hard floor that no `width: 100%` on
+ * the field could lower, and this panel is `overflow: hidden`, so what the floor
+ * produced was not a scrollbar but a field cut off at the panel's edge.
+ *
+ * MEASURED, because this is the bug that only CI could see. At 360px the
+ * Venue/City row resolved to `204px 48px` in a 266px box — a dead-exact fit,
+ * zero headroom. Re-measured with the self-hosted woff2 blocked so the fallback
+ * face renders (8.2% wider on the same string), the same row resolved to
+ * `211px 41px`: still 266, still fitting, but only because City had room left to
+ * give up. On Ubuntu CI the same row overhung the panel by 17px and the fix
+ * "make it just fit" would have been fitted to the wrong machine's font metrics.
+ * `minmax(0, …)` removes the floor outright, so the row cannot overhang at any
+ * font width on any machine. Above the width where the fields already clear
+ * their min-content — every desktop layout — the two forms resolve identically.
+ */
+const TWO_COLUMNS = "minmax(0, 1fr) minmax(0, 1fr)";
+
 const bigField = {
   ...fieldStyle,
   width: "100%",
@@ -918,13 +940,22 @@ function WizardStepper({ steps, current }: { steps: readonly StepKey[]; current:
               display: "flex",
               alignItems: "center",
               flex: index === steps.length - 1 ? "0 0 auto" : 1,
+              // A flex item is `min-width: auto` by default, which floors this
+              // step at the width of its own label. Three nowrap labels, three
+              // numbered circles and two connectors then added up to more than a
+              // 318px panel and the last step was clipped away. Zero lets the
+              // rail give ground; the circle below keeps its size explicitly.
+              minWidth: 0,
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 9, flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
               <span
                 style={{
                   width: 28,
                   height: 28,
+                  // The one part of a step that must not shrink: a squashed
+                  // circle is a visibly broken control, and 28px is the design.
+                  flexShrink: 0,
                   borderRadius: "50%",
                   display: "grid",
                   placeItems: "center",
@@ -941,12 +972,15 @@ function WizardStepper({ steps, current }: { steps: readonly StepKey[]; current:
               >
                 {index + 1}
               </span>
+              {/* Was `white-space: nowrap`, which is why the rail could not
+                  narrow. It wraps only where it has to — every desktop width
+                  puts each label on one line exactly as before. */}
               <span
                 style={{
                   fontSize: 13,
                   fontWeight: active ? 600 : 500,
                   color: active ? "var(--text)" : "var(--muted)",
-                  whiteSpace: "nowrap",
+                  minWidth: 0,
                 }}
               >
                 {STEP_LABEL[key]}
@@ -985,7 +1019,7 @@ function RoleStep({
       >
         Which profile are you creating this event as?
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: TWO_COLUMNS, gap: 10 }}>
         {profiles.map((profile) => {
           const active = selectedId === profile.id;
           const meta = typeMeta(profile.type);
@@ -1186,7 +1220,7 @@ function DetailsStep(props: {
         )}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: TWO_COLUMNS, gap: 14 }}>
         {/* `htmlFor` rather than a wrapping label: the input now lives inside
             `EventVenuePicker`, and a label that wraps a component cannot reach
             the control it is meant to name. */}
@@ -1226,7 +1260,7 @@ function DetailsStep(props: {
         <VenueCarryOverPreview venueName={props.venue} carries={props.venueCarries} />
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: TWO_COLUMNS, gap: 14 }}>
         {/* The one field here that is not a bare <input>: its calendar is the
             app's own popover, not the browser's. `bigField` keeps the box
             identical to its neighbours, and the label is wired by `htmlFor`
@@ -1260,7 +1294,7 @@ function DetailsStep(props: {
         <HoldPriorityField placement={props.holdPlacement} eventDate={props.date} />
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: TWO_COLUMNS, gap: 14 }}>
         <label>
           <span style={labelStyle}>Ticketing provider</span>
           <input

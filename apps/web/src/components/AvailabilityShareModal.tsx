@@ -108,7 +108,12 @@ export function AvailabilityShareModal({
           />
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        {/* `minmax(0, 1fr)`, not `1fr`: a bare `1fr` is `minmax(auto, 1fr)` and a
+            date input's min-content is its intrinsic size, which is a floor the
+            field's own `width: 100%` cannot lower. */}
+        <div
+          style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 12 }}
+        >
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <FieldLabel>From</FieldLabel>
             <DateTimeField
@@ -240,7 +245,17 @@ export function AvailabilityShareModal({
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <Eyebrow>Shareable link</Eyebrow>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <div style={{ flex: 1 }}>
+            {/* `minWidth: 0` is the whole fix, and it is not decoration. A flex
+                item defaults to `min-width: auto`, so this box could not shrink
+                below the INPUT's min-content — the browser's own `size="20"`
+                intrinsic width, measured in whatever font actually rendered —
+                and the "Copy" button beside it was pushed out of a panel that
+                clips. Measured at 360px with the self-hosted woff2 blocked so
+                the fallback face renders: 336px of content in a 334px panel,
+                against 379-in-334 on Ubuntu CI. `flex: 1` alone left the floor
+                in place; `minWidth: 0` removes it, so the row fits at any font
+                width rather than fitting this machine's. */}
+            <div style={{ flex: 1, minWidth: 0 }}>
               <Input
                 value={shareLink}
                 readOnly

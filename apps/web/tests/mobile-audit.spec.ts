@@ -4,7 +4,7 @@ import { authFile } from "./support/accounts";
 /**
  * What "not responsive" actually means, measured rather than argued about.
  *
- * Three assertions carry almost all of it, and all three are objective:
+ * Four assertions carry almost all of it, and all four are objective:
  *
  *   1. **The page must not scroll sideways.** `scrollWidth <= clientWidth`,
  *      swept across the widths below. A page that scrolls horizontally is the
@@ -26,7 +26,18 @@ import { authFile } from "./support/accounts";
  *      below its content's min-content width holds two fields apart inside a
  *      panel that has no room for them.
  *
- *   3. **You must be able to get somewhere else.** Below 860px (`app.css`) the
+ *   3. **Nothing may be clipped out of sight.** The other blind spot in
+ *      assertion 1, and the one that cost two green audits over real breakage:
+ *      `documentElement.scrollWidth` cannot grow past an ancestor that clips,
+ *      so a row too wide for its `overflow: hidden` card is not pushed onto the
+ *      page — it is amputated at the card's edge, and every width-based check
+ *      reads green. `measureClipping` asks every box whose `overflow-x` is not
+ *      `visible` whether its own content fits, on the PAGE as well as inside a
+ *      dialog. It found the Events list (375px of row in a 330px card) and the
+ *      Bills ledger (356 in 330) hiding their last column on a 360px phone, and
+ *      the calendar's right rail squeezing the month grid into 108px.
+ *
+ *   4. **You must be able to get somewhere else.** Below 860px (`app.css`) the
  *      sidebar leaves the layout and becomes an off-canvas drawer, so the test
  *      drives the whole journey — open the menu, pick a destination, land on it
  *      — with the pointer and again with the keyboard alone. It used to be
@@ -222,6 +233,98 @@ function measureOverflow(scope: Locator): Promise<Reading> {
   });
 }
 
+/** A box that hides part of its own content, and the elements it is hiding. */
+interface ClippedBox {
+  selector: string;
+  scrollWidth: number;
+  clientWidth: number;
+  widest: Offender[];
+}
+
+/**
+ * Every box inside `scope` whose content does not fit and whose `overflow-x` is
+ * not `visible` — the third blind spot, and the one `scrollWidth <= clientWidth`
+ * on the document can never see.
+ *
+ * The page-level check asks the DOCUMENT whether it grew. A card with
+ * `overflow: hidden` never lets it: the row inside is simply amputated at the
+ * card's edge and the document stays exactly viewport-wide, so the last column
+ * of a table is gone with nothing anywhere reporting it. Measured at 360px
+ * before this scan existed, Events put 375px of row inside a 330px card and
+ * Bills & Invoices put 356 into 330 — both green on every other assertion in
+ * this file.
+ *
+ * Originally this ran only inside dialogs. It is the same question everywhere,
+ * so it now runs on the page too and `measureDialog` calls the same code rather
+ * than keeping a second copy of it.
+ *
+ * Four exemptions, all deliberate:
+ *  - `text-overflow: ellipsis` — content wider than the box is the INTENDED
+ *    outcome there, and the ellipsis is the user-visible sign that it happened.
+ *  - `<input>` / `<textarea>` / `<select>` — a form control scrolls its own
+ *    value by definition. A `type="date"` reports a 4248px `scrollWidth` inside
+ *    a 362px box while looking perfectly normal.
+ *  - a box no wider than zero — an off-canvas drawer or a collapsed panel is not
+ *    hiding anything from anyone while it is not on the screen.
+ *  - a SCROLLABLE `role="tablist"`, and nothing else that scrolls. The event
+ *    workspace has nine tabs; they do not fit 861px, let alone 360px, and
+ *    `Tabs.module.css` says in writing why they scroll rather than wrap — a
+ *    wrapped strip breaks the sliding indicator's single-line geometry. The
+ *    exemption is narrowed to `auto`/`scroll` on purpose: a tablist that clips
+ *    with `hidden` has genuinely lost its last tabs and still fails.
+ *
+ * Note what is otherwise NOT exempt: `overflow-x: auto`. A region you can drag
+ * sideways is still a region whose content did not fit, and on a phone that is a
+ * worse product than one that wraps — a side-scrolling table was proposed once
+ * for the Events and Bills tables and rejected in favour of reflow. Any further
+ * scroller has to earn its exemption here, in writing, the way the tab strip
+ * did.
+ */
+function measureClipping(scope: Locator): Promise<ClippedBox[]> {
+  return scope.evaluate((root) => {
+    const describe = (node: Element) => {
+      const classes =
+        typeof node.className === "string" && node.className.trim()
+          ? `.${node.className.trim().split(/\s+/).join(".")}`
+          : "";
+      return `${node.tagName.toLowerCase()}${node.id ? `#${node.id}` : ""}${classes}`.slice(0, 90);
+    };
+
+    const offenders = (node: Element) => {
+      const box = node.getBoundingClientRect();
+      const edge = box.left - node.scrollLeft + node.clientWidth;
+      return [...node.querySelectorAll<HTMLElement>("*")]
+        .filter((child) => child.getBoundingClientRect().right > edge + 1)
+        .slice(0, 5)
+        .map((child) => ({
+          tag: child.tagName.toLowerCase(),
+          className: typeof child.className === "string" ? child.className.slice(0, 60) : "",
+          right: Math.round(child.getBoundingClientRect().right),
+          text: (child.textContent ?? "").trim().slice(0, 40),
+        }));
+    };
+
+    const skipTags = ["input", "textarea", "select"];
+    return [root, ...root.querySelectorAll("*")]
+      .filter((node) => {
+        if (skipTags.includes(node.tagName.toLowerCase())) return false;
+        if (node.clientWidth === 0) return false;
+        const style = getComputedStyle(node);
+        if (style.overflowX === "visible" || style.textOverflow === "ellipsis") return false;
+        if (node.getAttribute("role") === "tablist" && ["auto", "scroll"].includes(style.overflowX))
+          return false;
+        return node.scrollWidth > node.clientWidth + 1;
+      })
+      .slice(0, 6)
+      .map((node) => ({
+        selector: describe(node),
+        scrollWidth: node.scrollWidth,
+        clientWidth: node.clientWidth,
+        widest: offenders(node),
+      }));
+  });
+}
+
 /** A JSON block, pushed in far enough to read under Playwright's own indent. */
 function indent(value: unknown): string {
   return JSON.stringify(value, null, 2)
@@ -240,28 +343,46 @@ function describeOverflow(width: number, reading: Reading): string {
   );
 }
 
+/** One line per clipping box, in the same shape as `describeOverflow` so a
+ * failure message reads the same whichever of the two found the break. */
+function describeClipping(width: number, box: ClippedBox): string {
+  return (
+    `  ${width}px — \`${box.selector}\` clips its content: ${box.scrollWidth}px of ` +
+    `content in ${box.clientWidth}px, ${box.scrollWidth - box.clientWidth}px unreachable — the ` +
+    `document never widens, so the sideways-scroll check cannot see this.\n${indent(box.widest)}`
+  );
+}
+
 /**
  * Measure `scope` at every width, resizing in place. Returns one entry per
  * failing width — every one of them, not just the first, because "which widths"
  * is the whole question and a loop that throws on the earliest answers it with
  * a single sample.
  *
- * A width that reads as overflowing is measured a second time after another two
+ * Two questions per width, because they fail in opposite directions: content
+ * that will not shrink either PUSHES the document wider (the sideways scroll) or
+ * gets CUT OFF by a clipping ancestor (`measureClipping`) — and whichever of the
+ * two happens, the other reads perfectly green.
+ *
+ * A width that reads as broken is measured a second time after another two
  * frames before it is believed. Nothing in this app animates its width on
  * resize, but a re-read costs one `evaluate` on the rare failing path and buys
  * certainty that the number is a layout and not a half-finished one.
  */
-async function sweepWidths(page: Page, scope: Locator): Promise<string[]> {
+async function sweepWidths(page: Page, scope: Locator, body: Locator): Promise<string[]> {
   const failures: string[] = [];
   for (const width of WIDTHS) {
     await page.setViewportSize({ width, height: HEIGHT });
     await settleLayout(page);
     let reading = await measureOverflow(scope);
-    if (reading.scrollWidth > reading.clientWidth) {
+    let clipped = await measureClipping(body);
+    if (reading.scrollWidth > reading.clientWidth || clipped.length > 0) {
       await settleLayout(page);
       reading = await measureOverflow(scope);
+      clipped = await measureClipping(body);
     }
     if (reading.scrollWidth > reading.clientWidth) failures.push(describeOverflow(width, reading));
+    for (const box of clipped) failures.push(describeClipping(width, box));
   }
   return failures;
 }
@@ -272,11 +393,11 @@ test.describe(`page layout, swept ${WIDTHS[0]}–${WIDTHS[WIDTHS.length - 1]}px`
       await page.goto(screen.path);
       await waitForShell(page);
 
-      const failures = await sweepWidths(page, page.locator("html"));
+      const failures = await sweepWidths(page, page.locator("html"), page.locator("body"));
 
       expect(
         failures,
-        `${screen.name} (${screen.path}) scrolls sideways at ${failures.length} of ` +
+        `${screen.name} (${screen.path}) does not fit — ${failures.length} break(s) across ` +
           `${WIDTHS.length} widths:\n${failures.join("\n")}`,
       ).toEqual([]);
     });
@@ -344,13 +465,9 @@ interface DialogGeometry {
      * `minmax(auto, 1fr)` refusing to go below its content's min-content. */
     columns: string;
   }>;
-  /** Every scroll/clip container in the dialog that is wider than it can show. */
-  clipped: Array<{
-    selector: string;
-    scrollWidth: number;
-    clientWidth: number;
-    widest: Offender[];
-  }>;
+  /** Every scroll/clip container in the dialog that is wider than it can show,
+   * from the same `measureClipping` the page sweep runs. */
+  clipped: ClippedBox[];
   /** False when the panel runs off the viewport AND nothing scrolls to reach it. */
   actionsReachable: boolean;
   viewport: { width: number; height: number };
@@ -375,14 +492,15 @@ interface DialogGeometry {
  * `NewEventWizard` puts it on the scrim and `overflow: hidden` on the panel
  * inside — so asking every box whose `overflow-x` is not `visible` whether its
  * content fits covers both, and names the offending box rather than only
- * reporting that one exists.
- *
- * Two exemptions, both deliberate: `text-overflow: ellipsis` means content wider
- * than the box is the intended outcome, and `<input>`/`<textarea>`/`<select>`
- * scroll their own value by definition (a `type="date"` reports a 4248px
- * `scrollWidth` inside a 362px box while looking perfectly normal).
+ * reporting that one exists. That half now lives in `measureClipping`, which the
+ * page sweep runs too; the exemptions it carries are documented there.
  */
-function measureDialog(dialog: Locator): Promise<DialogGeometry> {
+async function measureDialog(dialog: Locator): Promise<DialogGeometry> {
+  const [box, clipped] = await Promise.all([measureDialogBox(dialog), measureClipping(dialog)]);
+  return { ...box, clipped };
+}
+
+function measureDialogBox(dialog: Locator): Promise<Omit<DialogGeometry, "clipped">> {
   return dialog.evaluate((root) => {
     const describe = (node: Element) => {
       const classes =
@@ -390,20 +508,6 @@ function measureDialog(dialog: Locator): Promise<DialogGeometry> {
           ? `.${node.className.trim().split(/\s+/).join(".")}`
           : "";
       return `${node.tagName.toLowerCase()}${node.id ? `#${node.id}` : ""}${classes}`.slice(0, 90);
-    };
-
-    const offenders = (node: Element) => {
-      const box = node.getBoundingClientRect();
-      const edge = box.left - node.scrollLeft + node.clientWidth;
-      return [...node.querySelectorAll<HTMLElement>("*")]
-        .filter((child) => child.getBoundingClientRect().right > edge + 1)
-        .slice(0, 5)
-        .map((child) => ({
-          tag: child.tagName.toLowerCase(),
-          className: typeof child.className === "string" ? child.className.slice(0, 60) : "",
-          right: Math.round(child.getBoundingClientRect().right),
-          text: (child.textContent ?? "").trim().slice(0, 40),
-        }));
     };
 
     // The panel is the dialog itself, unless `role="dialog"` sits on a
@@ -437,22 +541,6 @@ function measureDialog(dialog: Locator): Promise<DialogGeometry> {
         };
       });
 
-    const skipTags = ["input", "textarea", "select"];
-    const clipped = [root, ...root.querySelectorAll("*")]
-      .filter((node) => {
-        if (skipTags.includes(node.tagName.toLowerCase())) return false;
-        const style = getComputedStyle(node);
-        if (style.overflowX === "visible" || style.textOverflow === "ellipsis") return false;
-        return node.scrollWidth > node.clientWidth + 1;
-      })
-      .slice(0, 6)
-      .map((node) => ({
-        selector: describe(node),
-        scrollWidth: node.scrollWidth,
-        clientWidth: node.clientWidth,
-        widest: offenders(node),
-      }));
-
     const scrollsVertically = [panel, root].some((node) =>
       ["auto", "scroll"].includes(getComputedStyle(node).overflowY),
     );
@@ -468,7 +556,6 @@ function measureDialog(dialog: Locator): Promise<DialogGeometry> {
       },
       fitsHorizontally: panelBox.left >= -1 && panelBox.right <= window.innerWidth + 1,
       outside,
-      clipped,
       actionsReachable: fitsOnScreen || scrollsVertically,
       viewport: { width: window.innerWidth, height: window.innerHeight },
     };

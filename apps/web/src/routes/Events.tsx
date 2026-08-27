@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 import { DateText } from "../components/DateText";
 import { type EventMenuItem, EventRowMenu, rowClickTargetStyle } from "../components/EventRowMenu";
 import { GradientButton } from "../components/eventUi";
+import ledgerTable from "../components/ledgerTable.module.css";
 import { settlementStatusToDisplay } from "../components/settlementDocument";
 import { ErrorState, LoadMore, LoadingState } from "../components/states";
 import { useEventArchive } from "../hooks/useEventArchive";
@@ -89,8 +90,26 @@ function eventMeta(status: string): { color: string; label: string } {
 }
 
 /** The last track is the overflow menu's — fixed, because it holds one 28px
- * button and must not steal width from the columns that carry information. */
-const GRID_COLUMNS = "2.4fr 1.5fr 1fr .8fr 1.2fr 1fr 32px";
+ * button and must not steal width from the columns that carry information.
+ *
+ * EVERY OTHER TRACK IS `minmax(0, Nfr)`, NOT `Nfr`. A bare `1fr` is
+ * `minmax(auto, 1fr)`: the column refuses to go below its content's min-content
+ * width and takes the difference out of the table rather than out of the word.
+ * The card around this grid is `overflow: hidden`, so what that widening
+ * produced was not a scrollbar but a silently amputated last column — measured
+ * at 390px, 375px of row inside a 360px card, with both the page's
+ * `scrollWidth` check and the card's own perfectly content. `minmax(0, Nfr)`
+ * removes the floor so a narrow column wraps its text instead of hiding it, and
+ * above the width where every column already clears its min-content — which is
+ * every desktop layout in this app — the two forms resolve to identical tracks.
+ * `DataTable`'s `shrinkableTrack()` does this to the tracks its callers pass;
+ * here the template is a literal, so it is simply written out.
+ *
+ * The status track keeps its `min-content` floor because its content genuinely
+ * cannot wrap: the badge is `white-space: nowrap`, so a track narrower than the
+ * badge does not reflow it, it just pushes it out of the card again. */
+const GRID_COLUMNS =
+  "minmax(0, 2.4fr) minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, .8fr) minmax(min-content, 1.2fr) minmax(0, 1fr) 32px";
 
 export function Events() {
   const navigate = useNavigate();
@@ -378,6 +397,7 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
       }}
     >
       <div
+        className={ledgerTable.cells}
         style={{
           display: "grid",
           gridTemplateColumns: GRID_COLUMNS,
@@ -415,6 +435,7 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
           // button inside it, which is a real focusable control.
           <div
             key={event.id}
+            className={ledgerTable.cells}
             onMouseEnter={(mouse) => {
               mouse.currentTarget.style.background = "var(--shape-fill)";
             }}

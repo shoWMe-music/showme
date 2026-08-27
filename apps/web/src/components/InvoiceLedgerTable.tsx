@@ -10,6 +10,7 @@ import {
   invoiceStateLabel,
   isInvoiceOverdue,
 } from "./invoiceDocument";
+import ledgerTable from "./ledgerTable.module.css";
 
 /**
  * The Bills & Invoices ledger: a bordered card with a mono header row and one
@@ -25,7 +26,25 @@ import {
  * Presentational — the screen owns the queries, the mutation and the overlay.
  */
 
-const GRID_COLUMNS = "1.6fr 1.6fr 1fr 1fr 1fr 1fr 0.8fr";
+/**
+ * EVERY FLEXIBLE TRACK IS `minmax(0, Nfr)`, NOT `Nfr`. A bare `1fr` is
+ * `minmax(auto, 1fr)`: the column refuses to go below its content's min-content
+ * width and takes the difference out of the table rather than out of the word.
+ * The card around this grid is `overflow: hidden`, so the result was not a
+ * scrollbar but a silently amputated last column — measured at 360px, 356px of
+ * row inside a 330px card, with both the page's `scrollWidth` check and the
+ * card's own perfectly content. `minmax(0, Nfr)` removes the floor; above the
+ * width where every column already clears its min-content — every desktop
+ * layout in this app — the two forms resolve to identical tracks.
+ * `DataTable`'s `shrinkableTrack()` does this to the tracks its callers pass;
+ * here the template is a literal, so it is written out.
+ *
+ * The status track keeps its `min-content` floor because `Badge` is
+ * `white-space: nowrap` (`Badge.module.css`): a track narrower than the badge
+ * does not reflow it, it pushes it back out of the card.
+ */
+const GRID_COLUMNS =
+  "minmax(0, 1.6fr) minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(min-content, 1fr) minmax(0, 0.8fr)";
 
 const HEADER_CELLS: { label: string; align?: "right" }[] = [
   { label: "Vendor" },
@@ -62,6 +81,7 @@ export function InvoiceLedgerTable({
       }}
     >
       <div
+        className={ledgerTable.cells}
         style={{
           display: "grid",
           gridTemplateColumns: GRID_COLUMNS,
@@ -132,6 +152,7 @@ function InvoiceLedgerRow({
       onMouseLeave={(mouse) => {
         mouse.currentTarget.style.background = "transparent";
       }}
+      className={ledgerTable.cells}
       style={{
         display: "grid",
         gridTemplateColumns: GRID_COLUMNS,

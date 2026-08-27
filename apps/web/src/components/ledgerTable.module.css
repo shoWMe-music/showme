@@ -1,0 +1,20 @@
+/* The two hand-rolled ledger tables — the Events list (`routes/Events.tsx`) and
+   the Bills & Invoices ledger (`InvoiceLedgerTable.tsx`) — copy their card,
+   header and row measurements from `DataTable.module.css` on purpose, so the
+   three tables stay pixel-identical. This file is the one rule of that copy
+   that could not be an inline style: it applies to the CELLS, and both tables
+   render their cells as a dozen separate `<span>`s.
+
+   A CELL KEEPS TO ITS COLUMN — the same rule, and the same reasoning, as
+   `DataTable.module.css`. With the fr tracks free to shrink (see the
+   `minmax(0, Nfr)` templates in both files), a phone-width table hands some
+   column less room than the longest word in it, and the default
+   `overflow-wrap: normal` answers that by letting the word run straight over its
+   neighbour and out of the card, which is `overflow: hidden` — so the text is
+   not merely ugly, it is gone, and the document never widens to say so.
+   `anywhere` breaks the word instead. It never fires where the word fits, so
+   every desktop table is untouched. */
+.cells > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

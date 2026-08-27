@@ -1,0 +1,28 @@
+/* The calendar's two-column layout: the grid (month / week / day) beside the
+   right rail of legend, filters and calendar sources.
+
+   THE NARROW RULE REPEATS THE BREAKPOINT AS A LITERAL. A custom property cannot
+   be used in a media query condition — `@media (max-width: var(--breakpoint-
+   tablet))` is invalid CSS and silently never matches — so the number is written
+   out and the token it mirrors is named beside it
+   (`--breakpoint-tablet: 860px`, design-system/src/styles/tokens.css). */
+
+.gridAndRail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 232px;
+  gap: 20px;
+  align-items: start;
+}
+
+/* ≤ --breakpoint-tablet (860px). The rail is a FIXED 232px, so every pixel the
+   window loses comes out of the calendar alone: at 390px the month grid was
+   108px wide — seven day columns and a mini-month inside them — and the mini
+   month's own cells were being clipped out of their card by 17px with nothing
+   reporting it, because the card is `overflow: hidden` and the document never
+   widened. Below the sidebar's own breakpoint the rail sits under the grid
+   instead, both full width. */
+@media (max-width: 860px) {
+  .gridAndRail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
