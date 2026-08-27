@@ -603,6 +603,25 @@ function DealFigureDriftWarning({ warning }: { warning?: DealFigureWarning }) {
  * A plain readout carries no promise of a cursor, and the note under it says
  * where to go.
  */
+/**
+ * Thousands separators for a MAJOR-unit draft string, done on the string.
+ *
+ * Every other figure on this screen goes through `formatMoney`, which groups —
+ * so an ungrouped one beside them reads as a different kind of number. It cannot
+ * just call `formatMoney`: that takes MINOR units, and converting a draft string
+ * to minor units is exactly the multiply-by-100-through-a-float that was losing
+ * money here until this session (`Math.round(Number("4.015") * 100)` is 401).
+ * Grouping the integer part textually needs no arithmetic at all, so there is
+ * nothing to get wrong.
+ */
+function groupDigits(value: string): string {
+  const [whole = "", fraction] = value.split(".");
+  const sign = whole.startsWith("-") ? "-" : "";
+  const digits = sign ? whole.slice(1) : whole;
+  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return fraction === undefined ? `${sign}${grouped}` : `${sign}${grouped}.${fraction}`;
+}
+
 function readOnlyMoney(value: string, currencySymbol: string) {
   return (
     <span
@@ -615,7 +634,7 @@ function readOnlyMoney(value: string, currencySymbol: string) {
         paddingRight: 2,
       }}
     >
-      {value === "" ? "—" : `${currencySymbol} ${value}`}
+      {value === "" ? "—" : `${currencySymbol} ${groupDigits(value)}`}
     </span>
   );
 }

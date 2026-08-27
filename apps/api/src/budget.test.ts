@@ -779,6 +779,110 @@ describe("budgets — line references are event-scoped (A-14)", () => {
     expect(await lineCount(seed.budgetId)).toBe(0);
   });
 
+  /**
+   * THE DEAL SELECTOR'S TWO ANSWERS, ALL THE WAY TO THE ROW AND BACK.
+   *
+   * `budget_lines` carries two deal columns that say opposite things about the
+   * money (schema `settlement.ts`): `deal_id` = this line IS the deal's own
+   * figure, dropped at the settlement boundary; `attributed_deal_id` = a real
+   * cost merely reported under the deal, settled like any other. The planner's
+   * "Deal" selector offers each agreement under both senses, and the only reason
+   * a chosen sense means anything is that it survives the write and comes back
+   * on the read. Nothing tested that, and a selector whose answer is silently
+   * dropped is exactly the "Not tied to a deal" symptom of ClickUp 86cbaxvf5.
+   *
+   * The switch at the end is the half that can go wrong quietly: moving a line
+   * from one sense to the other has to CLEAR the first, or the CHECK constraint
+   * (`num_nonnulls(deal_id, attributed_deal_id) <= 1`) rejects the row and the
+   * operator's edit fails on a rule they never saw.
+   */
+  it("round-trips both senses of naming a deal, and switching between them clears the other", async () => {
+    const seed = await seedTwoEvents("deal-senses");
+    const [deal] = await harness.db
+      .insert(schema.deals)
+      .values({
+        eventId: seed.eventId,
+        type: "performance",
+        structure: "door_split",
+        name: "Headliner — Door Split",
+        splitBasisPoints: 7000,
+        createdBy: seed.operatorUid,
+      })
+      .returning();
+    if (!deal) throw new Error("deal seed failed");
+
+    const asTheDealsFigure = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.eventId}/budgets/${seed.budgetId}/lines`,
+      headers: auth(seed.operatorUid),
+      payload: {
+        kind: "cost",
+        label: "Performer fee",
+        amount: "300000",
+        paidBy: seed.hostParticipantId,
+        dealId: deal.id,
+      },
+    });
+    expect(asTheDealsFigure.statusCode).toBe(201);
+    expect(asTheDealsFigure.json().dealId).toBe(deal.id);
+    expect(asTheDealsFigure.json().attributedDealId).toBeNull();
+
+    const reportedUnderIt = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.eventId}/budgets/${seed.budgetId}/lines`,
+      headers: auth(seed.operatorUid),
+      payload: {
+        kind: "cost",
+        label: "Green-room catering",
+        amount: "50000",
+        paidBy: seed.hostParticipantId,
+        attributedDealId: deal.id,
+      },
+    });
+    expect(reportedUnderIt.statusCode).toBe(201);
+    expect(reportedUnderIt.json().attributedDealId).toBe(deal.id);
+    expect(reportedUnderIt.json().dealId).toBeNull();
+
+    // The read the planner actually makes.
+    const budgets = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.eventId}/budgets`,
+      headers: auth(seed.operatorUid),
+    });
+    expect(budgets.statusCode).toBe(200);
+    const lines = budgets.json()[0].lines as {
+      label: string;
+      dealId: string | null;
+      attributedDealId: string | null;
+    }[];
+    expect(lines.find((line) => line.label === "Performer fee")?.dealId).toBe(deal.id);
+    expect(lines.find((line) => line.label === "Green-room catering")?.attributedDealId).toBe(
+      deal.id,
+    );
+
+    // Second thoughts: the catering was never a real cost of the night, it IS
+    // what the agreement pays. Both columns are sent, so the old one is cleared.
+    const switched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.eventId}/budgets/${seed.budgetId}/lines/${reportedUnderIt.json().id}`,
+      headers: auth(seed.operatorUid),
+      payload: { dealId: deal.id, attributedDealId: null },
+    });
+    expect(switched.statusCode).toBe(200);
+    expect(switched.json().dealId).toBe(deal.id);
+    expect(switched.json().attributedDealId).toBeNull();
+
+    // And the two senses are refused together, whichever way round they arrive.
+    const both = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.eventId}/budgets/${seed.budgetId}/lines/${asTheDealsFigure.json().id}`,
+      headers: auth(seed.operatorUid),
+      payload: { attributedDealId: deal.id },
+    });
+    expect(both.statusCode).toBe(400);
+    expect(both.json().error.message).toContain("never both");
+  });
+
   it("rejects a non-numeric amount as validation, not an uncaught BigInt()", async () => {
     const seed = await seedTwoEvents("amount");
 
