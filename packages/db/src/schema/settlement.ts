@@ -306,3 +306,70 @@ export const budgetSnapshots = pgTable(
     index("budget_snapshots_event_id_idx").on(table.eventId),
   ],
 );
+
+/**
+ * THE SETTLEMENT'S OWN COPY OF THE BUDGET — the real numbers.
+ *
+ * A budget is a forecast: it says what the night was expected to take and cost,
+ * and it goes on being edited as a planning document. A settlement is the record
+ * of what actually happened. The two must not be the same rows, and the product
+ * owner's rule (2026-08-27) is exact: **the settlement has a copy of the budget,
+ * and the budget is never changed from the settlement.**
+ *
+ * The engine used to read `budget_lines` live, which collapsed that distinction —
+ * typing an actual cost meant editing the forecast, and the forecast was then
+ * gone. So `reconcile()` now reads THESE rows, and the planner keeps its own.
+ *
+ * **Sealed at the copy.** The copy is taken once, when the settlement is first
+ * run, and never looks at the budget again (the product owner's choice among the
+ * three drift behaviours). A budget edited afterwards is a forecast being revised
+ * after the fact and has nothing to say about a night that already happened.
+ *
+ * `origin_budget_line_id` remembers which forecast line a row came from — that
+ * is what planned-vs-actual pairs on — and is NULL for a line first entered in
+ * the settlement, which is the honest answer to "what was this budgeted at?":
+ * nothing, it was not foreseen.
+ *
+ * Keyed on the EVENT, not on a settlement row, for the same reason
+ * `budget_snapshots` is: there is one night's cash, and `settlements` holds one
+ * row per party to it.
+ */
+export const settlementLines = pgTable(
+  "settlement_lines",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    /** The forecast line this was copied from. NULL = added in the settlement. */
+    originBudgetLineId: uuid("origin_budget_line_id").references(() => budgetLines.id, {
+      onDelete: "set null",
+    }),
+    kind: budgetLineKind("kind").notNull(),
+    source: ticketingSource("source").notNull().default("manual"),
+    providerRef: text("provider_ref"),
+    label: text("label").notNull(),
+    amount: bigint("amount", { mode: "bigint" }).notNull(), // minor units (money.md)
+    currency: text("currency"),
+    collectedBy: uuid("collected_by").references(() => eventParticipants.id),
+    paidBy: uuid("paid_by").references(() => eventParticipants.id),
+    payeeParticipantId: uuid("payee_participant_id").references(() => eventParticipants.id),
+    costSplit: jsonb("cost_split"),
+    details: jsonb("details"),
+    dealId: uuid("deal_id").references(() => deals.id),
+    attributedDealId: uuid("attributed_deal_id").references(() => deals.id),
+    version: integer("version").notNull().default(1), // optimistic lock (decisions #8)
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("settlement_lines_event_id_idx").on(table.eventId),
+    index("settlement_lines_origin_idx").on(table.originBudgetLineId),
+    // The same rule the forecast carries: a line is either a deal's own figure or
+    // a cost reported under it, never both.
+    check(
+      "settlement_lines_one_deal_sense",
+      sql`num_nonnulls(${table.dealId}, ${table.attributedDealId}) <= 1`,
+    ),
+  ],
+);

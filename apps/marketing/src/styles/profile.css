@@ -1,8 +1,94 @@
-/* The public profile page. Same lean footing as availability.css: it links the
-   shared tokens + fonts rather than copying the landing page's inline
-   stylesheet, so a profile link opens fast and carries no scroll scenes. */
+/* The public profile page — Claude Design "Public Profiles", turn 3 (3a
+   performer / 3b venue / 3c phone).
+
+   Same lean footing as availability.css: it links the shared tokens + fonts
+   rather than copying the landing page's inline stylesheet, so a profile link
+   opens fast and carries no scroll scenes. Every colour is a token, so the page
+   follows the theme toggle in the top bar.
+
+   THE HERO HAS ITS OWN SET OF ROLES, and that is the one place this file adds
+   tokens rather than using them: it is a photograph with type on it, so "the
+   text colour" there is decided by the scrim over the picture, not by the page.
+   Both themes define all of them (`--hero-*` in the two blocks below) — dark
+   dims the picture, light washes it out — so the band follows the toggle like
+   everything else. */
 @import "./tokens.css";
 @import "./fonts.css";
+/* The "request a date" form, shared with the availability page. */
+@import "./request.css";
+
+:root {
+  /* The page column. The prototype's content sits in 1120px with a generous
+     inset; both halves are here so a band can opt out of the column (the hero
+     media) without re-deriving the number. */
+  --page-width: 1120px;
+  --page-inset: clamp(18px, 4vw, 40px);
+  /* The top bar's height, needed twice: once to reserve the space, once to pull
+     the hero's picture up behind it. */
+  --topbar-height: 68px;
+  /* THE HERO'S OWN SET. It is a photograph with type on it, so it cannot simply
+     inherit the page roles: the scrim has to be dark enough to read a name over
+     whatever picture the owner uploaded, and it has to end in the page ground so
+     the band does not stop with a line across it. Light mode overrides all five
+     below — the wash turns pale and the ink turns to ink. */
+  --hero-ink: var(--ink-100);
+  --hero-ink-quiet: rgba(245, 237, 226, 0.66);
+  --hero-ground: var(--ink-950);
+  --hero-chrome: rgba(10, 6, 4, 0.55);
+  --hero-scrim: linear-gradient(
+    180deg,
+    rgba(10, 6, 4, 0.5) 0%,
+    rgba(10, 6, 4, 0.26) 32%,
+    rgba(10, 6, 4, 0.86) 78%,
+    var(--bg) 100%
+  );
+  /* The warm light the prototype pours in from the top. Deliberately not the
+     token --glow: that one is anchored to the top-RIGHT corner for the app's
+     screens, and this one has to sit behind a name in the middle of the band. */
+  --hero-glow: radial-gradient(
+    ellipse 70% 60% at 62% -10%,
+    rgba(255, 194, 102, 0.22),
+    rgba(238, 87, 70, 0.09) 45%,
+    transparent 74%
+  );
+  /* The lane's own call to action: the one control on the page that sits on a
+     card rather than on the page ground, so it inverts against it. */
+  --lane-cta-bg: var(--paper);
+  --lane-cta-ink: var(--ink-900);
+  /* The ground under a picture we do not have — a show card's poster area and a
+     video tile before it is played. It is artwork, so it is warm rather than
+     flat, and it has to follow the theme or it reads as a hole in the page. */
+  --art-ground: var(--ink-900);
+  --art-wash-a: rgba(255, 194, 102, 0.16);
+  --art-wash-b: rgba(238, 87, 70, 0.14);
+}
+
+[data-theme="light"] {
+  --hero-ink: var(--ink-900);
+  --hero-ink-quiet: var(--ink-500);
+  --hero-ground: var(--ink-100);
+  --hero-chrome: rgba(255, 255, 255, 0.72);
+  /* A pale wash instead of a dark one — the picture is washed OUT rather than
+     dimmed, which is the only way dark type stays legible on top of it. */
+  --hero-scrim: linear-gradient(
+    180deg,
+    rgba(251, 246, 238, 0.68) 0%,
+    rgba(251, 246, 238, 0.55) 32%,
+    rgba(251, 246, 238, 0.88) 78%,
+    var(--bg) 100%
+  );
+  --hero-glow: radial-gradient(
+    ellipse 70% 60% at 62% -10%,
+    rgba(244, 160, 70, 0.28),
+    rgba(238, 87, 70, 0.1) 45%,
+    transparent 74%
+  );
+  --lane-cta-bg: var(--ink-900);
+  --lane-cta-ink: var(--paper);
+  --art-ground: var(--ink-100);
+  --art-wash-a: rgba(244, 160, 70, 0.4);
+  --art-wash-b: rgba(238, 87, 70, 0.26);
+}
 
 html,
 body {
@@ -17,15 +103,21 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* The sticky phone bar sits over the last band; without this it covers it. */
 body {
-  display: flex;
-  flex-direction: column;
-  gap: 32px;
-  padding: 22px clamp(18px, 5vw, 48px) 40px;
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
-/* ---------- Header (shared shape with availability.html) ---------- */
-.page-header {
+/* ---------- The top bar ----------
+   It floats over the hero: the hero's picture is pulled up behind it so the page
+   opens on an image rather than on a strip of page ground. */
+.topbar {
+  position: relative;
+  z-index: 3;
+  height: var(--topbar-height);
+  width: min(100%, var(--page-width));
+  margin-inline: auto;
+  padding-inline: var(--page-inset);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -36,17 +128,22 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  color: var(--text);
+  padding: 8px 16px 8px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--hero-chrome);
+  backdrop-filter: blur(10px);
+  color: var(--hero-ink);
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: 20px;
+  font-size: 17px;
   letter-spacing: -0.02em;
   text-decoration: none;
 }
 
 .brand__mark {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   display: block;
 }
 
@@ -55,367 +152,408 @@ body {
   height: 100%;
 }
 
-.theme-toggle {
-  border: 1px solid var(--border);
-  background: var(--button-surface);
-  color: var(--muted);
+.topnav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px;
   border-radius: 999px;
-  padding: 7px 15px;
-  font-size: 13px;
+  border: 1px solid var(--border);
+  background: var(--hero-chrome);
+  backdrop-filter: blur(10px);
+}
+
+.topnav__link {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--hero-ink-quiet);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  padding: 9px 15px;
+  border-radius: 999px;
   cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background var(--duration-quick) var(--ease-out), color var(--duration-quick)
+    var(--ease-out);
 }
 
-.theme-toggle:hover {
-  color: var(--text);
+.topnav__link:hover {
+  color: var(--hero-ink);
+  background: var(--hover-surface);
   border-color: var(--hover-border);
+  opacity: 1;
 }
 
-/* ---------- Page column ---------- */
+.topnav__link:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* The theme toggle is a control, not a destination: quieter than its neighbours
+   and always last. */
+.topnav__theme {
+  color: var(--hero-ink-quiet);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* On a phone the section links would wrap the bar onto three lines. The page is
+   one column there and scrolling IS the navigation, so only the sign-in and the
+   toggle survive. */
+@media (max-width: 720px) {
+  .topnav__section:not([target]) {
+    display: none;
+  }
+}
+
+/* ---------- The page column ---------- */
 .profile {
-  width: min(100%, 760px);
-  margin-inline: auto;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: clamp(38px, 6vw, 64px);
+  /* The hero is pulled up under the top bar; every other band is inset by the
+     page column, which each one applies to itself. */
+  margin-top: calc(-1 * var(--topbar-height));
 }
 
 .profile__loading {
+  width: min(100%, var(--page-width));
+  margin: calc(var(--topbar-height) + 24px) auto 0;
+  padding-inline: var(--page-inset);
   color: var(--dim);
-  margin: 0;
 }
 
 /* ---------- Hero ---------- */
 .hero {
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  background: var(--card);
-  overflow: hidden;
+  position: relative;
+  isolation: isolate;
+  min-height: clamp(380px, 52vw, 520px);
+  padding: calc(var(--topbar-height) + clamp(40px, 9vw, 96px)) var(--page-inset)
+    clamp(28px, 5vw, 52px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  color: var(--hero-ink);
 }
 
-.hero__banner {
-  height: clamp(120px, 26vw, 190px);
-  background-color: var(--shape-fill);
+.hero__media,
+.hero__scrim {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+}
+
+.hero__media {
+  background-color: var(--hero-ground);
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;
 }
 
-.hero__identity {
-  display: flex;
-  align-items: flex-end;
-  gap: clamp(12px, 3vw, 20px);
-  padding: 0 clamp(16px, 4vw, 28px) 24px;
-  /* Pull the avatar up over the banner, the way the app's profile hero does. */
-  margin-top: clamp(-56px, -9vw, -40px);
+/* A square avatar standing in for a missing banner — blurred up rather than
+   stretched, so it reads as a deliberate wash instead of a smeared logo. */
+.hero__media--stand-in {
+  filter: blur(28px) saturate(1.1);
+  transform: scale(1.15);
 }
 
-.hero__avatar {
-  width: clamp(72px, 15vw, 112px);
-  height: clamp(72px, 15vw, 112px);
-  border-radius: 50%;
-  border: 5px solid var(--card);
-  background: var(--shape-fill);
-  object-fit: cover;
-  flex-shrink: 0;
+.hero__scrim {
+  background: var(--hero-glow), var(--hero-scrim);
 }
 
-.hero__avatar--initials {
+.hero__body {
+  width: min(100%, var(--page-width));
+  margin-inline: auto;
+  position: relative;
+}
+
+.hero__pills {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.statuspill {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: clamp(22px, 5vw, 34px);
-  color: var(--brand-red);
-  box-sizing: border-box;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--hero-chrome);
+  color: var(--accent);
+  font-size: 13px;
+  line-height: 1.3;
 }
 
-.hero__text {
-  padding-bottom: 8px;
-  min-width: 0;
+/* The live one carries the dot the prototype gives it. */
+.statuspill::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+
+.statuspill--quiet {
+  color: var(--hero-ink-quiet);
+}
+
+.statuspill--quiet::before {
+  display: none;
 }
 
 .hero__name {
   font-family: var(--font-display);
-  font-size: clamp(22px, 5vw, 32px);
   font-weight: 700;
+  font-size: clamp(46px, 9vw, 104px);
+  line-height: 0.94;
+  letter-spacing: -0.035em;
   margin: 0;
-  letter-spacing: -0.02em;
-  /* A long venue name must wrap rather than push the card sideways. */
+  /* A long venue name must wrap rather than push the band sideways. */
   overflow-wrap: anywhere;
 }
 
-.hero__meta {
-  margin: 4px 0 0;
-  color: var(--muted);
-  font-size: 14px;
+.hero__tagline {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: clamp(20px, 2.8vw, 31px);
+  line-height: 1.22;
+  color: var(--accent);
+  margin: 14px 0 0;
+  max-width: 22ch;
 }
 
-/* ---------- Blocks + cards ---------- */
-.block,
-.card {
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--card);
-  padding: clamp(16px, 3vw, 22px);
-}
-
-.block__title,
-.card__title {
-  font-family: var(--font-display);
-  font-size: 17px;
-  font-weight: 600;
-  margin: 0 0 10px;
-}
-
-.card__subtitle {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin: 18px 0 8px;
-  font-weight: 400;
-}
-
-.block__prose,
-.card__prose {
-  margin: 0;
-  color: var(--text);
-  font-size: 15px;
-  /* Bios and notes are typed by hand and can contain long unbroken strings. */
-  overflow-wrap: anywhere;
-  white-space: pre-line;
-}
-
-/* ---------- Spec rows ---------- */
-.specs {
-  display: flex;
-  flex-direction: column;
-}
-
-.specs__row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 9px 0;
-  border-top: 1px solid var(--border);
-}
-
-.specs__row:first-child {
-  border-top: 0;
-}
-
-.specs__label {
-  color: var(--muted);
-  font-size: 13.5px;
-}
-
-.specs__value {
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 500;
-  text-align: right;
-  overflow-wrap: anywhere;
-}
-
-/* ---------- Gallery + videos ---------- */
-.gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 10px;
-}
-
-.gallery__item {
-  width: 100%;
-  aspect-ratio: 16 / 10;
-  object-fit: cover;
-  display: block;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--shape-fill);
-}
-
-.videos {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 12px;
-}
-
-.videos__item {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  display: block;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--shape-fill);
-}
-
-/* ---------- Pills ---------- */
-.pills {
+.hero__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 12px;
+  margin-top: clamp(20px, 3vw, 30px);
 }
 
-.pill {
+/* ---------- Buttons ----------
+   Three, and no more: the warm one that is the page's single call to action, a
+   hollow one for the secondary route, and a light one for the industry lane
+   where the ground is already a card. */
+.btn {
   display: inline-flex;
   align-items: center;
-  padding: 4px 11px;
+  gap: 8px;
+  padding: 13px 24px;
+  border: 1px solid transparent;
   border-radius: 999px;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform var(--duration-instant) var(--ease-out), border-color var(--duration-quick)
+    var(--ease-out), background var(--duration-quick) var(--ease-out);
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.btn:hover {
+  opacity: 1;
+}
+
+.btn--primary {
+  background: linear-gradient(100deg, var(--brand-red-deep), var(--brand-amber));
+  color: #fff;
+  box-shadow: 0 10px 30px -14px rgba(238, 87, 70, 0.9);
+}
+
+.btn--primary::after {
+  content: "→";
+  font-size: 14px;
+}
+
+.btn--ghost {
+  background: var(--button-surface);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.btn--ghost:hover {
+  border-color: var(--hover-border);
+}
+
+.btn--light {
+  background: var(--lane-cta-bg);
+  color: var(--lane-cta-ink);
+}
+
+/* ---------- Bands ---------- */
+.band {
+  width: min(100%, var(--page-width));
+  margin-inline: auto;
+  padding-inline: var(--page-inset);
+  scroll-margin-top: calc(var(--topbar-height) + 12px);
+}
+
+.band__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: clamp(14px, 2vw, 20px);
+}
+
+.band__title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(23px, 3vw, 30px);
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+
+.band__count {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
   background: var(--shape-fill);
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
-/* ---------- Problem states ---------- */
-.problem {
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--card);
-  padding: clamp(20px, 4vw, 32px);
-}
-
-.problem__title {
-  font-family: var(--font-display);
-  font-size: 20px;
-  font-weight: 600;
-  margin: 0 0 8px;
-}
-
-.problem__detail {
-  margin: 0;
-  color: var(--muted);
-  font-size: 15px;
-}
-
-/* ---------- Footer ---------- */
-.page-footer {
-  width: min(100%, 760px);
-  margin-inline: auto;
-  color: var(--dim);
   font-size: 13px;
+}
+
+/* ---------- The next show ---------- */
+.nextshow {
+  width: min(100%, var(--page-width));
+  margin-inline: auto;
+  padding: clamp(14px, 2vw, 18px);
   display: flex;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-  border-top: 1px solid var(--border);
-  padding-top: 16px;
+  align-items: center;
+  gap: clamp(14px, 2.4vw, 24px);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  /* It sits directly under the hero, inside the same column as every band. */
+  margin-top: calc(-1 * clamp(38px, 6vw, 64px) + 22px);
 }
 
-.page-footer p {
-  margin: 0;
+/* The date block — the prototype's rounded square, in front of every show. */
+.showdate,
+.showrow__date {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  flex: none;
 }
-
-.page-footer a {
-  color: var(--muted);
-}
-
-/* ---------- The bill ----------
-   Layout and proportion from the Claude Design export ("3a — soft geometry,
-   tickets first"): the date is a rail on the left, the next show is lifted out
-   of the list into its own slab, and everything is a rounded slab or a pill
-   rather than a table. Every colour, radius and font is a token from our own
-   design system, never the prototype's raw hex. */
 
 .showdate {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  min-width: 58px;
-  padding: 10px 12px;
-  border-radius: 14px;
+  width: 82px;
+  height: 82px;
+  gap: 1px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
   background: var(--shape-fill);
-  font-family: var(--font-mono);
-  line-height: 1.1;
 }
 
 .showdate__weekday,
 .showdate__month {
+  font-family: var(--font-mono);
   font-size: 10.5px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--dim);
+  color: var(--accent);
 }
 
 .showdate__day {
   font-family: var(--font-display);
-  font-size: 24px;
   font-weight: 600;
-  color: var(--text);
-}
-
-/* ---------- Next show ---------- */
-.nextshow {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 22px;
-  padding: 18px;
-  border: 1px solid var(--border-strong);
-  border-radius: 20px;
-  background: var(--card);
-  box-shadow: var(--shadow);
+  font-size: 30px;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
 }
 
 .nextshow__body {
-  flex: 1 1 220px;
+  flex: 1;
   min-width: 0;
 }
 
 .nextshow__eyebrow {
   display: block;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--accent);
-  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .nextshow__title {
   font-family: var(--font-display);
-  font-size: 21px;
   font-weight: 600;
-  color: var(--text);
-  margin: 0;
+  font-size: clamp(21px, 2.6vw, 28px);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
 }
 
-.nextshow__venue {
+/* "with Marta Wolff" — the same line, one weight quieter. */
+.nextshow__with {
   color: var(--muted);
-  font-size: 14px;
-  margin: 4px 0 0;
+  font-weight: 400;
 }
 
-.nextshow__times {
-  color: var(--dim);
-  font-size: 13px;
-  margin: 2px 0 0;
+.nextshow__pills,
+.about__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.pill {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--shape-fill);
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.3;
 }
 
 .nextshow__cta {
-  flex: 0 0 auto;
-  padding: 11px 20px;
-  border-radius: 999px;
-  background: linear-gradient(135deg, var(--brand-red), var(--brand-amber));
-  color: var(--ink-1000);
-  font-weight: 600;
-  font-size: 14px;
-  text-decoration: none;
-  white-space: nowrap;
+  flex: none;
 }
 
-.nextshow__cta:hover {
-  filter: brightness(1.06);
+/* ---------- The dates rail ---------- */
+.shows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-/* ---------- All dates ---------- */
+.shows__empty {
+  margin: 0;
+  padding: 26px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 18px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.shows__subhead {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
 .showrail {
   list-style: none;
   margin: 0;
@@ -425,124 +563,400 @@ body {
   gap: 8px;
 }
 
-.showrail__row {
+.showrow {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 10px 12px;
+  gap: clamp(12px, 2vw, 22px);
+  padding: 12px 14px 12px 18px;
   border: 1px solid var(--border);
   border-radius: 16px;
-  background: var(--surface);
+  background: var(--card);
+  transition: border-color var(--duration-quick) var(--ease-out);
 }
 
-.showrail__row:hover {
+.showrow:hover {
   border-color: var(--hover-border);
-  background: var(--hover-surface);
 }
 
-.showrail__row .showdate {
-  min-width: 52px;
-  padding: 7px 10px;
-  background: transparent;
+/* The rail's date is a line, not a block — the prototype sets "12 Sep" inline. */
+.showrow__date {
+  grid-auto-flow: column;
+  align-items: baseline;
+  gap: 5px;
+  width: 76px;
+  justify-items: start;
 }
 
-.showrail__row .showdate__day {
-  font-size: 19px;
+.showrow__date .showdate__weekday {
+  display: none;
 }
 
-.showrail__body {
-  flex: 1 1 auto;
+.showrow__date .showdate__day {
+  font-size: 21px;
+}
+
+.showrow__body {
+  flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.showrail__title {
-  color: var(--text);
-  font-weight: 600;
-  font-size: 14.5px;
+.showrow__title {
+  font-weight: 500;
+  font-size: 16px;
+  overflow-wrap: anywhere;
 }
 
-.showrail__meta {
+.showrow__meta {
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 13.5px;
 }
 
-.showrail__link {
-  flex: 0 0 auto;
-  padding: 7px 15px;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  color: var(--text);
-  font-size: 13px;
-  text-decoration: none;
-  white-space: nowrap;
+.showrow__cta {
+  flex: none;
+  padding: 10px 18px;
+  font-size: 14px;
 }
 
-.showrail__link:hover {
-  border-color: var(--accent);
+/* ---------- The programme cards (a venue's next three) ---------- */
+/* auto-FILL, not auto-fit: a venue with one show announced should get one card
+   the size of a card, not one card stretched across 1120px. The empty tracks
+   hold the shape the second and third show will land in. */
+.showcards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+.showcard {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--card);
+  overflow: hidden;
+}
+
+/* The host's poster when the show has one, and the prototype's own warm wash
+   when it does not — the prototype's cards carry a wash rather than a photograph
+   anyway, so a show with no artwork loses nothing. */
+.showcard__art--poster,
+.nextshow__art {
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+
+.nextshow__art {
+  width: 82px;
+  height: 82px;
+  flex: none;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background-color: var(--art-ground);
+}
+
+.showcard__art {
+  height: 150px;
+  background: radial-gradient(ellipse 80% 90% at 30% 10%, var(--art-wash-a), transparent 70%),
+    radial-gradient(ellipse 70% 80% at 85% 60%, var(--art-wash-b), transparent 72%),
+    var(--art-ground);
+}
+
+.showcard__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px 18px;
+  flex: 1;
+}
+
+.showcard__stamp {
   color: var(--accent);
+  font-size: 13px;
 }
 
-@media (max-width: 520px) {
-  .nextshow__cta,
-  .showrail__link {
-    width: 100%;
-    text-align: center;
-  }
+.showcard__title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
-/* ---------- Listen: the platform chips ----------
-   The design's "row of round chips", built from our own tokens. */
+.showcard__meta {
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.showcard__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 14px;
+}
+
+.showcard__times {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.showcard__foot .btn {
+  padding: 10px 18px;
+  font-size: 14px;
+}
+
+/* ---------- Watch & listen ---------- */
+.listen {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* A row, not a grid: the prototype shows one large tile and two small ones, and
+   a fixed three-column grid leaves a hole on the (very common) profile with two
+   videos. Flex gives the featured tile twice the share of whatever is there. */
+.videos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.video,
+.video__frame {
+  position: relative;
+  display: block;
+  flex: 1 1 210px;
+  aspect-ratio: 16 / 10;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.video--featured,
+.video__frame--featured {
+  flex: 2 1 380px;
+}
+
+/* The tile before it is clicked: the card's own ground and a play badge. Nothing
+   is fetched from the video host until this button is pressed — see the note in
+   profile.ts. */
+.video {
+  appearance: none;
+  padding: 0;
+  cursor: pointer;
+  background: radial-gradient(ellipse 70% 80% at 40% 20%, var(--art-wash-a), transparent 70%),
+    var(--art-ground);
+  transition: border-color var(--duration-quick) var(--ease-out);
+}
+
+.video:hover {
+  border-color: var(--hover-border);
+}
+
+.video:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.video__play {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  translate: -50% -50%;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--brand-red);
+  box-shadow: 0 12px 34px -14px rgba(238, 87, 70, 0.95);
+  display: grid;
+  place-items: center;
+}
+
+.video__play::after {
+  content: "";
+  width: 0;
+  height: 0;
+  margin-left: 4px;
+  border-left: 15px solid #fff;
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+}
+
+.video:not(.video--featured) .video__play {
+  width: 42px;
+  height: 42px;
+}
+
+.video:not(.video--featured) .video__play::after {
+  border-left-width: 11px;
+  border-top-width: 7px;
+  border-bottom-width: 7px;
+}
+
+.video__hint {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
 .chiprow {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.chiprow__chip {
-  padding: 8px 16px;
-  border: 1px solid var(--border);
+.chip {
+  padding: 9px 16px;
   border-radius: 999px;
-  background: var(--surface);
+  border: 1px solid var(--border);
+  background: var(--shape-fill);
   color: var(--text);
-  font-size: 13.5px;
+  font-size: 14px;
   text-decoration: none;
-  white-space: nowrap;
+  transition: border-color var(--duration-quick) var(--ease-out);
 }
 
-.chiprow__chip:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+.chip:hover {
+  border-color: var(--hover-border);
+  opacity: 1;
 }
 
-/* ---------- The industry lane ----------
-   Deliberately quieter than everything above it: no card, no shadow, just a rule
-   and muted type. The design's own note is that it should be "present, but no
-   longer competing with the tickets". */
+/* ---------- About / The room ---------- */
+/* Two columns when there are photos, one when there are not — auto-fit does
+   that on its own, so the band does not need to be told which case it is in.
+   Without it, a profile with no gallery draws its prose in half the page and
+   leaves the other half as a hole. */
+.about {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: clamp(20px, 4vw, 48px);
+  align-items: start;
+}
+
+.about__prose {
+  min-width: 0;
+}
+
+/* The bio's first sentence, set as the prototype's display lead. */
+.about__lead {
+  font-family: var(--font-serif);
+  font-size: clamp(23px, 3vw, 32px);
+  line-height: 1.22;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.about__body {
+  color: var(--muted);
+  margin: 16px 0 0;
+  max-width: 62ch;
+}
+
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+/* PORTRAIT for a person, LANDSCAPE for a room — the prototype uses both, and
+   which one is right is a fact about the subject: an act's pictures are of a
+   player on a stage, a venue's are of the space. Cropping one to the other's
+   shape is what makes a gallery look like it went wrong. */
+.gallery--landscape .gallery__item {
+  aspect-ratio: 5 / 4;
+}
+
+.gallery__item {
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--shape-fill);
+  display: block;
+}
+
+/* ---------- Find us ---------- */
+.findus {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.findus__card {
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--card);
+}
+
+.findus__street {
+  margin: 0;
+  font-weight: 500;
+  font-size: 17px;
+}
+
+.findus__line {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.findus__notes {
+  margin: 0;
+  color: var(--muted);
+  max-width: 62ch;
+}
+
+/* ---------- The industry lane ---------- */
 .lane {
-  margin-top: 30px;
-  padding-top: 22px;
-  border-top: 1px solid var(--border);
+  width: min(100%, var(--page-width));
+  margin-inline: auto;
+  padding: clamp(18px, 2.6vw, 24px) clamp(20px, 3vw, 28px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 20px;
+  background: var(--surface);
+}
+
+.lane__words {
+  min-width: min(100%, 320px);
+  flex: 1;
 }
 
 .lane__eyebrow {
   display: block;
+  color: var(--accent);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 11px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--dim);
-  margin-bottom: 8px;
 }
 
 .lane__prose {
+  margin: 8px 0 0;
   color: var(--muted);
-  font-size: 13.5px;
-  line-height: 1.6;
-  margin: 0 0 14px;
-  max-width: 60ch;
+  font-size: 14px;
+  max-width: 66ch;
 }
 
 .lane__actions {
@@ -551,16 +965,146 @@ body {
   gap: 10px;
 }
 
-.lane__cta {
-  padding: 9px 18px;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  color: var(--text);
-  font-size: 13.5px;
-  text-decoration: none;
+.lane__actions .btn {
+  padding: 12px 20px;
+  font-size: 14px;
 }
 
-.lane__cta:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+/* The card the request form is drawn on. It sits inside the modal shell
+   (`request.css`), which owns the size and the position — this only says what the
+   surface looks like, the same way `.card` does on the availability page. */
+.request {
+  padding: clamp(18px, 3vw, 26px);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+/* ---------- The phone's sticky bar (prototype 3c) ---------- */
+.stickybar {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .stickybar {
+    position: fixed;
+    z-index: 4;
+    inset: auto 0 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+    background: rgba(10, 6, 4, 0.86);
+    backdrop-filter: blur(14px);
+  }
+
+  [data-theme="light"] .stickybar {
+    background: rgba(251, 246, 238, 0.92);
+  }
+
+  .stickybar__words {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .stickybar__stamp {
+    color: var(--muted);
+    font-size: 12.5px;
+  }
+
+  .stickybar__title {
+    font-weight: 500;
+    font-size: 15px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .stickybar .btn {
+    flex: none;
+    padding: 11px 18px;
+    font-size: 14px;
+  }
+
+  /* Room for the bar, so it never covers the last line of the page. */
+  .pagefoot {
+    padding-bottom: 96px;
+  }
+}
+
+/* ---------- Footer ---------- */
+.pagefoot {
+  width: min(100%, var(--page-width));
+  margin: clamp(48px, 7vw, 80px) auto 0;
+  padding: 22px var(--page-inset) 40px;
+  border-top: 1px solid var(--border);
+  color: var(--dim);
+  font-size: 13.5px;
+}
+
+.pagefoot p {
+  margin: 0;
+}
+
+/* ---------- Problem states ---------- */
+.problem {
+  width: min(100%, var(--page-width));
+  margin: calc(var(--topbar-height) + clamp(40px, 10vw, 100px)) auto 0;
+  padding-inline: var(--page-inset);
+}
+
+.problem__title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(26px, 5vw, 40px);
+  letter-spacing: -0.03em;
+  margin: 0 0 8px;
+}
+
+.problem__detail {
+  color: var(--muted);
+  margin: 0;
+  max-width: 52ch;
+}
+
+/* ---------- Narrower screens ----------
+   The prototype's phone cut (3c) is this page in one column, with the poster
+   cards and the about split collapsing in that order. */
+@media (max-width: 900px) {
+  .about {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .nextshow {
+    flex-wrap: wrap;
+  }
+
+  .nextshow__cta {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .showrow {
+    flex-wrap: wrap;
+    padding: 14px;
+  }
+
+  .showrow__body {
+    flex-basis: calc(100% - 96px);
+  }
+
+  .showrow__cta {
+    margin-left: auto;
+  }
+
+  .video,
+  .video__frame {
+    flex-basis: 100%;
+  }
 }

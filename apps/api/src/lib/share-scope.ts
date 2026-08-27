@@ -225,3 +225,50 @@ export async function findRecipientParty(
     displayName: first.displayName ?? null,
   };
 }
+
+/**
+ * The participant a share recipient was EXPLICITLY assigned to.
+ *
+ * The counterpart to `findRecipientParty` above, and the one that wins when both
+ * could answer. That function discovers a party from an address, which is right
+ * when nobody said who the recipient is — the Share & Export dialog takes an
+ * email and nothing else. But a settlement invitation is issued the other way
+ * round: the operator picks the party off the roster and then says where to send
+ * it, and for a party who is not on shoWMe there is no membership row carrying
+ * that address for the discovery join to find. Re-deriving it there does not just
+ * fail, it answers `null` — and the caller then wrote that null back over the
+ * operator's own choice, so the assignment survived exactly until the recipient
+ * first opened the link.
+ *
+ * Scoped to the share's event on purpose: a stored id is trusted, but only to
+ * name a participant on the event the share is actually about.
+ */
+export async function findParticipantParty(
+  // biome-ignore lint/suspicious/noExplicitAny: Drizzle db/tx handle.
+  database: any,
+  eventId: string,
+  participantId: string,
+): Promise<RecipientParty | null> {
+  const [row] = await database
+    .select({
+      participantId: schema.eventParticipants.id,
+      role: schema.eventParticipants.role,
+      profileId: schema.eventParticipants.profileId,
+      displayName: schema.profiles.name,
+    })
+    .from(schema.eventParticipants)
+    .innerJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
+    .where(
+      and(
+        eq(schema.eventParticipants.id, participantId),
+        eq(schema.eventParticipants.eventId, eventId),
+      ),
+    );
+  if (!row) return null;
+  return {
+    participantId: row.participantId,
+    role: row.role as EventRole,
+    profileId: row.profileId,
+    displayName: row.displayName ?? null,
+  };
+}

@@ -32,20 +32,20 @@ describe("share-crypto — OTP salted hash", () => {
   });
 
   it("hashes email case/space-insensitively", () => {
-    expect(emailHash("  Foo@Example.com ")).toBe(emailHash("foo@example.com"));
-    expect(normalizeEmail("  Foo@Example.com ")).toBe("foo@example.com");
+    expect(emailHash("  Foo@Example.ShowMe.Test ")).toBe(emailHash("foo@example.showme.test"));
+    expect(normalizeEmail("  Foo@Example.ShowMe.Test ")).toBe("foo@example.showme.test");
   });
 });
 
 describe("share-crypto — HS256 JWT sign/verify", () => {
   it("signs and verifies a valid token, returning its claims", () => {
-    const jwt = mintShareJwt("share-token", "user@example.com", SECRET);
+    const jwt = mintShareJwt("share-token", "user@example.showme.test", SECRET);
     expect(jwt.split(".")).toHaveLength(3);
 
     const claims = verifyShareJwt(jwt, SECRET);
     expect(claims).not.toBeNull();
     expect(claims?.token).toBe("share-token");
-    expect(claims?.email).toBe("user@example.com");
+    expect(claims?.email).toBe("user@example.showme.test");
     expect(claims?.exp).toBe((claims?.iat ?? 0) + JWT_TTL_SECONDS);
   });
 
@@ -54,7 +54,7 @@ describe("share-crypto — HS256 JWT sign/verify", () => {
     const jwt = signShareJwt(
       {
         token: "t",
-        email: "a@b.com",
+        email: "a@b.showme.test",
         iat: Math.floor(now / 1000),
         exp: Math.floor(now / 1000) + 60,
       },
@@ -62,20 +62,23 @@ describe("share-crypto — HS256 JWT sign/verify", () => {
     );
     const [header, , signature] = jwt.split(".");
     const forgedPayload = Buffer.from(
-      JSON.stringify({ token: "t", email: "evil@b.com", iat: 0, exp: 9999999999 }),
+      JSON.stringify({ token: "t", email: "evil@b.showme.test", iat: 0, exp: 9999999999 }),
     ).toString("base64url");
     const forged = `${header}.${forgedPayload}.${signature}`;
     expect(verifyShareJwt(forged, SECRET)).toBeNull();
   });
 
   it("rejects a token signed with a different secret", () => {
-    const jwt = mintShareJwt("t", "a@b.com", SECRET);
+    const jwt = mintShareJwt("t", "a@b.showme.test", SECRET);
     expect(verifyShareJwt(jwt, "other-secret")).toBeNull();
   });
 
   it("rejects an expired token", () => {
     const past = Math.floor(Date.now() / 1000) - 10;
-    const jwt = signShareJwt({ token: "t", email: "a@b.com", iat: past - 60, exp: past }, SECRET);
+    const jwt = signShareJwt(
+      { token: "t", email: "a@b.showme.test", iat: past - 60, exp: past },
+      SECRET,
+    );
     expect(verifyShareJwt(jwt, SECRET)).toBeNull();
   });
 

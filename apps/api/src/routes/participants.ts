@@ -11,6 +11,7 @@ import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import { renderOffPlatformPerformerEmail } from "../lib/email-templates";
 import { assertGrantAdminAllows } from "../lib/entitlements";
+import { loadEventSummary } from "../lib/event-summary";
 import { notifyProfileMembers } from "../lib/notify";
 import { createPerformerStub } from "../lib/off-platform";
 import { withIdempotency } from "../plugins/idempotency";
@@ -363,15 +364,7 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
       // columns here, inside the best-effort path: if this read fails the email
       // is simply skipped, exactly as a send failure already is.
       try {
-        const [event] = await database
-          .select({
-            id: schema.events.id,
-            title: schema.events.title,
-            eventDate: schema.events.eventDate,
-            venueName: schema.events.venueName,
-          })
-          .from(schema.events)
-          .where(eq(schema.events.id, id));
+        const event = await loadEventSummary(database, id);
         await request.server.emailSink.sendEmail({
           to: performerEmail,
           ...renderOffPlatformPerformerEmail({ performerName, event }),

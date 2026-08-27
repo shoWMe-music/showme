@@ -11,7 +11,7 @@ import { buildTestApp } from "./testing";
 
 /**
  * Fake verifier: the bearer token IS the uid, so tests just send `Bearer <uid>`.
- * The identity carries a VERIFIED `<uid>@example.com`, because the redemption
+ * The identity carries a VERIFIED `<uid>@example.showme.test`, because the redemption
  * routes now read both halves — an invitation is redeemable only by the address
  * it names, and only once Firebase says that address is really theirs. Tests
  * that need the other side of that rule override the identity per-request
@@ -19,7 +19,7 @@ import { buildTestApp } from "./testing";
  */
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, emailVerified: true, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, emailVerified: true, name: token };
   },
 };
 
@@ -42,7 +42,9 @@ const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 /** A bare provisioned user (no memberships). The display name matters now: the
  * offer a link-holder reads names who invited them, and it reads it off here. */
 async function seedUser(id: string, kind: "operator" | "performer") {
-  await harness.db.insert(schema.users).values({ id, email: `${id}@example.com`, name: id, kind });
+  await harness.db
+    .insert(schema.users)
+    .values({ id, email: `${id}@example.showme.test`, name: id, kind });
 }
 
 /** Seed an owner + their profile + a permission set. Returns the ids. */
@@ -83,7 +85,7 @@ describe("invitations — create, redeem, decline", () => {
       payload: {
         type: "code",
         source: "collaborator",
-        recipientEmail: "inv-recipient@example.com",
+        recipientEmail: "inv-recipient@example.showme.test",
         recipientName: "Rae Recipient",
         targetProfileId: owner.profileId,
         role: "editor",
@@ -117,7 +119,7 @@ describe("invitations — create, redeem, decline", () => {
       role: "editor",
       recipientName: "Rae Recipient",
       // Their own address, in full, because it is theirs.
-      recipientEmail: "inv-recipient@example.com",
+      recipientEmail: "inv-recipient@example.showme.test",
       boundToEmail: true,
       viewer: { signedIn: true, emailMatches: true, emailVerified: true },
     });
@@ -315,7 +317,7 @@ describe("invitations — create, redeem, decline", () => {
         type: "profile_member",
         source: "performer_offer",
         status: "pending",
-        recipientEmail: "claim-user@example.com",
+        recipientEmail: "claim-user@example.showme.test",
         token: "claim-token-abc",
         targetProfileId: stub.id,
         role: "owner",
@@ -409,7 +411,7 @@ describe("invitations — the grant_admin entitlement gate (paid plans only)", (
       payload: {
         type: "event_participant",
         source: "collaborator",
-        recipientEmail: "inv-ga-free-rec@example.com",
+        recipientEmail: "inv-ga-free-rec@example.showme.test",
         targetEventId: event.id,
         role: "co_host",
         // `seedOwnerWithProfile` mints the operator_full bundle — admin-grade.
@@ -440,7 +442,7 @@ describe("invitations — the grant_admin entitlement gate (paid plans only)", (
       payload: {
         type: "event_participant",
         source: "collaborator",
-        recipientEmail: `${recipient.userId}@example.com`,
+        recipientEmail: `${recipient.userId}@example.showme.test`,
         targetEventId: event.id,
         role: "co_host",
         permissionSetId: host.permissionSetId,
@@ -481,7 +483,7 @@ describe("invitations — the grant_admin entitlement gate (paid plans only)", (
         source: "collaborator",
         status: "pending",
         token: "inv-ga-lapse-token",
-        recipientEmail: `${recipient.userId}@example.com`,
+        recipientEmail: `${recipient.userId}@example.showme.test`,
         targetEventId: event.id,
         role: "co_host",
         permissionSetId: host.permissionSetId,
@@ -537,7 +539,7 @@ describe("invitations — the grant_admin entitlement gate (paid plans only)", (
       payload: {
         type: "event_participant",
         source: "collaborator",
-        recipientEmail: `${recipient.userId}@example.com`,
+        recipientEmail: `${recipient.userId}@example.showme.test`,
         targetEventId: event.id,
         role: "performer",
         permissionSetId: performerSet.id,
@@ -577,7 +579,7 @@ describe("invitations — the PROFILE-level grant_admin gate (A-37)", () => {
       payload: {
         type: "profile_member",
         source: "team",
-        recipientEmail: "second@example.com",
+        recipientEmail: "second@example.showme.test",
         targetProfileId: owner.profileId,
         role: "admin",
       },
@@ -605,7 +607,7 @@ describe("invitations — the PROFILE-level grant_admin gate (A-37)", () => {
       payload: {
         type: "profile_member",
         source: "team",
-        recipientEmail: `${invitee.userId}@example.com`,
+        recipientEmail: `${invitee.userId}@example.showme.test`,
         targetProfileId: owner.profileId,
         role: "admin",
       },
@@ -648,7 +650,7 @@ describe("invitations — the PROFILE-level grant_admin gate (A-37)", () => {
         source: "team",
         status: "pending",
         token: "inv-pa-lapse-token",
-        recipientEmail: `${invitee.userId}@example.com`,
+        recipientEmail: `${invitee.userId}@example.showme.test`,
         targetProfileId: owner.profileId,
         role: "admin",
         createdByUser: "inv-pa-lapse",
@@ -694,7 +696,7 @@ describe("invitations — the PROFILE-level grant_admin gate (A-37)", () => {
       payload: {
         type: "profile_member",
         source: "team",
-        recipientEmail: `${invitee.userId}@example.com`,
+        recipientEmail: `${invitee.userId}@example.showme.test`,
         targetProfileId: owner.profileId,
         role: "editor",
       },
@@ -812,7 +814,7 @@ describe("invitations — what reaches an event's history", () => {
       payload: {
         type: "event_participant",
         source: "collaborator",
-        recipientEmail: "inv-act-rec@example.com",
+        recipientEmail: "inv-act-rec@example.showme.test",
         recipientName: "Ada Act",
         targetEventId: event.id,
         role: "performer",
@@ -837,7 +839,7 @@ describe("invitations — what reaches an event's history", () => {
     // Both sit at the event-level `invitation` tier, and neither carries the
     // recipient's email address.
     expect(rows.every((row) => row.targetKind === "invitation")).toBe(true);
-    expect(JSON.stringify(rows.map((row) => row.summary))).not.toContain("@example.com");
+    expect(JSON.stringify(rows.map((row) => row.summary))).not.toContain("@example.showme.test");
     // The acceptance is recorded against the person who accepted, not the inviter.
     expect(rows.find((row) => row.type === "invitation.accepted")?.actorUserId).toBe("inv-act-rec");
 
@@ -849,7 +851,7 @@ describe("invitations — what reaches an event's history", () => {
       payload: {
         type: "profile_member",
         source: "collaborator",
-        recipientEmail: "someone-else@example.com",
+        recipientEmail: "someone-else@example.showme.test",
         targetProfileId: host.profileId,
         role: "editor",
       },
@@ -898,7 +900,7 @@ describe("GET /events/:id/invitations — the event's open invitations", () => {
       payload: {
         type: "event_participant",
         source: "collaborator",
-        recipientEmail: "nils@example.com",
+        recipientEmail: "nils@example.showme.test",
         recipientName: "Nils Andersson",
         targetEventId: event.id,
         role: "co_host",
@@ -915,7 +917,7 @@ describe("GET /events/:id/invitations — the event's open invitations", () => {
     expect(listed.json()).toHaveLength(1);
     expect(listed.json()[0]).toMatchObject({
       status: "pending",
-      recipientEmail: "nils@example.com",
+      recipientEmail: "nils@example.showme.test",
       recipientName: "Nils Andersson",
       role: "co_host",
     });
@@ -938,7 +940,7 @@ describe("GET /events/:id/invitations — the event's open invitations", () => {
       payload: {
         type: "event_participant",
         source: "collaborator",
-        recipientEmail: "answered-list-invitee@example.com",
+        recipientEmail: "answered-list-invitee@example.showme.test",
         targetEventId: event.id,
         role: "crew",
       },
@@ -977,7 +979,7 @@ describe("GET /events/:id/invitations — the event's open invitations", () => {
       source: "collaborator",
       status: "pending",
       token: "expired-token-for-the-list",
-      recipientEmail: "late@example.com",
+      recipientEmail: "late@example.showme.test",
       targetEventId: event.id,
       role: "crew",
       expiresAt: new Date(Date.now() - 1000),
@@ -1004,7 +1006,7 @@ describe("GET /events/:id/invitations — the event's open invitations", () => {
       payload: {
         type: "event_participant",
         source: "collaborator",
-        recipientEmail: "private@example.com",
+        recipientEmail: "private@example.showme.test",
         targetEventId: event.id,
         role: "performer",
       },
@@ -1125,7 +1127,7 @@ describe("the invitation email — what actually goes out", () => {
       payload: {
         type: "event_participant",
         source: "collaborator",
-        recipientEmail: "daniel@showme.music",
+        recipientEmail: "daniel@showme.test",
         recipientName: "Daniel",
         targetEventId: event.id,
         role: "co_host",
@@ -1134,7 +1136,7 @@ describe("the invitation email — what actually goes out", () => {
     expect(created.statusCode).toBe(201);
     const token = created.json().token as string;
 
-    const message = sent.find((entry) => entry.to === "daniel@showme.music");
+    const message = sent.find((entry) => entry.to === "daniel@showme.test");
     expect(message).toBeDefined();
     // The subject has to say WHICH event, or the invitation is unidentifiable in
     // an inbox that may hold several.
@@ -1178,7 +1180,12 @@ describe("invitations — the invitation is bound to the address it names", () =
    */
   const unverifiedVerifier: TokenVerifier = {
     async verify(token: string) {
-      return { uid: token, email: `${token}@example.com`, emailVerified: false, name: token };
+      return {
+        uid: token,
+        email: `${token}@example.showme.test`,
+        emailVerified: false,
+        name: token,
+      };
     },
   };
   let unverifiedApp: FastifyInstance;
@@ -1207,7 +1214,7 @@ describe("invitations — the invitation is bound to the address it names", () =
         source: "team",
         status: "pending",
         token: `${prefix}-token`,
-        recipientEmail: `${prefix}-invitee@example.com`,
+        recipientEmail: `${prefix}-invitee@example.showme.test`,
         recipientName: "Rae Recipient",
         targetProfileId: owner.profileId,
         role: "editor",
@@ -1326,7 +1333,7 @@ describe("invitations — the invitation is bound to the address it names", () =
         source: "venue_handoff",
         status: "pending",
         token: "bind-claim-token",
-        recipientEmail: "bind-claim-invitee@example.com",
+        recipientEmail: "bind-claim-invitee@example.showme.test",
         targetProfileId: stub.id,
         createdByUser: "bind-claim-host",
       })
@@ -1435,7 +1442,7 @@ describe("GET /invitations/:token — the offer a link-holder reads", () => {
       source: "team",
       status: "pending",
       token: "offer-anon-token",
-      recipientEmail: "Daniel@ShowMe.Music",
+      recipientEmail: "Daniel@ShowMe.Test",
       recipientName: "Daniel",
       targetProfileId: owner.profileId,
       role: "editor",
@@ -1461,8 +1468,8 @@ describe("GET /invitations/:token — the offer a link-holder reads", () => {
     expect(offer.claimable).toBe(false);
     // Enough for its owner to recognise, useless to anyone else — and the
     // address is never returned in full to a stranger, whatever its casing.
-    expect(offer.recipientEmail).toBe("d•••@s•••.music");
-    expect(JSON.stringify(offer)).not.toContain("daniel@showme.music");
+    expect(offer.recipientEmail).toBe("d•••@s•••.test");
+    expect(JSON.stringify(offer)).not.toContain("daniel@showme.test");
     expect(JSON.stringify(offer)).not.toContain("offer-anon-token");
   });
 
@@ -1475,7 +1482,7 @@ describe("GET /invitations/:token — the offer a link-holder reads", () => {
       source: "team",
       status: "pending",
       token: "offer-wrong-token",
-      recipientEmail: "invitee@elsewhere.example",
+      recipientEmail: "invitee@elsewhere.showme.test",
       targetProfileId: owner.profileId,
       role: "editor",
       createdByUser: "offer-wrong-owner",
@@ -1492,7 +1499,7 @@ describe("GET /invitations/:token — the offer a link-holder reads", () => {
       emailMatches: false,
       emailVerified: true,
     });
-    expect(response.json().recipientEmail).toBe("i•••@e•••.example");
+    expect(response.json().recipientEmail).toBe("i•••@e•••.showme.test");
   });
 
   it("names the terminal states instead of 404ing them", async () => {
@@ -1561,7 +1568,7 @@ describe("GET /invitations/:token — the offer a link-holder reads", () => {
       source: "venue_handoff",
       status: "pending",
       token: "offer-claim-token",
-      recipientEmail: "offer-claim-invitee@example.com",
+      recipientEmail: "offer-claim-invitee@example.showme.test",
       targetProfileId: stub.id,
       createdByUser: "offer-claim-host",
     });
@@ -1675,7 +1682,7 @@ describe("invitations — expiry and revocation", () => {
         source: "team",
         status: "pending",
         token: "expiry-bite-token",
-        recipientEmail: "expiry-bite-invitee@example.com",
+        recipientEmail: "expiry-bite-invitee@example.showme.test",
         targetProfileId: owner.profileId,
         role: "editor",
         expiresAt: new Date(Date.now() - 60_000),
@@ -1719,7 +1726,7 @@ describe("invitations — expiry and revocation", () => {
       payload: {
         type: "event_participant",
         source: "collaborator",
-        recipientEmail: "revoke-ok-invitee@example.com",
+        recipientEmail: "revoke-ok-invitee@example.showme.test",
         recipientName: "Rae Recipient",
         targetEventId: event.id,
         role: "performer",
@@ -1791,7 +1798,7 @@ describe("invitations — expiry and revocation", () => {
       payload: {
         type: "event_participant",
         source: "collaborator",
-        recipientEmail: "someone@example.com",
+        recipientEmail: "someone@example.showme.test",
         targetEventId: event.id,
         role: "performer",
       },
@@ -1821,7 +1828,7 @@ describe("invitations — expiry and revocation", () => {
       payload: {
         type: "profile_member",
         source: "team",
-        recipientEmail: "revoke-late-invitee@example.com",
+        recipientEmail: "revoke-late-invitee@example.showme.test",
         targetProfileId: owner.profileId,
         role: "editor",
       },
@@ -1877,7 +1884,7 @@ describe("invitations — claiming links the stub's own membership", () => {
       .values({
         profileId: stub.id,
         userId: null,
-        email: "Link-Invitee@Example.com",
+        email: "Link-Invitee@Example.ShowMe.Test",
         displayName: "Unclaimed Act",
         role: "owner",
         status: "active",
@@ -1890,7 +1897,7 @@ describe("invitations — claiming links the stub's own membership", () => {
       source: "venue_handoff",
       status: "pending",
       token: "link-token",
-      recipientEmail: "link-invitee@example.com",
+      recipientEmail: "link-invitee@example.showme.test",
       targetProfileId: stub.id,
       createdByUser: "link-host",
     });
@@ -1937,7 +1944,7 @@ describe("invitations — claiming links the stub's own membership", () => {
       source: "venue_handoff",
       status: "pending",
       token: "nolink-token",
-      recipientEmail: "nolink-invitee@example.com",
+      recipientEmail: "nolink-invitee@example.showme.test",
       targetProfileId: stub.id,
       createdByUser: "nolink-host",
     });

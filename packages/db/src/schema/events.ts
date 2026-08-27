@@ -1,3 +1,4 @@
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
   boolean,
   date,
@@ -12,6 +13,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { permissionSets } from "./authorization";
+import { files } from "./content";
 import { eventParticipantRole, eventParticipantStatus, eventStatus, performerTag } from "./enums";
 import { profiles, users } from "./identity";
 
@@ -45,6 +47,21 @@ export const events = pgTable("events", {
   venueProfileId: uuid("venue_profile_id").references(() => profiles.id),
   stageId: uuid("stage_id").references(() => stages.id, { onDelete: "set null" }),
   venueName: text("venue_name"),
+  /**
+   * The poster. Same two-form ladder a profile's picture uses, and for the same
+   * reasons: `image_file_id` is an upload in the host profile's own storage
+   * folder, handed to the browser as a freshly signed URL on every read;
+   * `image_url` is a plain external address, which is all a fixture (or a show
+   * whose art lives on someone else's site) can offer. The FILE wins when both
+   * are set — `serialize/event-image.ts` resolves the ladder in one place.
+   *
+   * A signed URL cannot be stored in the URL column: it expires in fifteen
+   * minutes, so a show would have a poster until lunchtime.
+   */
+  imageFileId: uuid("image_file_id").references((): AnyPgColumn => files.id, {
+    onDelete: "set null",
+  }),
+  imageUrl: text("image_url"),
   capacity: integer("capacity"),
   baseCurrency: text("base_currency").notNull(),
   published: boolean("published").notNull().default(false),

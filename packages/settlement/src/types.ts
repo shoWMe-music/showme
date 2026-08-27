@@ -9,6 +9,9 @@
 /** The settlement math a deal uses (matches the DB `deal_structure` enum). */
 export type DealStructure = "guarantee" | "door_split" | "guarantee_vs_door" | "rental";
 
+/** `deals.payment_timing` — WHEN the deal's money moves, relative to the night. */
+export type PaymentTiming = "before_event" | "at_settlement" | "due_date";
+
 /** A tiered escalator: at/above `thresholdSold` tickets, the split becomes `splitBasisPoints`. */
 export interface EscalatorTier {
   thresholdSold: number;
@@ -48,6 +51,22 @@ export interface SettlementDeal {
   /** Basis points per payee for a split deal (keys are participantIds, values sum to 10000). */
   partyShares?: Record<string, number>;
   commissions?: DisclosedCommission[];
+  /**
+   * Money this deal ALREADY MOVED, before the night — a rental paid to hold the
+   * room, a guarantee paid to secure the booking. See `prepaid.ts` for how it is
+   * read off the terms.
+   *
+   * It never touches the entitlement: the deal says what a party earned, and an
+   * advance is part of that same fee arriving early. It settles as cash held, so
+   * only the REMAINING transfer shrinks.
+   */
+  prepaidAmount?: bigint;
+  /**
+   * Who paid it. Required whenever `prepaidAmount` is set — an advance has two
+   * ends, and booking only the receiving one would put money into the settlement
+   * from nowhere and break `Σ net = 0`.
+   */
+  payerParticipantId?: string;
 }
 
 /** An external-cash budget line. `payeeParticipantId` set = a deductible on that party. */
@@ -81,7 +100,15 @@ export interface PartyBreakdown {
   entitlement: bigint;
   collected: bigint;
   paid: bigint;
-  held: bigint; // collected − paid
+  /**
+   * Net moved BEFORE the event under a deal: positive for a party that received
+   * an advance, negative for the party that paid one out. Kept apart from
+   * `collected`/`paid`, which are external cash off the budget — an advance is
+   * neither the door takings nor a cost, and folding it into either would make
+   * the board say the performer took money off the bar.
+   */
+  prepaid: bigint;
+  held: bigint; // collected − paid + prepaid
   net: bigint; // entitlement − held (+ owed to them, − holding too much)
   /**
    * What `entitlement` is MADE OF, and it adds up exactly:

@@ -36,7 +36,7 @@ async function seedMember(
   const { db } = harness;
   const [user] = await db
     .insert(schema.users)
-    .values({ id, email: `${id}@example.com`, kind })
+    .values({ id, email: `${id}@example.showme.test`, kind })
     .returning();
   const [profile] = await db
     .insert(schema.profiles)

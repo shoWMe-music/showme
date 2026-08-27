@@ -103,8 +103,12 @@ function slugify(value: string): string {
  * "No location set". The profile route returns `profile.location` from that table
  * and migration 0010 moved the stray strings into it.
  */
-function readDetails(details: unknown): { genres: string[]; setups: ProfileSetupDraft[] } {
-  if (!details || typeof details !== "object") return { genres: [], setups: [] };
+function readDetails(details: unknown): {
+  genres: string[];
+  setups: ProfileSetupDraft[];
+  tagline: string;
+} {
+  if (!details || typeof details !== "object") return { genres: [], setups: [], tagline: "" };
   const record = details as Record<string, unknown>;
   const genres = Array.isArray(record.genres)
     ? record.genres.filter((genre): genre is string => typeof genre === "string")
@@ -122,7 +126,8 @@ function readDetails(details: unknown): { genres: string[]; setups: ProfileSetup
         ];
       })
     : [];
-  return { genres, setups };
+  const tagline = typeof record.tagline === "string" ? record.tagline : "";
+  return { genres, setups, tagline };
 }
 
 export function Profiles() {
@@ -229,7 +234,12 @@ export function Profiles() {
                       "border-color .15s var(--ease-out), box-shadow .15s var(--ease-out)",
                   }}
                 >
+                  {/* The owner's own picture when they have one — `Avatar`
+                      ignores `initials` once `src` is set, so the letters stay
+                      as the fallback for a profile with no logo yet. */}
                   <Avatar
+                    src={profile.avatarUrl ?? undefined}
+                    alt=""
                     initials={initialsOf(profile.name)}
                     shape="circle"
                     size={38}
@@ -472,6 +482,7 @@ function ProfileEditor({
   const initial = readDetails(profile.details);
   const [name, setName] = useState(profile.name);
   const [bio, setBio] = useState(profile.bio ?? "");
+  const [tagline, setTagline] = useState(initial.tagline);
   // Pictures are FILES now. The draft holds the id that will be saved plus the
   // signed URL that draws it — the URL is not what is stored, because it expires.
   const [avatar, setAvatar] = useState<ProfileImageDraft>(() => toImageDraft(profile.avatarUrl));
@@ -543,6 +554,7 @@ function ProfileEditor({
     const details = readDetails(profile.details);
     setName(profile.name);
     setBio(profile.bio ?? "");
+    setTagline(details.tagline);
     setAvatar(toImageDraft(profile.avatarUrl));
     setBanner(toImageDraft(profile.bannerUrl));
     setStreet(profile.location?.street ?? "");
@@ -600,6 +612,9 @@ function ProfileEditor({
           country: blankToNull(country),
         },
         details: { ...baseDetails, genres: genreList },
+        // Its own field, not a key we hand-merge into the blob above — the API
+        // owns that merge for the same reason it owns `setups`.
+        tagline: blankToNull(tagline),
         // `setups` rides beside `details`; the API merges it in so the client
         // never hand-edits the jsonb blob.
         ...(showsSetups
@@ -649,6 +664,17 @@ function ProfileEditor({
             placeholder="Choose a type…"
           />
         )}
+
+        {/* The one line under the name on the public page. Above the bio because
+            that is the order the page reads in, and because an owner who fills
+            in one long field and stops has filled in the wrong one. */}
+        <TextField
+          label="Tagline"
+          value={tagline}
+          maxLength={140}
+          placeholder="One line under your name — what you sound like, or what the room is for"
+          onChange={(event) => setTagline(event.target.value)}
+        />
 
         <VenueNotesField
           label="Bio"

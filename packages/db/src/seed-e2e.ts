@@ -22,6 +22,24 @@ import {
 import * as schema from "./schema";
 
 /**
+ * Where the marketing site is served from, for the seeded pictures below.
+ *
+ * The public site owns the fixture artwork (`apps/marketing/public/seed/`), so a
+ * seeded profile points at it by address — the `*_url` half of the picture ladder,
+ * which exists for exactly this: an image somebody else hosts. The uploaded half
+ * (`*_file_id`) cannot be seeded, because in local dev the object store is the
+ * API's own in-memory loopback sink and it forgets everything on restart.
+ *
+ * Mirrors `publicSiteUrl()` in the web app, including its dev default.
+ */
+const PUBLIC_SITE_URL = (process.env.PUBLIC_SITE_URL ?? "http://localhost:5173").replace(/\/$/, "");
+
+/** A fixture picture, by file name. See `apps/marketing/public/seed/README.md`. */
+function seedImage(fileName: string): string {
+  return `${PUBLIC_SITE_URL}/seed/${fileName}`;
+}
+
+/**
  * End-to-end test seed — a self-contained, deterministic Postgres dataset that
  * provisions ALL FOUR account kinds as real, cross-wired, log-in-able accounts so
  * the Playwright harness can validate every kind's flows, including two users
@@ -58,6 +76,7 @@ const performerAUserId = E2E_ACCOUNTS.performerA.uid;
 const performerBUserId = E2E_ACCOUNTS.performerB.uid;
 const teamAndCrewUserId = E2E_ACCOUNTS.teamAndCrew.uid;
 const agentUserId = E2E_ACCOUNTS.agent.uid;
+const coHostUserId = E2E_ACCOUNTS.coHost.uid;
 
 // ── Deterministic ids (marker prefix "e2e0" = e2e) so re-runs are clean. ──────
 const PROFILE_IDS = {
@@ -66,6 +85,7 @@ const PROFILE_IDS = {
   performerB: "e2e00000-0000-4000-8000-0000000000a3",
   teamAndCrew: "e2e00000-0000-4000-8000-0000000000a4",
   agent: "e2e00000-0000-4000-8000-0000000000a5",
+  coHost: "e2e00000-0000-4000-8000-0000000000a6",
 } as const;
 
 // Riders on the Album Release: performerA's tech rider (a PDF, the preview's
@@ -106,6 +126,7 @@ const PART = {
   openMicHost: "e2e00000-0000-4000-8000-0000000000b8",
   synthHost: "e2e00000-0000-4000-8000-0000000000b9",
   winterHost: "e2e00000-0000-4000-8000-0000000000ba",
+  albumCoHost: "e2e00000-0000-4000-8000-0000000000bb",
 } as const;
 
 // Permission sets — one per (profile, tier). Cascade with their owning profile on
@@ -117,6 +138,7 @@ const PERMISSION_SET_IDS = {
   performerBOwn: "e2e00000-0000-4000-8000-0000000000c3", // performerB's own set (album split)
   crewScheduleOnly: "e2e00000-0000-4000-8000-0000000000c4", // team_and_crew (crew) on album
   agent: "e2e00000-0000-4000-8000-0000000000c5", // agent fan-out on album
+  coHostFull: "e2e00000-0000-4000-8000-0000000000c6", // co-promoter on album
 } as const;
 
 // PRESET_PERMISSION_SETS.operator_full (@showme/auth), inlined.
@@ -184,6 +206,7 @@ const AGENT_CAPABILITIES = [
   "deal.view.own",
   "deal.edit",
   "settlement.view.own",
+  "settlement.confirm",
   "agreement.manage",
   "agreement.confirm",
   "schedule.view",
@@ -336,6 +359,20 @@ async function main() {
       .where(inArray(schema.groupMembers.id, [...GROUP_MEMBER_IDS])); // cascades with the group, but be explicit
     await database.delete(schema.groups).where(inArray(schema.groups.id, Object.values(GROUP_IDS)));
 
+    // The review trail. All three cascade with their EVENT, but each also holds a
+    // NO ACTION reference to `event_participants` — which the event delete
+    // cascades too — so leaving them to the cascade is a race the seed loses as
+    // soon as anybody has actually used a settlement. Deleting them by hand
+    // first is what makes the fixture re-runnable after a walkthrough.
+    await database
+      .delete(schema.settlementComments)
+      .where(inArray(schema.settlementComments.eventId, eventIds));
+    await database
+      .delete(schema.settlementApprovals)
+      .where(inArray(schema.settlementApprovals.eventId, eventIds));
+    await database
+      .delete(schema.budgetSnapshots)
+      .where(inArray(schema.budgetSnapshots.eventId, eventIds));
     await database
       .delete(schema.settlementTransfers)
       .where(inArray(schema.settlementTransfers.eventId, eventIds)); // → participants, representations (no action)
@@ -353,6 +390,20 @@ async function main() {
       .delete(schema.representations)
       .where(inArray(schema.representations.id, [REPRESENTATION_ID])); // → profiles (no action)
     await database.delete(schema.events).where(inArray(schema.events.id, eventIds)); // cascades participants + setlists
+    // The audit log outlives everything it describes — that is the point of it —
+    // so it pins the seeded profiles with a NO ACTION reference and blocks the
+    // delete below. A fixture's audit trail is not a record anybody needs kept,
+    // and this is the seeded profiles' own rows only.
+    await database
+      .delete(schema.auditLog)
+      .where(inArray(schema.auditLog.actingProfileId, profileIds));
+    // Anything these profiles UPLOADED. Not seeded rows — files a developer
+    // created by using the app (a profile picture, a show's poster), which the
+    // seed knows nothing about and which `files.owner_profile_id` refuses to let
+    // the profile delete out from under. Without this, using the feature once
+    // makes the next reseed fail with a foreign-key error that names a table the
+    // seed never writes.
+    await database.delete(schema.files).where(inArray(schema.files.ownerProfileId, profileIds));
     await database.delete(schema.profiles).where(inArray(schema.profiles.id, profileIds)); // cascades members, locations, permission_sets
 
     // ── 2. Users — one per E2E account. Create-if-missing; never overwrite. ─
@@ -397,6 +448,15 @@ async function main() {
           timezone: "Europe/Stockholm",
         },
         {
+          id: coHostUserId,
+          email: E2E_ACCOUNTS.coHost.email,
+          name: E2E_ACCOUNTS.coHost.displayName,
+          kind: "operator",
+          currency: SEK,
+          country: "SE",
+          timezone: "Europe/Stockholm",
+        },
+        {
           id: agentUserId,
           email: E2E_ACCOUNTS.agent.email,
           name: E2E_ACCOUNTS.agent.displayName,
@@ -420,9 +480,16 @@ async function main() {
           name: E2E_ACCOUNTS.operator.profileName,
           slug: "e2e-the-lantern-hall",
           isPublic: true,
-          bio: "A 400-cap live music venue in Södermalm, Stockholm.",
+          bio: "A 400-cap live music venue in Södermalm, Stockholm. Five nights a week, a house engineer on every show, and a bar that runs to curfew.",
           claimedAt: new Date(),
           createdBy: operatorUserId,
+          // The cover runs across the top of the public page; the logo is the
+          // face beside this profile's name everywhere in the app.
+          bannerUrl: seedImage("the-lantern-hall-cover.svg"),
+          avatarUrl: seedImage("the-lantern-hall-logo.svg"),
+          // The line under the name on the public page. Seeded because the
+          // page's hero is built around it and an unset one cannot be looked at.
+          details: { tagline: "Five nights a week, mostly loud." },
           billing: {
             legal_name: "Lantern Hall AB",
             vat_id: "SE556000000001",
@@ -438,9 +505,19 @@ async function main() {
           name: E2E_ACCOUNTS.performerA.profileName,
           slug: "e2e-marlo-vance",
           isPublic: true,
-          bio: "Indie-folk songwriter touring the Nordics. Represented by Astra Booking Agency.",
+          bio: "Indie-folk songwriter touring the Nordics. Solo at the piano one night and a four-piece the next, building a live set that scales to the room instead of fighting it.",
           claimedAt: new Date(),
           createdBy: performerAUserId,
+          bannerUrl: seedImage("marlo-vance-cover.svg"),
+          avatarUrl: seedImage("marlo-vance-logo.svg"),
+          details: {
+            tagline: "Songs built for rooms that listen.",
+            genres: ["Indie folk", "Americana"],
+            setups: [
+              { name: "Solo", headcount: 1 },
+              { name: "Full band", headcount: 4 },
+            ],
+          },
         },
         {
           id: PROFILE_IDS.performerB,
@@ -467,6 +544,24 @@ async function main() {
           createdBy: teamAndCrewUserId,
         },
         {
+          id: PROFILE_IDS.coHost,
+          kind: "operator",
+          type: "promoter",
+          ownerUserId: coHostUserId,
+          name: E2E_ACCOUNTS.coHost.profileName,
+          slug: "e2e-northlight-presents",
+          isPublic: true,
+          bio: "Independent promoter co-presenting shows with Nordic venues.",
+          claimedAt: new Date(),
+          createdBy: coHostUserId,
+          billing: {
+            legal_name: "Northlight Presents AB",
+            vat_id: "SE556000000002",
+            vat_rate: 25,
+            invoice_number_seq: 1,
+          },
+        },
+        {
           id: PROFILE_IDS.agent,
           kind: "agent",
           type: "agency",
@@ -482,12 +577,39 @@ async function main() {
       .returning({ id: schema.profiles.id });
     record("profiles", profiles);
 
-    // Primary location for the operator (discovery queries read this).
+    // Primary location for the operator (discovery queries read this). The
+    // street half is published for a PLACE and nulled for everyone else by
+    // `serializePublicLocation`, so it is seeded here to exercise that rule as
+    // well as to draw the public page's "Find us".
     await database.insert(schema.profileLocations).values({
       profileId: PROFILE_IDS.operator,
+      street: "Hornsgatan 84",
+      postcode: "118 21",
       city: "Stockholm",
       country: "SE",
       isPrimary: true,
+    });
+
+    // The room, as its owner advertises it. Without this row a venue's public
+    // page has no capacity, no curfew and no chips — the whole middle of the
+    // venue design — and the venue-details editor has nothing to load either.
+    // The private half (artist logistics, booking contact) is seeded too, on
+    // purpose: it is what the public projection has to be seen NOT to publish.
+    await database.insert(schema.venueDetails).values({
+      profileId: PROFILE_IDS.operator,
+      capacity: 400,
+      soundSystem: "d&b audiotechnik V-Series",
+      curfew: "02:00",
+      amenities: ["pa_system", "sound_engineer", "lighting", "backline", "catering", "parking"],
+      dealTypes: ["door_split", "guarantee_plus_door_split", "rental"],
+      cateringNotes: "Hot meal for up to six from the kitchen next door, 17:00–21:00.",
+      accommodationNotes: "Two twin rooms held at the hotel across the square.",
+      artistLogisticsNotes:
+        "Load-in through the courtyard gate on Rosenlundsgatan. PRIVATE — never public.",
+      audienceLogisticsNotes:
+        "Doors on Hornsgatan, step-free from the pavement. Mariatorget (T-bana, red line) is four minutes' walk.",
+      contactEmail: "booking@lanternhall.example",
+      contactPhone: "+46 8 123 456",
     });
 
     // Platform links for the performer — the public page's "Listen" row, and the
@@ -513,6 +635,51 @@ async function main() {
         platform: "instagram",
         url: "https://www.instagram.com",
         position: 2,
+      },
+    ]);
+
+    // One video, so the public page's "Watch & listen" band is a real band and
+    // not an empty state. A permanently-public YouTube id (Blender Foundation's
+    // "Big Buck Bunny"): the page parses the link and builds the embed URL
+    // itself, so the seed only has to provide something that resolves.
+    await database.insert(schema.profileMedia).values([
+      {
+        profileId: PROFILE_IDS.performerA,
+        kind: "video",
+        url: "https://www.youtube.com/watch?v=YE7VzlLtp-4",
+        position: 0,
+      },
+      {
+        profileId: PROFILE_IDS.performerA,
+        kind: "video",
+        url: "https://vimeo.com/76979871",
+        position: 1,
+      },
+      // The gallery beside the About prose. Fixture artwork, not photographs —
+      // see `apps/marketing/public/seed/README.md`.
+      {
+        profileId: PROFILE_IDS.performerA,
+        kind: "photo",
+        url: seedImage("marlo-vance-live-1.svg"),
+        position: 0,
+      },
+      {
+        profileId: PROFILE_IDS.performerA,
+        kind: "photo",
+        url: seedImage("marlo-vance-live-2.svg"),
+        position: 1,
+      },
+      {
+        profileId: PROFILE_IDS.operator,
+        kind: "photo",
+        url: seedImage("the-lantern-hall-room-1.svg"),
+        position: 0,
+      },
+      {
+        profileId: PROFILE_IDS.operator,
+        kind: "photo",
+        url: seedImage("the-lantern-hall-room-2.svg"),
+        position: 1,
       },
     ]);
 
@@ -555,6 +722,15 @@ async function main() {
           status: "active",
           seatConsumed: true,
           addedBy: teamAndCrewUserId,
+        },
+        {
+          profileId: PROFILE_IDS.coHost,
+          userId: coHostUserId,
+          role: "owner",
+          displayName: E2E_ACCOUNTS.coHost.profileName,
+          status: "active",
+          seatConsumed: true,
+          addedBy: coHostUserId,
         },
         {
           profileId: PROFILE_IDS.agent,
@@ -630,6 +806,18 @@ async function main() {
           capabilities: CREW_SCHEDULE_ONLY_CAPABILITIES,
         },
         {
+          // A co-promoter is an OPERATOR, so it carries the operator tier —
+          // including the pool capabilities, which `isGrantable` refuses to every
+          // role but host/co_host. That is the whole point of the row: it proves
+          // the pool ceiling admits a second operator and still shuts out the
+          // performers on the same bill.
+          id: PERMISSION_SET_IDS.coHostFull,
+          profileId: PROFILE_IDS.coHost,
+          name: "Operator — full",
+          description: "Full operator control (operator_full preset).",
+          capabilities: OPERATOR_FULL_CAPABILITIES,
+        },
+        {
           id: PERMISSION_SET_IDS.agent,
           profileId: PROFILE_IDS.agent,
           name: "Agent — represents performer",
@@ -666,6 +854,14 @@ async function main() {
           capacity: 400,
           baseCurrency: SEK,
           published: true,
+          // The poster (migration 0026). A URL, not an upload: in local dev the
+          // object store is the API's own in-memory sink, so a seeded FILE would
+          // be a poster that 404s. See `apps/marketing/public/seed/README.md`.
+          imageUrl: seedImage("album-release-poster.svg"),
+          // Where the show IS. The create wizard writes these two keys into
+          // `extras`; the public bill reads them out by name and prints
+          // "Stockholm, SE" beside the room.
+          extras: { city: "Stockholm", country: "SE" },
           notes: "Headline release show. Marlo Vance + Neon Tide, split deal.",
           createdBy: operatorUserId,
         },
@@ -684,6 +880,10 @@ async function main() {
           capacity: 400,
           baseCurrency: SEK,
           published: true,
+          // Where the show IS. The create wizard writes these two keys into
+          // `extras`; the public bill reads them out by name and prints
+          // "Stockholm, SE" beside the room.
+          extras: { city: "Stockholm", country: "SE" },
           notes: "Sold well — settlement finalized.",
           createdBy: operatorUserId,
         },
@@ -798,6 +998,20 @@ async function main() {
             task: "Front-of-house sound",
             pay_note: "Fee invoiced separately",
           },
+          addedBy: operatorUserId,
+        },
+        {
+          // The co-promoter. `reconcile.ts` allocates the residual — `pool − Σ
+          // deal entitlements` — across EVERY participant flagged `isOperator`,
+          // which `OPERATOR_EVENT_ROLES` defines as host and co_host. With this
+          // row the Album Release's leftover splits two ways instead of falling
+          // whole to the venue, and `Σ net = 0` has to survive the division.
+          id: PART.albumCoHost,
+          eventId: EVENT_IDS.albumRelease,
+          profileId: PROFILE_IDS.coHost,
+          role: "co_host",
+          permissionSetId: PERMISSION_SET_IDS.coHostFull,
+          status: "confirmed",
           addedBy: operatorUserId,
         },
         {
@@ -1265,7 +1479,7 @@ async function main() {
           targetProfileId: PROFILE_IDS.operator,
           currency: SEK, // what the API stamps: the operator's primary location is SE
           contactName: "Anders Berg",
-          email: "anders@midnightecho.example",
+          email: "anders@midnightecho.showme.test",
           phone: "+46 70 123 45 67",
           artistName: "The Midnight Echo",
           wantedDate: dateOffsetFromToday(38),
@@ -1364,7 +1578,7 @@ async function main() {
           targetProfileId: PROFILE_IDS.operator,
           currency: SEK, // what the API stamps: the operator's primary location is SE
           contactName: "DJ Frostbite",
-          email: "frostbite@coldwax.example",
+          email: "frostbite@coldwax.showme.test",
           artistName: "DJ Frostbite",
           // The very night the draft below occupies — which is WHY the note says it
           // clashes. Pinning it to the same computed date keeps the reason true.
@@ -1384,7 +1598,7 @@ async function main() {
           targetProfileId: PROFILE_IDS.operator,
           currency: SEK, // what the API stamps: the operator's primary location is SE
           contactName: "MegaPromo Bookings",
-          email: "deals@megapromo.example",
+          email: "deals@megapromo.showme.test",
           artistName: "Various Artists",
           wantedDate: dateOffsetFromToday(80),
           pitch: "GUARANTEED SELLOUT!!! Book 20 of our acts now for a special rate, reply ASAP!!!",
@@ -1417,7 +1631,7 @@ async function main() {
           address: "Industrigatan 4, 117 45 Stockholm",
           notes: "PA + backline hire. Net-30 terms.",
           persons: [
-            { name: "Erik Sund", email: "erik@nordicsound.example", phone: "+46 8 555 010 20" },
+            { name: "Erik Sund", email: "erik@nordicsound.showme.test", phone: "+46 8 555 010 20" },
           ],
         },
         {
@@ -1446,7 +1660,11 @@ async function main() {
           type: "authority",
           notes: "Performing-rights reporting (the Swedish PRO the setlists are filed to).",
           persons: [
-            { name: "Reporting desk", email: "reporting@stim.example", phone: "+46 8 783 88 00" },
+            {
+              name: "Reporting desk",
+              email: "reporting@stim.showme.test",
+              phone: "+46 8 783 88 00",
+            },
           ],
         },
         {
@@ -1460,7 +1678,11 @@ async function main() {
           address: "Hornsgatan 88, 118 21 Stockholm",
           notes: "Green-room hospitality + artist meals.",
           persons: [
-            { name: "Amir Haddad", email: "amir@sodercatering.example", phone: "+46 8 640 11 22" },
+            {
+              name: "Amir Haddad",
+              email: "amir@sodercatering.showme.test",
+              phone: "+46 8 640 11 22",
+            },
           ],
         },
         {
@@ -1489,7 +1711,11 @@ async function main() {
           vatId: "SE556200100006",
           notes: "Door + crowd security staffing.",
           persons: [
-            { name: "Jonas Ek", email: "jonas@securitypartners.example", phone: "+46 8 700 60 50" },
+            {
+              name: "Jonas Ek",
+              email: "jonas@securitypartners.showme.test",
+              phone: "+46 8 700 60 50",
+            },
           ],
         },
       ])
@@ -1532,19 +1758,19 @@ async function main() {
         {
           id: GROUP_MEMBER_IDS[2],
           groupId: GROUP_IDS.coreCrew,
-          email: "tobias@stagehands.example",
+          email: "tobias@stagehands.showme.test",
           roleLabel: "Stage Manager",
         },
         {
           id: GROUP_MEMBER_IDS[3],
           groupId: GROUP_IDS.frontOfHouse,
-          email: "vera@lanternhall.example",
+          email: "vera@lanternhall.showme.test",
           roleLabel: "Bar Lead",
         },
         {
           id: GROUP_MEMBER_IDS[4],
           groupId: GROUP_IDS.frontOfHouse,
-          email: "milo@lanternhall.example",
+          email: "milo@lanternhall.showme.test",
           roleLabel: "Box Office",
         },
       ])

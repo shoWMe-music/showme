@@ -29,6 +29,13 @@ export interface SerializedBreakdown {
   commissionEarned?: string;
   deductibles?: string;
   residual?: string;
+  /**
+   * Money moved before the night under a deal (`prepaid.ts`). Optional on the way
+   * IN for the same reason as the four above: a settlement finalized before this
+   * existed is a legal record and is never rewritten, so it reads back as absent
+   * and means zero.
+   */
+  prepaid?: string;
 }
 
 /** One deal's contribution to a party's entitlement, money as STRING. */
@@ -134,6 +141,7 @@ export function serializeBreakdown(breakdown: PartyBreakdown): SerializedBreakdo
     entitlement: breakdown.entitlement.toString(),
     collected: breakdown.collected.toString(),
     paid: breakdown.paid.toString(),
+    prepaid: breakdown.prepaid.toString(),
     held: breakdown.held.toString(),
     net: breakdown.net.toString(),
     lines: breakdown.lines.map(serializeLine),

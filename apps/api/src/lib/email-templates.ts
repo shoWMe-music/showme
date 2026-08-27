@@ -422,3 +422,61 @@ export function renderEventNotificationEmail(input: {
     footerNote: "You received this because you are part of this event on shoWMe.",
   });
 }
+
+/**
+ * 5. A settlement is ready for someone to check (`POST /events/:id/settlement/status`
+ *    for parties with an account, `POST /events/:id/settlement/invitations` for those
+ *    without).
+ *
+ * ONE template, two destinations, because it is one message: *your figures are
+ * ready, go and check them*. A party with an account is sent to the settlement
+ * inside the app; a party without one is sent to a protected share link addressed
+ * to their own mailbox. Which link it carries is the only difference, and keeping
+ * them in one function is what stops the on-platform and off-platform halves of
+ * the same review drifting into two different asks.
+ *
+ * NO MONEY IN THE EMAIL. Not the entitlement, not the transfer, not the pool —
+ * the same rule the invitation and event-update notices already follow. A
+ * settlement is party-scoped and the screen behind the link is the only surface
+ * that can enforce that scoping (`story.md:44`); a figure in an email is a figure
+ * in whatever inbox the message is forwarded to. The email says a settlement is
+ * waiting and gets the reader to the place that can show them their own line.
+ */
+export function renderSettlementReviewEmail(input: {
+  recipientName?: string | null;
+  event: EventSummary;
+  /** Who sent it out, for the copy. */
+  senderName?: string | null;
+  /**
+   * The off-platform share token. Present → the link goes to `/shares/<token>`,
+   * which asks for a one-time code before it renders anything. Absent → the
+   * reader has an account and the link goes to the settlement in the app.
+   */
+  shareToken?: string | null;
+  baseUrl?: string;
+}): RenderedEmail {
+  const greeting = input.recipientName ? `Hi ${input.recipientName},` : "Hi,";
+  const sender = input.senderName ?? "The organizer";
+  const url = input.shareToken
+    ? buildApplicationUrl(`/shares/${encodeURIComponent(input.shareToken)}`, input.baseUrl)
+    : buildApplicationUrl(
+        `/events/${encodeURIComponent(input.event.id)}/settlement`,
+        input.baseUrl,
+      );
+
+  return render({
+    subject: `Settlement to review: ${input.event.title}`,
+    preheader: "Check your figures and sign off when they match your books.",
+    heading: "A settlement is ready for you",
+    paragraphs: [
+      `${greeting} ${sender} has sent out the settlement for ${input.event.title}.`,
+      "Open it to see your own line — what you are owed, and the rule behind every figure in it. If it matches your books, sign it off; if something looks wrong, say so there and the organizer can re-issue.",
+      input.shareToken
+        ? "You will be asked for a one-time code sent to this address, so the link only works for you."
+        : "You are already on shoWMe, so it is waiting for you in the app as well.",
+    ],
+    details: eventDetails(input.event),
+    action: { label: "Review the settlement", url },
+    footerNote: "You received this because you are a party to this event's settlement.",
+  });
+}

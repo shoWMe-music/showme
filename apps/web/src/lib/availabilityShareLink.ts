@@ -1,3 +1,5 @@
+import { publicAvailabilityUrl } from "./publicSite";
+
 /**
  * The "Check & Share Availability" link — a self-contained snapshot of what the
  * sharer chose to publish, pointed at the public availability page on the
@@ -58,17 +60,6 @@ export interface AvailabilitySnapshot {
   generatedOn: string;
 }
 
-/**
- * Where the public site is served from. Production is the live marketing host
- * (`docs/deployment-status.md`); in dev it is the marketing Vite server, which
- * owns 5173 while the app runs on 5180.
- */
-export function publicSiteUrl(): string {
-  const configured = import.meta.env.VITE_PUBLIC_SITE_URL;
-  if (typeof configured === "string" && configured.length > 0) return configured;
-  return import.meta.env.DEV ? "http://localhost:5173" : "https://www.showme.music";
-}
-
 /** Serialize a snapshot into the public page's URL. Empty when there is no slug. */
 export function buildAvailabilityShareLink(snapshot: AvailabilitySnapshot): string {
   if (!snapshot.profileSlug) return "";
@@ -90,5 +81,5 @@ export function buildAvailabilityShareLink(snapshot: AvailabilitySnapshot): stri
     generated: snapshot.generatedOn,
   });
 
-  return `${publicSiteUrl().replace(/\/$/, "")}/availability.html#${parameters.toString()}`;
+  return publicAvailabilityUrl(parameters.toString());
 }

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 860" width="2400" height="860" role="img" aria-label="A single spotlight on an empty stage">
+  <defs>
+    <radialGradient id="spot" cx="34%" cy="14%" r="50%">
+      <stop offset="0%" stop-color="#FFE9B8" stop-opacity=".78"/>
+      <stop offset="34%" stop-color="#F4A046" stop-opacity=".34"/>
+      <stop offset="100%" stop-color="#110A07" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="cool" cx="86%" cy="80%" r="52%">
+      <stop offset="0%" stop-color="#EE5746" stop-opacity=".18"/>
+      <stop offset="100%" stop-color="#110A07" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="cone" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFE9B8" stop-opacity=".34"/>
+      <stop offset="55%" stop-color="#FFC266" stop-opacity=".10"/>
+      <stop offset="100%" stop-color="#FFC266" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0A0604" stop-opacity="0"/>
+      <stop offset="76%" stop-color="#0A0604" stop-opacity=".7"/>
+      <stop offset="100%" stop-color="#0A0604" stop-opacity=".96"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="2400" height="860" fill="#0D0806"/>
+  <rect width="2400" height="860" fill="url(#spot)"/>
+  <rect width="2400" height="860" fill="url(#cool)"/>
+
+  <!-- One cone, falling on one player. -->
+  <path d="M770 0 L900 0 L1130 860 L470 860 Z" fill="url(#cone)"/>
+
+  <!-- The pool of light on the boards. -->
+  <ellipse cx="800" cy="742" rx="290" ry="46" fill="#FFC266" opacity=".16"/>
+
+  <!-- A mic stand, tilted the way they always are. -->
+  <g stroke="#0A0604" stroke-width="9" fill="none" opacity=".9">
+    <path d="M796 742 V430"/>
+    <path d="M796 430 l58 -34"/>
+    <path d="M742 742 h108"/>
+  </g>
+  <ellipse cx="872" cy="386" rx="26" ry="17" fill="#0A0604" opacity=".9" transform="rotate(-30 872 386)"/>
+
+  <rect width="2400" height="860" fill="url(#fade)"/>
+</svg>

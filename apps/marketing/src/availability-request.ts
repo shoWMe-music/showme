@@ -1,6 +1,13 @@
 /**
  * "Request this date" — the one thing a stranger may DO on the public
- * availability page (`availability.html`).
+ * availability page (`availability.html`) and on a public profile
+ * (`profile.html`).
+ *
+ * TWO HOSTS, ONE FORM. The availability page opens it bound to a date the sharer
+ * published (`openForDate`); a profile page has no such list and opens it with no
+ * date at all (`open`). `booking_requests.wanted_date` is nullable and the API's
+ * public body makes `wantedDate` optional, so the dateless ask is the same
+ * request minus one field — not a second endpoint and not a second form.
  *
  * The visitor is looking at a list of free dates, so asking for one of them is a
  * single action: click the date, and this panel opens with that date already
@@ -57,14 +64,49 @@ export interface DateRequestPanel {
   readonly element: HTMLElement;
   /** Open (or re-target) the form for one of the published dates. */
   openForDate(isoDate: string, dateLabel: string): void;
+  /**
+   * Open the form with NO date attached — the public profile page, where there
+   * is no list of published days to pick from and the ask is "are you free at
+   * all". `booking_requests.wanted_date` is nullable and the API's public body
+   * makes `wantedDate` optional, so this is the same request minus one field,
+   * not a second kind of request.
+   */
+  open(): void;
   /** Close without sending. */
   close(): void;
 }
+
+/**
+ * HOW the form appears. The form itself is identical either way — same fields,
+ * same validation, same POST — so this is presentation and nothing else.
+ *
+ *   inline  A card that unhides in the page flow, below the dates it belongs to.
+ *           The availability page's ask is bound to a chip the visitor just
+ *           clicked, so the form belongs next to it and the page stays put.
+ *
+ *   modal   A `<dialog>` over the page. A profile page's ask is not bound to
+ *           anything on screen — it comes off one button at the bottom of a long
+ *           page — so an inline panel would open below the fold of wherever the
+ *           reader happens to be. The dialog brings the form to them.
+ */
+export type PanelPresentation = "inline" | "modal";
 
 interface PanelOptions {
   /** API base including `/api/v1`, e.g. `/api/v1` in dev via the vite proxy. */
   apiBaseUrl: string;
   target: PublicProfileSummary;
+  /** Defaults to `inline` — see `PanelPresentation`. */
+  presentation?: PanelPresentation;
+  /**
+   * What the form calls itself. Defaults to the ask implied by the target's kind
+   * — "Request a show" of a performer, "Request a date" of everyone else.
+   *
+   * It is overridable because the caller owns the CONTROL that opens it, and a
+   * dialog whose title disagrees with the button just pressed reads as the wrong
+   * dialog: a venue's page invites an artist to "Pitch a date", so that is what
+   * the panel it opens has to be called.
+   */
+  heading?: string;
   /** Fired after a request for `isoDate` is accepted, so the chip can say so. */
   onRequested(isoDate: string): void;
   /** Fired when the panel closes, so the chip can drop its selected state. */
@@ -187,7 +229,8 @@ interface RequestPayload {
   targetProfileId: string;
   contactName: string;
   email: string;
-  wantedDate: string;
+  /** Omitted entirely when the visitor did not come from a date — see `open()`. */
+  wantedDate?: string;
   pitch: string;
   artistName?: string;
 }
@@ -257,10 +300,13 @@ async function send(apiBaseUrl: string, payload: RequestPayload): Promise<SendRe
 /* -------------------------------------------------------------------- panel */
 
 export function createDateRequestPanel(options: PanelOptions): DateRequestPanel {
-  const { apiBaseUrl, target, onRequested, onClosed } = options;
+  const { apiBaseUrl, target, presentation = "inline", onRequested, onClosed } = options;
 
+  // The KIND still decides the wording of the fields below — what a visitor is
+  // asked for when addressing a performer differs from a venue — even when the
+  // caller has named the panel something else.
   const asksForAShow = target.kind === "performer";
-  const heading = asksForAShow ? "Request a show" : "Request a date";
+  const heading = options.heading ?? (asksForAShow ? "Request a show" : "Request a date");
 
   const panel = element("section", "card request");
   panel.hidden = true;
@@ -391,15 +437,31 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
   }
 
   let selectedDate = "";
+  /** True while the panel is showing a date the visitor picked off the page. */
+  let needsADate = false;
 
   function close(): void {
-    panel.hidden = true;
     selectedDate = "";
+    needsADate = false;
+    if (dialog) {
+      // Closed only once the way OUT has played. `dialog.close()` mid-animation
+      // removes the element from the top layer and the last frames are never
+      // drawn, which reads as the modal blinking off.
+      if (dialog.open) {
+        void playAnimation(dialog, "request-dialog--closing").then(() => dialog.close());
+      }
+    } else {
+      panel.hidden = true;
+    }
     onClosed();
   }
 
   function showSent(): void {
     form.hidden = true;
+    // "Send this to X" is an instruction, and the sending is done. Left up, it
+    // sits directly above "Request sent" and tells the visitor to do the thing
+    // they have just done.
+    intro.hidden = true;
     done.replaceChildren(
       element("h3", "request__done-title", "Request sent"),
       element(
@@ -411,7 +473,8 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
     const another = document.createElement("button");
     another.type = "button";
     another.className = "request__cancel";
-    another.textContent = "Pick another date";
+    // "Pick another date" is only true on a page that HAS dates to pick.
+    another.textContent = needsADate ? "Pick another date" : "Close";
     another.addEventListener("click", () => {
       close();
     });
@@ -451,7 +514,7 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
     event.preventDefault();
     clearStatus();
 
-    if (!selectedDate) {
+    if (needsADate && !selectedDate) {
       showStatus("Pick one of the dates above first.");
       return;
     }
@@ -470,7 +533,9 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
       targetProfileId: target.id,
       contactName: nameField.value(),
       email: emailField.value().toLowerCase(),
-      wantedDate: selectedDate,
+      // Sent only when there IS one. The API's `calendarDate` refuses "", so an
+      // empty string here would turn a dateless enquiry into a 400.
+      ...(selectedDate ? { wantedDate: selectedDate } : {}),
       pitch: messageField.value(),
       // Omitted rather than sent empty: the API's schema requires at least one
       // character when the key is present.
@@ -523,19 +588,104 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
 
   panel.append(title, chosenDate, intro, form, done, consent);
 
-  return {
-    element: panel,
-    openForDate(isoDate, dateLabel) {
-      selectedDate = isoDate;
-      chosenDate.textContent = dateLabel;
-      clearStatus();
-      done.hidden = true;
-      form.hidden = false;
+  /* --------------------------------------------------------------- the shell */
+
+  /**
+   * In modal mode the card is wrapped in a native `<dialog>`, and that choice is
+   * the whole implementation: `showModal()` already gives the things a
+   * hand-rolled overlay has to reinvent and usually gets wrong — the top layer
+   * (so no z-index race with the sticky bar), a focus trap, Escape, inertness of
+   * the page behind it, and a `::backdrop` to dim it with.
+   *
+   * What is left to write is the MOTION, which the browser does not animate for
+   * us: `showModal()` is instant. The two keyframes live in `request.css` and are
+   * timed with the shared duration tokens, so the whole thing collapses to zero
+   * under `prefers-reduced-motion` with no media query here.
+   */
+  const dialog = presentation === "modal" ? document.createElement("dialog") : null;
+  if (dialog) {
+    dialog.className = "request-dialog";
+    // The card is no longer hidden by its own attribute — the dialog's open
+    // state is what shows and hides it now.
+    panel.hidden = false;
+    dialog.append(panel);
+
+    // Escape reaches the dialog as `cancel`. Prevented so the close runs through
+    // the same path as every other close and gets the same animation; without
+    // this the browser slams it shut and `onClosed` never fires.
+    dialog.addEventListener("cancel", (cancelEvent) => {
+      cancelEvent.preventDefault();
+      close();
+    });
+
+    // The backdrop IS the dialog element (the card is a child), so a click that
+    // lands on the dialog itself landed outside the card.
+    dialog.addEventListener("click", (clickEvent) => {
+      if (clickEvent.target === dialog) close();
+    });
+  }
+
+  /**
+   * Play a named keyframe on the dialog and resolve when it is over.
+   *
+   * `animationend` is the signal, with a timer behind it: a 0ms animation (which
+   * is what the reduced-motion tokens produce) still fires in every engine that
+   * matters, but a dialog removed mid-flight would leave the promise hanging and
+   * the form permanently half-open. The fallback is the shorter of the two.
+   */
+  function playAnimation(node: HTMLElement, className: string): Promise<void> {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        node.classList.remove(className);
+        node.removeEventListener("animationend", finish);
+        resolve();
+      };
+      node.addEventListener("animationend", finish);
+      node.classList.add(className);
+      window.setTimeout(finish, 600);
+    });
+  }
+
+  /** Everything the two openers share: reset the states, show, and take focus. */
+  function reveal(): void {
+    clearStatus();
+    done.hidden = true;
+    form.hidden = false;
+    intro.hidden = false;
+
+    if (dialog) {
+      if (!dialog.open) dialog.showModal();
+      void playAnimation(dialog, "request-dialog--opening");
+    } else {
       panel.hidden = false;
       // Bring the form into view and put the caret in it — the click that opened
-      // it was on a chip further up the page.
+      // it was on a control further up the page.
       panel.scrollIntoView({ block: "nearest" });
-      nameField.control.focus();
+    }
+    // After `showModal`, which focuses the dialog itself: the caret belongs in
+    // the first thing the visitor has to type.
+    nameField.control.focus();
+  }
+
+  return {
+    element: dialog ?? panel,
+    openForDate(isoDate, dateLabel) {
+      selectedDate = isoDate;
+      needsADate = true;
+      chosenDate.textContent = dateLabel;
+      reveal();
+    },
+    open() {
+      selectedDate = "";
+      needsADate = false;
+      // No date line at all rather than an empty one holding its own space: the
+      // profile page's ask is "are you free", and a blank slot where a date
+      // belongs reads as a field that failed to load.
+      chosenDate.textContent = "";
+      reveal();
     },
     close,
   };

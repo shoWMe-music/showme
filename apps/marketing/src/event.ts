@@ -62,6 +62,8 @@ interface PublicEvent {
   venueName: string | null;
   doorTime: string | null;
   startTime: string | null;
+  /** The host's poster, when the show has one. */
+  imageUrl: string | null;
 }
 
 /* --------------------------------------------------------------- formatting */
@@ -107,7 +109,26 @@ function toPublicEvent(value: unknown): PublicEvent | null {
     venueName: orNull(candidate.venueName),
     doorTime: orNull(candidate.doorTime),
     startTime: orNull(candidate.startTime),
+    imageUrl: readImageUrl(candidate.imageUrl),
   };
+}
+
+/**
+ * A picture we are willing to put in the DOM: absolute http(s) only.
+ *
+ * The value is owner-supplied and arrives over the network, so `javascript:` and
+ * `data:` are refused rather than sanitized — a poster has no business being
+ * either, and a rejected one is a missing picture, not an executed script. Same
+ * rule, same reasoning, as `profile.ts`.
+ */
+function readImageUrl(value: unknown): string | null {
+  if (typeof value !== "string" || value.trim() === "") return null;
+  try {
+    const parsed = new URL(value, window.location.origin);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : null;
+  } catch {
+    return null;
+  }
 }
 
 type LoadResult =
@@ -154,10 +175,17 @@ function renderMessage(container: HTMLElement, title: string, body: string): voi
 function renderEvent(container: HTMLElement, event: PublicEvent): void {
   document.title = `${event.title} · shoWMe`;
 
-  // The poster band: the brand gradient with the show's name on it, following
-  // the prototype's public event screen (`shoWMe App.html`, "PUBLIC EVENT PAGE
-  // (audience)"), which put the title alone on a coloured banner.
+  // The poster band: the host's own artwork when they have uploaded one, and the
+  // brand gradient with the show's name on it when they have not — the prototype's
+  // public event screen (`shoWMe App.html`, "PUBLIC EVENT PAGE (audience)") put
+  // the title alone on a coloured banner, which is exactly the right fallback.
+  // The title stays on top of the artwork either way: a poster nobody can read
+  // the name off is decoration, not a poster.
   const banner = element("div", "poster");
+  if (event.imageUrl) {
+    banner.classList.add("poster--art");
+    banner.style.backgroundImage = `url("${encodeURI(event.imageUrl)}")`;
+  }
   banner.append(
     element("p", "poster__eyebrow", "Live event"),
     element("h1", "poster__title", event.title),
@@ -234,11 +262,31 @@ const NOT_PUBLIC_TITLE = "This event isn't public";
 const NOT_PUBLIC_BODY =
   "The link may be wrong, or the show may not be announced yet. Ask whoever sent it for a fresh link.";
 
+/**
+ * The show's id, from `/event/<id>` or from `?event=<id>`.
+ *
+ * The path form is what the app and the public profile page build now, and what
+ * Hosting rewrites to this page. The query form is every link sent before that,
+ * so it is read first and never dropped. Mirrors `readSlug` in `profile.ts`,
+ * including the guard against the page's own bare address.
+ */
+const PAGE_SEGMENTS = new Set(["event", "event.html"]);
+
+function readEventId(): string {
+  const fromQuery = new URLSearchParams(window.location.search).get("event");
+  if (fromQuery) return fromQuery.trim();
+
+  const segments = window.location.pathname.split("/").filter(Boolean);
+  const last = segments[segments.length - 1];
+  if (!last || PAGE_SEGMENTS.has(last)) return "";
+  return decodeURIComponent(last);
+}
+
 async function render(): Promise<void> {
   const container = document.getElementById("event");
   if (!container) return;
 
-  const eventId = new URLSearchParams(window.location.search).get("event") ?? "";
+  const eventId = readEventId();
   if (!UUID_SHAPE.test(eventId)) {
     renderMessage(
       container,

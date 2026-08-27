@@ -21,11 +21,11 @@ describe("email sink", () => {
     });
 
     await sink.sendEmail({
-      to: "guest@example.com",
+      to: "guest@example.showme.test",
       subject: "Hi",
       html: "<p>Hi</p>",
       text: "Hi",
-      replyTo: "host@example.com",
+      replyTo: "host@example.showme.test",
     });
 
     expect(fetchImplementation).toHaveBeenCalledTimes(1);
@@ -35,11 +35,11 @@ describe("email sink", () => {
     const body = JSON.parse(init.body as string);
     expect(body).toMatchObject({
       sender: { email: "noreply@showme.test" },
-      to: [{ email: "guest@example.com" }],
+      to: [{ email: "guest@example.showme.test" }],
       subject: "Hi",
       htmlContent: "<p>Hi</p>",
       textContent: "Hi",
-      replyTo: { email: "host@example.com" },
+      replyTo: { email: "host@example.showme.test" },
     });
   });
 
@@ -53,7 +53,7 @@ describe("email sink", () => {
       fetchImplementation: fetchImplementation as unknown as typeof fetch,
     });
 
-    await expect(sink.sendEmail({ to: "x@example.com", subject: "s" })).rejects.toThrow(
+    await expect(sink.sendEmail({ to: "x@example.showme.test", subject: "s" })).rejects.toThrow(
       /Brevo email send failed \(400\): bad request detail/,
     );
   });
@@ -61,7 +61,7 @@ describe("email sink", () => {
   it("the no-op sink resolves without sending", async () => {
     const log = vi.fn();
     const sink = createNoopEmailSink(log);
-    await sink.sendEmail({ to: "x@example.com", subject: "s" });
+    await sink.sendEmail({ to: "x@example.showme.test", subject: "s" });
     expect(log).toHaveBeenCalledTimes(1);
   });
 
@@ -76,7 +76,7 @@ describe("email sink", () => {
     const previousNodeEnv = process.env.NODE_ENV;
     try {
       await createNoopEmailSink().sendEmail({
-        to: "a@example.com",
+        to: "a@example.showme.test",
         subject: "Your shoWMe verification code",
         text: "Verification code: 123456",
       });
@@ -89,7 +89,7 @@ describe("email sink", () => {
       info.mockClear();
       process.env.NODE_ENV = "production";
       await createEmailSink({}).sendEmail({
-        to: "a@example.com",
+        to: "a@example.showme.test",
         subject: "Your shoWMe verification code",
         text: "Verification code: 123456",
       });
@@ -109,11 +109,11 @@ describe("email sink", () => {
     globalThis.fetch = fetchImplementation as unknown as typeof fetch;
     try {
       const configured = createEmailSink({ brevoApiKey: "k", brevoSender: "s@showme.test" });
-      await configured.sendEmail({ to: "a@example.com", subject: "s" });
+      await configured.sendEmail({ to: "a@example.showme.test", subject: "s" });
       expect(fetchImplementation).toHaveBeenCalledTimes(1); // real sink → one fetch
 
       const unconfigured = createEmailSink({ brevoApiKey: "k" });
-      await unconfigured.sendEmail({ to: "a@example.com", subject: "s" });
+      await unconfigured.sendEmail({ to: "a@example.showme.test", subject: "s" });
       expect(fetchImplementation).toHaveBeenCalledTimes(1); // still 1 — no-op didn't fetch
     } finally {
       globalThis.fetch = globalFetch;
@@ -305,7 +305,7 @@ describe("email templates", () => {
 
     await expect(
       sink.sendEmail({
-        to: "nils@example.com",
+        to: "nils@example.showme.test",
         ...renderEventNotificationEmail({ event, baseUrl }),
       }),
     ).rejects.toThrow(/Brevo email send failed \(400\)/);

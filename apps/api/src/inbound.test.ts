@@ -12,7 +12,7 @@ import { buildTestApp } from "./testing";
 /** Fake verifier: the bearer token IS the uid, so tests just send `Bearer <uid>`. */
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -60,7 +60,7 @@ const profileName = (id: string) => `${id} Profile`;
 async function seedUser(id: string, kind: AccountKind) {
   await harness.db
     .insert(schema.users)
-    .values({ id, email: `${id}@example.com`, name: personName(id), kind });
+    .values({ id, email: `${id}@example.showme.test`, name: personName(id), kind });
 }
 
 /** Seed an owner + their claimed profile + a permission set matching the kind. */
@@ -149,7 +149,7 @@ describe("inbound — public booking request + listing", () => {
         source: "public_form",
         targetProfileId: owner.profileId,
         contactName: "Ada Booker",
-        email: "ada@example.com",
+        email: "ada@example.showme.test",
         artistName: "The Adas",
         wantedDate: "2026-09-01",
         pitch: "We would love to play",
@@ -188,7 +188,7 @@ describe("inbound — public booking request + listing", () => {
         source: "public_form",
         targetProfileId: owner.profileId,
         contactName: "Ben",
-        email: "ben@example.com",
+        email: "ben@example.showme.test",
       },
     });
     const id = created.json().id;
@@ -274,7 +274,7 @@ describe("inbound — an offer names its sender (audit A-24)", () => {
     expect(offer.senderProfileId).toBe(performer.profileId);
     expect(offer.senderType).toBe("performer");
     expect(offer.contactName).toBe(personName("id-perf"));
-    expect(offer.email).toBe("id-perf@example.com");
+    expect(offer.email).toBe("id-perf@example.showme.test");
     expect(offer.artistName).toBe(profileName("id-perf"));
     // Sanitized: control characters stripped, whitespace collapsed and trimmed.
     expect(offer.pitch).toBe("Four-piece indie rock, touring in October.");
@@ -288,7 +288,7 @@ describe("inbound — an offer names its sender (audit A-24)", () => {
       .from(schema.bookingRequests)
       .where(eq(schema.bookingRequests.id, offer.id));
     expect(row?.contactName).toBe(personName("id-perf"));
-    expect(row?.email).toBe("id-perf@example.com");
+    expect(row?.email).toBe("id-perf@example.showme.test");
     expect(row?.artistName).toBe(profileName("id-perf"));
     expect(row?.pitch).toBe("Four-piece indie rock, touring in October.");
 
@@ -319,13 +319,13 @@ describe("inbound — an offer names its sender (audit A-24)", () => {
         targetProfileId: target.profileId,
         wantedDate: "2026-10-12",
         contactName: "Ada Booker",
-        email: "Ada@Example.COM",
+        email: "Ada@Example.ShowMe.Test",
         artistName: "The Adas",
       },
     });
     expect(created.statusCode).toBe(201);
     expect(created.json().contactName).toBe("Ada Booker");
-    expect(created.json().email).toBe("ada@example.com"); // normalized
+    expect(created.json().email).toBe("ada@example.showme.test"); // normalized
     expect(created.json().artistName).toBe("The Adas");
   });
 
@@ -605,7 +605,7 @@ describe("inbound — Block reports the SENDER and clears the request", () => {
         source: "public_form",
         targetProfileId: venue.profileId,
         contactName: "Spammer",
-        email: "spam@example.com",
+        email: "spam@example.showme.test",
       },
     });
     const id = created.json().id;
@@ -640,7 +640,7 @@ describe("inbound — Block reports the SENDER and clears the request", () => {
         source: "public_form",
         targetProfileId: venue.profileId,
         contactName: "Ada",
-        email: "ada@example.com",
+        email: "ada@example.showme.test",
       },
     });
     const id = created.json().id;
@@ -737,12 +737,12 @@ describe("inbound — venue handoff", () => {
       method: "POST",
       url: `/api/v1/events/${event.id}/handoff`,
       headers: { ...auth("inb-ho-mail"), "x-profile-id": owner.profileId },
-      payload: { name: "The New Venue", recipientEmail: "venue@example.com" },
+      payload: { name: "The New Venue", recipientEmail: "venue@example.showme.test" },
     });
     expect(response.statusCode).toBe(201);
     expect(response.json().emailed).toBe(true);
 
-    const message = sent.find((entry) => entry.to === "venue@example.com");
+    const message = sent.find((entry) => entry.to === "venue@example.showme.test");
     expect(message).toBeDefined();
     // The link is the payload: it must carry this handoff's own token, which is
     // what the redemption page then resolves.
@@ -823,7 +823,7 @@ describe("inbound — the public form is an anonymous, hardened endpoint", () =>
     source: "public_form",
     targetProfileId,
     contactName: "Ada Booker",
-    email: "ada@example.com",
+    email: "ada@example.showme.test",
     pitch: "We would love to play.",
     ...overrides,
   });
@@ -903,7 +903,7 @@ describe("inbound — the public form is an anonymous, hardened endpoint", () =>
       headers: publicFormHeaders(),
       payload: body(owner.profileId, {
         contactName: "  Ada \u0000\u0009 Booker  ",
-        email: "Ada@Example.COM",
+        email: "Ada@Example.ShowMe.Test",
         pitch: "Line one  \r\nLine two  ",
       }),
     });
@@ -916,7 +916,7 @@ describe("inbound — the public form is an anonymous, hardened endpoint", () =>
     // Control characters gone, whitespace collapsed, email normalized — the same
     // treatment the authenticated offer body has always given its input.
     expect(row?.contactName).toBe("Ada Booker");
-    expect(row?.email).toBe("ada@example.com");
+    expect(row?.email).toBe("ada@example.showme.test");
     expect(row?.pitch).toBe("Line one  \nLine two");
     expect(await countRequestsFor(owner.profileId)).toBe(1);
   });
@@ -1015,7 +1015,7 @@ describe("inbound — triage moves a request through its statuses", () => {
         source: "public_form",
         targetProfileId: owner.profileId,
         contactName: "Ada",
-        email: "ada@example.com",
+        email: "ada@example.showme.test",
         wantedDate: "2027-07-07",
       },
     });
@@ -1068,7 +1068,7 @@ describe("inbound — Create Draft turns a request into a draft event", () => {
         source: "public_form",
         targetProfileId: profileId,
         contactName: "Ada Booker",
-        email: "ada@example.com",
+        email: "ada@example.showme.test",
         artistName: "The Adas",
         wantedDate,
         pitch: "Touring in August.",
@@ -1106,7 +1106,7 @@ describe("inbound — Create Draft turns a request into a draft event", () => {
     expect(event?.status).toBe("draft");
     expect(event?.eventDate).toBe("2027-08-08");
     // The contact, the fee and the pitch survive into the event the operator opens.
-    expect(event?.notes).toContain("ada@example.com");
+    expect(event?.notes).toContain("ada@example.showme.test");
     expect(event?.notes).toContain("Touring in August.");
     expect(event?.notes).toContain("650");
 
@@ -1307,7 +1307,7 @@ describe("inbound — Make Offer counters back to whoever asked", () => {
         source: "public_form",
         targetProfileId: venue.profileId,
         contactName: "Ada Booker",
-        email: "ada@example.com",
+        email: "ada@example.showme.test",
         wantedDate: "2027-10-10",
       },
     });
@@ -1322,15 +1322,15 @@ describe("inbound — Make Offer counters back to whoever asked", () => {
     expect(countered.statusCode).toBe(201);
     expect(countered.json()).toMatchObject({
       channel: "email",
-      deliveredTo: "ada@example.com",
+      deliveredTo: "ada@example.showme.test",
       delivered: true,
     });
     expect(sent).toHaveLength(1);
-    expect(sent[0]?.to).toBe("ada@example.com");
+    expect(sent[0]?.to).toBe("ada@example.showme.test");
     expect(sent[0]?.text).toContain("Yes — 10 Oct works.");
     // Reply-to is the operator's own address: an anonymous sender has no account
     // to answer in, so the reply has to land in a real mailbox.
-    expect(sent[0]?.replyTo).toBe("co-pub-venue@example.com");
+    expect(sent[0]?.replyTo).toBe("co-pub-venue@example.showme.test");
     await emailApp.close();
   });
 
@@ -1345,7 +1345,7 @@ describe("inbound — Make Offer counters back to whoever asked", () => {
         source: "public_form",
         targetProfileId: venue.profileId,
         contactName: "Ada",
-        email: "ada@example.com",
+        email: "ada@example.showme.test",
       },
     });
 

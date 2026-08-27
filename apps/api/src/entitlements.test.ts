@@ -31,7 +31,7 @@ let seq = 0;
 async function seedProfile(kind: "operator" | "performer") {
   const { db } = harness;
   const id = `ent-${kind}-${seq++}`;
-  await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind });
+  await db.insert(schema.users).values({ id, email: `${id}@example.showme.test`, kind });
   const [profile] = await db
     .insert(schema.profiles)
     .values({ kind, ownerUserId: id, name: id, slug: id })

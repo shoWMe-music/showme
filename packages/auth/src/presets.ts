@@ -79,6 +79,15 @@ export const PRESET_PERMISSION_SETS = {
     "deal.view.own",
     "deal.edit",
     "settlement.view.own",
+    // Sign off a settlement — their OWN commission line, and the line of a
+    // performer whose action capabilities currently sit with them. decisions.md
+    // #14 says exactly this: by both-party consent a delegated performer hands
+    // their agent "confirm/approve/negotiate", keeping only the view floor.
+    // The taking-away half was implemented and the giving half was not, so a
+    // represented act's settlement had NOBODY who could sign it: the performer's
+    // floor withholds `settlement.confirm`, and the agent never had it. Every
+    // such settlement sat at "0/1 pending" for good.
+    "settlement.confirm",
     "agreement.manage",
     "agreement.confirm",
     "schedule.view",

@@ -20,7 +20,7 @@ import { buildTestApp } from "./testing";
 /** Fake verifier: the bearer token IS the uid, so tests just send `Bearer <uid>`. */
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -57,7 +57,9 @@ interface SeededProfile {
 async function seedOperator(id: string, country = "SE"): Promise<SeededProfile> {
   const { db } = harness;
   const slug = `${id}-slug`;
-  await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind: "operator" });
+  await db
+    .insert(schema.users)
+    .values({ id, email: `${id}@example.showme.test`, kind: "operator" });
   const [profile] = await db
     .insert(schema.profiles)
     .values({ kind: "operator", ownerUserId: id, name: id, slug, isPublic: true })
@@ -75,7 +77,9 @@ async function seedOperator(id: string, country = "SE"): Promise<SeededProfile> 
 /** Add a second person to an existing profile — the co-member the title rule is about. */
 async function addMember(profileId: string, id: string, role = "admin"): Promise<void> {
   const { db } = harness;
-  await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind: "operator" });
+  await db
+    .insert(schema.users)
+    .values({ id, email: `${id}@example.showme.test`, kind: "operator" });
   await db
     .insert(schema.profileMembers)
     .values({ profileId, userId: id, role: role as "admin", status: "active" });
@@ -246,7 +250,7 @@ describe("the inbound seam", () => {
     await recordMirrorPush(harness.db, {
       eventId: event.id,
       provider: "google",
-      providerCalendarId: "daniel@showme.music",
+      providerCalendarId: "daniel@showme.test",
       providerEventId: "g-echo",
     });
 
@@ -662,9 +666,11 @@ describe("promoting an imported entry into a show", () => {
 
   it("refuses a performer profile — only an operator hosts a show", async () => {
     const { db } = harness;
-    await db
-      .insert(schema.users)
-      .values({ id: "ext-performer", email: "ext-performer@example.com", kind: "performer" });
+    await db.insert(schema.users).values({
+      id: "ext-performer",
+      email: "ext-performer@example.showme.test",
+      kind: "performer",
+    });
     const [profile] = await db
       .insert(schema.profiles)
       .values({

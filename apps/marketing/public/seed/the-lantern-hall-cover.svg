@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 860" width="2400" height="860" role="img" aria-label="A dark room lit from the stage">
+  <defs>
+    <radialGradient id="stage" cx="50%" cy="8%" r="62%">
+      <stop offset="0%" stop-color="#FFD79A" stop-opacity=".85"/>
+      <stop offset="28%" stop-color="#F4A046" stop-opacity=".45"/>
+      <stop offset="62%" stop-color="#EE5746" stop-opacity=".16"/>
+      <stop offset="100%" stop-color="#0A0604" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="wash" cx="18%" cy="70%" r="55%">
+      <stop offset="0%" stop-color="#EE5746" stop-opacity=".22"/>
+      <stop offset="100%" stop-color="#0A0604" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0A0604" stop-opacity="0"/>
+      <stop offset="70%" stop-color="#0A0604" stop-opacity=".72"/>
+      <stop offset="100%" stop-color="#0A0604" stop-opacity=".95"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFE9B8" stop-opacity=".30"/>
+      <stop offset="100%" stop-color="#FFE9B8" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="2400" height="860" fill="#110A07"/>
+  <rect width="2400" height="860" fill="url(#stage)"/>
+  <rect width="2400" height="860" fill="url(#wash)"/>
+
+  <!-- Four beams from the truss, angled in. -->
+  <g opacity=".9">
+    <path d="M980 0 L1180 0 L1420 860 L720 860 Z" fill="url(#beam)"/>
+    <path d="M1220 0 L1420 0 L1760 860 L1080 860 Z" fill="url(#beam)" opacity=".7"/>
+    <path d="M700 0 L860 0 L980 860 L400 860 Z" fill="url(#beam)" opacity=".5"/>
+    <path d="M1500 0 L1640 0 L2050 860 L1500 860 Z" fill="url(#beam)" opacity=".45"/>
+  </g>
+
+  <!-- The truss and its lamps. -->
+  <g fill="#FFC266">
+    <rect x="0" y="86" width="2400" height="5" opacity=".22"/>
+    <circle cx="820" cy="104" r="9" opacity=".8"/>
+    <circle cx="1080" cy="104" r="9" opacity=".9"/>
+    <circle cx="1320" cy="104" r="9" opacity=".9"/>
+    <circle cx="1580" cy="104" r="9" opacity=".8"/>
+  </g>
+
+  <rect width="2400" height="860" fill="url(#floor)"/>
+
+  <!-- The room, in silhouette: heads along the front of house. -->
+  <g fill="#0A0604" opacity=".92">
+    <path d="M0 860 L0 792 Q120 762 210 790 Q300 742 392 786 Q470 748 556 792 Q650 750 736 788 Q820 744 910 790 Q1000 752 1090 786 Q1180 740 1268 788 Q1356 750 1444 790 Q1530 744 1620 786 Q1710 752 1798 790 Q1886 746 1976 788 Q2062 750 2152 790 Q2244 758 2400 792 L2400 860 Z"/>
+  </g>
+</svg>

@@ -1,6 +1,7 @@
 import { useGetApiV1ProfilesIdContacts, useGetApiV1ProfilesSearch } from "@showme/api-client";
 import { Avatar, Icon, Skeleton } from "@showme/design-system";
 import { type CSSProperties, useEffect, useState } from "react";
+import { publicProfileUrl as publicProfileUrlFor } from "../lib/publicSite";
 import { fieldStyle } from "./eventUi";
 
 /**
@@ -20,7 +21,12 @@ export interface PerformerSearchProps {
   /** Acting profile id whose contacts feed the "My contacts" group. */
   contactsProfileId?: string;
   onSelect: (selection: PerformerSelection) => void;
-  /** How to build the public profile URL (new tab). Defaults to `/p/:slug`. */
+  /**
+   * How to build the public profile URL (opened in a new tab). Defaults to the
+   * public site's own address for it — NOT a relative path: this component runs
+   * in the app, and `/profile/<slug>` relative to the app's origin is a page
+   * that does not exist there.
+   */
   publicProfileUrl?: (slug: string) => string;
 }
 
@@ -55,7 +61,7 @@ const groupHeaderStyle: CSSProperties = {
 export function PerformerSearch({
   contactsProfileId,
   onSelect,
-  publicProfileUrl = (slug) => `/p/${slug}`,
+  publicProfileUrl = publicProfileUrlFor,
 }: PerformerSearchProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);

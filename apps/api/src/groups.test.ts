@@ -10,7 +10,7 @@ import { buildTestApp } from "./testing";
 
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -37,7 +37,7 @@ async function seedMember(
   capabilities: readonly string[],
 ) {
   const { db } = harness;
-  await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind });
+  await db.insert(schema.users).values({ id, email: `${id}@example.showme.test`, kind });
   const [profile] = await db
     .insert(schema.profiles)
     .values({ kind, ownerUserId: id, name: id, slug: id })
@@ -104,7 +104,7 @@ describe("groups — CRUD (decisions #12)", () => {
       method: "POST",
       url: `/api/v1/groups/${groupId}/members`,
       headers: auth("gc-op"),
-      payload: { email: "sound@example.com", roleLabel: "Sound engineer" },
+      payload: { email: "sound@example.showme.test", roleLabel: "Sound engineer" },
     });
     expect(withMember.statusCode).toBe(200);
     expect(withMember.json().members).toHaveLength(1);
@@ -155,7 +155,7 @@ describe("groups — assign to event (crew per member)", () => {
         roleLabel: "Sound",
         defaultPermissionSetId: soundEng.permissionSetId,
       },
-      { groupId: group.id, email: "bar@example.com", roleLabel: "Bartender" }, // off-platform
+      { groupId: group.id, email: "bar@example.showme.test", roleLabel: "Bartender" }, // off-platform
     ]);
 
     const { event, participants } = await seedEvent(operator.profileId, operator.userId, [

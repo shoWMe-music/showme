@@ -204,6 +204,16 @@ const UpdateProfileBody = z.object({
    * serializer. Sent as its own field so the client never has to hand-merge the
    * jsonb blob. */
   setups: z.array(PerformerSetupBody).max(30).optional(),
+  /**
+   * The line under the name on the public page — "Songs built for rooms that
+   * listen." Merged into `details.tagline` the same way `setups` is.
+   *
+   * Bounded at 140 characters because it is set in ONE line of display type on a
+   * page this repo does not get to re-flow: past a tweet's worth it stops being a
+   * tagline and starts being a bio, and the bio field is right beside it. `null`
+   * clears it.
+   */
+  tagline: z.string().max(140).nullable().optional(),
 });
 
 const CreateMemberBody = z
@@ -961,7 +971,7 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
       // filtered on `events.venue_profile_id` alone, so a performer — who is never
       // named that way, only through `event_participants` — previewed an empty bill
       // no matter how many shows they were confirmed on.
-      const upcomingShows = await loadPublicShows(database, id);
+      const upcomingShows = await loadPublicShows(database, request.server.storageSigner, id);
       return {
         profile: { ...serializePublicProfile(profile, relations), upcomingShows },
         isPublic: profile.isPublic,
@@ -1027,27 +1037,43 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
       );
       if (request.body.details !== undefined) fields.details = request.body.details;
 
-      // ---- Performer setups -------------------------------------------------
-      // `setups` is a first-class field on the body but a leaf inside the
-      // `details` jsonb, so it is merged here rather than in the client. Sending
-      // `details` and `setups` together is legal and `setups` wins: the caller
-      // named the specific field, which is the more specific intent. Doing this
-      // in the client instead is how `details` blobs lose keys — every caller has
-      // to remember to spread the old object.
-      if (request.body.setups !== undefined) {
+      // ---- The named leaves of `details` ------------------------------------
+      // `setups` and `tagline` are first-class fields on the body but leaves
+      // inside the `details` jsonb, so they are merged here rather than in the
+      // client. Sending `details` alongside either is legal and the NAMED field
+      // wins: the caller named the specific leaf, which is the more specific
+      // intent. Doing this in the client instead is how `details` blobs lose keys
+      // — every caller has to remember to spread the old object.
+      //
+      // One merge for both, over one base. Two independent `if` blocks each
+      // rebuilding `fields.details` from `before.details` would mean a request
+      // carrying a tagline AND setups kept only whichever ran last.
+      if (request.body.setups !== undefined || request.body.tagline !== undefined) {
         const carried =
           request.body.details !== undefined ? request.body.details : (before.details ?? {});
         const baseDetails =
           carried && typeof carried === "object" && !Array.isArray(carried)
             ? (carried as Record<string, unknown>)
             : {};
-        fields.details = {
-          ...baseDetails,
-          setups: request.body.setups.map((setup) => ({
+        // An emptied tagline is the key REMOVED, not stored as "". The public
+        // projection reads "no tagline" off an absent-or-blank value either way,
+        // but a blob that accumulates empty strings is one nobody can read
+        // "never written" apart from "cleared" in. The key is dropped by
+        // rebuilding without it, which is also why the base is destructured
+        // rather than spread-then-deleted.
+        const { tagline: carriedTagline, ...detailsWithoutTagline } = baseDetails;
+        const tagline =
+          request.body.tagline === undefined ? carriedTagline : request.body.tagline?.trim();
+        const merged: Record<string, unknown> = tagline
+          ? { ...detailsWithoutTagline, tagline }
+          : detailsWithoutTagline;
+        if (request.body.setups !== undefined) {
+          merged.setups = request.body.setups.map((setup) => ({
             name: setup.name.trim(),
             headcount: setup.headcount ?? null,
-          })),
-        };
+          }));
+        }
+        fields.details = merged;
       }
 
       const relationsBefore = await loadProfileRelations(

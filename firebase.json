@@ -10,8 +10,20 @@
   },
   "hosting": [
     {
+      "//": "The marketing site, which also serves the two PUBLIC pages an owner shares: a profile and a show. cleanUrls drops the .html from every page (/profile.html is served at /profile and 301s to it) because a link people paste into a message should not carry a file extension. The rewrites put the thing the page is ABOUT in the path — /profile/<slug> and /event/<id> — and the page reads that last segment itself (readSlug / readEventId). Both pages still accept the older ?slug= / ?event= query forms, so links already out in the world keep working.",
       "public": "apps/marketing/dist",
       "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "cleanUrls": true,
+      "rewrites": [
+        {
+          "source": "/profile/**",
+          "destination": "/profile.html"
+        },
+        {
+          "source": "/event/**",
+          "destination": "/event.html"
+        }
+      ],
       "headers": [
         {
           "//": "Catch-all so the bare root is covered too: `*.html` misses `/` (a directory index), which is why the root served max-age=3600 while /index.html did not. Also covers the unhashed scene scripts, whose URLs are stable so a fix would otherwise sit behind a cache.",
@@ -49,7 +61,7 @@
       ],
       "headers": [
         {
-          "//": "Catch-all: every non-asset path serves the SPA shell (via the rewrite), and a cached shell points at asset hashes that no longer exist after a deploy. COOP is same-origin-allow-popups because Firebase Auth's signInWithPopup polls window.closed on the popup \u2014 the stricter default blocks that and the flow can hang when a user dismisses the popup by hand.",
+          "//": "Catch-all: every non-asset path serves the SPA shell (via the rewrite), and a cached shell points at asset hashes that no longer exist after a deploy. COOP is same-origin-allow-popups because Firebase Auth's signInWithPopup polls window.closed on the popup — the stricter default blocks that and the flow can hang when a user dismisses the popup by hand.",
           "source": "**",
           "headers": [
             {

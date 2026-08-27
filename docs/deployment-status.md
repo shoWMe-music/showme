@@ -4,6 +4,201 @@ The standing answer to "what's deployed where". Update it when that changes.
 Account/project map and the domain history live in
 [handoff-2026-08-23-marketing-and-hosting.md](./handoff-2026-08-23-marketing-and-hosting.md).
 
+## 2026-08-27 — the domain move is STAGED, waiting on three DNS records
+
+`www.showme.music` and `showme.music` are now claimed on **`music-showme`**
+(daniel) as well as on **`showme-production`** (gmail). Firebase allows both
+claims to exist; the new one sits at `ownershipState: OWNERSHIP_MISMATCH` and
+serves nothing. **The live site is unaffected** — verified 200 / 301 after
+staking both claims.
+
+**This ordering is the point.** The obvious sequence — release the domain on the
+old project, then add it to the new one — takes the site down for however long the
+new certificate takes. Staging the claim first inverts it: DNS flips ownership,
+the cert attaches, and the old claim is deleted last as cleanup. No window.
+
+### The three records, read from Firebase's own `requiredDnsUpdates`
+
+At GoDaddy, where this domain's DNS lives:
+
+| Host | Action | Type | Value |
+|---|---|---|---|
+| `www` | **change** | CNAME | `showme-production.web.app` → **`music-showme.web.app`** |
+| `@` | **remove** | TXT | `hosting-site=showme-production` |
+| `@` | **add** | TXT | `hosting-site=music-showme` |
+
+**The apex A record does not change** — it stays `199.36.158.100`. Every other TXT
+on the apex is untouched: the Microsoft 365 record, the Brevo code, the Google
+site verification, and SPF. Firebase listed them all as KEEP; do not tidy them.
+
+**A correction worth keeping.** It was reasoned here first that no DNS change
+would be needed at all, because `showme-production.web.app`, `music-showme.web.app`
+and `showme-app.web.app` all resolve to the same anycast IP (199.36.158.100), so
+Firebase must be routing by Host header. The IPs are shared and the routing is by
+Host — but ownership is proven by the CNAME TARGET and the `hosting-site=` TXT, not
+by where the packets land. Firebase's API says so directly. The shared IP is why
+the A record can stay, and nothing more.
+
+### Two certificates, two systems — they are not the same one
+
+Asked in this session, and worth settling here because the names look alike:
+
+| Hostname | Certificate | Where it lives | Status |
+|---|---|---|---|
+| `api.showme.music` | `showme-api-lb-cert` | **GCP**, a classic Google-managed compute cert on `showme-api-lb-https-proxy`, in front of the LB at `136.68.249.165` → Cloud Run | `ACTIVE` |
+| `www.showme.music`, `showme.music` | Firebase Hosting `PROJECT_GROUPED` cert | **Firebase**, per hosting project. Not a compute resource, so it never appears in `gcloud compute ssl-certificates list` | `CERT_ACTIVE`, expires 2026-10-02 |
+
+The one hand-made in GCP covers `api.showme.music` **only** — that is the cert the
+`infra/modules/api-load-balancer` module provisions, and it is why the API can be
+served over HTTPS at all in europe-north2 (no Cloud Run domain mappings there).
+
+**The domain move does not touch it.** `api.showme.music` points at the load
+balancer, not at Firebase, so it keeps working throughout — only `www` and the
+apex change hands.
+
+(Certificate Manager is not enabled on `prod-showme`; the classic compute cert is
+the one in play.)
+
+### After DNS propagates
+1. Confirm `ownershipState: OWNERSHIP_ACTIVE` and `cert.state: CERT_ACTIVE` on the
+   new claims, and that `https://www.showme.music` serves the `music-showme` site.
+2. **Then** delete the two custom domains on `showme-production` (gmail). Last, not
+   first.
+3. The staged claims are harmless if this is abandoned — delete them from
+   `music-showme` and nothing changes.
+
+```bash
+# Read either project's claims (needs the matching account's token):
+TOKEN=$(gcloud auth print-access-token)
+curl -s -H "Authorization: Bearer $TOKEN" -H "x-goog-user-project: music-showme" \
+  "https://firebasehosting.googleapis.com/v1beta1/projects/music-showme/sites/music-showme/customDomains" | jq
+```
+
+## 2026-08-27 (late) — the marketing site is now on BOTH accounts, and a web-app incident
+
+### The mirror, for the domain move
+`music-showme.web.app` (**daniel@showme.music**) now serves the same marketing
+build as `www.showme.music` (gmail `showme-production`), from the same
+`firebase.json` block: `.firebaserc` gives the **`marketing` target a different
+site per project**, so one config deploys to both. Verified identical on the
+mirror: `/`, `/profile/<slug>`, `/event/<id>`, `/about`, and the
+`/profile.html?slug=…` → `/profile?slug=…` 301 with the query intact.
+
+### INCIDENT: the emulator build went live on `showme-app.web.app`
+
+For roughly ten minutes the production web app was serving a bundle built for the
+**Firebase emulator** — `projectId: "demo-showme"`, auth pointed at
+`127.0.0.1:9099`. Nobody could have signed in.
+
+**Cause.** `pnpm test:e2e` builds `apps/web` with emulator configuration
+(`scripts/stack.mjs` → `webEmulatorEnv`) into **`apps/web/dist`** — the same
+directory a hosting deploy uploads. The order was: `pnpm build` (correct bundle) →
+`pnpm test:e2e` (overwrote it) → `firebase deploy` (shipped the overwrite).
+
+**Nothing failed.** The build was green, the tests were green, the deploy reported
+success, and the served page looked right. The only evidence was the string
+`demo-showme` inside the served JavaScript.
+
+**Fixed** by rebuilding and redeploying (`index-DMw1ZOAE.js`), then proving it
+rather than reading it: from the live page, a deliberately-wrong sign-in against
+the baked-in API key answered `INVALID_LOGIN_CREDENTIALS` — a real Firebase
+project replying, where the emulator build would have failed to connect at all.
+
+**Made impossible** rather than unlikely: the e2e build now goes to
+**`dist-e2e`** (`apps/web/playwright.config.ts`, gitignored). Re-ran the suite to
+confirm — 40 passed, `dist` still held `music-showme`, `dist-e2e` held
+`demo-showme`.
+
+**If you deploy the web app by hand, check the bundle before trusting it:**
+
+```bash
+grep -o 'projectId:"[^"]*"' apps/web/dist/assets/index-*.js   # must be music-showme
+```
+
+### Still wrong on the live marketing site (pre-existing, not from this deploy)
+Every page carries `<link rel="canonical" href="https://showme.example/">` and
+`robots.txt` points its sitemap at the same placeholder — 44 occurrences across 8
+files, with the TODO still in the file. It is on `www.showme.music` right now.
+The right value depends on where the domain lands, so it is left for the transfer.
+
+## 2026-08-27 (afternoon) — migration 0026, API 00017, web app, **and the marketing site**
+
+The public profile rebuild, the show poster, and the readable public URLs. First
+marketing deploy since 2026-08-23, so that site carries more than this change.
+
+| | |
+|---|---|
+| Backup | On-demand `1787836137294` ("pre-0026 show poster"), **polled to SUCCESSFUL before the migration ran**. |
+| Database | **26 → 27** rows in `drizzle.__drizzle_migrations` (0026). Data identical after: 5 users, 8 events, 6 profiles, 3 settlements. |
+| API | Cloud Run `showme-api` rev **`00017-g5c`** (was `00016-n4d`), europe-north2. |
+| Web app | `showme-app.web.app`, bundle **`index-CWwfnOX7.js`** (was `index-BDuZ3r-r.js`). |
+| Marketing | `www.showme.music` (**gmail account**, `showme-production`) — redeployed, with `cleanUrls` + the `/profile/**` and `/event/**` rewrites. |
+
+**The table above was wrong before this session and is worth reading twice.** It
+said production was at 25 applied migrations; `__drizzle_migrations` held **26
+rows**, which is migrations 0000–0025 — the same off-by-one the entry below warns
+about, made again. The rows are zero-indexed and the count is not the number of
+the last migration. Reading the table first is what kept 0026 from being applied
+twice or skipped.
+
+Verified by real objects and by behaviour, not by the deploy's own success line:
+
+- `events.image_file_id` + `image_url` exist and are nullable (**0026**).
+- A REAL published event answers `/public/events/:id` with the `imageUrl` key
+  (`1d4b66c0…`, "Ran Nir"). That single response proves both halves at once: the
+  new build is serving, and the migration landed — the route SELECTs the column,
+  so an unmigrated database would 500 rather than answer.
+- `https://www.showme.music/profile/ran-nir` renders (its "Profile not found"
+  state — see below), `/event/<id>` renders the show, `/about` resolves without
+  `.html`.
+- **The old address still lands**: `/profile.html?slug=ran-nir` → `301` to
+  `/profile?slug=ran-nir`. The QUERY survives the cleanUrls redirect, which is the
+  only reason every link already sent to anyone still works. Checked on the raw
+  `location` header, because curl's `%{redirect_url}` prints the path without it
+  and reads like a bug.
+
+**Nothing is published in production**, so the profile page cannot be seen with
+real content: all 6 profiles have `is_public = false`. The page is correct — it
+renders the honest "does not exist, or its owner has not published it" state.
+Flip `is_public` on one profile to see the design against real data.
+
+Connected through the Cloud SQL Auth Proxy again, but with `--token $(gcloud auth
+print-access-token)` rather than Application Default Credentials: ADC had expired
+into `invalid_grant / reauth related error (invalid_rapt)`, which surfaces as a
+bare `ECONNRESET` at the client and looks like a network fault. The user account's
+own token was still valid. The proxy was killed afterwards.
+
+## 2026-08-27 — migrations 0022–0024 applied. **Code NOT deployed.**
+
+Database only. The API and web app are still serving the 2026-08-26 build, so
+production is currently running **older code against a newer schema** — which is
+the safe direction (every one of these migrations only adds), but it means the
+features behind them are live in the database and absent from the app.
+
+| | |
+|---|---|
+| Backup | On-demand `99d8a0d0-7c46-43b4-a5f5-533d00000061` ("pre-0022-0024 settlement advance + delivery"), **verified DONE with no error before any migration ran**. |
+| Database | **22 → 25** applied rows in `drizzle.__drizzle_migrations`. Data intact after: 5 users, 6 events, 6 profiles, 3 settlements — identical to before. |
+| API | **unchanged**, rev `00015-2kp`. |
+| Web app | **unchanged**. |
+
+Verified by their real objects rather than by the migration names or by
+drizzle-kit's success line:
+
+- `budget_snapshots` table now exists (**0024**) — the settlement compute route
+  writes to it on every run, so this was the one that would have broken
+  settlement had the code shipped first.
+- `profiles.avatar_file_id` (**0022**) — `profile_media` already existed and is
+  only altered by that migration, so the table's presence proved nothing; the new
+  column is the real test.
+- `performance_reports.filed_at` + `pro_name` (**0023**). These are `NOT NULL`
+  with no default, which would have failed against a populated table — the table
+  held **0 rows**, checked before running rather than after.
+
+Connected through the Cloud SQL Auth Proxy (`cloud-sql-proxy --port 5439`), not by
+adding a laptop to the instance's authorized networks — the proxy leaves no
+standing hole behind it.
+
 ## 2026-08-26 (evening) — 26 commits, migrations 0017–0021, API 00015, web app
 
 Deployed from `main` at `6eaeb6a`, after lint 0 / typecheck 0 / build 0,

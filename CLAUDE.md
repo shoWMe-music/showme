@@ -12,6 +12,9 @@ The complete architecture, data model, engines, and API surface live in **[PLAN.
 of truth. Topic guides are in `.claude/skills/`: `data-model`, `authorization`, `settlement`, `api-conventions`.
 **Before calling anything done, read `verify-e2e`** — how a change is proven against the running stack
 (with `app-walkthrough` for the browser half and `ui-testing` for authoring specs).
+**Before building any screen meant to match the design, read `claude-design`** — the prototype is
+rendered, never read: it is a `<x-dc>` runtime app, `file://` is blocked, and DesignSync cannot
+fetch it. Building from a written description of it has gone wrong twice.
 **Later product decisions override PLAN.md and live in [docs/decisions.md](./docs/decisions.md)** — read it before
 building a subsystem (most recent: the **2026-07-24 session, folded in as #16**).
 

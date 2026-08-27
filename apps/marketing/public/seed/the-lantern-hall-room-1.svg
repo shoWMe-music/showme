@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 980" width="1200" height="980" role="img" aria-label="The room from the balcony">
+  <defs>
+    <radialGradient id="key" cx="50%" cy="18%" r="62%">
+      <stop offset="0%" stop-color="#FFE9B8" stop-opacity=".62"/>
+      <stop offset="38%" stop-color="#F4A046" stop-opacity=".28"/>
+      <stop offset="100%" stop-color="#140D09" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0A0604" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#0A0604" stop-opacity=".8"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="980" fill="#140D09"/>
+  <rect width="1200" height="980" fill="url(#key)"/>
+
+  <path d="M0 980 L0 700 Q160 660 300 704 Q440 646 590 700 Q740 650 880 702 Q1010 656 1200 706 L1200 980 Z" fill="#0A0604" opacity=".9"/>
+  <g fill="#FFC266" opacity=".5">
+    <circle cx="250" cy="250" r="7"/><circle cx="420" cy="222" r="7"/>
+    <circle cx="600" cy="212" r="7"/><circle cx="780" cy="222" r="7"/><circle cx="950" cy="250" r="7"/>
+  </g>
+  <rect x="230" y="300" width="740" height="6" fill="#FFC266" opacity=".18"/>
+  <ellipse cx="600" cy="640" rx="300" ry="60" fill="#FFC266" opacity=".14"/>
+  <rect width="1200" height="980" fill="url(#fade)"/>
+</svg>

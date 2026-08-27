@@ -16,7 +16,22 @@ export default defineConfig({
   reporter: [["list"]],
   use: { baseURL: "http://localhost:4174", trace: "on-first-retry" },
   webServer: {
-    command: "pnpm build && pnpm preview",
+    /**
+     * Built into `dist-e2e`, NOT `dist`.
+     *
+     * This build is made with EMULATOR configuration (`scripts/stack.mjs` →
+     * `webEmulatorEnv`: project `demo-showme`, auth at 127.0.0.1:9099). Left in
+     * `dist`, it looks exactly like a deployable build and is not one — and a
+     * hosting deploy is a directory upload, so whatever is in `dist` ships.
+     *
+     * That happened on 2026-08-27: an e2e run before a deploy put the emulator
+     * bundle live on `showme-app.web.app`, and the app pointed sign-in at
+     * localhost until it was rebuilt and redeployed. Nothing errored at deploy
+     * time; the string `demo-showme` in the served bundle was the only evidence.
+     * A separate directory is what makes that mistake impossible rather than
+     * merely unlikely.
+     */
+    command: "pnpm build --outDir dist-e2e && pnpm preview --outDir dist-e2e",
     url: "http://localhost:4174",
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,

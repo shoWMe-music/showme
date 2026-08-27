@@ -9,7 +9,7 @@ import { buildTestApp } from "./testing";
 
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -33,7 +33,7 @@ async function seedUser(id: string) {
   const { db } = harness;
   await db
     .insert(schema.users)
-    .values({ id, email: `${id}@example.com`, kind: "performer", name: id });
+    .values({ id, email: `${id}@example.showme.test`, kind: "performer", name: id });
   const [profile] = await db
     .insert(schema.profiles)
     .values({ kind: "performer", ownerUserId: id, name: id, slug: id })
@@ -78,7 +78,7 @@ describe("me", () => {
     expect(body.userId).toBe("me-export");
     expect(typeof body.exportedAt).toBe("string");
     // The user's own identity PII.
-    expect(body.data.users?.[0]).toMatchObject({ email: "me-export@example.com" });
+    expect(body.data.users?.[0]).toMatchObject({ email: "me-export@example.showme.test" });
     // Profile-scoped PII, matched via the user's owned profile.
     expect(body.data.payout_accounts?.[0]).toMatchObject({
       identifier: "SE0000000000000000000000",

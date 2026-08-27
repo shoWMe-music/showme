@@ -10,7 +10,7 @@ import { buildTestApp } from "./testing";
 
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -37,7 +37,9 @@ const thisYear = new Date().getFullYear();
 /** Seed a user + profile + membership with the given profile role. */
 async function seedProfile(id: string, role: "owner" | "viewer" = "owner") {
   const { db } = harness;
-  await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind: "operator" });
+  await db
+    .insert(schema.users)
+    .values({ id, email: `${id}@example.showme.test`, kind: "operator" });
   const [profile] = await db
     .insert(schema.profiles)
     .values({ kind: "operator", ownerUserId: id, name: id, slug: id })

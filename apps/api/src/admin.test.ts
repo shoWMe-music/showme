@@ -10,7 +10,7 @@ import { buildTestApp } from "./testing";
 /** Fake verifier: the bearer token IS the uid (mirrors app.test.ts). */
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -35,7 +35,9 @@ let seq = 0;
 /** Seed a user, flagging platform-admin if asked. */
 async function seedUser(kind: "operator" | "performer", isAdmin = false) {
   const id = `admin-${kind}-${isAdmin ? "root" : "user"}-${seq++}`;
-  await harness.db.insert(schema.users).values({ id, email: `${id}@example.com`, kind, isAdmin });
+  await harness.db
+    .insert(schema.users)
+    .values({ id, email: `${id}@example.showme.test`, kind, isAdmin });
   return id;
 }
 

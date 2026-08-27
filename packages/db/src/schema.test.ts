@@ -22,7 +22,7 @@ afterAll(async () => {
 async function createUser(id: string, kind: "operator" | "performer" | "team_and_crew" | "agent") {
   const [user] = await harness.db
     .insert(schema.users)
-    .values({ id, email: `${id}@example.com`, kind })
+    .values({ id, email: `${id}@example.showme.test`, kind })
     .returning();
   if (!user) throw new Error("user insert returned nothing");
   return user;
@@ -81,7 +81,7 @@ describe("Module 1 — identity", () => {
       db
         .insert(schema.users)
         // biome-ignore lint/suspicious/noExplicitAny: deliberately violating the enum
-        .values({ id: "m1-bad-kind", email: "x@example.com", kind: "manager" as any }),
+        .values({ id: "m1-bad-kind", email: "x@example.showme.test", kind: "manager" as any }),
     ).rejects.toThrow();
   });
 
@@ -667,7 +667,7 @@ describe("Module 7 — invitations & contacts", () => {
         source: "collaborator",
         createdByUser: operatorUser.id,
         createdByProfile: venue.id,
-        recipientEmail: "promoter@example.com",
+        recipientEmail: "promoter@example.showme.test",
       })
       .returning();
     if (!invitation) throw new Error("invitation insert returned nothing");
@@ -689,13 +689,13 @@ describe("Module 7 — invitations & contacts", () => {
         ownerProfileId: venue.id,
         name: "Acme Promotions",
         iban: "SE0000000000000000000000",
-        persons: [{ name: "Jo", email: "jo@acme.example", phone: "+46700000000" }],
+        persons: [{ name: "Jo", email: "jo@acme.showme.test", phone: "+46700000000" }],
         invitationId: invitation.id,
       })
       .returning();
     if (!contact) throw new Error("contact insert returned nothing");
     expect(contact.invitationId).toBe(invitation.id);
-    expect((contact.persons as Array<{ email: string }>)[0]?.email).toBe("jo@acme.example");
+    expect((contact.persons as Array<{ email: string }>)[0]?.email).toBe("jo@acme.showme.test");
 
     // Mark the invite consumed.
     await db
@@ -794,12 +794,16 @@ describe("Module 9 — settlement sharing", () => {
       .returning();
     if (!share) throw new Error("share insert returned nothing");
 
-    await db
-      .insert(schema.shareRecipients)
-      .values({ shareId: share.id, email: "band@example.com", linkedParticipantId: performer.id });
+    await db.insert(schema.shareRecipients).values({
+      shareId: share.id,
+      email: "band@example.showme.test",
+      linkedParticipantId: performer.id,
+    });
     // One recipient row per (share, email).
     await expect(
-      db.insert(schema.shareRecipients).values({ shareId: share.id, email: "band@example.com" }),
+      db
+        .insert(schema.shareRecipients)
+        .values({ shareId: share.id, email: "band@example.showme.test" }),
     ).rejects.toThrow();
 
     await db.insert(schema.shareOtps).values({
@@ -876,9 +880,13 @@ describe("Module 10 — comms & misc", () => {
       .returning();
     if (!event) throw new Error("event insert returned nothing");
 
-    await db.insert(schema.audienceRsvps).values({ eventId: event.id, email: "fan@example.com" });
+    await db
+      .insert(schema.audienceRsvps)
+      .values({ eventId: event.id, email: "fan@example.showme.test" });
     await expect(
-      db.insert(schema.audienceRsvps).values({ eventId: event.id, email: "fan@example.com" }),
+      db
+        .insert(schema.audienceRsvps)
+        .values({ eventId: event.id, email: "fan@example.showme.test" }),
     ).rejects.toThrow();
   });
 

@@ -9,7 +9,7 @@ import { buildTestApp } from "./testing";
 
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -33,7 +33,9 @@ afterAll(async () => {
 /** Seed an operator user + profile + owner membership. */
 async function seedOperator(id: string) {
   const { db } = harness;
-  await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind: "operator" });
+  await db
+    .insert(schema.users)
+    .values({ id, email: `${id}@example.showme.test`, kind: "operator" });
   const [profile] = await db
     .insert(schema.profiles)
     .values({ kind: "operator", ownerUserId: id, name: id, slug: id })
@@ -48,7 +50,9 @@ async function seedOperator(id: string) {
 /** Seed a venue profile with a primary location in `country`. */
 async function seedVenue(id: string, country: string) {
   const { db } = harness;
-  await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind: "operator" });
+  await db
+    .insert(schema.users)
+    .values({ id, email: `${id}@example.showme.test`, kind: "operator" });
   const [profile] = await db
     .insert(schema.profiles)
     .values({ kind: "operator", ownerUserId: id, name: id, slug: id })

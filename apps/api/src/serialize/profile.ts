@@ -2,6 +2,7 @@ import type { ProfileRole } from "@showme/auth";
 import type { schema } from "@showme/db";
 import { isPlaceProfile } from "@showme/shared";
 import { z } from "zod";
+import { resolveImageUrl } from "./image";
 
 type ProfileRow = typeof schema.profiles.$inferSelect;
 type ProfileLocationRow = typeof schema.profileLocations.$inferSelect;
@@ -192,6 +193,20 @@ export function readGenres(details: unknown): string[] {
   return list.filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "");
 }
 
+/**
+ * The one-line billing under the name — `details.tagline`, written by the
+ * profile editor beside the genres.
+ *
+ * A leaf of `details` rather than a column for the same reason `genres` is: it is
+ * read with its parent and nothing queries across it. It is the ONLY prose on the
+ * public page the owner controls the length of, so it is bounded at write time
+ * (`routes/profiles.ts`) rather than trimmed at read time — a page that silently
+ * cuts a sentence in half is worse than an editor that refuses one.
+ */
+export function readTagline(details: unknown): string | null {
+  return readOptionalString(asRecord(details).tagline);
+}
+
 /** Performer setups — `details.setups`, each `{ name, headcount }`. */
 export function readPerformerSetups(details: unknown): SerializedPerformerSetup[] {
   const list = asRecord(details).setups;
@@ -254,20 +269,6 @@ function serializeVenueDetails(row: VenueDetailsRow): SerializedVenueDetails {
     contactEmail: row.contactEmail,
     contactPhone: row.contactPhone,
   };
-}
-
-/**
- * One picture, resolved down the ladder the schema defines: an uploaded file
- * beats a pasted address, and an uploaded file whose row has gone resolves to
- * nothing rather than to a bucket path nobody can open.
- */
-function resolveImageUrl(
-  fileId: string | null,
-  url: string | null,
-  imageUrls?: Map<string, string>,
-): string | null {
-  if (fileId) return imageUrls?.get(fileId) ?? null;
-  return url;
 }
 
 /** Media rows are one table for photos and videos; `position` is the order. */
@@ -417,6 +418,8 @@ export interface PublicProfile {
   type: string | null;
   kind: string;
   bio: string | null;
+  /** The line under the name. Null when the owner has not written one. */
+  tagline: string | null;
   avatarUrl: string | null;
   bannerUrl: string | null;
   genres: string[];
@@ -512,6 +515,7 @@ export const PublicProfileSchema = z.object({
   type: z.string().nullable(),
   kind: z.string(),
   bio: z.string().nullable(),
+  tagline: z.string().nullable(),
   avatarUrl: z.string().nullable(),
   bannerUrl: z.string().nullable(),
   genres: z.array(z.string()),
@@ -552,15 +556,46 @@ export const PublicProfileSchema = z.object({
  * Only what a stranger may already read off the public event page. Nothing about
  * tickets: `events` has no price column and no ticket link anything reads, so a
  * public page says when and where and does not invent what a ticket costs.
+ *
+ * `city` / `country` are the poster's second line — "Berlin, DE" — read from
+ * `events.extras`, where the create wizard writes them. A tour list whose rows
+ * cannot say which town the show is in is not a tour list, and the venue NAME is
+ * not a substitute: a fan three cities away knows "Halle 7" means nothing to them
+ * only after they have clicked it.
+ *
+ * `lineup` is who else is billed on the night, and it is deliberately not a new
+ * disclosure: these are exactly the confirmed, publicly-billed participants that
+ * `loadPublicShows` already uses to decide the show belongs on this page at all
+ * (crew and agents excluded there, so excluded here). Reading the same rule the
+ * other way round — "who ELSE is on this bill" — is what lets a venue's programme
+ * name the act and a performer's date say who they are playing with. `tag` is the
+ * billing (`event_participants.performer_tag`: headliner / support / dj / opener),
+ * which is what a poster prints; it is null on a bill nobody has ordered yet.
  */
 export const PublicShowSchema = z.object({
   id: z.string(),
   title: z.string(),
   eventDate: z.string().nullable(),
   venueName: z.string().nullable(),
+  city: z.string().nullable(),
+  country: z.string().nullable(),
   doorTime: z.string().nullable(),
   startTime: z.string().nullable(),
+  /** The poster, signed per response when it is an upload (migration 0026). */
+  imageUrl: z.string().nullable(),
+  lineup: z.array(
+    z.object({
+      name: z.string(),
+      role: z.string(),
+      /** headliner | support | dj | opener — the billing order, when recorded. */
+      tag: z.string().nullable(),
+    }),
+  ),
 });
+
+/** One row of a public bill, as the wire carries it. */
+export type PublicShow = z.infer<typeof PublicShowSchema>;
+export type PublicShowLineupEntry = PublicShow["lineup"][number];
 
 /**
  * The public profile AS PUBLISHED — the projection plus the bill.
@@ -587,6 +622,7 @@ export function serializePublicProfile(
     type: profile.type,
     kind: profile.kind,
     bio: profile.bio,
+    tagline: readTagline(profile.details),
     avatarUrl: resolveImageUrl(profile.avatarFileId, profile.avatarUrl, relations?.imageUrls),
     bannerUrl: resolveImageUrl(profile.bannerFileId, profile.bannerUrl, relations?.imageUrls),
     genres: readGenres(profile.details),

@@ -9,7 +9,7 @@ import { buildTestApp } from "./testing";
 /** Fake verifier: the bearer token IS the uid (mirrors app.test.ts). */
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -35,7 +35,9 @@ let seq = 0;
 async function seedOperator() {
   const { db } = harness;
   const id = `insights-op-${seq++}`;
-  await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind: "operator" });
+  await db
+    .insert(schema.users)
+    .values({ id, email: `${id}@example.showme.test`, kind: "operator" });
   const [profile] = await db
     .insert(schema.profiles)
     .values({ kind: "operator", ownerUserId: id, name: id, slug: id })
@@ -52,7 +54,7 @@ async function seedStranger() {
   const id = `insights-stranger-${seq++}`;
   await harness.db
     .insert(schema.users)
-    .values({ id, email: `${id}@example.com`, kind: "operator" });
+    .values({ id, email: `${id}@example.showme.test`, kind: "operator" });
   return id;
 }
 

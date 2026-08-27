@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { schema } from "@showme/db";
 import type { Capability } from "@showme/shared";
 import { and, desc, eq, inArray } from "drizzle-orm";
@@ -39,9 +38,11 @@ import {
   buildShareDocument,
   visibleSections,
 } from "../lib/share-document";
+import { createShareWithRecipients, sendShareInvitations } from "../lib/share-invite";
 import {
   type RecipientParty,
   SHARABLE_CAPABILITIES,
+  findParticipantParty,
   findRecipientParty,
   narrowSharedCapabilities,
   viewerCapabilities,
@@ -140,7 +141,11 @@ const CreateShareBody = z.object({
     .optional(),
 });
 
-const CreateShareResponse = z.object({ token: z.string() });
+const CreateShareResponse = z.object({
+  token: z.string(),
+  /** The addresses the link was actually mailed to — never assumed, always reported. */
+  emailed: z.array(z.string()),
+});
 
 /** The public grant — the scope only; NEVER the recipients. */
 const GrantResponse = z.object({
@@ -314,11 +319,29 @@ async function recipientParty(
   recipient: Recipient | null,
 ): Promise<RecipientParty | null> {
   if (!recipient || !share.eventId) return null;
+
+  // AN EXPLICIT ASSIGNMENT WINS. A settlement invitation is issued by an operator
+  // who picked the party off the roster and then said where to send it, so the
+  // stored link is a statement, not a cached guess — and for a party with no
+  // account there is no membership row for the email join below to find, so
+  // re-deriving it would answer `null` and then persist that null over the
+  // operator's choice. The address is still proved by one-time code either way.
+  if (recipient.linkedParticipantId) {
+    const assigned = await findParticipantParty(
+      request.server.database,
+      share.eventId,
+      recipient.linkedParticipantId,
+    );
+    if (assigned) return assigned;
+  }
+
+  // Otherwise DISCOVER the party from the address, and record what was found so
+  // the next read does not have to ask again.
   const party = await findRecipientParty(request.server.database, share.eventId, recipient.email);
-  if ((party?.participantId ?? null) !== recipient.linkedParticipantId) {
+  if (party && party.participantId !== recipient.linkedParticipantId) {
     await request.server.database
       .update(schema.shareRecipients)
-      .set({ linkedParticipantId: party?.participantId ?? null })
+      .set({ linkedParticipantId: party.participantId })
       .where(eq(schema.shareRecipients.id, recipient.id));
   }
   return party;
@@ -433,7 +456,6 @@ export async function shareRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { database } = request.server;
       const { id } = request.params;
 
       const held = await requireEventCapability(request, id, "event.edit");
@@ -449,78 +471,35 @@ export async function shareRoutes(fastify: FastifyInstance): Promise<void> {
         throw badRequest("A protected share needs at least one recipient email");
       }
 
-      // Resolve each recipient to the party they already are on this event. Done
-      // BEFORE the insert so the party link is part of the record from the start.
-      const linked = new Map<string, string | null>();
-      for (const recipient of recipients ?? []) {
-        const email = normalizeEmail(recipient.email);
-        if (linked.has(email)) continue;
-        const party = await findRecipientParty(database, id, email);
-        linked.set(email, party?.participantId ?? null);
-      }
-
-      const token = randomBytes(24).toString("hex");
-      const created = await database.transaction(async (tx) => {
-        const [share] = await tx
-          .insert(schema.shares)
-          .values({
-            token,
-            eventId: id,
-            targetKind,
-            targetId,
-            capabilities,
-            access,
-            ownerUserId: principal.userId,
-            ownerProfileId: principal.actingProfileId as string,
-            expiresAt: expiresAt ? new Date(expiresAt) : undefined,
-          })
-          .returning();
-        if (!share) throw new Error("share create failed");
-
-        if (recipients && recipients.length > 0) {
-          const seen = new Set<string>();
-          const rows = [];
-          for (const recipient of recipients) {
-            const email = normalizeEmail(recipient.email);
-            if (seen.has(email)) continue;
-            seen.add(email);
-            rows.push({
-              shareId: share.id,
-              email,
-              name: recipient.name,
-              linkedParticipantId: linked.get(email) ?? null,
-            });
-          }
-          await tx.insert(schema.shareRecipients).values(rows);
-        }
-
-        await writeAudit(tx, request, {
-          capability: "event.edit",
-          action: "share.create",
-          targetKind: "share",
-          targetId: share.id,
-          eventId: id,
-          after: { access: share.access, targetKind: share.targetKind, capabilities },
-        });
-        // Handing event data to someone OUTSIDE the platform is the operator's
-        // decision and the operator's record — kind `share` keeps it behind
-        // `event.edit`. The token is never summarised: a feed row is not a way to
-        // hand the link to a participant who was not given it.
-        await writeActivity(tx, request, {
-          eventId: id,
-          type: "share.created",
-          targetKind: "share",
-          targetId: share.id,
-          summary: {
-            access: share.access,
-            sharedKind: share.targetKind,
-            recipientCount: recipients?.length ?? 0,
-          },
-        });
-        return share;
+      const created = await createShareWithRecipients(request, {
+        eventId: id,
+        capabilities,
+        access,
+        targetKind,
+        targetId,
+        expiresAt: expiresAt ? new Date(expiresAt) : undefined,
+        recipients: recipients ?? [],
+        ownerUserId: principal.userId,
+        ownerProfileId: principal.actingProfileId as string,
+        capability: "event.edit",
       });
 
-      return reply.status(201).send({ token: created.token });
+      // The link goes OUT, not just into the clipboard. The dialog above this
+      // route promises the recipient a link addressed to their email; until now
+      // the only thing that promise produced was a token the operator had to
+      // forward themselves. Best-effort and post-commit — a mail failure leaves a
+      // perfectly good share the operator can still copy.
+      const delivered = await sendShareInvitations(request, {
+        eventId: id,
+        token: created.token,
+        recipients: created.recipients,
+        senderName: request.firebaseUser?.name,
+      }).catch((error) => {
+        request.log.error({ error, eventId: id }, "share invitation emails failed");
+        return [] as string[];
+      });
+
+      return reply.status(201).send({ token: created.token, emailed: delivered });
     },
   );
 

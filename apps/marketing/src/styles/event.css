@@ -404,3 +404,27 @@ body {
 .page-footer p {
   margin: 0;
 }
+
+/* The poster band when the host has uploaded artwork. The gradient stays UNDER
+   it as the ground (a transparent PNG, or a picture still loading, must not leave
+   white type on white), and a scrim keeps the title readable over whatever the
+   artwork happens to be behind it. */
+.poster--art {
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  position: relative;
+  isolation: isolate;
+  min-height: clamp(200px, 34vw, 320px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.poster--art::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(180deg, rgba(10, 6, 4, 0.1) 0%, rgba(10, 6, 4, 0.82) 100%);
+}

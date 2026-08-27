@@ -176,6 +176,20 @@
       "when": 1788912235003,
       "tag": "0024_a_settlement_remembers_the_plan_it_beat",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1788912236003,
+      "tag": "0025_the_settlement_gets_its_own_copy",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1788912237003,
+      "tag": "0026_a_show_has_a_poster",
+      "breakpoints": true
     }
   ]
 }

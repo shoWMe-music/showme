@@ -1,12 +1,18 @@
-import { Avatar, Button, Icon, Select, TextField } from "@showme/design-system";
+import { getGetApiV1EventsIdQueryKey, usePatchApiV1EventsId } from "@showme/api-client";
+import { Avatar, Button, Icon, Select, TextField, useToast } from "@showme/design-system";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { getActiveProfileId } from "../lib/activeProfile";
+import { errorMessage } from "../lib/errors";
 import { formatMoney } from "../lib/format";
 import { EventInlineInformation } from "./EventInlineInformation";
 import { EventScheduleCard } from "./EventScheduleCard";
+import { ProfileImageField } from "./ProfileImageField";
 import { RidersDocumentsCard } from "./RidersDocumentsCard";
 import styles from "./eventDetailsFields.module.css";
 import { CardHeader, Eyebrow, GlyphButton, MonoPill, SectionCard, XIcon } from "./eventUi";
 import { useEventExtrasEditor } from "./useEventExtrasEditor";
+import { useProfileImageUpload } from "./useProfileImageUpload";
 
 /** Local, decoupled shapes for the event-detail sections — kept minimal so this
  * file doesn't depend on the exact generated model names (structurally equal). */
@@ -22,6 +28,10 @@ export interface DetailsEvent {
   venueName: string | null;
   /** The venue PROFILE this event is placed at, when one is linked. */
   venueProfileId?: string | null;
+  /** Whose event this is — a poster is uploaded into THIS profile's folder. */
+  hostProfileId: string;
+  /** The poster, resolved and signed by the API. Null when there is none. */
+  imageUrl: string | null;
   capacity: number | null;
   stageId: string | null;
   version: number;
@@ -122,6 +132,7 @@ export function EventDetailsTab({
         performers={performers}
         canEdit={canEdit}
       />
+      <EventPosterCard event={event} canEdit={canEdit} />
       <RidersDocumentsCard eventId={event.id} riders={riders} />
       <EventScheduleCard eventId={event.id} eventDate={event.eventDate} canEdit={canEdit} />
       {canSeeExtras && (
@@ -236,6 +247,94 @@ function EventInformationCard({
           ))
         )}
       </div>
+    </SectionCard>
+  );
+}
+
+/**
+ * The show's poster — the one picture an event has, and the only thing on this
+ * tab that is FOR the public.
+ *
+ * Everything else here is operational (the guest list, the ticket tiers, the
+ * riders); this is what a fan sees on the venue's programme and on the show's own
+ * page. It sits directly under the information card because it is part of what
+ * the show IS, not an attachment to it.
+ *
+ * WHO MAY SET IT: whoever may edit the event AND is acting as the host profile.
+ * That second half is not this component being cautious — the bytes go into the
+ * host's storage folder, and `POST /files/upload-url` only issues a write URL to
+ * an owner or admin of that profile. An agent holds `event.edit` and would get a
+ * refusal from storage, so the picker is not offered to them; they see the poster
+ * as everyone else does.
+ *
+ * The save carries NO `expectedVersion`. Optimistic locking is there for the form
+ * fields two people edit at once (`useEventExtrasEditor` explains the race it
+ * fixes); a poster is one scalar, replacing it is the whole intent, and a 409 in
+ * the face of someone who just picked a picture buys nothing.
+ */
+function EventPosterCard({ event, canEdit }: { event: DetailsEvent; canEdit: boolean }) {
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const upload = useProfileImageUpload(event.hostProfileId);
+  const isHost = getActiveProfileId() === event.hostProfileId;
+  const mayChange = canEdit && isHost;
+
+  const patch = usePatchApiV1EventsId({
+    mutation: {
+      onSuccess: () => {
+        void queryClient.invalidateQueries({ queryKey: getGetApiV1EventsIdQueryKey(event.id) });
+      },
+      onError: (error) => toast.error(errorMessage(error, "Couldn't save the poster.")),
+    },
+  });
+
+  const setPoster = (imageFileId: string | null) => {
+    // Both halves of the ladder are sent: picking a file must clear an address
+    // the show was pointing at before, and removing must clear both.
+    patch.mutate({ id: event.id, data: { imageFileId, imageUrl: null } });
+  };
+
+  return (
+    <SectionCard>
+      <CardHeader
+        icon={<Icon name="image" />}
+        title="Poster"
+        action={
+          event.imageUrl ? undefined : (
+            <span style={{ color: "var(--dim)", fontSize: 12.5 }}>Optional</span>
+          )
+        }
+      />
+      <p style={{ margin: "6px 0 14px", color: "var(--muted)", fontSize: 13.5 }}>
+        Shown on this show&rsquo;s public page and on the programme of everyone billed on it. Wide
+        artwork works best.
+      </p>
+      <div style={{ maxWidth: 420 }}>
+        <ProfileImageField
+          label="Show poster"
+          hint={
+            mayChange
+              ? "Around 1200×800. It leads the public page for this show."
+              : isHost
+                ? "You need edit rights on this show to change its poster."
+                : "Only the profile hosting this show can change its poster."
+          }
+          previewUrl={event.imageUrl}
+          shape="banner"
+          isUploading={upload.isUploading || patch.isPending}
+          disabled={!mayChange}
+          onPick={async (file) => {
+            const fileId = await upload.upload(file);
+            if (fileId) setPoster(fileId);
+          }}
+          onRemove={() => setPoster(null)}
+        />
+      </div>
+      {upload.error && (
+        <p style={{ margin: "10px 0 0", fontSize: 12.5, color: "var(--brand-red)" }} role="alert">
+          {upload.error}
+        </p>
+      )}
     </SectionCard>
   );
 }

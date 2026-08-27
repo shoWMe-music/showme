@@ -18,7 +18,7 @@ import { buildTestApp } from "./testing";
 /** Fake verifier: the bearer token IS the uid, so tests just send `Bearer <uid>`. */
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -41,7 +41,7 @@ const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 type Kind = "operator" | "performer" | "team_and_crew" | "agent";
 
 async function seedUser(id: string, kind: Kind) {
-  await harness.db.insert(schema.users).values({ id, email: `${id}@example.com`, kind });
+  await harness.db.insert(schema.users).values({ id, email: `${id}@example.showme.test`, kind });
 }
 
 /** A profile of `kind`/`type` plus its owner and their active `owner` membership. */

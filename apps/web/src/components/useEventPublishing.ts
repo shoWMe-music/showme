@@ -8,8 +8,8 @@ import {
 import { useToast } from "@showme/design-system";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
-import { publicSiteUrl } from "../lib/availabilityShareLink";
 import { errorMessage } from "../lib/errors";
+import { publicEventUrl } from "../lib/publicSite";
 
 /**
  * Publishing an event — the state behind the "Public event page" panel at the
@@ -63,9 +63,8 @@ function describeStatus(status: string): string {
   return status.replace(/_/g, " ");
 }
 
-export function publicEventPageUrl(eventId: string): string {
-  return `${publicSiteUrl().replace(/\/$/, "")}/event.html?event=${encodeURIComponent(eventId)}`;
-}
+/** The address of a show's public page. See `lib/publicSite.ts`. */
+export const publicEventPageUrl = publicEventUrl;
 
 export function useEventPublishing(
   eventId: string,

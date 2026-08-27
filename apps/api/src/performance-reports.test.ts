@@ -26,7 +26,7 @@ import { buildTestApp } from "./testing";
 /** Fake verifier: the bearer token IS the uid (mirrors app.test.ts). */
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -59,7 +59,7 @@ async function seedMemberWithSet(
   name = id,
 ) {
   const { db } = harness;
-  await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind });
+  await db.insert(schema.users).values({ id, email: `${id}@example.showme.test`, kind });
   const [profile] = await db
     .insert(schema.profiles)
     .values({ kind, ownerUserId: id, name, slug: id })
@@ -79,7 +79,9 @@ async function seedMemberWithSet(
 /** A venue profile with a recorded address — the only thing that places a show. */
 async function seedVenue(id: string, country: string | null) {
   const { db } = harness;
-  await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind: "operator" });
+  await db
+    .insert(schema.users)
+    .values({ id, email: `${id}@example.showme.test`, kind: "operator" });
   const [venue] = await db
     .insert(schema.profiles)
     .values({ kind: "operator", ownerUserId: id, name: `${id} Hall`, slug: id })

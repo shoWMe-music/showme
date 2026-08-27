@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="A lit lantern">
+  <defs>
+    <radialGradient id="core" cx="50%" cy="52%" r="42%">
+      <stop offset="0%" stop-color="#FFE9B8"/>
+      <stop offset="45%" stop-color="#FFC266"/>
+      <stop offset="100%" stop-color="#EE5746" stop-opacity=".65"/>
+    </radialGradient>
+    <radialGradient id="halo" cx="50%" cy="52%" r="52%">
+      <stop offset="0%" stop-color="#FFC266" stop-opacity=".55"/>
+      <stop offset="100%" stop-color="#FFC266" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="0" fill="#16100B"/>
+  <circle cx="256" cy="266" r="200" fill="url(#halo)"/>
+
+  <!-- The hook and the cap. -->
+  <path d="M256 58 v34" stroke="#FFC266" stroke-width="10" stroke-linecap="round" fill="none"/>
+  <path d="M232 42 a24 24 0 0 1 48 0" stroke="#FFC266" stroke-width="10" fill="none" stroke-linecap="round"/>
+  <path d="M176 104 h160 l-22 34 H198 Z" fill="#EE5746"/>
+
+  <!-- The body, and the light in it. -->
+  <path d="M198 138 h116 l30 196 a30 30 0 0 1 -30 34 H198 a30 30 0 0 1 -30 -34 Z" fill="#241812"/>
+  <path d="M212 156 h88 l24 168 a16 16 0 0 1 -16 18 H204 a16 16 0 0 1 -16 -18 Z" fill="url(#core)"/>
+
+  <!-- The frame over it. -->
+  <g stroke="#16100B" stroke-width="12" opacity=".85">
+    <path d="M256 156 v186"/>
+    <path d="M196 250 h120"/>
+  </g>
+
+  <path d="M168 368 h176 l-14 32 H182 Z" fill="#EE5746"/>
+</svg>

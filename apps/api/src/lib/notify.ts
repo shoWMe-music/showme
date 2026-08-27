@@ -287,3 +287,71 @@ export async function notifyUsers(
     });
   }
 }
+
+/**
+ * WHO CAN BE REACHED about this event's settlement, and how.
+ *
+ * The review step has two halves and they are not the same job. A party with an
+ * account gets a notification in the app and a mail to the address on their
+ * account — nothing to arrange, it just goes. A party WITHOUT one cannot be
+ * notified at all: there is no user row to hang a notification on and no address
+ * anybody has recorded. Somebody has to say where to send it, and that somebody
+ * is the operator.
+ *
+ * So this answers, per settlement party: is there a reachable account behind it?
+ * `emails` is every verified address that would receive the review mail; empty
+ * means the party is off-platform and needs an address assigned before the
+ * settlement can reach them.
+ *
+ * Deliberately keyed on `settlements`, not on participants: a party with no
+ * settlement row has nothing to review, and listing them would put a "waiting on
+ * an email" prompt beside somebody who is owed nothing.
+ */
+export interface SettlementPartyReach {
+  participantId: string;
+  /** Verified account addresses behind this party. Empty ⇒ off-platform. */
+  emails: string[];
+  /** The user ids to notify in-app. Empty ⇒ nothing to notify. */
+  userIds: string[];
+}
+
+export async function settlementPartyReach(
+  database: Database,
+  eventId: string,
+): Promise<Map<string, SettlementPartyReach>> {
+  const rows = await database
+    .select({
+      participantId: schema.settlements.participantId,
+      userId: schema.profileMembers.userId,
+      email: schema.users.email,
+    })
+    .from(schema.settlements)
+    .innerJoin(
+      schema.eventParticipants,
+      eq(schema.eventParticipants.id, schema.settlements.participantId),
+    )
+    .leftJoin(
+      schema.profileMembers,
+      and(
+        eq(schema.profileMembers.profileId, schema.eventParticipants.profileId),
+        eq(schema.profileMembers.status, "active"),
+        isNotNull(schema.profileMembers.userId),
+      ),
+    )
+    .leftJoin(schema.users, eq(schema.users.id, schema.profileMembers.userId))
+    .where(eq(schema.settlements.eventId, eventId));
+
+  const reach = new Map<string, SettlementPartyReach>();
+  for (const row of rows) {
+    if (!row.participantId) continue;
+    const entry = reach.get(row.participantId) ?? {
+      participantId: row.participantId,
+      emails: [],
+      userIds: [],
+    };
+    if (row.userId && !entry.userIds.includes(row.userId)) entry.userIds.push(row.userId);
+    if (row.email && !entry.emails.includes(row.email)) entry.emails.push(row.email);
+    reach.set(row.participantId, entry);
+  }
+  return reach;
+}

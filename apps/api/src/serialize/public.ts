@@ -1,4 +1,5 @@
 import type { schema } from "@showme/db";
+import { resolveImageUrl } from "./image";
 
 type EventRow = typeof schema.events.$inferSelect;
 
@@ -33,9 +34,14 @@ export interface PublicEvent {
   venueName: string | null;
   doorTime: string | null;
   startTime: string | null;
+  /** The poster. A show's own picture is poster-level by definition. */
+  imageUrl: string | null;
 }
 
-export function serializePublicEvent(event: EventRow): PublicEvent {
+export function serializePublicEvent(
+  event: EventRow,
+  imageUrls?: Map<string, string>,
+): PublicEvent {
   return {
     id: event.id,
     title: event.title,
@@ -43,5 +49,6 @@ export function serializePublicEvent(event: EventRow): PublicEvent {
     venueName: event.venueName,
     doorTime: event.doorTime,
     startTime: event.startTime,
+    imageUrl: resolveImageUrl(event.imageFileId, event.imageUrl, imageUrls),
   };
 }

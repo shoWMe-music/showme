@@ -10,6 +10,9 @@
       "hosting": {
         "web": [
           "showme-app"
+        ],
+        "marketing": [
+          "music-showme"
         ]
       }
     },

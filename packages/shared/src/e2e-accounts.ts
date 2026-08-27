@@ -33,8 +33,12 @@ export const E2E_PASSWORD = "Test123!pass";
 /**
  * Keyed accounts. `performerA`/`performerB` are two distinct performers so a test
  * can exercise performer↔performer interaction; `agent` represents `performerA`;
- * `teamAndCrew` is booked as crew on the operator's event. The cross-wiring
- * itself lives in the Postgres seed — this file only names the actors.
+ * `teamAndCrew` is booked as crew on the operator's event; `coHost` is a SECOND
+ * operator, co-promoting one show with the venue, which is the only way to
+ * exercise the residual split — `reconcile.ts` allocates `pool − Σ deals` across
+ * every operator on the bill, and with one host that allocation is a no-op that
+ * proves nothing. The cross-wiring itself lives in the Postgres seed — this file
+ * only names the actors.
  */
 export const E2E_ACCOUNTS = {
   operator: {
@@ -68,6 +72,14 @@ export const E2E_ACCOUNTS = {
     displayName: "Priya Sound (FOH engineer)",
     kind: "team_and_crew",
     profileName: "Priya Sound",
+  },
+  coHost: {
+    uid: "e2e-co-host",
+    email: "co.host@e2e.showme.test",
+    password: E2E_PASSWORD,
+    displayName: "Northlight Presents (co-promoter)",
+    kind: "operator",
+    profileName: "Northlight Presents",
   },
   agent: {
     uid: "e2e-agent",

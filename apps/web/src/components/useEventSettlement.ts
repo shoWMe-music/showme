@@ -11,6 +11,7 @@ import {
   usePostApiV1EventsIdSettlementComments,
   usePostApiV1EventsIdSettlementCompute,
   usePostApiV1EventsIdSettlementFinalize,
+  usePostApiV1EventsIdSettlementInvitations,
   usePostApiV1EventsIdSettlementStatus,
   usePostApiV1EventsIdSettlementsSidConfirm,
 } from "@showme/api-client";
@@ -34,8 +35,19 @@ import {
 
 type Settlements = Awaited<ReturnType<typeof getApiV1EventsIdSettlements>>;
 
-/** The settlement statuses at which the figures are frozen (`LOCKED_SETTLEMENT_STATUSES`). */
-const FROZEN_STATUSES = new Set(["finalized", "revised", "partly_paid", "paid", "concluded"]);
+/**
+ * The settlement statuses at which the figures are frozen.
+ *
+ * These three and no others, because that is `LOCKED_SETTLEMENT_STATUSES` in
+ * `apps/api/src/routes/settlement.ts` — the set the server actually refuses a
+ * recompute or a re-issue on. This list used to also carry `revised` and
+ * `concluded`, and the cost was the review loop's whole point: a settlement that
+ * came back with comments and was re-issued could never be recalculated or sent
+ * back out, so an operator could agree a figure was wrong and then have no
+ * affordance to correct it. A screen that hides a button the API would have
+ * honoured is a worse lie than one that shows a button and gets refused.
+ */
+const FROZEN_STATUSES = new Set(["finalized", "partly_paid", "paid"]);
 
 /** What the caller may do with this event's settlement, straight off `capabilities`. */
 export interface SettlementAuthority {
@@ -70,10 +82,24 @@ export interface SettlementParty {
   role: string;
   isYours: boolean;
   approvedByYou: boolean;
+  /**
+   * Whether the reader may sign THIS line off. Not the same question as
+   * `isYours`: a delegated performer's signature is their agent's to give
+   * (decisions.md #14), so an agent may sign a line that is not its own. The
+   * server answers it; nothing here re-derives it.
+   */
+  signableByYou: boolean;
   /** Null until the event has been reconciled — a real "not yet", not a zero. */
   entitlement: string | null;
   collected: string | null;
   paid: string | null;
+  /**
+   * Money that moved before the night under a deal — a rental paid to hold the
+   * room, a guarantee paid to secure the booking. Null when nothing did, so the
+   * board can leave the row out rather than print a zero that invites the reader
+   * to wonder what it means.
+   */
+  prepaid: string | null;
   net: string | null;
   /** Raw minor units — for summing only. Never rendered. */
   netMinor: string | null;
@@ -96,7 +122,47 @@ export interface SettlementComment {
   isYours: boolean;
 }
 
+/**
+ * An agent's commission on their performer's income, ready to render.
+ *
+ * The amounts arrive from the API as MINOR UNITS in a string (`docs/money.md` —
+ * integer minor units, string at the JSON boundary, never a float), and this
+ * screen used to hand that string straight to the row: the agent's own panel read
+ * "2100000" where it meant SEK 21,000, off by a factor of a hundred to anybody
+ * reading quickly. Formatting happens here with the same `formatAmount` every
+ * other figure on the screen goes through, so the commission follows the currency
+ * preview too.
+ */
+export interface SettlementCommissionRow {
+  id: string;
+  performerLabel: string;
+  performerEntitlement: string;
+  commissionLabel: string;
+  commission: string;
+}
+
 /** One party's sign-off, named, as the roster shows it. */
+/**
+ * How one party is reached about their settlement — the operator's view of the
+ * review step, not a party's.
+ *
+ * `onPlatform` decides which half of the mechanism applies: an account means
+ * "Send for review" already reaches them, in the app and by mail, with nothing to
+ * arrange. No account means there is no address on file and the operator has to
+ * say where it goes — which is what `sendInvitation` is for.
+ */
+export interface SettlementDeliveryRow {
+  participantId: string;
+  name: string;
+  role: string;
+  onPlatform: boolean;
+  /** The address their settlement was sent to, when one has been assigned. */
+  invitedEmail: string | null;
+  invitedAt: string | null;
+  /** When they last opened the link — "sent" and "read" are different answers. */
+  lastSeenAt: string | null;
+}
+
 export interface SettlementApprovalRow {
   participantId: string;
   name: string;
@@ -104,6 +170,8 @@ export interface SettlementApprovalRow {
   approved: boolean;
   approvedAt: string | null;
   isYours: boolean;
+  /** The settlement to sign, or null when this signature is not the reader's to give. */
+  signableSettlementId: string | null;
 }
 
 /**
@@ -127,7 +195,7 @@ export interface EventSettlement {
   parties: SettlementParty[];
   transfers: Transfer[];
   /** Private agent↔performer commissions — only ever the two parties' own (#14). */
-  commissions: Settlements["commissions"];
+  commissions: SettlementCommissionRow[];
   /**
    * Gross takings → adjusted net, or NULL for a caller who may not read the
    * night's money. Null is the ceiling itself (story.md:44), not a loading state
@@ -135,6 +203,14 @@ export interface EventSettlement {
    */
   ladder: LadderRow[] | null;
   approvals: SettlementApprovalRow[];
+  /**
+   * Who still has to be told, and how. Empty for anyone who cannot send the
+   * settlement out — the API withholds it rather than the screen hiding it.
+   */
+  delivery: SettlementDeliveryRow[];
+  /** Address a party who is not on shoWMe, and mail them their settlement. */
+  sendInvitation: (participantId: string, email: string, name?: string) => void;
+  isInviting: boolean;
   approvedCount: number;
   /** The agreements behind the figures. Empty until the event is reconciled. */
   deals: SettlementDealRow[];
@@ -237,6 +313,7 @@ export function useEventSettlement(
   const confirmSettlement = usePostApiV1EventsIdSettlementsSidConfirm();
   const patchTransfer = usePatchApiV1EventsIdTransfersTid();
   const setStatus = usePostApiV1EventsIdSettlementStatus();
+  const inviteToSettlement = usePostApiV1EventsIdSettlementInvitations();
   const addComment = usePostApiV1EventsIdSettlementComments();
 
   const compute = useCallback(() => {
@@ -255,6 +332,36 @@ export function useEventSettlement(
       },
     );
   }, [computeSettlement, eventId, refresh, toast]);
+
+  /**
+   * Address a party who is not on shoWMe, and send them their settlement.
+   *
+   * The toast reports what actually happened rather than what was asked for: the
+   * link is minted whether or not the mail sink accepted it, and telling somebody
+   * their settlement "was sent" when the send failed is how a settlement sits
+   * unsigned for a week with nobody wondering why.
+   */
+  const sendInvitation = useCallback(
+    (participantId: string, email: string, name?: string) => {
+      inviteToSettlement.mutate(
+        { id: eventId, data: { participantId, email, name } },
+        {
+          onSuccess: (result) => {
+            refresh();
+            if (result.emailed) {
+              toast.success(`Settlement sent to ${result.email}.`);
+            } else {
+              toast.error(
+                `The link for ${result.email} was created, but the email could not be sent. Copy it from Share & Export.`,
+              );
+            }
+          },
+          onError: (error) => toast.error(errorMessage(error, "Couldn't send the settlement.")),
+        },
+      );
+    },
+    [inviteToSettlement, eventId, refresh, toast],
+  );
 
   const finalize = useCallback(() => {
     finalizeSettlement.mutate(
@@ -374,6 +481,23 @@ export function useEventSettlement(
 
   const rows = settlements.data?.settlements ?? [];
 
+  /**
+   * The settlements belonging to PARTIES on the bill, which is what every
+   * whole-document question is really about: what status the document is at,
+   * whether its figures are frozen, whether the review conversation is still
+   * open.
+   *
+   * A representation settlement — an agent's commission on their performer's
+   * income — is a private side agreement that rides along with the event and has
+   * its own lifecycle; it must never answer for the document. The API already
+   * draws this line (it serves commission rows under `commissions`, and
+   * `settlements` only where `participantId` is set), so today this filter
+   * removes nothing. It stays because the whole-document questions below are
+   * meaningless over a side agreement, and that should not depend on a filter
+   * happening to be applied one service away.
+   */
+  const partyRows = rows.filter((row) => row.participantId != null);
+
   const parties = useMemo(
     () => rows.map((row) => toParty(row, currency, nameOf, roleOf, formatAmount)),
     [rows, currency, nameOf, roleOf, formatAmount],
@@ -423,6 +547,11 @@ export function useEventSettlement(
     const mine = new Set(
       rows.filter((row) => row.isYours).map((row) => row.participantId as string),
     );
+    const signable = new Map(
+      rows
+        .filter((row) => row.signableByYou)
+        .map((row) => [row.participantId as string, row.id] as const),
+    );
     return (settlements.data?.approvals ?? []).map((approval) => ({
       participantId: approval.participantId,
       name: nameOf(approval.participantId),
@@ -430,6 +559,10 @@ export function useEventSettlement(
       approved: approval.approved,
       approvedAt: approval.approvedAt,
       isYours: mine.has(approval.participantId),
+      // The settlement id to sign, or null when this line is not the reader's to
+      // sign. Carried on the roster row because the roster IS where somebody
+      // looks to find out who still owes a signature.
+      signableSettlementId: signable.get(approval.participantId) ?? null,
     }));
   }, [settlements.data, rows, nameOf, roleOf]);
 
@@ -443,10 +576,27 @@ export function useEventSettlement(
   return {
     parties,
     transfers,
-    commissions: settlements.data?.commissions ?? [],
+    commissions: (settlements.data?.commissions ?? []).map((commission) => ({
+      id: commission.id,
+      performerLabel: `${nameOf(commission.performerParticipantId)} entitlement`,
+      performerEntitlement: formatAmount(commission.performerEntitlement),
+      commissionLabel: `Commission to ${nameOf(commission.agentParticipantId)}`,
+      commission: formatAmount(commission.commission),
+    })),
     ladder: ladder ? ladderRows(ladder, currency, formatAmount) : null,
     approvals,
     approvedCount: approvals.filter((approval) => approval.approved).length,
+    delivery: (settlements.data?.delivery ?? []).map((row) => ({
+      participantId: row.participantId,
+      name: nameOf(row.participantId),
+      role: roleOf(row.participantId),
+      onPlatform: row.onPlatform,
+      invitedEmail: row.invitedEmail,
+      invitedAt: row.invitedAt,
+      lastSeenAt: row.lastSeenAt,
+    })),
+    sendInvitation,
+    isInviting: inviteToSettlement.isPending,
     deals: dealRows,
     ownParty: parties.find((party) => party.isYours) ?? null,
     isWholeBoard: isWholeBoard(
@@ -457,9 +607,9 @@ export function useEventSettlement(
     isError: settlements.isError,
     error: settlements.error,
     authority: settlementAuthorityOf(capabilities),
-    isComputed: rows.some((row) => row.computed != null),
-    isFinalized: rows.some((row) => FROZEN_STATUSES.has(row.status)),
-    status: rows[0]?.status ?? "open",
+    isComputed: partyRows.some((row) => row.computed != null),
+    isFinalized: partyRows.some((row) => FROZEN_STATUSES.has(row.status)),
+    status: partyRows[0]?.status ?? "open",
     payouts: payable.map((party) => ({
       key: party.settlementId,
       label: `${party.name} payout`,
@@ -469,15 +619,21 @@ export function useEventSettlement(
     retainsOwnShare: ownRetains,
     // The review conversation is over once the figures freeze — after that the
     // only honest objection is a dispute, which stays available.
-    canReview: rows.length > 0 && !rows.some((row) => FROZEN_STATUSES.has(row.status)),
+    canReview: partyRows.length > 0 && !partyRows.some((row) => FROZEN_STATUSES.has(row.status)),
     sendForReview: () => moveTo("pending_review", "Sent for review."),
     reissue: () => moveTo("revised", "Figures re-issued."),
     flagDispute: () => moveTo("dispute", "Flagged as disputed."),
     comments: (commentThread.data ?? []).map((row) => ({
       id: row.id,
       // Resolved from the participant, not from a name stored on the row — one
-      // source for who somebody is. An event-side remark has no party.
-      author: row.partyParticipantId ? nameOf(row.partyParticipantId) : "Operator",
+      // source for who somebody is. A remark with no party is either the
+      // operator speaking for the event or somebody off-platform, and only the
+      // second kind carries `authorName` — so attributing it to the operator
+      // when a name IS on the row would put a stranger's words in the venue's
+      // mouth.
+      author: row.partyParticipantId
+        ? nameOf(row.partyParticipantId)
+        : (row.authorName ?? "Operator"),
       message: row.message,
       createdAt: row.createdAt,
       isYours: row.isYours,
@@ -517,9 +673,14 @@ function toParty(
     role: roleOf(row.participantId),
     isYours: row.isYours,
     approvedByYou: row.approvedByYou,
+    signableByYou: row.signableByYou,
     entitlement: computed ? formatAmount(computed.entitlement) : null,
     collected: computed ? formatAmount(computed.collected) : null,
     paid: computed ? formatAmount(computed.paid) : null,
+    // Absent on a settlement finalized before advances were accounted for, and
+    // zero on a night where nothing moved early — both mean "no row to show".
+    prepaid:
+      computed?.prepaid != null && computed.prepaid !== "0" ? formatAmount(computed.prepaid) : null,
     net: computed ? formatAmount(computed.net) : null,
     // The raw minor units alongside the formatted figure, ONLY so totals can be
     // summed as integers. Nothing renders this — `docs/money.md`: never do money

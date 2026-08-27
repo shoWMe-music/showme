@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="1200" height="800" role="img" aria-label="Poster artwork: a lit stage seen from the floor">
+  <defs>
+    <radialGradient id="key" cx="50%" cy="6%" r="62%">
+      <stop offset="0%" stop-color="#FFE9B8" stop-opacity=".8"/>
+      <stop offset="30%" stop-color="#F4A046" stop-opacity=".4"/>
+      <stop offset="70%" stop-color="#EE5746" stop-opacity=".14"/>
+      <stop offset="100%" stop-color="#0E0906" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFE9B8" stop-opacity=".26"/>
+      <stop offset="100%" stop-color="#FFE9B8" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0A0604" stop-opacity="0"/>
+      <stop offset="72%" stop-color="#0A0604" stop-opacity=".72"/>
+      <stop offset="100%" stop-color="#0A0604" stop-opacity=".96"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="800" fill="#0E0906"/>
+  <rect width="1200" height="800" fill="url(#key)"/>
+
+  <path d="M470 0 L600 0 L760 800 L300 800 Z" fill="url(#beam)"/>
+  <path d="M660 0 L780 0 L980 800 L560 800 Z" fill="url(#beam)" opacity=".6"/>
+
+  <g fill="#FFC266">
+    <rect x="0" y="70" width="1200" height="4" opacity=".22"/>
+    <circle cx="420" cy="86" r="8" opacity=".85"/>
+    <circle cx="600" cy="86" r="8" opacity=".95"/>
+    <circle cx="780" cy="86" r="8" opacity=".85"/>
+  </g>
+
+  <ellipse cx="600" cy="640" rx="260" ry="40" fill="#FFC266" opacity=".14"/>
+
+  <g fill="#0A0604" opacity=".94">
+    <path d="M540 640 q56 -250 118 -252 q62 2 118 252 z"/>
+    <circle cx="658" cy="352" r="48"/>
+    <rect x="470" y="612" width="380" height="16" rx="8"/>
+  </g>
+
+  <rect width="1200" height="800" fill="url(#floor)"/>
+
+  <g fill="#0A0604" opacity=".9">
+    <path d="M0 800 L0 736 Q120 706 214 734 Q306 690 400 732 Q492 692 586 734 Q680 694 774 732 Q868 690 962 734 Q1058 706 1200 738 L1200 800 Z"/>
+  </g>
+</svg>

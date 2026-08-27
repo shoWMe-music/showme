@@ -11,7 +11,7 @@ import { buildTestApp } from "./testing";
 /** Fake verifier — public routes never call it, but buildTestApp needs one. */
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -39,7 +39,7 @@ async function seedProfile(
   const { db } = harness;
   await db
     .insert(schema.users)
-    .values({ id: ownerId, email: `${ownerId}@example.com`, kind: "performer" });
+    .values({ id: ownerId, email: `${ownerId}@example.showme.test`, kind: "performer" });
   const [profile] = await db
     .insert(schema.profiles)
     .values({ kind: "performer", ownerUserId: ownerId, name: slug, slug, isPublic, ...extra })
@@ -57,7 +57,7 @@ async function seedEvent(
   const { db } = harness;
   await db
     .insert(schema.users)
-    .values({ id: ownerId, email: `${ownerId}@example.com`, kind: "operator" });
+    .values({ id: ownerId, email: `${ownerId}@example.showme.test`, kind: "operator" });
   const [profile] = await db
     .insert(schema.profiles)
     .values({ kind: "operator", ownerUserId: ownerId, name: ownerId, slug: `${ownerId}-p` })
@@ -103,10 +103,11 @@ describe("public profiles", () => {
       type: "band",
       kind: "performer",
       bio: "We play",
+      // `details` held `{ private: true }`; only the leaves the projection names
+      // by hand come out, and none of them was set.
+      tagline: null,
       avatarUrl: "https://cdn/a.png",
       bannerUrl: "https://cdn/b.png",
-      // `details` held `{ private: true }`; only the two leaves the projection
-      // names by hand come out, and neither was set.
       genres: [],
       setups: [],
       socialLinks: [],
@@ -170,6 +171,58 @@ describe("public profiles", () => {
     // NOT on the bill — and these are the assertions that would have caught it.
     expect(await showsFor("bill-crew")).toEqual([]);
     expect(await showsFor("bill-agent")).toEqual([]);
+  });
+
+  /**
+   * WHO IS NAMED ON THE BILL — a narrower question than who put the show on.
+   *
+   * A `host` is the room and a `co_host` is the promoter presenting the night.
+   * Both make a show APPEAR on their own public page, and neither belongs in the
+   * "with …" line under someone else's date: including them made a performer's
+   * own show read "The Lantern Hall with The Lantern Hall and Northlight
+   * Presents", with the act that is actually playing pushed off the end of the
+   * line. Measured against the seeded fixture, which is exactly that shape.
+   */
+  it("names the other acts on a show, and only the acts", async () => {
+    const { db } = harness;
+    const eventId = await seedEvent("lineup-op", true, {
+      status: "confirmed",
+      eventDate: "2099-11-20",
+      title: "Album Release",
+      venueName: "The Lantern Hall",
+      extras: { city: "Stockholm", country: "SE" },
+    });
+    const roles = [
+      ["lineup-headliner", "performer", "headliner"],
+      ["lineup-support", "support", "support"],
+      ["lineup-promoter", "co_host", null],
+      ["lineup-crew", "crew", null],
+    ] as const;
+    for (const [slug, role, performerTag] of roles) {
+      const profileId = await seedProfile(`${slug}-owner`, slug, true);
+      await db.insert(schema.eventParticipants).values({
+        eventId,
+        profileId,
+        role,
+        status: "confirmed",
+        ...(performerTag ? { performerTag } : {}),
+      });
+    }
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/public/profiles/lineup-headliner",
+    });
+    expect(response.statusCode).toBe(200);
+    const [show] = response.json().upcomingShows;
+
+    // The town the show is in, read out of `extras` by name.
+    expect(show.city).toBe("Stockholm");
+    expect(show.country).toBe("SE");
+
+    // The support act, and nobody else: not the promoter (co_host), not the
+    // crew, and not the profile whose page this is.
+    expect(show.lineup).toEqual([{ name: "lineup-support", role: "support", tag: "support" }]);
   });
 
   it("keeps an unpublished or unconfirmed show off the bill", async () => {
@@ -270,6 +323,11 @@ describe("public events", () => {
       venueName: "The Hall",
       doorTime: "19:00:00",
       startTime: "20:00:00",
+      // The poster (migration 0026). Null here because this fixture has none —
+      // present in the shape because the page draws it, and a missing key would
+      // read as "no poster" for a reason the page could not tell apart from a
+      // broken projection.
+      imageUrl: null,
     });
     expect(body.notes).toBeUndefined();
     expect(body.holdRank).toBeUndefined();
@@ -316,7 +374,7 @@ describe("public RSVP", () => {
     const first = await app.inject({
       method: "POST",
       url: `/api/v1/public/events/${eventId}/rsvp`,
-      payload: { name: "Ada", email: "ada@example.com", city: "Stockholm" },
+      payload: { name: "Ada", email: "ada@example.showme.test", city: "Stockholm" },
     });
     expect(first.statusCode).toBe(200);
     expect(first.json()).toEqual({ ok: true });
@@ -326,12 +384,12 @@ describe("public RSVP", () => {
       .from(schema.audienceRsvps)
       .where(eq(schema.audienceRsvps.eventId, eventId));
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.email).toBe("ada@example.com");
+    expect(rows[0]?.email).toBe("ada@example.showme.test");
 
     const duplicate = await app.inject({
       method: "POST",
       url: `/api/v1/public/events/${eventId}/rsvp`,
-      payload: { email: "ada@example.com" },
+      payload: { email: "ada@example.showme.test" },
     });
     expect(duplicate.statusCode).toBe(409);
   });
@@ -345,7 +403,7 @@ describe("public RSVP", () => {
     const response = await app.inject({
       method: "POST",
       url: `/api/v1/public/events/${eventId}/rsvp`,
-      payload: { email: "ada@example.com" },
+      payload: { email: "ada@example.showme.test" },
     });
     // The page WAS public, so the honest answer names the reason (409) rather
     // than pretending the event never existed.
@@ -371,7 +429,7 @@ describe("public RSVP", () => {
     const response = await app.inject({
       method: "POST",
       url: `/api/v1/public/events/${eventId}/rsvp`,
-      payload: { email: "ada@example.com" },
+      payload: { email: "ada@example.showme.test" },
     });
     expect(response.statusCode).toBe(409);
 
@@ -391,7 +449,7 @@ describe("public RSVP", () => {
     const response = await app.inject({
       method: "POST",
       url: `/api/v1/public/events/${eventId}/rsvp`,
-      payload: { email: "ada@example.com" },
+      payload: { email: "ada@example.showme.test" },
     });
     expect(response.statusCode).toBe(404);
 
@@ -430,7 +488,7 @@ describe("public leads", () => {
       headers: { origin: ORIGIN },
       payload: {
         name: "Ada\u0000\u0009 Lovelace ", // null + tab collapse to one space; ends trimmed
-        email: " ADA@Example.com ",
+        email: " ADA@Example.ShowMe.Test ",
         message: "Line 1\r\nLine 2\u0000!", // CRLF normalized; embedded null stripped; newline kept
         role: "Venue",
       },
@@ -441,7 +499,12 @@ describe("public leads", () => {
     expect(response.headers["access-control-allow-origin"]).toBe(ORIGIN);
     // Sanitized: collapsed whitespace, lowercased/trimmed email, CRLF → LF.
     expect(captured).toEqual([
-      { name: "Ada Lovelace", email: "ada@example.com", message: "Line 1\nLine 2!", role: "Venue" },
+      {
+        name: "Ada Lovelace",
+        email: "ada@example.showme.test",
+        message: "Line 1\nLine 2!",
+        role: "Venue",
+      },
     ]);
 
     await leadApp.close();
@@ -451,7 +514,7 @@ describe("public leads", () => {
     const captured: Lead[] = [];
     const leadApp = buildLeadApp(captured);
     await leadApp.ready();
-    const payload = { name: "Ada", email: "ada@example.com", message: "hi there" };
+    const payload = { name: "Ada", email: "ada@example.showme.test", message: "hi there" };
 
     const evil = await leadApp.inject({
       method: "POST",
@@ -481,7 +544,12 @@ describe("public leads", () => {
       method: "POST",
       url: "/api/v1/public/leads",
       headers: { origin: ORIGIN },
-      payload: { name: "Bot", email: "bot@spam.com", message: "buy now", website: "http://spam" },
+      payload: {
+        name: "Bot",
+        email: "bot@spam.showme.test",
+        message: "buy now",
+        website: "http://spam",
+      },
     });
 
     expect(response.statusCode).toBe(200);
@@ -512,7 +580,7 @@ describe("public leads", () => {
         method: "POST",
         url: "/api/v1/public/leads",
         headers: { origin: ORIGIN, "x-forwarded-for": "203.0.113.7" },
-        payload: { name: "Ada", email: "ada@example.com", message: "hello there" },
+        payload: { name: "Ada", email: "ada@example.showme.test", message: "hello there" },
       });
 
     for (let attempt = 0; attempt < 5; attempt++) {

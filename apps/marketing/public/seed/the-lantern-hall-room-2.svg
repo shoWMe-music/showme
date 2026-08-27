@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 980" width="1200" height="980" role="img" aria-label="The bar, after doors">
+  <defs>
+    <radialGradient id="key" cx="72%" cy="30%" r="62%">
+      <stop offset="0%" stop-color="#FFE9B8" stop-opacity=".5"/>
+      <stop offset="38%" stop-color="#F4A046" stop-opacity=".28"/>
+      <stop offset="100%" stop-color="#160E0A" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0A0604" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#0A0604" stop-opacity=".8"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="980" fill="#160E0A"/>
+  <rect width="1200" height="980" fill="url(#key)"/>
+
+  <rect x="120" y="520" width="960" height="26" rx="13" fill="#0A0604" opacity=".85"/>
+  <rect x="120" y="546" width="960" height="300" fill="#0A0604" opacity=".7"/>
+  <g fill="#FFE9B8" opacity=".22">
+    <rect x="200" y="250" width="16" height="230" rx="8"/>
+    <rect x="290" y="290" width="16" height="190" rx="8"/>
+    <rect x="380" y="230" width="16" height="250" rx="8"/>
+  </g>
+  <g fill="#EE5746" opacity=".5">
+    <circle cx="760" cy="470" r="26"/><circle cx="850" cy="486" r="20"/><circle cx="930" cy="466" r="16"/>
+  </g>
+  <rect width="1200" height="980" fill="url(#fade)"/>
+</svg>

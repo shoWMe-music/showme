@@ -1,5 +1,5 @@
 import { schema } from "@showme/db";
-import { and, asc, eq, gte, inArray, or } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, ne, or } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -8,7 +8,13 @@ import { readProfileBusyTime } from "../lib/availability";
 import { signProfileImageUrls } from "../lib/profile-media";
 import { createSlidingWindowRateLimiter } from "../lib/rate-limit";
 import type { StorageSigner } from "../lib/storage";
-import { type ProfileRelations, PublishedProfileSchema } from "../serialize/profile";
+import { resolveImageUrl } from "../serialize/image";
+import {
+  type ProfileRelations,
+  type PublicShow,
+  type PublicShowLineupEntry,
+  PublishedProfileSchema,
+} from "../serialize/profile";
 import { serializePublicEvent, serializePublicProfile } from "../serialize/public";
 
 /**
@@ -37,6 +43,22 @@ export const PUBLICLY_VISIBLE_EVENT_STATUSES = ["confirmed", "concluded"] as con
  */
 export const PUBLICLY_BILLED_ROLES = ["host", "co_host", "performer", "support"] as const;
 
+/**
+ * The roles that are ON THE BILL rather than behind it — who a poster names.
+ *
+ * A narrower list than `PUBLICLY_BILLED_ROLES` above, and narrower for a reason
+ * that only shows up once the bill is rendered: a `host` is the room and a
+ * `co_host` is the promoter presenting the night, so putting them in the "with …"
+ * line makes a performer's own date read "Halle 7 **with The Lantern Hall and
+ * Northlight Presents**" — the venue named twice and the act that is actually
+ * playing pushed out of the line. Measured against the seeded fixture, which is
+ * exactly that shape.
+ *
+ * The wider list still decides whether a show APPEARS on a page (an operator's
+ * programme is the nights it hosts). This one decides who gets NAMED on it.
+ */
+const PUBLICLY_BILLED_ACT_ROLES = ["performer", "support"] as const;
+
 const SlugParams = z.object({ slug: z.string().min(1) });
 const EventParams = z.object({ id: z.string().uuid() });
 
@@ -60,6 +82,8 @@ const PublicEventResponse = z.object({
   venueName: z.string().nullable(),
   doorTime: z.string().nullable(),
   startTime: z.string().nullable(),
+  /** The poster — the one picture a show has, and poster-level by definition. */
+  imageUrl: z.string().nullable(),
 });
 
 /**
@@ -219,7 +243,11 @@ function clientIp(request: FastifyRequest): string {
  * `published = true` AND a status in `PUBLICLY_VISIBLE_EVENT_STATUSES`. A draft, a
  * pending hold or an unpublished confirmation stays invisible.
  */
-export async function loadPublicShows(database: FastifyInstance["database"], profileId: string) {
+export async function loadPublicShows(
+  database: FastifyInstance["database"],
+  signer: StorageSigner,
+  profileId: string,
+): Promise<PublicShow[]> {
   const today = new Date().toISOString().slice(0, 10);
   const performing = database
     .select({ eventId: schema.eventParticipants.eventId })
@@ -231,7 +259,7 @@ export async function loadPublicShows(database: FastifyInstance["database"], pro
         inArray(schema.eventParticipants.role, [...PUBLICLY_BILLED_ROLES]),
       ),
     );
-  return await database
+  const events = await database
     .select({
       id: schema.events.id,
       title: schema.events.title,
@@ -239,6 +267,11 @@ export async function loadPublicShows(database: FastifyInstance["database"], pro
       venueName: schema.events.venueName,
       doorTime: schema.events.doorTime,
       startTime: schema.events.startTime,
+      imageFileId: schema.events.imageFileId,
+      imageUrl: schema.events.imageUrl,
+      // Only for the city line below. The blob itself is never published — the
+      // two keys are read out by name, the way the profile's `details` is.
+      extras: schema.events.extras,
     })
     .from(schema.events)
     .where(
@@ -250,6 +283,100 @@ export async function loadPublicShows(database: FastifyInstance["database"], pro
       ),
     )
     .orderBy(asc(schema.events.eventDate));
+  if (events.length === 0) return [];
+
+  const [lineups, imageUrls] = await Promise.all([
+    loadPublicLineups(
+      database,
+      events.map((event) => event.id),
+      profileId,
+    ),
+    // Every poster on the bill signed in one round — see the events list, which
+    // does the same for the same reason.
+    signProfileImageUrls(
+      database,
+      signer,
+      events.map((event) => event.imageFileId),
+    ),
+  ]);
+  return events.map((event) => {
+    const extras = event.extras && typeof event.extras === "object" ? event.extras : {};
+    const { city, country } = extras as { city?: unknown; country?: unknown };
+    return {
+      id: event.id,
+      title: event.title,
+      eventDate: event.eventDate,
+      venueName: event.venueName,
+      city: typeof city === "string" && city.trim() !== "" ? city : null,
+      country: typeof country === "string" && country.trim() !== "" ? country : null,
+      doorTime: event.doorTime,
+      startTime: event.startTime,
+      imageUrl: resolveImageUrl(event.imageFileId, event.imageUrl, imageUrls),
+      lineup: lineups.get(event.id) ?? [],
+    };
+  });
+}
+
+/**
+ * Who ELSE is billed on these nights, grouped by event.
+ *
+ * The gate is the one `loadPublicShows` already applies to decide a show belongs
+ * on a public page at all — confirmed, and a role in `PUBLICLY_BILLED_ROLES`, so
+ * crew and agents are as absent here as they are there. This function adds no new
+ * kind of disclosure; it reads the same rule from the other end.
+ *
+ * The profile whose page this is, is excluded: a performer's own dates do not say
+ * "with Marlo Vance", and a venue's programme does not list the venue.
+ *
+ * ORDER is the poster's order — headliner, support, opener, DJ — from
+ * `performer_tag`. A bill nobody has tagged keeps its name order, which is the
+ * honest fallback: we do not know who opens, so we do not claim to.
+ *
+ * The roles here are the ACT roles, not every publicly-billed one — see
+ * `PUBLICLY_BILLED_ACT_ROLES`.
+ */
+async function loadPublicLineups(
+  database: FastifyInstance["database"],
+  eventIds: string[],
+  excludeProfileId: string,
+): Promise<Map<string, PublicShowLineupEntry[]>> {
+  const rows = await database
+    .select({
+      eventId: schema.eventParticipants.eventId,
+      role: schema.eventParticipants.role,
+      tag: schema.eventParticipants.performerTag,
+      name: schema.profiles.name,
+    })
+    .from(schema.eventParticipants)
+    .innerJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
+    .where(
+      and(
+        inArray(schema.eventParticipants.eventId, eventIds),
+        ne(schema.eventParticipants.profileId, excludeProfileId),
+        eq(schema.eventParticipants.status, "confirmed"),
+        inArray(schema.eventParticipants.role, [...PUBLICLY_BILLED_ACT_ROLES]),
+      ),
+    )
+    .orderBy(asc(schema.profiles.name));
+
+  const byEvent = new Map<string, PublicShowLineupEntry[]>();
+  for (const row of rows) {
+    const entry = { name: row.name, role: row.role, tag: row.tag };
+    const existing = byEvent.get(row.eventId);
+    if (existing) existing.push(entry);
+    else byEvent.set(row.eventId, [entry]);
+  }
+  for (const entries of byEvent.values()) {
+    entries.sort((left, right) => billingRank(left.tag) - billingRank(right.tag));
+  }
+  return byEvent;
+}
+
+/** Poster order. An untagged name sorts with the headliners — see above. */
+function billingRank(tag: string | null): number {
+  const order = ["headliner", "support", "opener", "dj"];
+  const rank = tag === null ? -1 : order.indexOf(tag);
+  return rank === -1 ? 0 : rank;
 }
 
 async function loadPublicProfileRelations(
@@ -326,7 +453,7 @@ export async function publicRoutes(fastify: FastifyInstance): Promise<void> {
       // the bill is a separate query, so the two run together.
       const [relations, shows] = await Promise.all([
         loadPublicProfileRelations(database, request.server.storageSigner, profile),
-        loadPublicShows(database, profile.id),
+        loadPublicShows(database, request.server.storageSigner, profile.id),
       ]);
       return { ...serializePublicProfile(profile, relations), upcomingShows: shows };
     },
@@ -351,7 +478,12 @@ export async function publicRoutes(fastify: FastifyInstance): Promise<void> {
           ),
         );
       if (!event) throw notFound("Event not found");
-      return serializePublicEvent(event);
+      // Signed per response: an uploaded poster lives in a private bucket, so
+      // even the open page gets a fresh URL rather than an object path.
+      const imageUrls = await signProfileImageUrls(database, request.server.storageSigner, [
+        event.imageFileId,
+      ]);
+      return serializePublicEvent(event, imageUrls);
     },
   );
 

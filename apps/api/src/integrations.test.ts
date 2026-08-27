@@ -16,14 +16,14 @@ import { buildTestApp } from "./testing";
 /**
  * The integrations routes, driven against a Postgres container and a stand-in for
  * Google. The stand-in answers exactly what the real API answers — verified
- * against the live `daniel@showme.music` calendar first — so the cases here are
+ * against the live `daniel@showme.test` calendar first — so the cases here are
  * the ones a network cannot be asked to reproduce on demand: a revoked grant, an
  * expired sync cursor, a state minted for somebody else.
  */
 
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -55,7 +55,7 @@ function createFakeGoogle(): FakeGoogle {
     syncTokenExpired: false,
     calls: [],
     timeZone: "Europe/Stockholm",
-    summary: "daniel@showme.music",
+    summary: "daniel@showme.test",
   };
 }
 
@@ -144,7 +144,9 @@ const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 /** A user who owns an operator profile — the shape a connection attaches to. */
 async function seedOperator(id: string): Promise<string> {
   const { db } = harness;
-  await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind: "operator" });
+  await db
+    .insert(schema.users)
+    .values({ id, email: `${id}@example.showme.test`, kind: "operator" });
   const [profile] = await db
     .insert(schema.profiles)
     .values({ kind: "operator", ownerUserId: id, name: id, slug: `${id}-slug`, isPublic: true })
@@ -159,7 +161,9 @@ async function seedOperator(id: string): Promise<string> {
 /** Add somebody else to the profile at the given role. */
 async function addMember(profileId: string, id: string, role: "admin" | "editor"): Promise<void> {
   const { db } = harness;
-  await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind: "operator" });
+  await db
+    .insert(schema.users)
+    .values({ id, email: `${id}@example.showme.test`, kind: "operator" });
   await db.insert(schema.profileMembers).values({ profileId, userId: id, role, status: "active" });
 }
 
@@ -403,7 +407,7 @@ describe("connecting and the first sync", () => {
     expect(connection.refreshTokenAuthTag).toBeTruthy();
     // The cursor IS there, so the second sync can be incremental.
     expect(connection.syncToken).toBe("sync-token-1");
-    expect(connection.providerAccountId).toBe("daniel@showme.music");
+    expect(connection.providerAccountId).toBe("daniel@showme.test");
     expect(connection.calendarTimeZone).toBe("Europe/Stockholm");
   });
 
@@ -419,7 +423,7 @@ describe("connecting and the first sync", () => {
     expect(response.body).not.toContain(REFRESH_TOKEN);
     expect(response.body).not.toContain("sync-token-1");
     expect(response.json()[0]).toMatchObject({
-      providerAccountId: "daniel@showme.music",
+      providerAccountId: "daniel@showme.test",
       accountWithheld: false,
       manageable: true,
       incrementalSyncReady: true,
@@ -439,7 +443,7 @@ describe("connecting and the first sync", () => {
       accountWithheld: true,
       manageable: false,
     });
-    expect(response.body).not.toContain("daniel@showme.music");
+    expect(response.body).not.toContain("daniel@showme.test");
   });
 
   it("takes the imported hours off the profile's availability", async () => {
@@ -830,7 +834,7 @@ describe("the sealed token is bound to its row", () => {
         userId: "stranger",
         profileId: strangerProfile.id,
         provider: "google",
-        providerAccountId: "daniel@showme.music",
+        providerAccountId: "daniel@showme.test",
         refreshTokenCiphertext: connection.refreshTokenCiphertext,
         refreshTokenIv: connection.refreshTokenIv,
         refreshTokenAuthTag: connection.refreshTokenAuthTag,

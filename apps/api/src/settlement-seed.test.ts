@@ -43,7 +43,7 @@ import { buildTestApp } from "./testing";
 
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -70,7 +70,7 @@ async function seedMemberWithSet(
   capabilities: readonly string[],
 ) {
   const { db } = harness;
-  await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind });
+  await db.insert(schema.users).values({ id, email: `${id}@example.showme.test`, kind });
   const [profile] = await db
     .insert(schema.profiles)
     .values({ kind, ownerUserId: id, name: id, slug: id })
@@ -286,6 +286,8 @@ describe("the seeded reference settlement (A-13)", () => {
       entitlement: OPERATOR_ENTITLEMENT,
       collected: "7800000",
       paid: "1080000",
+      // Nothing moved before this night — the reference deal settles after it.
+      prepaid: "0",
       held: OPERATOR_HELD,
       net: `-${TRANSFER}`,
       // The operator is on no deal of its own here — everything it keeps is the
@@ -339,6 +341,7 @@ describe("the seeded reference settlement (A-13)", () => {
       entitlement: PERFORMER_ENTITLEMENT,
       collected: "0",
       paid: "0",
+      prepaid: "0",
       held: "0",
       net: TRANSFER,
       // WHY she is owed it: her 70% beat the 18 000 floor, and the hotel the

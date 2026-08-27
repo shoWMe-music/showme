@@ -13,7 +13,7 @@ import { buildTestApp } from "./testing";
 /** Fake verifier: the bearer token IS the uid, so tests just send `Bearer <uid>`. */
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -64,7 +64,7 @@ type Kind = "operator" | "performer" | "team_and_crew" | "agent";
 
 /** Seed a bare provisioned user (no memberships). */
 async function seedUser(id: string, kind: Kind) {
-  await harness.db.insert(schema.users).values({ id, email: `${id}@example.com`, kind });
+  await harness.db.insert(schema.users).values({ id, email: `${id}@example.showme.test`, kind });
 }
 
 /**
@@ -201,7 +201,7 @@ describe("profiles — authorize + serialize + audit", () => {
           // survives beside the standard keys.
           amenities: ["pa_system", "pa_system", "  ", "Green Room"],
           dealTypes: ["door_split"],
-          contactEmail: "book@lantern.example",
+          contactEmail: "book@lantern.showme.test",
         },
       },
     });
@@ -234,7 +234,7 @@ describe("profiles — authorize + serialize + audit", () => {
       .where(eq(schema.venueDetails.profileId, profileId));
     expect(venueRow?.capacity).toBe(400);
     expect(venueRow?.soundSystem).toBe("Funktion-One");
-    expect(venueRow?.contactEmail).toBe("book@lantern.example");
+    expect(venueRow?.contactEmail).toBe("book@lantern.showme.test");
 
     // A second save must UPDATE the same rows, not stack up duplicates — the
     // location row is upserted by profile, the venue row by primary key.
@@ -862,6 +862,80 @@ describe("profiles — the field inventory ported from the previous app", () => 
     expect(cleared.json().videos).toEqual(["https://vimeo.com/347119375"]);
   });
 
+  /**
+   * The tagline is a first-class body field over a `details` LEAF, like `setups`.
+   * Three things have to hold at once, and each of them has been got wrong by a
+   * client hand-merging a jsonb blob before: the leaf saves, the neighbours it
+   * shares the blob with survive, and clearing it REMOVES the key rather than
+   * storing "".
+   */
+  it("saves a tagline beside the other details leaves, and clears it to nothing", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("tagline-leaf", "performer");
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: { details: { genres: ["Indie folk"] } },
+    });
+
+    // A tagline and setups in ONE request. Two independent merge blocks would
+    // keep whichever ran last and silently drop the other.
+    const saved = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: {
+        tagline: "  Songs built for rooms that listen.  ",
+        setups: [{ name: "Solo", headcount: 1 }],
+      },
+    });
+    expect(saved.statusCode).toBe(200);
+
+    const detailsNow = async () => {
+      const [row] = await harness.db
+        .select()
+        .from(schema.profiles)
+        .where(eq(schema.profiles.id, profileId));
+      return row?.details as Record<string, unknown>;
+    };
+    expect(await detailsNow()).toEqual({
+      genres: ["Indie folk"],
+      setups: [{ name: "Solo", headcount: 1 }],
+      tagline: "Songs built for rooms that listen.",
+    });
+
+    // It is published — the whole reason the field exists.
+    const published = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${profileId}/public-preview`,
+      headers: auth(ownerId),
+    });
+    expect(published.json().profile.tagline).toBe("Songs built for rooms that listen.");
+
+    // Cleared: the KEY is gone, and nothing else in the blob moved.
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: { tagline: null },
+    });
+    expect(cleared.statusCode).toBe(200);
+    const after = await detailsNow();
+    expect("tagline" in after).toBe(false);
+    expect(after.genres).toEqual(["Indie folk"]);
+    expect(after.setups).toEqual([{ name: "Solo", headcount: 1 }]);
+
+    // Longer than a tagline is refused, not truncated.
+    const tooLong = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: { tagline: "x".repeat(141) },
+    });
+    expect(tooLong.statusCode).toBe(400);
+  });
+
   it("gives capacity setups stable ids and exactly one headline", async () => {
     const { profileId, ownerId } = await seedProfileOwner("capacity-setups", "operator");
 
@@ -933,7 +1007,7 @@ describe("profiles — public preview", () => {
           capacity: 400,
           artistLogisticsNotes: "Back door on Bellmansgatan, code 4471",
           audienceLogisticsNotes: "Entrance on Hornsgatan, step-free at the side",
-          contactEmail: "book@lantern.example",
+          contactEmail: "book@lantern.showme.test",
           contactPhone: "+46 70 000 00 00",
         },
       },

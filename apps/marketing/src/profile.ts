@@ -1,5 +1,5 @@
 /**
- * The public profile page — a venue's (or performer's) own page, for anyone with
+ * The public profile page — a performer's or a venue's own page, for anyone with
  * the link and no account.
  *
  * WHY IT LIVES IN `apps/marketing` and not in the app: `apps/web` mounts its
@@ -9,10 +9,20 @@
  * read a session or call a protected route even by mistake. Same reasoning that
  * put `availability.html` here.
  *
+ * THE LAYOUT IS THE PROTOTYPE'S, screen by screen — Claude Design "Public
+ * Profiles", turn 3 ("Slicker, softer — the fan-facing cut"): 3a for a performer,
+ * 3b for a venue, 3c for the phone. Rendered and read with eyes, per the
+ * `claude-design` skill. The one rule that shapes every decision below is the
+ * owner's: **match the layout, wire real data, never mock.** Where the prototype
+ * shows a control this stack cannot honestly serve, the control is ABSENT and the
+ * reason is written down beside where it would have gone (STYLE-GUIDE §7 — a
+ * control that does nothing spends the reader's trust).
+ *
  * WHAT IT MAY SHOW — the entire response of `GET /public/profiles/:slug`, which
- * is a hard allowlist in `apps/api/src/serialize/public.ts`, not a redaction:
+ * is a hard allowlist in `apps/api/src/serialize/profile.ts`, not a redaction:
  *
  *   name        the profile's own public display name
+ *   tagline     the one line under it, written in the owner's editor
  *   type/kind   "venue", "operator" — what sort of party this is
  *   bio         prose the owner wrote for exactly this purpose
  *   avatarUrl   the owner's chosen picture
@@ -24,21 +34,19 @@
  *   videos      YouTube/Vimeo links the owner added. Re-parsed here before they
  *               are embedded (see `renderVideos`) — the stored string never
  *               becomes an iframe `src`.
- *   id          NOT rendered. It is read only because a future "request a date"
- *               form addresses its target by id, the way availability.ts does.
+ *   genres      the owner's own words for what they play
+ *   setups      "Solo" / "Full band" and how many people come with each
+ *   venueDetails capacity, PA, curfew, amenities, deal types, catering, and how
+ *               the AUDIENCE gets in. Never the artist half — see below.
+ *   upcomingShows the bill: date, room, city, and who else is on it
+ *   id          NOT rendered. It is read because "request a date" addresses its
+ *               target by id, the way availability.ts does.
  *
  * Nothing financial, no membership, no contact details, no `details` jsonb and
  * no `billing` are in that projection — they are never SELECTed, so they cannot
  * leak. The route additionally requires `profiles.is_public = true`; a private
  * profile is a 404, not a 403, so this page cannot be used to probe for the
  * existence of an unpublished venue either.
- *
- * VENUE SPECS: capacity, sound system, curfew, amenities, deal types and
- * AUDIENCE logistics are safe to publish and this page renders them when the API
- * carries them. `GET /public/profiles/:slug` does not carry them yet — extending
- * it is a change to `routes/public.ts`, which another agent is working in
- * tonight. The reader below is written to tolerate their absence, so the page
- * works now and gains the specs the moment the endpoint does.
  *
  * WHAT MUST NEVER APPEAR HERE, and is deliberately not read even if a future
  * endpoint were to offer it: `artistLogisticsNotes` (load-in, back entrance,
@@ -48,17 +56,23 @@
  */
 
 import { parseVideoLink } from "@showme/shared";
+import { type DateRequestPanel, createDateRequestPanel } from "./availability-request";
 import { element } from "./element";
 
 /** API base including `/api/v1`. Empty renders the page's "unavailable" state
  * rather than silently showing an empty profile. */
 const API_BASE_URL: string = import.meta.env.VITE_PUBLIC_API_URL ?? "";
 
+/**
+ * Where the web app lives. The industry lane links to it, because the documents
+ * that lane is about are behind a login. Empty (an unconfigured build) drops the
+ * link rather than rendering one that goes nowhere.
+ */
+const APP_URL: string = import.meta.env.VITE_APP_URL ?? "";
+
 /** The ten standard amenity keys, mirrored from `packages/shared/src/venue.ts`.
- * Duplicated on purpose: `apps/marketing` has no workspace dependency on
- * `@showme/shared` (see its package.json) and this page is not worth adding one
- * for. An unknown key falls through unchanged, which is also how a venue's own
- * custom amenity ("Green Room") renders. */
+ * An unknown key falls through unchanged, which is also how a venue's own custom
+ * amenity ("Green Room") renders. */
 const AMENITY_LABELS: Record<string, string> = {
   backline: "Full Backline",
   partial_backline: "Partial Backline",
@@ -90,34 +104,66 @@ interface PublicVenueDetails {
   audienceLogisticsNotes: string | null;
 }
 
+/** One act billed on a night beside the profile whose page this is. */
+interface PublicLineupEntry {
+  name: string;
+  role: string;
+  tag: string | null;
+}
+
 /**
  * One show on the bill.
  *
- * Deliberately only what the API can honestly answer. The design shows a ticket
- * price, "Last 40 tickets", "Sold out" and a support act; `events` has no price
- * column, no ticket-link column that anything reads, and no support relation, so
- * none of those are modelled here. Inventing them would be the mocked data this
- * repo's rules forbid, and a fan who trusts a price we made up is worse served
- * than one who is told the date and the room.
+ * Deliberately only what the API can honestly answer. The prototype shows a
+ * ticket price, "Last 40 tickets", "Sold out" and a "Get tickets" button; the
+ * API publishes no price, no ticket link and no inventory, so none of those are
+ * modelled here. Inventing them would be the mocked data this repo's rules
+ * forbid, and a fan who trusts a price we made up is worse served than one who
+ * is told the date and the room. The gap is written up in
+ * `docs/public-profile-design-gaps.md`.
  */
 interface PublicShow {
   id: string;
   title: string;
   eventDate: string | null;
   venueName: string | null;
+  city: string | null;
+  country: string | null;
   doorTime: string | null;
   startTime: string | null;
+  /** The poster, when the host has put one on the show. */
+  imageUrl: string | null;
+  lineup: PublicLineupEntry[];
+}
+
+/** A platform the act publishes on — the prototype's row of chips. */
+interface PublicSocialLink {
+  platform: string;
+  url: string;
+}
+
+/** A named line-up: "Full band", 5. */
+interface PublicSetup {
+  name: string;
+  headcount: number | null;
 }
 
 interface PublicProfile {
+  id: string;
   name: string;
   type: string | null;
   kind: string;
   bio: string | null;
+  tagline: string | null;
   avatarUrl: string | null;
   bannerUrl: string | null;
+  /** The doorstep. The API nulls both for anyone who is not a place. */
+  street: string | null;
+  postcode: string | null;
   city: string | null;
   country: string | null;
+  genres: string[];
+  setups: PublicSetup[];
   /** Gallery images. Signed URLs when the owner uploaded them — see the API. */
   photos: string[];
   /** YouTube/Vimeo links. Re-parsed here; nothing else ever reaches an iframe. */
@@ -127,26 +173,29 @@ interface PublicProfile {
   socialLinks: PublicSocialLink[];
 }
 
-/** A platform the act publishes on — the design's row of round chips. */
-interface PublicSocialLink {
-  platform: string;
-  url: string;
-}
-
 /* -------------------------------------------------------------------- input */
 
 /**
- * The slug is a path segment (`/p/the-lantern-hall`) when a rewrite is in place,
- * and a `?slug=` query otherwise. Both are read so the page works before the
- * hosting rewrite exists.
+ * The slug, from `/profile/<slug>` or from `?slug=<slug>`.
+ *
+ * The path form is the address the world gets (`firebase.json` rewrites it here);
+ * the query form is every link built before that, so it is read first and never
+ * dropped.
+ *
+ * `/profile` on its own is NOT a slug. Hosting's `cleanUrls` serves this page at
+ * that bare address too, and without the guard the page would look up a profile
+ * called "profile" and report that it does not exist — a lookup failure standing
+ * in for "you did not name one".
  */
+const PAGE_SEGMENTS = new Set(["profile", "profile.html"]);
+
 function readSlug(): string | null {
   const fromQuery = new URLSearchParams(window.location.search).get("slug");
   if (fromQuery) return fromQuery.trim() || null;
 
   const segments = window.location.pathname.split("/").filter(Boolean);
   const last = segments[segments.length - 1];
-  if (!last || last.endsWith(".html")) return null;
+  if (!last || PAGE_SEGMENTS.has(last)) return null;
   return decodeURIComponent(last);
 }
 
@@ -201,6 +250,22 @@ function readVenueDetails(value: unknown): PublicVenueDetails | null {
   };
 }
 
+function readSetups(value: unknown): PublicSetup[] {
+  if (!Array.isArray(value)) return [];
+  const setups: PublicSetup[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const source = entry as Record<string, unknown>;
+    const name = readString(source.name);
+    if (!name) continue;
+    setups.push({
+      name,
+      headcount: typeof source.headcount === "number" ? source.headcount : null,
+    });
+  }
+  return setups;
+}
+
 function readProfile(value: unknown): PublicProfile | null {
   if (typeof value !== "object" || value === null) return null;
   const source = value as Record<string, unknown>;
@@ -213,16 +278,22 @@ function readProfile(value: unknown): PublicProfile | null {
       : {};
 
   return {
+    id: readString(source.id) ?? "",
     name,
     type: readString(source.type),
     kind: readString(source.kind) ?? "",
     bio: readString(source.bio),
+    tagline: readString(source.tagline),
     avatarUrl: readImageUrl(source.avatarUrl),
     bannerUrl: readImageUrl(source.bannerUrl),
     photos: readStringArray(source.photos)
       .map(readImageUrl)
       .filter((url): url is string => url !== null),
     videos: readStringArray(source.videos),
+    genres: readStringArray(source.genres),
+    setups: readSetups(source.setups),
+    street: readString(location.street),
+    postcode: readString(location.postcode),
     city: readString(location.city),
     country: readString(location.country),
     venueDetails: readVenueDetails(source.venueDetails),
@@ -253,6 +324,19 @@ function readSocialLinks(value: unknown): PublicSocialLink[] {
   return links;
 }
 
+function readLineup(value: unknown): PublicLineupEntry[] {
+  if (!Array.isArray(value)) return [];
+  const lineup: PublicLineupEntry[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const source = entry as Record<string, unknown>;
+    const name = readString(source.name);
+    if (!name) continue;
+    lineup.push({ name, role: readString(source.role) ?? "", tag: readString(source.tag) });
+  }
+  return lineup;
+}
+
 /**
  * The bill, tolerant of an API that does not carry it yet.
  *
@@ -275,8 +359,12 @@ function readShows(value: unknown): PublicShow[] {
       title,
       eventDate,
       venueName: readString(source.venueName),
+      city: readString(source.city),
+      country: readString(source.country),
       doorTime: readString(source.doorTime),
       startTime: readString(source.startTime),
+      imageUrl: readImageUrl(source.imageUrl),
+      lineup: readLineup(source.lineup),
     });
   }
   return shows;
@@ -300,12 +388,19 @@ async function fetchProfile(slug: string): Promise<"missing" | "unavailable" | P
   }
 }
 
-/* ---------------------------------------------------------------- rendering */
+/* ------------------------------------------------------------------ wording */
 
-function initialsOf(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  if (words.length > 1) return `${words[0]?.[0] ?? ""}${words[1]?.[0] ?? ""}`.toUpperCase();
-  return name.slice(0, 2).toUpperCase();
+/**
+ * A place has a programme; everybody else has dates.
+ *
+ * `isPlaceProfile` in `@showme/shared` draws this line server-side (it decides
+ * whether the street address is even published). The same question is asked here
+ * for wording only, and it is asked of `type` first because that is the finer
+ * fact: an `operator` may be a venue OR a promoter, and only one of them is a
+ * room you can stand in.
+ */
+function isPlace(profile: PublicProfile): boolean {
+  return profile.type === "venue" || profile.type === "festival" || profile.venueDetails !== null;
 }
 
 /** Title-case a stored key ("team_and_crew" → "Team And Crew"). */
@@ -316,92 +411,126 @@ function humanize(value: string): string {
     .join(" ");
 }
 
+/** The prototype's two vocabularies, chosen once and read everywhere below. */
+interface Vocabulary {
+  showsLabel: string;
+  showsAnchor: string;
+  heroCta: string;
+  aboutLabel: string;
+  laneEyebrow: string;
+  laneProse: string;
+  requestLabel: string;
+  emptyShows: string;
+}
+
+function vocabularyFor(profile: PublicProfile): Vocabulary {
+  return isPlace(profile)
+    ? {
+        showsLabel: "What's on",
+        showsAnchor: "shows",
+        heroCta: "What's on",
+        aboutLabel: "The room",
+        laneEyebrow: "Artists & promoters",
+        laneProse:
+          "House tech spec, patch list and load-in notes are shared with signed-in artists and crew — never on the open web.",
+        requestLabel: "Pitch a date",
+        emptyShows: "Nothing announced right now. Check back soon.",
+      }
+    : {
+        showsLabel: "All dates",
+        showsAnchor: "dates",
+        heroCta: "Shows",
+        aboutLabel: "About",
+        laneEyebrow: "Booking & industry",
+        laneProse:
+          "Riders, stage plots and hospitality notes are shared with signed-in venues, promoters and crew — never on the open web.",
+        requestLabel: "Request a show",
+        emptyShows: "No dates announced right now. Check back soon.",
+      };
+}
+
+/* ------------------------------------------------------------------- pieces */
+
+/** A `<a>` that leaves the platform. Every one of these carries `noopener`. */
+function externalLink(className: string, href: string, label: string): HTMLAnchorElement {
+  const link = document.createElement("a");
+  link.className = className;
+  link.href = href;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.textContent = label;
+  return link;
+}
+
+function internalLink(className: string, href: string, label: string): HTMLAnchorElement {
+  const link = document.createElement("a");
+  link.className = className;
+  link.href = href;
+  link.textContent = label;
+  return link;
+}
+
 function pillRow(className: string, labels: string[]): HTMLElement {
   const row = element("div", className);
   for (const label of labels) row.append(element("span", "pill", label));
   return row;
 }
 
-function specRow(label: string, value: string): HTMLElement {
-  const row = element("div", "specs__row");
-  row.append(element("span", "specs__label", label), element("span", "specs__value", value));
-  return row;
+/** A titled band of the page. `id` is what the top nav points at. */
+function band(
+  id: string,
+  title: string,
+  action: HTMLElement | null,
+  body: HTMLElement,
+): HTMLElement {
+  const section = element("section", "band");
+  section.id = id;
+  const head = element("div", "band__head");
+  head.append(element("h2", "band__title", title));
+  if (action) head.append(action);
+  section.append(head, body);
+  return section;
 }
 
-function section(title: string, body: HTMLElement): HTMLElement {
-  const block = element("section", "block");
-  block.append(element("h2", "block__title", title), body);
+/* ------------------------------------------------------------------- dates */
+
+/**
+ * "FRI / 12 / SEP" — the date block the prototype leads every show with.
+ *
+ * `en-GB` rather than the visitor's locale on purpose: this is a poster, and the
+ * three-letter month beside a two-digit day is a fixed piece of typography with a
+ * fixed width. A locale that writes "sept." or "9月" breaks the block it sits in.
+ */
+function dateBlock(iso: string, className = "showdate"): HTMLElement {
+  const block = element("div", className);
+  const date = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    block.append(element("span", `${className}__day`, iso));
+    return block;
+  }
+  block.append(
+    element(
+      "span",
+      `${className}__weekday`,
+      date.toLocaleDateString("en-GB", { weekday: "short" }),
+    ),
+    element("span", `${className}__day`, String(date.getDate())),
+    element("span", `${className}__month`, date.toLocaleDateString("en-GB", { month: "short" })),
+  );
   return block;
 }
 
-function renderVenueDetails(venue: PublicVenueDetails): HTMLElement | null {
-  const card = element("section", "card");
-  let filled = false;
-
-  const specs = element("div", "specs");
-  if (venue.capacity !== null) {
-    specs.append(specRow("Capacity", String(venue.capacity)));
-    filled = true;
-  }
-  if (venue.soundSystem) {
-    specs.append(specRow("Sound system", venue.soundSystem));
-    filled = true;
-  }
-  if (venue.curfew) {
-    specs.append(specRow("Curfew", venue.curfew));
-    filled = true;
-  }
-  if (filled) card.append(element("h2", "card__title", "Venue specs"), specs);
-
-  if (venue.amenities.length > 0) {
-    card.append(
-      element("h3", "card__subtitle", "Amenities"),
-      pillRow(
-        "pills",
-        venue.amenities.map((amenity) => AMENITY_LABELS[amenity] ?? amenity),
-      ),
+/** "Fri 12 Sep · 20:00" — the venue card's one-line stamp. */
+function stampLine(show: PublicShow): string {
+  const date = show.eventDate ? new Date(`${show.eventDate}T00:00:00`) : null;
+  const parts: string[] = [];
+  if (date && !Number.isNaN(date.getTime())) {
+    parts.push(
+      date.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }),
     );
-    filled = true;
   }
-
-  if (venue.dealTypes.length > 0) {
-    card.append(
-      element("h3", "card__subtitle", "Deals we sign"),
-      pillRow(
-        "pills",
-        venue.dealTypes.map((dealType) => DEAL_TYPE_LABELS[dealType] ?? dealType),
-      ),
-    );
-    filled = true;
-  }
-
-  for (const [title, text] of [
-    ["Catering", venue.cateringNotes],
-    ["Accommodation", venue.accommodationNotes],
-    ["Getting here", venue.audienceLogisticsNotes],
-  ] as const) {
-    if (!text) continue;
-    card.append(element("h3", "card__subtitle", title), element("p", "card__prose", text));
-    filled = true;
-  }
-
-  return filled ? card : null;
-}
-
-/** "FRI / 12 / SEP" — the date rail the design leads every show with. */
-function dateRail(iso: string): HTMLElement {
-  const rail = element("div", "showdate");
-  const date = new Date(`${iso}T00:00:00`);
-  if (Number.isNaN(date.getTime())) {
-    rail.append(element("span", "showdate__day", iso));
-    return rail;
-  }
-  rail.append(
-    element("span", "showdate__weekday", date.toLocaleDateString("en-GB", { weekday: "short" })),
-    element("span", "showdate__day", String(date.getDate())),
-    element("span", "showdate__month", date.toLocaleDateString("en-GB", { month: "short" })),
-  );
-  return rail;
+  if (show.startTime) parts.push(clockTime(show.startTime));
+  return parts.join(" · ");
 }
 
 /**
@@ -416,62 +545,348 @@ function clockTime(value: string): string {
   return match?.[1] ?? value;
 }
 
-function timesLine(show: PublicShow): string | null {
-  const parts: string[] = [];
-  if (show.doorTime) parts.push(`Doors ${clockTime(show.doorTime)}`);
-  if (show.startTime) parts.push(`On at ${clockTime(show.startTime)}`);
-  return parts.length > 0 ? parts.join(" · ") : null;
+function timePills(show: PublicShow): string[] {
+  const pills: string[] = [];
+  if (show.doorTime) pills.push(`Doors ${clockTime(show.doorTime)}`);
+  if (show.startTime) pills.push(`On at ${clockTime(show.startTime)}`);
+  return pills;
+}
+
+/** "Berlin, DE" — the town, which is the fact a fan filters on. */
+function placeLine(show: PublicShow): string | null {
+  const parts = [show.city, show.country].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? parts.join(", ") : null;
 }
 
 /**
- * The next show, given its own card — the design puts it above everything
+ * "with Marta Wolff" — who else is billed.
+ *
+ * Two names are named; past that it is "+2 more", because the prototype gives
+ * this one line and a bill of nine acts would eat the row it sits in. The count
+ * is honest about what it is hiding.
+ *
+ * The lead word is the caller's, because the prototype uses two: a performer's
+ * own date reads "Halle 7 **with** Marta Wolff", while a venue's poster card puts
+ * the headliner in the title and the rest under it as "**+** Marta Wolff".
+ */
+function lineupLine(show: PublicShow, lead = "with"): string | null {
+  // An act the title already names is not "also on the bill". A venue's event is
+  // usually titled after its headliner ("Marlo Vance — Album Release"), and
+  // without this the card under it reads "+ Marlo Vance and Neon Tide" — the
+  // headliner introduced as their own support act.
+  const headline = show.title.toLowerCase();
+  const others = show.lineup.filter((act) => !headline.includes(act.name.toLowerCase()));
+  const [first, second, ...rest] = others;
+  if (!first) return null;
+  const names = second ? `${first.name} and ${second.name}` : first.name;
+  const joined = rest.length > 0 ? `${names} +${rest.length} more` : names;
+  return lead === "+" ? `+ ${joined}` : `${lead} ${joined}`;
+}
+
+/**
+ * What a show is CALLED on this page, which depends on whose page it is.
+ *
+ * On a venue's own programme the event title is the billing ("Marlo Vance —
+ * Album Release"). On a performer's page the title is usually their own name
+ * again, and the fact the reader wants is the room — so the room leads and the
+ * title is dropped rather than repeated back at them.
+ */
+function showHeadline(show: PublicShow, place: boolean): string {
+  if (place) return show.title;
+  return show.venueName ?? show.title;
+}
+
+/**
+ * Where a show's own public page lives — `/event/<id>`, the address Hosting
+ * rewrites to `event.html` and the app builds when it publishes a show.
+ *
+ * It used to be `/event.html?id=…`, which was a dead link in two ways at once:
+ * the page reads `?event=`, never `?id=`, and the extension is the thing the
+ * readable path exists to drop.
+ */
+function showHref(show: PublicShow): string {
+  return `/event/${encodeURIComponent(show.id)}`;
+}
+
+/* -------------------------------------------------------------------- hero */
+
+/**
+ * The hero — the prototype's full-bleed opening: a picture running up behind the
+ * top bar, a warm glow, the name at display size, and one line under it.
+ *
+ * THE PICTURE is the banner. When there is no banner but there IS an avatar, the
+ * avatar takes the job: a logo blown up behind a scrim is what a venue with one
+ * square picture actually has, and an empty hero is not better for being pure.
+ * There is no avatar CHIP because the prototype has none — the name is the
+ * identity at this size, and a 96px logo beside a 96px name is two identities.
+ */
+function renderHero(profile: PublicProfile, vocabulary: Vocabulary): HTMLElement {
+  const hero = element("section", "hero");
+
+  const media = element("div", "hero__media");
+  const picture = profile.bannerUrl ?? profile.avatarUrl;
+  // Already validated as http(s) by readImageUrl; the quotes plus encodeURI stop
+  // a `)` in the path from closing the url() early.
+  if (picture) media.style.backgroundImage = `url("${encodeURI(picture)}")`;
+  // A stand-in avatar is square and small, so it is blurred up rather than
+  // stretched: a 400px logo scaled to a 2400px banner is a smear either way, and
+  // the blurred one is the one that looks deliberate.
+  if (picture && !profile.bannerUrl) media.classList.add("hero__media--stand-in");
+  hero.append(media, element("div", "hero__scrim"));
+
+  const body = element("div", "hero__body");
+
+  const pills = heroPills(profile);
+  if (pills.length > 0) {
+    const row = element("div", "hero__pills");
+    for (const [index, label] of pills.entries()) {
+      // The first pill is the live one — the prototype gives it a dot and the
+      // brand tint; the rest are quiet facts beside it.
+      row.append(
+        element("span", index === 0 ? "statuspill" : "statuspill statuspill--quiet", label),
+      );
+    }
+    body.append(row);
+  }
+
+  body.append(element("h1", "hero__name", profile.name));
+  if (profile.tagline) body.append(element("p", "hero__tagline", profile.tagline));
+
+  // ONE button, where the prototype has two. "Follow" is the other, and nothing
+  // in this stack can take a follow: `audience_rsvps` is keyed to an EVENT, and
+  // there is no profile-level subscription table, endpoint or screen. A Follow
+  // that quietly does nothing is the dead affordance STYLE-GUIDE §7 forbids, so
+  // it is absent until the audience feature exists. Same reason the prototype's
+  // "Alert me for my city" and its two mail-signup fields are not below.
+  if (profile.upcomingShows.length > 0) {
+    const actions = element("div", "hero__actions");
+    actions.append(
+      internalLink("btn btn--primary", `#${vocabulary.showsAnchor}`, vocabulary.heroCta),
+    );
+    body.append(actions);
+  }
+
+  hero.append(body);
+  return hero;
+}
+
+/**
+ * The pills over the name — what is TRUE about this profile right now.
+ *
+ * The prototype's are "On tour · autumn 2026" and "Kreuzberg, Berlin / 220
+ * capacity". The second pair is data we hold; the first is a status nothing in
+ * the schema records, so the count of announced dates stands in its place — the
+ * same claim ("this act is playing"), made only as far as the data goes.
+ */
+function heroPills(profile: PublicProfile): string[] {
+  const pills: string[] = [];
+  const shows = profile.upcomingShows.length;
+  const home = [profile.city, profile.country].filter(Boolean).join(", ");
+
+  if (isPlace(profile)) {
+    if (home) pills.push(home);
+    const capacity = profile.venueDetails?.capacity;
+    if (typeof capacity === "number") pills.push(`${capacity} capacity`);
+    if (pills.length === 0 && profile.type) pills.push(humanize(profile.type));
+    return pills;
+  }
+
+  if (shows > 0) pills.push(shows === 1 ? "1 date announced" : `${shows} dates announced`);
+  if (home) pills.push(home);
+  for (const genre of profile.genres.slice(0, 2)) pills.push(genre);
+  if (pills.length === 0) pills.push(humanize(profile.type ?? profile.kind));
+  return pills;
+}
+
+/* -------------------------------------------------------------------- shows */
+
+/**
+ * The next show, given its own card — the prototype puts it above everything
  * because it is the one thing most visitors came for.
  *
- * There is no ticket button. `events` carries no price and no ticket link that
- * anything reads, so the card links to the show's own public page, which is a
- * real destination that really exists.
+ * There is no ticket button and no price. `events` carries no public ticket link
+ * and no published price (`extras.ticketTiers` is the operator's own planning
+ * figure and is not in the public projection), so the card links to the show's
+ * own public page, which is a real destination that really exists.
  */
-function renderNextShow(show: PublicShow): HTMLElement {
+function renderNextShow(show: PublicShow, place: boolean): HTMLElement {
   const card = element("section", "nextshow");
-  card.append(dateRail(show.eventDate ?? ""));
+  // The poster stands in for the date block when there is one: it is the same
+  // job — say at a glance which show this is — done better by the artwork the
+  // host made for exactly that.
+  if (show.imageUrl) {
+    const art = element("div", "nextshow__art");
+    art.style.backgroundImage = `url("${encodeURI(show.imageUrl)}")`;
+    card.append(art);
+  } else {
+    card.append(dateBlock(show.eventDate ?? ""));
+  }
 
   const body = element("div", "nextshow__body");
-  body.append(element("span", "nextshow__eyebrow", "Next show"));
-  body.append(element("h2", "nextshow__title", show.title));
-  if (show.venueName) body.append(element("p", "nextshow__venue", show.venueName));
-  const times = timesLine(show);
-  if (times) body.append(element("p", "nextshow__times", times));
+  const where = placeLine(show);
+  body.append(element("span", "nextshow__eyebrow", where ? `Next show · ${where}` : "Next show"));
+
+  const title = element("h2", "nextshow__title", showHeadline(show, place));
+  const withWhom = lineupLine(show);
+  if (withWhom) title.append(element("span", "nextshow__with", ` ${withWhom}`));
+  body.append(title);
+
+  const pills = timePills(show);
+  if (pills.length > 0) body.append(pillRow("nextshow__pills", pills));
   card.append(body);
 
-  const link = document.createElement("a");
-  link.className = "nextshow__cta";
-  link.href = `/event.html?id=${encodeURIComponent(show.id)}`;
-  link.textContent = "Show details";
-  card.append(link);
+  card.append(internalLink("btn btn--primary nextshow__cta", showHref(show), "Show details"));
   return card;
 }
 
-/** The rest of the bill as one soft rail, the design's "All dates". */
-function renderShowRail(shows: PublicShow[]): HTMLElement {
-  const list = element("ul", "showrail");
-  for (const show of shows) {
-    const row = element("li", "showrail__row");
-    row.append(dateRail(show.eventDate ?? ""));
+/** One row of the dates rail — the prototype's "All dates" list. */
+function showRow(show: PublicShow, place: boolean): HTMLElement {
+  const row = element("li", "showrow");
+  row.append(dateBlock(show.eventDate ?? "", "showrow__date"));
 
-    const body = element("div", "showrail__body");
-    body.append(element("span", "showrail__title", show.title));
-    const where = [show.venueName, timesLine(show)].filter(Boolean).join(" · ");
-    if (where) body.append(element("span", "showrail__meta", where));
-    row.append(body);
+  const body = element("div", "showrow__body");
+  body.append(element("span", "showrow__title", showHeadline(show, place)));
+  // The room is only repeated when it is NOT already the row's headline — on a
+  // performer's page it is the headline, and "The Lantern Hall · The Lantern
+  // Hall" is what happens if you forget that.
+  const room = place ? show.venueName : null;
+  const meta = [placeLine(show), room, lineupLine(show)]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
+  if (meta) body.append(element("span", "showrow__meta", meta));
+  row.append(body);
 
-    const link = document.createElement("a");
-    link.className = "showrail__link";
-    link.href = `/event.html?id=${encodeURIComponent(show.id)}`;
-    link.textContent = "Details";
-    row.append(link);
-    list.append(row);
+  row.append(internalLink("btn btn--ghost showrow__cta", showHref(show), "Details"));
+  return row;
+}
+
+/**
+ * A venue's programme leads with three poster cards, the way the prototype's
+ * "This week" does.
+ *
+ * The poster is the host's own artwork when they have uploaded one (a signed URL,
+ * minted for this response). A show with none keeps the warm wash the prototype
+ * draws under its OWN placeholder art, so the wall reads as a wall either way —
+ * an empty grey box would be the only version that looks broken.
+ */
+function showCard(show: PublicShow): HTMLElement {
+  const card = element("li", "showcard");
+  const art = element("div", "showcard__art");
+  if (show.imageUrl) {
+    art.style.backgroundImage = `url("${encodeURI(show.imageUrl)}")`;
+    art.classList.add("showcard__art--poster");
   }
-  return list;
+  card.append(art);
+
+  const body = element("div", "showcard__body");
+  const stamp = stampLine(show);
+  if (stamp) body.append(element("span", "showcard__stamp", stamp));
+  body.append(element("h3", "showcard__title", show.title));
+  const meta = [lineupLine(show, "+"), placeLine(show)]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
+  if (meta) body.append(element("span", "showcard__meta", meta));
+
+  const foot = element("div", "showcard__foot");
+  const times = timePills(show);
+  foot.append(element("span", "showcard__times", times.join(" · ")));
+  foot.append(internalLink("btn btn--primary", showHref(show), "Details"));
+  body.append(foot);
+
+  card.append(body);
+  return card;
+}
+
+/** The bill: cards for a venue's next three, a rail for everything after. */
+function renderShows(profile: PublicProfile, vocabulary: Vocabulary): HTMLElement {
+  const place = isPlace(profile);
+  const shows = profile.upcomingShows;
+  const body = element("div", "shows");
+
+  if (shows.length === 0) {
+    // An honest empty state, not a hidden section. A profile with nothing
+    // announced is the normal state between tours, and saying so is what stops a
+    // visitor wondering whether the page is broken.
+    body.append(element("p", "shows__empty", vocabulary.emptyShows));
+    return band(vocabulary.showsAnchor, vocabulary.showsLabel, null, body);
+  }
+
+  const featured = place ? shows.slice(0, 3) : [];
+  const listed = shows.slice(featured.length);
+
+  if (featured.length > 0) {
+    const grid = element("ul", "showcards");
+    for (const show of featured) grid.append(showCard(show));
+    body.append(grid);
+  }
+  if (listed.length > 0) {
+    if (featured.length > 0) body.append(element("p", "shows__subhead", "Later"));
+    const list = element("ul", "showrail");
+    for (const show of listed) list.append(showRow(show, place));
+    body.append(list);
+  }
+
+  const count = element(
+    "span",
+    "band__count",
+    shows.length === 1 ? "1 upcoming" : `${shows.length} upcoming`,
+  );
+  return band(vocabulary.showsAnchor, vocabulary.showsLabel, count, body);
+}
+
+/* -------------------------------------------------------------------- media */
+
+/**
+ * The videos, as the prototype draws them: one large, the rest beside it.
+ *
+ * NOTHING LOADS UNTIL IT IS CLICKED. The tile is a button on the card's own
+ * ground; the `<iframe>` replaces it on the first click. That is the prototype's
+ * own shape (a play badge on artwork, not a live player) and it is also the only
+ * version of this section that does not hand every visitor's IP to YouTube before
+ * they have asked for anything — the same reason the fonts on this site are
+ * self-hosted. There is no thumbnail for the same reason: a poster image would be
+ * a third-party request too.
+ *
+ * The `src` is `link.embedUrl`, which `parseVideoLink` BUILT from a provider and
+ * an id — the stored string never becomes an iframe source. The server already
+ * refuses to store anything else; this parse is the second half of the same rule,
+ * because a public page must not depend on the database only ever having been
+ * written by the current version of the API.
+ */
+function renderVideos(videos: string[]): HTMLElement | null {
+  const grid = element("div", "videos");
+  let count = 0;
+  for (const url of videos) {
+    const link = parseVideoLink(url);
+    if (!link) continue;
+    const provider = link.provider === "youtube" ? "YouTube" : "Vimeo";
+
+    const tile = document.createElement("button");
+    tile.type = "button";
+    tile.className = count === 0 ? "video video--featured" : "video";
+    tile.setAttribute("aria-label", `Play this ${provider} video`);
+    tile.append(element("span", "video__play"), element("span", "video__hint", provider));
+    tile.addEventListener(
+      "click",
+      () => {
+        const frame = document.createElement("iframe");
+        frame.className = "video__frame";
+        frame.src = `${link.embedUrl}${link.embedUrl.includes("?") ? "&" : "?"}autoplay=1`;
+        frame.title = `${provider} video`;
+        frame.referrerPolicy = "strict-origin-when-cross-origin";
+        frame.allow =
+          "autoplay; accelerometer; clipboard-write; encrypted-media; picture-in-picture; fullscreen";
+        frame.allowFullscreen = true;
+        tile.replaceWith(frame);
+        // The tile is gone, so the class that sized it has to move with it.
+        if (count === 0) frame.classList.add("video__frame--featured");
+      },
+      { once: true },
+    );
+    grid.append(tile);
+    count += 1;
+  }
+  return count > 0 ? grid : null;
 }
 
 /**
@@ -483,57 +898,76 @@ function renderShowRail(shows: PublicShow[]): HTMLElement {
 function renderSocialChips(links: PublicSocialLink[]): HTMLElement {
   const row = element("div", "chiprow");
   for (const link of links) {
-    const chip = document.createElement("a");
-    chip.className = "chiprow__chip";
-    chip.href = link.url;
-    chip.target = "_blank";
-    chip.rel = "noopener noreferrer";
-    chip.textContent = humanize(link.platform);
-    row.append(chip);
+    row.append(externalLink("chip", link.url, humanize(link.platform)));
   }
   return row;
 }
 
+/* -------------------------------------------------------------------- about */
+
 /**
- * The industry lane — the design's "quiet strip at the bottom", for the venues,
- * promoters and crew rather than the fans above it.
+ * The about band — the prototype's serif lead, the prose under it, and the
+ * gallery beside it.
  *
- * IT HAS NO BUTTONS, and that is the finding rather than an omission. The design
- * puts three here — "Sign in for documents", "Request a date", "Full availability"
- * — and not one can be made real from this bundle today:
- *
- *   Sign in. This page carries no Firebase SDK and no authenticated client, by
- *   design (see the file header). A sign-in button that cannot sign anyone in is
- *   the dead affordance STYLE-GUIDE §7 forbids.
- *
- *   Open dates. `GET /public/profiles/:slug/availability` EXISTS and is public —
- *   but the only page that renders it, `availability.html`, reads its target from
- *   `window.location.hash` as a signed share snapshot and has no `?slug=` entry
- *   point at all. A link built from the slug lands on "This link doesn't look
- *   right". Measured by following it, after writing exactly that link. The public
- *   per-profile availability page is the missing piece, not the data.
- *
- *   Request a date. `POST /booking-requests` is public and real, but its form
- *   lives on that same availability page, behind the same missing entry point.
- *
- * So the lane says the one thing that is true without a control behind it: what
- * the documents are and who they are for. The design's own rule for this strip is
- * that "the public sees that they exist, not what's in them" — and it claims no
- * inventory, because this page cannot know whether a given act has filed a rider.
+ * The lead is the bio's FIRST SENTENCE, set large; the rest follows in body
+ * type. The prototype has two fields there (a display headline and a paragraph)
+ * and the profile editor has one, so rather than leave the headline blank or
+ * invent a second field, the owner's own opening line does the job it was
+ * already doing. A bio that is one sentence long is all lead and no prose, which
+ * still reads correctly.
  */
-function renderIndustryLane(kind: string): HTMLElement {
-  const lane = element("section", "lane");
-  lane.append(element("span", "lane__eyebrow", "Booking & industry"));
-  lane.append(
-    element(
-      "p",
-      "lane__prose",
-      kind === "operator"
-        ? "Riders, house tech specs and load-in notes are shared with signed-in artists and crew — never on the open web."
-        : "Riders, stage plots and hospitality notes are shared with signed-in venues, promoters and crew — never on the open web.",
-    ),
-  );
-  return lane;
+function splitBio(bio: string): { lead: string; rest: string | null } {
+  const match = /^(.+?[.!?])(\s+)(.+)$/s.exec(bio.trim());
+  if (!match?.[1] || !match[3]) return { lead: bio.trim(), rest: null };
+  // A one-word "sentence" is an abbreviation, not a lead. Fall back to the whole
+  // thing rather than setting "Est." at 30px.
+  if (match[1].length < 12) return { lead: bio.trim(), rest: null };
+  return { lead: match[1], rest: match[3] };
+}
+
+function renderAbout(profile: PublicProfile, vocabulary: Vocabulary): HTMLElement | null {
+  const body = element("div", "about");
+  const prose = element("div", "about__prose");
+  let filled = false;
+
+  if (profile.bio) {
+    const { lead, rest } = splitBio(profile.bio);
+    prose.append(element("p", "about__lead", lead));
+    if (rest) prose.append(element("p", "about__body", rest));
+    filled = true;
+  }
+
+  // The chips under the prose: what a venue offers, or how an act plays. Both are
+  // the owner's own words for "what you get", which is what this band is for.
+  const chips = isPlace(profile)
+    ? roomChips(profile.venueDetails)
+    : profile.setups.map((setup) =>
+        setup.headcount ? `${setup.name} · ${setup.headcount}` : setup.name,
+      );
+  if (chips.length > 0) {
+    prose.append(pillRow("about__chips", chips));
+    filled = true;
+  }
+  body.append(prose);
+
+  if (profile.photos.length > 0) {
+    body.append(renderPhotos(profile.photos, isPlace(profile)));
+    filled = true;
+  }
+
+  return filled ? band("about", vocabulary.aboutLabel, null, body) : null;
+}
+
+/** "220 capacity · Bar until 02:00 · PA System" — the room, in chips. */
+function roomChips(venue: PublicVenueDetails | null): string[] {
+  if (!venue) return [];
+  const chips: string[] = [];
+  if (venue.capacity !== null) chips.push(`${venue.capacity} capacity`);
+  if (venue.curfew) chips.push(`Curfew ${clockTime(venue.curfew)}`);
+  if (venue.soundSystem) chips.push(venue.soundSystem);
+  for (const amenity of venue.amenities) chips.push(AMENITY_LABELS[amenity] ?? amenity);
+  for (const dealType of venue.dealTypes) chips.push(DEAL_TYPE_LABELS[dealType] ?? dealType);
+  return chips;
 }
 
 /**
@@ -541,8 +975,8 @@ function renderIndustryLane(kind: string): HTMLElement {
  * it and a screen reader can skip it: these are pictures of the room, not
  * decoration with meaning, so the alt text is empty by design.
  */
-function renderPhotos(photos: string[]): HTMLElement {
-  const grid = element("div", "gallery");
+function renderPhotos(photos: string[], place: boolean): HTMLElement {
+  const grid = element("div", place ? "gallery gallery--landscape" : "gallery");
   for (const url of photos) {
     const image = document.createElement("img");
     image.className = "gallery__item";
@@ -554,123 +988,193 @@ function renderPhotos(photos: string[]): HTMLElement {
   return grid;
 }
 
+/* ------------------------------------------------------------------ find us */
+
 /**
- * The videos, playing in place.
+ * "Find us" — a place's doorstep, and how the audience gets to it.
  *
- * The `src` is `link.embedUrl`, which `parseVideoLink` BUILT from a provider and
- * an id — the stored string never becomes an iframe source. The server already
- * refuses to store anything else; this parse is the second half of the same rule,
- * because a public page must not depend on the database only ever having been
- * written by the current version of the API.
+ * Only ever rendered for a place, and only from what the API published: the
+ * server nulls `street`/`postcode` for anyone who is not a room
+ * (`serializePublicLocation`), so a performer cannot reach this band even by
+ * accident. There is no map: every tile provider is a third-party request on a
+ * page that makes none, and an address a visitor can paste into their own maps
+ * app is the part they actually use.
  */
-function renderVideos(videos: string[]): HTMLElement | null {
-  const grid = element("div", "videos");
-  let filled = false;
-  for (const url of videos) {
-    const link = parseVideoLink(url);
-    if (!link) continue;
-    const frame = document.createElement("iframe");
-    frame.className = "videos__item";
-    frame.src = link.embedUrl;
-    frame.title = `${link.provider === "youtube" ? "YouTube" : "Vimeo"} video`;
-    frame.loading = "lazy";
-    frame.referrerPolicy = "strict-origin-when-cross-origin";
-    frame.allow = "accelerometer; clipboard-write; encrypted-media; picture-in-picture; fullscreen";
-    frame.allowFullscreen = true;
-    grid.append(frame);
-    filled = true;
+function renderFindUs(profile: PublicProfile): HTMLElement | null {
+  const town = [profile.postcode, profile.city].filter(Boolean).join(" ");
+  const lines = [profile.street, town, profile.country].filter((line): line is string =>
+    Boolean(line),
+  );
+  const notes = profile.venueDetails?.audienceLogisticsNotes;
+  if (lines.length === 0 && !notes) return null;
+
+  const body = element("div", "findus");
+  if (lines.length > 0) {
+    const card = element("div", "findus__card");
+    for (const [index, line] of lines.entries()) {
+      card.append(element("p", index === 0 ? "findus__street" : "findus__line", line));
+    }
+    body.append(card);
   }
-  return filled ? grid : null;
+  if (notes) body.append(element("p", "findus__notes", notes));
+  return band("find", "Find us", null, body);
 }
+
+/* --------------------------------------------------------------------- lane */
+
+/**
+ * The industry lane — the prototype's quiet strip at the bottom, for the venues,
+ * promoters, artists and crew rather than the fans above it.
+ *
+ * TWO CONTROLS, both real:
+ *
+ *   Request a date / Pitch a date opens the same form the public availability
+ *   page uses (`availability-request.ts`) and POSTs the same public, unauthenticated
+ *   `POST /booking-requests`. It lands in the target's Requests inbox like any
+ *   other. The availability page binds it to a date the sharer published; a
+ *   profile has no such list, so it opens with no date — `wanted_date` is
+ *   nullable and the API's public body makes it optional.
+ *
+ *   Sign in for documents goes to the app. The documents themselves are not here
+ *   and never will be; the lane's job is to say they exist and that there is a
+ *   login behind them. Dropped entirely when the build has no `VITE_APP_URL`.
+ *
+ * The prototype also puts a "Verified · 24 settled" badge here. Nothing publishes
+ * a settled-show count, and a trust badge is the last thing to fake, so it is
+ * absent.
+ */
+function renderLane(vocabulary: Vocabulary, onRequest: (() => void) | null): HTMLElement {
+  const lane = element("section", "lane");
+
+  const words = element("div", "lane__words");
+  words.append(element("span", "lane__eyebrow", vocabulary.laneEyebrow));
+  words.append(element("p", "lane__prose", vocabulary.laneProse));
+  lane.append(words);
+
+  const actions = element("div", "lane__actions");
+  if (APP_URL) actions.append(externalLink("btn btn--ghost", APP_URL, "Sign in for documents"));
+  if (onRequest) {
+    const request = document.createElement("button");
+    request.type = "button";
+    request.className = "btn btn--light";
+    request.textContent = vocabulary.requestLabel;
+    request.addEventListener("click", onRequest);
+    actions.append(request);
+  }
+  if (actions.childElementCount > 0) lane.append(actions);
+  return lane;
+}
+
+/* -------------------------------------------------------------- sticky bar */
+
+/**
+ * The phone's sticky bar (prototype 3c) — the next date and a way into it,
+ * pinned so it survives the scroll.
+ *
+ * CSS decides whether it is on screen; this only decides whether it exists, and
+ * it does not exist when there is no next show to put in it.
+ */
+function renderStickyBar(show: PublicShow, place: boolean): HTMLElement {
+  const bar = element("aside", "stickybar");
+  const words = element("div", "stickybar__words");
+  const stamp = stampLine(show);
+  const where = [showHeadline(show, place), placeLine(show)]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
+  if (stamp) words.append(element("span", "stickybar__stamp", stamp));
+  words.append(element("span", "stickybar__title", where));
+  bar.append(words, internalLink("btn btn--primary", showHref(show), "Details"));
+  return bar;
+}
+
+/* ---------------------------------------------------------------- rendering */
 
 function renderProfile(container: HTMLElement, profile: PublicProfile): void {
   container.replaceChildren();
+  const vocabulary = vocabularyFor(profile);
+  const place = isPlace(profile);
 
-  const hero = element("section", "hero");
-  const banner = element("div", "hero__banner");
-  // Already validated as http(s) by readImageUrl; the quotes plus encodeURI stop
-  // a `)` in the path from closing the url() early.
-  if (profile.bannerUrl) {
-    banner.style.backgroundImage = `url("${encodeURI(profile.bannerUrl)}")`;
-  }
-  hero.append(banner);
+  container.append(renderHero(profile, vocabulary));
 
-  const identity = element("div", "hero__identity");
-  if (profile.avatarUrl) {
-    const avatar = document.createElement("img");
-    avatar.className = "hero__avatar";
-    avatar.src = profile.avatarUrl;
-    // The name is already on screen beside it, so the image adds nothing a
-    // screen reader needs to hear twice.
-    avatar.alt = "";
-    identity.append(avatar);
-  } else {
-    identity.append(
-      element("div", "hero__avatar hero__avatar--initials", initialsOf(profile.name)),
-    );
-  }
+  // SHOWS FIRST. The prototype's whole argument is that a fan who followed a
+  // shared link came for the next date, not for the biography — so the bill sits
+  // above the prose, and (on a performer's page) the next show is lifted out of
+  // it into its own card.
+  const [nextShow] = profile.upcomingShows;
+  if (nextShow && !place) container.append(renderNextShow(nextShow, place));
+  container.append(renderShows(profile, vocabulary));
 
-  const heading = element("div", "hero__text");
-  heading.append(element("h1", "hero__name", profile.name));
-  const subtitle = [profile.type ? humanize(profile.type) : humanize(profile.kind)]
-    .concat(profile.city ? [profile.city] : [])
-    .filter(Boolean)
-    .join(" · ");
-  if (subtitle) heading.append(element("p", "hero__meta", subtitle));
-  identity.append(heading);
-  hero.append(identity);
-  container.append(hero);
-
-  // SHOWS FIRST. The design's whole argument is that a fan who followed a shared
-  // link came for the next date, not for the biography — so the bill sits above
-  // the prose, and the next show is lifted out of it into its own card.
-  const [nextShow, ...laterShows] = profile.upcomingShows;
-  if (nextShow) {
-    container.append(renderNextShow(nextShow));
-    if (laterShows.length > 0) {
-      container.append(section("All dates", renderShowRail(laterShows)));
-    }
-  } else {
-    // An honest empty state, not a hidden section. A profile with nothing
-    // announced is the normal state between tours, and saying so is what stops a
-    // visitor wondering whether the page is broken.
-    container.append(
-      section(
-        "Shows",
-        element("p", "block__prose", "No dates announced right now. Check back soon."),
-      ),
-    );
-  }
-
-  if (profile.socialLinks.length > 0) {
-    container.append(section("Listen", renderSocialChips(profile.socialLinks)));
-  }
-
-  if (profile.bio) {
-    container.append(section("About", element("p", "block__prose", profile.bio)));
-  }
-
-  if (profile.venueDetails) {
-    const venueCard = renderVenueDetails(profile.venueDetails);
-    if (venueCard) container.append(venueCard);
-  }
-
-  // Photos and videos appear only when there ARE some. An empty "Photos" heading
-  // on a stranger's page says nothing true about the profile (STYLE-GUIDE §7);
-  // the owner sees "No photos yet" in their own editor, where it is actionable.
-  if (profile.photos.length > 0) {
-    container.append(section("Photos", renderPhotos(profile.photos)));
-  }
   const videos = renderVideos(profile.videos);
-  if (videos) container.append(section("Videos", videos));
+  const chips = profile.socialLinks.length > 0 ? renderSocialChips(profile.socialLinks) : null;
+  if (videos || chips) {
+    const body = element("div", "listen");
+    if (videos) body.append(videos);
+    if (chips) body.append(chips);
+    container.append(band("listen", videos ? "Watch & listen" : "Listen", null, body));
+  }
 
-  // Last, and quiet — the design keeps the industry lane below everything the
-  // fans came for, "present, but no longer competing with the tickets".
-  container.append(renderIndustryLane(profile.kind));
+  const about = renderAbout(profile, vocabulary);
+  if (about) container.append(about);
 
+  // A place publishes its doorstep; the server has already decided that, so an
+  // empty street here means "not published" and the band simply does not appear.
+  const findUs = place ? renderFindUs(profile) : null;
+  if (findUs) container.append(findUs);
+
+  const panel = profile.id && API_BASE_URL ? createRequestPanel(profile) : null;
+  container.append(renderLane(vocabulary, panel ? () => panel.open() : null));
+  if (panel) container.append(panel.element);
+
+  if (nextShow) container.append(renderStickyBar(nextShow, place));
+
+  fillSectionNav(container);
   document.title = `${profile.name} · shoWMe`;
   const description = document.querySelector('meta[name="description"]');
-  if (description && profile.bio) description.setAttribute("content", profile.bio.slice(0, 300));
+  const summary = profile.tagline ?? profile.bio;
+  if (description && summary) description.setAttribute("content", summary.slice(0, 300));
+}
+
+/** The booking form, wired to this profile. Hidden until the lane asks for it. */
+function createRequestPanel(profile: PublicProfile): DateRequestPanel {
+  return createDateRequestPanel({
+    apiBaseUrl: API_BASE_URL,
+    target: { id: profile.id, name: profile.name, kind: profile.kind },
+    // A dialog, not an inline card. The ask comes off a button at the very
+    // bottom of a long page, so a panel that unhid in place would open below
+    // wherever the reader is standing.
+    presentation: "modal",
+    // The same words as the button in the lane — see `heading`.
+    heading: vocabularyFor(profile).requestLabel,
+    // The availability page uses these to mark the chip that was asked about;
+    // this page has no chips, so there is nothing to mark.
+    onRequested: () => {},
+    onClosed: () => {},
+  });
+}
+
+/**
+ * The top nav, built from the bands that actually rendered.
+ *
+ * A link per `<section class="band">` on the page, in page order, using its own
+ * heading as the label — so the nav cannot name a section that is not there, and
+ * cannot fall out of step with one that was renamed.
+ */
+function fillSectionNav(container: HTMLElement): void {
+  const nav = document.getElementById("section-nav");
+  if (!nav) return;
+  for (const stale of nav.querySelectorAll(".topnav__section")) stale.remove();
+
+  const links: HTMLElement[] = [];
+  for (const section of container.querySelectorAll<HTMLElement>(".band[id]")) {
+    const title = section.querySelector(".band__title")?.textContent?.trim();
+    if (!title) continue;
+    links.push(internalLink("topnav__link topnav__section", `#${section.id}`, title));
+  }
+  if (APP_URL) {
+    links.push(externalLink("topnav__link topnav__section", APP_URL, "Sign in"));
+  }
+  // Before the theme toggle, which is markup and stays last.
+  nav.prepend(...links);
 }
 
 function renderProblem(container: HTMLElement, title: string, detail: string): void {
@@ -694,7 +1198,7 @@ function setUpThemeToggle(): void {
     if (light) document.documentElement.setAttribute("data-theme", "light");
     else document.documentElement.removeAttribute("data-theme");
     toggle.setAttribute("aria-pressed", String(light));
-    toggle.textContent = light ? "Dark mode" : "Light mode";
+    toggle.textContent = light ? "Dark" : "Light";
   };
 
   toggle.addEventListener("click", () => {

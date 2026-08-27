@@ -22,7 +22,7 @@ describe("anonymizeUser", () => {
 
     await harness.db.insert(schema.users).values({
       id: userId,
-      email: "jane@example.com",
+      email: "jane@example.showme.test",
       name: "Jane Doe",
       initials: "JD",
       avatarUrl: "https://cdn/jane.png",
@@ -151,7 +151,7 @@ describe("exportUserData", () => {
   it("gathers the user's PII across the inventory", async () => {
     const userId = `user-${randomUUID()}`;
     const slug = `export-${randomUUID()}`;
-    const email = `export-${randomUUID()}@example.com`;
+    const email = `export-${randomUUID()}@example.showme.test`;
 
     await harness.db
       .insert(schema.users)

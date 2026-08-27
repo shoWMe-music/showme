@@ -33,8 +33,15 @@ export function settlementStatusToDisplay(status: string): { status: Status; lab
       return { status: "pending", label: "Revised" };
     case "dispute":
       return { status: "cancelled", label: "Dispute" };
-    default:
+    case "pending_review":
       return { status: "task", label: "Pending review" };
+    // `open` is the default a settlement is BORN at, and it used to fall through
+    // to the catch-all below and be badged "Pending review" — so an untouched
+    // settlement claimed in its header that it had been sent out, directly above
+    // a progress rail correctly showing "Open" as the current stop. Two places on
+    // one screen disagreeing about the same fact.
+    default:
+      return { status: "task", label: "Open" };
   }
 }
 

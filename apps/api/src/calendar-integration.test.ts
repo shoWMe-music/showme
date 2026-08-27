@@ -34,7 +34,7 @@ describe("token encryption", () => {
   const context = refreshTokenSealContext({
     userId: "user-1",
     provider: "google",
-    providerAccountId: "someone@example.com",
+    providerAccountId: "someone@example.showme.test",
   });
 
   it("round-trips a refresh token", () => {
@@ -89,7 +89,7 @@ describe("token encryption", () => {
     const attackerContext = refreshTokenSealContext({
       userId: "user-2",
       provider: "google",
-      providerAccountId: "someone@example.com",
+      providerAccountId: "someone@example.showme.test",
     });
     expect(() => sealer.open(sealed, attackerContext)).toThrow(SecretTamperedError);
   });

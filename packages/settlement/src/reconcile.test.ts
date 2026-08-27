@@ -809,3 +809,133 @@ describe("reconcile — the ladder and the rule behind each figure", () => {
     expect(broker?.commissionEarned).toBe(eur(200));
   });
 });
+
+describe("reconcile — money paid BEFORE the event", () => {
+  /**
+   * A deal can move money before the night: a rental paid to hold the room, a
+   * guarantee paid to secure the booking. `prepaid.ts` reads it off the terms;
+   * this is what it must do to the settlement.
+   *
+   * The rule, from the product owner (2026-08-27): *"the advance should be
+   * included in the final settlement, since it is something that is included in
+   * the deal, and the deal is what drives the transaction."* So the ENTITLEMENT
+   * is whatever the deal says it is — an advance is not a smaller fee — and the
+   * advance settles as cash already in the payee's hands, shrinking only the
+   * transfer that remains.
+   *
+   * Pool 10 000, performer on a 50% door split, 2 000 already paid:
+   *   entitlement 5 000, of which 2 000 is held → 3 000 still to come.
+   */
+  const base: SettlementInput = {
+    baseCurrency: "EUR",
+    participants: [{ participantId: "P", isOperator: true }, { participantId: "B" }],
+    deals: [
+      {
+        dealId: "door",
+        structure: "door_split",
+        payeeParticipantIds: ["B"],
+        splitBasisPoints: 5000,
+        prepaidAmount: eur(2000),
+        payerParticipantId: "P",
+      },
+    ],
+    budgetLines: [{ kind: "revenue", amount: eur(10000), collectedBy: "P" }],
+  };
+
+  it("leaves the entitlement whole and shrinks only the transfer", () => {
+    const result = reconcile(base);
+    const band = result.breakdowns.find((party) => party.participantId === "B");
+
+    expect(band?.entitlement).toBe(eur(5000)); // the deal is what drives it
+    expect(band?.prepaid).toBe(eur(2000));
+    expect(band?.net).toBe(eur(3000)); // only what is still owed
+    expect(result.transfers).toHaveLength(1);
+    expect(result.transfers[0]?.amount).toBe(eur(3000));
+    assertBalanced(result);
+  });
+
+  it("books the payer's side too, so the operator is not out of pocket twice", () => {
+    const result = reconcile(base);
+    const operator = result.breakdowns.find((party) => party.participantId === "P");
+    // It already handed over 2 000, so it owes 2 000 less than its 5 000 shortfall.
+    expect(operator?.prepaid).toBe(-eur(2000));
+    expect(operator?.net).toBe(-eur(3000));
+  });
+
+  it("lets a net go NEGATIVE when the advance beat the night (money.md:41)", () => {
+    // A 6 000 advance against a night that only earned the band 5 000: the 1 000
+    // is genuinely owed back, and flooring it would invent money.
+    const result = reconcile({
+      ...base,
+      deals: [{ ...base.deals[0], prepaidAmount: eur(6000) } as (typeof base.deals)[number]],
+    });
+    const band = result.breakdowns.find((party) => party.participantId === "B");
+
+    expect(band?.entitlement).toBe(eur(5000));
+    expect(band?.net).toBe(-eur(1000)); // owes the operator back
+    expect(result.transfers[0]).toEqual({
+      fromParticipantId: "B",
+      toParticipantId: "P",
+      amount: eur(1000),
+    });
+    assertBalanced(result);
+  });
+
+  it("never lets an advance touch the pool the percentages divide", () => {
+    // The band's 50% is of the whole 10 000 pool whether 2 000 moved early or
+    // not. An advance booked as a cost would have shrunk it to 4 000.
+    const withAdvance = reconcile(base);
+    const without = reconcile({
+      ...base,
+      deals: [
+        {
+          ...base.deals[0],
+          prepaidAmount: undefined,
+          payerParticipantId: undefined,
+        } as (typeof base.deals)[number],
+      ],
+    });
+    expect(withAdvance.pool).toBe(without.pool);
+    const entitlementOf = (result: typeof withAdvance) =>
+      result.breakdowns.find((party) => party.participantId === "B")?.entitlement;
+    expect(entitlementOf(withAdvance)).toBe(entitlementOf(without));
+  });
+
+  it("divides a shared advance by the same weights as the fee it is part of", () => {
+    const result = reconcile({
+      baseCurrency: "EUR",
+      participants: [
+        { participantId: "P", isOperator: true },
+        { participantId: "A" },
+        { participantId: "B" },
+      ],
+      deals: [
+        {
+          dealId: "split",
+          structure: "door_split",
+          payeeParticipantIds: ["A", "B"],
+          splitBasisPoints: 10000,
+          partyShares: { A: 6000, B: 4000 },
+          prepaidAmount: eur(1000),
+          payerParticipantId: "P",
+        },
+      ],
+      budgetLines: [{ kind: "revenue", amount: eur(10000), collectedBy: "P" }],
+    });
+    const prepaidOf = (id: string) =>
+      result.breakdowns.find((party) => party.participantId === id)?.prepaid;
+
+    expect(prepaidOf("A")).toBe(eur(600)); // 60% of the advance, as of the fee
+    expect(prepaidOf("B")).toBe(eur(400));
+    assertBalanced(result);
+  });
+
+  it("refuses a one-ended advance rather than conjuring money", () => {
+    expect(() =>
+      reconcile({
+        ...base,
+        deals: [{ ...base.deals[0], payerParticipantId: undefined } as (typeof base.deals)[number]],
+      }),
+    ).toThrow(/names no payer/);
+  });
+});

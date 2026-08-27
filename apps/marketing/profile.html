@@ -12,7 +12,16 @@
   <link rel="stylesheet" href="/src/styles/profile.css">
 </head>
 <body>
-  <header class="page-header">
+  <!-- The whole page is painted by src/profile.ts from
+       `GET /public/profiles/:slug`. Nothing is server-rendered here because this
+       bundle has no session and no authenticated client — see the module
+       docstring. The shell below is only what can be true before the fetch:
+       the brand, and a line saying we are fetching.
+
+       The top bar sits INSIDE the hero on screen (the hero's picture runs up
+       behind it), which is a CSS overlap rather than a DOM one — so it can be
+       static markup here and still look like part of the hero. -->
+  <header class="topbar">
     <a href="index.html" class="brand" aria-label="shoWMe home">
       <span class="brand__mark" aria-hidden="true">
         <svg viewBox="0 0 100 100" fill="none">
@@ -27,22 +36,25 @@
       </span>
       <span>shoWMe</span>
     </a>
-    <button type="button" class="theme-toggle" id="theme-toggle" aria-pressed="false">
-      Light mode
-    </button>
+    <!-- Section links are PREPENDED here by profile.ts, one per section that
+         actually rendered: a "Listen" tab on a page with no music is a promise
+         the page cannot keep. The theme toggle is markup because it works
+         whatever the fetch does — including on the "profile not found" state. -->
+    <nav class="topnav" id="section-nav" aria-label="Sections">
+      <button type="button" class="topnav__link topnav__theme" id="theme-toggle" aria-pressed="false">
+        Light mode
+      </button>
+    </nav>
   </header>
 
   <main class="profile" id="profile" aria-live="polite">
-    <!-- Rendered by src/profile.ts from `GET /public/profiles/:slug`. Nothing is
-         server-rendered here because this bundle has no session and no
-         authenticated client — see the module docstring. -->
     <p class="profile__loading">Loading profile…</p>
   </main>
 
-  <footer class="page-footer">
-    <p>Booking and settlement for live events. <a href="index.html">shoWMe</a></p>
-    <p><a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></p>
+  <footer class="pagefoot" id="page-footer">
+    <p>Booked and settled with <a href="index.html">shoWMe</a>.</p>
   </footer>
 
-<script type="module" src="/src/profile.ts"></script>
-</body></html>
+  <script type="module" src="/src/profile.ts"></script>
+</body>
+</html>

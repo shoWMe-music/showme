@@ -11,6 +11,9 @@
 # Dependencies & build output
 node_modules
 dist
+# The e2e build — emulator config, deliberately kept out of `dist` so it can
+# never be deployed by accident (apps/web/playwright.config.ts).
+dist-e2e
 .turbo
 coverage
 *.tsbuildinfo
@@ -54,3 +57,4 @@ apps/web/tests/.auth/
 # Agent worktrees — isolated checkouts created by background agents. They are
 # whole copies of this repo; committing them would nest the tree inside itself.
 .claude/worktrees/
+ran-list/

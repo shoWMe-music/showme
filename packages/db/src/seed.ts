@@ -16,6 +16,24 @@ import {
 import * as schema from "./schema";
 
 /**
+ * Where the marketing site is served from, for the seeded pictures below.
+ *
+ * The public site owns the fixture artwork (`apps/marketing/public/seed/`), so a
+ * seeded profile points at it by address — the `*_url` half of the picture ladder,
+ * which exists for exactly this: an image somebody else hosts. The uploaded half
+ * (`*_file_id`) cannot be seeded, because in local dev the object store is the
+ * API's own in-memory loopback sink and it forgets everything on restart.
+ *
+ * Mirrors `publicSiteUrl()` in the web app, including its dev default.
+ */
+const PUBLIC_SITE_URL = (process.env.PUBLIC_SITE_URL ?? "http://localhost:5173").replace(/\/$/, "");
+
+/** A fixture picture, by file name. See `apps/marketing/public/seed/README.md`. */
+function seedImage(fileName: string): string {
+  return `${PUBLIC_SITE_URL}/seed/${fileName}`;
+}
+
+/**
  * Development seed — inserts a coherent OPERATOR dataset so the web app's
  * dashboard, events list, and event/settlement screens render realistic data.
  *
@@ -274,6 +292,15 @@ async function main() {
     await database.delete(schema.dealParties).where(inArray(schema.dealParties.dealId, dealIds)); // → event_participants
     await database.delete(schema.deals).where(inArray(schema.deals.id, dealIds));
     await database.delete(schema.events).where(inArray(schema.events.id, eventIds)); // cascades event_participants
+    // Anything these profiles UPLOADED. Not seeded rows — files a developer
+    // created by using the app (a profile picture, a show's poster), which the
+    // seed knows nothing about and which `files.owner_profile_id` refuses to let
+    // the profile delete out from under. Without this, using the feature once
+    // makes the next reseed fail with a foreign-key error that names a table the
+    // seed never writes.
+    await database
+      .delete(schema.files)
+      .where(inArray(schema.files.ownerProfileId, [OPERATOR_PROFILE_ID, PERFORMER_PROFILE_ID]));
     await database
       .delete(schema.profiles)
       .where(inArray(schema.profiles.id, [OPERATOR_PROFILE_ID, PERFORMER_PROFILE_ID]));
@@ -315,6 +342,8 @@ async function main() {
         slug: "the-lantern-hall",
         isPublic: true,
         bio: "A 400-cap live music venue in Södermalm, Stockholm.",
+        bannerUrl: seedImage("the-lantern-hall-cover.svg"),
+        avatarUrl: seedImage("the-lantern-hall-logo.svg"),
         claimedAt: new Date(),
         createdBy: operatorUserId,
         billing: {
@@ -323,7 +352,14 @@ async function main() {
           vat_rate: 25,
           invoice_number_seq: 1,
         },
-        details: { website: "https://lanternhall.example", instagram: "@lanternhall" },
+        details: {
+          website: "https://lanternhall.example",
+          instagram: "@lanternhall",
+          // The line under the name on the public page — see `readTagline` in
+          // `apps/api/src/serialize/profile.ts`. Seeded because the public
+          // profile page's hero is built around it.
+          tagline: "Five nights a week, mostly loud.",
+        },
       })
       .returning({ id: schema.profiles.id });
     record("profiles.operator", operatorProfile);
@@ -339,9 +375,15 @@ async function main() {
         slug: "marlo-vance",
         isPublic: true,
         bio: "Indie-folk songwriter touring the Nordics.",
+        bannerUrl: seedImage("marlo-vance-cover.svg"),
+        avatarUrl: seedImage("marlo-vance-logo.svg"),
         claimedAt: new Date(),
         createdBy: PERFORMER_USER_ID,
-        details: { spotify: "https://open.spotify.example/marlo-vance" },
+        details: {
+          spotify: "https://open.spotify.example/marlo-vance",
+          tagline: "Songs built for rooms that listen.",
+          genres: ["Indie folk", "Americana"],
+        },
       })
       .returning({ id: schema.profiles.id });
     record("profiles.performer", performerProfile);
@@ -380,6 +422,83 @@ async function main() {
       .returning({ id: schema.profileMembers.id });
     record("profile_members", members);
 
+    // ── 4b. The performer's public shelf — where to listen, and one video. ──
+    //        Both are what the public profile page renders as "Watch & listen"
+    //        and the chip row under it; without them that whole band is an empty
+    //        state on every dev run and the screen cannot be looked at.
+    const socialLinks = await database
+      .insert(schema.profileSocialLinks)
+      .values([
+        {
+          profileId: PERFORMER_PROFILE_ID,
+          platform: "spotify",
+          url: "https://open.spotify.com/artist/1",
+          position: 0,
+        },
+        {
+          profileId: PERFORMER_PROFILE_ID,
+          platform: "bandcamp",
+          url: "https://marlovance.bandcamp.com",
+          position: 1,
+        },
+        {
+          profileId: PERFORMER_PROFILE_ID,
+          platform: "instagram",
+          url: "https://instagram.com/marlovance",
+          position: 2,
+        },
+        {
+          profileId: OPERATOR_PROFILE_ID,
+          platform: "instagram",
+          url: "https://instagram.com/lanternhall",
+          position: 0,
+        },
+      ])
+      .returning({ id: schema.profileSocialLinks.id });
+    record("profile_social_links", socialLinks);
+
+    // A real, permanently-public YouTube id (Blender Foundation's "Big Buck
+    // Bunny") — the page parses it and builds the embed URL itself, so the seed
+    // only has to provide something that resolves.
+    const media = await database
+      .insert(schema.profileMedia)
+      .values([
+        {
+          profileId: PERFORMER_PROFILE_ID,
+          kind: "video",
+          url: "https://www.youtube.com/watch?v=YE7VzlLtp-4",
+          position: 0,
+        },
+        // The gallery beside the About prose. Fixture artwork, not photographs —
+        // see `apps/marketing/public/seed/README.md`.
+        {
+          profileId: PERFORMER_PROFILE_ID,
+          kind: "photo",
+          url: seedImage("marlo-vance-live-1.svg"),
+          position: 0,
+        },
+        {
+          profileId: PERFORMER_PROFILE_ID,
+          kind: "photo",
+          url: seedImage("marlo-vance-live-2.svg"),
+          position: 1,
+        },
+        {
+          profileId: OPERATOR_PROFILE_ID,
+          kind: "photo",
+          url: seedImage("the-lantern-hall-room-1.svg"),
+          position: 0,
+        },
+        {
+          profileId: OPERATOR_PROFILE_ID,
+          kind: "photo",
+          url: seedImage("the-lantern-hall-room-2.svg"),
+          position: 1,
+        },
+      ])
+      .returning({ id: schema.profileMedia.id });
+    record("profile_media", media);
+
     // ── 5. Events — varied status; dates computed from the day the seed runs. ─
     // Absolute dates rotted: the "upcoming" draft below had already slid into the
     // past, and with it the whole premise that this fixture shows a live pipeline.
@@ -405,6 +524,14 @@ async function main() {
           capacity: 400,
           baseCurrency: SEK,
           published: true,
+          // Where the show IS, which the public bill prints as "Stockholm, SE".
+          // The create wizard writes these two keys; the seed writes them for the
+          // same reason it writes a venue name.
+          // The poster (migration 0026). A URL, not an upload: in local dev the
+          // object store is the API's own in-memory sink, so a seeded FILE would
+          // be a poster that 404s. See `apps/marketing/public/seed/README.md`.
+          imageUrl: seedImage("album-release-poster.svg"),
+          extras: { city: "Stockholm", country: "SE" },
           notes: "Headline release show. Support TBC.",
           createdBy: operatorUserId,
         },
@@ -423,6 +550,10 @@ async function main() {
           capacity: 400,
           baseCurrency: SEK,
           published: true,
+          // Where the show IS, which the public bill prints as "Stockholm, SE".
+          // The create wizard writes these two keys; the seed writes them for the
+          // same reason it writes a venue name.
+          extras: { city: "Stockholm", country: "SE" },
           notes: "Sold well — settlement completed.",
           createdBy: operatorUserId,
         },
@@ -857,7 +988,7 @@ async function main() {
           status: "pending",
           targetProfileId: OPERATOR_PROFILE_ID,
           contactName: "Anders Berg",
-          email: "anders@midnightecho.example",
+          email: "anders@midnightecho.showme.test",
           phone: "+46 70 123 45 67",
           artistName: "The Midnight Echo",
           wantedDate: dateOffsetFromToday(38),
@@ -903,7 +1034,7 @@ async function main() {
           status: "accepted",
           targetProfileId: OPERATOR_PROFILE_ID,
           contactName: "Lena Fors",
-          email: "booking@lenaforsquartet.example",
+          email: "booking@lenaforsquartet.showme.test",
           phone: "+46 73 987 65 43",
           artistName: "Lena Fors Quartet",
           wantedDate: dateOffsetFromToday(32),
@@ -921,7 +1052,7 @@ async function main() {
           status: "declined",
           targetProfileId: OPERATOR_PROFILE_ID,
           contactName: "DJ Frostbite",
-          email: "frostbite@coldwax.example",
+          email: "frostbite@coldwax.showme.test",
           artistName: "DJ Frostbite",
           // The very night the Open Mic draft occupies — which is WHY the note below
           // says it clashes. Pinning it to the same computed date keeps the reason true.
@@ -940,7 +1071,7 @@ async function main() {
           status: "flagged",
           targetProfileId: OPERATOR_PROFILE_ID,
           contactName: "MegaPromo Bookings",
-          email: "deals@megapromo.example",
+          email: "deals@megapromo.showme.test",
           artistName: "Various Artists",
           wantedDate: dateOffsetFromToday(80),
           pitch: "GUARANTEED SELLOUT!!! Book 20 of our acts now for a special rate, reply ASAP!!!",
@@ -967,7 +1098,7 @@ async function main() {
           address: "Industrigatan 4, 117 45 Stockholm",
           notes: "PA + backline hire. Net-30 terms.",
           persons: [
-            { name: "Erik Sund", email: "erik@nordicsound.example", phone: "+46 8 555 010 20" },
+            { name: "Erik Sund", email: "erik@nordicsound.showme.test", phone: "+46 8 555 010 20" },
           ],
         },
         {
@@ -981,7 +1112,7 @@ async function main() {
             { name: "Marlo Vance", email: "marlo.vance@showme.test", phone: "+46 70 222 33 44" },
             {
               name: "Nora Ek (manager)",
-              email: "nora@marlovance.example",
+              email: "nora@marlovance.showme.test",
               phone: "+46 70 222 33 45",
             },
           ],
@@ -993,7 +1124,11 @@ async function main() {
           type: "authority",
           notes: "Performing-rights reporting (Swedish PRO).",
           persons: [
-            { name: "Reporting desk", email: "reporting@stim.example", phone: "+46 8 783 88 00" },
+            {
+              name: "Reporting desk",
+              email: "reporting@stim.showme.test",
+              phone: "+46 8 783 88 00",
+            },
           ],
         },
         {
@@ -1007,7 +1142,11 @@ async function main() {
           address: "Hornsgatan 88, 118 21 Stockholm",
           notes: "Green-room hospitality + artist meals.",
           persons: [
-            { name: "Amir Haddad", email: "amir@sodercatering.example", phone: "+46 8 640 11 22" },
+            {
+              name: "Amir Haddad",
+              email: "amir@sodercatering.showme.test",
+              phone: "+46 8 640 11 22",
+            },
           ],
         },
         {
@@ -1017,7 +1156,7 @@ async function main() {
           type: "crew",
           notes: "Freelance FOH engineer — first call for seated shows.",
           persons: [
-            { name: "Klara Nyström", email: "klara@foh.example", phone: "+46 76 300 40 50" },
+            { name: "Klara Nyström", email: "klara@foh.showme.test", phone: "+46 76 300 40 50" },
           ],
         },
         {
@@ -1031,7 +1170,7 @@ async function main() {
           address: "Sveavägen 21, 111 34 Stockholm",
           notes: "Posters, tickets, flyers.",
           persons: [
-            { name: "Petra Holm", email: "petra@cityprint.example", phone: "+46 8 411 22 33" },
+            { name: "Petra Holm", email: "petra@cityprint.showme.test", phone: "+46 8 411 22 33" },
           ],
         },
         {
@@ -1043,7 +1182,7 @@ async function main() {
           address: "Götgatan 15, 116 46 Stockholm",
           notes: "Booking agent — represents several touring acts.",
           persons: [
-            { name: "Sofia Lind", email: "sofia@blueowl.example", phone: "+46 70 900 80 70" },
+            { name: "Sofia Lind", email: "sofia@blueowl.showme.test", phone: "+46 70 900 80 70" },
           ],
         },
         {
@@ -1056,7 +1195,11 @@ async function main() {
           vatId: "SE556200100006",
           notes: "Door + crowd security staffing.",
           persons: [
-            { name: "Jonas Ek", email: "jonas@securitypartners.example", phone: "+46 8 700 60 50" },
+            {
+              name: "Jonas Ek",
+              email: "jonas@securitypartners.showme.test",
+              phone: "+46 8 700 60 50",
+            },
           ],
         },
       ])
@@ -1087,32 +1230,32 @@ async function main() {
         {
           id: GROUP_MEMBER_IDS[1],
           groupId: GROUP_IDS.coreCrew,
-          email: "klara@foh.example",
+          email: "klara@foh.showme.test",
           roleLabel: "FOH Engineer",
         },
         {
           id: GROUP_MEMBER_IDS[2],
           groupId: GROUP_IDS.coreCrew,
-          email: "tobias@stagehands.example",
+          email: "tobias@stagehands.showme.test",
           roleLabel: "Stage Manager",
         },
         {
           id: GROUP_MEMBER_IDS[3],
           groupId: GROUP_IDS.coreCrew,
-          email: "jonas@securitypartners.example",
+          email: "jonas@securitypartners.showme.test",
           roleLabel: "Head of Security",
         },
         // Front of House Team — off-platform bar staff.
         {
           id: GROUP_MEMBER_IDS[4],
           groupId: GROUP_IDS.frontOfHouse,
-          email: "vera@lanternhall.example",
+          email: "vera@lanternhall.showme.test",
           roleLabel: "Bar Lead",
         },
         {
           id: GROUP_MEMBER_IDS[5],
           groupId: GROUP_IDS.frontOfHouse,
-          email: "milo@lanternhall.example",
+          email: "milo@lanternhall.showme.test",
           roleLabel: "Box Office",
         },
       ])

@@ -19,7 +19,7 @@ import { buildTestApp } from "./testing";
  */
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, emailVerified: true, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, emailVerified: true, name: token };
   },
 };
 
@@ -57,7 +57,9 @@ const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 /** Seed a user + profile + active owner membership + a permission set. */
 async function seedMemberWithSet(id: string, capabilities: readonly string[]) {
   const { db } = harness;
-  await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind: "operator" });
+  await db
+    .insert(schema.users)
+    .values({ id, email: `${id}@example.showme.test`, kind: "operator" });
   const [profile] = await db
     .insert(schema.profiles)
     .values({ kind: "operator", ownerUserId: id, name: id, slug: id })
@@ -66,7 +68,7 @@ async function seedMemberWithSet(id: string, capabilities: readonly string[]) {
   await db.insert(schema.profileMembers).values({
     profileId: profile.id,
     userId: id,
-    email: `${id}@example.com`,
+    email: `${id}@example.showme.test`,
     role: "owner",
     status: "active",
   });
@@ -186,7 +188,7 @@ const share = (jwt: string) => ({ authorization: `ShareBearer ${jwt}` });
 
 describe("shares — create + public read", () => {
   it("creates a share returning only the token, never the recipient list", async () => {
-    const { token } = await createProtectedShare("create", "guest@band.com");
+    const { token } = await createProtectedShare("create", "guest@band.showme.test");
     expect(typeof token).toBe("string");
 
     const [row] = await harness.db
@@ -209,7 +211,7 @@ describe("shares — create + public read", () => {
       targetKind: "schedule",
       capabilities: ["schedule.view"],
       access: "public",
-      recipients: [{ email: "crew@band.com" }],
+      recipients: [{ email: "crew@band.showme.test" }],
     });
     const token = create.json().token as string;
 
@@ -221,7 +223,7 @@ describe("shares — create + public read", () => {
       capabilities: ["schedule.view"],
     });
     // No recipients / emails leak into the payload.
-    expect(JSON.stringify(grant.json())).not.toContain("crew@band.com");
+    expect(JSON.stringify(grant.json())).not.toContain("crew@band.showme.test");
   });
 
   it("404s a missing, revoked, or expired share", async () => {
@@ -247,7 +249,7 @@ describe("shares — create + public read", () => {
   });
 
   it("401s a protected share read without a valid ShareBearer JWT", async () => {
-    const { token } = await createProtectedShare("prot-read", "guest2@band.com");
+    const { token } = await createProtectedShare("prot-read", "guest2@band.showme.test");
     const response = await app.inject({ method: "GET", url: `/api/v1/shares/${token}` });
     expect(response.statusCode).toBe(401);
   });
@@ -258,7 +260,7 @@ describe("shares — what a link may grant", () => {
     const seed = await seedEvent("cap-unknown");
     const response = await createShare(seed, {
       capabilities: ["settlement.comment"],
-      recipients: [{ email: "a@band.com" }],
+      recipients: [{ email: "a@band.showme.test" }],
     });
     expect(response.statusCode).toBe(400);
     expect(response.json().error.message).toContain("Not a sharable capability");
@@ -268,7 +270,7 @@ describe("shares — what a link may grant", () => {
     const seed = await seedEvent("cap-edit");
     const response = await createShare(seed, {
       capabilities: ["budget.edit"],
-      recipients: [{ email: "a@band.com" }],
+      recipients: [{ email: "a@band.showme.test" }],
     });
     expect(response.statusCode).toBe(400);
   });
@@ -303,7 +305,7 @@ describe("shares — what a link may grant", () => {
       payload: {
         access: "protected",
         capabilities: ["budget.view"],
-        recipients: [{ email: "a@band.com" }],
+        recipients: [{ email: "a@band.showme.test" }],
       },
     });
     expect(denied.statusCode).toBe(403);
@@ -317,7 +319,7 @@ describe("shares — what a link may grant", () => {
       payload: {
         access: "protected",
         capabilities: ["event.view"],
-        recipients: [{ email: "a@band.com" }],
+        recipients: [{ email: "a@band.showme.test" }],
       },
     });
     expect(allowed.statusCode).toBe(201);
@@ -355,7 +357,7 @@ describe("shares — what a link may grant", () => {
 
     const shared = await createShare(seed, {
       capabilities: ["rider.view"],
-      recipients: [{ email: "crew@band.com" }],
+      recipients: [{ email: "crew@band.showme.test" }],
     });
     expect(shared.statusCode).toBe(201);
 
@@ -387,7 +389,7 @@ describe("shares — what a link may grant", () => {
       payload: {
         access: "protected",
         capabilities: ["rider.view"],
-        recipients: [{ email: "crew@band.com" }],
+        recipients: [{ email: "crew@band.showme.test" }],
       },
     });
     expect(denied.statusCode).toBe(403);
@@ -399,7 +401,7 @@ describe("shares — what a link may grant", () => {
     const nonsense = await createShare(seed, {
       targetKind: "banana",
       capabilities: ["event.view"],
-      recipients: [{ email: "a@band.com" }],
+      recipients: [{ email: "a@band.showme.test" }],
     });
     expect(nonsense.statusCode).toBe(400);
 
@@ -407,7 +409,7 @@ describe("shares — what a link may grant", () => {
     const real = await createShare(seed, {
       targetKind: "settlement",
       capabilities: ["event.view"],
-      recipients: [{ email: "a@band.com" }],
+      recipients: [{ email: "a@band.showme.test" }],
     });
     expect(real.statusCode).toBe(201);
   });
@@ -422,7 +424,7 @@ describe("shares — what a link may grant", () => {
 
 describe("shares — OTP → JWT front door", () => {
   it("runs issue → verify → JWT, then lets the recipient read + comment", async () => {
-    const email = "guest3@band.com";
+    const email = "guest3@band.showme.test";
     const { seed, token } = await createProtectedShare("otp", email);
 
     // Issue — the code is exposed only via the test hook header.
@@ -507,7 +509,7 @@ describe("shares — OTP → JWT front door", () => {
   });
 
   it("rejects a comment on a protected share without a valid JWT", async () => {
-    const { token } = await createProtectedShare("no-jwt", "guest4@band.com");
+    const { token } = await createProtectedShare("no-jwt", "guest4@band.showme.test");
     const comment = await app.inject({
       method: "POST",
       url: `/api/v1/shares/${token}/comment`,
@@ -517,7 +519,7 @@ describe("shares — OTP → JWT front door", () => {
   });
 
   it("increments attempts on a wrong code and blocks after 5 tries", async () => {
-    const email = "guest5@band.com";
+    const email = "guest5@band.showme.test";
     const { token } = await createProtectedShare("attempts", email);
     await app.inject({
       method: "POST",
@@ -566,7 +568,7 @@ describe("shares — OTP → JWT front door", () => {
   });
 
   it("consumes the code on success rather than deleting the window", async () => {
-    const email = "spent@band.com";
+    const email = "spent@band.showme.test";
     const { token } = await createProtectedShare("spent", email);
     await redeem(token, email);
 
@@ -587,7 +589,7 @@ describe("shares — OTP → JWT front door", () => {
   });
 
   it("holds the 3-an-hour limit across a successful verify", async () => {
-    const email = "throttle@band.com";
+    const email = "throttle@band.showme.test";
     const { token } = await createProtectedShare("throttle", email);
 
     const issue = () =>
@@ -619,7 +621,7 @@ describe("shares — OTP → JWT front door", () => {
   });
 
   it("holds the limit across a burnt-out code too", async () => {
-    const email = "throttle2@band.com";
+    const email = "throttle2@band.showme.test";
     const { token } = await createProtectedShare("throttle2", email);
     const issue = () =>
       app.inject({
@@ -647,36 +649,36 @@ describe("shares — OTP → JWT front door", () => {
     // caller, so a script holding one link defeated it by typing a new address
     // each time — every one of them a row written and a hash burnt, none of them
     // ever delivered. This is the limit that binds the caller instead.
-    const { token } = await createProtectedShare("otp-ip", "listed@band.com");
+    const { token } = await createProtectedShare("otp-ip", "listed@band.showme.test");
     for (let attempt = 0; attempt < 10; attempt++) {
       const allowed = await app.inject({
         method: "POST",
         url: `/api/v1/shares/${token}/otp`,
-        payload: { email: `rotation-${attempt}@band.com` },
+        payload: { email: `rotation-${attempt}@band.showme.test` },
       });
       expect(allowed.statusCode).toBe(200);
     }
     const blocked = await app.inject({
       method: "POST",
       url: `/api/v1/shares/${token}/otp`,
-      payload: { email: "rotation-10@band.com" },
+      payload: { email: "rotation-10@band.showme.test" },
     });
     expect(blocked.statusCode).toBe(429);
     expect(blocked.json().error.message).toContain("from this connection");
 
     // Scoped to the link, not to the whole surface: another share is unaffected,
     // so one abused link cannot lock a real recipient out of a different one.
-    const other = await createProtectedShare("otp-ip-other", "listed@band.com");
+    const other = await createProtectedShare("otp-ip-other", "listed@band.showme.test");
     const unaffected = await app.inject({
       method: "POST",
       url: `/api/v1/shares/${other.token}/otp`,
-      payload: { email: "listed@band.com" },
+      payload: { email: "listed@band.showme.test" },
     });
     expect(unaffected.statusCode).toBe(200);
   });
 
   it("never echoes the code unless the environment opts in", async () => {
-    const email = "guest-echo@band.com";
+    const email = "guest-echo@band.showme.test";
     const { token } = await createProtectedShare("echo", email);
     // Production: the header is present and the code is still withheld — the
     // header alone used to be the whole condition, which made the OTP optional.
@@ -696,7 +698,7 @@ describe("shares — OTP → JWT front door", () => {
   });
 
   it("refuses to sign with the development secret in production", async () => {
-    const email = "unconfigured@band.com";
+    const email = "unconfigured@band.showme.test";
     const { token } = await createProtectedShare("unconfigured", email);
     const issue = await app.inject({
       method: "POST",
@@ -727,13 +729,13 @@ describe("shares — OTP → JWT front door", () => {
   });
 
   it("does not mail a code to an address the share was never sent to", async () => {
-    const { token } = await createProtectedShare("mailguard", "invited@band.com");
+    const { token } = await createProtectedShare("mailguard", "invited@band.showme.test");
     sentEmails.length = 0;
 
     const stranger = await app.inject({
       method: "POST",
       url: `/api/v1/shares/${token}/otp`,
-      payload: { email: "stranger@elsewhere.com" },
+      payload: { email: "stranger@elsewhere.showme.test" },
     });
     // Same answer as a real recipient gets — the endpoint is not an address oracle.
     expect(stranger.statusCode).toBe(200);
@@ -743,15 +745,15 @@ describe("shares — OTP → JWT front door", () => {
     const invited = await app.inject({
       method: "POST",
       url: `/api/v1/shares/${token}/otp`,
-      payload: { email: "invited@band.com" },
+      payload: { email: "invited@band.showme.test" },
     });
     expect(invited.statusCode).toBe(200);
-    expect(sentEmails.map((message) => message.to)).toEqual(["invited@band.com"]);
+    expect(sentEmails.map((message) => message.to)).toEqual(["invited@band.showme.test"]);
   });
 
   it("refuses to mint a JWT for a correct code on a non-recipient address", async () => {
-    const { token } = await createProtectedShare("nonrecipient", "invited2@band.com");
-    const stranger = "stranger2@elsewhere.com";
+    const { token } = await createProtectedShare("nonrecipient", "invited2@band.showme.test");
+    const stranger = "stranger2@elsewhere.showme.test";
     const issue = await app.inject({
       method: "POST",
       url: `/api/v1/shares/${token}/otp`,
@@ -774,7 +776,7 @@ describe("shares — the signed-in front door and the claim record", () => {
     const performer = await seedPerformer(
       "claim-perf",
       seed.event.id,
-      "claim-perf@band.com",
+      "claim-perf@band.showme.test",
       "Claimed Act",
     );
     const create = await createShare(seed, {
@@ -784,7 +786,7 @@ describe("shares — the signed-in front door and the claim record", () => {
     const token = create.json().token as string;
 
     // Being signed in is not the credential — being signed in AS THE ADDRESS the
-    // share was sent to is. The fake verifier answers `<uid>@example.com`, which
+    // share was sent to is. The fake verifier answers `<uid>@example.showme.test`, which
     // is not the recipient address, so this account is a stranger to this link.
     const wrongAccount = await app.inject({
       method: "GET",
@@ -796,14 +798,14 @@ describe("shares — the signed-in front door and the claim record", () => {
 
   it("stamps claimed_by_user_id when the signed-in email matches the recipient", async () => {
     const seed = await seedEvent("claim2");
-    // The fake verifier's email for uid `holder` is `holder@example.com`, so the
+    // The fake verifier's email for uid `holder` is `holder@example.showme.test`, so the
     // share is addressed to exactly that.
     await harness.db
       .insert(schema.users)
-      .values({ id: "holder", email: "holder@example.com", kind: "performer" });
+      .values({ id: "holder", email: "holder@example.showme.test", kind: "performer" });
     const create = await createShare(seed, {
       capabilities: ["event.view"],
-      recipients: [{ email: "holder@example.com", name: "Holder" }],
+      recipients: [{ email: "holder@example.showme.test", name: "Holder" }],
     });
     const token = create.json().token as string;
 
@@ -834,7 +836,7 @@ describe("shares — the document", () => {
       label: "Doors",
       localDateTime: "2026-09-01T19:00",
     });
-    const email = "doc-guest@band.com";
+    const email = "doc-guest@band.showme.test";
     const create = await createShare(seed, {
       capabilities: ["event.view", "schedule.view"],
       recipients: [{ email }],
@@ -866,8 +868,18 @@ describe("shares — the document", () => {
 
   it("shows a performer their own deal line and not their co-performer's", async () => {
     const seed = await seedEvent("scope");
-    const headliner = await seedPerformer("scope-a", seed.event.id, "head@band.com", "Headliner");
-    const support = await seedPerformer("scope-b", seed.event.id, "support@band.com", "Support");
+    const headliner = await seedPerformer(
+      "scope-a",
+      seed.event.id,
+      "head@band.showme.test",
+      "Headliner",
+    );
+    const support = await seedPerformer(
+      "scope-b",
+      seed.event.id,
+      "support@band.showme.test",
+      "Support",
+    );
 
     const [deal] = await harness.db
       .insert(schema.deals)
@@ -932,7 +944,7 @@ describe("shares — the document", () => {
     const performer = await seedPerformer(
       "ceiling-perf",
       seed.event.id,
-      "ceiling@band.com",
+      "ceiling@band.showme.test",
       "Ceiling Act",
     );
     const [budget] = await harness.db
@@ -980,7 +992,7 @@ describe("shares — the document", () => {
       { budgetId: budget.id, kind: "cost", label: "Sound", amount: 900000n },
     ]);
 
-    const email = "books@accountants.example";
+    const email = "books@accountants.showme.test";
     const create = await createShare(seed, {
       capabilities: ["budget.view"],
       recipients: [{ email }],
@@ -1005,7 +1017,7 @@ describe("shares — the document", () => {
     const performer = await seedPerformer(
       "settle-perf",
       seed.event.id,
-      "settle@band.com",
+      "settle@band.showme.test",
       "Settled Act",
     );
     await harness.db.insert(schema.settlements).values([
@@ -1074,7 +1086,7 @@ describe("shares — off-platform approval (A-33)", () => {
     const performer = await seedPerformer(
       `${prefix}-perf`,
       seed.event.id,
-      `${prefix}@band.com`,
+      `${prefix}@band.showme.test`,
       "Approving Act",
     );
     await harness.db.insert(schema.settlements).values({
@@ -1189,7 +1201,7 @@ describe("shares — off-platform approval (A-33)", () => {
 
   it("refuses to approve for a recipient who is not a party", async () => {
     const seed = await seedEvent("approve-stranger");
-    const email = "outsider@elsewhere.com";
+    const email = "outsider@elsewhere.showme.test";
     const create = await createShare(seed, {
       capabilities: ["event.view", "settlement.confirm"],
       recipients: [{ email }],
@@ -1217,7 +1229,7 @@ describe("shares — off-platform approval (A-33)", () => {
     const performer = await seedPerformer(
       `${prefix}-perf`,
       seed.event.id,
-      `${prefix}@band.com`,
+      `${prefix}@band.showme.test`,
       "Signing Act",
     );
     const [deal] = await harness.db
@@ -1365,13 +1377,13 @@ describe("shares — off-platform approval (A-33)", () => {
     const headliner = await seedPerformer(
       "confirm-a",
       seed.event.id,
-      "confirm-head@band.com",
+      "confirm-head@band.showme.test",
       "Headliner",
     );
     const support = await seedPerformer(
       "confirm-b",
       seed.event.id,
-      "confirm-support@band.com",
+      "confirm-support@band.showme.test",
       "Support",
     );
     const [deal] = await harness.db
@@ -1427,7 +1439,7 @@ describe("shares — per-section comments", () => {
       label: "Load-in",
       localDateTime: "2026-09-01T14:00",
     });
-    const email = "section@band.com";
+    const email = "section@band.showme.test";
     const create = await createShare(seed, {
       capabilities: ["event.view", "schedule.view", "message.post"],
       recipients: [{ email }],
@@ -1462,7 +1474,7 @@ describe("shares — per-section comments", () => {
   });
 
   it("refuses a comment filed under a section the link never shared", async () => {
-    const email = "section2@band.com";
+    const email = "section2@band.showme.test";
     const { token } = await createProtectedShare("section-denied", email);
     const jwt = await redeem(token, email);
     const posted = await app.inject({
@@ -1476,7 +1488,7 @@ describe("shares — per-section comments", () => {
 
   it("refuses a comment on a link that did not grant message.post", async () => {
     const seed = await seedEvent("nocomment");
-    const email = "nocomment@band.com";
+    const email = "nocomment@band.showme.test";
     const create = await createShare(seed, {
       capabilities: ["event.view"],
       recipients: [{ email }],
@@ -1494,8 +1506,8 @@ describe("shares — per-section comments", () => {
 
   it("does not show one recipient another recipient's comments", async () => {
     const seed = await seedEvent("threads");
-    const first = "one@band.com";
-    const second = "two@band.com";
+    const first = "one@band.showme.test";
+    const second = "two@band.showme.test";
     const create = await createShare(seed, {
       capabilities: ["event.view", "message.post"],
       recipients: [{ email: first }, { email: second }],
@@ -1523,7 +1535,7 @@ describe("shares — per-section comments", () => {
 describe("shares — the operator's own list", () => {
   it("lists the links out, their recipients and their state, and revokes one", async () => {
     const seed = await seedEvent("list");
-    const email = "listed@band.com";
+    const email = "listed@band.showme.test";
     const create = await createShare(seed, {
       capabilities: ["event.view"],
       recipients: [{ email, name: "Listed" }],
@@ -1585,5 +1597,104 @@ describe("shares — the operator's own list", () => {
     });
     // No standing on the event at all → 404, not 403: no existence leak.
     expect(response.statusCode).toBe(404);
+  });
+});
+
+describe("shares — the link is actually sent (settlement review)", () => {
+  /**
+   * Creating a share used to mint a token and stop, while the dialog promised the
+   * recipient a link "addressed to an email". Addressed to, never sent to. These
+   * pin the send, and pin what may travel in it.
+   */
+  it("emails the link to every recipient and reports who was reached", async () => {
+    sentEmails.length = 0;
+    const seed = await seedEvent("send-link");
+    const response = await createShare(seed, {
+      targetKind: "settlement",
+      capabilities: ["settlement.view.own"],
+      recipients: [
+        { email: "one@band.showme.test", name: "One" },
+        { email: "two@band.showme.test" },
+      ],
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().emailed).toEqual(["one@band.showme.test", "two@band.showme.test"]);
+    const addressed = sentEmails.filter((message) => message.to.endsWith("@band.showme.test"));
+    expect(addressed).toHaveLength(2);
+    expect(addressed[0]?.subject).toContain("Settlement to review");
+    // The link is the point of the message.
+    expect(addressed[0]?.text).toContain(`/shares/${response.json().token}`);
+  });
+
+  it("never puts money in the email", async () => {
+    sentEmails.length = 0;
+    const seed = await seedEvent("no-money");
+    await createShare(seed, {
+      targetKind: "settlement",
+      capabilities: ["settlement.view.own"],
+      recipients: [{ email: "quiet@band.showme.test" }],
+    });
+    const message = sentEmails.find((entry) => entry.to === "quiet@band.showme.test");
+    // A settlement is party-scoped and only the screen behind the link can
+    // enforce that; a figure in an email is a figure in whatever inbox it is
+    // forwarded to. So: no currency codes, no amounts.
+    expect(message?.text).not.toMatch(/\d[\d\s,.]*\d\s*(SEK|EUR|USD|GBP)/i);
+    expect(message?.text).not.toMatch(/(SEK|EUR|USD|GBP)\s*\d/i);
+  });
+
+  it("keeps the party the operator ASSIGNED, and does not overwrite it on open", async () => {
+    // The case the settlement invitation is built on: a party with no account, so
+    // no membership row carries the address the operator typed. Discovery by
+    // email finds nobody — and used to persist that nobody over the assignment.
+    const seed = await seedEvent("assigned");
+    const [stub] = await harness.db
+      .insert(schema.profiles)
+      .values({
+        kind: "performer",
+        ownerUserId: seed.operator.userId,
+        name: "Unclaimed Act",
+        slug: "assigned-unclaimed-act",
+        claimedAt: null,
+        createdBy: seed.operator.userId,
+      })
+      .returning();
+    const [participant] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: seed.event.id,
+        profileId: stub?.id as string,
+        role: "performer",
+        status: "confirmed",
+      })
+      .returning();
+
+    const create = await createShare(seed, {
+      targetKind: "settlement",
+      capabilities: ["settlement.view.own"],
+      recipients: [{ email: "nobody@offplatform.showme.test", name: "Unclaimed Act" }],
+    });
+    const token = create.json().token as string;
+    // Stamp the assignment the settlement route makes explicitly.
+    await harness.db
+      .update(schema.shareRecipients)
+      .set({ linkedParticipantId: participant?.id })
+      .where(eq(schema.shareRecipients.email, "nobody@offplatform.showme.test"));
+
+    const jwt = await redeem(token, "nobody@offplatform.showme.test");
+    const document = await app.inject({
+      method: "GET",
+      url: `/api/v1/shares/${token}/document`,
+      headers: { authorization: `ShareBearer ${jwt}` },
+    });
+    expect(document.statusCode).toBe(200);
+    // Read AS the assigned party, not as nobody.
+    expect(document.json().viewer?.partyName ?? document.json().viewer?.name).toBe("Unclaimed Act");
+
+    const [after] = await harness.db
+      .select()
+      .from(schema.shareRecipients)
+      .where(eq(schema.shareRecipients.email, "nobody@offplatform.showme.test"));
+    expect(after?.linkedParticipantId).toBe(participant?.id);
   });
 });

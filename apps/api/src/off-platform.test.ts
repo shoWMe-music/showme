@@ -47,10 +47,10 @@ const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 async function seedOperatorEvent(prefix: string) {
   const { db } = harness;
   const opUid = `${prefix}-op`;
-  identities[opUid] = { uid: opUid, email: `${opUid}@example.com`, emailVerified: true };
+  identities[opUid] = { uid: opUid, email: `${opUid}@example.showme.test`, emailVerified: true };
   await db
     .insert(schema.users)
-    .values({ id: opUid, email: `${opUid}@example.com`, kind: "operator" });
+    .values({ id: opUid, email: `${opUid}@example.showme.test`, kind: "operator" });
   const [profile] = await db
     .insert(schema.profiles)
     .values({ kind: "operator", ownerUserId: opUid, name: `${prefix} Ops`, slug: `${prefix}-ops` })
@@ -101,7 +101,7 @@ describe("off-platform performers → stub → claim", () => {
       method: "POST",
       url: `/api/v1/events/${eventId}/participants/off-platform`,
       headers: opHeaders(opUid, opProfileId),
-      payload: { name: "Nina Vox", email: "Nina@Example.com", role: "performer" },
+      payload: { name: "Nina Vox", email: "Nina@Example.ShowMe.Test", role: "performer" },
     });
 
     expect(response.statusCode).toBe(201);
@@ -121,7 +121,7 @@ describe("off-platform performers → stub → claim", () => {
       .select()
       .from(schema.profileMembers)
       .where(eq(schema.profileMembers.profileId, body.profileId));
-    expect(member?.email).toBe("nina@example.com"); // normalized lowercase
+    expect(member?.email).toBe("nina@example.showme.test"); // normalized lowercase
     expect(member?.userId).toBeNull();
     expect(member?.status).toBe("active");
   });
@@ -132,14 +132,14 @@ describe("off-platform performers → stub → claim", () => {
       method: "POST",
       url: `/api/v1/events/${eventId}/participants/off-platform`,
       headers: opHeaders(opUid, opProfileId),
-      payload: { name: "Remy", email: "remy@example.com", role: "performer" },
+      payload: { name: "Remy", email: "remy@example.showme.test", role: "performer" },
     });
 
     // The performer signs up with the SAME (verified) email.
     const performerUid = "claim-remy";
     identities[performerUid] = {
       uid: performerUid,
-      email: "remy@example.com",
+      email: "remy@example.showme.test",
       emailVerified: true,
     };
     const session = await app.inject({
@@ -195,11 +195,11 @@ describe("off-platform performers → stub → claim", () => {
       method: "POST",
       url: `/api/v1/events/${eventId}/participants/off-platform`,
       headers: opHeaders(opUid, opProfileId),
-      payload: { name: "Unv", email: "unv@example.com" },
+      payload: { name: "Unv", email: "unv@example.showme.test" },
     });
 
     const uid = "unverified-signup";
-    identities[uid] = { uid, email: "unv@example.com", emailVerified: false };
+    identities[uid] = { uid, email: "unv@example.showme.test", emailVerified: false };
     const session = await app.inject({
       method: "POST",
       url: "/api/v1/auth/session",
@@ -214,7 +214,7 @@ describe("off-platform performers → stub → claim", () => {
       .from(schema.profileMembers)
       .where(
         and(
-          eq(schema.profileMembers.email, "unv@example.com"),
+          eq(schema.profileMembers.email, "unv@example.showme.test"),
           isNull(schema.profileMembers.userId),
         ),
       );
@@ -227,11 +227,11 @@ describe("off-platform performers → stub → claim", () => {
       method: "POST",
       url: `/api/v1/events/${eventId}/participants/off-platform`,
       headers: opHeaders(opUid, opProfileId),
-      payload: { name: "Mm", email: "mm@example.com" },
+      payload: { name: "Mm", email: "mm@example.showme.test" },
     });
 
     const uid = "mismatch-operator";
-    identities[uid] = { uid, email: "mm@example.com", emailVerified: true };
+    identities[uid] = { uid, email: "mm@example.showme.test", emailVerified: true };
     const session = await app.inject({
       method: "POST",
       url: "/api/v1/auth/session",
@@ -249,7 +249,7 @@ describe("off-platform performers → stub → claim", () => {
       .values({
         ownerProfileId: opProfileId,
         name: "Iris Lang",
-        persons: [{ name: "Iris Lang", email: "iris@example.com" }],
+        persons: [{ name: "Iris Lang", email: "iris@example.showme.test" }],
       })
       .returning();
     if (!contact) throw new Error("contact seed failed");
@@ -268,7 +268,7 @@ describe("off-platform performers → stub → claim", () => {
       .select()
       .from(schema.profileMembers)
       .where(eq(schema.profileMembers.profileId, body.profileId));
-    expect(member?.email).toBe("iris@example.com");
+    expect(member?.email).toBe("iris@example.showme.test");
 
     // The contact is now linked to the invitation that was spun from it.
     const [linkedContact] = await harness.db

@@ -10,7 +10,7 @@ import { buildTestApp } from "./testing";
 /** Fake verifier: the bearer token IS the uid, so tests just send `Bearer <uid>`. */
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -34,7 +34,7 @@ const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 async function seedUser(id: string) {
   await harness.db
     .insert(schema.users)
-    .values({ id, email: `${id}@example.com`, kind: "operator" });
+    .values({ id, email: `${id}@example.showme.test`, kind: "operator" });
 }
 
 /** Seed one notification row for a user; `read` controls the read_at state. */

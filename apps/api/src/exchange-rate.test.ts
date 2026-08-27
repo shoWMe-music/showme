@@ -9,7 +9,7 @@ import { buildTestApp } from "./testing";
 /** Fake verifier — exchange-rate routes are public, but buildTestApp requires one. */
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 

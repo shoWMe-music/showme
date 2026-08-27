@@ -1,4 +1,3 @@
-import { isDeepStrictEqual } from "node:util";
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
 import { convertMinorUnits } from "@showme/shared";
@@ -182,6 +181,86 @@ async function readBudget(
   };
 }
 
+/**
+ * The SETTLEMENT's lines, shaped as a captured budget so the comparison below
+ * needs no special case.
+ *
+ * This is the "actual" side now. `readBudget` above reads the planner's rows and
+ * remains the "planned" side; since 0025 the settlement keeps its own copy and
+ * that copy is what `reconcile()` settles, so it is also what actually happened.
+ *
+ * **Each row is serialized under its ORIGIN id.** `linesOf` keys on `line.id`,
+ * and pairing a settlement line to the forecast line it came from is exactly the
+ * question planned-vs-actual asks — so a copied line answers with the budget line
+ * it was copied from, and a line first entered in the settlement answers with its
+ * own id, pairs with nothing, and is reported `added`. Which is the truth: it was
+ * never budgeted.
+ *
+ * One synthetic budget wrapper, because `CapturedBudget` is grouped by budget and
+ * the settlement's copy is flat — the grouping carries no meaning on this side.
+ */
+async function readSettlementLines(
+  database: Database | Transaction,
+  eventId: string,
+): Promise<CapturedBudget> {
+  const [event] = await database
+    .select({ baseCurrency: schema.events.baseCurrency })
+    .from(schema.events)
+    .where(eq(schema.events.id, eventId));
+  if (!event) throw notFound("Event not found");
+
+  const rows = await database
+    .select()
+    .from(schema.settlementLines)
+    .where(eq(schema.settlementLines.eventId, eventId))
+    // Same reason as `readBudget`: a stable order so two reads of an unchanged
+    // settlement serialize identically.
+    .orderBy(asc(schema.settlementLines.id));
+
+  const rates = await loadRatesToBase(
+    database,
+    event.baseCurrency,
+    rows.map((line) => line.currency ?? event.baseCurrency),
+  );
+
+  // ONE SHARED BUCKET, and that is not a simplification — only the shared budget
+  // is ever copied into a settlement (`lib/settlement-lines.ts`), so every row
+  // here is shared by construction. There is no private line in the copy for the
+  // visibility filter to withhold, because a private budget never gets in.
+  return {
+    baseCurrency: event.baseCurrency,
+    rates: Object.fromEntries(rates),
+    budgets: [
+      {
+        id: eventId,
+        eventId,
+        scope: "shared",
+        ownerProfileId: null,
+        planningAssumptions: null,
+        version: 1,
+        lines: rows.map((line) => ({
+          id: line.originBudgetLineId ?? line.id,
+          budgetId: eventId,
+          kind: line.kind,
+          source: line.source,
+          providerRef: line.providerRef,
+          label: line.label,
+          amount: line.amount.toString(),
+          currency: line.currency,
+          collectedBy: line.collectedBy,
+          paidBy: line.paidBy,
+          payeeParticipantId: line.payeeParticipantId,
+          costSplit: line.costSplit as Record<string, number> | null,
+          details: line.details as SerializedBudgetLine["details"],
+          dealId: line.dealId,
+          attributedDealId: line.attributedDealId,
+          version: line.version,
+        })),
+      } satisfies SerializedBudget,
+    ],
+  };
+}
+
 type BudgetSnapshotRow = typeof schema.budgetSnapshots.$inferSelect;
 
 /** The newest capture on an event, or null if it has never been captured. */
@@ -229,18 +308,62 @@ async function latestCapture(
  *
  * Returns the row written, or null when a compute capture was deduplicated away.
  */
+/**
+ * A capture reduced to what would make somebody call it a different set of lines.
+ *
+ * Deliberately drops `budgetId`: version 1 groups lines under the planner's
+ * budget and every later version under the settlement's own copy, and that
+ * difference is bookkeeping, not a change to the night's money. Sorted by id so
+ * two reads in different row orders fingerprint identically — the same reason
+ * `readBudget` and `readSettlementLines` both order their queries.
+ */
+function fingerprintOf(captured: CapturedBudget): string {
+  const lines = captured.budgets
+    .flatMap((budget) => budget.lines)
+    .map((line) => ({
+      id: line.id,
+      kind: line.kind,
+      label: line.label,
+      amount: line.amount,
+      currency: line.currency,
+      collectedBy: line.collectedBy,
+      paidBy: line.paidBy,
+      payeeParticipantId: line.payeeParticipantId,
+      costSplit: line.costSplit,
+      dealId: line.dealId,
+      attributedDealId: line.attributedDealId,
+      details: line.details,
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  return JSON.stringify(lines);
+}
+
 export async function captureBudgetSnapshot(
   tx: Transaction,
   eventId: string,
   reason: BudgetSnapshotReason,
   settlementSnapshotId?: string,
 ): Promise<BudgetSnapshotRow | null> {
-  const captured = await readBudget(tx, eventId);
+  // VERSION 1 IS THE FORECAST; everything after it is the settlement's own copy.
+  //
+  // The plan of record is the budget as it stood when the operator first declared
+  // the night ready to reconcile — read from `budget_lines`, because at that
+  // moment the settlement has no figures of its own. Every later capture records
+  // what the SETTLEMENT says, since 0025 gave it a copy of its own and the engine
+  // settles that. Capturing the budget again would be recording the forecast
+  // twice and calling the second one the outcome.
   const latest = await latestCapture(tx, eventId);
+  const captured = latest ? await readSettlementLines(tx, eventId) : await readBudget(tx, eventId);
 
   if (reason === "compute" && latest) {
     const previous = latest.data as CapturedBudget;
-    if (isDeepStrictEqual(previous.budgets, captured.budgets)) return null;
+    // Compared by CONTENT, not by structure. Version 1 is grouped by budget and
+    // every later version is the settlement's flat copy, so the two nest
+    // differently even when not a figure has moved — and a raw structural
+    // comparison would record a change on the first recompute after the plan,
+    // every time, for every event. The fingerprint is what a reader would call
+    // the same set of lines.
+    if (fingerprintOf(previous) === fingerprintOf(captured)) return null;
   }
 
   const totals = totalsOf(captured);
@@ -428,6 +551,30 @@ function servedSide(indexed: IndexedLine): PlannedVsActualLineSide {
  * any arm's-length party, so no performer, agent or crew member reaches here at
  * all — and this second filter is the co-operator boundary inside that.
  */
+/**
+ * The "actual" side while a settlement is still open.
+ *
+ * Normally the settlement's own copy — that is what `reconcile()` settles and so
+ * what actually happened. Before the FIRST compute there is no copy, and the
+ * honest answer there is the budget: nothing has been settled yet, so what would
+ * happen if you ran it now is the forecast, unchanged. Reporting zero would say
+ * the night took nothing, which is a different and false claim.
+ *
+ * The distinction is never silent — `source: "live"` already means "as it stands
+ * right now" rather than "as it was concluded".
+ */
+async function liveActual(
+  database: Database | Transaction,
+  eventId: string,
+): Promise<CapturedBudget> {
+  const [copied] = await database
+    .select({ id: schema.settlementLines.id })
+    .from(schema.settlementLines)
+    .where(eq(schema.settlementLines.eventId, eventId))
+    .limit(1);
+  return copied ? readSettlementLines(database, eventId) : readBudget(database, eventId);
+}
+
 export async function plannedVsActual(
   database: Database,
   eventId: string,
@@ -464,7 +611,7 @@ export async function plannedVsActual(
         finalizeRow.version,
         finalizeRow.capturedAt,
       )
-    : sideOf(live, profileIds, "live", null, null);
+    : sideOf(await liveActual(database, eventId), profileIds, "live", null, null);
 
   const plannedLines = plan ? linesOf(plan.visible) : new Map<string, IndexedLine>();
   const actualLines = linesOf(actual.visible);

@@ -31,6 +31,8 @@ export interface SettlementLine {
   owed: string;
   collected: string;
   paid: string;
+  /** Money moved before the night. Null when none did — the row is then omitted. */
+  prepaid?: string | null;
   net: string;
   /** Colour hint for the net figure. */
   netTone?: "positive" | "negative" | "neutral";
@@ -71,6 +73,10 @@ function ParticipantLine({ line }: { line: SettlementLine }) {
       <KeyValueRow label="Owed" value={line.owed} mono />
       <KeyValueRow label="Collected" value={line.collected} mono />
       <KeyValueRow label="Paid" value={line.paid} mono />
+      {/* Only when something actually moved early. A permanent "Paid before the
+          event — 0" on every settlement would be noise on the many nights where
+          nothing did, and the figure means too much to be skimmed past. */}
+      {line.prepaid && <KeyValueRow label="Paid before the event" value={line.prepaid} mono />}
       <KeyValueRow label="Net" value={line.net} mono total valueColor={netColor(line.netTone)} />
     </div>
   );

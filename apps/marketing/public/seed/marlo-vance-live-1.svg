@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1250" width="1000" height="1250" role="img" aria-label="Solo at the piano">
+  <defs>
+    <radialGradient id="key" cx="40%" cy="14%" r="66%">
+      <stop offset="0%" stop-color="#FFE9B8" stop-opacity=".72"/>
+      <stop offset="38%" stop-color="#F4A046" stop-opacity=".26"/>
+      <stop offset="100%" stop-color="#100B08" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0A0604" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#0A0604" stop-opacity=".82"/>
+    </linearGradient>
+  </defs>
+  <rect width="1000" height="1250" fill="#100B08"/>
+  <rect width="1000" height="1250" fill="url(#key)"/>
+
+  <path d="M300 0 L440 0 L640 1250 L110 1250 Z" fill="#FFE9B8" opacity=".11"/>
+  <ellipse cx="380" cy="1010" rx="250" ry="42" fill="#FFC266" opacity=".16"/>
+  <g fill="#0A0604" opacity=".92">
+    <rect x="150" y="900" width="520" height="34" rx="10"/>
+    <rect x="200" y="934" width="58" height="200"/>
+    <rect x="562" y="934" width="58" height="200"/>
+    <path d="M280 900 q80 -160 160 -12 z"/>
+  </g>
+  <rect width="1000" height="1250" fill="url(#fade)"/>
+</svg>

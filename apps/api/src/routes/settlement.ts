@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import { liveEventDelegations } from "@showme/auth";
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
 import {
@@ -8,6 +9,7 @@ import {
   type SettlementParticipant,
   type SettlementResult,
   assertBalanced,
+  prepaidAmountOf,
   reconcile,
 } from "@showme/settlement";
 import { convertMinorUnits } from "@showme/shared";
@@ -23,9 +25,14 @@ import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import { captureBudgetSnapshot, plannedVsActual } from "../lib/budget-snapshot";
 import { syncCommissionSettlements } from "../lib/commission-settlement";
+import { renderSettlementReviewEmail } from "../lib/email-templates";
+import { loadEventSummary } from "../lib/event-summary";
 import { loadRatesToBase } from "../lib/exchange-rate";
-import { notifyUsers, settlementRecipients } from "../lib/notify";
+import { notifyUsers, settlementPartyReach, settlementRecipients } from "../lib/notify";
+import { ensureSettlementLines } from "../lib/settlement-lines";
 import { type DesiredTransfer, reconcileTransfers } from "../lib/settlement-transfers";
+import { createShareWithRecipients, sendShareInvitations } from "../lib/share-invite";
+import { narrowSharedCapabilities } from "../lib/share-scope";
 import { withIdempotency } from "../plugins/idempotency";
 import {
   type SerializedBreakdown,
@@ -119,6 +126,8 @@ const BreakdownResponse = z.object({
   commissionEarned: z.string().optional(),
   deductibles: z.string().optional(),
   residual: z.string().optional(),
+  /** Money moved before the night under a deal. Optional for the same reason. */
+  prepaid: z.string().optional(),
 });
 
 /** One party's sign-off, as the roster shows it. */
@@ -202,6 +211,17 @@ const MySettlementsResponse = z.object({
 const EventSettlementResponse = SettlementResponse.extend({
   isYours: z.boolean(),
   approvedByYou: z.boolean(),
+  /**
+   * Whether the CALLER may sign this particular line off.
+   *
+   * Usually the same as `isYours`, and deliberately a separate field because of
+   * the one case where it is not: a delegated performer's signature belongs to
+   * their agent (decisions.md #14), so the agent may sign a line that is not its
+   * own. The server resolves that against the live representation; sending the
+   * answer rather than the inputs keeps the screen from re-deriving a rule about
+   * who may sign for whose money.
+   */
+  signableByYou: z.boolean(),
 });
 
 const SettlementsResponse = z.object({
@@ -226,6 +246,19 @@ const SettlementsResponse = z.object({
    * same visible set as the settlements themselves, so it widens nothing.
    */
   approvals: z.array(ApprovalResponse),
+  /**
+   * Per party: can "send for review" reach them on its own, and where has their
+   * settlement been sent. Empty for a caller who cannot send it out.
+   */
+  delivery: z.array(
+    z.object({
+      participantId: z.string(),
+      onPlatform: z.boolean(),
+      invitedEmail: z.string().nullable(),
+      invitedAt: z.string().nullable(),
+      lastSeenAt: z.string().nullable(),
+    }),
+  ),
 });
 
 // ── Planned vs actual (decisions.md #16.8) ──────────────────────────────────
@@ -445,8 +478,12 @@ type BudgetLineReference = {
 
 /** How a guard tells the operator which row is at fault and how to be rid of it. */
 function unsettlableLine(eventId: string, line: BudgetLineReference, problem: string): HttpError {
+  // Names the SETTLEMENT's line and the settlement's own route, because since
+  // 0025 that is the row the engine read and the only place it can be corrected.
+  // Pointing at the planner would send the operator to fix a forecast that the
+  // settlement has already stopped listening to.
   return conflict(
-    `Budget line "${line.label}" (${line.id}) ${problem}, so the settlement cannot balance. Correct or remove it — DELETE /events/${eventId}/budgets/${line.budgetId}/lines/${line.id} — then compute again.`,
+    `Settlement line "${line.label}" (${line.id}) ${problem}, so the settlement cannot balance. Correct or remove it — DELETE /events/${eventId}/settlement/lines/${line.id} — then compute again.`,
   );
 }
 
@@ -543,6 +580,11 @@ async function reconcileEvent(
   database: Database | Transaction,
   eventId: string,
 ): Promise<ReconciledEvent> {
+  // Take the settlement's copy of the budget if it does not have one yet. A
+  // no-op on every run after the first — the copy is sealed, and re-pulling
+  // would discard the actuals somebody typed into it (`lib/settlement-lines.ts`).
+  await ensureSettlementLines(database, eventId);
+
   const participantRows = await database
     .select()
     .from(schema.eventParticipants)
@@ -566,23 +608,29 @@ async function reconcileEvent(
           .where(inArray(schema.dealParties.dealId, dealIds))
       : [];
 
+  // THE SETTLEMENT'S OWN LINES, never the planner's.
+  //
+  // "The settlement has a copy of the budget. The budget is never changed from
+  // the settlement" (the product owner, 2026-08-27). Reading `budget_lines` here
+  // is what used to collapse the forecast and the record into one set of rows —
+  // see `migrations/0025`. The copy is taken by `ensureSettlementLines` on the
+  // first compute and is sealed from the budget thereafter.
   const lineRows = await database
     .select({
-      id: schema.budgetLines.id,
-      budgetId: schema.budgetLines.budgetId,
-      label: schema.budgetLines.label,
-      kind: schema.budgetLines.kind,
-      amount: schema.budgetLines.amount,
-      currency: schema.budgetLines.currency,
-      collectedBy: schema.budgetLines.collectedBy,
-      paidBy: schema.budgetLines.paidBy,
-      payeeParticipantId: schema.budgetLines.payeeParticipantId,
-      costSplit: schema.budgetLines.costSplit,
-      dealId: schema.budgetLines.dealId,
+      id: schema.settlementLines.id,
+      budgetId: schema.settlementLines.eventId,
+      label: schema.settlementLines.label,
+      kind: schema.settlementLines.kind,
+      amount: schema.settlementLines.amount,
+      currency: schema.settlementLines.currency,
+      collectedBy: schema.settlementLines.collectedBy,
+      paidBy: schema.settlementLines.paidBy,
+      payeeParticipantId: schema.settlementLines.payeeParticipantId,
+      costSplit: schema.settlementLines.costSplit,
+      dealId: schema.settlementLines.dealId,
     })
-    .from(schema.budgetLines)
-    .innerJoin(schema.budgets, eq(schema.budgets.id, schema.budgetLines.budgetId))
-    .where(eq(schema.budgets.eventId, eventId));
+    .from(schema.settlementLines)
+    .where(eq(schema.settlementLines.eventId, eventId));
 
   // Refuse to reconcile a budget that references participants from outside the
   // event (audit A-14). The route now rejects such a reference at write time, but
@@ -649,6 +697,27 @@ async function reconcileEvent(
         basisPoints: commissionBasisPointsFromShare(party.share, party.participantId),
       }))
       .sort((left, right) => left.participantId.localeCompare(right.participantId));
+    // WHO PAID, for an advance. The `payer` deal-party role is the statement of
+    // record; `deals.payer_participant_id` is the older column and stands in when
+    // no party row carries the role, so a deal authored either way still books
+    // both ends of a prepayment.
+    const payerParticipantId =
+      parties.find((party) => party.roleInDeal === "payer")?.participantId ??
+      deal.payerParticipantId ??
+      undefined;
+
+    // What this deal already moved before the night (`packages/settlement/prepaid.ts`).
+    // Converted to base with the same locked rate as every other figure — an
+    // advance agreed in EUR on a SEK night is still SEK in the settlement.
+    const prepaidAmount = prepaidAmountOf({
+      structure: deal.structure,
+      paymentTiming: deal.paymentTiming,
+      guaranteeAmount:
+        deal.guaranteeAmount != null ? toBase(deal.guaranteeAmount, deal.currency) : undefined,
+      advanceAmount:
+        deal.advanceAmount != null ? toBase(deal.advanceAmount, deal.currency) : undefined,
+    });
+
     return {
       dealId: deal.id,
       structure: deal.structure,
@@ -658,6 +727,8 @@ async function reconcileEvent(
       splitBasisPoints: deal.splitBasisPoints ?? undefined,
       partyShares: hasShares ? partyShares : undefined,
       commissions: commissions.length > 0 ? commissions : undefined,
+      prepaidAmount: prepaidAmount > 0n ? prepaidAmount : undefined,
+      payerParticipantId,
     };
   });
 
@@ -801,7 +872,44 @@ async function partiesVisibleTo(
         inArray(mine.roleInDeal, [...DEAL_ROLES_THAT_SEE_THE_DEAL]),
       ),
     );
-  return new Set(rows.map((row) => row.participantId));
+  const visible = new Set(rows.map((row) => row.participantId));
+
+  // NOT co-operators. A co-promoter shares the residual with the host and still
+  // sees only its own line, because visibility here is emergent from being a
+  // party to a DEAL and an operator that is a party to nothing is a party to
+  // nothing (decisions #4; pinned by "shows an operator that is a party to
+  // nothing only its own line" in `settlement.test.ts`). Worth knowing when
+  // reading a co-host's screen: the residual it is owed is half of a number it
+  // cannot see the whole of.
+  const participants = await database
+    .select({
+      id: schema.eventParticipants.id,
+      profileId: schema.eventParticipants.profileId,
+    })
+    .from(schema.eventParticipants)
+    .where(eq(schema.eventParticipants.eventId, eventId));
+
+  // AN AGENT SEES THE LINE OF A PERFORMER IT REPRESENTS on this event.
+  //
+  // The agent is not on the performer's deal — it negotiates the deal, it is not
+  // a party to it — so the join above never reaches the very line the agent's
+  // whole involvement is about. It already earns a commission computed from that
+  // entitlement, and `commissions` discloses the figure to it by name; and since
+  // decisions.md #14 hands the agent the performer's `settlement.confirm`, it is
+  // now expected to SIGN the line as well. Being asked to sign a number you are
+  // not allowed to read is not a rule, it is a bug.
+  //
+  // Live representation, not the delegation stamp — the stamp outlives an
+  // effective-dated termination until the sweep clears it.
+  const myProfileIds = new Set(
+    participants.filter((row) => myParticipantIds.has(row.id)).map((row) => row.profileId),
+  );
+  for (const delegation of await liveEventDelegations(database, eventId)) {
+    if (myProfileIds.has(delegation.agentProfileId)) {
+      visible.add(delegation.performerParticipantId);
+    }
+  }
+  return visible;
 }
 
 /** Every settlement row of an event, whichever subject it hangs off. */
@@ -1200,7 +1308,62 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       // on three signatures could previously read only its own. It widens nothing —
       // a party outside `visible` is outside the roster too, so a performer still
       // learns nothing about anyone but themselves.
+      // Whose signature is the caller's to give: their own lines, plus the line of
+      // any performer whose action capabilities currently sit with them
+      // (decisions.md #14). The confirm route enforces exactly this set — this is
+      // the same question asked for display, so the screen never offers a
+      // signature the route will refuse, nor withholds one it would accept.
+      const signable = new Set(mine);
+      const myProfileIds = new Set(profileIds);
+      for (const delegation of await liveEventDelegations(database, id)) {
+        if (myProfileIds.has(delegation.agentProfileId)) {
+          signable.add(delegation.performerParticipantId);
+        }
+      }
+
       const roster = await approvalRosterOf(database, id, visible);
+
+      // Reach + invitation state, for the operator's delivery list below. Both are
+      // asked only when the caller could act on the answer.
+      const canSend = capabilities.has("settlement.edit");
+      const reach = canSend
+        ? await settlementPartyReach(database, id)
+        : new Map<string, { participantId: string; emails: string[]; userIds: string[] }>();
+      const invitedByParticipant = new Map<
+        string,
+        { email: string; invitedAt: Date; lastSeenAt: Date | null }
+      >();
+      if (canSend) {
+        // The most recent live invitation per party. A share that has been revoked
+        // or has expired is not a way in any more, so it must not read as "already
+        // sent" — that is precisely the state where somebody needs sending again.
+        const invitations = await database
+          .select({
+            participantId: schema.shareRecipients.linkedParticipantId,
+            email: schema.shareRecipients.email,
+            invitedAt: schema.shareRecipients.invitedAt,
+            lastSeenAt: schema.shareRecipients.lastSeenAt,
+          })
+          .from(schema.shareRecipients)
+          .innerJoin(schema.shares, eq(schema.shares.id, schema.shareRecipients.shareId))
+          .where(
+            and(
+              eq(schema.shares.eventId, id),
+              eq(schema.shares.targetKind, "settlement"),
+              isNull(schema.shares.revokedAt),
+              isNotNull(schema.shareRecipients.linkedParticipantId),
+            ),
+          )
+          .orderBy(asc(schema.shareRecipients.invitedAt));
+        for (const invitation of invitations) {
+          if (!invitation.participantId) continue;
+          invitedByParticipant.set(invitation.participantId, {
+            email: invitation.email,
+            invitedAt: invitation.invitedAt,
+            lastSeenAt: invitation.lastSeenAt,
+          });
+        }
+      }
       const visibleSettlements = settlementRows.filter(
         (row) => row.participantId != null && visible.has(row.participantId),
       );
@@ -1216,8 +1379,9 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           // covers every visible party, and reading it here would tell an operator
           // it had signed the performer's line the moment the performer did.
           approvedByYou:
-            mine.has(row.participantId as string) &&
+            signable.has(row.participantId as string) &&
             (roster.get(row.participantId as string)?.approved ?? false),
+          signableByYou: signable.has(row.participantId as string),
         })),
         transfers: transferRows
           .filter((row) =>
@@ -1233,6 +1397,31 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         // `packages/auth`), so asking it here means the settlement screen and the
         // budget planner can never disagree about who may read the pool.
         ladder: capabilities.has("budget.view") ? ladderOf(visibleSettlements) : null,
+        // HOW EACH PARTY IS REACHED — the operator's half of the review step.
+        //
+        // Only for a caller who can send it out. Whether somebody has an account,
+        // and which address the operator sent their settlement to, is not a
+        // performer's business about their fellow acts; it is the roster of who
+        // still has to be told, and telling them is `settlement.edit`.
+        delivery: capabilities.has("settlement.edit")
+          ? visibleSettlements.map((row) => {
+              const participantId = row.participantId as string;
+              const reached = reach.get(participantId);
+              const invited = invitedByParticipant.get(participantId) ?? null;
+              return {
+                participantId,
+                // An account behind the party ⇒ "send for review" reaches them
+                // on its own. No account ⇒ they need an address assigned.
+                onPlatform: (reached?.userIds.length ?? 0) > 0,
+                invitedEmail: invited?.email ?? null,
+                invitedAt: invited?.invitedAt?.toISOString() ?? null,
+                // When they last opened the link — the difference between "sent"
+                // and "read", which is the only thing the operator actually
+                // wants to know while waiting on a signature.
+                lastSeenAt: invited?.lastSeenAt?.toISOString() ?? null,
+              };
+            })
+          : [],
         approvals: visibleSettlements.map((row) => {
           const participantId = row.participantId as string;
           const signed = roster.get(participantId);
@@ -1527,7 +1716,14 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           /** Why — carried into the history so the timeline reads as a story. */
           note: z.string().max(500).optional(),
         }),
-        response: { 200: z.object({ status: z.string(), updated: z.number() }) },
+        response: {
+          200: z.object({
+            status: z.string(),
+            updated: z.number(),
+            /** Addresses the review request was mailed to. Never assumed. */
+            emailed: z.array(z.string()),
+          }),
+        },
       },
     },
     async (request) => {
@@ -1593,7 +1789,417 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         return count;
       });
 
-      return { status, updated };
+      /**
+       * SENDING IT OUT MEANS SENDING IT OUT.
+       *
+       * `pending_review` is the operator saying "these are the figures, check
+       * them". A status column nobody is told about is not a request for review —
+       * it is a settlement quietly sitting in a state, waiting for parties to
+       * happen to open the app. So every party with an account gets it in the
+       * system AND in their inbox, which is what the operator already believes
+       * pressing the button does.
+       *
+       * Only `pending_review`. Re-issuing (`revised`) lands on people already in
+       * the conversation and reaches them through the app; a dispute is raised BY
+       * a party and mailing them their own objection helps nobody.
+       *
+       * Parties with no account cannot be reached this way at all — there is no
+       * address on file — and they are the reason `POST …/settlement/invitations`
+       * exists. `emailed` reports who was actually reached so the screen can say
+       * who still needs an address rather than implying everyone was told.
+       */
+      const emailed: string[] = [];
+      if (status === "pending_review") {
+        try {
+          const actorUserId = request.principal?.userId ?? null;
+          const reach = await settlementPartyReach(database, id);
+          const userIds = [
+            ...new Set(
+              [...reach.values()]
+                .flatMap((party) => party.userIds)
+                .filter((u) => u !== actorUserId),
+            ),
+          ];
+          await notifyUsers(database, userIds, actorUserId, {
+            type: "settlement.pending_review",
+            title: "Settlement ready to review",
+            body: "Check your figures and sign off when they match your books.",
+            eventId: id,
+            actorDisplay: request.firebaseUser?.name ?? undefined,
+            link: `/events/${id}/settlement`,
+            metadata: { eventId: id },
+          });
+
+          const event = await loadEventSummary(database, id);
+          if (event) {
+            const addresses = [
+              ...new Set(
+                [...reach.values()]
+                  .filter((party) => !party.userIds.includes(actorUserId ?? ""))
+                  .flatMap((party) => party.emails),
+              ),
+            ];
+            for (const address of addresses) {
+              try {
+                await request.server.emailSink.sendEmail({
+                  to: address,
+                  // The SAME message an off-platform party gets, minus the share
+                  // token: one review request, one wording, two doors in.
+                  ...renderSettlementReviewEmail({
+                    event,
+                    senderName: request.firebaseUser?.name,
+                  }),
+                });
+                emailed.push(address);
+              } catch (error) {
+                request.log.error({ error, eventId: id }, "settlement review email failed");
+              }
+            }
+          }
+        } catch (error) {
+          request.log.error({ error, eventId: id }, "settlement review notification failed");
+        }
+      }
+
+      return { status, updated, emailed };
+    },
+  );
+
+  /**
+   * SEND THE SETTLEMENT TO SOMEBODY WHO IS NOT ON SHOWME.
+   *
+   * The other half of "send for review". A party with an account is reached by
+   * the status route above; a party without one has no address anybody has
+   * recorded, so the operator picks them off the roster and says where to send
+   * it. This is the same mechanism as the event's Share & Export — a protected
+   * `shares` row, addressed to an email, opened with a one-time code
+   * (`lib/share-invite.ts` is the single path both go through) — with the scope
+   * fixed rather than chosen.
+   *
+   * FIXED SCOPE, and that is the point of having a settlement-specific door onto
+   * it: `settlement.view.own` so they can read their own line, and
+   * `settlement.confirm` so they can sign it off — which is what "verify their
+   * end" means. Nothing else travels. The recipient is bound to the participant
+   * the operator picked, so `POST /shares/:token/approve` records the signature
+   * against the right party (`share_recipients.linked_participant_id`), and the
+   * ceiling still applies on the way out: `narrowSharedCapabilities` will not put
+   * a capability on the link that the operator does not hold themselves.
+   *
+   * `settlement.edit` to issue one. Choosing who receives an event's settlement
+   * is the same authority as producing it, and a lower bar would let somebody who
+   * may only READ a settlement post it to an arbitrary mailbox.
+   */
+  app.post(
+    "/events/:id/settlement/invitations",
+    {
+      schema: {
+        params: EventParams,
+        body: z.object({
+          participantId: z.string().uuid(),
+          email: z.string().email(),
+          name: z.string().max(120).optional(),
+          expiresAt: z.string().datetime().optional(),
+        }),
+        response: {
+          201: z.object({
+            token: z.string(),
+            email: z.string(),
+            /** False when the mail sink refused it — the link still exists. */
+            emailed: z.boolean(),
+          }),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { database } = request.server;
+      const { id } = request.params;
+      const { participantId, email, name, expiresAt } = request.body;
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+      if (!principal.actingProfileId) throw badRequest("No acting profile");
+
+      const held = await requireEventCapability(request, id, "settlement.edit");
+
+      // The party must be one this event actually settles. Inviting somebody to
+      // verify a line that does not exist would mint a live token pointing at
+      // nothing, and the recipient would prove their address for an empty page.
+      const rows = await settlementRowsOf(database, id);
+      const party = rows.find((row) => row.participantId === participantId);
+      if (!party) {
+        throw badRequest("That party has no settlement on this event to review");
+      }
+
+      const capabilities = narrowSharedCapabilities(
+        ["settlement.view.own", "settlement.confirm"],
+        held,
+        "protected",
+      );
+      if (!capabilities.includes("settlement.view.own")) {
+        // The operator cannot grant a view of the settlement they do not hold.
+        throw forbidden("You cannot share a settlement you cannot see yourself");
+      }
+
+      const created = await createShareWithRecipients(request, {
+        eventId: id,
+        capabilities,
+        access: "protected",
+        targetKind: "settlement",
+        targetId: party.id,
+        expiresAt: expiresAt ? new Date(expiresAt) : undefined,
+        recipients: [{ email, name, participantId }],
+        ownerUserId: principal.userId,
+        ownerProfileId: principal.actingProfileId,
+        capability: "settlement.edit",
+      });
+
+      const delivered = await sendShareInvitations(request, {
+        eventId: id,
+        token: created.token,
+        recipients: created.recipients,
+        senderName: request.firebaseUser?.name,
+      }).catch((error) => {
+        request.log.error({ error, eventId: id }, "settlement invitation email failed");
+        return [] as string[];
+      });
+
+      return reply.status(201).send({
+        token: created.token,
+        email: created.recipients[0]?.email ?? email,
+        emailed: delivered.length > 0,
+      });
+    },
+  );
+
+  /**
+   * THE SETTLEMENT'S OWN LINES — read, add, correct, remove.
+   *
+   * Where the real numbers are typed. A budget is a forecast and stays a
+   * planning document; these are the record of what the night actually took and
+   * cost, and `reconcile()` reads them. Nothing here touches `budget_lines` —
+   * that is the rule these routes exist to keep.
+   *
+   * `settlement.edit` throughout: entering an actual cost is the same authority
+   * as producing the settlement, and everything here moves money. `budget.edit`
+   * would be the wrong gate — it is the forecast's permission, and the ceiling
+   * hands it to people who have no business restating the night.
+   *
+   * Every write refuses a FINALIZED settlement (`assertNotFinalized`). Finalize
+   * freezes an immutable snapshot; a line edited underneath it would silently
+   * contradict the legal record. Correcting a finalized settlement is a credit
+   * note, not an UPDATE.
+   */
+  const SettlementLineResponse = z.object({
+    id: z.string(),
+    kind: z.string(),
+    label: z.string(),
+    amount: z.string(),
+    currency: z.string().nullable(),
+    collectedBy: z.string().nullable(),
+    paidBy: z.string().nullable(),
+    payeeParticipantId: z.string().nullable(),
+    costSplit: z.record(z.string(), z.number()).nullable(),
+    dealId: z.string().nullable(),
+    attributedDealId: z.string().nullable(),
+    /** The forecast line this came from. Null = added here, never budgeted. */
+    originBudgetLineId: z.string().nullable(),
+    version: z.number(),
+  });
+
+  const LineAmount = z
+    .string()
+    .regex(/^-?\d+$/, 'amount must be a whole number of minor units as a string, e.g. "150000"');
+  const LineCostSplit = z.record(z.string().uuid(), z.number().int().min(1).max(10_000));
+
+  const serializeLine = (row: typeof schema.settlementLines.$inferSelect) => ({
+    id: row.id,
+    kind: row.kind,
+    label: row.label,
+    amount: row.amount.toString(),
+    currency: row.currency,
+    collectedBy: row.collectedBy,
+    paidBy: row.paidBy,
+    payeeParticipantId: row.payeeParticipantId,
+    costSplit: (row.costSplit as Record<string, number> | null) ?? null,
+    dealId: row.dealId,
+    attributedDealId: row.attributedDealId,
+    originBudgetLineId: row.originBudgetLineId,
+    version: row.version,
+  });
+
+  app.get(
+    "/events/:id/settlement/lines",
+    {
+      schema: { params: EventParams, response: { 200: z.array(SettlementLineResponse) } },
+    },
+    async (request) => {
+      const { database } = request.server;
+      const { id } = request.params;
+      // `budget.view` — the same capability the pool ceiling already uses to mean
+      // "may read the night's money" (`POOL_CAPABILITIES`). A performer reading
+      // their own settlement never reaches here, which is the point.
+      await requireEventCapability(request, id, "budget.view");
+      const rows = await database
+        .select()
+        .from(schema.settlementLines)
+        .where(eq(schema.settlementLines.eventId, id))
+        .orderBy(asc(schema.settlementLines.createdAt));
+      return rows.map(serializeLine);
+    },
+  );
+
+  app.post(
+    "/events/:id/settlement/lines",
+    {
+      schema: {
+        params: EventParams,
+        body: z.object({
+          kind: z.enum(["revenue", "cost"]),
+          label: z.string().min(1).max(200),
+          amount: LineAmount,
+          currency: z.string().min(1).optional(),
+          collectedBy: z.string().uuid().optional(),
+          paidBy: z.string().uuid().optional(),
+          payeeParticipantId: z.string().uuid().optional(),
+          costSplit: LineCostSplit.nullable().optional(),
+          attributedDealId: z.string().uuid().optional(),
+        }),
+        response: { 201: SettlementLineResponse },
+      },
+    },
+    async (request, reply) => {
+      const { database } = request.server;
+      const { id } = request.params;
+      await requireEventCapability(request, id, "settlement.edit");
+      assertNotFinalized(await settlementRowsOf(database, id));
+
+      // A line added here was never budgeted, so `originBudgetLineId` stays null
+      // and planned-vs-actual reports it as `added` — which is the truth.
+      const created = await database.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(schema.settlementLines)
+          .values({
+            eventId: id,
+            kind: request.body.kind,
+            label: request.body.label,
+            amount: BigInt(request.body.amount),
+            currency: request.body.currency,
+            collectedBy: request.body.collectedBy,
+            paidBy: request.body.paidBy,
+            payeeParticipantId: request.body.payeeParticipantId,
+            costSplit: request.body.costSplit ?? null,
+            attributedDealId: request.body.attributedDealId,
+          })
+          .returning();
+        if (!row) throw new Error("settlement line insert failed");
+        await writeAudit(tx, request, {
+          capability: "settlement.edit",
+          action: "settlement.line.create",
+          targetKind: "settlement_line",
+          targetId: row.id,
+          eventId: id,
+          after: { label: row.label, kind: row.kind, amount: row.amount.toString() },
+        });
+        return row;
+      });
+      return reply.status(201).send(serializeLine(created));
+    },
+  );
+
+  app.patch(
+    "/events/:id/settlement/lines/:lid",
+    {
+      schema: {
+        params: z.object({ id: z.string().uuid(), lid: z.string().uuid() }),
+        body: z.object({
+          label: z.string().min(1).max(200).optional(),
+          amount: LineAmount.optional(),
+          currency: z.string().min(1).nullable().optional(),
+          collectedBy: z.string().uuid().nullable().optional(),
+          paidBy: z.string().uuid().nullable().optional(),
+          payeeParticipantId: z.string().uuid().nullable().optional(),
+          costSplit: LineCostSplit.nullable().optional(),
+          attributedDealId: z.string().uuid().nullable().optional(),
+          /** Optimistic lock (decisions #8); mismatch → 409. */
+          expectedVersion: z.number().int().optional(),
+        }),
+        response: { 200: SettlementLineResponse },
+      },
+    },
+    async (request) => {
+      const { database } = request.server;
+      const { id, lid } = request.params;
+      await requireEventCapability(request, id, "settlement.edit");
+      assertNotFinalized(await settlementRowsOf(database, id));
+
+      const [existing] = await database
+        .select()
+        .from(schema.settlementLines)
+        .where(and(eq(schema.settlementLines.id, lid), eq(schema.settlementLines.eventId, id)));
+      if (!existing) throw notFound("Settlement line not found");
+      const { expectedVersion, amount, ...rest } = request.body;
+      if (expectedVersion != null && expectedVersion !== existing.version) {
+        throw conflict("This line changed since you loaded it — reload and try again");
+      }
+
+      const updated = await database.transaction(async (tx) => {
+        const [row] = await tx
+          .update(schema.settlementLines)
+          .set({
+            ...rest,
+            ...(amount !== undefined ? { amount: BigInt(amount) } : {}),
+            version: existing.version + 1,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.settlementLines.id, lid))
+          .returning();
+        if (!row) throw new Error("settlement line update failed");
+        await writeAudit(tx, request, {
+          capability: "settlement.edit",
+          action: "settlement.line.update",
+          targetKind: "settlement_line",
+          targetId: lid,
+          eventId: id,
+          before: { label: existing.label, amount: existing.amount.toString() },
+          after: { label: row.label, amount: row.amount.toString() },
+        });
+        return row;
+      });
+      return serializeLine(updated);
+    },
+  );
+
+  app.delete(
+    "/events/:id/settlement/lines/:lid",
+    {
+      schema: {
+        params: z.object({ id: z.string().uuid(), lid: z.string().uuid() }),
+        response: { 200: z.object({ id: z.string(), deleted: z.boolean() }) },
+      },
+    },
+    async (request) => {
+      const { database } = request.server;
+      const { id, lid } = request.params;
+      await requireEventCapability(request, id, "settlement.edit");
+      assertNotFinalized(await settlementRowsOf(database, id));
+
+      const [existing] = await database
+        .select()
+        .from(schema.settlementLines)
+        .where(and(eq(schema.settlementLines.id, lid), eq(schema.settlementLines.eventId, id)));
+      if (!existing) throw notFound("Settlement line not found");
+
+      await database.transaction(async (tx) => {
+        await tx.delete(schema.settlementLines).where(eq(schema.settlementLines.id, lid));
+        await writeAudit(tx, request, {
+          capability: "settlement.edit",
+          action: "settlement.line.delete",
+          targetKind: "settlement_line",
+          targetId: lid,
+          eventId: id,
+          before: { label: existing.label, amount: existing.amount.toString() },
+        });
+      });
+      return { id: lid, deleted: true };
     },
   );
 
@@ -1622,12 +2228,34 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       if (!settlement.participantId) {
         throw badRequest("Only a participant settlement can be confirmed");
       }
-      // An approval is a signature: it may only be given for one's own line. The
-      // route used to accept any settlement id on the event, so an operator could
-      // record the performer's approval of the performer's own money.
+      // An approval is a signature: it may only be given for one's own line, or
+      // for the line of a performer whose signature is currently the caller's to
+      // give. The route used to accept any settlement id on the event, so an
+      // operator could record the performer's approval of the performer's own
+      // money.
+      //
+      // The second case is DELEGATION, and decisions.md #14 is explicit about it:
+      // a performer with an active agent hands over their action capabilities —
+      // "confirm/approve/negotiate" — and keeps only the view floor. Without this
+      // clause the authority went nowhere: the performer could no longer sign and
+      // the agent could not sign for them, so a represented act's settlement was
+      // unsignable by anybody and sat at "0/1 pending" for ever.
+      //
+      // Resolved against the live representation, never the `delegatedToAgent`
+      // stamp alone — the stamp outlives an effective-dated termination until the
+      // sweep clears it, and a lapsed agreement must not still sign for somebody's
+      // money. Same rule, same reason, as `participantRiderDomain` in
+      // `routes/riders.ts`.
       const profileIds = principal.memberships.map((membership) => membership.profileId);
       const mine = await participantIdsOf(database, id, profileIds);
-      if (!mine.has(settlement.participantId)) {
+      const signable = new Set(mine);
+      const myProfileIds = new Set(profileIds);
+      for (const delegation of await liveEventDelegations(database, id)) {
+        if (myProfileIds.has(delegation.agentProfileId)) {
+          signable.add(delegation.performerParticipantId);
+        }
+      }
+      if (!signable.has(settlement.participantId)) {
         throw forbidden("You can only confirm your own settlement");
       }
 

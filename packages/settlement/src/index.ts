@@ -7,6 +7,7 @@ export {
 } from "./entitlement";
 export { costBearingOf, type CostBearing } from "./cost-bearing";
 export { isOffTheTop } from "./deal-order";
+export { prepaidAmountOf, prepaidUnknowable, type PrepaidTerms } from "./prepaid";
 export {
   applyCommissions,
   type CommissionCharge,
@@ -34,6 +35,7 @@ export {
 } from "./representation";
 export type {
   DealStructure,
+  PaymentTiming,
   EntitlementBasis,
   EntitlementLine,
   EscalatorTier,

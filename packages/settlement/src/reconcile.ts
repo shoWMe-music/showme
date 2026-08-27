@@ -162,17 +162,55 @@ export function reconcile(input: SettlementInput): SettlementResult {
     }
   }
 
+  // 4b. Money a DEAL already moved before the night — a rental paid to hold the
+  //     room, a guarantee paid to secure the booking (`prepaid.ts`).
+  //
+  //     Cash, not entitlement. The deal drives the transaction, so the payee is
+  //     still owed exactly what the deal says they earned; an advance simply means
+  //     part of it is already in their hands, so only the REMAINING transfer
+  //     shrinks. Booking it here rather than in step 2a is what keeps that true —
+  //     and keeps the pool out of it, because an advance is not a cost and must
+  //     never lower what the percentage deals divide.
+  //
+  //     Both ends, always. The payee's `prepaid` goes up and the payer's goes down
+  //     by the same amount, so the conservation law is untouched: one party holds
+  //     more of what it is owed and the other has already parted with it.
+  const prepaid = new Map<string, bigint>();
+  for (const deal of deals) {
+    const amount = deal.prepaidAmount ?? 0n;
+    if (amount === 0n) continue;
+    if (!deal.payerParticipantId) {
+      // Refusing to guess, in the manner of `weightFromShare`: a one-ended advance
+      // would conjure money into the settlement and `assertBalanced` would fail
+      // somewhere far from the cause. Fail here, naming the deal.
+      throw new Error(`deal ${deal.dealId} states money paid before the event but names no payer`);
+    }
+    const payees = deal.payeeParticipantIds;
+    if (payees.length === 0) {
+      throw new Error(`deal ${deal.dealId} states money paid before the event but names no payee`);
+    }
+    // Divided by the SAME weights the entitlement uses, so a shared split's
+    // advance lands in the same proportion as the fee it is part of. `allocate`
+    // keeps it exact — the remainder is distributed, never dropped.
+    const weights = payees.map((payee) => BigInt(deal.partyShares?.[payee] ?? 1));
+    const parts = allocate(amount, weights);
+    payees.forEach((payee, index) => addTo(prepaid, payee, parts[index] ?? 0n));
+    addTo(prepaid, deal.payerParticipantId, -amount);
+  }
+
   // 5. Breakdowns — no rounding, so nets sum to exactly zero.
   const breakdowns: PartyBreakdown[] = participants.map((party) => {
     const owed = entitlement.get(party.participantId) ?? 0n;
     const received = collected.get(party.participantId) ?? 0n;
     const fronted = paid.get(party.participantId) ?? 0n;
-    const held = received - fronted;
+    const early = prepaid.get(party.participantId) ?? 0n;
+    const held = received - fronted + early;
     return {
       participantId: party.participantId,
       entitlement: owed,
       collected: received,
       paid: fronted,
+      prepaid: early,
       held,
       net: owed - held,
       lines: lines.get(party.participantId) ?? [],

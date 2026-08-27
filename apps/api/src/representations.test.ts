@@ -10,7 +10,7 @@ import { buildTestApp } from "./testing";
 /** Fake verifier: the bearer token IS the uid, so tests just send `Bearer <uid>`. */
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -38,7 +38,9 @@ async function seedProfile(kind: "agent" | "performer" | "operator" | "team_and_
 }> {
   const { db } = harness;
   const userId = `${kind}-${seq++}`;
-  await db.insert(schema.users).values({ id: userId, email: `${userId}@example.com`, kind });
+  await db
+    .insert(schema.users)
+    .values({ id: userId, email: `${userId}@example.showme.test`, kind });
   const [profile] = await db
     .insert(schema.profiles)
     .values({ kind, ownerUserId: userId, name: userId, slug: userId })

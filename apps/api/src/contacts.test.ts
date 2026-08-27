@@ -10,7 +10,7 @@ import { buildTestApp } from "./testing";
 /** Fake verifier: the bearer token IS the uid, so tests just send `Bearer <uid>`. */
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, name: token };
   },
 };
 
@@ -37,7 +37,9 @@ async function seedProfileMember(
   profileId?: string,
 ) {
   const { db } = harness;
-  await db.insert(schema.users).values({ id, email: `${id}@example.com`, kind: "operator" });
+  await db
+    .insert(schema.users)
+    .values({ id, email: `${id}@example.showme.test`, kind: "operator" });
   let targetProfileId = profileId;
   if (!targetProfileId) {
     const [profile] = await db
@@ -69,13 +71,13 @@ describe("contacts — profile-scoped address book", () => {
         vatId: "SE556000000001",
         address: "Stockholm",
         notes: "primary agent",
-        persons: [{ name: "Jane Doe", email: "jane@acme.test", phone: "+46700000000" }],
+        persons: [{ name: "Jane Doe", email: "jane@acme.showme.test", phone: "+46700000000" }],
       },
     });
     expect(created.statusCode).toBe(201);
     expect(created.json().name).toBe("Acme Booking");
     expect(created.json().persons).toEqual([
-      { name: "Jane Doe", email: "jane@acme.test", phone: "+46700000000" },
+      { name: "Jane Doe", email: "jane@acme.showme.test", phone: "+46700000000" },
     ]);
     const contactId = created.json().id;
 
@@ -139,7 +141,7 @@ describe("contacts — profile-scoped address book", () => {
     const profileId = await seedProfileMember("con-host", "owner");
     await harness.db
       .insert(schema.users)
-      .values({ id: "con-stranger", email: "con-stranger@example.com", kind: "operator" });
+      .values({ id: "con-stranger", email: "con-stranger@example.showme.test", kind: "operator" });
 
     const response = await app.inject({
       method: "GET",

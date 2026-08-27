@@ -8,7 +8,7 @@ import { buildTestApp } from "./testing";
 
 const fakeVerifier: TokenVerifier = {
   async verify(token: string) {
-    return { uid: token, email: `${token}@example.com`, emailVerified: true, name: token };
+    return { uid: token, email: `${token}@example.showme.test`, emailVerified: true, name: token };
   },
 };
 
@@ -24,7 +24,7 @@ beforeAll(async () => {
   // A searcher (any authenticated user with a profile so the principal resolves).
   await db
     .insert(schema.users)
-    .values({ id: "searcher", email: "searcher@example.com", kind: "operator" });
+    .values({ id: "searcher", email: "searcher@example.showme.test", kind: "operator" });
   const [searcherProfile] = await db
     .insert(schema.profiles)
     .values({
@@ -44,7 +44,7 @@ beforeAll(async () => {
   // The searchable set.
   await db
     .insert(schema.users)
-    .values({ id: "perf-owner", email: "perf@example.com", kind: "performer" });
+    .values({ id: "perf-owner", email: "perf@example.showme.test", kind: "performer" });
   const [ninaVox] = await db
     .insert(schema.profiles)
     .values({
