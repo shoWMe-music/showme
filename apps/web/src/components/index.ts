@@ -24,6 +24,9 @@ export { BudgetTemplateDialogs } from "./BudgetTemplateDialogs";
 export { CalendarMonthGrid } from "./CalendarMonthGrid";
 export type { CalendarEvent, CalendarLabelMode, CalendarMonthGridProps } from "./CalendarMonthGrid";
 
+export { useDayCellSelection } from "./useDayCellSelection";
+export type { DayCellSelection } from "./useDayCellSelection";
+
 export { EventHoldPanel } from "./EventHoldPanel";
 export type { EventHoldPanelProps } from "./EventHoldPanel";
 export { HoldRankBadge } from "./HoldPlacement";

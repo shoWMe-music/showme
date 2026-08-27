@@ -191,6 +191,12 @@ function toolbarButtonStyle(): React.CSSProperties {
   };
 }
 
+/** "Done marking", while marking mode is on: the toolbar button that is holding
+ * the mode open, filled so the reader can see the calendar is in a mode at all. */
+function markingActiveStyle(): React.CSSProperties {
+  return { background: "var(--brand-red)", borderColor: "var(--brand-red)", color: "#fff" };
+}
+
 /** The Performer… / Venue-Room… text filter fields. */
 function filterInputStyle(): React.CSSProperties {
   return {
@@ -319,6 +325,9 @@ function CalendarGridForView({
   labelMode,
   onSelectDay,
   onSelectEvent,
+  markingMode,
+  pendingDays,
+  onMarkDays,
 }: {
   view: CalendarView;
   anchorDate: Date;
@@ -330,6 +339,12 @@ function CalendarGridForView({
   labelMode: CalendarLabelMode;
   onSelectDay: (dayKey: string, anchor: DOMRect) => void;
   onSelectEvent: (eventId: string) => void;
+  /** Marking mode is a MONTH/WEEK gesture — picking a stretch of nights needs a
+   * stretch of cells, and the day agenda is one day. The toolbar refuses to
+   * enter it from Day view rather than showing a mode with nothing to sweep. */
+  markingMode: boolean;
+  pendingDays: ReadonlySet<string>;
+  onMarkDays: (days: string[], modifiers?: { shiftKey?: boolean }) => void;
 }) {
   if (view === "week") {
     return (
@@ -341,6 +356,9 @@ function CalendarGridForView({
         labelMode={labelMode}
         onSelectDay={onSelectDay}
         onSelectEvent={onSelectEvent}
+        markingMode={markingMode}
+        pendingDays={pendingDays}
+        onMarkDays={onMarkDays}
       />
     );
   }
@@ -366,6 +384,9 @@ function CalendarGridForView({
       showLegend={false}
       onSelectDay={onSelectDay}
       onSelectEvent={onSelectEvent}
+      markingMode={markingMode}
+      pendingDays={pendingDays}
+      onMarkDays={onMarkDays}
     />
   );
 }
@@ -391,7 +412,6 @@ export function Calendar() {
   const [labelMode, setLabelMode] = useState<CalendarLabelMode>("eventName");
   const [performerFilter, setPerformerFilter] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
-  const [unavailableOpen, setUnavailableOpen] = useState(false);
   // The day "CREATE" popover: which day was clicked + the cell rect to anchor to.
   const [createAt, setCreateAt] = useState<{ dayKey: string; anchor: DOMRect } | null>(null);
   // The appointment/note composer the day popover opens, and the day it is for.
@@ -521,16 +541,16 @@ export function Calendar() {
 
   const periodTitle = viewTitle(view, anchorDate);
 
-  // Blocked dates for the acting profile. Read on every render (not only while
-  // the editor is open) so the rail can name what is blocked in this period.
-  const markUnavailable = useMarkUnavailable(unavailableOpen, {
-    onSaved: () => {
-      setUnavailableOpen(false);
-      toast.success("Blocked dates saved.");
+  // Blocked dates for the acting profile, plus marking mode: the state behind
+  // picking nights straight off the grid. Read on every render so the rail can
+  // name what is blocked in this period even when nobody is marking.
+  const markUnavailable = useMarkUnavailable({
+    onSaved: (blocked, freed) => {
+      const parts = [];
+      if (blocked > 0) parts.push(`${blocked} blocked`);
+      if (freed > 0) parts.push(`${freed} freed`);
+      toast.success(`Availability saved — ${parts.join(", ")}.`);
     },
-    onDayToggled: (day, isNowUnavailable) =>
-      toast.success(isNowUnavailable ? `${day} marked unavailable.` : `${day} is available again.`),
-    onDayToggleFailed: (message) => toast.error(message),
   });
   // The imported entries that touch what is on screen, plus the two writes the
   // rail card offers on each of them.
@@ -548,8 +568,6 @@ export function Calendar() {
     () => unavailableDaysInRange(markUnavailable.savedBlocks, visibleRange.from, visibleRange.to),
     [markUnavailable.savedBlocks, visibleRange.from, visibleRange.to],
   );
-  // Which way the day popover's availability item points, for the day it is open on.
-  const selectedDayIsUnavailable = createAt ? unavailableDays.has(createAt.dayKey) : false;
 
   // End times never reach the grid (a chip has no room), but an export without
   // them turns a 15:00–16:00 meeting into a zero-length blip — so they travel
@@ -706,14 +724,53 @@ export function Calendar() {
             marginBottom: 14,
           }}
         >
-          <button
-            type="button"
-            style={toolbarButtonStyle()}
-            onClick={() => setUnavailableOpen(true)}
-          >
-            <Icon name="calendar-check" size={15} />
-            Mark Unavailable
-          </button>
+          {/* Marking is offered only to a role the API would let write, and only
+              from a view that HAS a stretch of nights to sweep. */}
+          {markUnavailable.canEdit &&
+            (markUnavailable.isMarking ? (
+              <>
+                <button
+                  type="button"
+                  style={{ ...toolbarButtonStyle(), ...markingActiveStyle() }}
+                  onClick={markUnavailable.finishMarking}
+                >
+                  <Icon name="check" size={15} />
+                  Done marking
+                </button>
+                <button
+                  type="button"
+                  style={toolbarButtonStyle()}
+                  onClick={markUnavailable.cancelMarking}
+                >
+                  Cancel
+                </button>
+                <output style={{ fontSize: 12.5, color: "var(--muted)" }}>
+                  {markUnavailable.selectedDays.size === 0
+                    ? "Click or drag across the nights to block. Shift-click extends. Esc cancels."
+                    : `${markUnavailable.selectedDays.size} picked — click a picked night to drop it, Esc cancels.`}
+                </output>
+              </>
+            ) : (
+              <button
+                type="button"
+                style={{
+                  ...toolbarButtonStyle(),
+                  // A custom-styled button shows nothing of `disabled` on its
+                  // own — the Day-view refusal has to be visible, not only felt.
+                  ...(view === "day" ? { opacity: 0.5, cursor: "not-allowed" } : {}),
+                }}
+                disabled={view === "day"}
+                title={
+                  view === "day"
+                    ? "Switch to Month or Week to mark dates on the grid"
+                    : "Pick the nights on the calendar, then press Done marking"
+                }
+                onClick={markUnavailable.startMarking}
+              >
+                <Icon name="calendar-check" size={15} />
+                Mark Unavailable
+              </button>
+            ))}
           <button type="button" style={toolbarButtonStyle()} onClick={() => setShareOpen(true)}>
             <Icon name="share" size={15} />
             Check &amp; Share Availability
@@ -889,6 +946,9 @@ export function Calendar() {
               onSelectDay={(selectedDayKey, anchor) =>
                 setCreateAt({ dayKey: selectedDayKey, anchor })
               }
+              markingMode={markUnavailable.isMarking}
+              pendingDays={markUnavailable.selectedDays}
+              onMarkDays={markUnavailable.markDays}
             />
           )}
 
@@ -915,8 +975,12 @@ export function Calendar() {
               </div>
             </Card>
 
-            {/* What "Mark Unavailable" actually did, on the screen that offers
-                it. Read-only: the editor is the modal. */}
+            {/* What marking mode actually wrote, for the period on screen.
+                Read-only on purpose: it used to be the way IN to the editor, and
+                a side box is exactly the wrong place to pick dates from when the
+                dates are already drawn two columns to the left. It survives only
+                as the read-out — a block outside the visible month is otherwise
+                invisible, and a rule you cannot see is a rule you re-break. */}
             <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <Eyebrow>Unavailable</Eyebrow>
               {blockedInView.length === 0 ? (
@@ -946,19 +1010,6 @@ export function Calendar() {
                   ))}
                 </div>
               )}
-              <button
-                type="button"
-                onClick={() => setUnavailableOpen(true)}
-                style={{
-                  all: "unset",
-                  cursor: "pointer",
-                  fontSize: 12,
-                  color: "var(--brand-red)",
-                  fontWeight: 500,
-                }}
-              >
-                Edit blocked dates
-              </button>
             </Card>
 
             <ExternalCalendarCard
@@ -1000,11 +1051,7 @@ export function Calendar() {
         onCopyLink={share.copyLink}
       />
 
-      <MarkUnavailableModal
-        open={unavailableOpen}
-        onClose={() => setUnavailableOpen(false)}
-        view={markUnavailable}
-      />
+      <MarkUnavailableModal view={markUnavailable} />
 
       <CalendarItemCreateModal
         open={Boolean(newItem)}
@@ -1017,25 +1064,11 @@ export function Calendar() {
           anchor={createAt.anchor}
           title={formatDay(createAt.dayKey)}
           onClose={() => setCreateAt(null)}
-          // Blocking a day is not creating anything, so it sits in its own group
-          // under the create list. Hidden entirely for a role the API would
-          // refuse (viewer/crew), rather than shown and then rejected.
-          secondaryGroup={
-            markUnavailable.canEdit
-              ? {
-                  heading: "Availability",
-                  options: [
-                    {
-                      key: "availability",
-                      label: selectedDayIsUnavailable ? "Available again" : "Mark unavailable",
-                      icon: selectedDayIsUnavailable ? ("check" as const) : ("x" as const),
-                      disabled: markUnavailable.togglingDay !== null,
-                      onSelect: () => markUnavailable.toggleDayUnavailable(createAt.dayKey),
-                    },
-                  ],
-                }
-              : undefined
-          }
+          // No "Mark unavailable" item here any more. Blocking one night from the
+          // day's own popover is the interaction Ran asked to be rid of — the
+          // whole point of marking mode is that you sweep the nights on the grid
+          // and commit them together, and a one-night block is that gesture with
+          // one cell in it.
           options={[
             // Same wizard as the topbar/"Create Event" CTA (see NewEventProvider),
             // opened on the day that was clicked. Hidden for non-operators for the

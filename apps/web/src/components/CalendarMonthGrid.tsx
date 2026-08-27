@@ -2,11 +2,15 @@ import { Card, STATUSES, STATUS_LABEL, StatusDot } from "@showme/design-system";
 import { type CalendarEvent, CalendarEventChip, type CalendarLabelMode } from "./CalendarEventChip";
 import {
   CalendarUnavailableMark,
+  MARKING_CURSOR,
+  PENDING_RING,
+  PENDING_TINT,
   dayCellBackground,
   unavailableSuffix,
 } from "./CalendarUnavailableMark";
 import { WEEKDAYS_SHORT, buildMonthGrid, dayKey, trimTrailingWeeks } from "./calendarGrid";
 import { Eyebrow } from "./primitives";
+import { useDayCellSelection } from "./useDayCellSelection";
 import type { UnavailableDays } from "./useMarkUnavailable";
 
 /** The full month grid for the Calendar screen (§2), matching the Claude Design
@@ -37,6 +41,13 @@ export interface CalendarMonthGridProps {
   onSelectDay?: (dayKey: string, anchor: DOMRect) => void;
   onSelectEvent?: (eventId: string) => void;
   onCreateAt?: (dayKey: string) => void;
+  /** Marking mode: the grid takes an X cursor and its cells become pickable
+   * instead of clickable. See `useMarkUnavailable`. */
+  markingMode?: boolean;
+  /** Days picked in this marking session but not yet committed. */
+  pendingDays?: ReadonlySet<string>;
+  /** One marking gesture: a click, a shift-click, or a dragged rectangle. */
+  onMarkDays?: (days: string[], modifiers?: { shiftKey?: boolean }) => void;
 }
 
 const TODAY_TINT = "color-mix(in srgb, var(--brand-red) 5%, transparent)";
@@ -68,6 +79,9 @@ export function CalendarMonthGrid({
   onSelectDay,
   onSelectEvent,
   onCreateAt,
+  markingMode = false,
+  pendingDays,
+  onMarkDays,
 }: CalendarMonthGridProps) {
   const cells = trimTrailingWeeks(buildMonthGrid(month));
   const todayKey = dayKey(new Date());
@@ -77,6 +91,15 @@ export function CalendarMonthGrid({
     bucket.push(event);
     byDay.set(event.date, bucket);
   }
+
+  // Spill days are `null`: a drag may sweep over them, but blocking a night
+  // outside the month on screen is not something anyone asked for.
+  const isMarking = markingMode && Boolean(onMarkDays);
+  const selection = useDayCellSelection(
+    cells.map((cell) => (cell.inMonth ? cell.key : null)),
+    isMarking,
+    onMarkDays,
+  );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -107,7 +130,10 @@ export function CalendarMonthGrid({
           ))}
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: WEEK_COLUMNS }}>
+        <div
+          style={{ display: "grid", gridTemplateColumns: WEEK_COLUMNS }}
+          {...selection.containerProps}
+        >
           {cells.map((cell, cellIndex) => {
             // Every cell carries the grid rules, out-of-month padding days included.
             // The prototype leaves those cells border-less, which tears a visible hole
@@ -133,6 +159,8 @@ export function CalendarMonthGrid({
             const isSelected = cell.key === selectedDay && !isToday;
             const isUnavailable = unavailableDays?.has(cell.key) ?? false;
             const unavailableReason = unavailableDays?.get(cell.key) ?? null;
+            const isPending =
+              isMarking && (pendingDays?.has(cell.key) || selection.isInDrag(cellIndex));
 
             return (
               <div
@@ -143,16 +171,29 @@ export function CalendarMonthGrid({
                 // making it a button too would nest interactive elements. This handler
                 // exists for the keyboard user who has focused the cell itself, and
                 // ignores keys bubbling up from those inner controls.
-                onClick={(clickEvent) =>
-                  onSelectDay?.(cell.key, clickEvent.currentTarget.getBoundingClientRect())
+                //
+                // In marking mode neither runs: the whole cell belongs to the
+                // pick-a-night gesture, and opening a create popover mid-drag is
+                // exactly the swallowed click this mode has to avoid. Escape (or
+                // "Done marking") gives the cell back.
+                onClick={
+                  isMarking
+                    ? undefined
+                    : (clickEvent) =>
+                        onSelectDay?.(cell.key, clickEvent.currentTarget.getBoundingClientRect())
                 }
                 onKeyDown={(keyEvent) => {
                   if (keyEvent.target !== keyEvent.currentTarget) return;
                   if (keyEvent.key !== "Enter" && keyEvent.key !== " ") return;
                   keyEvent.preventDefault();
+                  if (isMarking) {
+                    onMarkDays?.([cell.key], { shiftKey: keyEvent.shiftKey });
+                    return;
+                  }
                   onSelectDay?.(cell.key, keyEvent.currentTarget.getBoundingClientRect());
                 }}
-                onDoubleClick={() => onCreateAt?.(cell.key)}
+                onDoubleClick={isMarking ? undefined : () => onCreateAt?.(cell.key)}
+                {...selection.cellProps(cellIndex)}
                 style={{
                   position: "relative",
                   minHeight: 104,
@@ -162,9 +203,10 @@ export function CalendarMonthGrid({
                   ...rules,
                   background: dayCellBackground(
                     isUnavailable,
-                    isToday || isSelected ? TODAY_TINT : "transparent",
+                    isPending ? PENDING_TINT : isToday || isSelected ? TODAY_TINT : "transparent",
                   ),
-                  cursor: onSelectDay ? "pointer" : "default",
+                  boxShadow: isPending ? PENDING_RING : undefined,
+                  cursor: isMarking ? MARKING_CURSOR : onSelectDay ? "pointer" : "default",
                 }}
               >
                 <button
@@ -173,14 +215,33 @@ export function CalendarMonthGrid({
                   // order, so selecting the day from it costs no extra tab stops and
                   // needs no ARIA. It measures the CELL's rectangle, not its own, so the
                   // popover lands where a click would have put it.
-                  aria-label={`Select ${cell.key}${unavailableSuffix(isUnavailable, unavailableReason)}`}
+                  aria-label={`${isMarking ? "Mark" : "Select"} ${cell.key}${unavailableSuffix(isUnavailable, unavailableReason)}`}
                   aria-current={isSelected ? "date" : undefined}
-                  onClick={(clickEvent) => {
-                    clickEvent.stopPropagation();
-                    const cellElement = clickEvent.currentTarget.parentElement;
-                    if (!cellElement) return;
-                    onSelectDay?.(cell.key, cellElement.getBoundingClientRect());
-                  }}
+                  aria-pressed={isMarking ? Boolean(isPending) : undefined}
+                  // In marking mode the POINTER path is the cell's own drag
+                  // gesture, which already reported this day by the time a click
+                  // would fire — so the click is dropped and the keyboard gets
+                  // its own handler. `preventDefault` on the key is what stops
+                  // the browser synthesising that click and marking twice.
+                  onClick={
+                    isMarking
+                      ? undefined
+                      : (clickEvent) => {
+                          clickEvent.stopPropagation();
+                          const cellElement = clickEvent.currentTarget.parentElement;
+                          if (!cellElement) return;
+                          onSelectDay?.(cell.key, cellElement.getBoundingClientRect());
+                        }
+                  }
+                  onKeyDown={
+                    isMarking
+                      ? (keyEvent) => {
+                          if (keyEvent.key !== "Enter" && keyEvent.key !== " ") return;
+                          keyEvent.preventDefault();
+                          onMarkDays?.([cell.key], { shiftKey: keyEvent.shiftKey });
+                        }
+                      : undefined
+                  }
                   style={{
                     alignSelf: "flex-start",
                     display: "inline-grid",
@@ -212,14 +273,22 @@ export function CalendarMonthGrid({
 
                 {isUnavailable && <CalendarUnavailableMark reason={unavailableReason} />}
 
-                {visible.map((event) => (
-                  <CalendarEventChip
-                    key={event.id}
-                    event={event}
-                    labelMode={labelMode}
-                    onSelect={onSelectEvent}
-                  />
-                ))}
+                {/* `display: contents` so the chips stay direct flex items of the
+                    cell — the wrapper exists only to carry `inert`, which in
+                    marking mode takes the chips out of the pointer path AND out
+                    of the tab order. Without it a drag starting on a chip would
+                    be swallowed by the chip's own button, and Enter on a focused
+                    chip would navigate away mid-selection. */}
+                <div style={{ display: "contents" }} inert={isMarking || undefined}>
+                  {visible.map((event) => (
+                    <CalendarEventChip
+                      key={event.id}
+                      event={event}
+                      labelMode={labelMode}
+                      onSelect={onSelectEvent}
+                    />
+                  ))}
+                </div>
 
                 {overflow > 0 && (
                   <span style={{ fontSize: 11, color: "var(--muted)", paddingLeft: 2 }}>

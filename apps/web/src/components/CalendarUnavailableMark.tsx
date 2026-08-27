@@ -108,3 +108,19 @@ export function CalendarUnavailableMark({
     </span>
   );
 }
+
+/**
+ * MARKING MODE — how the grid looks while the reader is picking nights.
+ *
+ * The cursor is the "X" Ran asks for: `crosshair` is the one the platform draws
+ * as a cross, and it is the cursor every table-selection gesture on the web uses,
+ * so it reads as "sweep me" rather than "click me".
+ */
+export const MARKING_CURSOR = "crosshair";
+
+/** A picked-but-not-yet-committed day: a ring and a wash. Deliberately NOT the
+ * hatch — the hatch means "blocked, and saved", and a night waiting on "Done
+ * marking" has not earned that yet. The two stack legibly, which is what shows
+ * you that clicking a hatched day is about to FREE it. */
+export const PENDING_RING = "inset 0 0 0 2px var(--brand-red)";
+export const PENDING_TINT = "color-mix(in srgb, var(--brand-red) 14%, transparent)";

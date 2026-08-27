@@ -75,23 +75,16 @@ export function CalendarCreatePopover({
   anchor,
   title,
   options,
-  secondaryGroup,
   onClose,
 }: {
   anchor: DOMRect;
   title: string;
   options: CreateOption[];
-  /** A second, separately-headed list under a divider. The day menu is no longer
-   * only about creating things — marking the day unavailable acts on the day
-   * itself — and filing that under "CREATE" would misname it. */
-  secondaryGroup?: { heading: string; options: CreateOption[] };
   onClose: () => void;
 }) {
   // Anchor near the cell's top-left, clamped so the panel stays on screen.
   const width = 232;
-  const secondaryOptions = secondaryGroup?.options ?? [];
-  const estimatedHeight =
-    52 + options.length * 40 + (secondaryOptions.length ? 33 + secondaryOptions.length * 40 : 0);
+  const estimatedHeight = 52 + options.length * 40;
   const left = Math.min(anchor.left + 6, window.innerWidth - width - 12);
   const top =
     anchor.top + 34 + estimatedHeight > window.innerHeight
@@ -138,15 +131,6 @@ export function CalendarCreatePopover({
         {options.map((option) => (
           <MenuItem key={option.key} option={option} onClose={onClose} />
         ))}
-        {secondaryGroup && secondaryOptions.length > 0 && (
-          <>
-            <div style={{ borderTop: "1px solid var(--border)", margin: "6px 4px 0" }} />
-            <MenuHeading>{secondaryGroup.heading}</MenuHeading>
-            {secondaryOptions.map((option) => (
-              <MenuItem key={option.key} option={option} onClose={onClose} />
-            ))}
-          </>
-        )}
       </div>
     </>,
     document.body,
