@@ -316,6 +316,11 @@ describe("the deal the create wizard states (ClickUp 86cbaxu52)", () => {
       splitBasisPoints: 7000,
       // Terms one side typed are a proposal until the parties confirm them.
       status: "draft",
+      // The CREATE route does not send. Sending notifies the other parties, and
+      // that notification is the one act nothing can take back — so it stays a
+      // separate call the wizard makes a few seconds later, after an Undo window
+      // in which nothing has been said to anybody (86cbaxv2a).
+      agreementStatus: "draft",
     });
 
     const participants = await db
@@ -454,6 +459,83 @@ describe("the deal the create wizard states (ClickUp 86cbaxu52)", () => {
     });
     expect(refused.statusCode).toBe(400);
     expect(refused.json().error.message).toMatch(/Nobody on this agreement is paid/i);
+  });
+
+  /**
+   * The other half of "the sides just needed to confirm" (86cbaxv2a): the wizard
+   * fires `POST /deals/:did/send` itself once its Undo window closes, so the
+   * route it calls has to accept the deal the CREATE route just wrote — and has
+   * to keep refusing a second send, because the timer can only ever be allowed to
+   * announce the agreement once.
+   */
+  it("lets the wizard's own deal be sent, and refuses to send it twice", async () => {
+    const { db } = harness;
+    const operator = await seedMemberWithSet(
+      "deal-op-send",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "deal-perf-send",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("deal-op-send"), "x-profile-id": operator.profileId },
+      payload: {
+        title: "Sends itself",
+        baseCurrency: "SEK",
+        participants: [{ profileId: performer.profileId, role: "performer" }],
+        deal: {
+          type: "performance",
+          structure: "guarantee",
+          name: "deal-perf-send",
+          guaranteeAmount: "500000",
+          parties: [
+            { profileId: operator.profileId, roleInDeal: "payer" },
+            { profileId: performer.profileId, roleInDeal: "payee" },
+          ],
+        },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const eventId = created.json().id;
+
+    // What the wizard reads back to find the deal it just stated: exactly one,
+    // still a draft, so the timer knows what to send.
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${eventId}/deals`,
+      headers: { ...auth("deal-op-send"), "x-profile-id": operator.profileId },
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json()).toHaveLength(1);
+    const dealId = listed.json()[0].id;
+    expect(listed.json()[0].agreementStatus).toBe("draft");
+
+    const sent = await app.inject({
+      method: "POST",
+      url: `/api/v1/deals/${dealId}/send`,
+      headers: { ...auth("deal-op-send"), "x-profile-id": operator.profileId },
+    });
+    expect(sent.statusCode).toBe(200);
+    expect(sent.json().agreementStatus).toBe("sent");
+
+    const [afterSend] = await db.select().from(schema.deals).where(eq(schema.deals.id, dealId));
+    expect(afterSend?.agreementStatus).toBe("sent");
+
+    // Undo cancels the timer, so this can only be reached by a second create —
+    // but if it ever is, the parties must not be told twice.
+    const again = await app.inject({
+      method: "POST",
+      url: `/api/v1/deals/${dealId}/send`,
+      headers: { ...auth("deal-op-send"), "x-profile-id": operator.profileId },
+    });
+    expect(again.statusCode).toBe(409);
+    expect(again.json().error.message).toMatch(/Only a draft agreement can be sent/i);
   });
 });
 

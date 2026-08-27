@@ -60,12 +60,13 @@ import { apiStatusToDisplay } from "../lib/status";
  * may see and marks their own. A per-settlement URL would have to answer "whose?"
  * on a screen whose whole job is to put the parties side by side.
  *
- * Three tabs, not the prototype's five. **Financials** and **Payout** are absent
- * because neither has a backend: the editable revenue figures the design shows are
- * budget lines in our model and need the budget snapshot of `decisions.md` #16.8
- * (unbuilt, needs a migration), and there is no payouts mechanism at all — there
- * is deliberately no escrow. Rendering either would be a dead affordance
- * (STYLE-GUIDE §7).
+ * There is deliberately **no "Deal Structure" tab** (ClickUp 86cbaxvb9). A deal is
+ * authored in ONE place — the event's own Deals tab — and a second tab named after
+ * deals, on a screen that could only ever show them once the engine had run, read
+ * as that tab broken: the product owner opened it moments after confirming a Door
+ * Split next door and was told "No settled agreement to show". What the agreement
+ * actually PAID is a fact about the reconciliation, so it is folded into the
+ * Settlement tab beside the pool it divides (`SettledAgreements`).
  *
  * Every figure on screen is a field the API served, formatted by the hook. The
  * browser does no money arithmetic.
@@ -186,7 +187,6 @@ export function EventSettlement() {
         onChange={setTab}
         tabs={[
           { key: "overview", label: "Overview" },
-          { key: "deals", label: "Deal Structure" },
           { key: "financials", label: "Financials" },
           { key: "settlement", label: "Settlement" },
           { key: "comments", label: "Comments" },
@@ -200,8 +200,6 @@ export function EventSettlement() {
         <ErrorState error={settlement.error} title="Couldn't load the settlement" />
       ) : tab === "overview" ? (
         <OverviewTab event={event.data} settlement={settlement} />
-      ) : tab === "deals" ? (
-        <DealStructureTab settlement={settlement} />
       ) : tab === "financials" ? (
         <FinancialsTab eventId={eventId} settlement={settlement} currency={baseCurrency} />
       ) : tab === "comments" ? (
@@ -291,33 +289,38 @@ function OverviewTab({ event, settlement }: { event: EventData; settlement: Even
   );
 }
 
-function DealStructureTab({ settlement }: { settlement: EventSettlementData }) {
-  if (settlement.deals.length === 0) {
-    return (
-      <EmptyState
-        icon={<Icon name="receipt" />}
-        title="No settled agreement to show"
-        description="A deal appears here once the settlement has been run and the engine has recorded what the agreement paid."
-      />
-    );
-  }
+/**
+ * WHAT EACH AGREEMENT ACTUALLY PAID, and to whom.
+ *
+ * This had a tab of its own — "Deal Structure" — and it read as a broken second
+ * Deals tab (ClickUp 86cbaxvb9). The event already has a Deals tab, and that is
+ * where an agreement is authored and confirmed; this is the same agreement AFTER
+ * the engine has divided a pool by it, so before anyone reconciles there is
+ * nothing here at all. A reader who had just confirmed a Door Split next door
+ * opened it and was told "No settled agreement to show".
+ *
+ * So it is folded into the Settlement tab, between the pool it divides and the
+ * party cards that carry the result — the one place the reconciliation is
+ * already told as a story. Nothing was dropped: every figure the tab drew is
+ * drawn here. What is gone is the empty state, which only ever appeared when the
+ * answer was "run the settlement first" — and the Settlement tab says that
+ * already, once, in its own words.
+ *
+ * Renders nothing until the engine has recorded a line, because "what the
+ * agreement paid" is not a question with an answer before then.
+ */
+function SettledAgreements({ settlement }: { settlement: EventSettlementData }) {
+  if (settlement.deals.length === 0) return null;
   return (
-    <div style={CARD_COLUMN}>
+    <>
       {settlement.deals.map((deal) => (
-        <Card key={deal.dealId} padding="lg" style={{ ...CARD_COLUMN, maxWidth: 660 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "baseline",
-              justifyContent: "space-between",
-              gap: 12,
-            }}
-          >
-            {/* The deal's own name only. Its STRUCTURE is stated more precisely,
-                and per party, by the rule sentence under each share below. */}
-            <span style={{ fontWeight: 600 }}>{deal.name}</span>
-          </div>
-          <KeyValueRow label="What the agreement paid" value={deal.dealTotal} mono total />
+        <Card key={deal.dealId} padding="lg" style={CARD_COLUMN}>
+          {/* The deal's own name only. Its STRUCTURE is stated more precisely,
+              and per party, by the rule sentence under each share below. */}
+          <CardTitle subtitle="What the agreement paid, and the share each party took of it.">
+            {deal.name}
+          </CardTitle>
+          <KeyValueRow label="Agreement total" value={deal.dealTotal} mono total />
           {deal.shares.map((share) => (
             <KeyValueRow
               key={share.key}
@@ -335,7 +338,7 @@ function DealStructureTab({ settlement }: { settlement: EventSettlementData }) {
           ))}
         </Card>
       ))}
-    </div>
+    </>
   );
 }
 
@@ -463,6 +466,13 @@ function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
                 </CardTitle>
                 <PoolLadderRows settlement={settlement} />
               </Card>
+
+              {/* The agreements, between the pool and the parties — this is what
+                  the "Deal Structure" tab used to hold on its own (86cbaxvb9).
+                  Read in order the page now says: here is the pool, here is how
+                  each agreement divided it, here is what that left each party
+                  holding, here is who pays whom. */}
+              <SettledAgreements settlement={settlement} />
 
               {settlement.parties.map((party) => (
                 <SettlementPartyCard key={party.settlementId} party={party} />

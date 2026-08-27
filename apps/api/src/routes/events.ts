@@ -312,8 +312,17 @@ async function createStatedDeal(
       advanceAmount: stated.advanceAmount != null ? BigInt(stated.advanceAmount) : undefined,
       splitBasisPoints: stated.splitBasisPoints,
       paymentTiming: stated.paymentTiming,
-      // `status` stays the column default (`draft`): terms one side typed are a
-      // proposal until the parties confirm them.
+      // Both status columns stay on their defaults (`draft`): terms one side typed
+      // are a proposal until the parties confirm them.
+      //
+      // The wizard no longer LEAVES it there. `agreement_status` moves draft →
+      // sent from the client a few seconds later (`useDealAutoSend`), so the
+      // operator states the terms once and the parties are asked to confirm —
+      // and those few seconds are an Undo window in which nothing has yet been
+      // said to anybody. The send stays `POST /deals/:did/send` rather than a
+      // flag here ON PURPOSE: sending notifies the other parties, and a
+      // notification is the one thing this route cannot take back if the
+      // operator changes their mind.
       createdBy: principal.userId,
     })
     .returning();

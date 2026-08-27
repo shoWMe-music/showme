@@ -20,6 +20,7 @@ import {
 } from "@showme/shared";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useDealAutoSend } from "../hooks/useDealAutoSend";
 import { setActiveProfileId } from "../lib/activeProfile";
 import { errorMessage } from "../lib/errors";
 import { DateTimeField } from "./DateTimeField";
@@ -69,6 +70,11 @@ const SOURCE_LABEL: Record<WizardPerformer["source"], string> = {
  * step to REAL `deals` + `deal_parties` rows written in the same transaction as
  * the event. It used to go to `extras.dealDraft`, which nothing read — the
  * operator stated terms and the app threw them away (ClickUp 86cbaxu52).
+ *
+ * That deal then SENDS ITSELF (86cbaxv2a) — the operator states the terms once
+ * and the other parties are asked to confirm, with no second trip to the Deals
+ * tab. `useDealAutoSend` owns the few seconds of Undo in front of the send, and
+ * the reasoning for putting the window there rather than behind it.
  *
  * Creates the event as the chosen profile (sets `X-Profile-Id`) and hands the
  * new id back so the screen navigates in.
@@ -246,6 +252,7 @@ export function NewEventWizard({
   initialStatus = "draft",
 }: NewEventWizardProps) {
   const toast = useToast();
+  const dealAutoSend = useDealAutoSend();
   const isHold = initialStatus === "on_hold";
   const profilesQuery = useGetApiV1Profiles();
   // Only operator profiles can host events, so those are the "roles" on offer.
@@ -412,7 +419,16 @@ export function NewEventWizard({
 
   const create = usePostApiV1Events({
     mutation: {
-      onSuccess: async (event) => {
+      onSuccess: async (event, variables) => {
+        // The agreement is on its way the moment the event exists — the operator
+        // has nothing left to press (86cbaxv2a). It is HELD for a few seconds
+        // first, and the hold is what the Undo in that toast cancels; see
+        // `useDealAutoSend` for why the window sits in front of the send rather
+        // than behind it. Started before the hold branch below, so a deal stated
+        // while placing a hold is not waiting on the hold's own round trip.
+        if (variables.data.deal) {
+          dealAutoSend.sendAfterUndoWindow(event.id, dealPerformer?.name ?? "the other party");
+        }
         if (!isHold) {
           toast.success(`"${event.title}" created`);
           reset();
