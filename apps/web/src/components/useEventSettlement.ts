@@ -75,6 +75,8 @@ export interface SettlementParty {
   collected: string | null;
   paid: string | null;
   net: string | null;
+  /** Raw minor units — for summing only. Never rendered. */
+  netMinor: string | null;
   netTone: "positive" | "negative" | "neutral";
   /**
    * The sentences behind the entitlement ("70% of the adjusted net beats the
@@ -136,6 +138,14 @@ export interface EventSettlement {
   approvedCount: number;
   /** The agreements behind the figures. Empty until the event is reconciled. */
   deals: SettlementDealRow[];
+  /**
+   * What actually has to leave the building — one row per party owed money, the
+   * operator's own retained share excluded.
+   */
+  payouts: { key: string; label: string; value: string }[];
+  totalPayable: string;
+  /** True when the caller is the party whose share is retained rather than paid. */
+  retainsOwnShare: boolean;
   /** The caller's own party line, if they are a party at all. */
   ownParty: SettlementParty | null;
   /**
@@ -361,6 +371,30 @@ export function useEventSettlement(
     [rows, currency, nameOf, roleOf],
   );
 
+  /**
+   * WHO ACTUALLY GETS PAID.
+   *
+   * The operator's own share is RETAINED — it is what is left after everyone else,
+   * so it never moves — and the design's Total Payouts panel says so. Excluded here
+   * rather than in the component, because whether a share is retained is a fact
+   * about the settlement, not a rendering choice.
+   *
+   * `totalPayable` is summed in MINOR UNITS from the same strings the API served
+   * and formatted once at the end. The browser never does money arithmetic on
+   * formatted text, and never on a float (`docs/money.md`).
+   */
+  const payable = useMemo(() => parties.filter((party) => party.netTone === "positive"), [parties]);
+  // Whoever is HOLDING the night's money has a negative net — they are the one who
+  // pays everybody else, and their own share is retained rather than transferred.
+  const ownRetains = useMemo(
+    () => parties.some((party) => party.isYours && party.netTone === "negative"),
+    [parties],
+  );
+  const totalPayable = useMemo(() => {
+    const total = payable.reduce((running, party) => running + BigInt(party.netMinor ?? "0"), 0n);
+    return formatMoney(total.toString(), currency);
+  }, [payable, currency]);
+
   const transfers = useMemo(
     () =>
       (settlements.data?.transfers ?? [])
@@ -418,6 +452,13 @@ export function useEventSettlement(
     isComputed: rows.some((row) => row.computed != null),
     isFinalized: rows.some((row) => FROZEN_STATUSES.has(row.status)),
     status: rows[0]?.status ?? "open",
+    payouts: payable.map((party) => ({
+      key: party.settlementId,
+      label: `${party.name} payout`,
+      value: party.net as string,
+    })),
+    totalPayable,
+    retainsOwnShare: ownRetains,
     // The review conversation is over once the figures freeze — after that the
     // only honest objection is a dispute, which stays available.
     canReview: rows.length > 0 && !rows.some((row) => FROZEN_STATUSES.has(row.status)),
@@ -471,6 +512,10 @@ function toParty(
     collected: computed ? formatMoney(computed.collected, currency) : null,
     paid: computed ? formatMoney(computed.paid, currency) : null,
     net: computed ? formatMoney(computed.net, currency) : null,
+    // The raw minor units alongside the formatted figure, ONLY so totals can be
+    // summed as integers. Nothing renders this — `docs/money.md`: never do money
+    // arithmetic on formatted text, and never through a float.
+    netMinor: computed?.net ?? null,
     netTone: computed ? netToneOf(computed.net) : "neutral",
     rules: computed ? entitlementRules(computed, currency) : [],
   };

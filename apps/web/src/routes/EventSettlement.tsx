@@ -128,7 +128,9 @@ export function EventSettlement() {
         tabs={[
           { key: "overview", label: "Overview" },
           { key: "deals", label: "Deal Structure" },
+          { key: "financials", label: "Financials" },
           { key: "settlement", label: "Settlement" },
+          { key: "payout", label: "Payout" },
         ]}
       />
 
@@ -140,6 +142,10 @@ export function EventSettlement() {
         <OverviewTab event={event.data} settlement={settlement} />
       ) : tab === "deals" ? (
         <DealStructureTab settlement={settlement} />
+      ) : tab === "financials" ? (
+        <FinancialsTab settlement={settlement} />
+      ) : tab === "payout" ? (
+        <PayoutTab settlement={settlement} />
       ) : (
         <SettlementTab settlement={settlement} eventId={eventId} />
       )}
@@ -154,6 +160,19 @@ const TWO_COLUMN = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
   gap: 16,
+  alignItems: "start",
+} as const;
+
+/**
+ * The settlement's own split, straight from the design: the figures take the wider
+ * column, the conversation about them sits beside it and STAYS there while you
+ * scroll the figures (`position: sticky`). Collapses to one column under 900px,
+ * because two columns of money on a phone is neither.
+ */
+const SETTLEMENT_GRID = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1.35fr) minmax(0, 1fr)",
+  gap: 20,
   alignItems: "start",
 } as const;
 
@@ -307,10 +326,9 @@ function SettlementTab({
   return (
     <div style={CARD_COLUMN}>
       <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        {/* Bounded: the stepper grows its connector to fill whatever it is given,
-            so left unbounded the stops sit at opposite ends of a 1180px page
-            joined by a rule. Five stops need more room than two did. */}
-        <div style={{ maxWidth: 560 }}>
+        {/* The design runs the rail the full width of the card. Seven stops need
+            it — the stepper grows its connectors to fill whatever it is given. */}
+        <div>
           <SettlementStepper steps={settlementSteps(settlement.status)} />
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -374,41 +392,62 @@ function SettlementTab({
         <NothingSettledYet settlement={settlement} />
       ) : (
         <>
-          <Card padding="lg" style={{ ...CARD_COLUMN, maxWidth: 660 }}>
-            <Eyebrow>Revenue and deductions</Eyebrow>
-            <PoolLadderRows settlement={settlement} />
-          </Card>
+          {/* The design's split: figures left, the conversation about them in a
+              sticky rail on the right. */}
+          <div style={SETTLEMENT_GRID}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
+              <Card padding="lg" style={CARD_COLUMN}>
+                <Eyebrow>Revenue and deductions</Eyebrow>
+                <PoolLadderRows settlement={settlement} />
+              </Card>
 
-          <div style={CARD_COLUMN}>
-            {settlement.parties.map((party) => (
-              <SettlementPartyCard key={party.settlementId} party={party} />
-            ))}
+              {settlement.parties.map((party) => (
+                <SettlementPartyCard key={party.settlementId} party={party} />
+              ))}
+
+              <WhoOwesWhomBoard
+                participants={lines}
+                transfers={settlement.transfers}
+                variant={lines.length > 1 ? "full" : "slice"}
+                // Claimed only when the visible lines really do sum to zero: a
+                // party-scoped slice is short by the lines the caller may not see,
+                // and "Not balanced" over a redaction reports authorization as an
+                // accounting error.
+                balanced={settlement.isWholeBoard ? true : undefined}
+                onMark={settlement.isBusy ? undefined : settlement.markTransfer}
+              />
+              {!settlement.isWholeBoard && (
+                <span
+                  className="muted"
+                  style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}
+                >
+                  <Icon name="eye-off" size={13} />
+                  Your own line. The other parties' figures on this event aren't shared with you.
+                </span>
+              )}
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 20,
+                position: "sticky",
+                top: 96,
+                minWidth: 0,
+              }}
+            >
+              <SettlementThread settlement={settlement} />
+              <RevisionHistory eventId={eventId} />
+            </div>
           </div>
 
-          <WhoOwesWhomBoard
-            participants={lines}
-            transfers={settlement.transfers}
-            variant={lines.length > 1 ? "full" : "slice"}
-            // Claimed only when the visible lines really do sum to zero: a
-            // party-scoped slice is short by the lines the caller may not see, and
-            // "Not balanced" over a redaction reports authorization as an
-            // accounting error.
-            balanced={settlement.isWholeBoard ? true : undefined}
-            onMark={settlement.isBusy ? undefined : settlement.markTransfer}
-          />
-          {!settlement.isWholeBoard && (
-            <span
-              className="muted"
-              style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}
-            >
-              <Icon name="eye-off" size={13} />
-              Your own line. The other parties' figures on this event aren't shared with you.
-            </span>
-          )}
-
-          <SettlementThread settlement={settlement} />
-          <RevisionHistory eventId={eventId} />
-          <ApprovalRoster settlement={settlement} />
+          {/* Sign-off and what leaves the building, side by side — the design's
+              closing row. */}
+          <div style={TWO_COLUMN}>
+            <ApprovalRoster settlement={settlement} />
+            <TotalPayouts settlement={settlement} />
+          </div>
         </>
       )}
 
@@ -681,5 +720,115 @@ function RevisionHistory({ eventId }: { eventId: string }) {
         </div>
       )}
     </Card>
+  );
+}
+
+/**
+ * What leaves the building — the design's "Total Payouts" panel.
+ *
+ * The operator's own share is RETAINED rather than paid out, so it is excluded and
+ * the copy says why. Everything else is a transfer that has to actually happen.
+ *
+ * Summed from the transfers the caller can see, which is why a performer reads only
+ * their own line here: the board above is already party-scoped, and this is the
+ * same set totalled. It is a sum of formatted API figures, not arithmetic on money
+ * — see `settlementTotalPayable` in the hook.
+ */
+function TotalPayouts({ settlement }: { settlement: EventSettlementData }) {
+  if (settlement.payouts.length === 0) return null;
+  return (
+    <Card padding="lg" style={CARD_COLUMN}>
+      <Eyebrow>Total payouts</Eyebrow>
+      <p className="muted" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55 }}>
+        {settlement.retainsOwnShare
+          ? "As operator your share is retained; below are the amounts payable to the other parties."
+          : "What is payable to you on this event."}
+      </p>
+      {settlement.payouts.map((payout) => (
+        <KeyValueRow key={payout.key} label={payout.label} value={payout.value} mono />
+      ))}
+      <KeyValueRow label="Total payable" value={settlement.totalPayable} mono total />
+    </Card>
+  );
+}
+
+/**
+ * The FINANCIALS tab — where the night's takings and costs are entered.
+ *
+ * The design shows eight editable figures over a live-recomputing payout, and that
+ * is the manual-override surface the 2026-08 meeting asks for. In OUR model those
+ * eight are budget lines, and editing them at settlement time is what
+ * `docs/decisions.md` #16.8 (budget snapshot) exists to make safe — budgets are the
+ * PREDICTION, the settlement holds the ACTUALS, and the snapshot is what keeps
+ * planned-vs-actual after the fact.
+ *
+ * Until that lands the ladder is shown READ-ONLY, which is the same information the
+ * engine already computed, rather than eight inputs that would quietly write to the
+ * plan. The note says so on screen rather than leaving a reader to discover it.
+ */
+function FinancialsTab({ settlement }: { settlement: EventSettlementData }) {
+  if (!settlement.isComputed) return <NothingSettledYet settlement={settlement} />;
+  return (
+    <div style={{ ...CARD_COLUMN, maxWidth: 660 }}>
+      <Card padding="lg" style={CARD_COLUMN}>
+        <Eyebrow>Revenue and deductions</Eyebrow>
+        <p className="muted" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55 }}>
+          These are the figures the settlement was computed from. Editing them here — with every
+          payout recomputing live — arrives with the budget snapshot, so that correcting an actual
+          cannot quietly rewrite the plan it was measured against.
+        </p>
+        <PoolLadderRows settlement={settlement} />
+      </Card>
+    </div>
+  );
+}
+
+/**
+ * The PAYOUT tab.
+ *
+ * Gated on finalize, exactly as the design has it: figures that can still move are
+ * not figures you pay against. The payment rail itself is not wired yet — that is
+ * Stripe, and it comes later — so the button says what it will do and is disabled
+ * until it can do it, rather than being a live-looking control that silently does
+ * nothing.
+ */
+function PayoutTab({ settlement }: { settlement: EventSettlementData }) {
+  if (!settlement.isComputed) return <NothingSettledYet settlement={settlement} />;
+
+  if (!settlement.isFinalized) {
+    return (
+      <Card padding="lg" style={{ ...CARD_COLUMN, alignItems: "center", textAlign: "center" }}>
+        <Icon name="alert" size={30} style={{ color: "var(--brand-amber)" }} />
+        <div style={{ fontFamily: "var(--font-display)", fontWeight: 500, fontSize: 18 }}>
+          Payouts are locked
+        </div>
+        <p className="muted" style={{ margin: 0, fontSize: 13.5, maxWidth: 420 }}>
+          This settlement is {settlementStatusToDisplay(settlement.status).label.toLowerCase()}.
+          Finalize it before processing payouts.
+        </p>
+        <Button variant="primary" disabled>
+          Process payout
+        </Button>
+      </Card>
+    );
+  }
+
+  return (
+    <div style={{ ...CARD_COLUMN, maxWidth: 660 }}>
+      <TotalPayouts settlement={settlement} />
+      <Card padding="lg" style={CARD_COLUMN}>
+        <Eyebrow>Process payouts</Eyebrow>
+        <p className="muted" style={{ margin: 0, fontSize: 13.5, lineHeight: 1.55 }}>
+          Paying out through shoWMe is not connected yet. Until it is, mark each transfer on the
+          Settlement tab as you pay it — that is what moves this settlement to partly paid and then
+          paid.
+        </p>
+        <div>
+          <Button variant="primary" disabled>
+            Process payout
+          </Button>
+        </div>
+      </Card>
+    </div>
   );
 }

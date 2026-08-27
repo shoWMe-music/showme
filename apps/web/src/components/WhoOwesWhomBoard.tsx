@@ -87,13 +87,27 @@ function TransferRow({
         display: "flex",
         alignItems: "center",
         gap: 12,
+        // The row lives in a narrow column on the settlement screen, where the
+        // names and the amount stopped fitting on one line and overlapped the
+        // buttons. Wrapping is the honest fix: a transfer says who pays whom and
+        // how much, and none of those three may be squeezed out of legibility.
+        flexWrap: "wrap",
         padding: "10px 12px",
         border: "1px solid var(--border)",
         borderRadius: 12,
         background: "var(--card)",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          flex: "1 1 220px",
+          minWidth: 0,
+          flexWrap: "wrap",
+        }}
+      >
         <span style={{ color: "var(--text)", fontWeight: 600 }}>{transfer.from}</span>
         <Icon name="arrow-right" size={14} />
         <span style={{ color: "var(--text)", fontWeight: 600 }}>{transfer.to}</span>

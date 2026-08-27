@@ -39,43 +39,48 @@ export function settlementStatusToDisplay(status: string): { status: Status; lab
 }
 
 /**
- * The settlement's journey, as the API can actually move it.
+ * The settlement's journey — the prototype's seven stops, and every one of them
+ * is now a status something really writes.
  *
- * Five stops, and each one is a status some route really writes — measured, not
- * taken from the prototype's seven-stop rail:
+ *   Open              the default; figures can still move
+ *   Pending review    `POST /settlement/status`
+ *   Comments received set automatically when a party posts a remark
+ *   Revised           `POST /settlement/status` after the operator adjusts
+ *   Finalized         `POST /settlement/finalize` — locks the figures AND the FX
+ *   Partly paid       DERIVED from the transfers
+ *   Paid              DERIVED from the transfers
  *
- *   Open              the default; the figures can still move
- *   Sent for review    `POST /settlement/status` with `pending_review`
- *   Comments received  set automatically when a party posts a remark
- *   Finalized          `POST /settlement/finalize` — locks the figures AND the FX
- *   Paid               DERIVED from the transfers, never set by hand
+ * This was briefly five stops, correctly: before the status machine landed, only
+ * `open` and `finalized` were reachable and a seven-stop rail would have been four
+ * lamps that never lit. Now that `pending_review`, `comments_received` and
+ * `revised` have a route and `partly_paid`/`paid` fall out of the transfers, the
+ * design's rail is honest and restored.
  *
- * `revised` is not a sixth stop. Re-issuing after comments returns the settlement
- * to the review stage rather than advancing it, so it lights the same lamp as
- * "sent for review" — the rail shows where the settlement IS, and a revision is
- * the operator going round again.
- *
- * `dispute` is not a stop either: it is a flag ON a stage, not a stage. A disputed
- * settlement is still wherever it was, with a party objecting — the badge says so
- * and the rail keeps its place, because a dispute is not progress.
- *
- * `partly_paid` sits at the last stop rather than earning its own: the detail of
- * which transfer is settled lives on the who-owes-whom board, where each one is
- * marked individually, and duplicating it here would be a second answer.
+ * `dispute` is still not a stop: it is a flag ON a stage rather than a stage of
+ * its own — a disputed settlement is wherever it was, with a party objecting — so
+ * the badge says so and the rail keeps its place. A dispute is not progress.
  */
 const STAGE_OF: Record<string, number> = {
   open: 0,
   pending_review: 1,
-  revised: 1,
   comments_received: 2,
+  revised: 3,
   dispute: 2,
-  finalized: 3,
-  partly_paid: 4,
-  paid: 4,
-  concluded: 3,
+  finalized: 4,
+  partly_paid: 5,
+  paid: 6,
+  concluded: 4,
 };
 
-const STAGE_LABELS = ["Open", "Sent for review", "Comments received", "Finalized", "Paid"] as const;
+const STAGE_LABELS = [
+  "Open",
+  "Pending review",
+  "Comments received",
+  "Revised",
+  "Finalized",
+  "Partly paid",
+  "Paid",
+] as const;
 
 export function settlementSteps(status: string): SettlementStep[] {
   // An unknown status sits at the start rather than inventing a stop for itself.
