@@ -21,7 +21,7 @@ import { SettlementPartyCard } from "../components/SettlementPartyCard";
 import { SettlementStepper } from "../components/SettlementStepper";
 import { type SettlementLine, WhoOwesWhomBoard } from "../components/WhoOwesWhomBoard";
 import { describeActivity } from "../components/eventHistory";
-import { Eyebrow } from "../components/primitives";
+import { CardTitle, Eyebrow } from "../components/primitives";
 import {
   initialsOf,
   settlementStatusToDisplay,
@@ -105,10 +105,24 @@ export function EventSettlement() {
       >
         <div>
           <Eyebrow>Settlement</Eyebrow>
+          {/* The design titles a settlement by WHO and WHERE — "Nils Frahm /
+              Funkhaus" — because that is how a settlement is referred to out loud.
+              The venue is only repeated in the line beneath when there is a city
+              to put with it. */}
           <h2 style={{ margin: "6px 0", fontSize: 28, letterSpacing: "-0.025em" }}>
             {event.data.title}
+            {event.data.venueName && (
+              <>
+                <span style={{ color: "var(--dim)", fontWeight: 400 }}> / </span>
+                {event.data.venueName}
+              </>
+            )}
           </h2>
           <div style={{ color: "var(--muted)", fontSize: 14 }}>
+            {/* The design puts the city here ("Funkhaus · Berlin · Jul 04"). The
+                event payload carries no city of its own — it lives on the venue
+                PROFILE — so the line renders what it has rather than a blank
+                separator, and gains the city when the event serves one. */}
             {[event.data.venueName, formatDate(event.data.eventDate)].filter(Boolean).join(" · ")}
           </div>
         </div>
@@ -119,6 +133,16 @@ export function EventSettlement() {
           <Badge status={status.status} dot>
             {status.label}
           </Badge>
+          {/* A POINTER to the PRO filing, which lives on its own screen — royalties
+              are a different money stream and never enter this page's Σ net = 0.
+              Shown only to someone who could actually file. */}
+          {(event.data.capabilities ?? []).includes("performance_report.file") && (
+            <Link to="/reports">
+              <Button variant="secondary" leftIcon={<Icon name="trending-up" size={14} />}>
+                Report to PRO
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
 
@@ -182,7 +206,7 @@ function OverviewTab({ event, settlement }: { event: EventData; settlement: Even
     <div style={CARD_COLUMN}>
       <div style={TWO_COLUMN}>
         <Card padding="lg" style={CARD_COLUMN}>
-          <Eyebrow>Event details</Eyebrow>
+          <CardTitle>Event Details</CardTitle>
           <KeyValueRow label="Date" value={formatDate(event.eventDate)} />
           <KeyValueRow label="Venue" value={event.venueName ?? "Not set"} />
           <KeyValueRow
@@ -194,7 +218,7 @@ function OverviewTab({ event, settlement }: { event: EventData; settlement: Even
         </Card>
 
         <Card padding="lg" style={CARD_COLUMN}>
-          <Eyebrow>Financial overview</Eyebrow>
+          <CardTitle>Financial Overview</CardTitle>
           <PoolLadderRows settlement={settlement} />
           {settlement.ownParty?.entitlement && (
             <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
@@ -331,17 +355,29 @@ function SettlementTab({
         <div>
           <SettlementStepper steps={settlementSteps(settlement.status)} />
         </div>
+        {/*
+         * The design shows THREE actions, chosen by status, not every action at
+         * once — "Add revision · Mark finalized · Flag dispute" on a settlement
+         * under review. A row of five buttons asks the reader to work out which
+         * one they want; a row of two or three tells them.
+         *
+         * So: recalculating is offered only before the figures are sent out, and
+         * re-issuing only after they have come back. Finalize and dispute keep
+         * their own conditions.
+         */}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {settlement.authority.canCompute && !settlement.isFinalized && (
-            <Button
-              variant={settlement.isComputed ? "secondary" : "primary"}
-              disabled={settlement.isBusy}
-              leftIcon={<Icon name="receipt" size={14} />}
-              onClick={settlement.compute}
-            >
-              {settlement.isComputed ? "Recalculate" : "Run the settlement"}
-            </Button>
-          )}
+          {settlement.authority.canCompute &&
+            !settlement.isFinalized &&
+            (!settlement.isComputed || settlement.status === "open") && (
+              <Button
+                variant={settlement.isComputed ? "secondary" : "primary"}
+                disabled={settlement.isBusy}
+                leftIcon={<Icon name="receipt" size={14} />}
+                onClick={settlement.compute}
+              >
+                {settlement.isComputed ? "Recalculate" : "Run the settlement"}
+              </Button>
+            )}
           {settlement.authority.canFinalize && settlement.isComputed && !settlement.isFinalized && (
             <Button variant="primary" disabled={settlement.isBusy} onClick={askToFinalize}>
               Finalize
@@ -361,7 +397,7 @@ function SettlementTab({
                 Send for review
               </Button>
               <Button variant="secondary" disabled={settlement.isBusy} onClick={settlement.reissue}>
-                Re-issue figures
+                Add revision
               </Button>
             </>
           )}
@@ -397,7 +433,9 @@ function SettlementTab({
           <div style={SETTLEMENT_GRID}>
             <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
               <Card padding="lg" style={CARD_COLUMN}>
-                <Eyebrow>Revenue and deductions</Eyebrow>
+                <CardTitle subtitle="What the night took, what it cost, and the net every percentage below is a share of.">
+                  Revenue &amp; deductions
+                </CardTitle>
                 <PoolLadderRows settlement={settlement} />
               </Card>
 
@@ -488,7 +526,7 @@ function ApprovalRoster({ settlement }: { settlement: EventSettlementData }) {
       <div
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
       >
-        <Eyebrow>Approval status</Eyebrow>
+        <CardTitle>Approval Status</CardTitle>
         <Badge
           status={
             settlement.approvedCount === settlement.approvals.length ? "confirmed" : "pending"
@@ -613,7 +651,7 @@ function SettlementThread({ settlement }: { settlement: EventSettlementData }) {
 
   return (
     <Card padding="lg" style={{ ...CARD_COLUMN, gap: 12 }}>
-      <Eyebrow>Comments</Eyebrow>
+      <CardTitle size={17}>Comments</CardTitle>
       {settlement.comments.length === 0 ? (
         <span className="muted" style={{ fontSize: 13 }}>
           No comments yet. If a figure looks wrong, this is where to say so.
@@ -682,7 +720,7 @@ function RevisionHistory({ eventId }: { eventId: string }) {
 
   return (
     <Card padding="lg" style={{ ...CARD_COLUMN, gap: 10 }}>
-      <Eyebrow>Revision history</Eyebrow>
+      <CardTitle size={17}>Revision history</CardTitle>
       {activity.isPending ? (
         <span className="muted" style={{ fontSize: 13 }}>
           Loading…
@@ -738,12 +776,15 @@ function TotalPayouts({ settlement }: { settlement: EventSettlementData }) {
   if (settlement.payouts.length === 0) return null;
   return (
     <Card padding="lg" style={CARD_COLUMN}>
-      <Eyebrow>Total payouts</Eyebrow>
-      <p className="muted" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55 }}>
-        {settlement.retainsOwnShare
-          ? "As operator your share is retained; below are the amounts payable to the other parties."
-          : "What is payable to you on this event."}
-      </p>
+      <CardTitle
+        subtitle={
+          settlement.retainsOwnShare
+            ? "As operator your share is retained; below are the amounts payable to the other parties."
+            : "What is payable to you on this event."
+        }
+      >
+        Total Payouts
+      </CardTitle>
       {settlement.payouts.map((payout) => (
         <KeyValueRow key={payout.key} label={payout.label} value={payout.value} mono />
       ))}
@@ -771,7 +812,7 @@ function FinancialsTab({ settlement }: { settlement: EventSettlementData }) {
   return (
     <div style={{ ...CARD_COLUMN, maxWidth: 660 }}>
       <Card padding="lg" style={CARD_COLUMN}>
-        <Eyebrow>Revenue and deductions</Eyebrow>
+        <CardTitle>Revenue & deductions</CardTitle>
         <p className="muted" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55 }}>
           These are the figures the settlement was computed from. Editing them here — with every
           payout recomputing live — arrives with the budget snapshot, so that correcting an actual
@@ -817,7 +858,7 @@ function PayoutTab({ settlement }: { settlement: EventSettlementData }) {
     <div style={{ ...CARD_COLUMN, maxWidth: 660 }}>
       <TotalPayouts settlement={settlement} />
       <Card padding="lg" style={CARD_COLUMN}>
-        <Eyebrow>Process payouts</Eyebrow>
+        <CardTitle>Process Payouts</CardTitle>
         <p className="muted" style={{ margin: 0, fontSize: 13.5, lineHeight: 1.55 }}>
           Paying out through shoWMe is not connected yet. Until it is, mark each transfer on the
           Settlement tab as you pay it — that is what moves this settlement to partly paid and then
