@@ -104,6 +104,18 @@ const RIDER_IDS = {
 // The standing agent↔performerA representation (decisions.md #14).
 const REPRESENTATION_ID = "e2e00000-0000-4000-8000-000000000001";
 
+// The venue's ROOMS. Fixed ids like everything else here, so a test can name one.
+//
+// Seeded because `stages` was empty and the calendar's whole room story is built
+// on it: the rooms rail, the venue→room filter, and "two rooms can hold two shows
+// on the same night". Before this, the Open Mic pretended to be in another room by
+// putting it in the event's free-text `venue_name` — which no room filter can see,
+// and which is exactly the confusion the rooms model exists to remove.
+const STAGE_IDS = {
+  mainRoom: "e2e00000-0000-4000-8000-0000000000c1",
+  backRoom: "e2e00000-0000-4000-8000-0000000000c2",
+} as const;
+
 const EVENT_IDS = {
   albumRelease: "e2e00000-0000-4000-8000-0000000000e1", // confirmed, upcoming — full (2 performers + crew + agent)
   springWarmup: "e2e00000-0000-4000-8000-0000000000e2", // concluded, past — budget + finalized settlement
@@ -612,6 +624,24 @@ async function main() {
       contactPhone: "+46 8 123 456",
     });
 
+    // Two rooms, because one room proves nothing: every question the calendar
+    // asks — which room is this show in, show me only that room, can two shows
+    // run the same night — needs a second one to have an answer.
+    await database.insert(schema.stages).values([
+      {
+        id: STAGE_IDS.mainRoom,
+        venueProfileId: PROFILE_IDS.operator,
+        name: "Main Room",
+        capacity: 400,
+      },
+      {
+        id: STAGE_IDS.backRoom,
+        venueProfileId: PROFILE_IDS.operator,
+        name: "Back Room",
+        capacity: 80,
+      },
+    ]);
+
     // Platform links for the performer — the public page's "Listen" row, and the
     // only thing that exercises it. Real, resolvable addresses: the page validates
     // every one as http(s) before it becomes an href, so a placeholder like
@@ -851,6 +881,7 @@ async function main() {
           timezone: "Europe/Stockholm",
           venueProfileId: PROFILE_IDS.operator,
           venueName: E2E_ACCOUNTS.operator.profileName,
+          stageId: STAGE_IDS.mainRoom,
           capacity: 400,
           baseCurrency: SEK,
           published: true,
@@ -897,7 +928,9 @@ async function main() {
           startTime: "19:00:00",
           timezone: "Europe/Stockholm",
           venueProfileId: PROFILE_IDS.operator,
-          venueName: "The Lantern Hall (Back Room)",
+          venueName: E2E_ACCOUNTS.operator.profileName,
+          // The room is a ROW now, not a parenthesis in the venue's name.
+          stageId: STAGE_IDS.backRoom,
           capacity: 80,
           baseCurrency: SEK,
           published: false,

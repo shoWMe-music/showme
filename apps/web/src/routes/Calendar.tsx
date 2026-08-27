@@ -1,5 +1,5 @@
 import { type getApiV1Calendar, useGetApiV1Calendar } from "@showme/api-client";
-import { Card, Icon, type Status, useToast } from "@showme/design-system";
+import { Card, Icon, Select, type Status, useToast } from "@showme/design-system";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type CalendarEvent, type CalendarLabelMode, CalendarMonthGrid } from "../components";
@@ -35,6 +35,7 @@ import {
 } from "../components/useMarkUnavailable";
 import { useAvailabilityShare } from "../hooks/useAvailabilityShare";
 import { useCalendarSources } from "../hooks/useCalendarSources";
+import { useCalendarVenueFilter } from "../hooks/useCalendarVenueFilter";
 import { type EventItem, useAllEvents } from "../hooks/useEventList";
 import { buildCalendarInventory, placeEvents } from "../lib/calendarInventory";
 import { formatDay, parseDayLocal } from "../lib/format";
@@ -119,10 +120,6 @@ const STATUS_FILTER_OPTIONS: { key: string; label: string; color: string }[] = [
   // way back. Not added to LEGEND, which is verbatim from the prototype.
   { key: "External", label: "External", color: "#B8A99B" },
 ];
-
-/** Swatches for the Rooms checklist. Rooms carry no colour of their own — the
- * grid is tinted by STATUS — so these only have to tell one row from the next. */
-const ROOM_SWATCHES = ["#6FC97A", "#3BB0C9", "#B58BE0", "#F4A046", "#D9B44A", "#D14FC4"];
 
 /** Matches a bare calendar date — what a Postgres `date` column serialises to. */
 const BARE_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -393,7 +390,6 @@ export function Calendar() {
   const [view, setView] = useState<CalendarView>("month");
   const [labelMode, setLabelMode] = useState<CalendarLabelMode>("eventName");
   const [performerFilter, setPerformerFilter] = useState("");
-  const [venueFilter, setVenueFilter] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
   const [unavailableOpen, setUnavailableOpen] = useState(false);
   // The day "CREATE" popover: which day was clicked + the cell rect to anchor to.
@@ -403,10 +399,6 @@ export function Calendar() {
   /** Status LABELS the reader has switched off. Hidden rather than shown, so a
    * kind that gains a label later starts visible instead of silently missing. */
   const [hiddenStatuses, setHiddenStatuses] = useState<string[]>([]);
-
-  /** Rooms the reader has switched off, by `CalendarSource.value`. Hidden rather
-   * than shown, so a room added later starts visible instead of silently missing. */
-  const [hiddenRooms, setHiddenRooms] = useState<string[]>([]);
 
   // The API date params are inclusive bounds. Ask for the whole month(s) the view
   // touches rather than the seven or one visible days — see `queryRange`.
@@ -421,7 +413,7 @@ export function Calendar() {
   // calendar (see `useCalendarSources`).
   const calendarSources = useCalendarSources();
   // Which of those calendars each show sits on, resolved once and used by both
-  // the "Venue / Room…" search and the rail's counts, so the two cannot disagree.
+  // the room filter and the rail's counts, so the two cannot disagree.
   const placements = useMemo(
     () => placeEvents(events.items, calendarSources.sources),
     [events.items, calendarSources.sources],
@@ -483,30 +475,35 @@ export function Calendar() {
     return performer ? { ...entry, performer } : entry;
   });
 
-  // Client-only text filters over the real events (no server filter endpoint).
+  // The rail's read-out: every calendar the reader has and what each is holding
+  // in the period on screen. Counts are of the WHOLE period, deliberately not of
+  // what survives the filters — narrowing to one room would otherwise zero every
+  // other row and leave the reader nothing to click back to.
+  const calendarInventory = useMemo(
+    () => buildCalendarInventory(calendarSources.sources, placements, visibleEventIds),
+    [calendarSources.sources, placements, visibleEventIds],
+  );
+
+  // Venue → room, and the rail's Rooms chip: one hook, one `hiddenRooms` array,
+  // so the two controls cannot say different things about the same rooms.
+  const venueFilter = useCalendarVenueFilter(
+    events.items,
+    calendarSources.sources,
+    calendarInventory,
+  );
+
   const performerNeedle = performerFilter.trim().toLowerCase();
-  const venueNeedle = venueFilter.trim().toLowerCase();
   const hiddenStatusSet = new Set(hiddenStatuses);
-  const hiddenRoomSet = new Set(hiddenRooms);
   const visibleEvents: CalendarEvent[] = namedEvents.filter((event) => {
     if (event.statusLabel && hiddenStatusSet.has(event.statusLabel)) return false;
 
-    // Where this show sits, when it sits at one of the reader's own venues. A
-    // show at somebody else's venue has no placement and is never hidden by the
-    // rooms chip — that chip speaks about rooms, and it is not their room.
+    // Where this show sits, when it sits at one of the reader's own venues.
     const placement = event.eventId ? placements.get(event.eventId) : undefined;
-    if (placement && hiddenRoomSet.has(placement.calendarKey)) return false;
+    if (!venueFilter.keepsEntry(event.eventId, placement)) return false;
 
-    if (!performerNeedle && !venueNeedle) return true;
-    // The field is labelled "Venue / Room…" and until now searched neither: the
-    // haystack was the performer and the title, so typing a room name matched
-    // nothing at all. Both now travel with the entry.
+    if (!performerNeedle) return true;
     const performerHaystack = `${event.performer ?? ""} ${event.eventName}`.toLowerCase();
-    const venueHaystack =
-      `${placement?.venueName ?? ""} ${placement?.roomName ?? ""} ${event.eventName}`.toLowerCase();
-    const matchesPerformer = !performerNeedle || performerHaystack.includes(performerNeedle);
-    const matchesVenue = !venueNeedle || venueHaystack.includes(venueNeedle);
-    return matchesPerformer && matchesVenue;
+    return performerHaystack.includes(performerNeedle);
   });
 
   // The share modal is a read-only composite: the hook owns the form, derives the
@@ -523,37 +520,6 @@ export function Calendar() {
   const share = useAvailabilityShare(events.items, calendarSources.sources);
 
   const periodTitle = viewTitle(view, anchorDate);
-
-  // The rail's read-out: every calendar the reader has and what each is holding
-  // in the period on screen.
-  const calendarInventory = useMemo(
-    () => buildCalendarInventory(calendarSources.sources, placements, visibleEventIds),
-    [calendarSources.sources, placements, visibleEventIds],
-  );
-
-  /**
-   * The "Rooms" chip's checklist. Built from the same inventory the rail draws,
-   * so a room the reader can see is a room they can switch off — including the
-   * "No room set" bucket, which has to be togglable for the same reason every
-   * other bucket does: it is on the grid.
-   *
-   * Only multi-room venues contribute. A profile with one calendar has nothing to
-   * filter, and offering to hide it would just be a way to blank the screen.
-   */
-  const roomFilterOptions = useMemo(
-    () =>
-      calendarInventory
-        .filter((group) => group.heading !== null)
-        .flatMap((group, groupIndex) =>
-          group.rows.map((row, rowIndex) => ({
-            // The inventory already keys every row the way a placement is keyed.
-            key: row.key,
-            label: `${group.heading} — ${row.label}`,
-            color: ROOM_SWATCHES[(groupIndex + rowIndex) % ROOM_SWATCHES.length],
-          })),
-        ),
-    [calendarInventory],
-  );
 
   // Blocked dates for the acting profile. Read on every render (not only while
   // the editor is open) so the rail can name what is blocked in this period.
@@ -834,24 +800,16 @@ export function Calendar() {
           {/* Offered only when there is something to tell apart. A venue with one
               room (or none recorded) has one calendar however it is sliced, and a
               filter with a single option is furniture. */}
-          {roomFilterOptions.length > 0 && (
+          {venueFilter.roomFilterOptions.length > 0 && (
             <CalendarFilterChip
               label="Rooms"
               icon="grid"
               style={filterChipStyle()}
-              options={roomFilterOptions}
-              selected={roomFilterOptions
-                .map((option) => option.key)
-                .filter((key) => !hiddenRooms.includes(key))}
-              onToggle={(key) =>
-                setHiddenRooms((current) =>
-                  current.includes(key)
-                    ? current.filter((hidden) => hidden !== key)
-                    : [...current, key],
-                )
-              }
-              onSelectAll={() => setHiddenRooms([])}
-              onSelectNone={() => setHiddenRooms(roomFilterOptions.map((option) => option.key))}
+              options={venueFilter.roomFilterOptions}
+              selected={venueFilter.roomFilterSelected}
+              onToggle={venueFilter.toggleRoom}
+              onSelectAll={venueFilter.showAllRooms}
+              onSelectNone={venueFilter.hideAllRooms}
             />
           )}
           <CalendarFilterChip
@@ -881,13 +839,29 @@ export function Calendar() {
             aria-label="Filter by performer"
             style={filterInputStyle()}
           />
-          <input
-            value={venueFilter}
-            onChange={(event) => setVenueFilter(event.target.value)}
-            placeholder="Venue / Room…"
-            aria-label="Filter by venue or room"
-            style={filterInputStyle()}
-          />
+          {/* Venue, then room: the two-step the one flat "Venue / Room…" box could
+              never be. The room select stays disabled until a venue is picked,
+              and says WHY when there is nothing to pick — one space, or a venue
+              whose room roster is not the reader's to see. */}
+          <div style={{ width: 178 }}>
+            <Select
+              value={venueFilter.venueProfileId}
+              onChange={venueFilter.setVenueProfileId}
+              options={venueFilter.venueOptions}
+              aria-label="Filter by venue"
+              placeholder="All venues"
+            />
+          </div>
+          <div style={{ width: 178 }}>
+            <Select
+              value={venueFilter.roomKey}
+              onChange={venueFilter.setRoomKey}
+              options={venueFilter.roomOptions}
+              disabled={venueFilter.roomsDisabled}
+              aria-label="Filter by room or stage"
+              placeholder={venueFilter.roomPlaceholder}
+            />
+          </div>
         </div>
 
         {/* Grid + right rail */}

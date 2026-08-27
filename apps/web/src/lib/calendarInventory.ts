@@ -5,10 +5,10 @@ import type { EventItem } from "../hooks/useEventList";
 /**
  * WHICH OF MY CALENDARS A SHOW SITS ON, and how many sit on each.
  *
- * The Calendar screen asks this twice — once to let "Venue / Room…" search a
- * room by name, once to count what each calendar is holding this month — and
- * both answers have to agree, so the placement rule lives in one plain module
- * rather than twice inside a component.
+ * The Calendar screen asks this twice — once for the venue → room filter, once
+ * to count what each calendar is holding this month — and both answers have to
+ * agree, so the placement rule lives in one plain module rather than twice
+ * inside a component.
  *
  * A show at somebody ELSE'S venue has no placement here, and that is right: it is
  * on their calendar, not on one of mine. It stays visible on the grid; it simply
