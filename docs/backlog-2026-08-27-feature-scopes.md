@@ -14,29 +14,54 @@ nothing to repair. This file scopes it.
 
 ---
 
-## 0. Budget Planner discards everything typed — **NO TICKET, and the highest value here**
+## 0. Budget Planner — **CORRECTED 2026-08-27, and now fixed**
 
-Not on Ran's list; recorded in `handoff-2026-08-26-in-flight.md` and never filed.
+> **What this section originally said was wrong.** It claimed the planner
+> "reads real budget lines, edits into `useState`, and never writes". That came
+> from `handoff-2026-08-26-in-flight.md`, which is **stale**: the write path has
+> existed since commit `e64e438` — `useBudgetEditor` imports and calls all four
+> mutations. I repeated the claim without checking it. Left here rather than
+> deleted, because the doc it came from is still in the repo saying the same
+> thing, and the next reader deserves to know it is out of date.
 
-The planner reads real budget lines, holds every edit in `useState`, and never
-writes. The API is **fully built**. An operator plans a show, leaves the tab, and
-the work is gone — silently, with no error to warn them.
+Driving the running stack instead of reading it turned up **four** real defects
+in that write path. Three of them lose or invent money, and all four are now
+fixed in `components/useBudgetEditor.ts`.
 
-It outranks the rest because the settlement spine depends on it: `Σ net = 0`
-reconciles budget cash against deal entitlements, so a budget that does not
-persist leaves the settlement nothing to reconcile. Ran probably never got deep
-enough into the planner to lose anything; a real operator will, on show one.
+1. **Rounding through a float.** `Math.round(Number("4.015") * 100)` is **401**,
+   because the product is `401.49999999999994`. `0.145` gives `14`, not `15`.
+   Every amount and every basis-point share went through it. Replaced by shifting
+   the decimal point in the *string* and letting the first dropped digit decide
+   (half-up, `money.md`).
+2. **`amount ≠ unitAmount × quantity`.** A ticket tier's total was the major-unit
+   product converted afterwards, so `0.145 × 2` stored `amount 29` against
+   `unitAmount 14` — a breakdown that does not add up to its own total. Now
+   computed in minor units with `BigInt`.
+3. **Collateral writes — the worst.** The flush wrote every row that *differed*
+   from the server, and a row differs for structural reasons as readily as
+   because somebody typed. One keystroke in "Marketing cost" bumped five
+   untouched lines to version 2 and **invented a zero-amount revenue line** from
+   the event's seeded capacity. Those are rows in the ledger `Σ net = 0`
+   reconciles, that nobody entered — each one also stealing a version a
+   co-host's edit needed. Writes are now confined to rows the operator moved.
+4. **The reported symptom, genuinely live.** The unmount cleanup *cancelled* the
+   pending debounce instead of firing it, so typing a figure and immediately
+   changing tab wrote nothing, silently. It now flushes first.
 
-**Where** `components/BudgetPlanner.tsx`, `useBudgetEditor.ts`,
-`budgetPlannerView.ts`; routes already accept the writes in `routes/budget.ts`.
+**Save semantics** unchanged in kind: inline, per row, 700 ms debounce, plus a
+flush on unmount. No Save button — a budget is one form of many numbers whose
+intermediate states mean nothing.
 
-**Work** wire the editor to the existing mutations · commit inline per field, the
-house pattern (`components/fieldValueCommit.ts`), not a Save button ·
-optimistic-lock on the line `version` so two co-hosts cannot overwrite each other.
+**Conflict:** first writer wins; the second is told and reverts. Every write now
+carries `expectedVersion`; a 409 stops the queue, refetches, and raises a sticky
+notice naming the row and the figure that did not save. The old code sent no
+version because "a debounced autosave would 409 the person typing against
+themselves" — real, and already solved in `useEventInlineFields.ts`: track the
+version from each write's own response and queue writes one at a time.
 
-**Proof** type a figure, reload, read the row out of Postgres.
-
----
+**Still owed:** `shiftedTwoPlaces` is a pure function with no regression test,
+because `apps/web` has no unit runner (see §16 and ClickUp 86cbazcf3). A
+ten-line spec the moment that exists.
 
 ## 1. Access giving — 86cbaxvqk
 

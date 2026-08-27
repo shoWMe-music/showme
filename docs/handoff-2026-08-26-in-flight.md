@@ -70,8 +70,11 @@ buttons.
 
 ## Known-open, not started
 
-- **Budget Planner silently discards everything typed** — reads real budget lines,
-  edits into `useState`, never writes. The API is fully built. Highest-value bug left.
+- ~~**Budget Planner silently discards everything typed**~~ — **STALE, corrected
+  2026-08-27.** The write path has existed since `e64e438`. Believing this line
+  without checking it cost a session's worth of scoping. Four real defects in
+  that write path were found and fixed instead — see
+  `backlog-2026-08-27-feature-scopes.md` §0.
 - `hold_auto_promote` is unreachable from any route, so every hold created in the
   wizard is frozen and will not auto-promote.
 - `GET /insights/.../revenue` counts PLANNED budget revenue as realized.
