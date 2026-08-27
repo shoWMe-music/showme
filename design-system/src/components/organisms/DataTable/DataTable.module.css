@@ -36,6 +36,17 @@
 .row:first-of-type { border-top: 0; }
 
 /*
+ * A CELL KEEPS TO ITS COLUMN. With the fr tracks free to shrink (see
+ * `shrinkableTrack`), a phone-width table hands some column less room than the
+ * longest word in it — and the default `overflow-wrap: normal` answers that by
+ * letting the word run straight over its neighbour, so five columns of a CSV
+ * import preview read as "NAMEEMAILRESULT". `anywhere` breaks the word instead,
+ * which is the outcome a narrow column can actually be read in. It never fires
+ * where the word fits, so every desktop table is untouched.
+ */
+.header > *, .row > * { min-width: 0; overflow-wrap: anywhere; }
+
+/*
  * A ROW HAS AN EDGE — ITS OWN RULE. §2 says hover promotes the edge rather than
  * filling the ground, and a table row looks like the exception because it has no
  * border box. It does not: it has a `border-top`, and the row BELOW has one too.

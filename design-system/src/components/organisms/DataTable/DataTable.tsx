@@ -29,6 +29,26 @@ export interface DataTableProps<Row> {
 }
 
 /**
+ * `1.6fr` is `minmax(auto, 1.6fr)`: the column refuses to go below its content's
+ * MIN-CONTENT width — the longest single word in it — and takes the difference
+ * out of the table's width rather than out of the word. `.table` is
+ * `overflow: hidden`, so what that widening produces is not a scrollbar but a
+ * silently amputated last column, and nothing reports it: measured at 390px,
+ * the CSV import preview put 328px of row inside a 318px card and lost the
+ * "why" behind every rejected contact, while both the page-level `scrollWidth`
+ * check and the panel's own were perfectly content.
+ *
+ * Restating the fr tracks as `minmax(0, Nfr)` removes that floor, so a narrow
+ * table wraps its text instead of hiding it. Above the width where every column
+ * already clears its min-content — which is every desktop layout in this app —
+ * the two forms resolve to identical tracks, so nothing wide moves. A `px`
+ * column is passed through untouched: a fixed track was a decision, not a floor.
+ */
+function shrinkableTrack(width: string): string {
+  return /^\s*[\d.]*fr\s*$/.test(width) ? `minmax(0, ${width.trim()})` : width;
+}
+
+/**
  * The operator prototype's list/table: a card wrapping a mono uppercase header
  * row and grid data rows that share one column template. Presentational — pass
  * `columns` (with per-cell `render`) and `rows`. Used for Events and Bills &
@@ -36,7 +56,7 @@ export interface DataTableProps<Row> {
  */
 export function DataTable<Row>({ columns, rows, getRowKey, onRowClick, pagination, loading, skeletonRows, className }: DataTableProps<Row>) {
   const { visibleRows, loadMore, pages } = usePagination(rows, pagination);
-  const template = columns.map((column) => column.width).join(" ");
+  const template = columns.map((column) => shrinkableTrack(column.width)).join(" ");
   const cells = (row: Row) =>
     columns.map((column, index) => (
       <span key={index} className={column.align === "right" ? styles.right : undefined}>

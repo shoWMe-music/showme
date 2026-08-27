@@ -1,8 +1,29 @@
+/**
+ * The scrim's single track is stated as `minmax(0, 1fr)` rather than left
+ * implicit, and that is the whole responsive fix for every dialog in the app.
+ *
+ * An implicit track is `auto`, whose max sizing function is `max-content` — so
+ * the track sized itself to the panel's `width` prop (520px, 760px, 820px)
+ * BEFORE the panel's `max-width: 100%` was resolved. The percentage then
+ * resolved against the track the panel had just created, matched it exactly, and
+ * clamped nothing. The panel sat at `left: 24` and ran off the right edge of
+ * every phone, and because a `position: fixed` scrim's overflow never reaches
+ * the document scroll box, `documentElement.scrollWidth` stayed contentedly
+ * equal to the viewport and no page-level check could see it.
+ *
+ * `minmax(0, 1fr)` makes the track exactly the padded viewport regardless of
+ * what it contains, so `max-width: 100%` finally has a real number to clamp
+ * against. Above `width + 48px` nothing moves: the track was already being
+ * stretched to fill the scrim, so a 520px dialog on a 1440px screen is still
+ * exactly 520px, still centred by `justify-items`.
+ */
 .scrim {
   position: fixed;
   inset: 0;
   z-index: 1000;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   place-items: center;
   padding: 24px;
   background: rgba(10, 6, 4, .6);
@@ -10,9 +31,21 @@
   -webkit-backdrop-filter: blur(8px);
   /* enter/exit motion handled by GSAP (useModalMotion) */
 }
+/* A phone has no room to spend 48px of its width on scrim.
+   `--breakpoint-phone: 560px` (styles/tokens.css) — a custom property cannot
+   appear in a media query condition, so the literal is written out. */
+@media (max-width: 560px) {
+  .scrim { padding: 12px; }
+}
 .panel {
+  /* Both axes are clamped to the track, not to the panel's own content: the
+     inline `width`/`max-height` are what the dialog WANTS, never what it takes.
+     `min()` keeps 90vh as the look on a normal screen while stopping a short
+     landscape viewport from pushing the panel's edges past the scrim padding. */
   max-width: 100%;
-  max-height: 90vh;
+  max-height: min(90vh, 100%);
+  min-width: 0;
+  min-height: 0;
   overflow: auto;
   background: var(--surface);
   border: 1px solid var(--border-strong);

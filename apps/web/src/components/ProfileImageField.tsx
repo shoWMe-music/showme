@@ -48,7 +48,13 @@ export function ProfileImageField({
       <FieldLabel>{label}</FieldLabel>
       <p style={{ margin: 0, fontSize: 12.5, color: "var(--dim)" }}>{hint}</p>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+      {/* Wraps because the preview cannot shrink: a banner is a fixed 200px of
+          picture, and beside it the Replace/Remove column is another ~110px that
+          a 360px phone has not got. Without the wrap the pair simply hung 3px
+          past the right edge and took the whole Event workspace sideways with
+          it. Above ~330px of field width the line still fits, so nothing wider
+          than a small phone moves. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
         <button
           type="button"
           onClick={() => inputRef.current?.click()}

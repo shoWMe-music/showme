@@ -68,8 +68,15 @@ passed 24/24 and 7/7 alone. Re-run a single suite before believing a failure.
 
 ## 3. ClickUp — what is owed the moment the limit resets
 
-The daily MCP call limit (100/100) was hit at ~19:00 on 2026-08-27; it resets
-about 21 hours later. **Nothing below has been recorded in ClickUp.**
+The daily MCP call limit (100/100) was hit at ~19:00 on 2026-08-27. **Nothing
+below has been recorded in ClickUp.**
+
+Re-checked **2026-08-28 00:16 CEST** with a single cheap read: still locked,
+`retryAfter` 57530s — so the reset is **~16:15 on 2026-08-28**, i.e. the window
+is ~21h from first lockout, not from the last attempt. Reads draw on the same
+budget as writes, so probing costs the thing you are probing for: check ONCE,
+past the stated reset, and not before. Add to the list below: **wave 2 of the
+mobile pass** (commit `1cc483b`) has no task at all.
 
 Board: **Tech → General**, list `901524472815`. Parent: **[Ran list 2026-08-27](https://app.clickup.com/t/86cbaxtz1)**.
 
@@ -286,28 +293,105 @@ matches. So write the literal and cite the token beside it:
 `/* ≤ --breakpoint-tablet (860px, design-system/src/styles/tokens.css) */`.
 The values are `--breakpoint-phone: 560px`, `--breakpoint-tablet: 860px`.
 
-### THE AUDIT MEASURES ONE WIDTH, AND THAT IS NOT ENOUGH
-`mobile-audit.spec.ts` asserts at **390px only**. The Dashboard agent swept
-360→1440 in 14 steps and caught a bug both of the widths anyone checks would
-have passed: a 178px KPI floor was fine at 390 and fine at 1440, and pushed a
-**414px and a 430px** phone sideways by 17px and 9px. A long email overflowed
-Requests at 414, 430 *and* 768.
+### Wave 3 — the measure was widened, and it found something bad
 
-390 is the narrowest phone worth caring about, so it catches the crude failures.
-The subtle ones live between the breakpoints, where a track floor and the
-available width cross over. **Sweep before believing a fix**, and treat adding
-a handful of widths to the spec as the next improvement to the measure itself.
+**Why widen it.** The old spec asserted at 390px only. A width sweep caught a
+bug that both widths anyone checks would have passed: a 178px KPI track floor
+was fine at 390 and fine at 1440, and pushed a **414px** phone sideways by 17px
+and a **430px** by 9px. A long email overflowed Requests at 414, 430 *and* 768.
+The crude failures show at 390; the subtle ones live *between* the breakpoints,
+where a track floor and the available width cross over.
 
-### Known gaps — the next waves
-1. **The audit never opens a modal**, so nothing inside one is measured.
-   `AddContactModal` (in `Contacts.tsx`) has the same `1fr 1fr` pair with two
-   `<input>`s at ~170px min-content — a genuine phone break that the suite
-   reports as green. Modals, drawers and popovers are an entire unmeasured
-   surface.
-2. **DataTable's pager** left at 30px deliberately: overlays would overlap by
+`mobile-audit.spec.ts` now sweeps **nine widths** — 360, 390, 414, 430, 560,
+561, 768, 860, 861. The pairs matter: 560/561 and 860/861 sit on and one past
+`--breakpoint-phone` and `--breakpoint-tablet`, and 861 is the narrowest content
+column the desktop shell ever has, which is what keeps this a desktop guard too.
+Cost: the whole suite went 17.2s/60 tests → **29.0s/80 tests**, by resizing the
+viewport in place rather than re-navigating (16 loads, 144 measurements).
+
+### EVERY MODAL WAS BROKEN ON EVERY PHONE, AND THE SUITE SAID GREEN
+The single most important finding of the mobile pass, and a lesson about
+measurement rather than about CSS.
+
+`Modal.module.css`'s scrim is `display: grid; place-items: center; padding:
+24px`. The auto-sized track sizes itself to the panel's `width` prop, so the
+panel's `max-width: 100%` **resolves against the track it just created and is a
+no-op**. The panel never shrinks: it sits at `left: 24` and runs off the right
+edge. The scrim is `position: fixed` with `overflow: visible`, so nothing
+scrolls to reach the overhang — and `documentElement.scrollWidth` reads exactly
+the viewport width the entire time.
+
+**That is why it was invisible.** The audit's one assertion was structurally
+incapable of seeing it. A fixed-position element cannot move the document's
+scroll width, so a whole surface of the app failed underneath a green suite.
+Nine of ten modals overhang a 390px phone: the 520px default (Add contact, New
+task, Create work-group, New invoice, New profile), Invite member at 480,
+Availability share at 560, Import contacts at 760, Import .ics at 820. Only the
+New event wizard passes, and only because it uses its own overlay
+(`width: 100%; max-width: 620`).
+
+> **The general lesson:** when a suite is green, ask what the assertion is
+> *capable* of failing on. `scrollWidth <= clientWidth` cannot fail on anything
+> `position: fixed`, anything inside an `overflow: hidden` ancestor, or anything
+> a pseudo-element owns. Green means "the thing I measured was fine", never
+> "the app is fine".
+
+**Expect a second wave when the panel is capped.** The `minmax(auto, 1fr)` bug
+is latent inside these modals — their `1fr 1fr` field grids cannot be squeezed
+while the panel refuses to shrink. Probed: at 390px the Add-contact grid
+resolves to `230px 230px` inside a 474px body. Fix the scrim → re-run → fix what
+the clip scan then reports.
+
+### Five fixes the measure itself needed to read true
+Worth knowing, because each is a way a mobile assertion can lie:
+1. **Measure the panel against the viewport**, not its own scroll box — both
+   obvious checks are structurally blind here.
+2. **Wait for stable geometry.** `useModalMotion` tweens `scale: .96 → 1`, and
+   `getBoundingClientRect()` reports the *transformed* box: un-waited, a 520px
+   panel measured 501.7px. Poll for two identical widths, never sleep.
+3. **`document.fonts.ready`** — a 3px Event-workspace failure was flaky 2 runs
+   in 3 without it, 3 in 3 with.
+4. **Skip elements clipped by an ancestor scroller** in the offender dump, or it
+   names five tab-strip buttons and buries the real culprit.
+5. **Exempt `text-overflow: ellipsis` and form controls** from the clip scan: a
+   `type="date"` input reports a 4248px `scrollWidth` in a 362px box while
+   looking perfectly normal.
+
+### A THIRD BLIND SPOT: the hand-rolled lists
+Found while fixing the modals, and it belongs beside the `position: fixed`
+lesson because it is the same shape.
+
+`apps/web/src/routes/Events.tsx:372-383` (`GRID_COLUMNS`) and Bills & Invoices
+are their own grid tables — **not** `DataTable`, so the `minmax(0, Nfr)` fix
+does not reach them. At 360px Events puts 375px of row into a 330px card and
+Bills puts 356 into 330, and each hides the remainder behind its own
+`overflow: hidden`. So the last column is silently amputated rather than
+scrolled to.
+
+**Neither half of the audit can see it**: it is not a document overflow (the
+card clips it) and it is not inside a dialog (which is the other place the spec
+scans for clipping). Add the same `minmax(0, …)` treatment, and answer the
+design question below at the same time.
+
+### ESCALATED — a design decision, not a bug
+A five-column `DataTable` at 336px is complete and readable but **cramped**: the
+mono header wraps to "NA/ME". Making it comfortable means either a phone layout
+for `DataTable` (stacked cards, one row per card) or a reduced column set per
+table. The agent declined to invent one, correctly — it changes what the product
+looks like on a phone, and Daniel has the design prototype. **This is the one
+open question in the mobile pass that is a product call rather than an
+engineering one.**
+
+### Known gaps — still open
+1. **DataTable's pager** left at 30px deliberately: overlays would overlap by
    10px, and spacing them to real 44px targets makes a 9-page pager 508px wide
    — wider than the phone it is meant to help. Needs a narrow redesign, not a
    touch utility.
+2. **~134 inline-styled buttons in `apps/web`** are still under 44px on a coarse
+   pointer: Calendar's 36×36 month arrows and 24×24 day cells, Contacts' 22×22
+   copy buttons, the 28px `SegmentedToggle`. The audit runs `pointer: fine` and
+   **structurally cannot see any of this** — measure it with a coarse probe, not
+   the suite.
 3. Tap-target counts (20–39 per screen) are a work list, not a failure.
 
 ### THE DEPLOY IS BLOCKED — and mobile cannot ship alone
