@@ -2,6 +2,7 @@ import {
   type getApiV1EventsId,
   useGetApiV1Activity,
   useGetApiV1EventsId,
+  useGetApiV1EventsIdSettlementPlannedVsActual,
 } from "@showme/api-client";
 import {
   Avatar,
@@ -35,7 +36,7 @@ import {
   type SettlementParty,
   useEventSettlement,
 } from "../components/useEventSettlement";
-import { formatDate } from "../lib/format";
+import { formatDate, formatMoney } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
 
 /**
@@ -168,7 +169,7 @@ export function EventSettlement() {
       ) : tab === "deals" ? (
         <DealStructureTab settlement={settlement} />
       ) : tab === "financials" ? (
-        <FinancialsTab settlement={settlement} />
+        <FinancialsTab eventId={eventId} />
       ) : tab === "comments" ? (
         <CommentsTab settlement={settlement} eventId={eventId} />
       ) : tab === "payout" ? (
@@ -769,33 +770,233 @@ function TotalPayouts({ settlement }: { settlement: EventSettlementData }) {
 }
 
 /**
- * The FINANCIALS tab — where the night's takings and costs are entered.
+ * The FINANCIALS tab — what was PLANNED against what actually happened.
  *
- * The design shows eight editable figures over a live-recomputing payout, and that
- * is the manual-override surface the 2026-08 meeting asks for. In OUR model those
- * eight are budget lines, and editing them at settlement time is what
- * `docs/decisions.md` #16.8 (budget snapshot) exists to make safe — budgets are the
- * PREDICTION, the settlement holds the ACTUALS, and the snapshot is what keeps
- * planned-vs-actual after the fact.
+ * The design shows eight editable figures over a live-recomputing payout. In our
+ * model those figures are budget lines, and the budget is the PREDICTION while the
+ * settlement holds the ACTUALS (`docs/decisions.md` #16.8). So rather than eight
+ * inputs that quietly rewrite the plan, this shows the plan and the outcome side
+ * by side, per line, with the variance — which is the thing the eight inputs were
+ * for and the reason #16.8 exists.
  *
- * Until that lands the ladder is shown READ-ONLY, which is the same information the
- * engine already computed, rather than eight inputs that would quietly write to the
- * plan. The note says so on screen rather than leaving a reader to discover it.
+ * Editing still belongs in the Budget Planner, where a budget line is owned. That
+ * is one place a figure is changed rather than two that can disagree.
+ *
+ * `Σ lines[].poolEffect === variance.pool` exactly, so every krona of the variance
+ * is attributable to a row — the API asserts it and this screen simply shows it.
  */
-function FinancialsTab({ settlement }: { settlement: EventSettlementData }) {
-  if (!settlement.isComputed) return <NothingSettledYet settlement={settlement} />;
+function FinancialsTab({ eventId }: { eventId: string }) {
+  const comparison = useGetApiV1EventsIdSettlementPlannedVsActual(eventId);
+
+  if (comparison.isPending) return <LoadingState label="Loading the plan" />;
+  // 403 is the ceiling, not a fault: only a party who may read the whole night's
+  // money may read the plan behind it.
+  if (comparison.isError) {
+    return (
+      <EmptyState
+        icon={<Icon name="eye-off" />}
+        title="The plan is the operator's view"
+        description="What this night was budgeted to make is the whole event's money, not your own line."
+      />
+    );
+  }
+
+  const data = comparison.data;
+  if (!data.plan) {
+    return (
+      <EmptyState
+        icon={<Icon name="trending-up" />}
+        title="No plan captured yet"
+        description="The budget is snapshotted the first time the settlement is run, and this is where the plan and the outcome are compared."
+      />
+    );
+  }
+
+  const rows: { key: string; label: string; planned: string; actual: string; variance: string }[] =
+    data.lines.map((line) => ({
+      key: line.lineId,
+      label: line.label,
+      planned: line.planned ? line.planned.amountBase : "—",
+      actual: line.actual ? line.actual.amountBase : "—",
+      variance: line.variance,
+    }));
+
   return (
-    <div style={{ ...CARD_COLUMN, maxWidth: 660 }}>
+    <div style={{ ...CARD_COLUMN, maxWidth: 860 }}>
       <Card padding="lg" style={CARD_COLUMN}>
-        <CardTitle>Revenue & deductions</CardTitle>
-        <p className="muted" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55 }}>
-          These are the figures the settlement was computed from. Editing them here — with every
-          payout recomputing live — arrives with the budget snapshot, so that correcting an actual
-          cannot quietly rewrite the plan it was measured against.
-        </p>
-        <PoolLadderRows settlement={settlement} />
+        <CardTitle subtitle="What this night was budgeted to make, against what it actually did.">
+          Planned vs actual
+        </CardTitle>
+        <PlannedActualRow
+          label="Revenue"
+          planned={data.plan.revenue}
+          actual={data.actual.revenue}
+          variance={data.variance?.revenue ?? null}
+          currency={data.baseCurrency}
+        />
+        <PlannedActualRow
+          label="Costs"
+          planned={data.plan.costs}
+          actual={data.actual.costs}
+          variance={data.variance?.costs ?? null}
+          currency={data.baseCurrency}
+        />
+        <PlannedActualRow
+          label="Pool"
+          planned={data.plan.pool}
+          actual={data.actual.pool}
+          variance={data.variance?.pool ?? null}
+          currency={data.baseCurrency}
+          emphasis
+        />
+        {data.actual.withheldBudgetCount > 0 && (
+          <p className="muted" style={{ margin: "8px 0 0", fontSize: 12.5, lineHeight: 1.5 }}>
+            {data.actual.withheldBudgetCount} private budget
+            {data.actual.withheldBudgetCount === 1 ? " is" : "s are"} not shared with you, so these
+            totals are short by whatever they hold.
+          </p>
+        )}
       </Card>
+
+      {rows.length > 0 && (
+        <Card padding="lg" style={CARD_COLUMN}>
+          <CardTitle subtitle="Every line that moved, and by how much. These add up to the pool variance above.">
+            Line by line
+          </CardTitle>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr auto auto auto",
+              gap: "0 16px",
+              alignItems: "center",
+            }}
+          >
+            <Eyebrow>Line</Eyebrow>
+            <Eyebrow style={{ textAlign: "right" }}>Planned</Eyebrow>
+            <Eyebrow style={{ textAlign: "right" }}>Actual</Eyebrow>
+            <Eyebrow style={{ textAlign: "right" }}>Variance</Eyebrow>
+            {rows.map((row) => (
+              <FinancialsLine key={row.key} row={row} currency={data.baseCurrency} />
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
+  );
+}
+
+/** One plan-vs-outcome row, with the variance signed and coloured. */
+function PlannedActualRow({
+  label,
+  planned,
+  actual,
+  variance,
+  currency,
+  emphasis,
+}: {
+  label: string;
+  planned: string;
+  actual: string;
+  variance: string | null;
+  currency: string;
+  emphasis?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr auto auto auto",
+        gap: "0 16px",
+        alignItems: "center",
+        padding: "9px 0",
+        borderTop: "1px solid var(--border)",
+        fontWeight: emphasis ? 600 : 400,
+      }}
+    >
+      <span style={{ fontSize: 13.5 }}>{label}</span>
+      <MoneyCell value={planned} currency={currency} muted />
+      <MoneyCell value={actual} currency={currency} />
+      <VarianceCell value={variance} currency={currency} />
+    </div>
+  );
+}
+
+function FinancialsLine({
+  row,
+  currency,
+}: {
+  row: { label: string; planned: string; actual: string; variance: string };
+  currency: string;
+}) {
+  return (
+    <>
+      <span
+        style={{
+          fontSize: 13,
+          padding: "7px 0",
+          borderTop: "1px solid var(--border)",
+          minWidth: 0,
+        }}
+      >
+        {row.label}
+      </span>
+      <MoneyCell value={row.planned} currency={currency} muted bordered />
+      <MoneyCell value={row.actual} currency={currency} bordered />
+      <VarianceCell value={row.variance} currency={currency} bordered />
+    </>
+  );
+}
+
+function MoneyCell({
+  value,
+  currency,
+  muted,
+  bordered,
+}: { value: string; currency: string; muted?: boolean; bordered?: boolean }) {
+  return (
+    <span
+      style={{
+        fontFamily: "var(--font-mono)",
+        fontSize: 13,
+        textAlign: "right",
+        whiteSpace: "nowrap",
+        color: muted ? "var(--muted)" : "var(--text)",
+        padding: bordered ? "7px 0" : 0,
+        borderTop: bordered ? "1px solid var(--border)" : undefined,
+      }}
+    >
+      {value === "—" ? value : formatMoney(value, currency)}
+    </span>
+  );
+}
+
+/**
+ * A variance, signed. Over budget on a COST and under on revenue are both bad news,
+ * but the sign is the honest thing to show — the reader knows which line they are
+ * looking at, and a screen that editorialises about direction gets it wrong the
+ * first time somebody books a cost as negative revenue.
+ */
+function VarianceCell({
+  value,
+  currency,
+  bordered,
+}: { value: string | null; currency: string; bordered?: boolean }) {
+  const style = {
+    fontFamily: "var(--font-mono)",
+    fontSize: 13,
+    textAlign: "right" as const,
+    whiteSpace: "nowrap" as const,
+    padding: bordered ? "7px 0" : 0,
+    borderTop: bordered ? "1px solid var(--border)" : undefined,
+  };
+  if (value == null) return <span style={{ ...style, color: "var(--dim)" }}>—</span>;
+  const negative = value.startsWith("-");
+  return (
+    <span style={{ ...style, color: negative ? "var(--brand-red)" : "var(--text)" }}>
+      {negative
+        ? `− ${formatMoney(value.slice(1), currency)}`
+        : `+ ${formatMoney(value, currency)}`}
+    </span>
   );
 }
 
