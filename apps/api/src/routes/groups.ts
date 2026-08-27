@@ -1,5 +1,5 @@
 import { schema } from "@showme/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -62,6 +62,75 @@ const AssignResponse = z.object({
   skippedNoProfile: z.array(z.object({ memberId: z.string(), email: z.string().nullable() })),
   skippedExisting: z.array(z.object({ profileId: z.string() })),
 });
+
+/**
+ * A crew member's IN-HOUSE block — the operator's own working notes on one
+ * person, and the answer to "where do call times live?".
+ *
+ * NOT a `schedule_items` row, and that is the load-bearing decision here. A
+ * run-of-show item is a moment in the day EVERY party coordinates around
+ * ("Doors 19:00", "Soundcheck 16:00"), which is why `schedule.view` sits in the
+ * performer floor AND the crew floor in `packages/auth/src/presets.ts` —
+ * inviolable, so the operator cannot strip it. Nothing written into that table
+ * can ever be operator-private; putting a call time there would publish it to
+ * the bill and to the act's agent, which is the exact opposite of what the
+ * In-House tab means (`docs/meeting-2026-08-settlements-and-deals.md`, 01:40:58).
+ *
+ * A call time is not a moment in the day either — it is a fact about ONE
+ * person's engagement ("Priya is needed from five"), an instruction to an
+ * individual rather than a slot on the day sheet. `docs/story.md` puts crew at
+ * arm's length: they are booked to do a job, and how the operator staffs the
+ * room is not the performer's business.
+ *
+ * So it lives where the data model always said it did:
+ * `event_participants.details` — "crew_details (call_time, task, pay_note)
+ * folded in" (`packages/db/src/schema/events.ts`). That column is ALREADY
+ * redacted for everyone but the managing operators by `serializeParticipant`,
+ * and the redaction is backed by the ceiling: `budget.view` may only ever be
+ * held by a `host`/`co_host` (`isGrantable`), so no permission set an operator
+ * can write hands a performer, an agent or a crew member the key. That is why
+ * this needed no migration and no new privacy primitive — it needed the one
+ * that was already there.
+ */
+const InHouseParams = z.object({ id: z.string().uuid(), pid: z.string().uuid() });
+
+/** Wall-clock `HH:MM` on the event's own day, in the event's own timezone. */
+const wallClockTime = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
+
+const UpdateInHouseBody = z.object({
+  /**
+   * Deliberately a time-of-day, not the offset-free local DATE-time
+   * `schedule_items` stores. An operator says "call at five", and the day is the
+   * show's day — the seeded shape (`"17:00"`) already says so. The cost is
+   * honest and small: a load-in the NIGHT BEFORE cannot be expressed here, and
+   * should not be — that is a genuine run-of-show item, on the schedule tab,
+   * where everyone who has to be in the building can read it.
+   *
+   * Null clears it. Absent leaves it alone — the two are different acts.
+   */
+  callTime: wallClockTime.nullable().optional(),
+  /** The operator's private note on this person. Null clears it. */
+  privateNote: z.string().max(2000).nullable().optional(),
+});
+
+const InHouseResponse = z.object({
+  participantId: z.string(),
+  callTime: z.string().nullable(),
+  privateNote: z.string().nullable(),
+});
+
+/** The two in-house fields, read out of the participant's `details` blob. */
+function serializeInHouse(participant: {
+  id: string;
+  details: unknown;
+}): z.infer<typeof InHouseResponse> {
+  const details = (participant.details as Record<string, unknown> | null) ?? {};
+  return {
+    participantId: participant.id,
+    callTime: typeof details.callTime === "string" ? details.callTime : null,
+    privateNote: typeof details.privateNote === "string" ? details.privateNote : null,
+  };
+}
 
 type GroupRow = typeof schema.groups.$inferSelect;
 type GroupMemberRow = typeof schema.groupMembers.$inferSelect;
@@ -512,6 +581,101 @@ export async function groupRoutes(fastify: FastifyInstance): Promise<void> {
       });
 
       return { removed };
+    },
+  );
+
+  // The In-House Management tab's write door: the call time and the private note
+  // the operator keeps on one crew member. See `InHouseParams` above for why this
+  // is not a schedule item.
+  //
+  // THERE IS NO MATCHING GET, on purpose. `GET /events/:id/participants` already
+  // returns `details` — and returns it to the managing operators and nobody else,
+  // through `serializeParticipant`. A second read path for the same column would
+  // be a second place the redaction has to stay correct.
+  app.patch(
+    "/events/:id/crew/:pid/in-house",
+    {
+      schema: {
+        params: InHouseParams,
+        body: UpdateInHouseBody,
+        response: { 200: InHouseResponse },
+      },
+    },
+    async (request) => {
+      const { database } = request.server;
+      const { id: eventId, pid } = request.params;
+
+      // `crew.manage` and not `participants.manage`: this is the capability the
+      // In-House tab itself is gated on in the web app, it is a MANAGEMENT
+      // capability by name (so `roleFilter` strips it from an `editor`), and it
+      // appears in no preset but `operator_full`. A performer, an agent and a crew
+      // member each hold `event.view` and so get past the existence gate — and
+      // each is refused here, which is the whole point of the surface.
+      await requireEventCapability(request, eventId, "crew.manage");
+
+      const [before] = await database
+        .select()
+        .from(schema.eventParticipants)
+        .where(
+          and(
+            eq(schema.eventParticipants.id, pid),
+            eq(schema.eventParticipants.eventId, eventId),
+            ne(schema.eventParticipants.status, "removed"),
+          ),
+        );
+      // 404 rather than 403: a participant of some other event is not this
+      // caller's business to have confirmed the existence of — the same rule the
+      // task assignee check states.
+      if (!before) throw notFound("That person is not on this event");
+
+      // CREW ROWS ONLY. Not squeamishness about scope: a PERFORMER's `details`
+      // carries `delegatedToAgentProfileId`, which is live authorization state
+      // (decisions #14 — it is what puts a represented act's participation in the
+      // agent's hands). A route whose job is to edit notes has no business being
+      // one bug away from that. Crew rows carry only `sponsorParticipantId`.
+      if (before.role !== "crew" && before.role !== "crew_lead") {
+        throw badRequest("In-house notes are kept on crew, not on the bill");
+      }
+
+      // MERGE, never replace. `details` is a shared blob: `sponsorParticipantId`
+      // is written into it by `assignGroupToEvent` and by the participants route,
+      // and it is what scopes a crew member's rider visibility to whoever brought
+      // them (decisions #12). Overwriting the object would silently widen or
+      // destroy that. An explicit `null` DELETES its key rather than storing one,
+      // so a cleared field leaves the blob as it was before anyone typed in it.
+      const details = { ...((before.details as Record<string, unknown> | null) ?? {}) };
+      for (const field of ["callTime", "privateNote"] as const) {
+        const value = request.body[field];
+        if (value === undefined) continue;
+        if (value === null) delete details[field];
+        else details[field] = value;
+      }
+
+      const updated = await database.transaction(async (tx) => {
+        const [after] = await tx
+          .update(schema.eventParticipants)
+          .set({ details, updatedAt: new Date() })
+          .where(eq(schema.eventParticipants.id, pid))
+          .returning();
+        if (!after) throw notFound("That person is not on this event");
+        await writeAudit(tx, request, {
+          capability: "crew.manage",
+          action: "participant.in_house_update",
+          targetKind: "event_participant",
+          targetId: pid,
+          eventId,
+          before: before.details,
+          after: details,
+        });
+        // DELIBERATELY NO `writeActivity`. The event feed is read by every
+        // participant with `event.view`; a line saying the operator changed
+        // Priya's call time would announce to the bill and to the act's agent
+        // exactly the thing this column is redacted to hide. The forensic record
+        // is `audit_log`, which is admin-only (routes/admin.ts).
+        return after;
+      });
+
+      return serializeInHouse(updated);
     },
   );
 }

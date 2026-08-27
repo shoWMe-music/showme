@@ -6,6 +6,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
 import { groupRoutes } from "./routes/groups";
+import { participantRoutes } from "./routes/participants";
 import { buildTestApp } from "./testing";
 
 const fakeVerifier: TokenVerifier = {
@@ -19,7 +20,10 @@ let app: FastifyInstance;
 
 beforeAll(async () => {
   harness = await startTestDatabase();
-  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [groupRoutes]);
+  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [
+    groupRoutes,
+    participantRoutes,
+  ]);
   await app.ready();
 });
 
@@ -560,5 +564,264 @@ describe("groups — the grant_admin entitlement gate (paid plans only)", () => 
     });
     expect(response.statusCode).toBe(200);
     expect(response.json().assigned).toHaveLength(1);
+  });
+});
+
+/**
+ * The In-House Management tab's private half (`PATCH …/crew/:pid/in-house`).
+ *
+ * `participantRoutes` is registered ALONGSIDE `groupRoutes` in this suite's app
+ * on purpose: the claim under test is not "the PATCH refuses a performer", it is
+ * "what the operator writes here never reaches the bill" — and the read side of
+ * that sentence is `GET /events/:id/participants`. Proving it needs both routes
+ * in one app, or the privacy is asserted rather than shown.
+ */
+describe("in-house — the operator's private block on a crew member", () => {
+  async function seedInHouseEvent(prefix: string) {
+    const operator = await seedMember(
+      `${prefix}-op`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMember(
+      `${prefix}-perf`,
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const agent = await seedMember(`${prefix}-agent`, "agent", PRESET_PERMISSION_SETS.agent);
+    const crew = await seedMember(
+      `${prefix}-crew`,
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_schedule_only,
+    );
+    // A LIVE representation behind the agent row, not just the row. Without it
+    // `effectiveEventCapabilities` skips an `agent` participation entirely
+    // (decisions #14: the projection is a candidate, the agreement is the
+    // authority) and the agent 404s — a refusal that would prove nothing about
+    // this route. The performer is stamped as delegated to match, which is the
+    // shape the e2e seed uses for a represented act.
+    await harness.db.insert(schema.representations).values({
+      agentProfileId: agent.profileId,
+      performerProfileId: performer.profileId,
+      region: ["SE"],
+      proposedBy: "agent",
+      status: "active",
+      confirmedByAgent: true,
+      confirmedByPerformer: true,
+    });
+    const seeded = await seedEvent(operator.profileId, operator.userId, [
+      { profileId: operator.profileId, permissionSetId: operator.permissionSetId, role: "host" },
+      {
+        profileId: performer.profileId,
+        permissionSetId: performer.permissionSetId,
+        role: "performer",
+        details: { delegatedToAgentProfileId: agent.profileId },
+      },
+      { profileId: agent.profileId, permissionSetId: agent.permissionSetId, role: "agent" },
+      {
+        profileId: crew.profileId,
+        permissionSetId: crew.permissionSetId,
+        role: "crew",
+        // The stamp `assignGroupToEvent` writes, and the reason this route merges
+        // rather than replaces: it scopes the crew member's rider visibility.
+        details: { sponsorParticipantId: "00000000-0000-4000-8000-000000000abc" },
+      },
+    ]);
+    const crewParticipant = seeded.participants.find((row) => row.role === "crew");
+    const performerParticipant = seeded.participants.find((row) => row.role === "performer");
+    const agentParticipant = seeded.participants.find((row) => row.role === "agent");
+    if (!crewParticipant || !performerParticipant || !agentParticipant) {
+      throw new Error("in-house seed failed");
+    }
+    return {
+      operator,
+      performer,
+      agent,
+      crew,
+      event: seeded.event,
+      crewParticipant,
+      performerParticipant,
+    };
+  }
+
+  it("stores a call time and a private note, merged into the existing details", async () => {
+    const { event, crewParticipant } = await seedInHouseEvent("ih-write");
+
+    const saved = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}/crew/${crewParticipant.id}/in-house`,
+      headers: auth("ih-write-op"),
+      payload: { callTime: "17:00", privateNote: "Has the venue key. Park round the back." },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toEqual({
+      participantId: crewParticipant.id,
+      callTime: "17:00",
+      privateNote: "Has the venue key. Park round the back.",
+    });
+
+    // The state, not just the response — and specifically that the sponsor stamp
+    // survived, because losing it would silently rescope who this person's riders
+    // come from.
+    const [row] = await harness.db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.id, crewParticipant.id));
+    expect(row?.details).toEqual({
+      sponsorParticipantId: "00000000-0000-4000-8000-000000000abc",
+      callTime: "17:00",
+      privateNote: "Has the venue key. Park round the back.",
+    });
+  });
+
+  it("clears one field with null and leaves the rest of the blob alone", async () => {
+    const { event, crewParticipant } = await seedInHouseEvent("ih-clear");
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}/crew/${crewParticipant.id}/in-house`,
+      headers: auth("ih-clear-op"),
+      payload: { callTime: "16:30", privateNote: "Bring the spare XLR" },
+    });
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}/crew/${crewParticipant.id}/in-house`,
+      headers: auth("ih-clear-op"),
+      payload: { callTime: null },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().callTime).toBeNull();
+    expect(cleared.json().privateNote).toBe("Bring the spare XLR");
+
+    // A cleared field DELETES its key rather than storing a null, so the blob
+    // reads exactly as it did before anyone typed a call time in.
+    const [row] = await harness.db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.id, crewParticipant.id));
+    expect(row?.details).toEqual({
+      sponsorParticipantId: "00000000-0000-4000-8000-000000000abc",
+      privateNote: "Bring the spare XLR",
+    });
+  });
+
+  it("refuses the performer, the act's agent and the crew member themselves", async () => {
+    const { event, crewParticipant } = await seedInHouseEvent("ih-deny");
+
+    for (const uid of ["ih-deny-perf", "ih-deny-agent", "ih-deny-crew"]) {
+      const denied = await app.inject({
+        method: "PATCH",
+        url: `/api/v1/events/${event.id}/crew/${crewParticipant.id}/in-house`,
+        headers: auth(uid),
+        payload: { privateNote: "let me in" },
+      });
+      // 403, not 404: each of them holds `event.view`, so the event exists for
+      // them — it is `crew.manage` they do not have. Asserting the MESSAGE, not
+      // the bare status, so a refusal for some other reason cannot pass as this one.
+      expect(denied.statusCode).toBe(403);
+      expect(denied.json().error.message).toBe("Missing capability: crew.manage");
+    }
+  });
+
+  it("never leaks the private note to the performer or the agent", async () => {
+    const { event, crewParticipant } = await seedInHouseEvent("ih-leak");
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}/crew/${crewParticipant.id}/in-house`,
+      headers: auth("ih-leak-op"),
+      payload: { callTime: "15:00", privateNote: "Paying her cash, do not mention on the night" },
+    });
+
+    // The operator's own read carries it — the positive control, without which
+    // "absent from the payload" would only prove the write failed.
+    const asOperator = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("ih-leak-op"),
+    });
+    const operatorCrewRow = asOperator
+      .json()
+      .find((row: { id: string }) => row.id === crewParticipant.id);
+    expect(operatorCrewRow.details).toMatchObject({
+      callTime: "15:00",
+      privateNote: "Paying her cash, do not mention on the night",
+    });
+
+    for (const uid of ["ih-leak-perf", "ih-leak-agent"]) {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/participants`,
+        headers: auth(uid),
+      });
+      expect(response.statusCode).toBe(200);
+      // Not "the field is empty" — the WHOLE `details` key is absent from every
+      // row, and the note text appears nowhere in the serialized body at all.
+      for (const row of response.json()) {
+        expect(row.details).toBeUndefined();
+      }
+      expect(response.body).not.toContain("do not mention");
+      expect(response.body).not.toContain("15:00");
+    }
+  });
+
+  it("keeps in-house notes off the bill — a performer row is refused", async () => {
+    const { event, performerParticipant } = await seedInHouseEvent("ih-bill");
+
+    const refused = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}/crew/${performerParticipant.id}/in-house`,
+      headers: auth("ih-bill-op"),
+      payload: { privateNote: "note about the band" },
+    });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error.message).toBe("In-house notes are kept on crew, not on the bill");
+  });
+
+  it("404s a participant who is not on this event, and one already removed", async () => {
+    const { event, crewParticipant } = await seedInHouseEvent("ih-gone");
+    const other = await seedInHouseEvent("ih-other");
+
+    const stranger = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}/crew/${other.crewParticipant.id}/in-house`,
+      headers: auth("ih-gone-op"),
+      payload: { callTime: "17:00" },
+    });
+    expect(stranger.statusCode).toBe(404);
+
+    await harness.db
+      .update(schema.eventParticipants)
+      .set({ status: "removed" })
+      .where(eq(schema.eventParticipants.id, crewParticipant.id));
+    const removed = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}/crew/${crewParticipant.id}/in-house`,
+      headers: auth("ih-gone-op"),
+      payload: { callTime: "17:00" },
+    });
+    expect(removed.statusCode).toBe(404);
+  });
+
+  it("refuses a call time that is not a wall-clock HH:MM", async () => {
+    const { event, crewParticipant } = await seedInHouseEvent("ih-time");
+
+    const bad = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}/crew/${crewParticipant.id}/in-house`,
+      headers: auth("ih-time-op"),
+      payload: { callTime: "2026-07-15T17:00" },
+    });
+    expect(bad.statusCode).toBe(400);
+
+    // The positive control the checklist asks for: the same route, the same body
+    // shape, a valid time — so the 400 above is the regex and not the request.
+    const good = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}/crew/${crewParticipant.id}/in-house`,
+      headers: auth("ih-time-op"),
+      payload: { callTime: "17:00" },
+    });
+    expect(good.statusCode).toBe(200);
   });
 });

@@ -1026,10 +1026,16 @@ async function main() {
           role: "crew",
           permissionSetId: PERMISSION_SET_IDS.crewScheduleOnly,
           status: "confirmed",
+          // camelCase, because that is what every reader uses — `routes/groups.ts`,
+          // `useEventCrewPanel`, `serializeParticipant` and the reapers all say
+          // `callTime`. These were seeded in snake_case and therefore read by
+          // nothing: the In-House Management card showed a blank call time for a
+          // crew member the seed believed had one. Two spellings for one fact is
+          // worse than one dead key, so the seed moves rather than the readers.
           details: {
-            call_time: "17:00",
+            callTime: "17:00",
             task: "Front-of-house sound",
-            pay_note: "Fee invoiced separately",
+            payNote: "Fee invoiced separately",
           },
           addedBy: operatorUserId,
         },

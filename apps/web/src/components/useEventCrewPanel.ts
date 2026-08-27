@@ -3,7 +3,10 @@ import {
   type PostApiV1EventsIdGroups200,
   type PostApiV1EventsIdGroups200SkippedNoProfileItem,
   getGetApiV1EventsIdParticipantsQueryKey,
+  useGetApiV1EventsIdParticipants,
   useGetApiV1Groups,
+  useGetApiV1Tasks,
+  usePatchApiV1EventsIdCrewPidInHouse,
   usePostApiV1EventsIdGroups,
 } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
@@ -28,6 +31,19 @@ import { errorMessage } from "../lib/errors";
  *   (`POST /invitations`), and grants nothing until they accept. That flow is
  *   already built and correct — `EventCollaboratorInviteModal` — so this hook
  *   only holds the door open rather than growing a second, divergent invite.
+ *
+ * It also carries the tab's PRIVATE half — the In-House Management block. That
+ * surface used to be one sentence promising "team schedules, private notes and
+ * assigned tasks" and delivering none of the three. It now delivers all three,
+ * and each comes from somewhere that was already private:
+ *
+ * - **Call time** and **private note** live in `event_participants.details`,
+ *   which `serializeParticipant` returns to the managing operators and to nobody
+ *   else. The write door is `PATCH /events/:id/crew/:pid/in-house`.
+ * - **Assigned tasks** are the event's own to-do list filtered to that crew
+ *   member's `assigneeParticipantId` — the column the To Do tab now writes. No
+ *   new endpoint: the shared list is already gated by `event.view`, and grouping
+ *   it by assignee is a view of it, not a second copy.
  */
 export interface EventCrewPanel {
   /** The caller's saved work-groups, for the "From Team" picker. */
@@ -39,6 +55,58 @@ export interface EventCrewPanel {
   closePicker: () => void;
   assignGroup: (groupId: string) => void;
   isAssigning: boolean;
+  /** The In-House block for each crew participant, keyed by participant id. */
+  inHouse: Record<string, CrewInHouse>;
+  inHousePending: boolean;
+  saveInHouse: (participantId: string, next: CrewInHouseEdit) => void;
+  isSavingInHouse: boolean;
+}
+
+/** One crew member's private working record, as the In-House tab renders it. */
+export interface CrewInHouse {
+  /** Wall-clock `HH:MM` on the show's day, in the event's timezone. */
+  callTime: string | null;
+  privateNote: string | null;
+  /** That person's tasks on THIS event — the To Do tab, filtered to them. */
+  tasks: CrewTask[];
+}
+
+export interface CrewTask {
+  id: string;
+  title: string;
+  completed: boolean;
+  dueDate: string | null;
+}
+
+/** A save: an absent field is left alone, `null` clears it — the API's own rule. */
+export interface CrewInHouseEdit {
+  callTime?: string | null;
+  privateNote?: string | null;
+}
+
+/** Empty rather than undefined, so a member with nothing on file still renders. */
+export const EMPTY_IN_HOUSE: CrewInHouse = { callTime: null, privateNote: null, tasks: [] };
+
+/**
+ * The two in-house fields, dug out of the participant's `details` blob.
+ *
+ * `details` is typed `unknown` by the generated client because the API declares
+ * it that way — deliberately, since it is a jsonb bag whose contents differ by
+ * event-role (a crew row carries `sponsorParticipantId`, a delegated performer
+ * carries `delegatedToAgentProfileId`). Reading two known string keys out of it
+ * is the whole of the narrowing this screen needs.
+ *
+ * AND IT IS ABSENT FOR EVERYONE BUT THE OPERATOR. `serializeParticipant` omits
+ * the key entirely below `participants.manage`/`budget.view`, so on a performer's
+ * or an agent's own fetch this function is reading from `{}` — the privacy is the
+ * server's, not this screen's.
+ */
+function readInHouse(details: unknown): { callTime: string | null; privateNote: string | null } {
+  const bag = (details ?? {}) as Record<string, unknown>;
+  return {
+    callTime: typeof bag.callTime === "string" ? bag.callTime : null,
+    privateNote: typeof bag.privateNote === "string" ? bag.privateNote : null,
+  };
 }
 
 /**
@@ -130,10 +198,33 @@ export function useEventCrewPanel(eventId: string): EventCrewPanel {
   const queryClient = useQueryClient();
   const [pickerOpen, setPickerOpen] = useState(false);
 
+  // Both reads are the SAME queries the event screen and the To Do tab already
+  // run, with the same keys, so React Query serves them from cache rather than
+  // issuing a second request. Re-deriving here instead of threading the rows down
+  // through `EventDetail` keeps the panel's data its own business.
+  const participantsQuery = useGetApiV1EventsIdParticipants(eventId);
+  const tasksQuery = useGetApiV1Tasks({ eventId });
+
   // Only fetched once the operator actually asks for the picker — the tab is
   // read far more often than a group is assigned.
   const groupsQuery = useGetApiV1Groups({ query: { enabled: pickerOpen } });
   const groups = groupsQuery.data;
+
+  const saveInHouseMutation = usePatchApiV1EventsIdCrewPidInHouse({
+    mutation: {
+      onSuccess: () => {
+        // The saved values live on the participant row, so the roster query is
+        // what has to be refetched — the same key the group assignment invalidates.
+        queryClient.invalidateQueries({
+          queryKey: getGetApiV1EventsIdParticipantsQueryKey(eventId),
+        });
+        toast.success("Saved to your private team notes.");
+      },
+      onError: (error) => {
+        toast.error(errorMessage(error, "Couldn't save that."));
+      },
+    },
+  });
 
   const assign = usePostApiV1EventsIdGroups({
     mutation: {
@@ -173,6 +264,29 @@ export function useEventCrewPanel(eventId: string): EventCrewPanel {
     [assign, eventId, groups, queryClient, toast],
   );
 
+  // One pass over the event's tasks, bucketed by assignee — the alternative is a
+  // filter per crew member, which re-walks the list once for every row on screen.
+  const tasksByParticipant: Record<string, CrewTask[]> = {};
+  for (const task of tasksQuery.data?.items ?? []) {
+    if (!task.assigneeParticipantId) continue;
+    const bucket = tasksByParticipant[task.assigneeParticipantId] ?? [];
+    bucket.push({
+      id: task.id,
+      title: task.title,
+      completed: task.completed,
+      dueDate: task.dueDate,
+    });
+    tasksByParticipant[task.assigneeParticipantId] = bucket;
+  }
+
+  const inHouse: Record<string, CrewInHouse> = {};
+  for (const participant of participantsQuery.data ?? []) {
+    inHouse[participant.id] = {
+      ...readInHouse(participant.details),
+      tasks: tasksByParticipant[participant.id] ?? [],
+    };
+  }
+
   return {
     groups: (groups ?? []).map((group) => ({
       id: group.id,
@@ -185,5 +299,10 @@ export function useEventCrewPanel(eventId: string): EventCrewPanel {
     closePicker: useCallback(() => setPickerOpen(false), []),
     assignGroup,
     isAssigning: assign.isPending,
+    inHouse,
+    inHousePending: participantsQuery.isPending || tasksQuery.isPending,
+    saveInHouse: (participantId, next) =>
+      saveInHouseMutation.mutate({ id: eventId, pid: participantId, data: next }),
+    isSavingInHouse: saveInHouseMutation.isPending,
   };
 }
