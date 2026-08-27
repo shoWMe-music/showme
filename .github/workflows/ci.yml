@@ -137,6 +137,15 @@ jobs:
 
       - run: pnpm --filter @showme/web exec playwright install --with-deps chromium
 
+      # `@showme/design-system` resolves through its `dist/`, which is gitignored,
+      # so a fresh checkout has none. The SPA build inside Playwright's webServer
+      # is not a turbo task and will not build a workspace dependency for itself:
+      # without this the server dies on "Failed to resolve entry for package
+      # @showme/design-system" and every spec is reported as a test failure, which
+      # is what it looked like for three commits. It passes locally only because a
+      # developer machine has a stale `dist/` lying around.
+      - run: pnpm exec turbo run build --filter=@showme/design-system
+
       # scripts/e2e.mjs is the whole stack: throwaway Docker Postgres -> migrate ->
       # deterministic seed -> Auth emulator -> seeded accounts -> API -> SSE service,
       # then `playwright test` (whose webServer builds and previews the SPA), then
