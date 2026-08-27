@@ -357,6 +357,28 @@ Worth knowing, because each is a way a mobile assertion can lie:
    `type="date"` input reports a 4248px `scrollWidth` in a 362px box while
    looking perfectly normal.
 
+### CI RENDERS TEXT ~10% WIDER THAN macOS — a local green is not a green
+Two tests passed on this machine and failed in CI, and the cause is font
+metrics, not flakiness. Measured: the same string is **208.59px locally and
+225.63px with webfonts blocked (+8.2%)**. All four families are self-hosted
+woff2 tracked in git, so CI is not missing font *files* — it simply renders
+wider.
+
+What that exposed matters more than the two tests. The New event wizard's
+Venue/City row resolved to **`204px 48px` inside a 266px box — a dead-exact fit
+with zero headroom**. It was not nearly broken locally; it was passing by luck,
+and any change to a label, a font, or a locale would have broken it.
+
+> **A test that passes with zero headroom is not passing, it is pending.**
+> A local green is one environment's opinion. Wait for CI before calling a
+> layout verified, and fix a boundary failure by removing the floor
+> (`minmax(0, 1fr)`, `min-width: 0`) rather than by buying a few pixels.
+
+**How to see it locally:** run the suite with webfonts blocked (+8.2%) or with
+the stack forced to Courier New (~+20%). Those two bracket CI's ~10%, so a
+layout green under both is genuinely safe. This is how the wizard's step rail
+was found — CI never flagged it; the stress run did.
+
 ### A THIRD BLIND SPOT: the hand-rolled lists
 Found while fixing the modals, and it belongs beside the `position: fixed`
 lesson because it is the same shape.
