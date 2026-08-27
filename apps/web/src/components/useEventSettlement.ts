@@ -1,13 +1,17 @@
 import {
   type getApiV1EventsIdDeals,
   type getApiV1EventsIdSettlements,
+  getGetApiV1EventsIdSettlementCommentsQueryKey,
   getGetApiV1EventsIdSettlementsQueryKey,
   useGetApiV1EventsIdDeals,
   useGetApiV1EventsIdParticipants,
+  useGetApiV1EventsIdSettlementComments,
   useGetApiV1EventsIdSettlements,
   usePatchApiV1EventsIdTransfersTid,
+  usePostApiV1EventsIdSettlementComments,
   usePostApiV1EventsIdSettlementCompute,
   usePostApiV1EventsIdSettlementFinalize,
+  usePostApiV1EventsIdSettlementStatus,
   usePostApiV1EventsIdSettlementsSidConfirm,
 } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
@@ -81,6 +85,15 @@ export interface SettlementParty {
   rules: EntitlementRule[];
 }
 
+/** One remark in the review thread, with its author resolved to a person. */
+export interface SettlementComment {
+  id: string;
+  author: string;
+  message: string;
+  createdAt: string;
+  isYours: boolean;
+}
+
 /** One party's sign-off, named, as the roster shows it. */
 export interface SettlementApprovalRow {
   participantId: string;
@@ -141,6 +154,14 @@ export interface EventSettlement {
   isFinalized: boolean;
   status: string;
   isBusy: boolean;
+  /** The review conversation the API can actually move it through. */
+  sendForReview: () => void;
+  reissue: () => void;
+  flagDispute: () => void;
+  /** True while the figures can still be re-issued — i.e. not yet frozen. */
+  canReview: boolean;
+  comments: SettlementComment[];
+  postComment: (message: string) => void;
   compute: () => void;
   finalize: () => void;
   confirmOwn: (settlementId: string) => void;
@@ -185,6 +206,9 @@ export function useEventSettlement(
   // API (`GET /events/:id/deals` returns only deals the caller is a party to), so
   // a performer's tab narrows to her own agreement without this screen deciding.
   const deals = useGetApiV1EventsIdDeals(eventId);
+  // The review thread. Party-scoped by the API — a performer sees their own
+  // remarks and the event-side ones, never another act's.
+  const commentThread = useGetApiV1EventsIdSettlementComments(eventId);
 
   const refresh = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: getGetApiV1EventsIdSettlementsQueryKey(eventId) });
@@ -194,6 +218,8 @@ export function useEventSettlement(
   const finalizeSettlement = usePostApiV1EventsIdSettlementFinalize();
   const confirmSettlement = usePostApiV1EventsIdSettlementsSidConfirm();
   const patchTransfer = usePatchApiV1EventsIdTransfersTid();
+  const setStatus = usePostApiV1EventsIdSettlementStatus();
+  const addComment = usePostApiV1EventsIdSettlementComments();
 
   const compute = useCallback(() => {
     computeSettlement.mutate(
@@ -239,6 +265,49 @@ export function useEventSettlement(
       );
     },
     [confirmSettlement, eventId, refresh, toast],
+  );
+
+  /**
+   * Move the settlement through the review conversation.
+   *
+   * Only the three states a human actually decides. `finalized` has its own
+   * action because it locks FX irreversibly, and `partly_paid`/`paid` are derived
+   * from the transfers — the API refuses to be told them, so there is no button.
+   */
+  const moveTo = useCallback(
+    (status: "pending_review" | "revised" | "dispute", done: string) => {
+      setStatus.mutate(
+        { id: eventId, data: { status } },
+        {
+          onSuccess: () => {
+            refresh();
+            toast.success(done);
+          },
+          onError: (error) => toast.error(errorMessage(error, "Couldn't update the settlement.")),
+        },
+      );
+    },
+    [setStatus, eventId, refresh, toast],
+  );
+
+  const postComment = useCallback(
+    (message: string) => {
+      addComment.mutate(
+        { id: eventId, data: { message } },
+        {
+          onSuccess: () => {
+            void queryClient.invalidateQueries({
+              queryKey: getGetApiV1EventsIdSettlementCommentsQueryKey(eventId),
+            });
+            // Posting can move the settlement to `comments_received`, so the
+            // status on screen has to be re-read too.
+            refresh();
+          },
+          onError: (error) => toast.error(errorMessage(error, "Couldn't post your comment.")),
+        },
+      );
+    },
+    [addComment, eventId, queryClient, refresh, toast],
   );
 
   const markTransfer = useCallback(
@@ -349,6 +418,22 @@ export function useEventSettlement(
     isComputed: rows.some((row) => row.computed != null),
     isFinalized: rows.some((row) => FROZEN_STATUSES.has(row.status)),
     status: rows[0]?.status ?? "open",
+    // The review conversation is over once the figures freeze — after that the
+    // only honest objection is a dispute, which stays available.
+    canReview: rows.length > 0 && !rows.some((row) => FROZEN_STATUSES.has(row.status)),
+    sendForReview: () => moveTo("pending_review", "Sent for review."),
+    reissue: () => moveTo("revised", "Figures re-issued."),
+    flagDispute: () => moveTo("dispute", "Flagged as disputed."),
+    comments: (commentThread.data ?? []).map((row) => ({
+      id: row.id,
+      // Resolved from the participant, not from a name stored on the row — one
+      // source for who somebody is. An event-side remark has no party.
+      author: row.partyParticipantId ? nameOf(row.partyParticipantId) : "Operator",
+      message: row.message,
+      createdAt: row.createdAt,
+      isYours: row.isYours,
+    })),
+    postComment,
     isBusy:
       computeSettlement.isPending ||
       finalizeSettlement.isPending ||

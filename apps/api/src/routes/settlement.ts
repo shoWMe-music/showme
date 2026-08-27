@@ -11,7 +11,7 @@ import {
   reconcile,
 } from "@showme/settlement";
 import { convertMinorUnits } from "@showme/shared";
-import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -246,6 +246,40 @@ const OPERATOR_EVENT_ROLES = new Set(["host", "co_host"]);
  * state of the individual transfers keeps moving (owed → paid → handled), which is
  * what `partly_paid` / `paid` record, and those are downstream of `finalized`.
  */
+/**
+ * The review states an operator or a party may MOVE a settlement to by hand.
+ *
+ * Deliberately not the whole `settlement_status` enum. Two of its members —
+ * `partly_paid` and `paid` — are DERIVED from the transfers and never set by a
+ * button: the platform cannot know who holds cash (the 2026-08 meeting, 01:24:48
+ * — "collaborators confirm their received amounts manually"), so the payment state
+ * lives on the individual transfers and the settlement's status is a read of them.
+ * `docs/decisions.md` #14 states the same principle for the representation
+ * settlement: "status is derived, not a new enum". `finalized` is not here either;
+ * it has its own route, because it locks FX and cannot be undone.
+ *
+ * What is left is the review conversation the meeting describes (01:12:54): the
+ * figures go out, comments come back, the operator adjusts and re-issues.
+ */
+const REVIEW_STATUSES = ["pending_review", "revised", "dispute"] as const;
+type ReviewStatus = (typeof REVIEW_STATUSES)[number];
+
+/**
+ * Who may move a settlement to each review state.
+ *
+ * Sending for review and re-issuing are the operator's acts — they are statements
+ * about figures the operator owns. DISPUTE is the party's, and gated on
+ * `settlement.confirm`: the capability that signs a settlement off is the same
+ * authority inverted, and a performer who may say "these figures match my books"
+ * must be able to say the opposite. It is the one transition an arm's-length party
+ * can make.
+ */
+const REVIEW_STATUS_CAPABILITY: Record<ReviewStatus, "settlement.edit" | "settlement.confirm"> = {
+  pending_review: "settlement.edit",
+  revised: "settlement.edit",
+  dispute: "settlement.confirm",
+};
+
 const LOCKED_SETTLEMENT_STATUSES: ReadonlySet<string> = new Set([
   "finalized",
   "partly_paid",
@@ -727,6 +761,73 @@ function assertNotFinalized(rows: { status: string }[]): void {
   }
 }
 
+/**
+ * Re-read the settlement's PAYMENT state from its transfers.
+ *
+ * `partly_paid` and `paid` are not things anyone sets. The platform cannot know who
+ * holds cash — the 2026-08 meeting is explicit (01:24:48): "collaborators confirm
+ * their received amounts manually". What they confirm is a TRANSFER, one at a time,
+ * and the settlement's status is a read of those confirmations. `decisions.md` #14
+ * states the same principle for the representation settlement: "status is derived,
+ * not a new enum".
+ *
+ * Only ever runs on a settlement that is already `finalized` or beyond. Before
+ * that the figures can still move, so payment progress would be a claim about a
+ * total that is not yet agreed — and the review states (`pending_review`,
+ * `revised`, `dispute`) must not be silently overwritten by somebody ticking a
+ * transfer.
+ *
+ * REPRESENTATION transfers are excluded. A private agent commission is its two
+ * parties' business (decisions #14) and the operator never sees it; letting it
+ * hold the event's settlement at `partly_paid` would leak its existence through
+ * the status.
+ */
+async function syncPaymentStatus(tx: Transaction, eventId: string): Promise<void> {
+  const rows = await tx
+    .select({ id: schema.settlements.id, status: schema.settlements.status })
+    .from(schema.settlements)
+    .where(eq(schema.settlements.eventId, eventId));
+  const payable = rows.filter((row) => PAYMENT_TRACKING_STATUSES.has(row.status));
+  if (payable.length === 0) return;
+
+  const transfers = await tx
+    .select({ state: schema.settlementTransfers.state })
+    .from(schema.settlementTransfers)
+    .where(
+      and(
+        eq(schema.settlementTransfers.eventId, eventId),
+        isNull(schema.settlementTransfers.representationId),
+      ),
+    );
+  // No transfers at all means nothing was owed between the parties — a settlement
+  // that nets to zero all round is settled the moment it is finalized.
+  const settled = transfers.filter((row) => row.state === "paid" || row.state === "handled");
+  const next =
+    transfers.length === 0 || settled.length === transfers.length
+      ? "paid"
+      : settled.length > 0
+        ? "partly_paid"
+        : "finalized";
+
+  for (const row of payable) {
+    if (row.status === next) continue;
+    await tx
+      .update(schema.settlements)
+      .set({ status: next, updatedAt: new Date() })
+      .where(eq(schema.settlements.id, row.id));
+  }
+}
+
+/**
+ * The statuses whose payment progress is tracked — everything downstream of
+ * finalize. A settlement still under review has no payment state to report.
+ */
+const PAYMENT_TRACKING_STATUSES: ReadonlySet<string> = new Set([
+  "finalized",
+  "partly_paid",
+  "paid",
+]);
+
 /** Compare two serialized breakdowns field by field (all six are string money). */
 function sameBreakdown(left: StoredBreakdown | null, right: StoredBreakdown): boolean {
   return (
@@ -1117,6 +1218,271 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
     },
   );
 
+  /**
+   * The comment thread on this event's settlement.
+   *
+   * The 2026-08 meeting names comments as part of the workflow (01:12:54 — "the
+   * process may involve comments or operator adjustment"), and the table has
+   * existed all along. What was missing is any way for a SIGNED-IN party to read
+   * or write it: the only writer was the off-platform share link
+   * (`routes/shares.ts`), so the operator and the performer could each be sent a
+   * link and comment on it, but neither could see the thread inside the product.
+   *
+   * VISIBILITY is the same rule the share document already applies
+   * (`lib/share-document.ts` `loadComments`), because there must be one answer to
+   * "whose conversation is this": your own party's comments, plus the event-side
+   * ones that belong to nobody in particular. An operator holding
+   * `settlement.edit` sees the whole thread — they are the party the review is
+   * addressed to, and a review conversation they cannot read is not a review.
+   */
+  app.get(
+    "/events/:id/settlement/comments",
+    {
+      schema: {
+        params: EventParams,
+        response: {
+          200: z.array(
+            z.object({
+              id: z.string(),
+              partyParticipantId: z.string().nullable(),
+              authorName: z.string().nullable(),
+              section: z.string().nullable(),
+              message: z.string(),
+              createdAt: z.string(),
+              isYours: z.boolean(),
+            }),
+          ),
+        },
+      },
+    },
+    async (request) => {
+      const { database } = request.server;
+      const { id } = request.params;
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+
+      const capabilities = await requireEventCapability(request, id, "settlement.view.own");
+      const profileIds = principal.memberships.map((membership) => membership.profileId);
+      const mine = await participantIdsOf(database, id, profileIds);
+
+      const rows = await database
+        .select()
+        .from(schema.settlementComments)
+        .where(eq(schema.settlementComments.eventId, id))
+        .orderBy(asc(schema.settlementComments.createdAt));
+
+      const readsWholeThread = capabilities.has("settlement.edit");
+      return rows
+        .filter(
+          (row) =>
+            readsWholeThread || row.partyParticipantId == null || mine.has(row.partyParticipantId),
+        )
+        .map((row) => ({
+          id: row.id,
+          partyParticipantId: row.partyParticipantId,
+          authorName: row.authorName,
+          section: row.section,
+          message: row.message,
+          createdAt: row.createdAt.toISOString(),
+          isYours: row.partyParticipantId != null && mine.has(row.partyParticipantId),
+        }));
+    },
+  );
+
+  /**
+   * Add a remark to the thread.
+   *
+   * Scoped to the author's OWN participant row, which is what makes the read rule
+   * above work: a comment belongs to a party, and the parties who are not that
+   * party do not see it. An operator comments as the event side
+   * (`party_participant_id` null) — the remark is addressed to everyone it is
+   * being reviewed by, which is the operator's half of the conversation.
+   *
+   * POSTING MOVES THE STATUS. A settlement sitting at `pending_review` becomes
+   * `comments_received` the moment somebody actually comments, because that is
+   * the fact the operator needs on the list screen — "this one came back". The
+   * prototype does the same thing (`postComment`), and it is the one status
+   * change that should not need a button, since the comment IS the event.
+   */
+  app.post(
+    "/events/:id/settlement/comments",
+    {
+      schema: {
+        params: EventParams,
+        body: z.object({
+          message: z.string().min(1).max(4000),
+          section: z.string().max(64).optional(),
+        }),
+        response: { 201: z.object({ id: z.string(), status: z.string() }) },
+      },
+    },
+    async (request, reply) => {
+      const { database } = request.server;
+      const { id } = request.params;
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+
+      const capabilities = await requireEventCapability(request, id, "message.post");
+      const profileIds = principal.memberships.map((membership) => membership.profileId);
+      const mine = await participantIdsOf(database, id, profileIds);
+      // The operator speaks for the event, not for a party. Everyone else speaks
+      // as themselves, and their own participant row is what scopes the remark.
+      const asParty = capabilities.has("settlement.edit") ? null : ([...mine][0] ?? null);
+
+      const rows = await settlementRowsOf(database, id);
+      const partyRows = rows.filter((row) => row.representationId == null);
+      const movesToCommentsReceived = partyRows.some((row) => row.status === "pending_review");
+
+      const created = await database.transaction(async (tx) => {
+        const [comment] = await tx
+          .insert(schema.settlementComments)
+          .values({
+            eventId: id,
+            partyParticipantId: asParty,
+            // NULL on purpose. `author_name` exists for OFF-PLATFORM commenters,
+            // who have no participant row to be looked up from. A signed-in author
+            // is identified by `party_participant_id`, and the reader already turns
+            // that into a person against the roster — copying the name in here
+            // would be a second source for it, free to drift the moment somebody
+            // renames a profile.
+            authorName: null,
+            section: request.body.section ?? null,
+            message: request.body.message,
+          })
+          .returning();
+        if (!comment) throw new Error("comment insert failed");
+
+        if (movesToCommentsReceived) {
+          for (const row of partyRows) {
+            if (row.status !== "pending_review") continue;
+            await tx
+              .update(schema.settlements)
+              .set({ status: "comments_received", updatedAt: new Date() })
+              .where(eq(schema.settlements.id, row.id));
+          }
+        }
+        await writeAudit(tx, request, {
+          capability: "message.post",
+          action: "settlement.comment",
+          targetKind: "settlement",
+          targetId: comment.id,
+          eventId: id,
+          after: { section: comment.section },
+        });
+        // The MESSAGE never travels into the feed — a remark is addressed to the
+        // parties in the thread, and the timeline reaches a wider room than that.
+        // That somebody commented is the fact worth recording.
+        await writeActivity(tx, request, {
+          eventId: id,
+          type: "settlement.commented",
+          targetKind: "settlement",
+          targetId: comment.id,
+          summary: comment.section ? { section: comment.section } : {},
+        });
+        return comment;
+      });
+
+      return reply.status(201).send({
+        id: created.id,
+        status: movesToCommentsReceived ? "comments_received" : "unchanged",
+      });
+    },
+  );
+
+  /**
+   * Move the settlement through the REVIEW conversation.
+   *
+   * The 2026-08 meeting describes this workflow and no more (01:12:54): the
+   * collaborators put their revenue and costs in, the figures are computed from
+   * real data, and "the process may involve comments or operator adjustment". So
+   * this route carries exactly the states that conversation needs — sent out,
+   * re-issued after adjustment, and contested — and nothing else.
+   *
+   * It deliberately CANNOT set `finalized` (its own route, because it locks FX and
+   * is irreversible) nor `partly_paid`/`paid` (derived from the transfers; see
+   * `syncPaymentStatus`). The prototype offers buttons for those last two; ours
+   * would be lying, because the platform cannot know who holds cash.
+   */
+  app.post(
+    "/events/:id/settlement/status",
+    {
+      schema: {
+        params: EventParams,
+        body: z.object({
+          status: z.enum(REVIEW_STATUSES),
+          /** Why — carried into the history so the timeline reads as a story. */
+          note: z.string().max(500).optional(),
+        }),
+        response: { 200: z.object({ status: z.string(), updated: z.number() }) },
+      },
+    },
+    async (request) => {
+      const { database } = request.server;
+      const { id } = request.params;
+      const { status, note } = request.body;
+
+      await requireEventCapability(request, id, REVIEW_STATUS_CAPABILITY[status]);
+
+      const rows = await settlementRowsOf(database, id);
+      const partyRows = rows.filter((row) => row.representationId == null);
+      if (partyRows.length === 0) {
+        throw badRequest("Run the settlement before sending it for review");
+      }
+
+      // A DISPUTE may be raised over frozen figures — that is precisely when a
+      // party most needs to say the number is wrong, and flagging it changes no
+      // money. The two operator states may not: re-issuing figures that are locked
+      // would claim an adjustment the engine will refuse to make.
+      if (
+        status !== "dispute" &&
+        partyRows.some((row) => LOCKED_SETTLEMENT_STATUSES.has(row.status))
+      ) {
+        throw conflict("This settlement is finalized; its figures can no longer be re-issued");
+      }
+      // Nothing follows being paid in full. Re-opening a closed settlement is a
+      // credit note, not a status change.
+      if (partyRows.some((row) => row.status === "paid")) {
+        throw conflict("This settlement is fully paid");
+      }
+
+      const updated = await database.transaction(async (tx) => {
+        let count = 0;
+        for (const row of partyRows) {
+          if (row.status === status) continue;
+          const [after] = await tx
+            .update(schema.settlements)
+            .set({ status, updatedAt: new Date() })
+            .where(eq(schema.settlements.id, row.id))
+            .returning();
+          if (after) count += 1;
+          await writeAudit(tx, request, {
+            capability: REVIEW_STATUS_CAPABILITY[status],
+            action: `settlement.${status}`,
+            targetKind: "settlement",
+            targetId: row.id,
+            eventId: id,
+            before: { status: row.status },
+            after: { status },
+          });
+        }
+        // ONE activity row for the event, not one per party. The status is a fact
+        // about the settlement as a whole, and a timeline that repeated it per
+        // participant would read as three things happening instead of one. No
+        // figures travel in the summary — the status is not money.
+        await writeActivity(tx, request, {
+          eventId: id,
+          type: `settlement.${status}`,
+          targetKind: "settlement",
+          targetId: id,
+          summary: note ? { note } : {},
+        });
+        return count;
+      });
+
+      return { status, updated };
+    },
+  );
+
   // Confirm: record the party's approval of their settlement.
   app.post(
     "/events/:id/settlements/:sid/confirm",
@@ -1494,6 +1860,9 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         // (decisions #14, audit A-10); the operator sees every row on their own
         // event, so the only way to keep a commission out of their timeline is to
         // never write one. The amount stays out either way.
+        // The settlement's own status is a READ of these transfers, so it is
+        // re-derived here rather than anywhere a human could set it by hand.
+        await syncPaymentStatus(tx, id);
         if (!before.representationId) {
           await writeActivity(tx, request, {
             eventId: id,

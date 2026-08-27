@@ -39,37 +39,51 @@ export function settlementStatusToDisplay(status: string): { status: Status; lab
 }
 
 /**
- * The process rail — and it has TWO stops, not the prototype's seven.
+ * The settlement's journey, as the API can actually move it.
  *
- * `settlement_status` has eight values and the API writes exactly two of them:
- * `open` is the column default (`packages/db/src/schema/settlement.ts:148`) and
- * `finalized` is written by `POST /events/:id/settlement/finalize`. Nothing in
- * `apps/api` ever writes `pending_review`, `comments_received`, `revised`,
- * `partly_paid`, `paid` or `dispute` — measured, not assumed.
+ * Five stops, and each one is a status some route really writes — measured, not
+ * taken from the prototype's seven-stop rail:
  *
- * So a seven-stop rail would draw five stops no settlement can ever reach, which
- * is a dead affordance wearing a progress bar (STYLE-GUIDE §7): it promises a
- * review-and-dispute workflow this product does not have yet. Payment progress is
- * real, but it lives on the individual TRANSFERS (owed → paid → handled) and is
- * shown on the who-owes-whom board, not on the settlement's own status.
+ *   Open              the default; the figures can still move
+ *   Sent for review    `POST /settlement/status` with `pending_review`
+ *   Comments received  set automatically when a party posts a remark
+ *   Finalized          `POST /settlement/finalize` — locks the figures AND the FX
+ *   Paid               DERIVED from the transfers, never set by hand
  *
- * Any other value still renders — a row could carry one from a fixture — and it
- * simply sits at whichever stop it maps to rather than inventing a stop for itself.
+ * `revised` is not a sixth stop. Re-issuing after comments returns the settlement
+ * to the review stage rather than advancing it, so it lights the same lamp as
+ * "sent for review" — the rail shows where the settlement IS, and a revision is
+ * the operator going round again.
+ *
+ * `dispute` is not a stop either: it is a flag ON a stage, not a stage. A disputed
+ * settlement is still wherever it was, with a party objecting — the badge says so
+ * and the rail keeps its place, because a dispute is not progress.
+ *
+ * `partly_paid` sits at the last stop rather than earning its own: the detail of
+ * which transfer is settled lives on the who-owes-whom board, where each one is
+ * marked individually, and duplicating it here would be a second answer.
  */
-const FROZEN_STAGE: ReadonlySet<string> = new Set([
-  "finalized",
-  "revised",
-  "partly_paid",
-  "paid",
-  "concluded",
-]);
+const STAGE_OF: Record<string, number> = {
+  open: 0,
+  pending_review: 1,
+  revised: 1,
+  comments_received: 2,
+  dispute: 2,
+  finalized: 3,
+  partly_paid: 4,
+  paid: 4,
+  concluded: 3,
+};
+
+const STAGE_LABELS = ["Open", "Sent for review", "Comments received", "Finalized", "Paid"] as const;
 
 export function settlementSteps(status: string): SettlementStep[] {
-  const frozen = FROZEN_STAGE.has(status);
-  return [
-    { label: "Open", state: frozen ? "done" : "active" },
-    { label: "Finalized", state: frozen ? "active" : "pending" },
-  ];
+  // An unknown status sits at the start rather than inventing a stop for itself.
+  const reached = STAGE_OF[status] ?? 0;
+  return STAGE_LABELS.map((label, index) => ({
+    label,
+    state: index < reached ? "done" : index === reached ? "active" : "pending",
+  }));
 }
 
 /** `settlement_transfers.state` → the board's three payment states. */

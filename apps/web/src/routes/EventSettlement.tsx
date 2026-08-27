@@ -1,12 +1,31 @@
-import { type getApiV1EventsId, useGetApiV1EventsId } from "@showme/api-client";
-import { Badge, Button, Card, EmptyState, Icon, KeyValueRow, Tabs } from "@showme/design-system";
+import {
+  type getApiV1EventsId,
+  useGetApiV1Activity,
+  useGetApiV1EventsId,
+} from "@showme/api-client";
+import {
+  Avatar,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Icon,
+  KeyValueRow,
+  Tabs,
+  TextField,
+} from "@showme/design-system";
 import { Link, useParams } from "@tanstack/react-router";
 import { useState } from "react";
 import { ConfirmDialog, useConfirmDialog } from "../components/ConfirmDialog";
 import { SettlementStepper } from "../components/SettlementStepper";
 import { type SettlementLine, WhoOwesWhomBoard } from "../components/WhoOwesWhomBoard";
+import { describeActivity } from "../components/eventHistory";
 import { Eyebrow } from "../components/primitives";
-import { settlementStatusToDisplay, settlementSteps } from "../components/settlementDocument";
+import {
+  initialsOf,
+  settlementStatusToDisplay,
+  settlementSteps,
+} from "../components/settlementDocument";
 import { ErrorState, LoadingState } from "../components/states";
 import {
   // Aliased: the page component below is also called `EventSettlement`, and the
@@ -121,7 +140,7 @@ export function EventSettlement() {
       ) : tab === "deals" ? (
         <DealStructureTab settlement={settlement} />
       ) : (
-        <SettlementTab settlement={settlement} />
+        <SettlementTab settlement={settlement} eventId={eventId} />
       )}
     </div>
   );
@@ -251,7 +270,10 @@ function DealStructureTab({ settlement }: { settlement: EventSettlementData }) {
   );
 }
 
-function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
+function SettlementTab({
+  settlement,
+  eventId,
+}: { settlement: EventSettlementData; eventId: string }) {
   const confirmDialog = useConfirmDialog();
   const askToFinalize = () =>
     confirmDialog.ask({
@@ -284,10 +306,10 @@ function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
   return (
     <div style={CARD_COLUMN}>
       <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        {/* Bounded: the rail is two stops (see `settlementSteps`) and the stepper
-            grows its connector to fill whatever it is given, so left unbounded two
-            stops sit at opposite ends of a 1180px page joined by a rule. */}
-        <div style={{ maxWidth: 260 }}>
+        {/* Bounded: the stepper grows its connector to fill whatever it is given,
+            so left unbounded the stops sit at opposite ends of a 1180px page
+            joined by a rule. Five stops need more room than two did. */}
+        <div style={{ maxWidth: 560 }}>
           <SettlementStepper steps={settlementSteps(settlement.status)} />
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -305,6 +327,39 @@ function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
             <Button variant="primary" disabled={settlement.isBusy} onClick={askToFinalize}>
               Finalize
             </Button>
+          )}
+          {/* The review conversation (the 2026-08 meeting, 01:12:54). Offered only
+              while the figures can still move — once they are frozen the only
+              honest objection left is a dispute. */}
+          {settlement.authority.canCompute && settlement.canReview && settlement.isComputed && (
+            <>
+              <Button
+                variant="secondary"
+                disabled={settlement.isBusy}
+                leftIcon={<Icon name="mail" size={14} />}
+                onClick={settlement.sendForReview}
+              >
+                Send for review
+              </Button>
+              <Button variant="secondary" disabled={settlement.isBusy} onClick={settlement.reissue}>
+                Re-issue figures
+              </Button>
+            </>
+          )}
+          {/* A party's own objection — the same authority that signs a settlement
+              off, inverted. Available even once frozen, because that is when it
+              matters most and saying so moves no money. */}
+          {settlement.authority.canConfirm &&
+            settlement.isComputed &&
+            settlement.status !== "dispute" && (
+              <Button variant="ghost" disabled={settlement.isBusy} onClick={settlement.flagDispute}>
+                Flag a dispute
+              </Button>
+            )}
+          {settlement.status === "dispute" && (
+            <Badge status="pending" dot>
+              Disputed — a party has objected to these figures
+            </Badge>
           )}
           {settlement.isFinalized && (
             <Badge status="confirmed" dot>
@@ -374,6 +429,8 @@ function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
             </span>
           )}
 
+          <SettlementThread settlement={settlement} />
+          <RevisionHistory eventId={eventId} />
           <ApprovalRoster settlement={settlement} />
         </>
       )}
@@ -517,5 +574,135 @@ function NothingSettledYet({ settlement }: { settlement: EventSettlementData }) 
           : "Once the operator runs the settlement, your own entitlement and transfers appear here."
       }
     />
+  );
+}
+
+/**
+ * The review conversation — the half of the workflow the 2026-08 meeting names
+ * (01:12:54: "the process may involve comments or operator adjustment").
+ *
+ * Party-scoped by the API, not here: a performer sees their own remarks and the
+ * event-side ones, and never another act's. Posting can move the settlement to
+ * `comments_received` on its own, because the remark IS the event — which is why
+ * there is no "mark as reviewed" button beside it.
+ */
+function SettlementThread({ settlement }: { settlement: EventSettlementData }) {
+  const [draft, setDraft] = useState("");
+  const send = () => {
+    const message = draft.trim();
+    if (message === "") return;
+    settlement.postComment(message);
+    setDraft("");
+  };
+
+  return (
+    <Card padding="lg" style={{ ...CARD_COLUMN, gap: 12 }}>
+      <Eyebrow>Comments</Eyebrow>
+      {settlement.comments.length === 0 ? (
+        <span className="muted" style={{ fontSize: 13 }}>
+          No comments yet. If a figure looks wrong, this is where to say so.
+        </span>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {settlement.comments.map((comment) => (
+            <div key={comment.id} style={{ display: "flex", gap: 10 }}>
+              <Avatar initials={initialsOf(comment.author)} size={30} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                  <b style={{ fontSize: 13 }}>
+                    {comment.isYours ? `${comment.author} (you)` : comment.author}
+                  </b>
+                  <span className="muted" style={{ fontSize: 11.5 }}>
+                    {formatDate(comment.createdAt)}
+                  </span>
+                </div>
+                <p style={{ margin: "2px 0 0", fontSize: 13.5, lineHeight: 1.5 }}>
+                  {comment.message}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+        <TextField
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="Add a comment…"
+          style={{ flex: 1 }}
+        />
+        <Button
+          variant="primary"
+          disabled={settlement.isBusy || draft.trim() === ""}
+          onClick={send}
+        >
+          Post
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * What has happened to this settlement, in order.
+ *
+ * Reads the EVENT ACTIVITY FEED rather than a table of its own. Nothing versions
+ * a settlement beyond `settlements.version`, and inventing a `settlement_revisions`
+ * table would be a second history to keep in step with the first — the feed
+ * already records every act that moves one (`settlement.overridden`,
+ * `settlement.confirmed`, `settlement.finalized`, the review transitions, and now
+ * `settlement.commented`), and it is already party-scoped by the API, so a
+ * performer sees the story of their own settlement and not the operator's whole
+ * evening.
+ *
+ * Filtered to the settlement's own acts: the event feed carries budget edits and
+ * invitations too, and this panel answers "what happened to these figures".
+ */
+function RevisionHistory({ eventId }: { eventId: string }) {
+  const activity = useGetApiV1Activity({ eventId });
+  const entries = (activity.data?.items ?? []).filter(
+    (row) => row.type.startsWith("settlement.") || row.type.startsWith("transfer."),
+  );
+
+  return (
+    <Card padding="lg" style={{ ...CARD_COLUMN, gap: 10 }}>
+      <Eyebrow>Revision history</Eyebrow>
+      {activity.isPending ? (
+        <span className="muted" style={{ fontSize: 13 }}>
+          Loading…
+        </span>
+      ) : entries.length === 0 ? (
+        <span className="muted" style={{ fontSize: 13 }}>
+          Nothing has happened to these figures yet.
+        </span>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {entries.map((entry) => {
+            const described = describeActivity(entry.type, entry.summary);
+            return (
+              <div key={entry.id} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                <span
+                  aria-hidden
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    background: "var(--border-strong)",
+                    marginTop: 6,
+                    flex: "0 0 auto",
+                  }}
+                />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, color: "var(--text)" }}>{described.title}</div>
+                  <div className="muted" style={{ fontSize: 11.5 }}>
+                    {formatDate(entry.createdAt)}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
   );
 }

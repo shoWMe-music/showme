@@ -748,6 +748,13 @@ async function main() {
           profileId: PROFILE_IDS.performerA,
           role: "performer",
           performerTag: "headliner",
+          // The HEADLINER had no permission set at all, while the support act
+          // beside her had one — so the seeded flagship event gave its lead
+          // performer no capabilities. Found by driving it: posting a comment on
+          // her own settlement was a correct 403 against an incorrect fixture.
+          // Delegating to an agent (below) hands over ACTION capabilities; it was
+          // never meant to remove the floor she delegates FROM (decisions #14).
+          permissionSetId: PERMISSION_SET_IDS.performerAOwn,
           status: "confirmed",
           details: { delegatedToAgentProfileId: PROFILE_IDS.agent },
           addedBy: operatorUserId,

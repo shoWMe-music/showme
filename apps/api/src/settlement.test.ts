@@ -695,6 +695,199 @@ describe("settlement — representation commission (decisions #14)", () => {
   });
 });
 
+describe("settlement — the review conversation and derived payment", () => {
+  /**
+   * The two statuses nobody sets.
+   *
+   * `partly_paid` and `paid` are a READ of the transfers, not a button — the
+   * platform cannot know who holds cash (the 2026-08 meeting, 01:24:48), and
+   * `decisions.md` #14 states the principle: "status is derived, not a new enum".
+   * This drives the transfers one at a time and watches the settlement follow.
+   */
+  it("derives partly_paid and paid from the transfers, and refuses to be told", async () => {
+    const seed = await seedWorkedExample("derive");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const statusNow = async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${seed.event.id}/settlements`,
+        headers: auth(seed.operator.userId),
+      });
+      return (response.json().settlements as { status: string }[]).map((row) => row.status);
+    };
+    expect((await statusNow()).every((status) => status === "finalized")).toBe(true);
+
+    const transfers = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.eventId, seed.event.id));
+    expect(transfers.length).toBeGreaterThan(1);
+
+    // One of several paid → partly_paid, on every party row.
+    const first = transfers[0];
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.event.id}/transfers/${first?.id}`,
+      headers: auth(seed.operator.userId),
+      payload: { state: "paid" },
+    });
+    expect((await statusNow()).every((status) => status === "partly_paid")).toBe(true);
+
+    // The rest paid → paid.
+    for (const transfer of transfers.slice(1)) {
+      await app.inject({
+        method: "PATCH",
+        url: `/api/v1/events/${seed.event.id}/transfers/${transfer.id}`,
+        headers: auth(seed.operator.userId),
+        payload: { state: "paid" },
+      });
+    }
+    expect((await statusNow()).every((status) => status === "paid")).toBe(true);
+
+    // And it cannot be SET. The route's vocabulary is the review conversation
+    // only — a body naming a derived status is refused by the schema itself.
+    const told = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/status`,
+      headers: auth(seed.operator.userId),
+      payload: { status: "paid" },
+    });
+    expect(told.statusCode).toBe(400);
+  });
+
+  it("walks the review conversation, and lets a party dispute but not re-issue", async () => {
+    const seed = await seedWorkedExample("review");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const send = (userId: string, status: string) =>
+      app.inject({
+        method: "POST",
+        url: `/api/v1/events/${seed.event.id}/settlement/status`,
+        headers: auth(userId),
+        payload: { status },
+      });
+
+    // The operator sends it out.
+    expect((await send(seed.operator.userId, "pending_review")).statusCode).toBe(200);
+
+    // A COMMENT moves it on by itself — the remark IS the event, so it needs no
+    // second action to record that the settlement came back.
+    const commented = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/comments`,
+      headers: auth(seed.band.userId),
+      payload: { message: "The hotel came off twice." },
+    });
+    expect(commented.statusCode).toBe(201);
+    expect(commented.json().status).toBe("comments_received");
+
+    // The performer reads the thread and sees their own remark.
+    const thread = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlement/comments`,
+      headers: auth(seed.band.userId),
+    });
+    expect(thread.statusCode).toBe(200);
+    expect(thread.json()).toHaveLength(1);
+    expect(thread.json()[0].isYours).toBe(true);
+
+    // A PARTY may dispute — the same authority that signs off, inverted.
+    expect((await send(seed.band.userId, "dispute")).statusCode).toBe(200);
+
+    // But may not re-issue: that is a statement about figures they do not own.
+    expect((await send(seed.band.userId, "revised")).statusCode).toBe(403);
+
+    // The operator can, and does.
+    expect((await send(seed.operator.userId, "revised")).statusCode).toBe(200);
+  });
+
+  it("refuses to re-issue a finalized settlement, but still lets a party dispute it", async () => {
+    const seed = await seedWorkedExample("locked");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const reissue = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/status`,
+      headers: auth(seed.operator.userId),
+      payload: { status: "revised" },
+    });
+    expect(reissue.statusCode).toBe(409);
+
+    // Frozen figures are exactly when a party most needs to object, and saying so
+    // moves no money.
+    const disputed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/status`,
+      headers: auth(seed.band.userId),
+      payload: { status: "dispute" },
+    });
+    expect(disputed.statusCode).toBe(200);
+  });
+
+  it("keeps one party's remarks away from another party", async () => {
+    const seed = await seedWorkedExample("thread");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/comments`,
+      headers: auth(seed.band.userId),
+      payload: { message: "Band only." },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/comments`,
+      headers: auth(seed.operator.userId),
+      payload: { message: "From the operator, to everyone." },
+    });
+
+    const asVenue = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlement/comments`,
+      headers: auth(seed.venue.userId),
+    });
+    const venueMessages = (asVenue.json() as { message: string }[]).map((row) => row.message);
+    // The event-side remark reaches them; the band's does not.
+    expect(venueMessages).toContain("From the operator, to everyone.");
+    expect(venueMessages).not.toContain("Band only.");
+
+    // The operator reviewing the settlement reads the whole thread — a review
+    // conversation they cannot see is not a review.
+    const asOperator = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlement/comments`,
+      headers: auth(seed.operator.userId),
+    });
+    expect((asOperator.json() as unknown[]).length).toBe(2);
+  });
+});
+
 describe("settlement — finalize & transfer state", () => {
   it("finalize writes an immutable snapshot", async () => {
     const seed = await seedWorkedExample("final");
