@@ -4,12 +4,26 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PostApiV1EventsBodyExtrasVenueCarryOver } from './postApiV1EventsBodyExtrasVenueCarryOver';
 import type { PostApiV1EventsBodyExtrasTicketTiersItem } from './postApiV1EventsBodyExtrasTicketTiersItem';
 import type { PostApiV1EventsBodyExtrasGuestList } from './postApiV1EventsBodyExtrasGuestList';
 import type { PostApiV1EventsBodyExtrasTicketing } from './postApiV1EventsBodyExtrasTicketing';
 
 export type PostApiV1EventsBodyExtras = {
   amenities?: string[];
+  /** @nullable */
+  soundSystem?: string | null;
+  /** @nullable */
+  cateringNotes?: string | null;
+  /** @nullable */
+  accommodationNotes?: string | null;
+  /** @nullable */
+  artistLogisticsNotes?: string | null;
+  /** @nullable */
+  city?: string | null;
+  /** @nullable */
+  country?: string | null;
+  venueCarryOver?: PostApiV1EventsBodyExtrasVenueCarryOver;
   ticketTiers?: PostApiV1EventsBodyExtrasTicketTiersItem[];
   guestList?: PostApiV1EventsBodyExtrasGuestList;
   ticketing?: PostApiV1EventsBodyExtrasTicketing;

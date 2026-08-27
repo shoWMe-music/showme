@@ -16,6 +16,7 @@ import {
   resolveDealAuthority,
 } from "../lib/deal-authority";
 import { allSignatoriesConfirmed, confirmDealIfComplete } from "../lib/deal-confirmation";
+import { renderNotificationEmail } from "../lib/email-templates";
 import { dealPartyRecipients, notifyUsers } from "../lib/notify";
 import { withIdempotency } from "../plugins/idempotency";
 import { isDealVisible, serializeDeal, serializeDealUnredacted } from "../serialize/deal";
@@ -749,6 +750,51 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
         });
         return { deal: after, parties };
       });
+
+      // Realtime + feed, PARTY-scoped like `sent` and `confirmed`. Reopening is the
+      // one movement on this route that TAKES SOMETHING BACK — every signature on
+      // the agreement is cleared and each party has to sign again — and it was the
+      // one nobody was told about. A performer whose confirmed terms have been
+      // reopened for renegotiation learns it from their own bell, not from noticing
+      // the button has come back.
+      try {
+        const actorUserId = request.principal?.userId ?? null;
+        const recipients = await dealPartyRecipients(database, deal.id, actorUserId);
+        const dealName = deal.name ?? "a deal";
+        await notifyUsers(
+          database,
+          recipients,
+          actorUserId,
+          {
+            type: "deal.reopened",
+            title: `"${dealName}" was reopened for renegotiation`,
+            body: "Your confirmation was cleared — the agreement needs signing again.",
+            eventId: deal.eventId,
+            actorDisplay: request.firebaseUser?.name ?? undefined,
+            link: `/events/${deal.eventId}`,
+            metadata: { dealId: deal.id },
+          },
+          {
+            sink: request.server.emailSink,
+            message: renderNotificationEmail({
+              subject: `Agreement reopened: ${dealName}`,
+              preheader: "Your confirmation was cleared and the terms are open again.",
+              heading: "An agreement you signed was reopened",
+              paragraphs: [
+                `"${dealName}" has been reopened for renegotiation, so every confirmation on it — including yours — has been cleared.`,
+                // NO TERMS IN THE MAIL. A deal is party-scoped (`deal.view.own`)
+                // and this one message goes to every party, so it says that the
+                // agreement moved and sends them to the screen that can show each
+                // of them only their own line.
+                "Open the event to read the current terms and sign again when they are right.",
+              ],
+              action: { label: "Open the event", path: `/events/${deal.eventId}` },
+            }),
+          },
+        );
+      } catch (error) {
+        request.log.error({ error, dealId: deal.id }, "deal.reopened notification failed");
+      }
 
       return serializeDeal(result.deal, result.parties, viewer);
     },

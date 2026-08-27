@@ -465,6 +465,48 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
         } catch (error) {
           request.log.error({ error }, "invitation email failed");
         }
+
+        // …and, when that address ALREADY belongs to an account, put it in their
+        // bell too. This route used to notify nobody in-app on the reasoning that
+        // an invitee "may not be a platform user yet" — true of the address, and
+        // an answer to the wrong question. Every existing user who was invited
+        // got an email and an empty bell, which is precisely the "notifications
+        // non-functional" complaint: the app knew something was waiting for them
+        // and said nothing on its own surface.
+        //
+        // No account behind the address → no rows, no notification, and the email
+        // above is still the whole message. Best-effort, post-commit, like every
+        // other emitter: the invitation is already persisted and redeemable.
+        try {
+          const invitedEmail = normalizeEmail(result.recipientEmail);
+          const invitedUsers = invitedEmail
+            ? await database
+                .select({ id: schema.users.id })
+                .from(schema.users)
+                .where(sql`lower(${schema.users.email}) = ${invitedEmail}`)
+            : [];
+          await notifyUsers(
+            database,
+            invitedUsers.map((user) => user.id),
+            principal.userId,
+            {
+              type: "invitation.received",
+              title: `${request.firebaseUser?.name ?? "Someone"} invited you to collaborate`,
+              body: "Open the invitation to accept or decline.",
+              eventId: result.targetEventId ?? undefined,
+              actorDisplay: request.firebaseUser?.name ?? undefined,
+              // Not the token link: the recipient is signed in already, and the
+              // event (or the team screen) is where the invitation is answered.
+              link: result.targetEventId ? `/events/${result.targetEventId}` : "/team",
+              metadata: { invitationId: result.id },
+            },
+          );
+        } catch (error) {
+          request.log.error(
+            { error, invitationId: result.id },
+            "invitation-received notification failed",
+          );
+        }
       }
 
       return reply.status(statusCode as 201).send(result);
@@ -831,9 +873,8 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
       }
 
       // Realtime + feed: the person who sent the invite is the one waiting on it.
-      // `POST /invitations` itself notifies nobody in-app — it targets an email
-      // address that may not belong to a platform user yet, and email covers that.
-      // The acceptance is the first moment there is someone to tell.
+      // (`POST /invitations` notifies the invitee, when the address it was sent to
+      // already belongs to an account; this is the answer coming back.)
       try {
         await notifyUsers(database, [updated.createdByUser], principal.userId, {
           type: "invitation.accepted",
@@ -899,6 +940,28 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
         }
         return after;
       });
+
+      // A refusal reaches the inviter's timeline (above) but used to reach nothing
+      // else, while an acceptance rang their bell — so the ONE answer that needs a
+      // decision from them was the quiet one. An operator whose performer says no
+      // has a slot to re-fill and a date to re-offer; they should not have to open
+      // an event to find that out.
+      try {
+        await notifyUsers(database, [updated.createdByUser], request.principal?.userId ?? null, {
+          type: "invitation.declined",
+          title: `${updated.recipientName ?? updated.recipientEmail ?? "Your invitee"} declined`,
+          body: "The slot is open again.",
+          eventId: updated.targetEventId ?? undefined,
+          actorDisplay: request.firebaseUser?.name ?? undefined,
+          link: updated.targetEventId ? `/events/${updated.targetEventId}` : "/team",
+          metadata: { invitationId: updated.id },
+        });
+      } catch (error) {
+        request.log.error(
+          { error, invitationId: updated.id },
+          "invitation-decline notification failed",
+        );
+      }
 
       return serializeInvitation(updated);
     },

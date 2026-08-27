@@ -358,6 +358,52 @@
                           "type": "string"
                         }
                       },
+                      "soundSystem": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "cateringNotes": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "accommodationNotes": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "artistLogisticsNotes": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "city": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "country": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "venueCarryOver": {
+                        "type": "object",
+                        "properties": {
+                          "profileId": {
+                            "type": "string"
+                          },
+                          "venueName": {
+                            "type": "string"
+                          },
+                          "copiedAt": {
+                            "type": "string"
+                          },
+                          "fields": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": ["profileId", "venueName", "copiedAt", "fields"],
+                        "additionalProperties": false
+                      },
                       "ticketTiers": {
                         "type": "array",
                         "items": {
@@ -652,6 +698,52 @@
                           "items": {
                             "type": "string"
                           }
+                        },
+                        "soundSystem": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "cateringNotes": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "accommodationNotes": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "artistLogisticsNotes": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "city": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "country": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "venueCarryOver": {
+                          "type": "object",
+                          "properties": {
+                            "profileId": {
+                              "type": "string"
+                            },
+                            "venueName": {
+                              "type": "string"
+                            },
+                            "copiedAt": {
+                              "type": "string"
+                            },
+                            "fields": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "required": ["profileId", "venueName", "copiedAt", "fields"],
+                          "additionalProperties": false
                         },
                         "ticketTiers": {
                           "type": "array",
@@ -1042,6 +1134,52 @@
                             "type": "string"
                           }
                         },
+                        "soundSystem": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "cateringNotes": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "accommodationNotes": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "artistLogisticsNotes": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "city": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "country": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "venueCarryOver": {
+                          "type": "object",
+                          "properties": {
+                            "profileId": {
+                              "type": "string"
+                            },
+                            "venueName": {
+                              "type": "string"
+                            },
+                            "copiedAt": {
+                              "type": "string"
+                            },
+                            "fields": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "required": ["profileId", "venueName", "copiedAt", "fields"],
+                          "additionalProperties": false
+                        },
                         "ticketTiers": {
                           "type": "array",
                           "items": {
@@ -1240,6 +1378,52 @@
                         "items": {
                           "type": "string"
                         }
+                      },
+                      "soundSystem": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "cateringNotes": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "accommodationNotes": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "artistLogisticsNotes": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "city": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "country": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "venueCarryOver": {
+                        "type": "object",
+                        "properties": {
+                          "profileId": {
+                            "type": "string"
+                          },
+                          "venueName": {
+                            "type": "string"
+                          },
+                          "copiedAt": {
+                            "type": "string"
+                          },
+                          "fields": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": ["profileId", "venueName", "copiedAt", "fields"],
+                        "additionalProperties": false
                       },
                       "ticketTiers": {
                         "type": "array",
@@ -1459,6 +1643,52 @@
                           "items": {
                             "type": "string"
                           }
+                        },
+                        "soundSystem": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "cateringNotes": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "accommodationNotes": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "artistLogisticsNotes": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "city": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "country": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "venueCarryOver": {
+                          "type": "object",
+                          "properties": {
+                            "profileId": {
+                              "type": "string"
+                            },
+                            "venueName": {
+                              "type": "string"
+                            },
+                            "copiedAt": {
+                              "type": "string"
+                            },
+                            "fields": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "required": ["profileId", "venueName", "copiedAt", "fields"],
+                          "additionalProperties": false
                         },
                         "ticketTiers": {
                           "type": "array",
@@ -7682,6 +7912,204 @@
         }
       }
     },
+    "/api/v1/events/{id}/hold/release": {
+      "post": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "promoted": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "holdRank": {
+                            "type": "number",
+                            "nullable": true
+                          }
+                        },
+                        "required": ["id", "holdRank"],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["id", "status", "promoted"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/events/{id}/hold/auto-promote": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "holdAutoPromote": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["holdAutoPromote"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "holdAutoPromote": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["id", "holdAutoPromote"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/events/{id}/hold": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "eventDate": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "holdRank": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "holdAutoPromote": {
+                      "type": "boolean",
+                      "nullable": true
+                    },
+                    "pool": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "holdRank": {
+                            "type": "number"
+                          },
+                          "holdAutoPromote": {
+                            "type": "boolean"
+                          },
+                          "isSelf": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": ["id", "title", "holdRank", "holdAutoPromote", "isSelf"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "canManageRank": {
+                      "type": "boolean"
+                    },
+                    "canDecide": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "status",
+                    "eventDate",
+                    "holdRank",
+                    "holdAutoPromote",
+                    "pool",
+                    "canManageRank",
+                    "canDecide"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/profiles/search": {
       "get": {
         "parameters": [
@@ -13385,6 +13813,151 @@
                     }
                   },
                   "required": ["updated"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/preferences": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "preferences": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "category": {
+                            "type": "string",
+                            "enum": ["bookings", "holds", "deals", "settlements", "events"]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "inApp": {
+                            "type": "boolean"
+                          },
+                          "email": {
+                            "type": "boolean"
+                          },
+                          "isDefault": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "category",
+                          "label",
+                          "description",
+                          "inApp",
+                          "email",
+                          "isDefault"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["preferences"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "preferences": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "category": {
+                          "type": "string",
+                          "enum": ["bookings", "holds", "deals", "settlements", "events"]
+                        },
+                        "inApp": {
+                          "type": "boolean"
+                        },
+                        "email": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["category", "inApp", "email"],
+                      "additionalProperties": false
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": ["preferences"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "preferences": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "category": {
+                            "type": "string",
+                            "enum": ["bookings", "holds", "deals", "settlements", "events"]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "inApp": {
+                            "type": "boolean"
+                          },
+                          "email": {
+                            "type": "boolean"
+                          },
+                          "isDefault": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "category",
+                          "label",
+                          "description",
+                          "inApp",
+                          "email",
+                          "isDefault"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["preferences"],
                   "additionalProperties": false
                 }
               }

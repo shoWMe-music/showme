@@ -480,3 +480,51 @@ export function renderSettlementReviewEmail(input: {
     footerNote: "You received this because you are a party to this event's settlement.",
   });
 }
+
+/**
+ * 6. The mail copy of an in-app NOTIFICATION (`lib/notify.ts`, when a caller
+ *    passes a `NotificationEmail`).
+ *
+ * The five templates above each exist because one route has one thing to say.
+ * This one is the opposite by design: the notification feed carries a growing
+ * set of small facts — an agreement reopened, a remark on a settlement, a party
+ * signing off — and giving each its own bespoke template would mean six near
+ * copies of the same shape, and a seventh the next time a route learns to speak.
+ * The caller supplies the sentences; the layout, the brand and the link-building
+ * stay here, where they already were.
+ *
+ * IT IS NOT A DUMP OF THE NOTIFICATION. `NotificationInput.title`/`body` are
+ * written for a one-line row under a bell and read as a fragment in an inbox, so
+ * a caller writes the mail's own copy. Same rule as everything above: no money,
+ * no party-scoped figure — the link goes to the screen that can decide what this
+ * particular reader may see.
+ *
+ * FOOTER NAMES THE SWITCH. Every message this renders was sent because a
+ * preference allowed it, so it says so and says where to change it. A mail that
+ * cannot be turned off from the mail is a mail people mark as spam.
+ */
+export function renderNotificationEmail(input: {
+  subject: string;
+  /** The inbox preview line — write it, or the client picks a fragment. */
+  preheader: string;
+  heading: string;
+  paragraphs: string[];
+  /** The show this is about, when there is one. Renders the detail block. */
+  event?: EventSummary | null;
+  action: { label: string /** An app-relative path, e.g. `/events/<id>`. */; path: string };
+  baseUrl?: string;
+}): RenderedEmail {
+  return render({
+    subject: input.subject,
+    preheader: input.preheader,
+    heading: input.heading,
+    paragraphs: input.paragraphs,
+    details: input.event ? eventDetails(input.event) : undefined,
+    action: {
+      label: input.action.label,
+      url: buildApplicationUrl(input.action.path, input.baseUrl),
+    },
+    footerNote:
+      "You received this because your shoWMe notification settings allow email for this kind of update. Change them in Settings → Notifications.",
+  });
+}

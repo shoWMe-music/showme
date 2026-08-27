@@ -28,6 +28,11 @@ import { useAuth } from "../auth/AuthProvider";
 import { VatSettingsCard } from "../components/VatSettingsCard";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
+import {
+  type NotificationChannel,
+  type NotificationPreference,
+  useNotificationPreferences,
+} from "../hooks/useNotificationPreferences";
 import { errorMessage } from "../lib/errors";
 import { formatDay } from "../lib/format";
 import { usePageTransition } from "../shell/usePageTransition";
@@ -305,16 +310,105 @@ function TeamPanel() {
 }
 
 // ── Notifications ────────────────────────────────────────────────────────────
+/**
+ * One switch per category per channel, saved the moment it moves.
+ *
+ * The CATEGORIES AND THEIR COPY COME FROM THE API, deliberately — they are a
+ * product decision that lives next to the code honouring them (`lib/notify.ts`),
+ * and a second list here would be free to offer a switch for something nothing
+ * emits, or hide one for something that does.
+ */
 function NotificationsPanel() {
+  const { preferences, isPending, isError, error, setChannel, isSaving, saveError } =
+    useNotificationPreferences();
+  const toast = useToast();
+
+  useEffect(() => {
+    if (saveError) toast.error(errorMessage(saveError, "Couldn't save that preference."));
+  }, [saveError, toast]);
+
+  if (isPending) return <LoadingState label="Loading notification preferences" />;
+  if (isError) return <ErrorState error={error} title="Couldn't load your notification settings" />;
+
   return (
     <PanelCard>
       <Eyebrow>Notifications</Eyebrow>
-      <EmptyState
-        icon={<Icon name="bell" />}
-        title="No notification preferences yet"
-        description="Email and in-app alert controls for bookings, deals and settlements are coming soon."
-      />
+      <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
+        Turning a category off in the app means the notification is never written — it will not be
+        waiting for you later. Booking requests you have been sent always reach you by email, and so
+        does a settlement you are asked to review.
+      </span>
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 72px 72px",
+            gap: 12,
+            paddingBottom: 8,
+            fontSize: 11.5,
+            letterSpacing: ".06em",
+            textTransform: "uppercase",
+            color: "var(--muted)",
+          }}
+        >
+          <span />
+          <span style={{ textAlign: "center" }}>In app</span>
+          <span style={{ textAlign: "center" }}>Email</span>
+        </div>
+        {preferences.map((preference) => (
+          <NotificationPreferenceRow
+            key={preference.category}
+            preference={preference}
+            disabled={isSaving}
+            onChange={setChannel}
+          />
+        ))}
+      </div>
     </PanelCard>
+  );
+}
+
+function NotificationPreferenceRow({
+  preference,
+  disabled,
+  onChange,
+}: {
+  preference: NotificationPreference;
+  disabled: boolean;
+  onChange: (category: string, channel: NotificationChannel, value: boolean) => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 72px 72px",
+        gap: 12,
+        alignItems: "center",
+        padding: "12px 0",
+        borderTop: "1px solid var(--border)",
+      }}
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <span style={{ fontSize: 14, color: "var(--text)" }}>{preference.label}</span>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>{preference.description}</span>
+      </div>
+      <div style={{ display: "flex", justifyContent: "center" }}>
+        <Toggle
+          checked={preference.inApp}
+          disabled={disabled}
+          onChange={(next) => onChange(preference.category, "inApp", next)}
+          label={`${preference.label} — in app`}
+        />
+      </div>
+      <div style={{ display: "flex", justifyContent: "center" }}>
+        <Toggle
+          checked={preference.email}
+          disabled={disabled}
+          onChange={(next) => onChange(preference.category, "email", next)}
+          label={`${preference.label} — email`}
+        />
+      </div>
+    </div>
   );
 }
 

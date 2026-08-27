@@ -25,10 +25,15 @@ import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import { captureBudgetSnapshot, plannedVsActual } from "../lib/budget-snapshot";
 import { syncCommissionSettlements } from "../lib/commission-settlement";
-import { renderSettlementReviewEmail } from "../lib/email-templates";
+import { renderNotificationEmail, renderSettlementReviewEmail } from "../lib/email-templates";
 import { loadEventSummary } from "../lib/event-summary";
 import { loadRatesToBase } from "../lib/exchange-rate";
-import { notifyUsers, settlementPartyReach, settlementRecipients } from "../lib/notify";
+import {
+  eventParticipantRecipients,
+  notifyUsers,
+  settlementPartyReach,
+  settlementRecipients,
+} from "../lib/notify";
 import { ensureSettlementLines } from "../lib/settlement-lines";
 import { type DesiredTransfer, reconcileTransfers } from "../lib/settlement-transfers";
 import { createShareWithRecipients, sendShareInvitations } from "../lib/share-invite";
@@ -1685,6 +1690,60 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         return comment;
       });
 
+      // Realtime + feed. RECIPIENTS MIRROR THE READ RULE ABOVE, exactly: a party's
+      // remark is readable only by the operators (`settlement.edit`), so only they
+      // are told about it — notifying the other parties would announce the
+      // existence of a message they would then find missing from their thread. The
+      // operator's own remark is addressed to everyone reviewing, so it reaches
+      // every party with a settlement.
+      //
+      // This is the step the review conversation was missing. A party who disputes
+      // a figure moves the settlement to `comments_received` and, until now, was
+      // relying on the operator happening to look at the list screen.
+      try {
+        const actorUserId = principal.userId;
+        const recipients = asParty
+          ? await eventParticipantRecipients(database, id, actorUserId, { operatorsOnly: true })
+          : await settlementRecipients(database, id, actorUserId);
+        const event = await loadEventSummary(database, id);
+        const authorName = request.firebaseUser?.name ?? "Someone";
+        await notifyUsers(
+          database,
+          recipients,
+          actorUserId,
+          {
+            type: "settlement.commented",
+            title: asParty ? "A party commented on the settlement" : "The organizer commented",
+            // The MESSAGE never travels — same rule the activity row follows, and
+            // the same rule the templates follow: the thread is the only surface
+            // that can scope who reads which remark.
+            body: `${authorName} left a remark for you to read.`,
+            eventId: id,
+            actorDisplay: request.firebaseUser?.name ?? undefined,
+            link: `/events/${id}/settlement`,
+            metadata: { commentId: created.id, section: created.section },
+          },
+          event
+            ? {
+                sink: request.server.emailSink,
+                message: renderNotificationEmail({
+                  subject: `Settlement comment: ${event.title}`,
+                  preheader: "Someone has a question about the figures.",
+                  heading: "There's a remark on the settlement",
+                  paragraphs: [
+                    `${authorName} left a comment on the settlement for ${event.title}.`,
+                    "Open the settlement to read it and reply. The remark itself stays in the thread — it is addressed to the people in the conversation, and this message is not.",
+                  ],
+                  event,
+                  action: { label: "Open the settlement", path: `/events/${event.id}/settlement` },
+                }),
+              }
+            : undefined,
+        );
+      } catch (error) {
+        request.log.error({ error, eventId: id }, "settlement comment notification failed");
+      }
+
       return reply.status(201).send({
         id: created.id,
         status: movesToCommentsReceived ? "comments_received" : "unchanged",
@@ -1807,6 +1866,14 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
        * address on file — and they are the reason `POST …/settlement/invitations`
        * exists. `emailed` reports who was actually reached so the screen can say
        * who still needs an address rather than implying everyone was told.
+       *
+       * NOT GATED by the settlements email preference, and the categories say so
+       * (`NOTIFICATION_CATEGORIES`). This is the same message, word for word, that
+       * goes to an OFF-PLATFORM party who has no preferences and no account — it is
+       * the settlement being served on the people it concerns, not a copy of a
+       * notification about it. A preference that could switch off the only channel
+       * carrying an ask would leave somebody unable to answer it. The in-app
+       * `settlement.pending_review` beside it IS gated, through `notifyUsers`.
        */
       const emailed: string[] = [];
       if (status === "pending_review") {
@@ -2326,6 +2393,56 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         });
         return row;
       });
+
+      // Realtime + feed: the OPERATORS only. "Has everyone signed off yet?" is the
+      // operator's question — it is what gates finalize — and it was answerable
+      // only by re-reading the settlement list. The other parties are deliberately
+      // not told: whether a different act has signed is that act's business, and
+      // announcing it round the bill would leak the shape of a party-scoped
+      // review to everyone on it.
+      try {
+        const actorUserId = principal.userId;
+        const recipients = await eventParticipantRecipients(database, id, actorUserId, {
+          operatorsOnly: true,
+        });
+        const event = await loadEventSummary(database, id);
+        const signerName = request.firebaseUser?.name ?? "A party";
+        await notifyUsers(
+          database,
+          recipients,
+          actorUserId,
+          {
+            type: "settlement.party_confirmed",
+            title: `${signerName} signed off their settlement`,
+            body: "One more party has agreed their figures.",
+            eventId: id,
+            actorDisplay: request.firebaseUser?.name ?? undefined,
+            link: `/events/${id}/settlement`,
+            metadata: { settlementId: sid },
+          },
+          event
+            ? {
+                sink: request.server.emailSink,
+                message: renderNotificationEmail({
+                  subject: `Settlement signed off: ${event.title}`,
+                  preheader: "One more party has agreed their figures.",
+                  heading: "A party signed off their settlement",
+                  paragraphs: [
+                    `${signerName} has agreed their figures on ${event.title}.`,
+                    // NO FIGURES, and no count of who is left — both are
+                    // party-scoped facts, and only the screen can decide which of
+                    // them this particular reader may see.
+                    "Open the settlement to see where the review stands.",
+                  ],
+                  event,
+                  action: { label: "Open the settlement", path: `/events/${event.id}/settlement` },
+                }),
+              }
+            : undefined,
+        );
+      } catch (error) {
+        request.log.error({ error, eventId: id, sid }, "settlement confirm notification failed");
+      }
 
       return { id: approval.id, approved: approval.approved };
     },

@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PatchApiV1EventsIdBodyExtrasVenueCarryOver } from './patchApiV1EventsIdBodyExtrasVenueCarryOver';
 import type { PatchApiV1EventsIdBodyExtrasTicketTiersItem } from './patchApiV1EventsIdBodyExtrasTicketTiersItem';
 import type { PatchApiV1EventsIdBodyExtrasGuestList } from './patchApiV1EventsIdBodyExtrasGuestList';
 import type { PatchApiV1EventsIdBodyExtrasTicketing } from './patchApiV1EventsIdBodyExtrasTicketing';
@@ -13,6 +14,19 @@ import type { PatchApiV1EventsIdBodyExtrasTicketing } from './patchApiV1EventsId
  */
 export type PatchApiV1EventsIdBodyExtras = {
   amenities?: string[];
+  /** @nullable */
+  soundSystem?: string | null;
+  /** @nullable */
+  cateringNotes?: string | null;
+  /** @nullable */
+  accommodationNotes?: string | null;
+  /** @nullable */
+  artistLogisticsNotes?: string | null;
+  /** @nullable */
+  city?: string | null;
+  /** @nullable */
+  country?: string | null;
+  venueCarryOver?: PatchApiV1EventsIdBodyExtrasVenueCarryOver;
   ticketTiers?: PatchApiV1EventsIdBodyExtrasTicketTiersItem[];
   guestList?: PatchApiV1EventsIdBodyExtrasGuestList;
   ticketing?: PatchApiV1EventsIdBodyExtrasTicketing;

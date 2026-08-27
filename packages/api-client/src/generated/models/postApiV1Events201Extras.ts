@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PostApiV1Events201ExtrasVenueCarryOver } from './postApiV1Events201ExtrasVenueCarryOver';
 import type { PostApiV1Events201ExtrasTicketTiersItem } from './postApiV1Events201ExtrasTicketTiersItem';
 import type { PostApiV1Events201ExtrasGuestList } from './postApiV1Events201ExtrasGuestList';
 import type { PostApiV1Events201ExtrasTicketing } from './postApiV1Events201ExtrasTicketing';
@@ -13,6 +14,19 @@ import type { PostApiV1Events201ExtrasTicketing } from './postApiV1Events201Extr
  */
 export type PostApiV1Events201Extras = {
   amenities?: string[];
+  /** @nullable */
+  soundSystem?: string | null;
+  /** @nullable */
+  cateringNotes?: string | null;
+  /** @nullable */
+  accommodationNotes?: string | null;
+  /** @nullable */
+  artistLogisticsNotes?: string | null;
+  /** @nullable */
+  city?: string | null;
+  /** @nullable */
+  country?: string | null;
+  venueCarryOver?: PostApiV1Events201ExtrasVenueCarryOver;
   ticketTiers?: PostApiV1Events201ExtrasTicketTiersItem[];
   guestList?: PostApiV1Events201ExtrasGuestList;
   ticketing?: PostApiV1Events201ExtrasTicketing;

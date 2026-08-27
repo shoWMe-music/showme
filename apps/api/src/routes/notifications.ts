@@ -3,6 +3,11 @@ import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
+import {
+  NOTIFICATION_CATEGORIES,
+  NOTIFICATION_CATEGORY_KEYS,
+  notificationChannelDefault,
+} from "../lib/notify";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
 
 /** Keyset cursor over the `(created_at, id)` order — opaque to the client. */
@@ -40,6 +45,47 @@ const ListResponse = z.object({
 
 const MarkReadResponse = z.object({ updated: z.number() });
 
+/**
+ * One switchable category, LABEL AND ALL.
+ *
+ * The copy travels with the state on purpose. The catalog and its defaults are a
+ * product decision that lives in `lib/notify.ts` beside the code that honours it;
+ * a second copy in the web app would be free to disagree with it, and the way it
+ * would disagree is a screen offering a switch for something nothing emits, or
+ * hiding one for something that does. The client renders what it is given.
+ */
+const PreferenceResponse = z.object({
+  category: z.enum(NOTIFICATION_CATEGORY_KEYS as unknown as [string, ...string[]]),
+  label: z.string(),
+  description: z.string(),
+  inApp: z.boolean(),
+  email: z.boolean(),
+  /** False when this is the catalog default rather than a stored answer. */
+  isDefault: z.boolean(),
+});
+
+const PreferencesResponse = z.object({ preferences: z.array(PreferenceResponse) });
+
+const UpdatePreferencesBody = z.object({
+  preferences: z
+    .array(
+      z.object({
+        category: z.enum(NOTIFICATION_CATEGORY_KEYS as unknown as [string, ...string[]]),
+        inApp: z.boolean(),
+        email: z.boolean(),
+      }),
+    )
+    .min(1)
+    // Postgres refuses an ON CONFLICT DO UPDATE that would touch the same row
+    // twice, so a body naming a category twice is a 500 unless it is a 400 here.
+    // It is also meaningless — two answers to one question.
+    .refine(
+      (preferences) =>
+        new Set(preferences.map((preference) => preference.category)).size === preferences.length,
+      { message: "Each category may appear only once" },
+    ),
+});
+
 type NotificationRow = typeof schema.notifications.$inferSelect;
 
 /** Shape a stored notification row for the wire (timestamps → ISO strings). */
@@ -58,6 +104,34 @@ function serializeNotification(row: NotificationRow): z.infer<typeof Notificatio
     readAt: row.readAt ? row.readAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+/**
+ * The caller's switch positions: the catalog, with a stored answer laid over any
+ * category they have actually touched. Always the full catalog — a screen that
+ * listed only stored rows would show a new account nothing at all.
+ */
+async function readPreferences(
+  database: FastifyInstance["database"],
+  userId: string,
+): Promise<z.infer<typeof PreferenceResponse>[]> {
+  const stored = await database
+    .select()
+    .from(schema.notificationPreferences)
+    .where(eq(schema.notificationPreferences.userId, userId));
+  const answers = new Map(stored.map((row) => [row.category, row]));
+
+  return NOTIFICATION_CATEGORIES.map((category) => {
+    const answer = answers.get(category.key);
+    return {
+      category: category.key,
+      label: category.label,
+      description: category.description,
+      inApp: answer ? answer.inApp : notificationChannelDefault(category.key, "inApp"),
+      email: answer ? answer.email : notificationChannelDefault(category.key, "email"),
+      isDefault: !answer,
+    };
+  });
 }
 
 export async function notificationRoutes(fastify: FastifyInstance): Promise<void> {
@@ -138,6 +212,58 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
         .returning({ id: schema.notifications.id });
 
       return { updated: updated.length };
+    },
+  );
+
+  // The caller's own switch positions. USER-scoped like the feed: the
+  // `user_id = principal.userId` predicate IS the authorization, there is no
+  // profile or event in the question, and a preference is not sensitive enough
+  // to audit reading.
+  app.get(
+    "/notifications/preferences",
+    { schema: { response: { 200: PreferencesResponse } } },
+    async (request) => {
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+      return { preferences: await readPreferences(request.server.database, principal.userId) };
+    },
+  );
+
+  // Set them. UPSERT per category, and only the categories in the body — a client
+  // that knows about four categories must not be able to blank a fifth it has
+  // never heard of by sending a list that omits it. There is nothing to delete:
+  // a category is either an explicit answer or absent, and absent is the default.
+  //
+  // Returns the FULL merged catalog, not an echo of the body, so a client never
+  // has to re-derive what a default was.
+  app.put(
+    "/notifications/preferences",
+    { schema: { body: UpdatePreferencesBody, response: { 200: PreferencesResponse } } },
+    async (request) => {
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+      const { database } = request.server;
+
+      await database
+        .insert(schema.notificationPreferences)
+        .values(
+          request.body.preferences.map((preference) => ({
+            userId: principal.userId,
+            category: preference.category,
+            inApp: preference.inApp,
+            email: preference.email,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [schema.notificationPreferences.userId, schema.notificationPreferences.category],
+          set: {
+            inApp: sql`excluded.in_app`,
+            email: sql`excluded.email`,
+            updatedAt: new Date(),
+          },
+        });
+
+      return { preferences: await readPreferences(database, principal.userId) };
     },
   );
 }

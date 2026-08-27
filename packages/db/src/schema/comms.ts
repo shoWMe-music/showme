@@ -46,6 +46,50 @@ export const notifications = pgTable(
   (table) => [index("notifications_user_id_idx").on(table.userId)],
 );
 
+/**
+ * ONE PERSON'S ANSWER TO "tell me about this, don't tell me about that".
+ *
+ * Keyed by CATEGORY, not by notification type. `notifications.type` is free text
+ * that grows every time a route learns to speak (`deal.sent`, `hold.lost`,
+ * `settlement.pending_review`), and a preference row per type would mean a
+ * settings screen that grows a checkbox with every commit and a stored row that
+ * silences a type nobody remembers naming. The category is the coarse thing a
+ * person actually has an opinion about — bookings, holds, deals, settlements,
+ * events — and `lib/notify.ts` maps type → category in one place.
+ *
+ * A MISSING ROW IS THE DEFAULT, not "off". Rows exist only for the categories a
+ * user has actually touched, so a new account is silent in this table and still
+ * hears everything, and a category added later defaults for everybody without a
+ * backfill. The defaults themselves live in code (`NOTIFICATION_CATEGORIES`),
+ * where the reasoning for each one can be read next to it.
+ *
+ * TWO CHANNELS, TWO COLUMNS, because they answer different questions. `in_app`
+ * decides whether a `notifications` row is written at all — a suppressed in-app
+ * notification does not exist, rather than existing unread forever. `email`
+ * decides whether the same fact is also put in a mailbox, which is the channel
+ * that reaches someone who is not looking at the app.
+ *
+ * NOT gated here: transactional mail that is not a notification — a share
+ * verification code, an invitation sent to an address that has no account yet.
+ * Those are the message, not a copy of one, and a preference cannot switch off
+ * the only way a person can act.
+ */
+export const notificationPreferences = pgTable(
+  "notification_preferences",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** A `NOTIFICATION_CATEGORIES` key. Text, like `notifications.type` — the
+     * catalog is a product decision that moves faster than an enum migration. */
+    category: text("category").notNull(),
+    inApp: boolean("in_app").notNull(),
+    email: boolean("email").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.category] })],
+);
+
 /** The user-facing activity feed. Target-scoped: a row shows iff you can view its target. */
 export const activityLog = pgTable("activity_log", {
   id: uuid("id").defaultRandom().primaryKey(),

@@ -60,6 +60,7 @@ import type {
   GetApiV1EventsIdBudgets200Item,
   GetApiV1EventsIdBudgetsBidLines200Item,
   GetApiV1EventsIdDeals200Item,
+  GetApiV1EventsIdHold200,
   GetApiV1EventsIdInvitations200Item,
   GetApiV1EventsIdMessageThreads200,
   GetApiV1EventsIdMessages200Item,
@@ -94,6 +95,7 @@ import type {
   GetApiV1MeExport200,
   GetApiV1Notifications200,
   GetApiV1NotificationsParams,
+  GetApiV1NotificationsPreferences200,
   GetApiV1PlansProfileId200,
   GetApiV1Profiles200Item,
   GetApiV1ProfilesId200,
@@ -202,10 +204,13 @@ import type {
   PostApiV1EventsIdGroupsBody,
   PostApiV1EventsIdHandoff201,
   PostApiV1EventsIdHandoffBody,
+  PostApiV1EventsIdHoldAutoPromote200,
+  PostApiV1EventsIdHoldAutoPromoteBody,
   PostApiV1EventsIdHoldConfirm200,
   PostApiV1EventsIdHoldDecline200,
   PostApiV1EventsIdHoldRank200,
   PostApiV1EventsIdHoldRankBody,
+  PostApiV1EventsIdHoldRelease200,
   PostApiV1EventsIdMessages201,
   PostApiV1EventsIdMessagesBody,
   PostApiV1EventsIdNotify200,
@@ -304,6 +309,8 @@ import type {
   PutApiV1AdminPerformingRightsRatesCountryBody,
   PutApiV1EventsIdSetlists200,
   PutApiV1EventsIdSetlistsBody,
+  PutApiV1NotificationsPreferences200,
+  PutApiV1NotificationsPreferencesBody,
   PutApiV1ProfilesIdUnavailability200Item,
   PutApiV1ProfilesIdUnavailabilityBody
 } from '.././models';
@@ -4104,7 +4111,208 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    export const getApiV1ProfilesSearch = (
+    export const postApiV1EventsIdHoldRelease = (
+    id: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1EventsIdHoldRelease200>(
+      {url: `/api/v1/events/${id}/hold/release`, method: 'POST', signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1EventsIdHoldReleaseMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdHoldRelease>>, TError,{id: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdHoldRelease>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['postApiV1EventsIdHoldRelease'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1EventsIdHoldRelease>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  postApiV1EventsIdHoldRelease(id,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1EventsIdHoldReleaseMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1EventsIdHoldRelease>>>
+    
+    export type PostApiV1EventsIdHoldReleaseMutationError = unknown
+
+    export const usePostApiV1EventsIdHoldRelease = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdHoldRelease>>, TError,{id: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1EventsIdHoldRelease>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1EventsIdHoldReleaseMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const postApiV1EventsIdHoldAutoPromote = (
+    id: string,
+    postApiV1EventsIdHoldAutoPromoteBody: PostApiV1EventsIdHoldAutoPromoteBody,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1EventsIdHoldAutoPromote200>(
+      {url: `/api/v1/events/${id}/hold/auto-promote`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: postApiV1EventsIdHoldAutoPromoteBody, signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1EventsIdHoldAutoPromoteMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdHoldAutoPromote>>, TError,{id: string;data: PostApiV1EventsIdHoldAutoPromoteBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdHoldAutoPromote>>, TError,{id: string;data: PostApiV1EventsIdHoldAutoPromoteBody}, TContext> => {
+
+const mutationKey = ['postApiV1EventsIdHoldAutoPromote'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1EventsIdHoldAutoPromote>>, {id: string;data: PostApiV1EventsIdHoldAutoPromoteBody}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  postApiV1EventsIdHoldAutoPromote(id,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1EventsIdHoldAutoPromoteMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1EventsIdHoldAutoPromote>>>
+    export type PostApiV1EventsIdHoldAutoPromoteMutationBody = PostApiV1EventsIdHoldAutoPromoteBody
+    export type PostApiV1EventsIdHoldAutoPromoteMutationError = unknown
+
+    export const usePostApiV1EventsIdHoldAutoPromote = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdHoldAutoPromote>>, TError,{id: string;data: PostApiV1EventsIdHoldAutoPromoteBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1EventsIdHoldAutoPromote>>,
+        TError,
+        {id: string;data: PostApiV1EventsIdHoldAutoPromoteBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1EventsIdHoldAutoPromoteMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const getApiV1EventsIdHold = (
+    id: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1EventsIdHold200>(
+      {url: `/api/v1/events/${id}/hold`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1EventsIdHoldQueryKey = (id?: string,) => {
+    return [
+    `/api/v1/events/${id}/hold`
+    ] as const;
+    }
+
+    
+export const getGetApiV1EventsIdHoldQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1EventsIdHold>>, TError = unknown>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdHold>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1EventsIdHoldQueryKey(id);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1EventsIdHold>>> = ({ signal }) => getApiV1EventsIdHold(id, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdHold>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1EventsIdHoldQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1EventsIdHold>>>
+export type GetApiV1EventsIdHoldQueryError = unknown
+
+
+export function useGetApiV1EventsIdHold<TData = Awaited<ReturnType<typeof getApiV1EventsIdHold>>, TError = unknown>(
+ id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdHold>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1EventsIdHold>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1EventsIdHold>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1EventsIdHold<TData = Awaited<ReturnType<typeof getApiV1EventsIdHold>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdHold>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1EventsIdHold>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1EventsIdHold>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1EventsIdHold<TData = Awaited<ReturnType<typeof getApiV1EventsIdHold>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdHold>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1EventsIdHold<TData = Awaited<ReturnType<typeof getApiV1EventsIdHold>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdHold>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1EventsIdHoldQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const getApiV1ProfilesSearch = (
     params?: GetApiV1ProfilesSearchParams,
  signal?: AbortSignal
 ) => {
@@ -7705,6 +7913,149 @@ const {mutation: mutationOptions} = options ?
       > => {
 
       const mutationOptions = getPostApiV1NotificationsReadMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const getApiV1NotificationsPreferences = (
+    
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1NotificationsPreferences200>(
+      {url: `/api/v1/notifications/preferences`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1NotificationsPreferencesQueryKey = () => {
+    return [
+    `/api/v1/notifications/preferences`
+    ] as const;
+    }
+
+    
+export const getGetApiV1NotificationsPreferencesQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1NotificationsPreferences>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1NotificationsPreferences>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1NotificationsPreferencesQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1NotificationsPreferences>>> = ({ signal }) => getApiV1NotificationsPreferences(signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1NotificationsPreferences>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1NotificationsPreferencesQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1NotificationsPreferences>>>
+export type GetApiV1NotificationsPreferencesQueryError = unknown
+
+
+export function useGetApiV1NotificationsPreferences<TData = Awaited<ReturnType<typeof getApiV1NotificationsPreferences>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1NotificationsPreferences>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1NotificationsPreferences>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1NotificationsPreferences>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1NotificationsPreferences<TData = Awaited<ReturnType<typeof getApiV1NotificationsPreferences>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1NotificationsPreferences>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1NotificationsPreferences>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1NotificationsPreferences>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1NotificationsPreferences<TData = Awaited<ReturnType<typeof getApiV1NotificationsPreferences>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1NotificationsPreferences>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1NotificationsPreferences<TData = Awaited<ReturnType<typeof getApiV1NotificationsPreferences>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1NotificationsPreferences>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1NotificationsPreferencesQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const putApiV1NotificationsPreferences = (
+    putApiV1NotificationsPreferencesBody: PutApiV1NotificationsPreferencesBody,
+ ) => {
+      
+      
+      return customFetch<PutApiV1NotificationsPreferences200>(
+      {url: `/api/v1/notifications/preferences`, method: 'PUT',
+      headers: {'Content-Type': 'application/json', },
+      data: putApiV1NotificationsPreferencesBody
+    },
+      );
+    }
+  
+
+
+export const getPutApiV1NotificationsPreferencesMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putApiV1NotificationsPreferences>>, TError,{data: PutApiV1NotificationsPreferencesBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof putApiV1NotificationsPreferences>>, TError,{data: PutApiV1NotificationsPreferencesBody}, TContext> => {
+
+const mutationKey = ['putApiV1NotificationsPreferences'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof putApiV1NotificationsPreferences>>, {data: PutApiV1NotificationsPreferencesBody}> = (props) => {
+          const {data} = props ?? {};
+
+          return  putApiV1NotificationsPreferences(data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PutApiV1NotificationsPreferencesMutationResult = NonNullable<Awaited<ReturnType<typeof putApiV1NotificationsPreferences>>>
+    export type PutApiV1NotificationsPreferencesMutationBody = PutApiV1NotificationsPreferencesBody
+    export type PutApiV1NotificationsPreferencesMutationError = unknown
+
+    export const usePutApiV1NotificationsPreferences = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putApiV1NotificationsPreferences>>, TError,{data: PutApiV1NotificationsPreferencesBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof putApiV1NotificationsPreferences>>,
+        TError,
+        {data: PutApiV1NotificationsPreferencesBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPutApiV1NotificationsPreferencesMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }

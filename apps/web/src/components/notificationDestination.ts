@@ -33,15 +33,28 @@ const STATIC_ROUTES = [
 
 export type NotificationDestination =
   | { to: "/events/$eventId"; params: { eventId: string } }
+  | { to: "/events/$eventId/settlement"; params: { eventId: string } }
   | { to: (typeof STATIC_ROUTES)[number] };
 
-/** `/events/<id>` — the only parameterised link any writer produces today. */
+/** The two parameterised links the API's writers produce. */
 const EVENT_LINK = /^\/events\/([^/?#]+)$/;
+// `/events/<id>/settlement` is the settlement WORKSPACE — a route of its own, not
+// a tab (`router.tsx`). Every settlement notification has always pointed at it
+// (`settlement.pending_review` since it was written), and until this line existed
+// each one landed here, matched nothing, and rendered as dead text: the one feed
+// entry that says somebody is waiting on your figures was the one you could not
+// click.
+const SETTLEMENT_LINK = /^\/events\/([^/?#]+)\/settlement$/;
 
 export function notificationDestination(
   link: string | null | undefined,
 ): NotificationDestination | null {
   if (!link) return null;
+
+  const settlementEventId = SETTLEMENT_LINK.exec(link)?.[1];
+  if (settlementEventId) {
+    return { to: "/events/$eventId/settlement", params: { eventId: settlementEventId } };
+  }
 
   const eventId = EVENT_LINK.exec(link)?.[1];
   if (eventId) return { to: "/events/$eventId", params: { eventId } };
