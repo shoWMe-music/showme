@@ -2,6 +2,7 @@ import type { Preview } from "@storybook/react";
 import { withThemeByDataAttribute } from "@storybook/addon-themes";
 import "../src/styles/tokens.css";
 import "../src/styles/global.css";
+import "../src/styles/touch.css";
 
 const preview: Preview = {
   parameters: {

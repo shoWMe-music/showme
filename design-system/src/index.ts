@@ -1,5 +1,6 @@
 import "./styles/tokens.css";
 import "./styles/global.css";
+import "./styles/touch.css";
 
 export { Button } from "@/components/atoms/Button/Button";
 export type { ButtonProps, ButtonVariant } from "@/components/atoms/Button/Button";

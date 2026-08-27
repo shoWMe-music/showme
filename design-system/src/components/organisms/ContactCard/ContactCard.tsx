@@ -68,7 +68,11 @@ export function ContactCard({
               </div>
             </div>
           </div>
-          <button type="button" className={styles.viewBtn} onClick={onViewProfile}>
+          <button
+            type="button"
+            className={classNames(styles.viewBtn, "touch-target-overlay")}
+            onClick={onViewProfile}
+          >
             View profile
           </button>
         </div>

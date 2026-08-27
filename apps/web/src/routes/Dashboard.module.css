@@ -1,0 +1,111 @@
+/* The dashboard's layout and hover states.
+
+   These rules used to be an inline `<style>` tag rendered inside the route's
+   JSX. That tag could not be themed, could not be overridden by anything later
+   in the cascade (it needed `!important` to beat the inline styles it sat next
+   to), and was invisible to anyone grepping for `.dash-attn-row`. It is a CSS
+   module now, like every other screen in this app — module-scoped, so the global
+   `dash-` prefix that was standing in for scoping is gone too.
+
+   THE NARROW RULE REPEATS THE BREAKPOINT AS A LITERAL. A custom property cannot
+   be used in a media query condition — `@media (max-width: var(--breakpoint-
+   tablet))` is invalid CSS and silently never matches — so the number is written
+   out and the token it mirrors is named beside it
+   (`--breakpoint-tablet: 860px`, design-system/src/styles/tokens.css). */
+
+.page {
+  /* `width: 100%` and `min-width: 0`, not a bare stretch. This is a flex ITEM of
+     `.content__page`, and a stretched item is still floored by its content-based
+     minimum: the KPI band below could not fit 390px, so it set the width of the
+     whole page (754px against a 362px column) and the dashboard slid sideways
+     under the reader's thumb. A definite width resolves against the column, and
+     the grids below are then responsible for fitting inside it. */
+  width: 100%;
+  min-width: 0;
+  max-width: 1180px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.kpiTile {
+  text-align: left;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 18px 20px;
+  min-width: 0;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: transform var(--duration-base) var(--ease-out), border-color var(--duration-quick)
+    var(--ease-out);
+}
+.kpiTile:hover {
+  transform: translateY(-3px);
+  border-color: var(--border-strong);
+}
+
+.kpiGrid {
+  display: grid;
+  /* Four across whenever four fit, fewer when they do not — the same "at least N
+     columns" track `KpiRow` uses. Four fixed `1fr` tracks could not do that: a
+     bare `1fr` never gets narrower than its content, so instead of dropping a
+     column the band widened the page — 754px against a 362px phone.
+
+     The 222px floor is the invariant that makes this safe at EVERY width, not
+     just the two that get tested: it is what one tile needs to hold a
+     display-size money figure ("SEK 20,700" measures 181px at 34px in the
+     display face) plus its 2×20px of padding. Because the floor is a real
+     minimum, no column can ever be narrower than the figure inside it — which a
+     column COUNT alone does not guarantee, and every knife-edge here lands on a
+     414px or 430px phone that nothing in the suite looks at. 42px is the three
+     14px gaps; the `calc` branch keeps four across whenever four genuinely fit
+     (232px per tile at a 1280px desktop). */
+  grid-template-columns: repeat(auto-fit, minmax(max(222px, calc((100% - 42px) / 4)), 1fr));
+  gap: 14px;
+}
+
+.panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 22px;
+  min-width: 0;
+  box-shadow: var(--shadow);
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.attentionCard {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 6px;
+  box-shadow: var(--shadow);
+}
+
+.attentionRow,
+.recentRow {
+  background: transparent;
+  transition: background var(--duration-quick) var(--ease-out);
+}
+.attentionRow:hover,
+.recentRow:hover {
+  background: var(--shape-fill);
+}
+
+/* ≤ --breakpoint-tablet (860px, design-system/src/styles/tokens.css). Two panels
+   side by side stop being two panels once each is narrower than the headings and
+   figures it carries, so they stack. The KPI grid above needs no rule here — its
+   track floor already drops it to three, two and one column on its own. */
+@media (max-width: 860px) {
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

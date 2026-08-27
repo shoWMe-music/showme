@@ -85,3 +85,27 @@
   place-items: center;
   font-weight: 500;
 }
+
+/* ── Touch ──
+   36px tall at rest (9px padding + a 18px icon), and by far the biggest single
+   contributor to the app's undersized-target count: fifteen of these ship on
+   EVERY screen, in the desktop rail and again in the phone's off-canvas drawer.
+
+   Padding rather than the shared `.touch-target` utility (styles/touch.css),
+   because `.item` is a block and a `min-height` on a block leaves the label
+   sitting at the top of the box with 8px of dead space under it. Growing the
+   padding keeps the row optically centred, and it grows the ACTIVE FILL and the
+   left marker with it — both are `inset: 0` / `top: 8px; bottom: 8px` on this
+   box — so the row still reads as one piece.
+
+   Growth here is the honest fix rather than an overlay: these are stacked
+   contiguously 2px apart, so an overlay would overlap its neighbours and the
+   wrong destination would open. The nav that holds them scrolls
+   (`.sidebar__nav { overflow-y: auto }`), so the extra 8px x 15 rows costs
+   nothing but scroll.
+
+   Literal `pointer: coarse` — see styles/touch.css for why this is a pointer
+   test and not a width one. */
+@media (pointer: coarse) {
+  .item { padding-top: 13px; padding-bottom: 13px; }
+}

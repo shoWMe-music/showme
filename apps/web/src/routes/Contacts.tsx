@@ -231,7 +231,12 @@ export function Contacts() {
         // verifies. See the badge note on the card below.
         subtitle="Venues, performers, agents and suppliers — with their payout details in one place."
         actions={
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          // A fragment, not a row: `SectionHeader` already puts these in a
+          // flex row that wraps, with this exact gap and alignment. Wrapping
+          // them in a second identical row meant its `.actions` had one
+          // unbreakable child, so four controls pushed the page 59px sideways
+          // at 390px instead of dropping onto a second line.
+          <>
             <SegmentedToggle<ViewMode>
               aria-label="Layout"
               value={view}
@@ -268,7 +273,7 @@ export function Contacts() {
             >
               Add Contact
             </Button>
-          </div>
+          </>
         }
       />
 

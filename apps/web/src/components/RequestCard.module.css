@@ -1,0 +1,27 @@
+/* The request card's field grid — wanted date / source / fee / email / phone. */
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px;
+}
+
+/* ≤ --breakpoint-tablet (860px, design-system/src/styles/tokens.css). The
+   literal is repeated because a custom property cannot be used in a media query
+   condition — `@media (max-width: var(--breakpoint-tablet))` is invalid CSS and
+   silently never matches.
+
+   An email address is a single unbreakable word. Measured across a width sweep,
+   `anders@midnightecho.showme.test` was 38px wider than its cell at 414px and
+   430px — the two commonest phone widths after the 390 the audit checks — and
+   pushed the whole page sideways once the spill outgrew the card's padding.
+   `anywhere` rather than `break-word` on purpose: only `anywhere` also lowers
+   the cell's min-content size, which is what lets the track shrink in the first
+   place. Scoped to narrow screens, so a desktop card keeps its addresses on one
+   line exactly as before. */
+@media (max-width: 860px) {
+  .fields > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}

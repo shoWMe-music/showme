@@ -23,7 +23,7 @@ export function Toggle({ checked, onChange, disabled = false, label, id, classNa
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange?.(!checked)}
-      className={classNames(styles.track, checked && styles.on, className)}
+      className={classNames(styles.track, checked && styles.on, "touch-target-overlay", className)}
     >
       <span className={styles.knob} />
     </button>

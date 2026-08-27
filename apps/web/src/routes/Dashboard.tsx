@@ -7,11 +7,12 @@ import {
 } from "@showme/api-client";
 import { Badge, EmptyState, Icon, type IconName } from "@showme/design-system";
 import { useNavigate } from "@tanstack/react-router";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { settlementStatusToDisplay, settlementTotals } from "../components/settlementDocument";
 import { ErrorState, LoadingState } from "../components/states";
 import { formatAmount, formatDay, formatMoney } from "../lib/format";
+import styles from "./Dashboard.module.css";
 
 type TaskItem = { id: string; title: string; dueDate: string | null; completed: boolean };
 
@@ -61,7 +62,7 @@ function KpiTile({
   onClick: () => void;
 }) {
   return (
-    <button type="button" onClick={onClick} className="dash-kpi" style={kpiTileStyle}>
+    <button type="button" onClick={onClick} className={styles.kpiTile}>
       <div
         style={{
           display: "flex",
@@ -91,18 +92,6 @@ function KpiTile({
   );
 }
 
-const kpiTileStyle: CSSProperties = {
-  textAlign: "left",
-  background: "var(--card)",
-  border: "1px solid var(--border)",
-  borderRadius: 16,
-  padding: "18px 20px",
-  cursor: "pointer",
-  boxShadow: "var(--shadow)",
-  transition:
-    "transform var(--duration-base) var(--ease-out), border-color var(--duration-quick) var(--ease-out)",
-};
-
 /** The compact mono eyebrow the prototype stamps above each stat band. */
 function Eyebrow({ children }: { children: ReactNode }) {
   return (
@@ -120,14 +109,6 @@ function Eyebrow({ children }: { children: ReactNode }) {
     </div>
   );
 }
-
-const panelStyle: CSSProperties = {
-  background: "var(--card)",
-  border: "1px solid var(--border)",
-  borderRadius: 18,
-  padding: 22,
-  boxShadow: "var(--shadow)",
-};
 
 export function Dashboard() {
   const navigate = useNavigate();
@@ -233,21 +214,7 @@ export function Dashboard() {
   const totalEvents = hostsNothing ? eventList.length : hostedCount;
 
   return (
-    <div
-      style={{
-        maxWidth: 1180,
-        margin: "0 auto",
-        display: "flex",
-        flexDirection: "column",
-        gap: 26,
-      }}
-    >
-      <style>{`
-        .dash-attn-row:hover { background: var(--shape-fill) !important; }
-        .dash-recent-row:hover { background: var(--shape-fill) !important; }
-        .dash-kpi:hover { transform: translateY(-3px); border-color: var(--border-strong); }
-      `}</style>
-
+    <div className={styles.page}>
       {/* Greeting */}
       <div>
         <h2
@@ -294,33 +261,23 @@ export function Dashboard() {
           description="Pending events, new booking requests and open tasks surface here."
         />
       ) : (
-        <div
-          style={{
-            background: "var(--card)",
-            border: "1px solid var(--border)",
-            borderRadius: 18,
-            padding: 6,
-            boxShadow: "var(--shadow)",
-          }}
-        >
+        <div className={styles.attentionCard}>
           {attentionShown.map((item) => (
             <button
               type="button"
               key={item.id}
               onClick={item.onAction}
-              className="dash-attn-row"
+              className={styles.attentionRow}
               style={{
                 width: "100%",
                 display: "flex",
                 alignItems: "center",
                 gap: 16,
                 padding: "15px 16px",
-                background: "transparent",
                 border: 0,
                 borderRadius: 14,
                 cursor: "pointer",
                 textAlign: "left",
-                transition: "background var(--duration-quick) var(--ease-out)",
               }}
             >
               <span
@@ -376,7 +333,7 @@ export function Dashboard() {
       {/* Events band */}
       <div>
         <Eyebrow>Events</Eyebrow>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+        <div className={styles.kpiGrid}>
           <KpiTile
             dot="#B8A99B"
             label="Total events"
@@ -418,7 +375,7 @@ export function Dashboard() {
           from `settlementTotals`. */}
       <div>
         <Eyebrow>Settlements</Eyebrow>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+        <div className={styles.kpiGrid}>
           <KpiTile
             dot="#6FC97A"
             label="Total settled"
@@ -451,15 +408,8 @@ export function Dashboard() {
       </div>
 
       {/* Recent settlements + Top venues */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1.55fr 1fr",
-          gap: 20,
-          alignItems: "start",
-        }}
-      >
-        <div style={panelStyle}>
+      <div className={styles.split}>
+        <div className={styles.panel}>
           <div
             style={{
               display: "flex",
@@ -507,7 +457,7 @@ export function Dashboard() {
                   <button
                     key={row.id}
                     type="button"
-                    className="dash-recent-row"
+                    className={styles.recentRow}
                     onClick={() => navigate({ to: "/settlements" })}
                     style={{
                       display: "flex",
@@ -519,7 +469,6 @@ export function Dashboard() {
                       padding: "11px 8px",
                       border: 0,
                       borderRadius: 10,
-                      background: "transparent",
                       color: "var(--text)",
                       cursor: "pointer",
                     }}
@@ -550,7 +499,7 @@ export function Dashboard() {
           )}
         </div>
 
-        <div style={panelStyle}>
+        <div className={styles.panel}>
           <h3
             style={{
               fontFamily: "var(--font-display)",

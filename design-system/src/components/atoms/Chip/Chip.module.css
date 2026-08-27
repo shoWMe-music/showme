@@ -62,3 +62,30 @@
 .active::before {
   opacity: 1;
 }
+
+/* ── Touch: the one control the 44px floor cannot have ──
+   A chip is 29px tall, so reaching 44 needs 7.5px on each side — but every chip
+   row in the app is a `flex-wrap: wrap` strip with an 8px gap (7px in the venue
+   picker), and on a phone those strips always wrap. Two 44px hit areas 8px
+   apart overlap by 7px, and a tap in the gutter would toggle the filter on the
+   row above rather than the one under the thumb. An overlapping target is worse
+   than a small one, because the wrong thing fires.
+
+   So the reach is capped at half the gutter: 4px on each side, giving 37px of
+   hit area against 29px of paint — a 28% larger target with the neighbours'
+   halos meeting exactly and never crossing. Comfortably above the 24px WCAG
+   2.5.8 minimum, deliberately short of Apple's 44px.
+
+   Horizontally nothing is needed: chips are 46–99px wide already.
+
+   Not the shared `.touch-target-overlay` utility (styles/touch.css) precisely
+   because that one is unconditionally 44px. This is the exception, and the
+   exception is worth writing out. `.chip` is already `position: relative` (for
+   the ::before gradient layer), so the overlay needs no extra setup. */
+@media (pointer: coarse) {
+  .chip::after {
+    content: "";
+    position: absolute;
+    inset: -4px 0;
+  }
+}

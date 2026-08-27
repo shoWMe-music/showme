@@ -244,3 +244,32 @@ a:hover { opacity: .85; }
     --duration-slow: 0ms;
   }
 }
+
+/* ── Touch: one switch for every control that shares a height ──
+   The same idea as the reduced-motion block above — a preference is answered
+   once, at the token, and every component that already reads the token moves
+   together.
+
+   Apple's 44px floor is about the FINGER, not about the window, so this is
+   gated on `pointer: coarse` and not on a width. A 390px-wide browser window on
+   a laptop is driven by a mouse and needs nothing; a tablet at 1024px is driven
+   by a thumb and needs all of it. Gating on width would have got both wrong.
+   `pointer` reports the PRIMARY input, so a touchscreen laptop with a mouse
+   plugged in stays fine — which is the behaviour we want.
+
+   Raising --control-height from 40 to 44 is a 4px change nobody can see, and it
+   is the single highest-leverage line in this file: every text input, number
+   field and select already reads it (`min-height`), and so does the app's own
+   shell — `.topbar__menu`, `.topbar__theme` and `.sidebar__close` in
+   apps/web/src/app.css are square buttons sized `width/height:
+   var(--control-height)`, and the Calendar toolbar's inline styles read it too.
+   Controls the token does not reach are handled in styles/touch.css.
+
+   --control-line-height deliberately does NOT move: the line box is a
+   typographic measurement, and growing it would re-space the text inside the
+   field rather than the box around it. */
+@media (pointer: coarse) {
+  :root {
+    --control-height: 44px;
+  }
+}

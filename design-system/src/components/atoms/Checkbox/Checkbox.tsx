@@ -50,6 +50,7 @@ export function Checkbox({
         styles.box,
         checked && styles.checked,
         checked && tone === "brand" && styles.checkedBrand,
+        "touch-target-overlay",
       )}
     >
       {checked && <Icon name="check" size={13} strokeWidth={2.6} />}

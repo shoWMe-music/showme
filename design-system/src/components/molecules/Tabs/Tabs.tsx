@@ -74,7 +74,7 @@ export function Tabs({ tabs, value, defaultValue, onChange, className }: TabsPro
             role="tab"
             aria-selected={isActive}
             tabIndex={isActive ? 0 : -1}
-            className={classNames(styles.tab, isActive && styles.active)}
+            className={classNames(styles.tab, isActive && styles.active, "touch-target")}
             onClick={() => select(tab.key)}
           >
             {tab.icon && <span className={styles.icon}>{tab.icon}</span>}

@@ -1,0 +1,82 @@
+/* ============================================================================
+   TOUCH TARGETS — what a finger can hit, as distinct from what the eye sees.
+   Global (non-module) stylesheet, loaded from index.ts alongside tokens/global.
+
+   THE PROBLEM, MEASURED. At 390px this app reports 20–39 controls per screen
+   under the 44px floor. Read as a list of sizes rather than as a number, almost
+   none of them are the "26px icon button" the count implies:
+
+       SidebarItem   271 x 36     Button (ghost)  46 x 38
+       Tabs tab       65 x 40     Button (cta)    42 x 42
+       Select trigger 97 x 40     ListRow        312 x 43
+       Chip           78 x 29     Checkbox        20 x 20     Toggle 42 x 24
+
+   The design is already within a few pixels of the floor nearly everywhere. So
+   the fix is not "make everything bigger" — it is two different fixes for two
+   genuinely different cases, and knowing which case a control is in.
+
+   1. `.touch-target` — the shortfall is 1–9px, so GROW THE BOX. Four pixels of
+      extra height on a button that was already 40 tall is imperceptible, and it
+      is the honest answer: the control really is bigger, so it can never
+      overlap a neighbour, never steal a click, and never be clipped by an
+      ancestor's `overflow: hidden`. Reach for this first.
+
+   2. `.touch-target-overlay` — the shortfall is 15–24px, so growing the box
+      would visibly coarsen a dense, deliberate design (a 20px checkbox is not
+      supposed to become a 44px checkbox). A transparent, absolutely-positioned
+      `::after`, centred on the control and at least 44px square, carries the
+      hit area instead. Not one painted pixel moves. Two costs to know about:
+        · it is invisible to any audit that measures `getBoundingClientRect()`,
+          because a pseudo-element is not an element — so the reported count
+          does NOT fall for these, even though the target really did grow;
+        · it can overlap a neighbour, and an overlapping target is worse than a
+          small one, because the wrong thing fires. Only use it where the
+          control has ~12px of clear space around it.
+
+   BOTH ARE GATED ON `pointer: coarse`, NOT ON A WIDTH. The 44px floor is about
+   the finger, not the window: a 390px-wide browser window on a laptop is driven
+   by a mouse and needs none of this, while a tablet at 1024px is driven by a
+   thumb and needs all of it. `pointer` reports the PRIMARY pointing device, so
+   a touchscreen laptop with a mouse attached stays `fine` and unchanged. This
+   whole file is therefore a no-op on the desktop by construction — there is no
+   breakpoint to get wrong and nothing to keep in sync with tokens.css.
+
+   NOT HERE, ON PURPOSE:
+     · Anything sized from `--control-height` (inputs, selects, and the app
+       shell's square icon buttons). tokens.css raises that token to 44px under
+       the same media query and every one of them follows for free.
+     · Chip and SidebarItem, which need something neither utility gives — see
+       the notes in their own stylesheets.
+     · DataTable's pager (30px buttons, 4px apart). Overlays would overlap by
+       10px; spacing them far enough apart for real 44px targets makes a 9-page
+       pager 508px wide, which is wider than the phone it is meant to help.
+       Deliberately left at 30px until the pager itself is redesigned for narrow
+       screens — a small target that works beats a large one that overflows.
+   ========================================================================== */
+
+@media (pointer: coarse) {
+  /* Grow the control's own box. Safe anywhere; prefer it. */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Extend the hit area without moving the paint. `top/left: 50%` + a translate
+     centres the overlay on the control rather than on one corner, so the extra
+     reach is shared equally on both sides; `width/height: 100%` under a 44px
+     minimum means an already-wide control gains nothing horizontally. */
+  .touch-target-overlay {
+    position: relative;
+  }
+  .touch-target-overlay::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 100%;
+    height: 100%;
+    min-width: 44px;
+    min-height: 44px;
+    transform: translate(-50%, -50%);
+  }
+}

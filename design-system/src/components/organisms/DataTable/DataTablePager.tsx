@@ -9,7 +9,11 @@ export function DataTablePager({ loadMore, pages }: { loadMore: LoadMoreControls
     if (!loadMore.hasMore) return null;
     return (
       <div className={classNames(styles.footer, styles.footerCenter)}>
-        <button type="button" className={styles.loadMore} onClick={loadMore.onLoadMore}>
+        <button
+          type="button"
+          className={classNames(styles.loadMore, "touch-target")}
+          onClick={loadMore.onLoadMore}
+        >
           {loadMore.label}
           <span className={styles.count}>{loadMore.shownCount} / {loadMore.totalCount}</span>
         </button>

@@ -221,3 +221,105 @@ budget already uses. One template system, not two.
 **Two**, both blocked on something outside the code:
 - **Events-list design comparison** ([86cbaxu87](https://app.clickup.com/t/86cbaxu87), data half shipped) — needs `/design consent`.
 - **Access giving** ([86cbaxvqk](https://app.clickup.com/t/86cbaxvqk)) — needs the participants-API question answered first: `permissionSetId` is optional-but-not-nullable, so "revoke to standard" has no meaning yet.
+
+
+---
+
+## 8. The mobile loop — running when this was written
+
+Daniel's brief: *"Make it recursive so you run it until everything is verified
+working great and smoothly on mobile everywhere in the app. I'll test on my
+phone. So deploy the changes after each wave and verification. Make sure you
+dont fuck up the desktop version."*
+
+So: **wave → verify → deploy → repeat**, and the desktop guard is the FULL
+Playwright suite, not a spot check.
+
+### The measure
+`apps/web/tests/mobile-audit.spec.ts`. Two objective assertions plus one report:
+`scrollWidth <= clientWidth` at 390px across 16 screens; the drawer journey
+driven with pointer AND with the keyboard alone; and sub-44px tap targets
+**counted, never asserted** (the app has deliberate 26–28px icon buttons, so
+failing on it would turn a judgement into an obstacle).
+
+```bash
+pnpm --filter @showme/web exec playwright test mobile-audit
+```
+
+### THE TRAP THAT WASTED TWO RUNS
+`apps/web/playwright.config.ts` sets `reuseExistingServer: !CI` on port **4174**.
+A run therefore silently reuses whatever preview server is already up —
+**including another agent's stale `dist-e2e` build**. An agent's first post-fix
+run reported numbers *identical* to its baseline; the CSS was fine, it was
+measuring somebody else's build. An orphaned `vite preview` was live with no
+orchestrator behind it.
+
+> **`lsof -ti:4174` before trusting any result.** If a number does not move
+> after a change you believe in, check that before you touch the CSS. And do
+> not run the suite while another agent is running it — you poison each other.
+
+### Wave 2 — what landed
+| Screen | Before | Cause | Fix |
+|---|---|---|---|
+| Settings | 94px | rail is 254px of the 358 available; and `1fr 1fr` is `minmax(auto,1fr)`, so a Select's min-content set the floor | `Settings.module.css`: rail becomes a 2-up grid above the panel ≤860px; `minmax(0,1fr)` lets the trigger's existing ellipsis work |
+| Contacts | 59px | four header actions on one unwrappable line | `flexWrap: "wrap"` on the inner actions row |
+| Dashboard | 378px | (wave-2 agent) | `Dashboard.module.css` |
+| Requests | 129px | (wave-2 agent) | `Requests.module.css` |
+
+Suite moved **54 passed / 6 failed → 58 / 2** on the Settings+Contacts change
+alone. `rider-preview` and `two-users` failed in that agent's baseline and pass
+now — they were concurrency casualties, not real.
+
+Design system, same wave: `SectionHeader.module.css` gained `flex-wrap: wrap`
+on `.actions`, and `.text` — **referenced by the TSX since it was written but
+never defined** — now sets `min-width: 0`. New `design-system/src/styles/
+touch.css` adds `.touch-target` / `.touch-target-overlay`, both gated on
+`@media (pointer: coarse)` rather than a width, so **the file is a no-op on the
+desktop by construction**. The finger, not the window, is what the 44px floor
+is about: a 390px laptop window needs none of it, a 1024px tablet needs all of
+it.
+
+### The house pattern for a narrow rule, now used in four files
+A CSS custom property **cannot** appear in a media query condition —
+`@media (max-width: var(--breakpoint-tablet))` is invalid and silently never
+matches. So write the literal and cite the token beside it:
+`/* ≤ --breakpoint-tablet (860px, design-system/src/styles/tokens.css) */`.
+The values are `--breakpoint-phone: 560px`, `--breakpoint-tablet: 860px`.
+
+### THE AUDIT MEASURES ONE WIDTH, AND THAT IS NOT ENOUGH
+`mobile-audit.spec.ts` asserts at **390px only**. The Dashboard agent swept
+360→1440 in 14 steps and caught a bug both of the widths anyone checks would
+have passed: a 178px KPI floor was fine at 390 and fine at 1440, and pushed a
+**414px and a 430px** phone sideways by 17px and 9px. A long email overflowed
+Requests at 414, 430 *and* 768.
+
+390 is the narrowest phone worth caring about, so it catches the crude failures.
+The subtle ones live between the breakpoints, where a track floor and the
+available width cross over. **Sweep before believing a fix**, and treat adding
+a handful of widths to the spec as the next improvement to the measure itself.
+
+### Known gaps — the next waves
+1. **The audit never opens a modal**, so nothing inside one is measured.
+   `AddContactModal` (in `Contacts.tsx`) has the same `1fr 1fr` pair with two
+   `<input>`s at ~170px min-content — a genuine phone break that the suite
+   reports as green. Modals, drawers and popovers are an entire unmeasured
+   surface.
+2. **DataTable's pager** left at 30px deliberately: overlays would overlap by
+   10px, and spacing them to real 44px targets makes a 9-page pager 508px wide
+   — wider than the phone it is meant to help. Needs a narrow redesign, not a
+   touch utility.
+3. Tap-target counts (20–39 per screen) are a work list, not a failure.
+
+### THE DEPLOY IS BLOCKED — and mobile cannot ship alone
+The web app calls ~51 API routes production does not have, so shipping the
+mobile CSS by itself would 404 them. The first deploy must be **migrations
+0027–0029 + API + web**; only then are later mobile waves web-only.
+
+Backup `1787867171757` is taken and **verified SUCCESSFUL**. `cloud-sql-proxy`
+connects. But the password in the `DATABASE_URL` secret **fails to
+authenticate** for `postgres`, the only user — parsed correctly (16 chars, no
+percent-encoding). Three attempts, then stopped.
+
+**Do not just reset the password.** The running API revision holds the old
+value in its environment, so rotating it is a production outage unless the API
+is redeployed in the same breath. This is Daniel's call, and it was put to him.

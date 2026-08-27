@@ -1,0 +1,75 @@
+/* Settings — the tab rail and the panel beside it.
+   These live in a stylesheet rather than inline `style` props for one reason:
+   the narrow rules below are media queries, and there is no such thing as an
+   inline media query. The desktop values are exactly what the inline styles
+   used to be, so a wide viewport is byte-for-byte the layout it already had. */
+
+.layout {
+  display: flex;
+  gap: 28px;
+  align-items: flex-start;
+  margin-top: 18px;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 210px;
+  flex-shrink: 0;
+  /* Room for SidebarItem's active marker, which hangs 14px into the gutter. */
+  padding-left: 16px;
+}
+
+.panel {
+  flex: 1;
+  min-width: 0;
+  max-width: 720px;
+}
+
+/* Two controls sharing a line. `minmax(0, 1fr)` rather than the bare `1fr` this
+   used to be: `1fr` is `minmax(auto, 1fr)`, so each column refuses to go below
+   its content's min-content width — and a Select's trigger has a real one (a
+   nowrap value plus a chevron, ~100px). That floor is what pushed the Timezone
+   field 94px off the right edge of a 390px screen; a 0 minimum lets the column
+   shrink and the trigger's own ellipsis do the work it was written to do. */
+.fieldPair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+/* ── ≤ --breakpoint-tablet (860px), the value repeated because a custom
+   property cannot be read from a media query condition (tokens.css) ──
+   A vertical rail needs width beside the thing it sits beside, and below the
+   structural step there is none: 210 + 28 + 16 of the 358 available left the
+   panel 104px wide. So the rail stops being a column beside the content and
+   becomes a block of tabs above it — the same eight items, same order, same
+   active marker, just flowed across the width instead of down it. */
+@media (max-width: 860px) {
+  .layout {
+    display: block;
+  }
+  .rail {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+    /* Wide enough a column gutter that the second column's active marker sits
+       in the gap rather than over its neighbour's label. */
+    column-gap: 20px;
+    row-gap: 2px;
+    width: auto;
+    margin-bottom: 18px;
+  }
+  .panel {
+    max-width: none;
+  }
+}
+
+/* ── ≤ --breakpoint-phone (560px), see the note above on the literal ──
+   Full width, two columns and a 14px gutter still only gives each control ~170px,
+   which is a currency code and half a timezone. One per line. */
+@media (max-width: 560px) {
+  .fieldPair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

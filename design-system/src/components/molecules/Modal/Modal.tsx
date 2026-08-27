@@ -46,7 +46,12 @@ export function Modal({ open, onClose, title, children, footer, width = 520, cla
         {title && (
           <div className={styles.header}>
             <div className={styles.title}>{title}</div>
-            <button type="button" className={styles.close} onClick={onClose} aria-label="Close">
+            <button
+              type="button"
+              className={classNames(styles.close, "touch-target-overlay")}
+              onClick={onClose}
+              aria-label="Close"
+            >
               <Icon name="x" size={18} />
             </button>
           </div>

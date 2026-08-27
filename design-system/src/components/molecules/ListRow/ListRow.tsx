@@ -20,7 +20,12 @@ export interface ListRowProps {
 export function ListRow({ leading, title, meta, trailing, interactive, onClick, className }: ListRowProps) {
   return (
     <div
-      className={classNames(styles.row, interactive && styles.interactive, className)}
+      className={classNames(
+        styles.row,
+        interactive && styles.interactive,
+        interactive && "touch-target",
+        className,
+      )}
       onClick={onClick}
       role={interactive ? "button" : undefined}
       tabIndex={interactive ? 0 : undefined}

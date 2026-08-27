@@ -36,6 +36,7 @@ import {
 import { errorMessage } from "../lib/errors";
 import { formatDay } from "../lib/format";
 import { usePageTransition } from "../shell/usePageTransition";
+import styles from "./Settings.module.css";
 
 type PayoutAccount = Awaited<ReturnType<typeof getApiV1ProfilesIdPayoutAccounts>>[number];
 
@@ -100,18 +101,8 @@ export function Settings() {
         title="Settings"
         subtitle="Organization, access, and billing."
       />
-      <div style={{ display: "flex", gap: 28, alignItems: "flex-start", marginTop: 18 }}>
-        <nav
-          aria-label="Settings sections"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 2,
-            width: 210,
-            flexShrink: 0,
-            paddingLeft: 16,
-          }}
-        >
+      <div className={styles.layout}>
+        <nav aria-label="Settings sections" className={styles.rail}>
           {SECTIONS.map((item) => (
             <SidebarItem
               key={item.key}
@@ -126,7 +117,7 @@ export function Settings() {
           ))}
         </nav>
 
-        <div ref={panelRef} style={{ flex: 1, minWidth: 0, maxWidth: 720 }}>
+        <div ref={panelRef} className={styles.panel}>
           {section === "general" && <GeneralPanel profileId={profileId} />}
           {section === "team" && <TeamPanel />}
           {section === "notifications" && <NotificationsPanel />}
@@ -188,7 +179,7 @@ function GeneralPanel({ profileId }: { profileId: string }) {
           onChange={(changeEvent) => setOrgName(changeEvent.target.value)}
         />
         <TextField label="Contact email" value={session?.email ?? ""} disabled readOnly />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div className={styles.fieldPair}>
           <Select
             label="Base currency"
             value={currency}

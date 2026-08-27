@@ -1,0 +1,29 @@
+/* The inbox's two-column layout: the date rail (month calendar + "requests by
+   date") beside the filtered request list.
+
+   THE NARROW RULE REPEATS THE BREAKPOINT AS A LITERAL. A custom property cannot
+   be used in a media query condition — `@media (max-width: var(--breakpoint-
+   tablet))` is invalid CSS and silently never matches — so the number is written
+   out and the token it mirrors is named beside it
+   (`--breakpoint-tablet: 860px`, design-system/src/styles/tokens.css). */
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.4fr) minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+  /* A flex item of `.content__page`. Without this it is floored by its own
+     content-based minimum — a 240px rail plus a request card that will not go
+     below its field grid — which is how a 390px phone got a 519px page. */
+  min-width: 0;
+}
+
+/* ≤ --breakpoint-tablet (860px). The rail's 240px floor plus a request card is
+   more than a phone has, and squeezing the list to what is left is what pushed
+   the cards' contents off the side of the screen. Below the sidebar's own
+   breakpoint the rail sits above the list instead, both full width. */
+@media (max-width: 860px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

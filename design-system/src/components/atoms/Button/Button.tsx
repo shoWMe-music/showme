@@ -29,7 +29,7 @@ export function Button({
   return (
     <button
       type={type}
-      className={classNames(styles.btn, styles[variant], className)}
+      className={classNames(styles.btn, styles[variant], "touch-target", className)}
       {...rest}
     >
       {leftIcon && <span className={styles.icon}>{leftIcon}</span>}

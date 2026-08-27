@@ -33,4 +33,17 @@
   margin: 8px 0 0;
   max-width: 60ch;
 }
-.actions { display: flex; align-items: center; gap: 10px; }
+/* `.head` wraps, so a crowded masthead drops its actions onto their own line —
+   but once there the actions block could not break INTERNALLY, and Contacts
+   (four controls: a segmented toggle plus Export / Import / Add) pushed the page
+   59px sideways on a 390px screen. A row of buttons that cannot wrap is a
+   horizontal scrollbar waiting for a fourth button, on every screen that uses
+   this masthead. Wrapping is a no-op wherever the row already fits. */
+.actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* The title column. Referenced by SectionHeader.tsx but never defined until now,
+   so the column was a flex item at its default `min-width: auto` — it could not
+   shrink below its longest unbreakable word, which is the other half of why a
+   narrow masthead pushed sideways. `min-width: 0` only ever engages when the
+   content would otherwise overflow, so nothing moves on a wide screen. */
+.text { min-width: 0; }

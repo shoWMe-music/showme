@@ -25,6 +25,7 @@ import { ErrorState, LoadingState } from "../components/states";
 import { useRequestTriage } from "../components/useRequestTriage";
 import { type RequestItem, useRequestInbox } from "../hooks/useRequestInbox";
 import { formatAmount, formatDay, formatMoney, relativeTime } from "../lib/format";
+import styles from "./Requests.module.css";
 
 /** Booking-request status → design-system status vocabulary + a display label. */
 const REQUEST_STATUS: Record<string, { status: Status; label: string }> = {
@@ -245,14 +246,7 @@ export function Requests() {
       ) : isError ? (
         <ErrorState error={error} title="Couldn't load requests" />
       ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(240px, 0.4fr) minmax(0, 1fr)",
-            gap: 22,
-            alignItems: "start",
-          }}
-        >
+        <div className={styles.layout}>
           <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
             <MiniMonthCalendar
               month={month}

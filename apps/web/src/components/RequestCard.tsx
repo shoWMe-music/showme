@@ -7,6 +7,7 @@ import {
   Icon,
   type Status,
 } from "@showme/design-system";
+import styles from "./RequestCard.module.css";
 import { Eyebrow, FieldCell } from "./primitives";
 
 /** A single inbound booking request, as rendered on the Incoming Requests
@@ -76,7 +77,10 @@ export function RequestCard({
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <Avatar initials={request.initials} tone={request.tone ?? "brand"} size={40} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {/* Wraps: the name and its status badge share a line for as long as
+              there is one, and the badge drops beneath the name rather than
+              carrying the card off the side of a phone. */}
+          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
             <span style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text)" }}>
               {request.requester}
             </span>
@@ -101,13 +105,7 @@ export function RequestCard({
         )}
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-          gap: 14,
-        }}
-      >
+      <div className={styles.fields}>
         <FieldCell label="Wanted date" value={request.wantedDate} />
         <FieldCell label="Source" value={request.source} />
         <FieldCell label="Fee" value={request.fee} />

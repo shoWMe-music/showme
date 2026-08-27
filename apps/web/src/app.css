@@ -188,6 +188,28 @@ body {
   color: var(--text);
 }
 
+/* The two drawer rows a finger has to hit that are NOT sized from
+   `--control-height` — which tokens.css already raises to 44px under this same
+   query, carrying every Input, Select and the shell's square icon buttons with
+   it. These two set their height from padding and content instead, so they came
+   out 36px and 34px tall and had to be named individually.
+
+   `min-height` rather than padding because both are already `display: flex` with
+   `align-items: center`: the extra height distributes around the content on its
+   own, so the label stays centred and the hover fill grows with the row. (An
+   overlay would be wrong here — these sit in a stacked column with ~10px between
+   them, so a 44px hit area would cross into the row above and toggle the theme
+   when the reader meant to open their account.)
+
+   `pointer: coarse`, not a width: the floor is about the finger, not the window.
+   A 390px browser window on a laptop keeps every pixel it has today. */
+@media (pointer: coarse) {
+  .sidebar__theme,
+  .sidebar__userbtn {
+    min-height: 44px;
+  }
+}
+
 .sidebar__scrim {
   position: fixed;
   inset: 0;
