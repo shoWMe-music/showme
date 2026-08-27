@@ -1,4 +1,7 @@
 import {
+  ApiError,
+  type PatchApiV1EventsIdBudgetsBidLinesLidBody,
+  type PostApiV1EventsIdBudgetsBidLinesBody,
   type getApiV1EventsIdBudgets,
   getGetApiV1EventsIdBudgetsQueryKey,
   useDeleteApiV1EventsIdBudgetsBidLinesLid,
@@ -113,11 +116,6 @@ function dealLinkFrom(line: {
   if (line.dealId) return { kind: "deal_figure", dealId: line.dealId };
   if (line.attributedDealId) return { kind: "attributed", dealId: line.attributedDealId };
   return NO_DEAL_LINK;
-}
-
-/** Two links that say the same thing — so a debounced flush can skip a write. */
-function sameDealLink(left: CostDealLink, right: CostDealLink): boolean {
-  return left.kind === right.kind && linkedDealId(left) === linkedDealId(right);
 }
 
 /** A ticket tier as the planner edits it — major-unit strings, controlled. */
@@ -245,8 +243,59 @@ function costHeadingOf(label: string): string {
 /** The one revenue line that is neither a ticket tier nor the bar estimate. */
 const OTHER_REVENUE_LABEL = "Other revenue";
 
+/** The bar estimate's stored label — the row is found by `basis`, never by this. */
+const BAR_LABEL = "Bar and merchandise";
+
 export const NEW_ROW_PREFIX = "new:";
 const SAVE_DEBOUNCE_MILLISECONDS = 700;
+
+/**
+ * The three rows that are not a list entry and so have no id of their own, named
+ * so they can be marked edited like any other row (see `wasEdited` in the flush).
+ * The `:` keeps them out of the uuid space a real line id occupies.
+ */
+const BAR_ROW = "row:bar";
+const OTHER_REVENUE_ROW = "row:other-revenue";
+const ASSUMPTIONS_ROW = "row:assumptions";
+
+/**
+ * A typed decimal shifted two places left and rounded HALF-UP, as an integer
+ * string — the one conversion behind both minor units and basis points (money.md).
+ *
+ * DONE IN THE STRING, NEVER THROUGH A FLOAT. `Math.round(4.015 * 100)` is 401,
+ * not 402, because 4.015 is not representable in binary and the product comes out
+ * as 401.49999999999994. That is a whole minor unit lost on a figure the operator
+ * can see themselves typing, in the one screen whose output has to satisfy
+ * `Σ net = 0` exactly. Measured against the live stack on 2026-08-27: typing
+ * 4.015 into a cost row stored `401`.
+ *
+ * The digits are shifted by moving where the point sits, and the FIRST DROPPED
+ * DIGIT decides the rounding — so nothing here depends on binary floating point.
+ * A negative figure rounds away from zero (−0.005 → −1), which is what half-up
+ * means in accounting; the planner's fields are non-negative in practice.
+ *
+ * Anything that is not a finite number reads as "0", exactly as before — an
+ * unparseable field is not a figure, and refusing to write it would leave the
+ * operator with no way to clear a row.
+ */
+function shiftedTwoPlaces(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed === "" || !Number.isFinite(Number(trimmed))) return "0";
+  // Exponent notation is folded into the point's position rather than evaluated,
+  // so a template or a CSV carrying `1.5e3` stays exact too.
+  const match = /^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(trimmed);
+  if (!match) return "0";
+  const [, sign, whole = "", fraction = "", exponent = "0"] = match;
+  const digits = `${whole}${fraction}`;
+  const pointAt = whole.length + Number(exponent) + 2;
+  // A point at or left of the first digit means the whole figure is a fraction:
+  // pad in front so there is always one kept digit to round into.
+  const padded = pointAt <= 0 ? `${"0".repeat(1 - pointAt)}${digits}` : digits.padEnd(pointAt, "0");
+  const keep = pointAt <= 0 ? 1 : pointAt;
+  const kept = BigInt(padded.slice(0, keep));
+  const rounded = padded.charAt(keep) >= "5" ? kept + 1n : kept;
+  return rounded === 0n ? "0" : `${sign === "-" ? "-" : ""}${rounded}`;
+}
 
 /**
  * Money crosses the wire as a whole number of MINOR units in a string (money.md)
@@ -254,9 +303,7 @@ const SAVE_DEBOUNCE_MILLISECONDS = 700;
  * units, so these two are the only places the factor of 100 lives.
  */
 export function toMinorUnits(major: string): string {
-  const parsed = Number(major);
-  if (!Number.isFinite(parsed)) return "0";
-  return Math.round(parsed * 100).toString();
+  return shiftedTwoPlaces(major);
 }
 
 export function toMajorUnits(minor: string): string {
@@ -273,9 +320,7 @@ export function toMajorUnits(minor: string): string {
  * the factor of 100 lives for rates, exactly as `toMinorUnits` is for money.
  */
 export function toBasisPoints(percent: string): number {
-  const parsed = Number(percent);
-  if (!Number.isFinite(parsed)) return 0;
-  return Math.round(parsed * 100);
+  return Number(shiftedTwoPlaces(percent));
 }
 
 export function toPercentText(basisPoints: number): string {
@@ -326,24 +371,6 @@ function bearingFrom(line: {
     return { kind: "participant", participantId: line.payeeParticipantId };
   }
   return SHARED_COST_BEARING;
-}
-
-/** Two bearing rules that say the same thing — so a debounced flush can skip a write. */
-function sameBearing(left: CostBearing, right: CostBearing): boolean {
-  if (left.kind !== right.kind) return false;
-  if (left.kind === "participant" && right.kind === "participant") {
-    return left.participantId === right.participantId;
-  }
-  if (left.kind === "split" && right.kind === "split") {
-    const leftKeys = Object.keys(left.shares).sort();
-    const rightKeys = Object.keys(right.shares).sort();
-    return (
-      leftKeys.length === rightKeys.length &&
-      leftKeys.every((key, index) => key === rightKeys[index]) &&
-      leftKeys.every((key) => left.shares[key] === right.shares[key])
-    );
-  }
-  return true;
 }
 
 /** The two `budget_lines` columns a bearing rule writes, in the shape the API takes. */
@@ -468,12 +495,43 @@ export interface BudgetEditor {
  * the API on first read (`lib/budget-provisioning.ts`); this hook supplies the
  * other half.
  *
- * Edits are committed on a short debounce rather than on every keystroke: the
- * fields are free text and a write per character would be both wasteful and
- * jumpy. `expectedVersion` is deliberately NOT sent — the optimistic lock exists
- * to protect a deliberate edit from a concurrent one, and re-sending a stale
- * version from a debounced autosave would raise 409s at the person typing
- * rather than at the conflict.
+ * **WHEN AN EDIT COMMITS.** Inline, per row, on a short debounce — there is no
+ * Save button and there never was one. The fields are free text and a write per
+ * character would be both wasteful and jumpy, so the timer stands in for the
+ * "act that finishes the field" that `useEventInlineFields` gets from Enter and
+ * blur; a budget is one form of many numbers whose intermediate states mean
+ * nothing, which is why that card commits on the keystroke that ends a word and
+ * this one commits 700ms after the last one.
+ *
+ * **AND ON THE WAY OUT.** The debounce is cancelled when the tab unmounts — but
+ * cancelled AFTER it has been made to fire, not instead. Clearing the timer on
+ * its own is what discarded a figure typed in the last 700ms before the operator
+ * changed tab: silently, with no error and nothing on the screen to say a number
+ * had just been dropped. Measured on the live stack 2026-08-27: 777 typed into
+ * "Venue cost" then an immediate click on "Event Details" wrote no row at all.
+ *
+ * **ONLY WHAT WAS TOUCHED IS WRITTEN.** The flush used to compare every row
+ * against the server and write any that differed — and a row differs for
+ * structural reasons (a line stored before the planner kept a breakdown carries
+ * no `details`) as readily as because somebody typed. One keystroke in
+ * "Marketing cost" therefore rewrote five untouched lines and INVENTED a
+ * zero-amount "Bar and merchandise" revenue line out of the event's seeded
+ * capacity. Every one of those is a row in the ledger the settlement reconciles
+ * that nobody entered, and each bumped a version somebody else's edit needed.
+ * `wasEdited` is what confines a write to the rows the operator actually moved,
+ * and it is also what finally makes `useBudgetSeed`'s "a suggestion, never an
+ * overwrite" true: a seeded figure is now written when it is accepted, not when
+ * the screen happens to flush.
+ *
+ * **CONFLICTS.** Every write carries `expectedVersion` (decisions #8). The
+ * version is tracked from each write's own RESPONSE, exactly as
+ * `useEventInlineFields` tracks the event's, and writes are queued one at a time
+ * — so two debounced saves on the same row never conflict with each other, only
+ * a genuine outside write does. A real 409 stops the queue, drops the work
+ * behind it, refetches, and says in a sticky toast which row and which figure
+ * were NOT saved. Nothing is ever re-sent without a fresh version: on a budget,
+ * quietly overwriting a co-host's figure is the failure the lock exists to
+ * prevent, so the first writer wins and the second is told.
  */
 /** Nothing known about the event — the planner then behaves exactly as before. */
 const NO_SEED: BudgetSeed = { capacity: null, performerFees: [], venueCost: null };
@@ -539,15 +597,14 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     queryClient.invalidateQueries({ queryKey: getGetApiV1EventsIdBudgetsQueryKey(eventId) });
   }, [queryClient, eventId]);
 
-  const onError = useCallback(
-    (error: unknown) => toast.error(errorMessage(error, "Couldn't save the budget.")),
-    [toast],
-  );
-  const mutationOptions = { mutation: { onSuccess: invalidate, onError } };
-  const updateBudget = usePatchApiV1EventsIdBudgetsBid(mutationOptions);
-  const createLine = usePostApiV1EventsIdBudgetsBidLines(mutationOptions);
-  const updateLine = usePatchApiV1EventsIdBudgetsBidLinesLid(mutationOptions);
-  const deleteLine = useDeleteApiV1EventsIdBudgetsBidLinesLid(mutationOptions);
+  // Errors and cache invalidation are the write queue's below, not each
+  // mutation's: the queue is the only thing that knows which row a failure
+  // belongs to, and invalidating once the queue drains is what stops a refetch
+  // landing mid-write and re-seeding the draft from a half-written server.
+  const updateBudget = usePatchApiV1EventsIdBudgetsBid();
+  const createLine = usePostApiV1EventsIdBudgetsBidLines();
+  const updateLine = usePatchApiV1EventsIdBudgetsBidLinesLid();
+  const deleteLine = useDeleteApiV1EventsIdBudgetsBidLinesLid();
 
   // ---- server → draft -----------------------------------------------------
   const lines = useMemo(() => budget?.lines ?? [], [budget]);
@@ -753,6 +810,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
 
   // Re-seed from the server only while the person is not mid-edit, so a
   // background refetch cannot yank a half-typed figure out from under them.
+  /** True while a draft edit is unwritten; the re-seed effect then stands off. */
   const pendingRef = useRef(false);
   useEffect(() => {
     if (pendingRef.current) return;
@@ -772,6 +830,163 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flushRef = useRef<() => void>(() => {});
 
+  /**
+   * The version each row must claim on its NEXT write.
+   *
+   * Seeded from the server and then advanced by our own write responses, never
+   * lowered — the budgets query lags behind a write we have already settled, and
+   * re-sending the version it still holds would 409 the person typing against
+   * themselves. That self-conflict is the whole reason this hook used to send no
+   * `expectedVersion` at all; tracking the version from the response is how
+   * `useEventInlineFields` answers it, and it works here for the same reason.
+   */
+  const lineVersionsRef = useRef(new Map<string, number>());
+  const budgetVersionRef = useRef(budget?.version ?? 1);
+  /** Which budget `budgetVersionRef` is counting — the scope switch changes it. */
+  const trackedBudgetRef = useRef<string | null>(null);
+  const knownBudgetVersion = budget?.version;
+  useEffect(() => {
+    const versions = lineVersionsRef.current;
+    for (const line of lines) {
+      const known = versions.get(line.id);
+      if (known === undefined || line.version > known) versions.set(line.id, line.version);
+    }
+    // Line ids are unique across budgets, so the map above needs no reset — but a
+    // budget's version counts from 1 in each book. Switching between the shared
+    // ledger and a private one has to TAKE the other book's version rather than
+    // keep the higher one, or the first write after the switch would 409 against
+    // a version that belongs to a different budget entirely.
+    if (budgetId !== trackedBudgetRef.current) {
+      trackedBudgetRef.current = budgetId;
+      budgetVersionRef.current = knownBudgetVersion ?? 1;
+    } else if (knownBudgetVersion !== undefined && knownBudgetVersion > budgetVersionRef.current) {
+      budgetVersionRef.current = knownBudgetVersion;
+    }
+  }, [lines, knownBudgetVersion, budgetId]);
+
+  /** Rows whose edits are queued or in flight — see `releaseWhenIdle` below. */
+  const outstandingRef = useRef(0);
+  const [writesInFlight, setWritesInFlight] = useState(0);
+  /** One write at a time, in the order the operator finished the rows. */
+  const queueRef = useRef<Promise<void>>(Promise.resolve());
+  /** Bumped by a 409, so work queued against the losing picture is dropped. */
+  const epochRef = useRef(0);
+  /**
+   * The rows the operator has moved since the last flush — the ONLY rows the
+   * next flush may write. See the hook's note: a row differs from the server for
+   * structural reasons as readily as because somebody typed, so "differs" was
+   * never a safe test for "was edited".
+   */
+  const touchedRef = useRef(new Set<string>());
+  /** Loading a template replaces the whole sheet, so every row counts as moved. */
+  const touchedEverythingRef = useRef(false);
+
+  /**
+   * The draft is the server's again once nothing is outstanding: only then may a
+   * refetch re-seed it, and only then is there a settled picture worth refetching.
+   */
+  const releaseWhenIdle = useCallback(() => {
+    outstandingRef.current -= 1;
+    setWritesInFlight(outstandingRef.current);
+    if (outstandingRef.current > 0) return;
+    // A keystroke landed while the queue drained — the draft stays held until
+    // THAT edit's flush finishes, or the refetch below would re-seed over it.
+    if (timerRef.current === null) pendingRef.current = false;
+    invalidate();
+  }, [invalidate]);
+
+  /**
+   * Put one write on the queue. `label` and `attempted` are what a lost lock has
+   * to be able to say, so they travel with the write rather than being rebuilt
+   * from state that has moved on by the time the 409 comes back.
+   */
+  const enqueue = useCallback(
+    (label: string, attempted: string, write: () => Promise<void>) => {
+      const epoch = epochRef.current;
+      outstandingRef.current += 1;
+      setWritesInFlight(outstandingRef.current);
+      queueRef.current = queueRef.current
+        .then(async () => {
+          if (epoch !== epochRef.current) return; // a 409 overtook this write
+          await write();
+        })
+        .catch((error) => {
+          if (epoch !== epochRef.current) return;
+          epochRef.current += 1;
+          if (error instanceof ApiError && error.status === 409) {
+            // Sticky: a figure that did not save is not something to notice four
+            // seconds later, and the row is about to change under them.
+            toast.error(
+              `“${label}” was changed by someone else, so ${attempted} was not saved. The budget now shows their figure — retype yours if it is still right.`,
+              { duration: 0 },
+            );
+            return;
+          }
+          toast.error(errorMessage(error, `Couldn't save ${label}.`));
+        })
+        .finally(releaseWhenIdle);
+    },
+    [releaseWhenIdle, toast],
+  );
+
+  /**
+   * The three line writes, each one queued and each one carrying the row's
+   * current version. They exist as three named functions rather than inline
+   * `mutate` calls because the version bookkeeping — claim the known version,
+   * store the one the response returns — has to be identical on every path, and
+   * a create that forgot to record its new line's version would 409 the operator
+   * on the very next keystroke in the row they had just made.
+   */
+  const createRow = useCallback(
+    (bid: string, label: string, attempted: string, data: PostApiV1EventsIdBudgetsBidLinesBody) => {
+      enqueue(label, attempted, async () => {
+        const created = await createLine.mutateAsync({ id: eventId, bid, data });
+        lineVersionsRef.current.set(created.id, created.version);
+      });
+    },
+    [enqueue, createLine, eventId],
+  );
+
+  const updateRow = useCallback(
+    (
+      bid: string,
+      lid: string,
+      label: string,
+      attempted: string,
+      data: PatchApiV1EventsIdBudgetsBidLinesLidBody,
+    ) => {
+      enqueue(label, attempted, async () => {
+        const updated = await updateLine.mutateAsync({
+          id: eventId,
+          bid,
+          lid,
+          data: { ...data, expectedVersion: lineVersionsRef.current.get(lid) },
+        });
+        lineVersionsRef.current.set(lid, updated.version);
+      });
+    },
+    [enqueue, updateLine, eventId],
+  );
+
+  const deleteRow = useCallback(
+    (bid: string, lid: string, label: string) => {
+      // A queued edit to a row that is being removed would PATCH a line that no
+      // longer exists, and the operator would be told a row they deleted could
+      // not be saved. The removal is the last word on the row.
+      touchedRef.current.delete(lid);
+      enqueue(label, "the removal", async () => {
+        await deleteLine.mutateAsync({
+          id: eventId,
+          bid,
+          lid,
+          data: { expectedVersion: lineVersionsRef.current.get(lid) },
+        });
+        lineVersionsRef.current.delete(lid);
+      });
+    },
+    [enqueue, deleteLine, eventId],
+  );
+
   const readOnlyReason = !budgetId
     ? "This event has no budget yet."
     : !myParticipantId
@@ -790,60 +1005,85 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     pendingRef.current = true;
   }, []);
 
-  const scheduleFlush = useCallback(() => {
-    if (readOnlyReason) return;
-    pendingRef.current = true;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => flushRef.current(), SAVE_DEBOUNCE_MILLISECONDS);
-  }, [readOnlyReason]);
+  const scheduleFlush = useCallback(
+    (rowKey: string) => {
+      if (readOnlyReason) return;
+      pendingRef.current = true;
+      touchedRef.current.add(rowKey);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      // Cleared as it fires, because an armed timer is how `releaseWhenIdle`
+      // recognises "they are still typing" and keeps the draft held.
+      timerRef.current = setTimeout(() => {
+        timerRef.current = null;
+        flushRef.current();
+      }, SAVE_DEBOUNCE_MILLISECONDS);
+    },
+    [readOnlyReason],
+  );
 
   // Kept in a ref so the debounce timer always calls the CURRENT draft's writer
   // without the timer itself having to be rebuilt on every keystroke.
   flushRef.current = () => {
-    pendingRef.current = false;
-    if (!budgetId || !myParticipantId) return;
-    const target = { id: eventId, bid: budgetId };
+    if (!budgetId || !myParticipantId) {
+      pendingRef.current = false;
+      return;
+    }
+    // The rows this flush owns, taken once and cleared: anything the operator
+    // types WHILE it runs belongs to the next flush, not this one.
+    const touched = touchedRef.current;
+    const touchedEverything = touchedEverythingRef.current;
+    touchedRef.current = new Set();
+    touchedEverythingRef.current = false;
+    const wasEdited = (rowKey: string) => touchedEverything || touched.has(rowKey);
+    // Held until the queue drains (`releaseWhenIdle`), so a refetch triggered by
+    // one write cannot re-seed the draft over an edit still waiting behind it.
+    pendingRef.current = true;
+    let queued = false;
+    const write = (run: () => void) => {
+      queued = true;
+      run();
+    };
     // A row the operator has not attributed is attributed to them — the same
     // assumption every line made before the selectors existed, now stated once
     // here instead of being hard-coded at five call sites.
     const collector = (chosen: string | undefined) => chosen || myParticipantId;
 
     for (const tier of tiers) {
-      const amount = toMinorUnits((numeric(tier.price) * numeric(tier.quantity)).toString());
-      const details = {
-        basis: "ticket_tier" as const,
-        unitAmount: toMinorUnits(tier.price),
-        quantity: Math.trunc(numeric(tier.quantity)),
-      };
+      if (!wasEdited(tier.id)) continue;
+      const unitAmount = toMinorUnits(tier.price);
+      const quantity = Math.trunc(numeric(tier.quantity));
+      // The total is the UNIT PRICE IN MINOR UNITS times the count — never the
+      // major-unit product converted afterwards. Multiplying first would round
+      // once at the end and leave `amount ≠ unitAmount × quantity` on the stored
+      // row (0.145 × 2 stores 29 against a unit of 14), which is a breakdown that
+      // does not add up to its own total.
+      const amount = (BigInt(unitAmount) * BigInt(quantity)).toString();
+      const details = { basis: "ticket_tier" as const, unitAmount, quantity };
+      const attempted = `${tier.name.trim() || "the ticket tier"} at ${tier.price || "0"}`;
       if (tier.id.startsWith(NEW_ROW_PREFIX)) {
         if (tier.name.trim() === "") continue; // an unnamed tier is not a line yet
-        createLine.mutate({
-          ...target,
-          data: {
+        write(() =>
+          createRow(budgetId, tier.name.trim(), attempted, {
             kind: "revenue",
             label: tier.name.trim(),
             amount,
             collectedBy: collector(tier.collectedBy),
             details,
-          },
-        });
+          }),
+        );
         continue;
       }
       const before = lines.find((line) => line.id === tier.id);
       if (!before) continue;
-      const collectedBy = collector(tier.collectedBy);
-      const unchanged =
-        before.label === tier.name.trim() &&
-        before.amount === amount &&
-        before.collectedBy === collectedBy &&
-        before.details?.unitAmount === details.unitAmount &&
-        before.details?.quantity === details.quantity;
-      if (unchanged) continue;
-      updateLine.mutate({
-        ...target,
-        lid: tier.id,
-        data: { label: tier.name.trim() || before.label, amount, collectedBy, details },
-      });
+      const label = tier.name.trim() || before.label;
+      write(() =>
+        updateRow(budgetId, tier.id, label, attempted, {
+          label,
+          amount,
+          collectedBy: collector(tier.collectedBy),
+          details,
+        }),
+      );
     }
 
     for (const cost of costs) {
@@ -853,6 +1093,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       // storing the guarantee as external cash, which is precisely the wrong
       // transfer `useBudgetSeed`'s note describes.
       if (cost.readFromDeal) continue;
+      if (!wasEdited(cost.key)) continue;
       const typed = cost.value.trim();
       // The figure as typed, taken ONCE — a custom row's value is the value. The
       // breakdown is stored anyway, and stored as `quantity: 1`, because `basis`
@@ -868,6 +1109,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       // Which of the two columns the deal id goes in — the whole point of
       // `CostDealLink`. Derived once, for the same reason the bearing is.
       const dealLink = dealLinkFields(cost.dealLink ?? NO_DEAL_LINK);
+      const attempted = typed === "" ? "the change" : typed;
 
       if (cost.key.startsWith(NEW_ROW_PREFIX)) {
         // A standing heading becomes a line when it is given a FIGURE; a custom
@@ -876,9 +1118,8 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
         // not, or an untouched budget would carry six lines nobody entered.
         const ready = cost.isCustom ? cost.label.trim() !== "" : typed !== "";
         if (!ready) continue;
-        createLine.mutate({
-          ...target,
-          data: {
+        write(() =>
+          createRow(budgetId, cost.label.trim(), attempted, {
             kind: "cost",
             label: cost.label.trim(),
             amount,
@@ -890,8 +1131,8 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
             ...(dealLink.dealId ? { dealId: dealLink.dealId } : {}),
             ...(dealLink.attributedDealId ? { attributedDealId: dealLink.attributedDealId } : {}),
             ...(details ? { details } : {}),
-          },
-        });
+          }),
+        );
         continue;
       }
       const before = lines.find((line) => line.id === cost.key);
@@ -900,23 +1141,11 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       // is edited — the operator is already changing this row, so the label
       // catching up with the row it is displayed in surprises nobody.
       const label = cost.label.trim() || before.label;
-      const relabelled = before.label !== label ? { label } : {};
-      const paidBy = collector(cost.paidBy);
-      const unchanged =
-        before.amount === amount &&
-        before.label === label &&
-        before.paidBy === paidBy &&
-        sameDealLink(dealLinkFrom(before), cost.dealLink ?? NO_DEAL_LINK) &&
-        sameBearing(bearingFrom(before), cost.bearing ?? SHARED_COST_BEARING) &&
-        (!details || (before.details?.unitAmount === amount && before.details?.quantity === 1));
-      if (unchanged) continue;
-      updateLine.mutate({
-        ...target,
-        lid: cost.key,
-        data: {
+      write(() =>
+        updateRow(budgetId, cost.key, label, attempted, {
           amount,
-          ...relabelled,
-          paidBy,
+          ...(before.label !== label ? { label } : {}),
+          paidBy: collector(cost.paidBy),
           // Explicitly nulled rather than omitted: clearing a rule back to
           // "shared" has to erase the stored columns, and an omitted field
           // would leave the old bearer silently in place.
@@ -928,69 +1157,72 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
           dealId: dealLink.dealId,
           attributedDealId: dealLink.attributedDealId,
           ...(details ? { details } : {}),
-        },
-      });
+        }),
+      );
     }
 
     // The bar estimate is one revenue line whose breakdown is spend-per-head
     // times heads, so it round-trips as the two fields the planner shows.
-    const barTouched = capacity.trim() !== "" || averageBarSpend.trim() !== "";
-    if (barTouched) {
+    //
+    // Written only when the operator moved one of those two fields. It used to be
+    // written whenever either was non-empty — and the capacity arrives PRE-FILLED
+    // from the event, so opening the planner and typing anywhere created a
+    // "Bar and merchandise" revenue line worth 0 that nobody had entered.
+    if (wasEdited(BAR_ROW)) {
       const heads = Math.trunc(numeric(capacity));
       const perHead = toMinorUnits(averageBarSpend);
-      const amount = toMinorUnits((numeric(averageBarSpend) * heads).toString());
+      const amount = (BigInt(perHead) * BigInt(heads)).toString();
       const details = { basis: "bar_spend" as const, unitAmount: perHead, quantity: heads };
+      const attempted = `${averageBarSpend || "0"} a head across ${heads}`;
       if (!barLine) {
-        createLine.mutate({
-          ...target,
-          data: {
+        write(() =>
+          createRow(budgetId, BAR_LABEL, attempted, {
             kind: "revenue",
-            label: "Bar and merchandise",
+            label: BAR_LABEL,
             amount,
             collectedBy: collector(barCollectedBy),
             details,
-          },
-        });
-      } else if (
-        barLine.amount !== amount ||
-        barLine.collectedBy !== collector(barCollectedBy) ||
-        barLine.details?.unitAmount !== perHead ||
-        barLine.details?.quantity !== heads
-      ) {
-        updateLine.mutate({
-          ...target,
-          lid: barLine.id,
-          data: { amount, collectedBy: collector(barCollectedBy), details },
-        });
+          }),
+        );
+      } else {
+        write(() =>
+          updateRow(budgetId, barLine.id, BAR_LABEL, attempted, {
+            amount,
+            collectedBy: collector(barCollectedBy),
+            details,
+          }),
+        );
       }
     }
 
     // Other revenue is a single amount, so its breakdown is that amount taken
     // once — `quantity: 1`. The `basis` is what makes it findable on the way back
     // in, which is the whole reason it carries details at all.
-    if (otherRevenue.trim() !== "") {
-      const amount = toMinorUnits(otherRevenue);
+    if (wasEdited(OTHER_REVENUE_ROW)) {
+      const typed = otherRevenue.trim();
+      // Blank reads as ZERO, exactly as a cleared cost row does. Skipping the
+      // write instead — which is what used to happen — left the old figure in the
+      // database, so clearing the field and reloading brought the money back.
+      const amount = toMinorUnits(typed === "" ? "0" : typed);
       const details = { basis: "other_revenue" as const, unitAmount: amount, quantity: 1 };
       if (!otherRevenueLine) {
-        createLine.mutate({
-          ...target,
-          data: {
+        write(() =>
+          createRow(budgetId, OTHER_REVENUE_LABEL, typed || "0", {
             kind: "revenue",
             label: OTHER_REVENUE_LABEL,
             amount,
             collectedBy: collector(otherRevenueCollectedBy),
             details,
-          },
-        });
-      } else if (
-        otherRevenueLine.amount !== amount ||
-        otherRevenueLine.collectedBy !== collector(otherRevenueCollectedBy)
-      ) {
-        updateLine.mutate({
-          ...target,
-          lid: otherRevenueLine.id,
-          data: { amount, collectedBy: collector(otherRevenueCollectedBy), details },
-        });
+          }),
+        );
+      } else {
+        write(() =>
+          updateRow(budgetId, otherRevenueLine.id, OTHER_REVENUE_LABEL, typed || "0", {
+            amount,
+            collectedBy: collector(otherRevenueCollectedBy),
+            details,
+          }),
+        );
       }
     }
 
@@ -999,6 +1231,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     // shape "Other revenue" uses, because a sponsorship is a figure the operator
     // states rather than a multiplication they performed.
     for (const row of customRevenue) {
+      if (!wasEdited(row.id)) continue;
       const typed = row.value.trim();
       // Taken once, at the figure the operator typed. `quantity` is always 1 now;
       // the breakdown survives only because `basis` is how the row is recognised.
@@ -1006,62 +1239,73 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       const details = { basis: "custom_revenue" as const, unitAmount: amount, quantity: 1 };
       if (row.id.startsWith(NEW_ROW_PREFIX)) {
         if (row.label.trim() === "") continue; // an unnamed row is not a line yet
-        createLine.mutate({
-          ...target,
-          data: {
+        write(() =>
+          createRow(budgetId, row.label.trim(), typed || "0", {
             kind: "revenue",
             label: row.label.trim(),
             amount,
             collectedBy: collector(row.collectedBy),
             details,
-          },
-        });
+          }),
+        );
         continue;
       }
       const before = lines.find((line) => line.id === row.id);
       if (!before) continue;
-      const collectedBy = collector(row.collectedBy);
-      const unchanged =
-        before.amount === amount &&
-        before.label === row.label.trim() &&
-        before.collectedBy === collectedBy &&
-        before.details?.unitAmount === amount &&
-        before.details?.quantity === 1;
-      if (unchanged) continue;
-      updateLine.mutate({
-        ...target,
-        lid: row.id,
-        data: { label: row.label.trim() || before.label, amount, collectedBy, details },
-      });
+      const label = row.label.trim() || before.label;
+      write(() =>
+        updateRow(budgetId, row.id, label, typed || "0", {
+          label,
+          amount,
+          collectedBy: collector(row.collectedBy),
+          details,
+        }),
+      );
     }
 
     // The provider's rates go on the BUDGET, not into a line: no cash has moved,
     // and a cost line would take this estimate into the settlement pool (see the
-    // 0015 migration). Written only when they differ from what the server holds,
-    // so a debounce that fires on an unrelated keystroke does not bump the
-    // budget's version for nothing.
-    const percentBasisPoints = toBasisPoints(processingPercent);
-    const flatPerTicket = toMinorUnits(processingFlatPerTicket);
-    const cleared = processingPercent.trim() === "" && processingFlatPerTicket.trim() === "";
-    const changed = cleared
-      ? processing !== null
-      : processing?.percentBasisPoints !== percentBasisPoints ||
-        processing?.flatPerTicket !== flatPerTicket;
-    if (changed) {
-      updateBudget.mutate({
-        ...target,
-        data: {
-          planningAssumptions: cleared
-            ? null
-            : { paymentProcessing: { percentBasisPoints, flatPerTicket } },
-        },
-      });
+    // 0015 migration).
+    if (wasEdited(ASSUMPTIONS_ROW)) {
+      const percentBasisPoints = toBasisPoints(processingPercent);
+      const flatPerTicket = toMinorUnits(processingFlatPerTicket);
+      const cleared = processingPercent.trim() === "" && processingFlatPerTicket.trim() === "";
+      write(() =>
+        enqueue(
+          "Payment processing fees",
+          cleared ? "clearing them" : `${processingPercent || "0"}%`,
+          async () => {
+            const updated = await updateBudget.mutateAsync({
+              id: eventId,
+              bid: budgetId,
+              data: {
+                planningAssumptions: cleared
+                  ? null
+                  : { paymentProcessing: { percentBasisPoints, flatPerTicket } },
+                expectedVersion: budgetVersionRef.current,
+              },
+            });
+            budgetVersionRef.current = updated.version;
+          },
+        ),
+      );
     }
+
+    // Nothing was actually queued — an edit that produced no write (an unnamed
+    // new row, a heading still blank) must not leave the draft held, or the
+    // re-seed effect would never run again.
+    if (!queued) pendingRef.current = false;
   };
 
   useEffect(
     () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (!timerRef.current) return;
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+      // FIRE it, do not merely cancel it. The debounce has not elapsed and this
+      // screen is going away — cancelling alone is what silently threw away a
+      // figure typed in the last 700ms before the operator changed tab.
+      flushRef.current();
     },
     [],
   );
@@ -1070,7 +1314,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   const changeTier = useCallback(
     (id: string, field: "name" | "price" | "quantity" | "collectedBy", value: string) => {
       setTiers((rows) => rows.map((row) => (row.id === id ? { ...row, [field]: value } : row)));
-      scheduleFlush();
+      scheduleFlush(id);
     },
     [scheduleFlush],
   );
@@ -1100,15 +1344,15 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
           : [{ id: `${NEW_ROW_PREFIX}0`, name: "", price: "", quantity: "" }];
       });
       if (id.startsWith(NEW_ROW_PREFIX) || !budgetId) return; // never written, nothing to delete
-      deleteLine.mutate({ id: eventId, bid: budgetId, lid: id, data: {} });
+      deleteRow(budgetId, id, tiers.find((row) => row.id === id)?.name || "The ticket tier");
     },
-    [budgetId, eventId, deleteLine, holdDraft],
+    [budgetId, deleteRow, holdDraft, tiers],
   );
 
   const changeCost = useCallback(
     (key: string, value: string) => {
       setCosts((rows) => rows.map((row) => (row.key === key ? { ...row, value } : row)));
-      scheduleFlush();
+      scheduleFlush(key);
     },
     [scheduleFlush],
   );
@@ -1117,7 +1361,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   const patchCost = useCallback(
     (key: string, patch: Partial<CostDraft>) => {
       setCosts((rows) => rows.map((row) => (row.key === key ? { ...row, ...patch } : row)));
-      scheduleFlush();
+      scheduleFlush(key);
     },
     [scheduleFlush],
   );
@@ -1140,7 +1384,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   const changeBarCollectedBy = useCallback(
     (participantId: string) => {
       setBarCollectedBy(participantId);
-      scheduleFlush();
+      scheduleFlush(BAR_ROW);
     },
     [scheduleFlush],
   );
@@ -1148,7 +1392,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   const changeOtherRevenueCollectedBy = useCallback(
     (participantId: string) => {
       setOtherRevenueCollectedBy(participantId);
-      scheduleFlush();
+      scheduleFlush(OTHER_REVENUE_ROW);
     },
     [scheduleFlush],
   );
@@ -1158,7 +1402,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       setCustomRevenue((rows) =>
         rows.map((row) => (row.id === id ? { ...row, collectedBy: participantId } : row)),
       );
-      scheduleFlush();
+      scheduleFlush(id);
     },
     [scheduleFlush],
   );
@@ -1176,50 +1420,50 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     (label: string, amount: string, bearing?: CostBearing) => {
       const trimmed = label.trim();
       if (trimmed === "") return;
+      // The key only has to be unique until the row is written — the create reads
+      // the LABEL, not the key — so a row index cannot collide with one of the
+      // standing headings' keys. Built here rather than inside the updater
+      // because the flush has to be told which row was added.
+      const key = `${NEW_ROW_PREFIX}custom:${costs.length}`;
       setCosts((rows) => [
         ...rows,
-        // The key only has to be unique until the row is written — the create
-        // reads the LABEL, not the key — so a row index cannot collide with one
-        // of the standing headings' keys.
         {
-          key: `${NEW_ROW_PREFIX}custom:${rows.length}`,
+          key,
           label: trimmed,
           value: amount,
           isCustom: true,
           bearing: bearing ?? SHARED_COST_BEARING,
         },
       ]);
-      scheduleFlush();
+      scheduleFlush(key);
     },
-    [scheduleFlush],
+    [costs.length, scheduleFlush],
   );
 
   const removeCost = useCallback(
     (key: string) => {
       setCosts((rows) => rows.filter((row) => row.key !== key));
       if (key.startsWith(NEW_ROW_PREFIX) || !budgetId) return; // never written
-      deleteLine.mutate({ id: eventId, bid: budgetId, lid: key, data: {} });
+      deleteRow(budgetId, key, costs.find((row) => row.key === key)?.label || "The cost");
     },
-    [budgetId, eventId, deleteLine],
+    [budgetId, costs, deleteRow],
   );
 
   const addCustomRevenue = useCallback(
     (label: string, amount: string) => {
       const trimmed = label.trim();
       if (trimmed === "") return;
-      setCustomRevenue((rows) => [
-        ...rows,
-        { id: `${NEW_ROW_PREFIX}${rows.length}`, label: trimmed, value: amount },
-      ]);
-      scheduleFlush();
+      const id = `${NEW_ROW_PREFIX}${customRevenue.length}`;
+      setCustomRevenue((rows) => [...rows, { id, label: trimmed, value: amount }]);
+      scheduleFlush(id);
     },
-    [scheduleFlush],
+    [customRevenue.length, scheduleFlush],
   );
 
   const changeCustomRevenue = useCallback(
     (id: string, value: string) => {
       setCustomRevenue((rows) => rows.map((row) => (row.id === id ? { ...row, value } : row)));
-      scheduleFlush();
+      scheduleFlush(id);
     },
     [scheduleFlush],
   );
@@ -1228,9 +1472,9 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     (id: string) => {
       setCustomRevenue((rows) => rows.filter((row) => row.id !== id));
       if (id.startsWith(NEW_ROW_PREFIX) || !budgetId) return; // never written
-      deleteLine.mutate({ id: eventId, bid: budgetId, lid: id, data: {} });
+      deleteRow(budgetId, id, customRevenue.find((row) => row.id === id)?.label || "The row");
     },
-    [budgetId, eventId, deleteLine],
+    [budgetId, customRevenue, deleteRow],
   );
 
   /**
@@ -1246,9 +1490,12 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     (drafts: TemplateDrafts) => {
       if (budgetId) {
         for (const lineId of drafts.removedLineIds) {
-          deleteLine.mutate({ id: eventId, bid: budgetId, lid: lineId, data: {} });
+          deleteRow(budgetId, lineId, lines.find((line) => line.id === lineId)?.label || "The row");
         }
       }
+      // A template replaces the whole sheet, so every row counts as edited — the
+      // flush writes only what was touched, and here that is everything.
+      touchedEverythingRef.current = true;
       setTiers(drafts.ticketTiers);
       setCosts(drafts.costs);
       setCustomRevenue(drafts.customRevenue);
@@ -1257,15 +1504,15 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       setOtherRevenue(drafts.otherRevenue);
       setProcessingPercent(drafts.processingPercent);
       setProcessingFlatPerTicket(drafts.processingFlatPerTicket);
-      scheduleFlush();
+      scheduleFlush(ASSUMPTIONS_ROW);
     },
-    [budgetId, eventId, deleteLine, scheduleFlush],
+    [budgetId, deleteRow, lines, scheduleFlush],
   );
 
   const changeCapacity = useCallback(
     (value: string) => {
       setCapacity(value);
-      scheduleFlush();
+      scheduleFlush(BAR_ROW);
     },
     [scheduleFlush],
   );
@@ -1273,7 +1520,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   const changeAverageBarSpend = useCallback(
     (value: string) => {
       setAverageBarSpend(value);
-      scheduleFlush();
+      scheduleFlush(BAR_ROW);
     },
     [scheduleFlush],
   );
@@ -1281,7 +1528,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   const changeOtherRevenue = useCallback(
     (value: string) => {
       setOtherRevenue(value);
-      scheduleFlush();
+      scheduleFlush(OTHER_REVENUE_ROW);
     },
     [scheduleFlush],
   );
@@ -1289,7 +1536,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   const changeProcessingPercent = useCallback(
     (value: string) => {
       setProcessingPercent(value);
-      scheduleFlush();
+      scheduleFlush(ASSUMPTIONS_ROW);
     },
     [scheduleFlush],
   );
@@ -1297,7 +1544,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   const changeProcessingFlatPerTicket = useCallback(
     (value: string) => {
       setProcessingFlatPerTicket(value);
-      scheduleFlush();
+      scheduleFlush(ASSUMPTIONS_ROW);
     },
     [scheduleFlush],
   );
@@ -1319,11 +1566,9 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     otherRevenue,
     processingPercent,
     processingFlatPerTicket,
-    isSaving:
-      createLine.isPending ||
-      updateLine.isPending ||
-      deleteLine.isPending ||
-      updateBudget.isPending,
+    // Queued as well as in flight: the writes are serialized, so a mutation's
+    // own `isPending` would read false for work that is waiting its turn.
+    isSaving: writesInFlight > 0,
     readOnlyReason,
     changeTier,
     addTier,
