@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "sync-spec": "pnpm --filter=@showme/api exec tsx src/dump-openapi.ts > openapi.json",
+    "sync-spec": "pnpm --filter=@showme/api exec tsx src/dump-openapi.ts > openapi.json && pnpm exec biome format --write openapi.json",
     "generate": "orval",
     "typecheck": "tsc --noEmit"
   },
