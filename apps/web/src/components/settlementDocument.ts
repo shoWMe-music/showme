@@ -199,7 +199,19 @@ export interface EntitlementRule {
  * of this — which is honest, and the reason the card falls back to showing the
  * bare entitlement rather than inventing an explanation for it.
  */
-export function entitlementRules(computed: ComputedBreakdown, currency: string): EntitlementRule[] {
+export function entitlementRules(
+  computed: ComputedBreakdown,
+  currency: string,
+  /**
+   * How to render a money amount. The settlement screen passes a converting
+   * formatter when the reader is previewing in another currency, so the RULE and
+   * the figure it explains are always in the same one.
+   *
+   * `currency` is still needed separately: `describeBasis` renders operands that
+   * are part of the sentence rather than the amount.
+   */
+  formatAmount: (minorUnits: string) => string = (minorUnits) => formatMoney(minorUnits, currency),
+): EntitlementRule[] {
   const rules: EntitlementRule[] = [];
 
   for (const line of computed.lines ?? []) {
@@ -215,7 +227,7 @@ export function entitlementRules(computed: ComputedBreakdown, currency: string):
       label: isShared
         ? `${describeBasis(line.basis, currency)} — your share of ${formatMoney(line.dealTotal, currency)}`
         : describeBasis(line.basis, currency),
-      value: formatMoney(line.amount, currency),
+      value: formatAmount(line.amount),
     });
     if (line.bonus != null && line.bonus !== "0") {
       rules.push({
@@ -223,14 +235,14 @@ export function entitlementRules(computed: ComputedBreakdown, currency: string):
         label: line.escalatorApplied
           ? "Includes the bonus and the escalator tier the night reached"
           : "Includes the threshold bonus",
-        value: formatMoney(line.bonus, currency),
+        value: formatAmount(line.bonus),
       });
     }
     if (line.commissionCharged != null && line.commissionCharged !== "0") {
       rules.push({
         key: `commission-${line.dealId}`,
         label: "Less the disclosed commission on this line",
-        value: formatMoney(line.commissionCharged, currency),
+        value: formatAmount(line.commissionCharged),
         negative: true,
       });
     }
@@ -240,21 +252,21 @@ export function entitlementRules(computed: ComputedBreakdown, currency: string):
     rules.push({
       key: "commission-earned",
       label: "Disclosed commission earned on other parties' lines",
-      value: formatMoney(computed.commissionEarned, currency),
+      value: formatAmount(computed.commissionEarned),
     });
   }
   if (computed.residual != null && computed.residual !== "0") {
     rules.push({
       key: "residual",
       label: "What is left after every other party is paid",
-      value: formatMoney(computed.residual, currency),
+      value: formatAmount(computed.residual),
     });
   }
   if (computed.deductibles != null && computed.deductibles !== "0") {
     rules.push({
       key: "deductibles",
       label: "Less costs somebody else fronted on your behalf",
-      value: formatMoney(computed.deductibles, currency),
+      value: formatAmount(computed.deductibles),
       negative: true,
     });
   }
@@ -285,26 +297,31 @@ export interface LadderRow {
  * to anyone without `budget.view` (story.md:44), so a party who may not read the
  * night's takings has nothing here to format. Formats; never computes.
  */
-export function ladderRows(ladder: PoolLadder, currency: string): LadderRow[] {
+export function ladderRows(
+  ladder: PoolLadder,
+  currency: string,
+  /** Converting formatter when the reader is previewing another currency. */
+  formatAmount: (minorUnits: string) => string = (minorUnits) => formatMoney(minorUnits, currency),
+): LadderRow[] {
   return [
-    { key: "revenue", label: "Revenue", value: formatMoney(ladder.revenue, currency) },
+    { key: "revenue", label: "Revenue", value: formatAmount(ladder.revenue) },
     {
       key: "costs",
       label: "Costs nobody was charged for",
-      value: formatMoney(ladder.costs, currency),
+      value: formatAmount(ladder.costs),
       negative: true,
     },
-    { key: "pool", label: "Pool", value: formatMoney(ladder.pool, currency) },
+    { key: "pool", label: "Pool", value: formatAmount(ladder.pool) },
     {
       key: "off-the-top",
       label: "Rentals settled off the top",
-      value: formatMoney(ladder.offTheTop, currency),
+      value: formatAmount(ladder.offTheTop),
       negative: true,
     },
     {
       key: "split-pool",
       label: "Adjusted net",
-      value: formatMoney(ladder.splitPool, currency),
+      value: formatAmount(ladder.splitPool),
       total: true,
     },
   ];

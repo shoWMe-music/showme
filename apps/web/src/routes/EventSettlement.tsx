@@ -18,6 +18,11 @@ import {
 import { Link, useParams } from "@tanstack/react-router";
 import { useState } from "react";
 import { ConfirmDialog, useConfirmDialog } from "../components/ConfirmDialog";
+import {
+  CurrencyPreviewNotice,
+  SettlementCurrencyControl,
+  useCurrencyPreview,
+} from "../components/SettlementCurrencyPreview";
 import { SettlementPartyCard } from "../components/SettlementPartyCard";
 import { SettlementStepper } from "../components/SettlementStepper";
 import { type SettlementLine, WhoOwesWhomBoard } from "../components/WhoOwesWhomBoard";
@@ -63,11 +68,17 @@ import { apiStatusToDisplay } from "../lib/status";
 export function EventSettlement() {
   const { eventId } = useParams({ from: "/events/$eventId/settlement" });
   const [tab, setTab] = useState("overview");
+  const [previewCurrency, setPreviewCurrency] = useState("");
   const event = useGetApiV1EventsId(eventId);
+  const baseCurrency = event.data?.baseCurrency ?? "";
+  // Cosmetic only. The formatter converts for READING; nothing it touches is what
+  // the settlement owes, records or pays (`docs/money.md`).
+  const preview = useCurrencyPreview(baseCurrency, previewCurrency, setPreviewCurrency);
   const settlement = useEventSettlement(
     eventId,
     event.data?.capabilities ?? [],
-    event.data?.baseCurrency ?? "",
+    baseCurrency,
+    preview.format,
   );
 
   if (event.isPending) return <LoadingState label="Loading settlement" />;
@@ -137,6 +148,7 @@ export function EventSettlement() {
           {/* A POINTER to the PRO filing, which lives on its own screen — royalties
               are a different money stream and never enter this page's Σ net = 0.
               Shown only to someone who could actually file. */}
+          <SettlementCurrencyControl preview={preview} />
           {(event.data.capabilities ?? []).includes("performance_report.file") && (
             <Link to="/reports">
               <Button variant="secondary" leftIcon={<Icon name="trending-up" size={14} />}>
@@ -146,6 +158,8 @@ export function EventSettlement() {
           )}
         </div>
       </div>
+
+      <CurrencyPreviewNotice preview={preview} />
 
       <Tabs
         value={tab}

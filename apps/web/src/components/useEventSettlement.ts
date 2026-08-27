@@ -204,6 +204,14 @@ export function useEventSettlement(
   eventId: string,
   capabilities: readonly string[],
   currency: string,
+  /**
+   * How to render minor units. Defaults to the settlement's own currency; the
+   * screen passes a CONVERTING formatter when the reader is previewing in another
+   * one. Threading it here rather than at each call site is what guarantees the
+   * whole screen previews together — a page half-converted would be worse than
+   * one not converted at all.
+   */
+  formatAmount: (minorUnits: string) => string = (minorUnits) => formatMoney(minorUnits, currency),
 ): EventSettlement {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -367,8 +375,8 @@ export function useEventSettlement(
   const rows = settlements.data?.settlements ?? [];
 
   const parties = useMemo(
-    () => rows.map((row) => toParty(row, currency, nameOf, roleOf)),
-    [rows, currency, nameOf, roleOf],
+    () => rows.map((row) => toParty(row, currency, nameOf, roleOf, formatAmount)),
+    [rows, currency, nameOf, roleOf, formatAmount],
   );
 
   /**
@@ -392,8 +400,8 @@ export function useEventSettlement(
   );
   const totalPayable = useMemo(() => {
     const total = payable.reduce((running, party) => running + BigInt(party.netMinor ?? "0"), 0n);
-    return formatMoney(total.toString(), currency);
-  }, [payable, currency]);
+    return formatAmount(total.toString());
+  }, [payable, formatAmount]);
 
   const transfers = useMemo(
     () =>
@@ -405,10 +413,10 @@ export function useEventSettlement(
           id: transfer.id ?? `transfer-${index}`,
           from: nameOf(transfer.fromParticipantId),
           to: nameOf(transfer.toParticipantId),
-          amount: formatMoney(transfer.amount, currency),
+          amount: formatAmount(transfer.amount),
           state: transferStateOf(transfer.state),
         })),
-    [settlements.data, currency, nameOf],
+    [settlements.data, formatAmount, nameOf],
   );
 
   const approvals = useMemo(() => {
@@ -428,15 +436,15 @@ export function useEventSettlement(
   const ladder = settlements.data?.ladder ?? null;
 
   const dealRows = useMemo(
-    () => toDealRows(rows, deals.data ?? [], currency, nameOf),
-    [rows, deals.data, currency, nameOf],
+    () => toDealRows(rows, deals.data ?? [], currency, nameOf, formatAmount),
+    [rows, deals.data, currency, nameOf, formatAmount],
   );
 
   return {
     parties,
     transfers,
     commissions: settlements.data?.commissions ?? [],
-    ladder: ladder ? ladderRows(ladder, currency) : null,
+    ladder: ladder ? ladderRows(ladder, currency, formatAmount) : null,
     approvals,
     approvedCount: approvals.filter((approval) => approval.approved).length,
     deals: dealRows,
@@ -497,6 +505,7 @@ function toParty(
   currency: string,
   nameOf: (participantId: string | null | undefined) => string,
   roleOf: (participantId: string | null | undefined) => string,
+  formatAmount: (minorUnits: string) => string,
 ): SettlementParty {
   const name = nameOf(row.participantId);
   const computed = row.computed;
@@ -508,16 +517,16 @@ function toParty(
     role: roleOf(row.participantId),
     isYours: row.isYours,
     approvedByYou: row.approvedByYou,
-    entitlement: computed ? formatMoney(computed.entitlement, currency) : null,
-    collected: computed ? formatMoney(computed.collected, currency) : null,
-    paid: computed ? formatMoney(computed.paid, currency) : null,
-    net: computed ? formatMoney(computed.net, currency) : null,
+    entitlement: computed ? formatAmount(computed.entitlement) : null,
+    collected: computed ? formatAmount(computed.collected) : null,
+    paid: computed ? formatAmount(computed.paid) : null,
+    net: computed ? formatAmount(computed.net) : null,
     // The raw minor units alongside the formatted figure, ONLY so totals can be
     // summed as integers. Nothing renders this — `docs/money.md`: never do money
     // arithmetic on formatted text, and never through a float.
     netMinor: computed?.net ?? null,
     netTone: computed ? netToneOf(computed.net) : "neutral",
-    rules: computed ? entitlementRules(computed, currency) : [],
+    rules: computed ? entitlementRules(computed, currency, formatAmount) : [],
   };
 }
 
@@ -534,6 +543,7 @@ function toDealRows(
   deals: Awaited<ReturnType<typeof getApiV1EventsIdDeals>>,
   currency: string,
   nameOf: (participantId: string | null | undefined) => string,
+  formatAmount: (minorUnits: string) => string,
 ): SettlementDealRow[] {
   const byDeal = new Map<string, SettlementDealRow>();
   for (const row of rows) {
@@ -544,7 +554,7 @@ function toDealRows(
         key: `${line.dealId}-${row.id}`,
         name: nameOf(row.participantId),
         rule: describeBasis(line.basis, currency),
-        amount: formatMoney(line.amount, currency),
+        amount: formatAmount(line.amount),
       };
       if (existing) {
         existing.shares.push(share);
@@ -553,7 +563,7 @@ function toDealRows(
       byDeal.set(line.dealId, {
         dealId: line.dealId,
         name: deal?.name ?? `Deal ${line.dealId.slice(0, 8)}`,
-        dealTotal: formatMoney(line.dealTotal, currency),
+        dealTotal: formatAmount(line.dealTotal),
         shares: [share],
       });
     }
