@@ -4651,6 +4651,501 @@
         }
       }
     },
+    "/api/v1/events/{id}/performance-report": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "eventTitle": {
+                      "type": "string"
+                    },
+                    "eventDate": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "venueName": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "timezone": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "country": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "society": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "fullName": {
+                          "type": "string"
+                        },
+                        "country": {
+                          "type": "string"
+                        },
+                        "countryName": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["name", "fullName", "country", "countryName"],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
+                    "tariff": {
+                      "type": "object",
+                      "properties": {
+                        "proCode": {
+                          "type": "string"
+                        },
+                        "proName": {
+                          "type": "string"
+                        },
+                        "rateBasisPoints": {
+                          "type": "number"
+                        },
+                        "sourceUrl": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "sourceNote": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "proCode",
+                        "proName",
+                        "rateBasisPoints",
+                        "sourceUrl",
+                        "sourceNote"
+                      ],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
+                    "works": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "position": {
+                            "type": "integer"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "durationSeconds": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "performer": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": ["position", "title", "durationSeconds", "performer"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "setlistCount": {
+                      "type": "number"
+                    },
+                    "ticketRevenue": {
+                      "type": "string"
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "estimate": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "report": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "filedAt": {
+                          "type": "string"
+                        },
+                        "filedByUserId": {
+                          "type": "string"
+                        },
+                        "filedByProfileId": {
+                          "type": "string"
+                        },
+                        "proCode": {
+                          "type": "string"
+                        },
+                        "proName": {
+                          "type": "string"
+                        },
+                        "country": {
+                          "type": "string"
+                        },
+                        "reference": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "works": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "position": {
+                                "type": "integer"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "durationSeconds": {
+                                "type": "number",
+                                "nullable": true
+                              },
+                              "performer": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            },
+                            "required": ["position", "title", "durationSeconds", "performer"],
+                            "additionalProperties": false
+                          }
+                        },
+                        "estimate": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "estimateCurrency": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "rateBasisPoints": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "ticketRevenue": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "filedAt",
+                        "filedByUserId",
+                        "filedByProfileId",
+                        "proCode",
+                        "proName",
+                        "country",
+                        "reference",
+                        "works",
+                        "estimate",
+                        "estimateCurrency",
+                        "rateBasisPoints",
+                        "ticketRevenue"
+                      ],
+                      "additionalProperties": false,
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "eventTitle",
+                    "eventDate",
+                    "venueName",
+                    "timezone",
+                    "country",
+                    "society",
+                    "tariff",
+                    "works",
+                    "setlistCount",
+                    "ticketRevenue",
+                    "currency",
+                    "estimate",
+                    "report"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reference": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "nullable": true
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "eventTitle": {
+                      "type": "string"
+                    },
+                    "eventDate": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "venueName": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "timezone": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "country": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "society": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "fullName": {
+                          "type": "string"
+                        },
+                        "country": {
+                          "type": "string"
+                        },
+                        "countryName": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["name", "fullName", "country", "countryName"],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
+                    "tariff": {
+                      "type": "object",
+                      "properties": {
+                        "proCode": {
+                          "type": "string"
+                        },
+                        "proName": {
+                          "type": "string"
+                        },
+                        "rateBasisPoints": {
+                          "type": "number"
+                        },
+                        "sourceUrl": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "sourceNote": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "proCode",
+                        "proName",
+                        "rateBasisPoints",
+                        "sourceUrl",
+                        "sourceNote"
+                      ],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
+                    "works": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "position": {
+                            "type": "integer"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "durationSeconds": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "performer": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": ["position", "title", "durationSeconds", "performer"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "setlistCount": {
+                      "type": "number"
+                    },
+                    "ticketRevenue": {
+                      "type": "string"
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "estimate": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "report": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "filedAt": {
+                          "type": "string"
+                        },
+                        "filedByUserId": {
+                          "type": "string"
+                        },
+                        "filedByProfileId": {
+                          "type": "string"
+                        },
+                        "proCode": {
+                          "type": "string"
+                        },
+                        "proName": {
+                          "type": "string"
+                        },
+                        "country": {
+                          "type": "string"
+                        },
+                        "reference": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "works": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "position": {
+                                "type": "integer"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "durationSeconds": {
+                                "type": "number",
+                                "nullable": true
+                              },
+                              "performer": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            },
+                            "required": ["position", "title", "durationSeconds", "performer"],
+                            "additionalProperties": false
+                          }
+                        },
+                        "estimate": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "estimateCurrency": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "rateBasisPoints": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "ticketRevenue": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "filedAt",
+                        "filedByUserId",
+                        "filedByProfileId",
+                        "proCode",
+                        "proName",
+                        "country",
+                        "reference",
+                        "works",
+                        "estimate",
+                        "estimateCurrency",
+                        "rateBasisPoints",
+                        "ticketRevenue"
+                      ],
+                      "additionalProperties": false,
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "eventTitle",
+                    "eventDate",
+                    "venueName",
+                    "timezone",
+                    "country",
+                    "society",
+                    "tariff",
+                    "works",
+                    "setlistCount",
+                    "ticketRevenue",
+                    "currency",
+                    "estimate",
+                    "report"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/events/{id}/performing-rights-rate": {
       "get": {
         "parameters": [

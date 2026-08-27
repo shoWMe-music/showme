@@ -1,5 +1,11 @@
-import { type CsvColumn, toCsv } from "@showme/shared";
-import type { ProSociety } from "./proSocieties";
+import {
+  type CsvColumn,
+  type ProSociety,
+  type SetlistWork,
+  formatDurationClock,
+  toCsv,
+  totalDurationSeconds,
+} from "@showme/shared";
 
 /**
  * The performed-works filing, rendered into the formats an operator can send to a
@@ -11,64 +17,21 @@ import type { ProSociety } from "./proSocieties";
  * the RFC-4180 quoting here (this is its first consumer in the repo).
  */
 
-/** One performed work, exactly as much as the setlist actually carries. */
-export interface FilingWork {
-  /** 1-based running order, because a PRO report is ordered. */
-  readonly position: number;
-  readonly title: string;
-  /** Null when the setlist entry carried no length — never guessed. */
-  readonly durationSeconds: number | null;
-}
-
 export interface FilingDocument {
-  /** Null when the event's territory maps to no society we know (see `proSocieties`). */
+  /** Null when the event's territory maps to no society we know (see `pro-societies` in `@showme/shared`). */
   readonly society: ProSociety | null;
   readonly eventTitle: string;
   /** ISO date (`2026-09-12`) or null. */
   readonly eventDate: string | null;
   readonly venueName: string | null;
   readonly timezone: string | null;
-  readonly performerName: string | null;
-  readonly works: readonly FilingWork[];
-}
-
-/**
- * `setlists.items` is an untyped jsonb array (`items: z.unknown()` on the API),
- * so every entry is read defensively. The only shape that exists today is
- * `{ title, duration }` in seconds — everything else is a tolerated variant, and
- * anything unreadable becomes a null duration rather than a made-up one.
- */
-function workTitle(item: unknown): string {
-  if (typeof item === "string") return item;
-  if (item && typeof item === "object") {
-    const record = item as Record<string, unknown>;
-    const title = record.title ?? record.name ?? record.song;
-    if (typeof title === "string" && title.trim()) return title;
-  }
-  return "Untitled";
-}
-
-function workSeconds(item: unknown): number | null {
-  if (!item || typeof item !== "object") return null;
-  const record = item as Record<string, unknown>;
-  const raw = record.duration ?? record.durationSeconds ?? record.seconds ?? record.length;
-  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
-  if (typeof raw === "string") {
-    const clock = raw.match(/^(\d+):(\d{2})$/);
-    if (clock) return Number(clock[1]) * 60 + Number(clock[2]);
-    const minutes = Number(raw);
-    if (!Number.isNaN(minutes)) return Math.round(minutes * 60);
-  }
-  return null;
-}
-
-/** The setlist's jsonb entries as ordered, filing-ready works. */
-export function parseSetlistWorks(items: readonly unknown[]): FilingWork[] {
-  return items.map((item, index) => ({
-    position: index + 1,
-    title: workTitle(item),
-    durationSeconds: workSeconds(item),
-  }));
+  /**
+   * Every act with a setlist on the show, in the order the works run. The report
+   * is about the PERFORMANCE, so a three-band night names three acts here and
+   * each work below says which of them played it.
+   */
+  readonly performers: readonly string[];
+  readonly works: readonly SetlistWork[];
 }
 
 export type FilingFormat = "csv" | "text" | "json";
@@ -115,20 +78,6 @@ export const MISSING_FILING_FIELDS: readonly { field: string; why: string }[] = 
   },
 ];
 
-/** `mm:ss`, or the empty string when the setlist carried no length. */
-export function formatDurationClock(seconds: number | null): string {
-  if (seconds == null || !Number.isFinite(seconds)) return "";
-  const whole = Math.max(0, Math.round(seconds));
-  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
-}
-
-/** Total runtime, or null when NOT ONE entry carried a length. */
-export function totalDurationSeconds(works: readonly FilingWork[]): number | null {
-  const known = works.filter((work) => work.durationSeconds != null);
-  if (known.length === 0) return null;
-  return known.reduce((sum, work) => sum + (work.durationSeconds ?? 0), 0);
-}
-
 /** The society's short name, or a neutral placeholder when the territory is unmapped. */
 export function societyLabel(society: ProSociety | null): string {
   return society?.name ?? "PRO";
@@ -155,7 +104,7 @@ function fileStem(filing: FilingDocument): string {
  * on every line) because society importers ingest a flat works table, not a
  * header plus a body.
  */
-function csvColumns(filing: FilingDocument): CsvColumn<FilingWork>[] {
+function csvColumns(filing: FilingDocument): CsvColumn<SetlistWork>[] {
   const society = societyLabel(filing.society);
   return [
     { header: "Society", value: () => society },
@@ -163,7 +112,9 @@ function csvColumns(filing: FilingDocument): CsvColumn<FilingWork>[] {
     { header: "Event", value: () => filing.eventTitle },
     { header: "Performance date", value: () => filing.eventDate ?? MISSING },
     { header: "Venue", value: () => filing.venueName ?? MISSING },
-    { header: "Performer", value: () => filing.performerName ?? MISSING },
+    // Per WORK, not per file: a support slot's songs must not be filed under the
+    // headliner, and a society matches royalties to the act that performed.
+    { header: "Performer", value: (work) => work.performer ?? MISSING },
     { header: "No.", key: "position" },
     { header: "Work title", key: "title" },
     { header: "Duration (mm:ss)", value: (work) => formatDurationClock(work.durationSeconds) },
@@ -192,7 +143,7 @@ function buildText(filing: FilingDocument): string {
     `Date          ${filing.eventDate ?? "—"}`,
     `Venue         ${filing.venueName ?? "—"}`,
     `Territory     ${filing.society ? `${filing.society.countryName} (${filing.society.country})` : "—"}`,
-    `Performer     ${filing.performerName ?? "—"}`,
+    `Performers    ${filing.performers.length > 0 ? filing.performers.join(", ") : "—"}`,
     `Works         ${filing.works.length}`,
     `Total runtime ${total == null ? "—" : `${formatDurationClock(total)} (${Math.round(total / 60)} min)`}`,
     "",
@@ -200,10 +151,14 @@ function buildText(filing: FilingDocument): string {
     "-".repeat(56),
   ];
 
+  // The act is printed on every line only when there is more than one to tell
+  // apart — on a single-act night it would repeat the header for no reader.
+  const namesActs = filing.performers.length > 1;
   for (const work of filing.works) {
     const clock = formatDurationClock(work.durationSeconds);
+    const act = namesActs && work.performer ? `  [${work.performer}]` : "";
     lines.push(
-      `${String(work.position).padStart(2, " ")}. ${work.title}${clock ? `  (${clock})` : ""}`,
+      `${String(work.position).padStart(2, " ")}. ${work.title}${clock ? `  (${clock})` : ""}${act}`,
     );
   }
 
@@ -247,12 +202,13 @@ function buildJson(filing: FilingDocument): string {
         date: filing.eventDate,
         venue: filing.venueName,
         timezone: filing.timezone,
-        performer: filing.performerName,
+        performers: filing.performers,
       },
       works: filing.works.map((work) => ({
         position: work.position,
         title: work.title,
         durationSeconds: work.durationSeconds,
+        performer: work.performer,
         // Explicit nulls, not omitted keys: a consumer must be able to see that
         // the field was asked for and is unknown, not assume it was irrelevant.
         composers: null,

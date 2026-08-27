@@ -43,6 +43,14 @@ export {
   PRO_CODES,
   type ProCode,
 } from "./performing-rights";
+export { type ProSociety, societyForCountry } from "./pro-societies";
+export {
+  formatDurationClock,
+  mergeSetlistWorks,
+  parseSetlistWorks,
+  type SetlistWork,
+  totalDurationSeconds,
+} from "./setlist-works";
 export {
   type E2eAccount,
   type E2eAccountKind,

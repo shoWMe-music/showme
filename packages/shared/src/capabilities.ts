@@ -40,6 +40,14 @@ export const CAPABILITIES = [
   // is the performer's artistic content (decisions.md "Setlists" — performer
   // authors, operator only *reports* on it, crew see it only when shared).
   "setlist.author",
+  // Filing the show's performed-works report with the collecting society — the
+  // OTHER half of the setlist module (decisions.md "Setlists": performer authors,
+  // operator reports). Deliberately not `setlist.author` inverted and deliberately
+  // not folded into `budget.edit`: the filing is an act performed in the
+  // operator's name toward an outside body, so it wants a name of its own, and a
+  // 403 on it should say what was refused. The ceiling restricts it to the
+  // managing operator, so a performer can never hold it even if granted.
+  "performance_report.file",
   "crew.manage",
   "crew.submit",
   "agreement.manage",

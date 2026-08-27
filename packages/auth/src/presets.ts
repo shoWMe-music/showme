@@ -43,6 +43,11 @@ export const PRESET_PERMISSION_SETS = {
     // already true. Scope is still decided at read time (operator → all riders;
     // performer → their own, decisions #12), so this widens nothing.
     "rider.view",
+    // The operator's half of the setlist module (decisions.md "Setlists"): the
+    // act writes the songs, the operator reports the performance to the society.
+    // It appears in no other preset, and the ceiling below refuses it to any
+    // relationship that is not a managing operator.
+    "performance_report.file",
     "crew.manage",
     "agreement.manage",
     "agreement.confirm",
@@ -106,6 +111,11 @@ const MANAGEMENT_CAPABILITIES: readonly Capability[] = [
   "templates.manage",
   "crew.manage",
   "agreement.manage",
+  // Filing with a collecting society is a statement made in the operator's NAME
+  // to an outside body — the same class of act as signing an agreement or
+  // managing the bill, not the same class as editing a show's description. An
+  // `editor` runs the event; they do not report it to STIM on the venue's behalf.
+  "performance_report.file",
 ];
 
 /** The only capabilities a `viewer`/`crew` keeps — everything else is read-stripped. */
@@ -324,6 +334,24 @@ const POOL_CAPABILITIES: ReadonlySet<Capability> = new Set([
  */
 const PERFORMER_AUTHORED_CAPABILITIES: ReadonlySet<Capability> = new Set(["setlist.author"]);
 
+/**
+ * The mirror image of the set above: what only the MANAGING OPERATOR may ever be
+ * granted, for a reason that is not about the pool.
+ *
+ * `performance_report.file` records a filing made with a collecting society in
+ * the operator's name, about a show they hosted. story.md's boundary is that a
+ * performer's world is "my bookings, my availability, my riders, my money" — the
+ * venue's regulatory correspondence is not in it, and neither is an agent's
+ * business authority nor a crew member's labour. Keeping it here rather than in
+ * `POOL_CAPABILITIES` keeps that set meaning what its name says (money the
+ * arm's-length parties may not see); this one is about who may SPEAK for the show.
+ *
+ * Together with `PERFORMER_AUTHORED_CAPABILITIES` this makes the setlist module's
+ * two halves structurally exclusive: no relationship can hold both, so the act
+ * can never file and the operator can never author.
+ */
+const OPERATOR_FILING_CAPABILITIES: ReadonlySet<Capability> = new Set(["performance_report.file"]);
+
 /** The event roles that ARE the act — the only ones who may author its content. */
 const PERFORMING_EVENT_ROLES: ReadonlySet<EventRole> = new Set(["performer", "support"]);
 
@@ -337,6 +365,11 @@ export function isGrantable(capability: Capability, role: EventRole): boolean {
   // the artistic boundary the way they are exempt from the pool ceiling.
   if (PERFORMER_AUTHORED_CAPABILITIES.has(capability)) {
     return PERFORMING_EVENT_ROLES.has(role);
+  }
+  // Also checked before the short-circuit, so it reads as one rule rather than
+  // as an accident of ordering: the operator's own filings are operator-only.
+  if (OPERATOR_FILING_CAPABILITIES.has(capability)) {
+    return OPERATOR_EVENT_ROLES.has(role);
   }
   if (OPERATOR_EVENT_ROLES.has(role)) {
     return true;

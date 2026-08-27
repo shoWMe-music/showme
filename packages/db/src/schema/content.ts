@@ -11,6 +11,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { fileKind, messageVisibility, proCode, riderType, scheduleCategory } from "./enums";
@@ -181,14 +182,58 @@ export const setlistShares = pgTable(
   (table) => [unique().on(table.setlistId, table.participantId)],
 );
 
-/** The operator's PRO filing, derived from a setlist. */
-export const performanceReports = pgTable("performance_reports", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  eventId: uuid("event_id")
-    .notNull()
-    .references(() => events.id, { onDelete: "cascade" }),
-  proCode: proCode("pro_code").notNull().default("none"),
-  eventType: text("event_type"),
-  confidence: text("confidence"),
-  estimate: bigint("estimate", { mode: "bigint" }), // minor units (money.md)
-});
+/**
+ * The operator's PRO filing, derived from the setlists on one show.
+ *
+ * A ROW IS A RECORD OF A REAL-WORLD ACT, not a submission shoWMe made. There is
+ * no integration with any collecting society; the operator exports the
+ * performed-works report and sends it to STIM/GEMA/PRS themselves, and this row
+ * is where they write down that they did — when, in whose name, and with the
+ * reference the society handed back. Migration 0023 has the full argument.
+ *
+ * ONE PER EVENT (unique index on `event_id`): a society hears about a
+ * performance once, and a second report of the same night is an amendment, so
+ * re-filing updates this row and the amendment history lives in `audit_log`.
+ *
+ * The `country`/`pro_name`/`rate_basis_points`/`ticket_revenue` group is
+ * STAMPED at filing rather than re-derived on read, for the reason a finalized
+ * settlement locks its FX rate (money.md): the venue's address can be corrected
+ * years later and must not rewrite what the operator reported last month.
+ */
+export const performanceReports = pgTable(
+  "performance_reports",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    /** The filing destination of record. `none` where we hold no code for the society. */
+    proCode: proCode("pro_code").notNull().default("none"),
+    /** The society as it was named on the filing — "STIM", "SACEM", "Koda". */
+    proName: text("pro_name").notNull(),
+    /** ISO 3166-1 alpha-2 of the territory the show happened in (decisions #17). */
+    country: text("country").notNull(),
+    filedAt: timestamp("filed_at", { withTimezone: true }).notNull().defaultNow(),
+    filedByUserId: text("filed_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    /** The operator profile the filing was made in the name of. */
+    filedByProfileId: uuid("filed_by_profile_id")
+      .notNull()
+      .references(() => profiles.id),
+    /** The society's own receipt, when it gave one. Free text — every society differs. */
+    reference: text("reference"),
+    /** The performed works as they stood at filing. Count/runtime are derived, never stored. */
+    works: jsonb("works").notNull(),
+    /**
+     * The royalty estimate and the three facts that make it checkable. All four
+     * are null together when no published tariff is configured for `country` —
+     * a filing never falls back to the planner's flat 6% (see 0023).
+     */
+    estimate: bigint("estimate", { mode: "bigint" }), // minor units (money.md)
+    estimateCurrency: text("estimate_currency"),
+    rateBasisPoints: integer("rate_basis_points"),
+    ticketRevenue: bigint("ticket_revenue", { mode: "bigint" }), // minor units (money.md)
+  },
+  (table) => [uniqueIndex("performance_reports_one_per_event").on(table.eventId)],
+);

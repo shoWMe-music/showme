@@ -1,24 +1,30 @@
 /**
- * Country → collecting society (PRO), and the IANA-zone → country step the event
- * rows currently force on us.
+ * Country -> collecting society (PRO).
  *
- * WHY this table exists at all: decisions.md #17 makes `country` the load-bearing
- * stamp for the things that are genuinely per-country — "VAT, PRO codes
- * (STIM/GEMA/PRS), currency" — and `packages/shared/src/countries.ts` repeats that
- * in its own header. The country register is there; the PRO table it promises is
- * not. This is that table.
+ * WHY this table exists: decisions.md #17 makes `country` the load-bearing stamp
+ * for the things that are genuinely per-country — "VAT, PRO codes
+ * (STIM/GEMA/PRS), currency" — and `countries.ts` beside it repeats that in its
+ * own header. The country register is there; the PRO table it promises is this.
  *
- * WHY it lives in `apps/web` for now: it is a shared-vocabulary table (the API's
- * `pro_code` enum and the future submission integration will both want it), so it
- * BELONGS in `packages/shared`, next to `countries.ts`, keyed on the same alpha-2
- * codes. It is parked here only because the screen needs it today.
+ * WHY IT LIVES HERE NOW: it used to sit in `apps/web/src/lib/proSocieties.ts`,
+ * whose own header said it BELONGED in `packages/shared` next to `countries.ts`
+ * and was "parked here only because the screen needs it today". The screen is no
+ * longer the only reader: the API names the society when it writes a
+ * `performance_reports` row, and a filing whose society is decided in the browser
+ * is a filing the server cannot vouch for.
  *
- * WHY a timezone step: an event carries no country stamp yet — `GET /events`
- * returns `timezone` and `venueProfileId`, no country — so the only location
- * signal on this screen is the IANA zone snapshotted from the venue
- * (decisions.md #10). Deriving the country from the zone keeps the real table
- * country-keyed; when events carry a country, delete `countryForTimezone` and
- * every other line here still stands.
+ * WHAT WENT AWAY IN THE MOVE: the IANA-zone -> country step. It existed because
+ * "an event carries no country stamp" and the timezone was the only location
+ * signal a client had. The territory is now resolved server-side from the venue
+ * profile's recorded country (`routes/performing-rights.ts`), which is the
+ * address itself rather than an inference from it, so the guess is deleted
+ * exactly as its own comment asked.
+ *
+ * THIS IS NOT THE RATE. Which society covers a territory is a fact we can write
+ * down; what that society charges is a published tariff a platform admin has to
+ * read and enter (`performing_rights_rates`, migration 0018). Naming SACEM here
+ * says nothing about French royalties, and nothing here should ever grow a
+ * percentage.
  */
 
 export interface ProSociety {
@@ -150,55 +156,8 @@ const SOCIETY_BY_COUNTRY: Readonly<Record<string, ProSociety>> = {
   },
 };
 
-/**
- * The IANA zones the platform actually books in, mapped to their country.
- *
- * Not exhaustive on purpose: a zone we cannot place returns `null`, which reads
- * as "we don't know your society" instead of naming the wrong one. This is the
- * throwaway half of the module — see the file header.
- */
-const COUNTRY_BY_TIMEZONE: Readonly<Record<string, string>> = {
-  "Europe/Stockholm": "SE",
-  "Europe/Oslo": "NO",
-  "Europe/Copenhagen": "DK",
-  "Europe/Helsinki": "FI",
-  "Atlantic/Reykjavik": "IS",
-  "Europe/Berlin": "DE",
-  "Europe/London": "GB",
-  "Europe/Dublin": "IE",
-  "Europe/Amsterdam": "NL",
-  "Europe/Brussels": "BE",
-  "Europe/Paris": "FR",
-  "Europe/Madrid": "ES",
-  "Europe/Lisbon": "PT",
-  "Europe/Rome": "IT",
-  "Europe/Vienna": "AT",
-  "Europe/Zurich": "CH",
-  "Europe/Warsaw": "PL",
-  "Europe/Tallinn": "EE",
-  "Europe/Riga": "LV",
-  "Europe/Vilnius": "LT",
-};
-
-/** The country an IANA zone sits in, or `null` when the zone isn't one we book in. */
-export function countryForTimezone(timezone: string | null | undefined): string | null {
-  if (!timezone) return null;
-  return COUNTRY_BY_TIMEZONE[timezone.trim()] ?? null;
-}
-
 /** The collecting society that administers a country, or `null` when unmapped. */
 export function societyForCountry(country: string | null | undefined): ProSociety | null {
   if (!country) return null;
   return SOCIETY_BY_COUNTRY[country.trim().toUpperCase()] ?? null;
-}
-
-/**
- * The society a show reports to, derived from where the show happens.
- *
- * Territory first, account second (decisions.md #17): a Swedish operator playing
- * a Berlin room files with GEMA, not STIM, because the performance happened in
- * Germany. That is why this reads the EVENT's location and nothing else.
- */
-export function societyForTimezone(timezone: string | null | undefined): ProSociety | null {
-  return societyForCountry(countryForTimezone(timezone));
 }

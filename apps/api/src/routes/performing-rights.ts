@@ -1,10 +1,11 @@
 import { schema } from "@showme/db";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { notFound } from "../errors";
 import { requireEventCapability } from "../lib/authorize";
+import { resolveEventCountry } from "../lib/event-territory";
 
 const EventParams = z.object({ id: z.string().uuid() });
 
@@ -83,58 +84,4 @@ export async function performingRightsRoutes(fastify: FastifyInstance): Promise<
       };
     },
   );
-}
-
-/**
- * WHERE THE SHOW HAPPENS — the venue's country, and nothing else.
- *
- * Territory first, account second (decisions.md #17). A Swedish promoter putting
- * on a night in a Berlin room owes GEMA, not STIM, because the performance
- * happened in Germany; the host's own country is the single most tempting wrong
- * answer available and it is never consulted here. `apps/web/src/lib/proSocieties.ts`
- * makes the same call for the same reason when it names the society on a filing.
- *
- * The primary location first, then any location the venue has recorded — a venue
- * that filled in an address without ticking "primary" is still in a country. When
- * the event has no venue profile, or that profile has recorded no country, this
- * returns null and the planner keeps its qualified estimate. That is a better
- * answer than a guess, and it is one an operator can fix: it means "tell us where
- * your room is", which is a thing they can go and do.
- */
-async function resolveEventCountry(
-  database: FastifyInstance["database"],
-  venueProfileId: string | null,
-): Promise<string | null> {
-  if (!venueProfileId) return null;
-
-  const locations = await database
-    .select({
-      country: schema.profileLocations.country,
-      isPrimary: schema.profileLocations.isPrimary,
-    })
-    .from(schema.profileLocations)
-    .where(
-      and(
-        eq(schema.profileLocations.profileId, venueProfileId),
-        // A row with no country cannot place anything, and letting one win over a
-        // secondary address that HAS a country would lose real information.
-        // Filtering in SQL rather than after the fact keeps that from happening.
-        isNotNull(schema.profileLocations.country),
-      ),
-    );
-
-  const primary = locations.find((location) => location.isPrimary && location.country);
-  const fallback = locations.find((location) => location.country);
-  const country = primary?.country ?? fallback?.country ?? null;
-  return country ? normalizeTerritory(country) : null;
-}
-
-/**
- * Uppercase alpha-2, or null. Mirrors `findPerformingRightsRate`'s normalization
- * so the lookup against `performing_rights_rates.country` (stored uppercase,
- * CHECK-constrained in migration 0018) can be a plain equality.
- */
-function normalizeTerritory(value: string): string | null {
-  const trimmed = value.trim().toUpperCase();
-  return /^[A-Z]{2}$/.test(trimmed) ? trimmed : null;
 }

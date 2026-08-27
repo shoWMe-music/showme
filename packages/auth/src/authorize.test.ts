@@ -116,6 +116,64 @@ describe("setlist authorship — the act's own content (A-23)", () => {
 });
 
 /**
+ * The other half of the setlist module (decisions.md "Setlists", RESOLVED). The
+ * two capabilities are structurally exclusive — no relationship holds both — so
+ * the act can never file the show away to a society and the operator can never
+ * write the act's songs.
+ */
+describe("performance_report.file — only the managing operator files", () => {
+  it("is un-grantable to the act, its agent, and crew (ceiling)", () => {
+    expect(isGrantable("performance_report.file", "host")).toBe(true);
+    expect(isGrantable("performance_report.file", "co_host")).toBe(true);
+    expect(isGrantable("performance_report.file", "performer")).toBe(false);
+    expect(isGrantable("performance_report.file", "support")).toBe(false);
+    expect(isGrantable("performance_report.file", "agent")).toBe(false);
+    expect(isGrantable("performance_report.file", "crew")).toBe(false);
+    expect(isGrantable("performance_report.file", "crew_lead")).toBe(false);
+  });
+
+  it("is in no floor — it is granted, never inalienable", () => {
+    // A floor is what an operator cannot take away from a counterparty. Filing is
+    // the operator's own act, so it has no business being anyone's floor.
+    for (const role of ["performer", "support", "crew", "crew_lead", "host", "agent"] as const) {
+      expect(baselineCapabilities(role)).not.toContain("performance_report.file");
+    }
+    expect(baselineCapabilities("performer", true)).not.toContain("performance_report.file");
+  });
+
+  it("no relationship can hold both halves of the setlist module", () => {
+    for (const role of [
+      "host",
+      "co_host",
+      "performer",
+      "support",
+      "crew",
+      "crew_lead",
+      "agent",
+    ] as const) {
+      const both =
+        isGrantable("setlist.author", role) && isGrantable("performance_report.file", role);
+      expect(both).toBe(false);
+    }
+  });
+
+  it("an editor on the operator's team cannot file; an admin can", () => {
+    const operatorSet = [...PRESET_PERMISSION_SETS.operator_full];
+    expect(roleFilter(operatorSet, "admin")).toContain("performance_report.file");
+    // Filing is a statement made in the operator's NAME to an outside body.
+    expect(roleFilter(operatorSet, "editor")).not.toContain("performance_report.file");
+    expect(roleFilter(operatorSet, "viewer")).not.toContain("performance_report.file");
+  });
+
+  it("appears in the operator preset and in no other", () => {
+    expect(PRESET_PERMISSION_SETS.operator_full).toContain("performance_report.file");
+    expect(PRESET_PERMISSION_SETS.performer).not.toContain("performance_report.file");
+    expect(PRESET_PERMISSION_SETS.agent).not.toContain("performance_report.file");
+    expect(PRESET_PERMISSION_SETS.crew_technical).not.toContain("performance_report.file");
+  });
+});
+
+/**
  * The owner's call, 2026-08-26: *"crew can confirm an agreement if it is with them.
  * If they are the payee."*
  *
