@@ -1,6 +1,8 @@
 import { liveEventDelegations } from "@showme/auth";
 import { schema } from "@showme/db";
 import {
+  type Capability,
+  type HoldRankUpdate,
   type HoldSibling,
   competingHoldIds,
   computeDeclinePromotion,
@@ -13,7 +15,7 @@ import { z } from "zod";
 import { forbidden, notFound } from "../errors";
 import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
-import { requireEventCapability } from "../lib/authorize";
+import { eventCapabilities, requireEventCapability } from "../lib/authorize";
 import { assertEventCapAllows } from "../lib/entitlements";
 import { eventParticipantRecipients, notifyUsers } from "../lib/notify";
 
@@ -35,6 +37,40 @@ const DeclineResponse = z.object({
   id: z.string(),
   status: z.string(),
   promoted: z.array(z.object({ id: z.string(), holdRank: z.number().nullable() })),
+});
+
+const AutoPromoteBody = z.object({ holdAutoPromote: z.boolean() });
+
+const AutoPromoteResponse = z.object({ id: z.string(), holdAutoPromote: z.boolean() });
+
+/**
+ * What the holds panel reads. Every operator-only fact is `null`/empty for a
+ * caller without `event.edit` — the same line `serialize/event.ts` draws around
+ * `hold_rank`, drawn again here because this route bypasses that serializer.
+ *
+ * `canManageRank` / `canDecide` are the caller's OWN authority stated outright,
+ * not inferred from the presence of a redacted field. `canDecide` in particular
+ * cannot be derived from `capabilities[]` at all: `operator_full` carries
+ * `agreement.confirm`, and the host is still never the act.
+ */
+const HoldStateResponse = z.object({
+  id: z.string(),
+  status: z.string(),
+  eventDate: z.string().nullable(),
+  holdRank: z.number().nullable(),
+  holdAutoPromote: z.boolean().nullable(),
+  pool: z.array(
+    z.object({
+      id: z.string(),
+      /** `null` when the caller has no standing on that competing hold. */
+      title: z.string().nullable(),
+      holdRank: z.number(),
+      holdAutoPromote: z.boolean(),
+      isSelf: z.boolean(),
+    }),
+  ),
+  canManageRank: z.boolean(),
+  canDecide: z.boolean(),
 });
 
 type EventRow = typeof schema.events.$inferSelect;
@@ -99,7 +135,23 @@ function toHoldSiblings(rows: EventRow[]): HoldSibling[] {
 async function requireBookingDecision(request: FastifyRequest, eventId: string): Promise<void> {
   // The one authorization module decides the capability. 404 without `event.view`.
   await requireEventCapability(request, eventId, "agreement.confirm");
+  if (!(await callerIsBookedAct(request, eventId))) {
+    throw forbidden("Only the booked performer, or their agent, can confirm or decline this hold");
+  }
+}
 
+/**
+ * Condition 2 of the rule above, asked WITHOUT throwing: is this caller the act
+ * the date is held for, or the agent that act delegated to on this very event?
+ *
+ * Split out because `GET /events/:id/hold` has to answer "may I accept or turn
+ * down this date?" honestly, and `agreement.confirm` alone is not that answer —
+ * `operator_full` carries it, and the operator is never the act. A panel that
+ * gated its buttons on the capability would offer the host a Confirm button whose
+ * click comes back 403, which is exactly what `capabilities[]` exists to end
+ * (`serialize/event.ts`).
+ */
+async function callerIsBookedAct(request: FastifyRequest, eventId: string): Promise<boolean> {
   const principal = request.principal;
   if (!principal) throw new Error("principal missing after authentication");
   const profileIds = new Set(principal.memberships.map((membership) => membership.profileId));
@@ -135,9 +187,7 @@ async function requireBookingDecision(request: FastifyRequest, eventId: string):
       bookedActProfileIds.has(delegation.performerProfileId),
   );
 
-  if (!isBookedAct && !representsBookedAct) {
-    throw forbidden("Only the booked performer, or their agent, can confirm or decline this hold");
-  }
+  return isBookedAct || representsBookedAct;
 }
 
 export async function holdRoutes(fastify: FastifyInstance): Promise<void> {
@@ -319,69 +369,233 @@ export async function holdRoutes(fastify: FastifyInstance): Promise<void> {
     "/events/:id/hold/decline",
     { schema: { params: EventParams, response: { 200: DeclineResponse } } },
     async (request) => {
+      const { id } = request.params;
+      await requireBookingDecision(request, id);
+      return dropHoldAndRepack(request, id, {
+        capability: "agreement.confirm",
+        auditAction: "hold.decline",
+        activityType: "hold.declined",
+      });
+    },
+  );
+
+  // Release: the OPERATOR withdraws their own pencil. Same effect on the pool as a
+  // decline — the date is given up and the survivors compact — but a different act
+  // with a different authority, so it is a different route rather than a widened
+  // `decline`. `decline` is the act TURNING THE DATE DOWN, and `requireBookingDecision`
+  // exists precisely to keep the host out of that sentence; the history has to be
+  // able to say which of the two happened.
+  app.post(
+    "/events/:id/hold/release",
+    { schema: { params: EventParams, response: { 200: DeclineResponse } } },
+    async (request) => {
+      const { id } = request.params;
+      await requireEventCapability(request, id, "event.edit");
+      return dropHoldAndRepack(request, id, {
+        capability: "event.edit",
+        auditAction: "hold.release",
+        activityType: "hold.released",
+      });
+    },
+  );
+
+  // Auto-promote: operator-only (`event.edit`). The ONLY writer of the column —
+  // until now `hold_auto_promote` was reachable from no route at all, so every hold
+  // sat on the schema default (`false`, `packages/db/src/schema/events.ts`) and was
+  // FROZEN: `computeDeclinePromotion` skips a hold with `holdAutoPromote === false`,
+  // so a 2nd hold never moved up when the 1st was turned down. The column was read
+  // by the math and written by nobody.
+  app.post(
+    "/events/:id/hold/auto-promote",
+    {
+      schema: {
+        params: EventParams,
+        body: AutoPromoteBody,
+        response: { 200: AutoPromoteResponse },
+      },
+    },
+    async (request) => {
       const { database } = request.server;
       const { id } = request.params;
+      const { holdAutoPromote } = request.body;
 
-      await requireBookingDecision(request, id);
-
+      await requireEventCapability(request, id, "event.edit");
       const [event] = await database.select().from(schema.events).where(eq(schema.events.id, id));
       if (!event) throw notFound("Event not found");
-
-      const remainingSiblings = await loadSiblings(request, event, false);
-      const promotions = computeDeclinePromotion({
-        siblings: toHoldSiblings(remainingSiblings),
-        removedRank: event.holdRank ?? 1,
-      });
 
       await database.transaction(async (tx) => {
         await tx
           .update(schema.events)
           .set({
-            status: "cancelled",
+            holdAutoPromote,
             version: sql`${schema.events.version} + 1`,
             updatedAt: new Date(),
           })
           .where(eq(schema.events.id, event.id));
-        for (const promotion of promotions) {
-          await tx
-            .update(schema.events)
-            .set({
-              holdRank: promotion.holdRank,
-              version: sql`${schema.events.version} + 1`,
-              updatedAt: new Date(),
-            })
-            .where(eq(schema.events.id, promotion.id));
-        }
         await writeAudit(tx, request, {
-          capability: "agreement.confirm",
-          action: "hold.decline",
+          capability: "event.edit",
+          action: "hold.auto_promote",
           targetKind: "event",
           targetId: event.id,
           eventId: event.id,
-          before: { status: event.status, holdRank: event.holdRank },
-          after: { status: "cancelled", promoted: promotions },
+          before: { holdAutoPromote: event.holdAutoPromote },
+          after: { holdAutoPromote },
         });
+        // Kind `hold`, like the rank line: whether a pencil moves up on its own is
+        // the same private queue business as the number it moves from.
         await writeActivity(tx, request, {
           eventId: event.id,
-          type: "hold.declined",
-          targetKind: "event",
+          type: "hold.auto_promote_set",
+          targetKind: "hold",
           targetId: event.id,
-          summary: { from: event.status, to: "cancelled" },
+          summary: { from: event.holdAutoPromote, to: holdAutoPromote },
         });
-        // A promotion is a rank move on ANOTHER event — operator-only there, for the
-        // same reason the rank route is.
-        for (const promotion of promotions) {
-          await writeActivity(tx, request, {
-            eventId: promotion.id,
-            type: "hold.promoted",
-            targetKind: "hold",
-            targetId: promotion.id,
-            summary: { to: promotion.holdRank },
-          });
-        }
       });
 
-      return { id: event.id, status: "cancelled", promoted: promotions };
+      return { id: event.id, holdAutoPromote };
     },
   );
+
+  // The panel's one read. `event.view` (404 below it), and every operator-only fact
+  // — the rank, the freeze flag, the pool — is withheld from everyone else, exactly
+  // as `serialize/event.ts` withholds `hold_rank`: a performer authorized to VIEW
+  // the event still never sees where they rank.
+  app.get(
+    "/events/:id/hold",
+    { schema: { params: EventParams, response: { 200: HoldStateResponse } } },
+    async (request) => {
+      const { database } = request.server;
+      const { id } = request.params;
+
+      const capabilities = await requireEventCapability(request, id, "event.view");
+      const [event] = await database.select().from(schema.events).where(eq(schema.events.id, id));
+      if (!event) throw notFound("Event not found");
+
+      const canManageRank = capabilities.has("event.edit");
+      const canDecide =
+        capabilities.has("agreement.confirm") && (await callerIsBookedAct(request, id));
+
+      if (!canManageRank) {
+        return {
+          id: event.id,
+          status: event.status,
+          eventDate: event.eventDate,
+          holdRank: null,
+          holdAutoPromote: null,
+          pool: [],
+          canManageRank: false,
+          canDecide,
+        };
+      }
+
+      // The pool the SERVER ranks by, not one re-derived on the client from its own
+      // event list — those two disagree the moment a hold the caller cannot see
+      // joins the date, and the client's version would offer a rank the rank route
+      // would not honour.
+      const siblingRows =
+        event.status === "on_hold" ? await loadSiblings(request, event, true) : [];
+      const pool = [];
+      for (const row of siblingRows) {
+        // A pool is matched by (date, venue, stage) and is NOT scoped to one host, so
+        // a competing pencil can belong to an operator this caller has no standing
+        // with. The rank route already discloses those ids in its response; the
+        // TITLE — who is being courted for the date — is somebody else's business, so
+        // it is fetched through the same authorization module as every other read.
+        const rowCapabilities =
+          row.id === event.id ? capabilities : await eventCapabilities(request, row.id);
+        pool.push({
+          id: row.id,
+          title: rowCapabilities.has("event.view") ? row.title : null,
+          holdRank: row.holdRank ?? 1,
+          holdAutoPromote: row.holdAutoPromote,
+          isSelf: row.id === event.id,
+        });
+      }
+      pool.sort((left, right) => left.holdRank - right.holdRank);
+
+      return {
+        id: event.id,
+        status: event.status,
+        eventDate: event.eventDate,
+        holdRank: event.holdRank,
+        holdAutoPromote: event.holdAutoPromote,
+        pool,
+        canManageRank: true,
+        canDecide,
+      };
+    },
+  );
+}
+
+/**
+ * Give up a hold and let the queue close behind it — the shared body of `decline`
+ * (the act turns the date down) and `release` (the operator withdraws it). The two
+ * differ only in who is allowed to ask and what the history calls it, which is what
+ * `intent` carries; the effect on the pool is one rule and stays in one place.
+ */
+async function dropHoldAndRepack(
+  request: FastifyRequest,
+  eventId: string,
+  intent: { capability: Capability; auditAction: string; activityType: string },
+): Promise<{ id: string; status: string; promoted: HoldRankUpdate[] }> {
+  const { database } = request.server;
+
+  const [event] = await database.select().from(schema.events).where(eq(schema.events.id, eventId));
+  if (!event) throw notFound("Event not found");
+
+  const remainingSiblings = await loadSiblings(request, event, false);
+  const promotions = computeDeclinePromotion({
+    siblings: toHoldSiblings(remainingSiblings),
+    removedRank: event.holdRank ?? 1,
+  });
+
+  await database.transaction(async (tx) => {
+    await tx
+      .update(schema.events)
+      .set({
+        status: "cancelled",
+        version: sql`${schema.events.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.events.id, event.id));
+    for (const promotion of promotions) {
+      await tx
+        .update(schema.events)
+        .set({
+          holdRank: promotion.holdRank,
+          version: sql`${schema.events.version} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.events.id, promotion.id));
+    }
+    await writeAudit(tx, request, {
+      capability: intent.capability,
+      action: intent.auditAction,
+      targetKind: "event",
+      targetId: event.id,
+      eventId: event.id,
+      before: { status: event.status, holdRank: event.holdRank },
+      after: { status: "cancelled", promoted: promotions },
+    });
+    await writeActivity(tx, request, {
+      eventId: event.id,
+      type: intent.activityType,
+      targetKind: "event",
+      targetId: event.id,
+      summary: { from: event.status, to: "cancelled" },
+    });
+    // A promotion is a rank move on ANOTHER event — operator-only there, for the
+    // same reason the rank route is.
+    for (const promotion of promotions) {
+      await writeActivity(tx, request, {
+        eventId: promotion.id,
+        type: "hold.promoted",
+        targetKind: "hold",
+        targetId: promotion.id,
+        summary: { to: promotion.holdRank },
+      });
+    }
+  });
+
+  return { id: event.id, status: "cancelled", promoted: promotions };
 }

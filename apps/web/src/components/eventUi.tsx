@@ -368,10 +368,27 @@ function hexAlpha(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-export function StageRail({ currentIndex }: { currentIndex: number }) {
+export function StageRail({
+  currentIndex,
+  status,
+}: {
+  currentIndex: number;
+  /**
+   * The event's actual status, so the rail can NAME the stage it is highlighting.
+   *
+   * Four stages carry seven statuses (`STATUS_STAGE_INDEX`), and one of those
+   * collapses is a lie the operator can see: a hold sits at index 1 and the rail
+   * therefore reported "Pending" for an event whose whole screen says "On hold".
+   * Pending means waiting on a reply; on hold means the date is being kept warm
+   * in a queue — different things, and the second is the one the holds panel
+   * below is about. Optional so callers that have no status keep the old labels.
+   */
+  status?: string;
+}) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", margin: "24px 0 6px" }}>
-      {STAGE_DEFS.map(([key, label, color], index) => {
+      {STAGE_DEFS.map(([key, stageLabel, color], index) => {
+        const label = key === "pending" && status === "on_hold" ? "On hold" : stageLabel;
         const reached = index <= currentIndex;
         const current = index === currentIndex;
         return (

@@ -5,7 +5,7 @@ import {
   postApiV1EventsIdHoldRank,
   useGetApiV1ProfilesIdCapStatus,
 } from "@showme/api-client";
-import { Select } from "@showme/design-system";
+import { Badge, Select } from "@showme/design-system";
 import { useState } from "react";
 import { infiniteKey, useCursorList } from "../hooks/useCursorList";
 import type { EventItem } from "../hooks/useEventList";
@@ -55,6 +55,33 @@ export function holdOrdinal(rank: number): string {
   if (rank === 2) return "2nd";
   if (rank === 3) return "3rd";
   return `${rank}th`;
+}
+
+/**
+ * "1st hold" — the rank, wherever a hold is named.
+ *
+ * This vocabulary existed only inside the create wizard, so an operator saw
+ * their rank once, in a toast, and never again: the event screen and the events
+ * list both said "On hold" and stopped. One badge, so the header, the list row
+ * and the holds panel say it the same way.
+ *
+ * IT RENDERS NOTHING WITHOUT A RANK, and that is the security property, not a
+ * convenience: `serialize/event.ts` omits `hold_rank` for anyone without
+ * `event.edit`, so a performer's event simply carries no number and this badge
+ * disappears on its own. Never substitute a default — `?? 1` here would invent
+ * "1st hold" for every act on the bill.
+ */
+export function HoldRankBadge({
+  holdRank,
+  status,
+}: {
+  holdRank: number | null | undefined;
+  /** Optional guard for list rows, where a cancelled event still has its rank. */
+  status?: string;
+}) {
+  if (holdRank == null) return null;
+  if (status !== undefined && status !== "on_hold") return null;
+  return <Badge status="pending">{holdOrdinal(holdRank)} hold</Badge>;
 }
 
 /**

@@ -49,6 +49,7 @@ import { EventCollaboratorEditModal } from "../components/EventCollaboratorEditM
 import { EventCollaboratorInviteModal } from "../components/EventCollaboratorInviteModal";
 import { EventCrewPanel } from "../components/EventCrewPanel";
 import { EventDealsTab } from "../components/EventDealsTab";
+import { EventHoldPanel } from "../components/EventHoldPanel";
 import { EventRowMenu } from "../components/EventRowMenu";
 import { EventSettlementTab } from "../components/EventSettlementTab";
 import { ShareExportModal } from "../components/ShareExportModal";
@@ -330,7 +331,12 @@ export function EventDetail() {
         </div>
       </div>
 
-      <StageRail currentIndex={stageIndex} />
+      <StageRail currentIndex={stageIndex} status={event.status} />
+      {/* Renders nothing unless this event is a hold AND the reader has a say in
+          it, so it costs a confirmed show no space. The rank inside is
+          operator-only — the serializer omits `hold_rank` for everyone else, so
+          an act sees the confirm/decline half and never learns where it ranks. */}
+      <EventHoldPanel eventId={eventId} />
       {/* The rail SHOWS where the booking stands. SETTING it is one of the
           event's facts, so it is a row on the Event Information card with the
           rest of them — not a second control above the tabs. */}

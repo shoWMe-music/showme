@@ -774,3 +774,258 @@ describe("holds — what reaches each event's history", () => {
     expect(rows[0]?.summary).toEqual({ from: 2, to: 1 });
   });
 });
+
+/**
+ * The panel's read. Everything the holds screen offers is gated on the two flags
+ * this route answers with, so what it discloses IS the security boundary — the
+ * assertions below are the negative half of `serialize/event.ts`'s promise that
+ * "a performer authorized to VIEW the event still never sees where they rank".
+ */
+describe("holds — the queue, as each side is allowed to see it", () => {
+  it("gives the operator the whole pool in rank order, with its own hold marked", async () => {
+    const operator = await seedMemberWithSet(
+      "s-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "s-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const [first, second] = await seedHoldPool("state", "s-op", operator, performer, 2);
+    if (!first || !second) throw new Error("seed failed");
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${second}/hold`,
+      headers: auth("s-op"),
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+
+    expect(body.canManageRank).toBe(true);
+    // The host holds `agreement.confirm` (it is in `operator_full`) and is STILL
+    // not the act — the whole reason this flag is server-answered rather than read
+    // off `capabilities[]`.
+    expect(body.canDecide).toBe(false);
+    expect(body.holdRank).toBe(2);
+    expect(body.pool.map((entry: { id: string }) => entry.id)).toEqual([first, second]);
+    expect(body.pool.map((entry: { isSelf: boolean }) => entry.isSelf)).toEqual([false, true]);
+  });
+
+  it("tells the booked performer they may decide, and nothing about the queue", async () => {
+    const operator = await seedMemberWithSet(
+      "s-op2",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "s-perf2",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const [first] = await seedHoldPool("state2", "s-op2", operator, performer, 3);
+    if (!first) throw new Error("seed failed");
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${first}/hold`,
+      headers: auth("s-perf2"),
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+
+    expect(body.canDecide).toBe(true);
+    expect(body.canManageRank).toBe(false);
+    // Not "rank 1" — NOTHING. The performer is on a hold that is first in a pool
+    // of three and learns neither number.
+    expect(body.holdRank).toBeNull();
+    expect(body.holdAutoPromote).toBeNull();
+    expect(body.pool).toEqual([]);
+  });
+
+  it("names only the competing holds the caller has standing on", async () => {
+    const operator = await seedMemberWithSet(
+      "s-op3",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "s-perf3",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const rival = await seedMemberWithSet(
+      "s-rival",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const [mine] = await seedHoldPool("state3", "s-op3", operator, performer, 1);
+    if (!mine) throw new Error("seed failed");
+    const mineRow = await readEvent(mine);
+
+    // A pool is (date, venue, stage) and is NOT scoped to one host, so a rival
+    // promoter pencilling the same room lands in the same queue. Its RANK is
+    // already implied by the arithmetic; its TITLE is nobody else's business.
+    const [rivalHold] = await harness.db
+      .insert(schema.events)
+      .values({
+        hostProfileId: rival.profileId,
+        title: "The rival's secret booking",
+        baseCurrency: "SEK",
+        status: "on_hold",
+        eventDate: mineRow.eventDate,
+        venueProfileId: mineRow.venueProfileId,
+        stageId: mineRow.stageId,
+        holdRank: 2,
+        createdBy: "s-rival",
+      })
+      .returning();
+    if (!rivalHold) throw new Error("rival seed failed");
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${mine}/hold`,
+      headers: auth("s-op3"),
+    });
+    expect(response.statusCode).toBe(200);
+    const pool = response.json().pool as { id: string; title: string | null }[];
+
+    expect(pool).toHaveLength(2);
+    expect(pool.find((entry) => entry.id === mine)?.title).toBe("state3 hold 1");
+    expect(pool.find((entry) => entry.id === rivalHold.id)?.title).toBeNull();
+  });
+});
+
+/**
+ * `hold_auto_promote` used to be reachable from NO route: the column was read by
+ * `computeDeclinePromotion` and written by nobody, so every hold sat on the
+ * schema default (`false`) and was frozen — a 2nd hold never moved up when the
+ * 1st was turned down. These are the two halves of that: the writer exists, and
+ * what it writes reaches the math.
+ */
+describe("holds — auto-promote (operator only)", () => {
+  it("writes the flag, and a frozen hold then keeps its number through a decline", async () => {
+    const operator = await seedMemberWithSet(
+      "a-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "a-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const [first, second] = await seedHoldPool("auto", "a-op", operator, performer, 2);
+    if (!first || !second) throw new Error("seed failed");
+
+    const frozen = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${second}/hold/auto-promote`,
+      headers: auth("a-op"),
+      payload: { holdAutoPromote: false },
+    });
+    expect(frozen.statusCode).toBe(200);
+    expect((await readEvent(second)).holdAutoPromote).toBe(false);
+
+    const declined = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/decline`,
+      headers: auth("a-perf"),
+    });
+    expect(declined.statusCode).toBe(200);
+    // Rank 1 is gone and the survivor does NOT take it — that is the flag biting.
+    expect((await readEvent(second)).holdRank).toBe(2);
+  });
+
+  it("forbids a performer from freezing the operator's queue", async () => {
+    const operator = await seedMemberWithSet(
+      "a-op2",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "a-perf2",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const [first] = await seedHoldPool("auto2", "a-op2", operator, performer, 2);
+    if (!first) throw new Error("seed failed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/auto-promote`,
+      headers: auth("a-perf2"),
+      payload: { holdAutoPromote: true },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toContain("event.edit");
+  });
+});
+
+/**
+ * Release is the operator's own withdrawal — the act `decline` deliberately
+ * cannot be, because `requireBookingDecision` keeps the host out of the sentence
+ * "the act turned this date down". Same effect on the pool, different authority,
+ * and the history has to be able to tell them apart.
+ */
+describe("holds — release (operator withdraws its own pencil)", () => {
+  it("cancels the hold, compacts the survivors and files it as a release", async () => {
+    const operator = await seedMemberWithSet(
+      "r-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "r-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const [first, second, third] = await seedHoldPool("release", "r-op", operator, performer, 3);
+    if (!first || !second || !third) throw new Error("seed failed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/release`,
+      headers: auth("r-op"),
+    });
+    expect(response.statusCode).toBe(200);
+
+    expect((await readEvent(first)).status).toBe("cancelled");
+    expect((await readEvent(second)).holdRank).toBe(1);
+    expect((await readEvent(third)).holdRank).toBe(2);
+
+    const audit = await harness.db
+      .select()
+      .from(schema.auditLog)
+      .where(eq(schema.auditLog.targetId, first));
+    // Filed as a release under `event.edit` — never as the act declining.
+    expect(audit.some((row) => row.action === "hold.release")).toBe(true);
+    expect(audit.some((row) => row.action === "hold.decline")).toBe(false);
+  });
+
+  it("forbids the performer — giving up a date is not theirs to do quietly", async () => {
+    const operator = await seedMemberWithSet(
+      "r-op2",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "r-perf2",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const [first] = await seedHoldPool("release2", "r-op2", operator, performer, 2);
+    if (!first) throw new Error("seed failed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/release`,
+      headers: auth("r-perf2"),
+    });
+    expect(response.statusCode).toBe(403);
+    // The performer has `decline` for exactly this — a different act, said out loud.
+    expect((await readEvent(first)).status).toBe("on_hold");
+  });
+});
