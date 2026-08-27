@@ -1,3 +1,24 @@
+> # ⚠️ SUPERSEDED IN PART — read this before trusting anything below
+>
+> Written as a **scoping** document. Within hours, **thirteen of the fourteen
+> items in it were built and committed** (`80bda90` … `8f1f0db`). The scopes
+> below are kept because the reasoning is still the record of WHY each thing was
+> built the way it was — but they are no longer a to-do list, and several are
+> wrong about the present.
+>
+> **For current state, read [handoff-2026-08-27-ran-list-state.md](./handoff-2026-08-27-ran-list-state.md).**
+>
+> Done: §0 Budget Planner · §2 notifications · §3 contacts · §4 .ics import ·
+> §5 task assignee · §6 reminders (in-app half) · §7 in-house teams ·
+> §9 unavailability grid · §10 venue→room filter · §11 rooms/capacity ·
+> §12 holds · §13 profile→event · §14 deal→budget.
+> **Not done: §1 access giving** (blocked on the participants API),
+> **§15 date/time preference**, **§16 design comparison** (needs `/design consent`).
+>
+> This file going stale within a day is the same failure it warns about in §0 —
+> where a handoff doc claimed the Budget Planner "never writes", which had been
+> false for a week. A dated snapshot is not a statement about the present.
+
 # Feature scopes — what Ran's list left behind
 
 Written 2026-08-27, after the thirteen **defects** on Ran's list were fixed,

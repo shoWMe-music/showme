@@ -1,11 +1,20 @@
 # shoWMe — rebuild (2026)
 
 Live-events **booking + settlement** SaaS. This repo is a **from-scratch rebuild** of the prior Firebase/Firestore
-app, built as a **monorepo**. **Status:** scaffolded and substantially built, with the API and web app deployed. Start with
-**[docs/handoff-2026-08-25-remaining-work.md](./docs/handoff-2026-08-25-remaining-work.md)** (what is
-left), then **[docs/deployment-status.md](./docs/deployment-status.md)** (what is live) and
-**[docs/STATUS.md](./docs/STATUS.md)** (the 2026-08-02 build snapshot, now partly stale). The *why*
-still lives in decisions.md / story.md.
+app, built as a **monorepo**. **Status:** scaffolded and substantially built, with the API and web app deployed.
+
+**Start with [docs/handoff-2026-08-27-ran-list-state.md](./docs/handoff-2026-08-27-ran-list-state.md)** — the
+current state of the work: what is deployed versus merely committed, the three pending migrations (one of
+which drops a table, guarded), the ClickUp writes owed, and the findings that are recorded nowhere else.
+Then **[docs/deployment-status.md](./docs/deployment-status.md)** (what is live).
+`docs/handoff-2026-08-25-remaining-work.md` and **[docs/STATUS.md](./docs/STATUS.md)** are older snapshots,
+now partly stale. The *why* still lives in decisions.md / story.md.
+
+**A handoff doc is a snapshot of a moment, not a statement about the present.** Four of them here describe a
+working tree that has since been committed, deployed or fixed, and trusting one cost a full session on
+2026-08-27: it said the Budget Planner "never writes", which had been false since `e64e438`, and the claim
+was repeated into a scoping doc, a commit message and a ticket before anyone checked the code. Check the
+code before you scope from prose.
 
 ## The blueprint
 The complete architecture, data model, engines, and API surface live in **[PLAN.md](./PLAN.md)** — the single source
