@@ -1,5 +1,6 @@
 import { Badge, Button, Card, Icon } from "@showme/design-system";
 import { Link } from "@tanstack/react-router";
+import { SettlementPartyCard } from "./SettlementPartyCard";
 import { Eyebrow } from "./primitives";
 import { settlementStatusToDisplay } from "./settlementDocument";
 import { ErrorState, LoadingState } from "./states";
@@ -14,18 +15,21 @@ export interface EventSettlementTabProps {
 }
 
 /**
- * The event workspace's Settlement tab — deliberately THIN.
+ * The event workspace's Settlement tab: what this night pays, to whom, and why.
  *
- * It answers the one question the workspace is asking ("what did this night pay
- * me, and is it done?") and hands off. Everything else — the pool ladder, the rule
- * behind each figure, the approvals roster, the who-owes-whom board, finalizing —
- * lives in the full settlement workspace at `/events/:id/settlement`, because a
- * settlement is a document with its own sub-navigation and it was never going to
- * fit inside one tab of another screen.
+ * It shows a card per PARTY, carrying the rule behind each figure — the same card
+ * the full workspace draws, from the same component, so the two can never disagree
+ * about what somebody is owed.
  *
- * That split is the prototype's own: `shoWMe All View.dc.html:2551` is a mini tab
- * whose entire body is a headline figure, a status, and "Open full settlement
- * workspace". Nothing here computes; the figure is the hook's, already formatted.
+ * What it deliberately does NOT carry is everything that makes a settlement a
+ * document rather than a summary: the pool ladder, the who-owes-whom board,
+ * finalizing, the approvals roster, the review conversation. Those live at
+ * `/events/:id/settlement`, and the button at the foot goes there. That split is
+ * the prototype's own (`shoWMe All View.dc.html:2551`).
+ *
+ * A party sees only their own card, and that is the API's doing rather than this
+ * screen's — the settlement payload is already party-scoped, so a performer's tab
+ * is short by the lines that were never theirs to read (`story.md:44`).
  */
 export function EventSettlementTab({ eventId, currency, capabilities }: EventSettlementTabProps) {
   const settlement = useEventSettlement(eventId, capabilities, currency);
@@ -37,37 +41,67 @@ export function EventSettlementTab({ eventId, currency, capabilities }: EventSet
 
   const status = settlementStatusToDisplay(settlement.status);
   const headline = settlement.ownParty?.entitlement;
+  // The PRO filing is the operator's, and the ceiling refuses the capability to
+  // everyone else (`OPERATOR_FILING_CAPABILITIES`). Asking for it here means the
+  // link appears only for someone who could actually file — a pointer to a screen
+  // that would turn them away is worse than no pointer.
+  const canFile = capabilities.includes("performance_report.file");
 
   return (
-    <Card
-      padding="lg"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: 10,
-        textAlign: "center",
-      }}
-    >
-      <Eyebrow>Settlement</Eyebrow>
-      <div style={{ fontSize: 44, fontWeight: 500, letterSpacing: "-0.03em" }}>
-        {/* No entitlement yet is a real "not yet" — the event has not been
-            reconciled — so it says so rather than printing a zero. */}
-        {headline ?? "Not reconciled yet"}
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <Card
+        padding="lg"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 10,
+          textAlign: "center",
+        }}
+      >
+        <Eyebrow>Settlement</Eyebrow>
+        <div style={{ fontSize: 44, fontWeight: 500, letterSpacing: "-0.03em" }}>
+          {/* No entitlement yet is a real "not yet" — the event has not been
+              reconciled — so it says so rather than printing a zero. */}
+          {headline ?? "Not reconciled yet"}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span className="muted">
+            {settlement.ownParty ? "Your payout" : "You are not a party to this settlement"}
+          </span>
+          <Badge status={status.status} dot>
+            {status.label}
+          </Badge>
+        </div>
+      </Card>
+
+      {settlement.parties.map((party) => (
+        <SettlementPartyCard key={party.settlementId} party={party} />
+      ))}
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <Link to="/events/$eventId/settlement" params={{ eventId }}>
+          <Button variant="primary" rightIcon={<Icon name="chevron-right" size={14} />}>
+            Open full settlement workspace
+          </Button>
+        </Link>
+        {/*
+         * A POINTER, not a panel. The PRO filing is a different money stream
+         * entirely — a collecting society paying rightsholders, on its own
+         * schedule, to people who may not be on this bill — and it never enters
+         * the settlement's `Σ net = 0`. It has its own screen (`/reports`,
+         * decisions.md #627). This link exists only because the operator thinks
+         * about filing while looking at the show, and it must never become a
+         * place where PRO content lives.
+         */}
+        {canFile && (
+          <Link to="/reports">
+            <Button variant="secondary" leftIcon={<Icon name="trending-up" size={14} />}>
+              Report to PRO
+            </Button>
+          </Link>
+        )}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <span className="muted">
-          {settlement.ownParty ? "Your payout" : "You are not a party to this settlement"}
-        </span>
-        <Badge status={status.status} dot>
-          {status.label}
-        </Badge>
-      </div>
-      <Link to="/events/$eventId/settlement" params={{ eventId }}>
-        <Button variant="primary" rightIcon={<Icon name="chevron-right" size={14} />}>
-          Open full settlement workspace
-        </Button>
-      </Link>
-    </Card>
+    </div>
   );
 }

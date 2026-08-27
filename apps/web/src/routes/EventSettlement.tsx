@@ -17,6 +17,7 @@ import {
 import { Link, useParams } from "@tanstack/react-router";
 import { useState } from "react";
 import { ConfirmDialog, useConfirmDialog } from "../components/ConfirmDialog";
+import { SettlementPartyCard } from "../components/SettlementPartyCard";
 import { SettlementStepper } from "../components/SettlementStepper";
 import { type SettlementLine, WhoOwesWhomBoard } from "../components/WhoOwesWhomBoard";
 import { describeActivity } from "../components/eventHistory";
@@ -380,31 +381,7 @@ function SettlementTab({
 
           <div style={CARD_COLUMN}>
             {settlement.parties.map((party) => (
-              <Card key={party.settlementId} padding="lg" style={CARD_COLUMN}>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 12,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <PartyIdentity party={party} />
-                  <span style={{ fontSize: 24, fontWeight: 500, color: "var(--brand-gold)" }}>
-                    {party.entitlement ?? "Not reconciled yet"}
-                  </span>
-                </div>
-                {party.rules.map((rule) => (
-                  <KeyValueRow
-                    key={rule.key}
-                    label={rule.label}
-                    value={rule.negative ? `− ${rule.value}` : rule.value}
-                    mono
-                    valueColor={rule.negative ? "var(--brand-red)" : undefined}
-                  />
-                ))}
-              </Card>
+              <SettlementPartyCard key={party.settlementId} party={party} />
             ))}
           </div>
 
