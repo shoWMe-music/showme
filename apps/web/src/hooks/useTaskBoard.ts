@@ -10,7 +10,22 @@ import { useAuth } from "../auth/AuthProvider";
 import { formatDay } from "../lib/format";
 import { MAX_PAGE_SIZE, infiniteKey, useCursorList } from "./useCursorList";
 
-export type Task = Awaited<ReturnType<typeof getApiV1Tasks>>["items"][number];
+/**
+ * One task as `GET /tasks` returns it.
+ *
+ * The two assignee fields are spelled out rather than inherited because the
+ * generated client is a build artefact: `GET /tasks` serializes them today, but
+ * `@showme/api-client` only learns that when orval is re-run against the API's
+ * OpenAPI document. Declared optional, they are correct both before that run and
+ * after it (the regenerated type is stricter, and an intersection keeps it).
+ * Delete this half of the type once the client has been regenerated.
+ */
+export type Task = Awaited<ReturnType<typeof getApiV1Tasks>>["items"][number] & {
+  /** The `event_participants` row this task is handed to, if anyone. */
+  assigneeParticipantId?: string | null;
+  /** That participant's display name, joined server-side — an id renders as a UUID. */
+  assigneeName?: string | null;
+};
 export type Group = Awaited<ReturnType<typeof getApiV1Groups>>[number];
 
 /** A task's scope: the tightest thing it hangs off (event > profile > personal). */
@@ -71,10 +86,13 @@ function bucketOf(task: Task): string {
  * null when the task belongs to a profile — i.e. to everyone on the team. So "My
  * Tasks" = the pile that is yours alone, as opposed to your profile's shared pile.
  *
- * It deliberately is NOT "assigned to me". `tasks.assignee_participant_id` exists
- * in the schema but is never written by any route and never serialized by
- * `GET /tasks`, so the browser cannot see an assignee at all. Making the chip
- * pretend otherwise would be a lie; see the note on the chip's tooltip.
+ * It deliberately is NOT "assigned to me", even now that an assignee exists and
+ * is serialized. `tasks.assignee_participant_id` names an `event_participants`
+ * row — a PROFILE on one show — and a profile is not the signed-in user: one
+ * person can act through several profiles, and a profile can have several
+ * members. Matching them needs the caller's participant rows, which this payload
+ * does not carry, so "assigned to me" would be a guess. Ownership is the "who"
+ * the payload can actually answer.
  */
 function matchesFilter(task: Task, filter: TaskFilterKey, currentUserId: string | null): boolean {
   switch (filter) {

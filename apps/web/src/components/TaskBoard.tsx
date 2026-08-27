@@ -14,6 +14,7 @@ import {
   formatTaskDueDate,
   scopeOf,
 } from "../hooks/useTaskBoard";
+import { TaskAssigneeTag } from "./TaskAssigneeTag";
 import { Eyebrow } from "./primitives";
 
 /**
@@ -263,6 +264,7 @@ function TaskBoardCard({
             {formatTaskDueDate(task.dueDate)}
           </span>
         )}
+        <TaskAssigneeTag name={task.assigneeName} fontSize={11.5} />
       </span>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
         <button

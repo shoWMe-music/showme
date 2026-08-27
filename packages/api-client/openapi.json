@@ -12044,6 +12044,14 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "assigneeParticipantId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "assigneeName": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "title": {
                             "type": "string"
                           },
@@ -12083,6 +12091,8 @@
                           "ownerProfileId",
                           "ownerUserId",
                           "groupId",
+                          "assigneeParticipantId",
+                          "assigneeName",
                           "title",
                           "description",
                           "completed",
@@ -12140,6 +12150,10 @@
                     "format": "uuid"
                   },
                   "groupId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "assigneeParticipantId": {
                     "type": "string",
                     "format": "uuid"
                   },
@@ -12206,6 +12220,14 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "assigneeParticipantId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "assigneeName": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "title": {
                       "type": "string"
                     },
@@ -12245,6 +12267,8 @@
                     "ownerProfileId",
                     "ownerUserId",
                     "groupId",
+                    "assigneeParticipantId",
+                    "assigneeName",
                     "title",
                     "description",
                     "completed",
@@ -12289,6 +12313,11 @@
                     "nullable": true
                   },
                   "groupId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": true
+                  },
+                  "assigneeParticipantId": {
                     "type": "string",
                     "format": "uuid",
                     "nullable": true
@@ -12342,6 +12371,14 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "assigneeParticipantId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "assigneeName": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "title": {
                       "type": "string"
                     },
@@ -12381,6 +12418,8 @@
                     "ownerProfileId",
                     "ownerUserId",
                     "groupId",
+                    "assigneeParticipantId",
+                    "assigneeName",
                     "title",
                     "description",
                     "completed",
@@ -13574,6 +13613,140 @@
                     "createdAt",
                     "updatedAt"
                   ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/profiles/{id}/contacts/import": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "rows": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        },
+                        "personName": {
+                          "type": "string"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "phone": {
+                          "type": "string"
+                        },
+                        "iban": {
+                          "type": "string"
+                        },
+                        "bankName": {
+                          "type": "string"
+                        },
+                        "vatId": {
+                          "type": "string"
+                        },
+                        "address": {
+                          "type": "string"
+                        },
+                        "notes": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "minItems": 1,
+                    "maxItems": 500
+                  },
+                  "commit": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                },
+                "required": ["rows"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "committed": {
+                      "type": "boolean"
+                    },
+                    "imported": {
+                      "type": "integer"
+                    },
+                    "skipped": {
+                      "type": "integer"
+                    },
+                    "rejected": {
+                      "type": "integer"
+                    },
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "index": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "email": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "outcome": {
+                            "type": "string",
+                            "enum": ["imported", "skipped", "rejected"]
+                          },
+                          "reason": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "contactId": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": ["index", "name", "email", "outcome", "reason", "contactId"],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["committed", "imported", "skipped", "rejected", "results"],
                   "additionalProperties": false
                 }
               }

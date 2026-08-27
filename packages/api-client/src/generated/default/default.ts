@@ -270,6 +270,8 @@ import type {
   PostApiV1ProfilesBody,
   PostApiV1ProfilesIdContacts201,
   PostApiV1ProfilesIdContactsBody,
+  PostApiV1ProfilesIdContactsImport200,
+  PostApiV1ProfilesIdContactsImportBody,
   PostApiV1ProfilesIdMembers201,
   PostApiV1ProfilesIdMembersBody,
   PostApiV1ProfilesIdPayoutAccounts201,
@@ -7848,6 +7850,65 @@ const {mutation: mutationOptions} = options ?
       > => {
 
       const mutationOptions = getPostApiV1ProfilesIdContactsMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const postApiV1ProfilesIdContactsImport = (
+    id: string,
+    postApiV1ProfilesIdContactsImportBody: PostApiV1ProfilesIdContactsImportBody,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1ProfilesIdContactsImport200>(
+      {url: `/api/v1/profiles/${id}/contacts/import`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: postApiV1ProfilesIdContactsImportBody, signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1ProfilesIdContactsImportMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1ProfilesIdContactsImport>>, TError,{id: string;data: PostApiV1ProfilesIdContactsImportBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1ProfilesIdContactsImport>>, TError,{id: string;data: PostApiV1ProfilesIdContactsImportBody}, TContext> => {
+
+const mutationKey = ['postApiV1ProfilesIdContactsImport'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1ProfilesIdContactsImport>>, {id: string;data: PostApiV1ProfilesIdContactsImportBody}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  postApiV1ProfilesIdContactsImport(id,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1ProfilesIdContactsImportMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1ProfilesIdContactsImport>>>
+    export type PostApiV1ProfilesIdContactsImportMutationBody = PostApiV1ProfilesIdContactsImportBody
+    export type PostApiV1ProfilesIdContactsImportMutationError = unknown
+
+    export const usePostApiV1ProfilesIdContactsImport = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1ProfilesIdContactsImport>>, TError,{id: string;data: PostApiV1ProfilesIdContactsImportBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1ProfilesIdContactsImport>>,
+        TError,
+        {id: string;data: PostApiV1ProfilesIdContactsImportBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1ProfilesIdContactsImportMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }

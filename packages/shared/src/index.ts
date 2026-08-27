@@ -116,7 +116,7 @@ export {
   structureNeedsSplit,
 } from "./deal-terms";
 export { convertMinorUnits } from "./exchange";
-export { type CsvColumn, escapeCsvField, toCsv } from "./csv";
+export { type CsvColumn, escapeCsvField, parseCsv, toCsv } from "./csv";
 export {
   type Money,
   type MoneyJson,

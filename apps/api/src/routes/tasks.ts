@@ -1,11 +1,12 @@
+import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
-import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { forbidden, notFound } from "../errors";
+import { badRequest, forbidden, notFound } from "../errors";
 import { writeActivity } from "../lib/activity";
-import { writeAudit } from "../lib/audit";
+import { type Transaction, writeAudit } from "../lib/audit";
 import { eventCapabilities, requireEventCapability } from "../lib/authorize";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
 
@@ -28,6 +29,10 @@ const CreateTaskBody = z.object({
   eventId: z.string().uuid().optional(),
   // Optional named work-group (must be one the caller owns).
   groupId: z.string().uuid().optional(),
+  // The ONE person who owes this task, as an `event_participants` row — see
+  // `assertMayAssignParticipant`. A work-group and an assignee are different
+  // acts: the group says which team it belongs to, the assignee says who does it.
+  assigneeParticipantId: z.string().uuid().optional(),
   budgetType: z.string().optional(),
   budgetAmount: z.string().min(1).optional(),
   reminders: z.array(ReminderInput).optional(),
@@ -39,6 +44,8 @@ const UpdateTaskBody = z.object({
   completed: z.boolean().optional(),
   dueDate: z.string().min(1).nullable().optional(),
   groupId: z.string().uuid().nullable().optional(),
+  /** Null hands the task back to nobody in particular — an explicit unassign. */
+  assigneeParticipantId: z.string().uuid().nullable().optional(),
   budgetAmount: z.string().min(1).nullable().optional(),
 });
 
@@ -55,6 +62,11 @@ const TaskResponse = z.object({
   ownerProfileId: z.string().nullable(),
   ownerUserId: z.string().nullable(),
   groupId: z.string().nullable(),
+  assigneeParticipantId: z.string().nullable(),
+  /** The assignee's display name, joined through the participant's profile — an
+   * id alone leaves a screen with nothing to render but a UUID (the same reason
+   * calendar items carry `assigneeName`, and participants carry `name`). */
+  assigneeName: z.string().nullable(),
   title: z.string(),
   description: z.string().nullable(),
   completed: z.boolean(),
@@ -80,14 +92,22 @@ interface TaskCursor {
   id: string;
 }
 
-/** Response projection — bigint money → STRING, timestamps → ISO (money.md boundary). */
-function serializeTask(task: TaskRow): z.infer<typeof TaskResponse> {
+/**
+ * Response projection — bigint money → STRING, timestamps → ISO (money.md boundary).
+ *
+ * `assigneeName` is not on the row: it is the participant's profile name, read
+ * through the join the caller already had to make, and passed in rather than
+ * fetched here so a list serializes in one query instead of one per task.
+ */
+function serializeTask(task: TaskRow, assigneeName: string | null): z.infer<typeof TaskResponse> {
   return {
     id: task.id,
     eventId: task.eventId,
     ownerProfileId: task.ownerProfileId,
     ownerUserId: task.ownerUserId,
     groupId: task.groupId,
+    assigneeParticipantId: task.assigneeParticipantId,
+    assigneeName: task.assigneeParticipantId ? assigneeName : null,
     title: task.title,
     description: task.description,
     completed: task.completed,
@@ -161,11 +181,88 @@ async function assertMayUseGroup(request: FastifyRequest, groupId: string): Prom
 }
 
 /**
+ * The display name behind `tasks.assignee_participant_id` — the participant's
+ * profile name, or null when nobody is assigned. `profiles.name` is NOT NULL, so
+ * an inner join either produces a name or produces nothing (a participant row
+ * whose profile vanished is not a person this screen can name).
+ */
+async function assigneeNameOf(
+  executor: Database | Transaction,
+  participantId: string | null,
+): Promise<string | null> {
+  if (!participantId) return null;
+  const [row] = await executor
+    .select({ name: schema.profiles.name })
+    .from(schema.eventParticipants)
+    .innerJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
+    .where(eq(schema.eventParticipants.id, participantId));
+  return row?.name ?? null;
+}
+
+/**
+ * THE ASSIGNEE RULE: a task may only be handed to somebody who is ON the event
+ * that task belongs to, and who has not been removed from it.
+ *
+ * Why event membership is the whole rule: `event_participants` IS the app's
+ * "who can see this show" join (`lib/authorize.ts` resolves event capabilities
+ * through it), so a participant row on this event is, by construction, a person
+ * entitled to read the event the task hangs off. Assigning outside it would put
+ * a stranger's name on a task inside a workspace they cannot open — and would
+ * leak, to the assignee's own screens later, that the show exists at all.
+ *
+ * A REMOVED participant is refused too. Their row is kept for history, not as a
+ * standing address; handing them new work would be assigning it to somebody the
+ * host has already taken off the show.
+ *
+ * A TASK WITH NO EVENT (a personal or profile task) cannot be assigned at all,
+ * and that is a 400 rather than a silent null. The column is a foreign key into
+ * `event_participants`, so the only people it can name are people on some event;
+ * pointing a personal task at a participant of an unrelated show would assert a
+ * relationship that does not exist. A personal task already has an owner — the
+ * person whose list it is on — and a profile task belongs to the profile's
+ * members (`docs/story.md`: the profile's shared pile). Assigning an account
+ * member by name needs a column that can hold one (`assignee_user_id`), not a
+ * misuse of this one.
+ *
+ * Returns the assignee's display name so the caller does not re-query for it.
+ */
+async function assertMayAssignParticipant(
+  request: FastifyRequest,
+  eventId: string | null,
+  participantId: string,
+): Promise<string> {
+  if (!eventId) {
+    throw badRequest("Only a task on an event can be assigned to a participant");
+  }
+  const [row] = await request.server.database
+    .select({ name: schema.profiles.name })
+    .from(schema.eventParticipants)
+    .innerJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
+    .where(
+      and(
+        eq(schema.eventParticipants.id, participantId),
+        eq(schema.eventParticipants.eventId, eventId),
+        ne(schema.eventParticipants.status, "removed"),
+      ),
+    );
+  // 404, not 403: a participant of some other event is not this caller's
+  // business to have confirmed the existence of.
+  if (!row) throw notFound("That person is not on this event");
+  return row.name;
+}
+
+/**
  * The task fields whose movement is worth a history line. Names only — `budgetAmount`
  * is money and stays out of a summary (`lib/activity.ts`), and `description` is free
  * text an event-wide feed has no business echoing.
  */
-const TRACKED_TASK_FIELDS = ["title", "dueDate", "groupId", "budgetAmount"] as const;
+const TRACKED_TASK_FIELDS = [
+  "title",
+  "dueDate",
+  "groupId",
+  "assigneeParticipantId",
+  "budgetAmount",
+] as const;
 
 export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
@@ -203,9 +300,17 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
         ? sql`(${createdAtMillis}, ${schema.tasks.id}) > (${decoded.createdAt}::timestamptz, ${decoded.id}::uuid)`
         : undefined;
 
+      // The assignee's name comes along on the same query — two LEFT joins, not a
+      // lookup per row: tasks → the participant it names → that participant's
+      // profile. Left, because most tasks name nobody and must still be listed.
       const rows = await database
-        .select()
+        .select({ task: schema.tasks, assigneeName: schema.profiles.name })
         .from(schema.tasks)
+        .leftJoin(
+          schema.eventParticipants,
+          eq(schema.eventParticipants.id, schema.tasks.assigneeParticipantId),
+        )
+        .leftJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
         .where(
           and(
             scopeFilter,
@@ -217,11 +322,14 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
         .orderBy(asc(createdAtMillis), asc(schema.tasks.id))
         .limit(limit + 1);
 
-      const { items, nextCursor } = paginate(rows, limit, (task) => ({
-        createdAt: task.createdAt.toISOString(),
-        id: task.id,
+      const { items, nextCursor } = paginate(rows, limit, (row) => ({
+        createdAt: row.task.createdAt.toISOString(),
+        id: row.task.id,
       }));
-      return { items: items.map(serializeTask), nextCursor };
+      return {
+        items: items.map((row) => serializeTask(row.task, row.assigneeName)),
+        nextCursor,
+      };
     },
   );
 
@@ -243,6 +351,13 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
         eventId: body.eventId,
       });
       if (body.groupId) await assertMayUseGroup(request, body.groupId);
+      const assigneeName = body.assigneeParticipantId
+        ? await assertMayAssignParticipant(
+            request,
+            body.eventId ?? null,
+            body.assigneeParticipantId,
+          )
+        : null;
 
       const created = await database.transaction(async (tx) => {
         const [task] = await tx
@@ -252,6 +367,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
             ownerProfileId: body.ownerProfileId ?? null,
             ownerUserId,
             groupId: body.groupId ?? null,
+            assigneeParticipantId: body.assigneeParticipantId ?? null,
             title: body.title,
             description: body.description ?? null,
             dueDate: body.dueDate ?? null,
@@ -273,7 +389,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
           );
         }
 
-        const serialized = serializeTask(task);
+        const serialized = serializeTask(task, assigneeName);
         await writeAudit(tx, request, {
           capability: "profile.edit",
           action: "task.create",
@@ -330,6 +446,15 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
         if (body.groupId) await assertMayUseGroup(request, body.groupId);
         fields.groupId = body.groupId;
       }
+      // The assignee is checked against the event the task ALREADY belongs to —
+      // `eventId` is not patchable here (a task does not move between events), so
+      // `before.eventId` is the event both the caller and the assignee are on.
+      if (body.assigneeParticipantId !== undefined) {
+        if (body.assigneeParticipantId) {
+          await assertMayAssignParticipant(request, before.eventId, body.assigneeParticipantId);
+        }
+        fields.assigneeParticipantId = body.assigneeParticipantId;
+      }
 
       const updated = await database.transaction(async (tx) => {
         const [after] = await tx
@@ -338,14 +463,17 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
           .where(eq(schema.tasks.id, id))
           .returning();
         if (!after) throw notFound("Task not found");
-        const serialized = serializeTask(after);
+        const serialized = serializeTask(
+          after,
+          await assigneeNameOf(tx, after.assigneeParticipantId),
+        );
         await writeAudit(tx, request, {
           capability: "profile.edit",
           action: "task.update",
           targetKind: "task",
           targetId: id,
           eventId: after.eventId ?? undefined,
-          before: serializeTask(before),
+          before: serializeTask(before, await assigneeNameOf(tx, before.assigneeParticipantId)),
           after: serialized,
         });
         if (after.eventId) {
@@ -394,7 +522,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
           targetKind: "task",
           targetId: id,
           eventId: before.eventId ?? undefined,
-          before: serializeTask(before),
+          before: serializeTask(before, await assigneeNameOf(tx, before.assigneeParticipantId)),
         });
         if (before.eventId) {
           await writeActivity(tx, request, {

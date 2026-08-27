@@ -3,6 +3,7 @@ import { Icon } from "@showme/design-system";
 import { useEventTasks } from "../hooks/useEventTasks";
 import { formatTaskDueDate } from "../hooks/useTaskBoard";
 import { ConfirmDialog, useConfirmDialog } from "./ConfirmDialog";
+import { TaskAssigneeTag } from "./TaskAssigneeTag";
 import { TaskFormModal } from "./TaskFormModal";
 import { describeActivity } from "./eventHistory";
 import { GlyphButton, GradientButton, MonoPill, SectionCard, fieldStyle } from "./eventUi";
@@ -160,6 +161,9 @@ export function EventTodoTab({ eventId }: { eventId: string }) {
                     {formatTaskDueDate(task.dueDate)}
                   </span>
                 )}
+                {/* Who owes it. The In-House Management panel points here for
+                    exactly this, and until now there was nothing to point at. */}
+                <TaskAssigneeTag name={task.assigneeName} />
                 {task.description && (
                   <span style={{ fontSize: 13, fontStyle: "italic", color: "var(--muted)" }}>
                     “{task.description}”

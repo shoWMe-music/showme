@@ -15,6 +15,10 @@ export type PatchApiV1TasksId200 = {
   ownerUserId: string | null;
   /** @nullable */
   groupId: string | null;
+  /** @nullable */
+  assigneeParticipantId: string | null;
+  /** @nullable */
+  assigneeName: string | null;
   title: string;
   /** @nullable */
   description: string | null;

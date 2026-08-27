@@ -16,6 +16,7 @@ export type PostApiV1TasksBody = {
   ownerUserId?: string;
   eventId?: string;
   groupId?: string;
+  assigneeParticipantId?: string;
   budgetType?: string;
   /** @minLength 1 */
   budgetAmount?: string;

@@ -258,3 +258,212 @@ describe("tasks — the event's shared to-do list", () => {
     expect(created.statusCode).toBe(404);
   });
 });
+
+describe("tasks — the assignee", () => {
+  /**
+   * A host on their own event, plus a second profile really on the bill: the
+   * shape every assignment test needs, because the rule under test is exactly
+   * "is this person a participant on THIS event".
+   */
+  async function seedEventWithPerformer(prefix: string) {
+    const { db } = harness;
+    const hostProfileId = await seedUserWithProfile(`${prefix}-host`);
+    const performerProfileId = await seedUserWithProfile(`${prefix}-performer`);
+    const [permissionSet] = await db
+      .insert(schema.permissionSets)
+      .values({
+        profileId: hostProfileId,
+        name: "operator_full",
+        capabilities: [...PRESET_PERMISSION_SETS.operator_full],
+      })
+      .returning();
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId,
+        title: "Assignment Night",
+        baseCurrency: "SEK",
+        createdBy: `${prefix}-host`,
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    const [hostParticipant] = await db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: hostProfileId,
+        role: "host",
+        permissionSetId: permissionSet?.id,
+        status: "confirmed",
+      })
+      .returning();
+    const [performerParticipant] = await db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: performerProfileId,
+        role: "performer",
+        status: "confirmed",
+      })
+      .returning();
+    if (!hostParticipant || !performerParticipant) throw new Error("participant seed failed");
+    return {
+      hostProfileId,
+      performerProfileId,
+      event,
+      hostParticipant,
+      performerParticipant,
+      headers: { ...auth(`${prefix}-host`), "x-profile-id": hostProfileId },
+    };
+  }
+
+  it("assigns an event task to somebody on that event, names them, and persists the id", async () => {
+    const seeded = await seedEventWithPerformer("assign-ok");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: seeded.headers,
+      payload: {
+        title: "Load in the backline",
+        eventId: seeded.event.id,
+        assigneeParticipantId: seeded.performerParticipant.id,
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().assigneeParticipantId).toBe(seeded.performerParticipant.id);
+    expect(created.json().assigneeName).toBe("assign-ok-performer");
+
+    // The state, not just the response.
+    const [row] = await harness.db
+      .select({ assigneeParticipantId: schema.tasks.assigneeParticipantId })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, created.json().id));
+    expect(row?.assigneeParticipantId).toBe(seeded.performerParticipant.id);
+
+    // And the list carries the name too — one join, not a lookup per row.
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/v1/tasks?eventId=${seeded.event.id}`,
+      headers: seeded.headers,
+    });
+    expect(list.statusCode).toBe(200);
+    expect(list.json().items[0].assigneeName).toBe("assign-ok-performer");
+  });
+
+  it("assigns and unassigns over PATCH", async () => {
+    const seeded = await seedEventWithPerformer("assign-patch");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: seeded.headers,
+      payload: { title: "Chase the rider", eventId: seeded.event.id },
+    });
+    const taskId = created.json().id;
+    expect(created.json().assigneeParticipantId).toBeNull();
+
+    const assigned = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/tasks/${taskId}`,
+      headers: seeded.headers,
+      payload: { assigneeParticipantId: seeded.performerParticipant.id },
+    });
+    expect(assigned.statusCode).toBe(200);
+    expect(assigned.json().assigneeName).toBe("assign-patch-performer");
+
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/tasks/${taskId}`,
+      headers: seeded.headers,
+      payload: { assigneeParticipantId: null },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().assigneeParticipantId).toBeNull();
+    expect(cleared.json().assigneeName).toBeNull();
+
+    const [row] = await harness.db
+      .select({ assigneeParticipantId: schema.tasks.assigneeParticipantId })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, taskId));
+    expect(row?.assigneeParticipantId).toBeNull();
+  });
+
+  it("refuses a participant of ANOTHER event, and writes nothing", async () => {
+    const here = await seedEventWithPerformer("assign-elsewhere-here");
+    const elsewhere = await seedEventWithPerformer("assign-elsewhere-there");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: here.headers,
+      payload: {
+        title: "Not theirs to do",
+        eventId: here.event.id,
+        assigneeParticipantId: elsewhere.performerParticipant.id,
+      },
+    });
+    expect(created.statusCode).toBe(404);
+    expect(created.json().error.message).toContain("not on this event");
+
+    // The refusal is a refusal: no task row was written on the way to it.
+    const rows = await harness.db
+      .select({ id: schema.tasks.id })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.eventId, here.event.id));
+    expect(rows).toHaveLength(0);
+
+    // Same rule on the way in through PATCH, on a task that already exists.
+    const own = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: here.headers,
+      payload: { title: "Mine", eventId: here.event.id },
+    });
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/tasks/${own.json().id}`,
+      headers: here.headers,
+      payload: { assigneeParticipantId: elsewhere.performerParticipant.id },
+    });
+    expect(patched.statusCode).toBe(404);
+    const [after] = await harness.db
+      .select({ assigneeParticipantId: schema.tasks.assigneeParticipantId })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, own.json().id));
+    expect(after?.assigneeParticipantId).toBeNull();
+  });
+
+  it("refuses a participant who has been removed from the event", async () => {
+    const seeded = await seedEventWithPerformer("assign-removed");
+    await harness.db
+      .update(schema.eventParticipants)
+      .set({ status: "removed" })
+      .where(eq(schema.eventParticipants.id, seeded.performerParticipant.id));
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: seeded.headers,
+      payload: {
+        title: "Off the show",
+        eventId: seeded.event.id,
+        assigneeParticipantId: seeded.performerParticipant.id,
+      },
+    });
+    expect(created.statusCode).toBe(404);
+  });
+
+  it("refuses an assignee on a task with no event — a personal list has no participants", async () => {
+    const seeded = await seedEventWithPerformer("assign-personal");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: seeded.headers,
+      payload: { title: "Buy strings", assigneeParticipantId: seeded.performerParticipant.id },
+    });
+    expect(created.statusCode).toBe(400);
+    expect(created.json().error.message).toContain("Only a task on an event");
+  });
+});

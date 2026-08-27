@@ -18,6 +18,8 @@ export type PatchApiV1TasksIdBody = {
   dueDate?: string | null;
   /** @nullable */
   groupId?: string | null;
+  /** @nullable */
+  assigneeParticipantId?: string | null;
   /**
    * @minLength 1
    * @nullable

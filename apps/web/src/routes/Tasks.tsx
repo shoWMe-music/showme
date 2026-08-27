@@ -17,6 +17,7 @@ import {
 } from "@showme/design-system";
 import { type FormEvent, useEffect, useState } from "react";
 import { SegmentedToggle } from "../components/SegmentedToggle";
+import { TaskAssigneeTag } from "../components/TaskAssigneeTag";
 import { TaskBoard } from "../components/TaskBoard";
 import { TaskFormModal } from "../components/TaskFormModal";
 import { Eyebrow } from "../components/primitives";
@@ -512,6 +513,7 @@ function TaskRow({
             {formatTaskDueDate(task.dueDate)}
           </span>
         )}
+        <TaskAssigneeTag name={task.assigneeName} />
         {task.description && (
           <span style={{ fontSize: 13, fontStyle: "italic", color: "var(--muted)" }}>
             “{task.description}”

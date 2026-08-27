@@ -1,8 +1,7 @@
-import { usePatchApiV1TasksId, usePostApiV1Tasks } from "@showme/api-client";
-import { Button, Modal, Select, TextField, useToast } from "@showme/design-system";
-import { type FormEvent, useEffect, useState } from "react";
+import { Button, Modal, Select, TextField } from "@showme/design-system";
+import type { FormEvent } from "react";
 import type { Group, Task } from "../hooks/useTaskBoard";
-import { errorMessage } from "../lib/errors";
+import { useTaskForm } from "../hooks/useTaskForm";
 import { DateTimeField } from "./DateTimeField";
 
 /**
@@ -18,6 +17,9 @@ import { DateTimeField } from "./DateTimeField";
  * `eventId` is the only difference between them: the Tasks screen creates
  * unattached tasks, the event tab creates tasks on its own event. Editing sends
  * neither — a task does not move between events from here.
+ *
+ * Dumb by design: every field, the participant roster behind the Assignee select
+ * and the write itself live in `useTaskForm`.
  */
 export interface TaskFormModalProps {
   open: boolean;
@@ -39,70 +41,11 @@ export function TaskFormModal({
   onClose,
   onSaved,
 }: TaskFormModalProps) {
-  const toast = useToast();
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [dueDate, setDueDate] = useState("");
-  const [groupId, setGroupId] = useState("");
-
-  useEffect(() => {
-    if (!open) return;
-    setTitle(task?.title ?? "");
-    setDescription(task?.description ?? "");
-    // "yyyy-mm-dd" — the exact shape a `type="date"` input round-trips.
-    setDueDate(task?.dueDate ? task.dueDate.slice(0, 10) : "");
-    setGroupId(task?.groupId ?? "");
-  }, [open, task]);
-
-  const create = usePostApiV1Tasks({
-    mutation: {
-      onSuccess: () => {
-        toast.success("Task created.");
-        onSaved();
-      },
-      onError: (error) => toast.error(errorMessage(error, "Couldn't create the task.")),
-    },
-  });
-  const patch = usePatchApiV1TasksId({
-    mutation: {
-      onSuccess: () => {
-        toast.success("Task updated.");
-        onSaved();
-      },
-      onError: (error) => toast.error(errorMessage(error, "Couldn't update the task.")),
-    },
-  });
-
-  const submitting = create.isPending || patch.isPending;
-  // Send the calendar day the user picked, verbatim. Converting to a UTC instant
-  // used to shift it: `tasks.due_date` is a DATE, so an evening pick east of
-  // Greenwich (or a small-hours pick west of it) landed on the wrong day.
-  const due = dueDate || undefined;
+  const form = useTaskForm({ open, task, eventId, onSaved });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (!title.trim()) return;
-    if (task) {
-      patch.mutate({
-        id: task.id,
-        data: {
-          title: title.trim(),
-          description: description.trim() || null,
-          dueDate: due ?? null,
-          groupId: groupId || null,
-        },
-      });
-    } else {
-      create.mutate({
-        data: {
-          title: title.trim(),
-          ...(description.trim() ? { description: description.trim() } : {}),
-          ...(due ? { dueDate: due } : {}),
-          ...(groupId ? { groupId } : {}),
-          ...(eventId ? { eventId } : {}),
-        },
-      });
-    }
+    form.submit();
   };
 
   return (
@@ -115,7 +58,7 @@ export function TaskFormModal({
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={submit} disabled={submitting || !title.trim()}>
+          <Button variant="primary" onClick={submit} disabled={!form.canSubmit}>
             {task ? "Save changes" : "Create task"}
           </Button>
         </>
@@ -124,21 +67,43 @@ export function TaskFormModal({
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <TextField
           label="Title"
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
+          value={form.title}
+          onChange={(event) => form.setTitle(event.target.value)}
           placeholder="Confirm final headcount with venue"
           required
         />
+        {/* Two different acts, side by side on purpose: the work-group says which
+            team the task belongs to, the assignee says which PERSON owes it.
+            Assigning to a team is not assigning it to somebody. */}
         <Select
           label="Work-group"
-          value={groupId}
-          onChange={setGroupId}
+          value={form.groupId}
+          onChange={form.setGroupId}
           placeholder="No group"
           options={[
             { value: "", label: "No group" },
             ...groups.map((group) => ({ value: group.id, label: group.name })),
           ]}
         />
+        {/* Only an event has people on it. A personal or profile task gets no
+            select rather than a disabled one: the API refuses an assignee there,
+            and an affordance that cannot be taken is worse than no affordance. */}
+        {form.canAssign && (
+          <Select
+            label="Assignee"
+            value={form.assigneeParticipantId}
+            onChange={form.setAssigneeParticipantId}
+            placeholder="Nobody yet"
+            options={[
+              { value: "", label: "Nobody yet" },
+              ...form.assigneeOptions.map((option) => ({
+                value: option.value,
+                label: option.label,
+              })),
+            ]}
+            noResultsLabel="Nobody on this event matches"
+          />
+        )}
         <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <span
             style={{
@@ -152,8 +117,8 @@ export function TaskFormModal({
             Note
           </span>
           <textarea
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
+            value={form.description}
+            onChange={(event) => form.setDescription(event.target.value)}
             placeholder="Add context for whoever picks this up…"
             rows={3}
             style={{
@@ -171,8 +136,8 @@ export function TaskFormModal({
         <DateTimeField
           label="Due"
           type="date"
-          value={dueDate}
-          onChange={(event) => setDueDate(event.target.value)}
+          value={form.dueDate}
+          onChange={(event) => form.setDueDate(event.target.value)}
         />
       </form>
     </Modal>

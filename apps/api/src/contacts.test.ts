@@ -187,3 +187,160 @@ describe("contacts — profile-scoped address book", () => {
     expect(response.statusCode).toBe(404);
   });
 });
+
+describe("contacts — CSV import", () => {
+  /** The file the browser would hand us: one new row, one duplicate, one broken. */
+  const threeRows = [
+    { name: "New Supplier AB", type: "Supplier", personName: "Nils Ny", email: "nils@new.test" },
+    { name: "Duplicate Co", email: "JANE@ACME.SHOWME.TEST" },
+    { name: "", email: "nobody@nowhere.test" },
+  ];
+
+  /** Seed the "already in the address book" contact the duplicate row collides with. */
+  async function seedExistingContact(profileId: string) {
+    await harness.db.insert(schema.contacts).values({
+      ownerProfileId: profileId,
+      name: "Acme Booking",
+      persons: [{ name: "Jane Doe", email: "jane@acme.showme.test" }],
+    });
+  }
+
+  it("previews without writing, and says why for every row", async () => {
+    const profileId = await seedProfileMember("con-preview", "owner");
+    await seedExistingContact(profileId);
+
+    const preview = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${profileId}/contacts/import`,
+      headers: auth("con-preview"),
+      payload: { rows: threeRows, commit: false },
+    });
+    expect(preview.statusCode).toBe(200);
+    const body = preview.json();
+    expect(body.committed).toBe(false);
+    expect([body.imported, body.skipped, body.rejected]).toEqual([1, 1, 1]);
+    expect(body.results.map((result: { outcome: string }) => result.outcome)).toEqual([
+      "imported",
+      "skipped",
+      "rejected",
+    ]);
+    // The skip names the contact it collided with — matched case-insensitively.
+    expect(body.results[1].reason).toContain("Acme Booking");
+    expect(body.results[2].reason).toContain("No name");
+
+    // Nothing landed: still just the seeded contact.
+    const stored = await harness.db
+      .select()
+      .from(schema.contacts)
+      .where(eq(schema.contacts.ownerProfileId, profileId));
+    expect(stored).toHaveLength(1);
+  });
+
+  it("commits only the accepted rows, with an audit row each", async () => {
+    const profileId = await seedProfileMember("con-commit", "owner");
+    await seedExistingContact(profileId);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${profileId}/contacts/import`,
+      headers: auth("con-commit"),
+      payload: {
+        rows: [
+          {
+            ...threeRows[0],
+            iban: "SE45 5000 0000 0583 9825 7466",
+            bankName: "SEB",
+            vatId: "SE556200100009",
+            phone: "+46 70 000 00 00",
+          },
+          threeRows[1],
+          threeRows[2],
+        ],
+        commit: true,
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.committed).toBe(true);
+    expect([body.imported, body.skipped, body.rejected]).toEqual([1, 1, 1]);
+    const contactId = body.results[0].contactId;
+    expect(contactId).toBeTruthy();
+    // Only the accepted row carries an id; the other two wrote nothing.
+    expect(body.results[1].contactId).toBeNull();
+    expect(body.results[2].contactId).toBeNull();
+
+    const [imported] = await harness.db
+      .select()
+      .from(schema.contacts)
+      .where(eq(schema.contacts.id, contactId));
+    expect(imported?.name).toBe("New Supplier AB");
+    expect(imported?.type).toBe("supplier");
+    expect(imported?.iban).toBe("SE45 5000 0000 0583 9825 7466");
+    expect(imported?.bankName).toBe("SEB");
+    expect(imported?.persons).toEqual([
+      { name: "Nils Ny", email: "nils@new.test", phone: "+46 70 000 00 00" },
+    ]);
+
+    const audit = await harness.db
+      .select()
+      .from(schema.auditLog)
+      .where(eq(schema.auditLog.targetId, contactId));
+    expect(audit).toHaveLength(1);
+    expect(audit[0]?.action).toBe("contact.import");
+
+    const stored = await harness.db
+      .select()
+      .from(schema.contacts)
+      .where(eq(schema.contacts.ownerProfileId, profileId));
+    expect(stored).toHaveLength(2); // the seeded one + the single accepted row
+  });
+
+  it("skips a file that duplicates itself, and rejects a malformed email", async () => {
+    const profileId = await seedProfileMember("con-selfdupe", "owner");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${profileId}/contacts/import`,
+      headers: auth("con-selfdupe"),
+      payload: {
+        rows: [
+          { name: "First", email: "same@x.test" },
+          { name: "Second", email: "SAME@x.test" },
+          { name: "Third", email: "not-an-email" },
+          { name: "Fourth" },
+        ],
+        commit: true,
+      },
+    });
+    const body = response.json();
+    expect(body.results.map((result: { outcome: string }) => result.outcome)).toEqual([
+      "imported",
+      "skipped",
+      "rejected",
+      "imported",
+    ]);
+    expect(body.results[1].reason).toContain("row 1");
+    expect(body.results[2].reason).toContain("not an email address");
+    // A row with no email is imported, but says it could not be deduped.
+    expect(body.results[3].reason).toContain("No email");
+
+    const stored = await harness.db
+      .select()
+      .from(schema.contacts)
+      .where(eq(schema.contacts.ownerProfileId, profileId));
+    expect(stored.map((row) => row.name).sort()).toEqual(["First", "Fourth"]);
+  });
+
+  it("403s a viewer trying to import", async () => {
+    const profileId = await seedProfileMember("con-imp-owner", "owner");
+    await seedProfileMember("con-imp-viewer", "viewer", profileId);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${profileId}/contacts/import`,
+      headers: auth("con-imp-viewer"),
+      payload: { rows: [{ name: "Nope" }], commit: true },
+    });
+    expect(response.statusCode).toBe(403);
+  });
+});

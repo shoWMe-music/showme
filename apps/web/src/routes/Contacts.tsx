@@ -1,8 +1,4 @@
-import {
-  type getApiV1ProfilesIdContacts,
-  useGetApiV1ProfilesIdContacts,
-  usePostApiV1ProfilesIdContacts,
-} from "@showme/api-client";
+import { useGetApiV1ProfilesIdContacts, usePostApiV1ProfilesIdContacts } from "@showme/api-client";
 import {
   Avatar,
   type AvatarTone,
@@ -21,12 +17,12 @@ import {
 import { type FormEvent, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { SegmentedToggle } from "../components";
+import { ContactImportModal } from "../components/ContactImportModal";
 import { ErrorState, LoadingState } from "../components/states";
+import { type Contact, exportContactsCsv, firstContactPerson } from "../hooks/useContactsCsv";
 import { errorMessage } from "../lib/errors";
 import { type ClipboardCopier, useCopyToClipboard } from "../lib/useCopyToClipboard";
 
-type Contact = Awaited<ReturnType<typeof getApiV1ProfilesIdContacts>>[number];
-type ContactPerson = { name?: string; email?: string; phone?: string };
 type ViewMode = "grid" | "list";
 
 /** Avatar hue per contact type — falls back to amber for unknown types. */
@@ -67,16 +63,6 @@ function initials(label: string): string {
 function typeLabel(type: string | null): string {
   if (!type) return "Contact";
   return TYPE_LABEL[type] ?? type.replace(/^\w/, (character) => character.toUpperCase());
-}
-
-/** The folded `persons` jsonb is `unknown` on the wire — read it defensively. */
-function firstPerson(contact: Contact): ContactPerson | null {
-  const persons = contact.persons;
-  if (Array.isArray(persons) && persons.length > 0) {
-    const person = persons[0] as ContactPerson;
-    if (person && typeof person === "object") return person;
-  }
-  return null;
 }
 
 /** A labelled key/value line inside a contact card (label left, value right). */
@@ -157,11 +143,10 @@ function CardField({
 }
 
 function ContactEntry({ contact, copier }: { contact: Contact; copier: ClipboardCopier }) {
-  const person = firstPerson(contact);
+  const person = firstContactPerson(contact);
   const role = person?.name
     ? `${typeLabel(contact.type)} · ${person.name}`
     : typeLabel(contact.type);
-  const verified = Boolean(contact.iban);
   return (
     <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
@@ -187,9 +172,16 @@ function ContactEntry({ contact, copier }: { contact: Contact; copier: Clipboard
       {contact.bankName && <CardField label="Bank" value={contact.bankName} copier={copier} />}
       {contact.vatId && <CardField label="VAT ID" value={contact.vatId} mono copier={copier} />}
       {contact.address && <CardField label="Address" value={contact.address} copier={copier} />}
+      {/* This badge used to read "IBAN verified" whenever an IBAN was present.
+          Nothing verifies an IBAN — there is no `iban_verified` column and no
+          check behind it — so a hand-typed account number claimed a green tick
+          it had not earned, and an IMPORTED one would have inherited the same
+          claim off a spreadsheet. It now says only what is true: whether we hold
+          an account number. A real verified state needs a column and a check;
+          until then the badge must not pretend to be one. */}
       <div>
-        <Badge status={verified ? "confirmed" : "pending"} dot>
-          {verified ? "IBAN verified" : "Unverified"}
+        <Badge status={contact.iban ? "pending" : "draft"} dot>
+          {contact.iban ? "IBAN on file · unverified" : "No IBAN"}
         </Badge>
       </div>
     </Card>
@@ -203,6 +195,7 @@ export function Contacts() {
   const [category, setCategory] = useState("all");
   const [view, setView] = useState<ViewMode>("grid");
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   // One copier for the screen: copying a second value supersedes the first,
   // so two rows can never both be showing "Copied".
   const copier = useCopyToClipboard();
@@ -234,7 +227,9 @@ export function Contacts() {
       <SectionHeader
         eyebrow="Directory"
         title="Contacts"
-        subtitle="Venues, performers, agents and suppliers — with verified payout details."
+        // Was "…with verified payout details", which nothing in the system
+        // verifies. See the badge note on the card below.
+        subtitle="Venues, performers, agents and suppliers — with their payout details in one place."
         actions={
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <SegmentedToggle<ViewMode>
@@ -246,6 +241,25 @@ export function Contacts() {
                 { value: "list", label: "List" },
               ]}
             />
+            {/* Export exports what the LIST returned — the same rows and the
+                same fields the API chose to send this caller — so the file can
+                never carry more than the reader is allowed to see. */}
+            <Button
+              variant="ghost"
+              leftIcon={<Icon name="download" />}
+              onClick={() => exportContactsCsv(contacts)}
+              disabled={contacts.length === 0}
+            >
+              Export CSV
+            </Button>
+            <Button
+              variant="secondary"
+              leftIcon={<Icon name="upload" />}
+              onClick={() => setImporting(true)}
+              disabled={!profileId}
+            >
+              Import CSV
+            </Button>
             <Button
               variant="primary"
               leftIcon={<Icon name="plus" />}
@@ -320,6 +334,13 @@ export function Contacts() {
           )}
         </div>
       )}
+
+      <ContactImportModal
+        open={importing}
+        profileId={profileId}
+        onClose={() => setImporting(false)}
+        onImported={() => void refetch()}
+      />
 
       <AddContactModal
         open={creating}
