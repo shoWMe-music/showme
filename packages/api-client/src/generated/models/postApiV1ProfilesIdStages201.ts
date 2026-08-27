@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PostApiV1ProfilesIdStages201CapacitySetupsItem } from './postApiV1ProfilesIdStages201CapacitySetupsItem';
 
 export type PostApiV1ProfilesIdStages201 = {
   id: string;
@@ -11,5 +12,6 @@ export type PostApiV1ProfilesIdStages201 = {
   name: string;
   /** @nullable */
   capacity: number | null;
+  capacitySetups: PostApiV1ProfilesIdStages201CapacitySetupsItem[];
   eventCount: number;
 };

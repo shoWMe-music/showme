@@ -7,6 +7,7 @@ import { AvailabilityShareModal } from "../components/AvailabilityShareModal";
 import { CalendarCreatePopover } from "../components/CalendarCreatePopover";
 import { CalendarDayAgenda } from "../components/CalendarDayAgenda";
 import { CalendarFilterChip } from "../components/CalendarFilterChip";
+import { CalendarIcsImportModal } from "../components/CalendarIcsImportModal";
 import { CalendarItemCreateModal } from "../components/CalendarItemCreateModal";
 import { CalendarJumpToDate } from "../components/CalendarJumpToDate";
 import { CalendarWeekGrid } from "../components/CalendarWeekGrid";
@@ -408,6 +409,7 @@ export function Calendar() {
   // Which day the calendar is POINTED AT, marked on the grid. Only a link or a
   // jump sets it: stepping the period is browsing, not landing somewhere.
   const [selectedDay, setSelectedDay] = useState<string | null>(linkedDay ?? null);
+  const [importOpen, setImportOpen] = useState(false);
   const [view, setView] = useState<CalendarView>("month");
   const [labelMode, setLabelMode] = useState<CalendarLabelMode>("eventName");
   const [performerFilter, setPerformerFilter] = useState("");
@@ -787,17 +789,13 @@ export function Calendar() {
           <button
             type="button"
             style={toolbarButtonStyle()}
-            onClick={() =>
-              // Left as a stub deliberately. Reading an .ics is the easy half;
-              // the hard half is that an imported entry has to become something
-              // this app owns — an `event` (operator-only, venue, currency,
-              // participants, plan cap) or a `calendar_item` — and there is no
-              // API that takes a batch of either. Guessing would create rows
-              // nobody can settle.
-              toast.info(
-                "Import isn't built yet — there's no route that takes a batch of events, so an .ics has nowhere to land.",
-              )
-            }
+            title="Read an .ics file into your calendar"
+            // The stub that used to sit here said an imported entry had nowhere
+            // to land. It does now, and it is the row the Google sync already
+            // writes: an external calendar item. Same destination, different
+            // transport — so "available anyway" and a promoted show survive a
+            // re-import for free.
+            onClick={() => setImportOpen(true)}
           >
             <Icon name="upload" size={15} />
             Import
@@ -1052,6 +1050,8 @@ export function Calendar() {
       />
 
       <MarkUnavailableModal view={markUnavailable} />
+
+      <CalendarIcsImportModal open={importOpen} onClose={() => setImportOpen(false)} />
 
       <CalendarItemCreateModal
         open={Boolean(newItem)}

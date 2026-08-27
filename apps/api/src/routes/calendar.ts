@@ -1,15 +1,24 @@
 import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
-import { currencyForCountry } from "@showme/shared";
-import { and, asc, eq, gte, inArray, lte, or } from "drizzle-orm";
+import {
+  type IcsEntry,
+  IcsParseError,
+  type IcsParseResult,
+  currencyForCountry,
+  isKnownTimeZone,
+  parseIcs,
+} from "@showme/shared";
+import { and, asc, eq, gte, inArray, isNotNull, lte, or } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
 import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
+import { requireProfileRole } from "../lib/authorize";
 import { canUseFeature } from "../lib/entitlements";
 import { resolveEventTimezone } from "../lib/event-timezone";
+import { upsertExternalCalendarEvents } from "../lib/external-calendar";
 import { serializeCalendarItem } from "../serialize/calendar";
 
 const CalendarParams = z.object({ id: z.string().uuid() });
@@ -123,6 +132,105 @@ const PromoteEventResponse = z.object({
 
 const DeleteResponse = z.object({ id: z.string(), deleted: z.boolean() });
 
+/**
+ * ── IMPORTING AN `.ics` ──────────────────────────────────────────────────────
+ *
+ * WHAT AN IMPORTED ENTRY BECOMES, which is the whole design question and was
+ * the reason the button was a stub: a `calendar_item` of `type = 'external'`,
+ * stamped `external_source = 'ics'` — exactly what a connected Google calendar
+ * writes. NOT an `event`.
+ *
+ * An event is the object this app settles money against: it needs a host that
+ * may create one, a base currency, a venue, participants and a plan slot, and
+ * inventing those from a line in somebody's calendar file makes rows nobody can
+ * settle. A `calendar_item` costs nothing if it is wrong — it occupies a night,
+ * it can be deleted, and `POST /calendar/:id/promote-event` already exists for
+ * the moment the user decides one of them really is a show. So the import lands
+ * in the cheap, reversible place and the expensive, irreversible step stays a
+ * deliberate act.
+ *
+ * Choosing `external` over `note`/`appointment` is not a detail either. Only
+ * `external` blocks availability, only `external` may be promoted, only
+ * `external` withholds its title from co-members, and only `external` carries an
+ * identity a re-import can match on. An imported entry needs all four.
+ *
+ * IDEMPOTENCE comes from the identity, not from this route: `UID` is stored as
+ * `external_id`, and `calendar_items_external_identity_idx` (migration 0009) is
+ * UNIQUE over `(external_source, external_id, owner_user_id, owner_profile_id)`
+ * with `NULLS NOT DISTINCT`. `upsertExternalCalendarEvents` writes through that
+ * index, so importing the same file twice refreshes the same rows instead of
+ * duplicating them — and it deliberately does not touch `blocks_availability`
+ * or `promoted_event_id`, so a second import cannot undo "available anyway" or
+ * orphan a show. No new column, and no migration.
+ *
+ * `commit: false` IS THE PREVIEW — the same code path, stopped before the write,
+ * exactly as `POST /profiles/:id/contacts/import` does it. What the preview
+ * promises is what the commit does, because there is only one implementation of
+ * the rules to be right or wrong.
+ */
+
+/** One import is one calendar's worth of entries, not a migration. */
+const MAX_IMPORT_ENTRIES = 500;
+
+/**
+ * The file itself, in characters. Comfortably under Fastify's 1 MiB body limit
+ * once JSON-encoded, so an oversized file is refused with a sentence rather than
+ * by a connection reset the screen cannot explain.
+ */
+const MAX_ICS_CHARACTERS = 512_000;
+
+/** UIDs shoWMe's own export writes (`apps/web/src/lib/calendarIcsExport.ts`). */
+const SHOWME_UID_SUFFIX = "@showme.music";
+
+const ImportCalendarBody = z.object({
+  /**
+   * WHOSE AVAILABILITY these entries occupy. Required, not derived: availability
+   * is profile-scoped, and an import with no profile would block nobody while
+   * still looking like it had worked.
+   */
+  ownerProfileId: z.string().uuid(),
+  /**
+   * The IANA zone the file's absolute and foreign-zoned times are resolved INTO.
+   * Optional; falls back to the caller's `users.timezone` and then to UTC —
+   * never to the server's zone (Cloud Run is UTC, a laptop is not, and the same
+   * file must not import differently in the two). Whatever was used comes back
+   * in the response so the screen can name it.
+   */
+  timeZone: z.string().min(1).max(64).optional(),
+  /** The raw file. Parsed HERE, so the preview and the commit read one text. */
+  ics: z.string().min(1).max(MAX_ICS_CHARACTERS),
+  commit: z.boolean().default(false),
+});
+
+const ImportCalendarResult = z.object({
+  /** Position among the VEVENTs of the file, 0-based — so a verdict can be placed. */
+  index: z.number().int(),
+  uid: z.string().nullable(),
+  title: z.string(),
+  date: z.string().nullable(),
+  endDate: z.string().nullable(),
+  startTime: z.string().nullable(),
+  endTime: z.string().nullable(),
+  outcome: z.enum(["imported", "updated", "skipped", "rejected"]),
+  /** Always set for skipped/rejected, and for an entry worth a caveat. */
+  reason: z.string().nullable(),
+  calendarItemId: z.string().nullable(),
+});
+
+const ImportCalendarResponse = z.object({
+  committed: z.boolean(),
+  /** The zone the file's times were read in — named, never assumed. */
+  timeZone: z.string(),
+  calendarName: z.string().nullable(),
+  imported: z.number().int(),
+  updated: z.number().int(),
+  skipped: z.number().int(),
+  rejected: z.number().int(),
+  results: z.array(ImportCalendarResult),
+});
+
+type ImportResult = z.infer<typeof ImportCalendarResult>;
+
 type CalendarRow = typeof schema.calendarItems.$inferSelect;
 
 /** Serialize for THIS reader — the title of an import is owner-only. */
@@ -197,6 +305,192 @@ async function profileCurrency(
     )
     .limit(1);
   return currencyForCountry(location?.country);
+}
+
+/** A parsed entry's verdict, plus the row to write when the verdict says to. */
+interface JudgedIcsEntry {
+  result: ImportResult;
+  /** Present iff this entry will be written; null for skipped and rejected. */
+  write: IcsEntry | null;
+}
+
+/** What an entry from the file already is inside shoWMe, if anything. */
+interface IcsImportContext {
+  /** `UID` → the `calendar_items.id` a previous import of this file left behind. */
+  alreadyImported: Map<string, string>;
+  /** `UID` → what it already is here, for entries that came out of shoWMe itself. */
+  ownExport: Map<string, string>;
+}
+
+/**
+ * Decide, entry by entry, what an import does — the whole rule in one place,
+ * used by both the preview and the commit.
+ *
+ * Four verdicts, and each one is a different question:
+ *
+ * - **rejected** — the parser could not read it (no UID, no date, a repeat, a
+ *   cancellation). It never had a chance of being a row.
+ * - **skipped** — readable, but writing it would be wrong: the file mentions the
+ *   same UID twice, or the entry is shoWMe's own export of something this reader
+ *   already has. Re-importing your own calendar must not shadow it with a copy.
+ * - **updated** — this UID has been imported here before. The upsert refreshes
+ *   its title and times and leaves "available anyway" and any promoted show
+ *   alone. This is what makes importing the same file twice safe.
+ * - **imported** — new.
+ *
+ * A duplicate UID within ONE file is not tidiness: Postgres refuses an
+ * `ON CONFLICT` statement that would touch the same row twice, so a file
+ * containing a UID twice would fail the whole batch rather than half of it.
+ */
+function judgeIcsEntries(parsed: IcsParseResult, context: IcsImportContext): JudgedIcsEntry[] {
+  const judged: JudgedIcsEntry[] = parsed.rejected.map((rejection) => ({
+    result: {
+      index: rejection.index,
+      uid: rejection.uid,
+      title: rejection.title ?? "",
+      date: null,
+      endDate: null,
+      startTime: null,
+      endTime: null,
+      outcome: "rejected" as const,
+      reason: rejection.reason,
+      calendarItemId: null,
+    },
+    write: null,
+  }));
+
+  /** UIDs claimed earlier in THIS file — a calendar can collide with itself. */
+  const seenInFile = new Map<string, number>();
+
+  for (const entry of parsed.entries) {
+    const verdict = (
+      outcome: ImportResult["outcome"],
+      reason: string | null,
+      calendarItemId: string | null,
+    ): JudgedIcsEntry => ({
+      result: {
+        index: entry.index,
+        uid: entry.uid,
+        title: entry.title,
+        date: entry.date,
+        endDate: entry.endDate,
+        startTime: entry.startTime,
+        endTime: entry.endTime,
+        outcome,
+        reason,
+        calendarItemId,
+      },
+      write: outcome === "imported" || outcome === "updated" ? entry : null,
+    });
+
+    const earlier = seenInFile.get(entry.uid);
+    if (earlier !== undefined) {
+      judged.push(verdict("skipped", `Same UID as entry ${earlier + 1} of this file.`, null));
+      continue;
+    }
+    seenInFile.set(entry.uid, entry.index);
+
+    const ownAs = context.ownExport.get(entry.uid);
+    if (ownAs) {
+      judged.push(
+        verdict("skipped", `This is shoWMe's own export of ${ownAs} you already have.`, null),
+      );
+      continue;
+    }
+
+    const existingId = context.alreadyImported.get(entry.uid);
+    if (existingId) {
+      const refreshed = "Imported before — its title and times were refreshed, nothing else.";
+      judged.push(
+        verdict("updated", entry.caveat ? `${refreshed} ${entry.caveat}` : refreshed, existingId),
+      );
+      continue;
+    }
+
+    judged.push(verdict("imported", entry.caveat, null));
+  }
+
+  return judged.sort((left, right) => left.result.index - right.result.index);
+}
+
+/**
+ * The uuid inside a UID this app wrote, or null.
+ *
+ * The export stamps `<row id>@showme.music`, and a multi-day entry stamps
+ * `<row id>@<day>@showme.music` so each drawn day gets its own UID — so the id is
+ * the FIRST segment, not everything before the domain.
+ */
+function showmeRowIdFromUid(uid: string): string | null {
+  if (!uid.endsWith(SHOWME_UID_SUFFIX)) return null;
+  const candidate = uid.slice(0, -SHOWME_UID_SUFFIX.length).split("@")[0] ?? "";
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(candidate)
+    ? candidate
+    : null;
+}
+
+/**
+ * Which of these UIDs are shoWMe's own, describing something the CALLER can
+ * already see.
+ *
+ * The reachability check is the point. A UID minted by this app proves only that
+ * some shoWMe account exported it — a file handed from one operator to another
+ * carries UIDs that are genuinely external to the recipient, and refusing those
+ * would be refusing a real import. So a UID only counts as "already yours" when
+ * the row it names is one the caller can actually reach.
+ */
+async function findOwnExportedEntries(
+  database: FastifyInstance["database"],
+  request: FastifyRequest,
+  uids: readonly string[],
+): Promise<Map<string, string>> {
+  const principal = request.principal;
+  if (!principal) throw new Error("principal missing after authentication");
+
+  const byRowId = new Map<string, string[]>();
+  for (const uid of uids) {
+    const rowId = showmeRowIdFromUid(uid);
+    if (!rowId) continue;
+    byRowId.set(rowId, [...(byRowId.get(rowId) ?? []), uid]);
+  }
+  if (byRowId.size === 0) return new Map();
+
+  const rowIds = [...byRowId.keys()];
+  const profileIds = principal.memberships.map((member) => member.profileId);
+
+  const reachableItemFilters = [eq(schema.calendarItems.ownerUserId, principal.userId)];
+  if (profileIds.length > 0) {
+    reachableItemFilters.push(inArray(schema.calendarItems.ownerProfileId, profileIds));
+  }
+  const items = await database
+    .select({ id: schema.calendarItems.id })
+    .from(schema.calendarItems)
+    .where(and(inArray(schema.calendarItems.id, rowIds), or(...reachableItemFilters)));
+
+  const events =
+    profileIds.length === 0
+      ? []
+      : await database
+          .select({ id: schema.events.id })
+          .from(schema.events)
+          .innerJoin(
+            schema.eventParticipants,
+            eq(schema.eventParticipants.eventId, schema.events.id),
+          )
+          .where(
+            and(
+              inArray(schema.events.id, rowIds),
+              inArray(schema.eventParticipants.profileId, profileIds),
+            ),
+          );
+
+  const found = new Map<string, string>();
+  for (const row of items) {
+    for (const uid of byRowId.get(row.id) ?? []) found.set(uid, "a calendar entry");
+  }
+  for (const row of events) {
+    for (const uid of byRowId.get(row.id) ?? []) found.set(uid, "a show");
+  }
+  return found;
 }
 
 export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
@@ -572,6 +866,171 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
           chargedAtConfirm: true as const,
         },
       });
+    },
+  );
+
+  /**
+   * Import an `.ics` file as calendar entries. `commit: false` is the preview.
+   *
+   * THE BAR IS OWNER OR ADMIN of the profile, the same one
+   * `POST /integrations/calendar/google/connect` sets, for the same reason: this
+   * takes nights OFF the profile's public availability, which is a decision about
+   * what the outside world may book — not a personal preference. An editor may
+   * see the entries; they may not decide the account is busy.
+   */
+  app.post(
+    "/calendar/import",
+    {
+      schema: {
+        body: ImportCalendarBody,
+        response: { 200: ImportCalendarResponse },
+      },
+    },
+    async (request) => {
+      const { database } = request.server;
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+      const { ownerProfileId, ics, commit } = request.body;
+
+      requireProfileRole(request, ownerProfileId, ["owner", "admin"]);
+
+      // The frame the file's absolute and foreign-zoned times are read in. Asked
+      // for, then stored, then UTC — never the server's own zone.
+      const [user] = await database
+        .select({ timezone: schema.users.timezone })
+        .from(schema.users)
+        .where(eq(schema.users.id, principal.userId));
+      const requested = request.body.timeZone ?? user?.timezone ?? "UTC";
+      const timeZone = isKnownTimeZone(requested) ? requested : "UTC";
+
+      let parsed: IcsParseResult;
+      try {
+        parsed = parseIcs(ics, { timeZone });
+      } catch (error) {
+        if (error instanceof IcsParseError) throw badRequest(error.message);
+        throw error;
+      }
+      if (parsed.entries.length > MAX_IMPORT_ENTRIES) {
+        throw badRequest(
+          `That file has ${parsed.entries.length} entries. One import takes ${MAX_IMPORT_ENTRIES}.`,
+        );
+      }
+
+      const uids = parsed.entries.map((entry) => entry.uid);
+      const alreadyImported = new Map<string, string>();
+      if (uids.length > 0) {
+        const existing = await database
+          .select({ id: schema.calendarItems.id, externalId: schema.calendarItems.externalId })
+          .from(schema.calendarItems)
+          .where(
+            and(
+              eq(schema.calendarItems.externalSource, "ics"),
+              eq(schema.calendarItems.ownerProfileId, ownerProfileId),
+              eq(schema.calendarItems.ownerUserId, principal.userId),
+              isNotNull(schema.calendarItems.externalId),
+              inArray(schema.calendarItems.externalId, uids),
+            ),
+          );
+        for (const row of existing) {
+          if (row.externalId) alreadyImported.set(row.externalId, row.id);
+        }
+      }
+
+      const judged = judgeIcsEntries(parsed, {
+        alreadyImported,
+        ownExport: await findOwnExportedEntries(database, request, uids),
+      });
+
+      if (commit) {
+        const writes = judged.flatMap((row) => (row.write ? [row.write] : []));
+        if (writes.length > 0) {
+          // THE SEAM DOES THE WRITING (`lib/external-calendar.ts`) — one
+          // `INSERT … ON CONFLICT DO UPDATE` through 0009's unique index, which
+          // is what makes a second import of the same file an update rather than
+          // a duplicate, and what keeps `blocks_availability` and
+          // `promoted_event_id` out of the update set. A Google sync and an `.ics`
+          // import are the same operation with different transport, so they are
+          // deliberately the same write.
+          await upsertExternalCalendarEvents(database, {
+            provider: "ics",
+            ownerProfileId,
+            ownerUserId: principal.userId,
+            events: writes.map((entry) => ({
+              externalId: entry.uid,
+              title: entry.title,
+              date: entry.date,
+              endDate: entry.endDate,
+              startTime: entry.startTime,
+              endTime: entry.endTime,
+              location: entry.location,
+            })),
+          });
+
+          // Read the ids back by identity rather than trusting the order rows come
+          // out of a multi-row upsert — the mapping is what the response reports
+          // and what the audit trail points at.
+          const stored = await database
+            .select({ id: schema.calendarItems.id, externalId: schema.calendarItems.externalId })
+            .from(schema.calendarItems)
+            .where(
+              and(
+                eq(schema.calendarItems.externalSource, "ics"),
+                eq(schema.calendarItems.ownerProfileId, ownerProfileId),
+                eq(schema.calendarItems.ownerUserId, principal.userId),
+                isNotNull(schema.calendarItems.externalId),
+                inArray(
+                  schema.calendarItems.externalId,
+                  writes.map((entry) => entry.uid),
+                ),
+              ),
+            );
+          const idByUid = new Map(
+            stored.flatMap((row) => (row.externalId ? [[row.externalId, row.id] as const] : [])),
+          );
+
+          await database.transaction(async (tx) => {
+            for (const row of judged) {
+              if (!row.write) continue;
+              const itemId = idByUid.get(row.write.uid) ?? null;
+              row.result.calendarItemId = itemId;
+              if (!itemId) continue;
+              await writeAudit(tx, request, {
+                capability: "profile.edit",
+                action: "calendar.import",
+                targetKind: "calendar_item",
+                targetId: itemId,
+                after: {
+                  source: "ics",
+                  uid: row.write.uid,
+                  title: row.write.title,
+                  date: row.write.date,
+                  endDate: row.write.endDate,
+                  startTime: row.write.startTime,
+                  endTime: row.write.endTime,
+                  // The frame the wall clocks above were read in. `calendar_items`
+                  // has no zone column, so the trail is the only record of it.
+                  readInTimeZone: timeZone,
+                  refreshedExisting: row.result.outcome === "updated",
+                },
+              });
+            }
+          });
+        }
+      }
+
+      const results = judged.map((row) => row.result);
+      const count = (outcome: ImportResult["outcome"]) =>
+        results.filter((result) => result.outcome === outcome).length;
+      return {
+        committed: commit,
+        timeZone,
+        calendarName: parsed.calendarName,
+        imported: count("imported"),
+        updated: count("updated"),
+        skipped: count("skipped"),
+        rejected: count("rejected"),
+        results,
+      };
     },
   );
 

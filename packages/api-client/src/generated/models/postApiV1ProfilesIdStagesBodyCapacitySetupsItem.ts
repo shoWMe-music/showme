@@ -5,7 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 
-export type PatchApiV1ProfilesIdBodyVenueDetailsCapacitySetupsItem = {
+export type PostApiV1ProfilesIdStagesBodyCapacitySetupsItem = {
   /**
    * @minLength 1
    * @maxLength 100
@@ -21,17 +21,5 @@ export type PatchApiV1ProfilesIdBodyVenueDetailsCapacitySetupsItem = {
    * @maximum 5000000
    * @nullable
    */
-  capacitySitting?: number | null;
-  /**
-   * @minimum 0
-   * @maximum 5000000
-   * @nullable
-   */
-  capacityStanding?: number | null;
-  isMain?: boolean;
-  /**
-   * @maxLength 2000
-   * @nullable
-   */
-  notes?: string | null;
+  capacity?: number | null;
 };

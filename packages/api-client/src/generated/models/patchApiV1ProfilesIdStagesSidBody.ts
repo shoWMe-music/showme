@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PatchApiV1ProfilesIdStagesSidBodyCapacitySetupsItem } from './patchApiV1ProfilesIdStagesSidBodyCapacitySetupsItem';
 
 export type PatchApiV1ProfilesIdStagesSidBody = {
   /**
@@ -17,4 +18,6 @@ export type PatchApiV1ProfilesIdStagesSidBody = {
    * @nullable
    */
   capacity?: number | null;
+  /** @maxItems 50 */
+  capacitySetups?: PatchApiV1ProfilesIdStagesSidBodyCapacitySetupsItem[];
 };

@@ -137,6 +137,8 @@ import type {
   PatchApiV1EventsIdBudgetsBidBody,
   PatchApiV1EventsIdBudgetsBidLinesLid200,
   PatchApiV1EventsIdBudgetsBidLinesLidBody,
+  PatchApiV1EventsIdCrewPidInHouse200,
+  PatchApiV1EventsIdCrewPidInHouseBody,
   PatchApiV1EventsIdParticipantsPid200,
   PatchApiV1EventsIdParticipantsPidBody,
   PatchApiV1EventsIdScheduleSid200,
@@ -187,6 +189,8 @@ import type {
   PostApiV1CalendarBody,
   PostApiV1CalendarIdPromoteEvent201,
   PostApiV1CalendarIdPromoteEventBody,
+  PostApiV1CalendarImport200,
+  PostApiV1CalendarImportBody,
   PostApiV1DealsDidConfirm200,
   PostApiV1DealsDidReopen200,
   PostApiV1DealsDidReopenBody,
@@ -7771,6 +7775,64 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
+    export const postApiV1CalendarImport = (
+    postApiV1CalendarImportBody: PostApiV1CalendarImportBody,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1CalendarImport200>(
+      {url: `/api/v1/calendar/import`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: postApiV1CalendarImportBody, signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1CalendarImportMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1CalendarImport>>, TError,{data: PostApiV1CalendarImportBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1CalendarImport>>, TError,{data: PostApiV1CalendarImportBody}, TContext> => {
+
+const mutationKey = ['postApiV1CalendarImport'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1CalendarImport>>, {data: PostApiV1CalendarImportBody}> = (props) => {
+          const {data} = props ?? {};
+
+          return  postApiV1CalendarImport(data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1CalendarImportMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1CalendarImport>>>
+    export type PostApiV1CalendarImportMutationBody = PostApiV1CalendarImportBody
+    export type PostApiV1CalendarImportMutationError = unknown
+
+    export const usePostApiV1CalendarImport = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1CalendarImport>>, TError,{data: PostApiV1CalendarImportBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1CalendarImport>>,
+        TError,
+        {data: PostApiV1CalendarImportBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1CalendarImportMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
     export const getApiV1Notifications = (
     params?: GetApiV1NotificationsParams,
  signal?: AbortSignal
@@ -13038,6 +13100,65 @@ const {mutation: mutationOptions} = options ?
       > => {
 
       const mutationOptions = getDeleteApiV1EventsIdGroupsGidMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const patchApiV1EventsIdCrewPidInHouse = (
+    id: string,
+    pid: string,
+    patchApiV1EventsIdCrewPidInHouseBody: PatchApiV1EventsIdCrewPidInHouseBody,
+ ) => {
+      
+      
+      return customFetch<PatchApiV1EventsIdCrewPidInHouse200>(
+      {url: `/api/v1/events/${id}/crew/${pid}/in-house`, method: 'PATCH',
+      headers: {'Content-Type': 'application/json', },
+      data: patchApiV1EventsIdCrewPidInHouseBody
+    },
+      );
+    }
+  
+
+
+export const getPatchApiV1EventsIdCrewPidInHouseMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof patchApiV1EventsIdCrewPidInHouse>>, TError,{id: string;pid: string;data: PatchApiV1EventsIdCrewPidInHouseBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof patchApiV1EventsIdCrewPidInHouse>>, TError,{id: string;pid: string;data: PatchApiV1EventsIdCrewPidInHouseBody}, TContext> => {
+
+const mutationKey = ['patchApiV1EventsIdCrewPidInHouse'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof patchApiV1EventsIdCrewPidInHouse>>, {id: string;pid: string;data: PatchApiV1EventsIdCrewPidInHouseBody}> = (props) => {
+          const {id,pid,data} = props ?? {};
+
+          return  patchApiV1EventsIdCrewPidInHouse(id,pid,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PatchApiV1EventsIdCrewPidInHouseMutationResult = NonNullable<Awaited<ReturnType<typeof patchApiV1EventsIdCrewPidInHouse>>>
+    export type PatchApiV1EventsIdCrewPidInHouseMutationBody = PatchApiV1EventsIdCrewPidInHouseBody
+    export type PatchApiV1EventsIdCrewPidInHouseMutationError = unknown
+
+    export const usePatchApiV1EventsIdCrewPidInHouse = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof patchApiV1EventsIdCrewPidInHouse>>, TError,{id: string;pid: string;data: PatchApiV1EventsIdCrewPidInHouseBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof patchApiV1EventsIdCrewPidInHouse>>,
+        TError,
+        {id: string;pid: string;data: PatchApiV1EventsIdCrewPidInHouseBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPatchApiV1EventsIdCrewPidInHouseMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }

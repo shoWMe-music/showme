@@ -31,12 +31,28 @@ export interface ExternalCalendarCardProps {
   onOpenEvent: (eventId: string) => void;
 }
 
-/** "Fri, 10 Oct 2026", or a `→` range for an entry that runs across days. */
-function whenLabel(entry: ExternalCalendarEntry): string {
+/**
+ * "Fri, 10 Oct 2026", or a `→` range for an entry that runs across days.
+ *
+ * Widened past `ExternalCalendarEntry` and exported because the `.ics` import
+ * preview describes the same thing before it is a row — an entry, a day, and
+ * either a window or the whole day. `isAllDay` is not a parameter: it is exactly
+ * "no single-day window", which is derivable here and so cannot disagree with
+ * `lib/availability.ts`'s version of the same rule. Seconds are trimmed because
+ * one caller holds `HH:MM` and the other the stored `HH:MM:SS`.
+ */
+export function calendarEntryWhenLabel(entry: {
+  date: string;
+  endDate: string | null;
+  startTime: string | null;
+  endTime: string | null;
+}): string {
   const day = formatDayWithWeekday(entry.date);
-  if (entry.endDate !== entry.date) return `${day} → ${formatDayWithWeekday(entry.endDate)}`;
-  if (entry.isAllDay) return `${day} · all day`;
-  return `${day} · ${entry.startTime}–${entry.endTime}`;
+  const endDate = entry.endDate ?? entry.date;
+  if (endDate !== entry.date) return `${day} → ${formatDayWithWeekday(endDate)}`;
+  if (!entry.startTime || !entry.endTime) return `${day} · all day`;
+  const clock = (time: string) => time.slice(0, 5);
+  return `${day} · ${clock(entry.startTime)}–${clock(entry.endTime)}`;
 }
 
 export function ExternalCalendarCard({
@@ -112,7 +128,7 @@ function ExternalEntryRow({
       </span>
 
       <span style={{ fontSize: 11.5, color: "var(--muted)", paddingLeft: 16 }}>
-        {whenLabel(entry)}
+        {calendarEntryWhenLabel(entry)}
         {entry.source ? ` · ${entry.source}` : ""}
       </span>
 

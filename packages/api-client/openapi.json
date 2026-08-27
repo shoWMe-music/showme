@@ -8344,44 +8344,6 @@
                               "type": "string"
                             }
                           },
-                          "capacitySetups": {
-                            "type": "array",
-                            "items": {
-                              "type": "object",
-                              "properties": {
-                                "id": {
-                                  "type": "string"
-                                },
-                                "name": {
-                                  "type": "string"
-                                },
-                                "capacitySitting": {
-                                  "type": "number",
-                                  "nullable": true
-                                },
-                                "capacityStanding": {
-                                  "type": "number",
-                                  "nullable": true
-                                },
-                                "isMain": {
-                                  "type": "boolean"
-                                },
-                                "notes": {
-                                  "type": "string",
-                                  "nullable": true
-                                }
-                              },
-                              "required": [
-                                "id",
-                                "name",
-                                "capacitySitting",
-                                "capacityStanding",
-                                "isMain",
-                                "notes"
-                              ],
-                              "additionalProperties": false
-                            }
-                          },
                           "cateringNotes": {
                             "type": "string",
                             "nullable": true
@@ -8413,7 +8375,6 @@
                           "curfew",
                           "amenities",
                           "dealTypes",
-                          "capacitySetups",
                           "cateringNotes",
                           "accommodationNotes",
                           "artistLogisticsNotes",
@@ -8623,44 +8584,6 @@
                             "type": "string"
                           }
                         },
-                        "capacitySetups": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "id": {
-                                "type": "string"
-                              },
-                              "name": {
-                                "type": "string"
-                              },
-                              "capacitySitting": {
-                                "type": "number",
-                                "nullable": true
-                              },
-                              "capacityStanding": {
-                                "type": "number",
-                                "nullable": true
-                              },
-                              "isMain": {
-                                "type": "boolean"
-                              },
-                              "notes": {
-                                "type": "string",
-                                "nullable": true
-                              }
-                            },
-                            "required": [
-                              "id",
-                              "name",
-                              "capacitySitting",
-                              "capacityStanding",
-                              "isMain",
-                              "notes"
-                            ],
-                            "additionalProperties": false
-                          }
-                        },
                         "cateringNotes": {
                           "type": "string",
                           "nullable": true
@@ -8692,7 +8615,6 @@
                         "curfew",
                         "amenities",
                         "dealTypes",
-                        "capacitySetups",
                         "cateringNotes",
                         "accommodationNotes",
                         "artistLogisticsNotes",
@@ -8888,44 +8810,6 @@
                             "type": "string"
                           }
                         },
-                        "capacitySetups": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "id": {
-                                "type": "string"
-                              },
-                              "name": {
-                                "type": "string"
-                              },
-                              "capacitySitting": {
-                                "type": "number",
-                                "nullable": true
-                              },
-                              "capacityStanding": {
-                                "type": "number",
-                                "nullable": true
-                              },
-                              "isMain": {
-                                "type": "boolean"
-                              },
-                              "notes": {
-                                "type": "string",
-                                "nullable": true
-                              }
-                            },
-                            "required": [
-                              "id",
-                              "name",
-                              "capacitySitting",
-                              "capacityStanding",
-                              "isMain",
-                              "notes"
-                            ],
-                            "additionalProperties": false
-                          }
-                        },
                         "cateringNotes": {
                           "type": "string",
                           "nullable": true
@@ -8957,7 +8841,6 @@
                         "curfew",
                         "amenities",
                         "dealTypes",
-                        "capacitySetups",
                         "cateringNotes",
                         "accommodationNotes",
                         "artistLogisticsNotes",
@@ -9124,12 +9007,6 @@
                   "venueDetails": {
                     "type": "object",
                     "properties": {
-                      "capacity": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 5000000,
-                        "nullable": true
-                      },
                       "soundSystem": {
                         "type": "string",
                         "maxLength": 200,
@@ -9155,47 +9032,6 @@
                           "type": "string",
                           "minLength": 1,
                           "maxLength": 100
-                        },
-                        "maxItems": 50
-                      },
-                      "capacitySetups": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "properties": {
-                            "id": {
-                              "type": "string",
-                              "minLength": 1,
-                              "maxLength": 100
-                            },
-                            "name": {
-                              "type": "string",
-                              "minLength": 1,
-                              "maxLength": 200
-                            },
-                            "capacitySitting": {
-                              "type": "integer",
-                              "minimum": 0,
-                              "maximum": 5000000,
-                              "nullable": true
-                            },
-                            "capacityStanding": {
-                              "type": "integer",
-                              "minimum": 0,
-                              "maximum": 5000000,
-                              "nullable": true
-                            },
-                            "isMain": {
-                              "type": "boolean"
-                            },
-                            "notes": {
-                              "type": "string",
-                              "maxLength": 2000,
-                              "nullable": true
-                            }
-                          },
-                          "required": ["name"],
-                          "additionalProperties": false
                         },
                         "maxItems": 50
                       },
@@ -9427,44 +9263,6 @@
                             "type": "string"
                           }
                         },
-                        "capacitySetups": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "id": {
-                                "type": "string"
-                              },
-                              "name": {
-                                "type": "string"
-                              },
-                              "capacitySitting": {
-                                "type": "number",
-                                "nullable": true
-                              },
-                              "capacityStanding": {
-                                "type": "number",
-                                "nullable": true
-                              },
-                              "isMain": {
-                                "type": "boolean"
-                              },
-                              "notes": {
-                                "type": "string",
-                                "nullable": true
-                              }
-                            },
-                            "required": [
-                              "id",
-                              "name",
-                              "capacitySitting",
-                              "capacityStanding",
-                              "isMain",
-                              "notes"
-                            ],
-                            "additionalProperties": false
-                          }
-                        },
                         "cateringNotes": {
                           "type": "string",
                           "nullable": true
@@ -9496,7 +9294,6 @@
                         "curfew",
                         "amenities",
                         "dealTypes",
-                        "capacitySetups",
                         "cateringNotes",
                         "accommodationNotes",
                         "artistLogisticsNotes",
@@ -9775,44 +9572,6 @@
                                 "type": "string"
                               }
                             },
-                            "capacitySetups": {
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "properties": {
-                                  "id": {
-                                    "type": "string"
-                                  },
-                                  "name": {
-                                    "type": "string"
-                                  },
-                                  "capacitySitting": {
-                                    "type": "number",
-                                    "nullable": true
-                                  },
-                                  "capacityStanding": {
-                                    "type": "number",
-                                    "nullable": true
-                                  },
-                                  "isMain": {
-                                    "type": "boolean"
-                                  },
-                                  "notes": {
-                                    "type": "string",
-                                    "nullable": true
-                                  }
-                                },
-                                "required": [
-                                  "id",
-                                  "name",
-                                  "capacitySitting",
-                                  "capacityStanding",
-                                  "isMain",
-                                  "notes"
-                                ],
-                                "additionalProperties": false
-                              }
-                            },
                             "cateringNotes": {
                               "type": "string",
                               "nullable": true
@@ -9832,7 +9591,6 @@
                             "curfew",
                             "amenities",
                             "dealTypes",
-                            "capacitySetups",
                             "cateringNotes",
                             "accommodationNotes",
                             "audienceLogisticsNotes"
@@ -10498,11 +10256,38 @@
                         "type": "number",
                         "nullable": true
                       },
+                      "capacitySetups": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "capacity": {
+                              "type": "number",
+                              "nullable": true
+                            }
+                          },
+                          "required": ["id", "name", "capacity"],
+                          "additionalProperties": false
+                        }
+                      },
                       "eventCount": {
                         "type": "number"
                       }
                     },
-                    "required": ["id", "venueProfileId", "name", "capacity", "eventCount"],
+                    "required": [
+                      "id",
+                      "venueProfileId",
+                      "name",
+                      "capacity",
+                      "capacitySetups",
+                      "eventCount"
+                    ],
                     "additionalProperties": false
                   }
                 }
@@ -10529,6 +10314,33 @@
                     "minimum": 0,
                     "maximum": 5000000,
                     "nullable": true
+                  },
+                  "capacitySetups": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "capacity": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 5000000,
+                          "nullable": true
+                        }
+                      },
+                      "required": ["name"],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 50
                   }
                 },
                 "required": ["name"],
@@ -10569,11 +10381,38 @@
                       "type": "number",
                       "nullable": true
                     },
+                    "capacitySetups": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "capacity": {
+                            "type": "number",
+                            "nullable": true
+                          }
+                        },
+                        "required": ["id", "name", "capacity"],
+                        "additionalProperties": false
+                      }
+                    },
                     "eventCount": {
                       "type": "number"
                     }
                   },
-                  "required": ["id", "venueProfileId", "name", "capacity", "eventCount"],
+                  "required": [
+                    "id",
+                    "venueProfileId",
+                    "name",
+                    "capacity",
+                    "capacitySetups",
+                    "eventCount"
+                  ],
                   "additionalProperties": false
                 }
               }
@@ -10601,6 +10440,33 @@
                     "minimum": 0,
                     "maximum": 5000000,
                     "nullable": true
+                  },
+                  "capacitySetups": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "capacity": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 5000000,
+                          "nullable": true
+                        }
+                      },
+                      "required": ["name"],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 50
                   }
                 },
                 "additionalProperties": false
@@ -10649,11 +10515,38 @@
                       "type": "number",
                       "nullable": true
                     },
+                    "capacitySetups": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "capacity": {
+                            "type": "number",
+                            "nullable": true
+                          }
+                        },
+                        "required": ["id", "name", "capacity"],
+                        "additionalProperties": false
+                      }
+                    },
                     "eventCount": {
                       "type": "number"
                     }
                   },
-                  "required": ["id", "venueProfileId", "name", "capacity", "eventCount"],
+                  "required": [
+                    "id",
+                    "venueProfileId",
+                    "name",
+                    "capacity",
+                    "capacitySetups",
+                    "eventCount"
+                  ],
                   "additionalProperties": false
                 }
               }
@@ -13660,6 +13553,148 @@
                     "baseCurrency",
                     "status",
                     "eventCap"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/calendar/import": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ownerProfileId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "timeZone": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "ics": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512000
+                  },
+                  "commit": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                },
+                "required": ["ownerProfileId", "ics"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "committed": {
+                      "type": "boolean"
+                    },
+                    "timeZone": {
+                      "type": "string"
+                    },
+                    "calendarName": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "imported": {
+                      "type": "integer"
+                    },
+                    "updated": {
+                      "type": "integer"
+                    },
+                    "skipped": {
+                      "type": "integer"
+                    },
+                    "rejected": {
+                      "type": "integer"
+                    },
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "index": {
+                            "type": "integer"
+                          },
+                          "uid": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "date": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "endDate": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "startTime": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "endTime": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "outcome": {
+                            "type": "string",
+                            "enum": ["imported", "updated", "skipped", "rejected"]
+                          },
+                          "reason": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "calendarItemId": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": [
+                          "index",
+                          "uid",
+                          "title",
+                          "date",
+                          "endDate",
+                          "startTime",
+                          "endTime",
+                          "outcome",
+                          "reason",
+                          "calendarItemId"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "committed",
+                    "timeZone",
+                    "calendarName",
+                    "imported",
+                    "updated",
+                    "skipped",
+                    "rejected",
+                    "results"
                   ],
                   "additionalProperties": false
                 }
@@ -18588,44 +18623,6 @@
                             "type": "string"
                           }
                         },
-                        "capacitySetups": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "id": {
-                                "type": "string"
-                              },
-                              "name": {
-                                "type": "string"
-                              },
-                              "capacitySitting": {
-                                "type": "number",
-                                "nullable": true
-                              },
-                              "capacityStanding": {
-                                "type": "number",
-                                "nullable": true
-                              },
-                              "isMain": {
-                                "type": "boolean"
-                              },
-                              "notes": {
-                                "type": "string",
-                                "nullable": true
-                              }
-                            },
-                            "required": [
-                              "id",
-                              "name",
-                              "capacitySitting",
-                              "capacityStanding",
-                              "isMain",
-                              "notes"
-                            ],
-                            "additionalProperties": false
-                          }
-                        },
                         "cateringNotes": {
                           "type": "string",
                           "nullable": true
@@ -18645,7 +18642,6 @@
                         "curfew",
                         "amenities",
                         "dealTypes",
-                        "capacitySetups",
                         "cateringNotes",
                         "accommodationNotes",
                         "audienceLogisticsNotes"
@@ -20827,6 +20823,80 @@
                     }
                   },
                   "required": ["removed"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/events/{id}/crew/{pid}/in-house": {
+      "patch": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "callTime": {
+                    "type": "string",
+                    "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                    "nullable": true
+                  },
+                  "privateNote": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "nullable": true
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "pid",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "participantId": {
+                      "type": "string"
+                    },
+                    "callTime": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "privateNote": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": ["participantId", "callTime", "privateNote"],
                   "additionalProperties": false
                 }
               }

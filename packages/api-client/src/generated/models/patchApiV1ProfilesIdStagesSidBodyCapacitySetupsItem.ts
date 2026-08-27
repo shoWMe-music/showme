@@ -4,9 +4,13 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
-import type { PostApiV1ProfilesIdStagesBodyCapacitySetupsItem } from './postApiV1ProfilesIdStagesBodyCapacitySetupsItem';
 
-export type PostApiV1ProfilesIdStagesBody = {
+export type PatchApiV1ProfilesIdStagesSidBodyCapacitySetupsItem = {
+  /**
+   * @minLength 1
+   * @maxLength 100
+   */
+  id?: string;
   /**
    * @minLength 1
    * @maxLength 200
@@ -18,6 +22,4 @@ export type PostApiV1ProfilesIdStagesBody = {
    * @nullable
    */
   capacity?: number | null;
-  /** @maxItems 50 */
-  capacitySetups?: PostApiV1ProfilesIdStagesBodyCapacitySetupsItem[];
 };
