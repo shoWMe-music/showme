@@ -2000,3 +2000,104 @@ describe("deals — a share's amount is illustrative, never a floor (A-36)", () 
     expect(stored).toHaveLength(0);
   });
 });
+
+/**
+ * TERMS & CONDITIONS — the words of the agreement, beside its figures.
+ *
+ * The product owner asked for *"terms and conditions text box and template"* and,
+ * in the same review, that *"we are not an agreements app"*. What that bought is
+ * this column and nothing else: `deals.agreement_body_text`, plain text, written
+ * on the Deals tab after the composer has stated the money.
+ *
+ * The one rule that is not cosmetic is the FREEZE. `confirmed_snapshot` is the
+ * record of what was actually agreed, and terms that could move after the last
+ * signature would be terms nobody signed. `freezeDealSnapshot` already copied the
+ * column; until now nothing could ever put anything in it.
+ */
+describe("deals — terms & conditions text (product review 86cbaxv2a)", () => {
+  const TERMS = "Cancellation: 30 days' notice.\nHospitality: 6 hot meals, 2 towels.";
+
+  it("writes the terms, returns them, and freezes them into confirmed_snapshot", async () => {
+    const deal = await seedSplitDeal("dterms");
+
+    // Composing states no terms — they are written on the tab afterwards.
+    const before = await app.inject({
+      method: "GET",
+      url: `/api/v1/deals/${deal.dealId}`,
+      headers: auth(deal.opUid),
+    });
+    expect(before.json().agreementBodyText).toBeNull();
+
+    const written = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${deal.dealId}`,
+      headers: auth(deal.opUid),
+      payload: { agreementBodyText: TERMS, expectedVersion: before.json().version },
+    });
+    expect(written.statusCode).toBe(200);
+    expect(written.json().agreementBodyText).toBe(TERMS);
+
+    // A performer is a party, so it reads the terms it is being asked to sign —
+    // the body is deal-level, and redacting it would be asking someone to sign
+    // blind. Only the other parties' LINES are hidden from it.
+    const asPerformer = await app.inject({
+      method: "GET",
+      url: `/api/v1/deals/${deal.dealId}`,
+      headers: auth(deal.aUid),
+    });
+    expect(asPerformer.json().agreementBodyText).toBe(TERMS);
+    expect(asPerformer.json().parties).toHaveLength(1);
+
+    for (const uid of [deal.opUid, deal.aUid, deal.bUid]) {
+      expect((await confirm(deal.dealId, uid)).statusCode).toBe(200);
+    }
+
+    const [row] = await harness.db
+      .select()
+      .from(schema.deals)
+      .where(eq(schema.deals.id, deal.dealId));
+    expect(row?.agreementStatus).toBe("confirmed");
+    const snapshot = row?.confirmedSnapshot as { terms: { agreementBodyText: string | null } };
+    expect(snapshot.terms.agreementBodyText).toBe(TERMS);
+  });
+
+  it("clears the terms when the box is emptied", async () => {
+    const deal = await seedSplitDeal("dtermsclear");
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${deal.dealId}`,
+      headers: auth(deal.opUid),
+      payload: { agreementBodyText: TERMS },
+    });
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${deal.dealId}`,
+      headers: auth(deal.opUid),
+      payload: { agreementBodyText: null },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().agreementBodyText).toBeNull();
+  });
+
+  it("records the change as history, without printing the terms into the feed", async () => {
+    const deal = await seedSplitDeal("dtermsact");
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${deal.dealId}`,
+      headers: auth(deal.opUid),
+      payload: { agreementBodyText: TERMS },
+    });
+    const [entry] = await harness.db
+      .select()
+      .from(schema.activityLog)
+      .where(
+        and(
+          eq(schema.activityLog.targetId, deal.dealId),
+          eq(schema.activityLog.type, "deal.updated"),
+        ),
+      );
+    const summary = entry?.summary as { fields: string[] };
+    expect(summary.fields).toContain("agreementBodyText");
+    expect(JSON.stringify(summary)).not.toContain("Hospitality");
+  });
+});

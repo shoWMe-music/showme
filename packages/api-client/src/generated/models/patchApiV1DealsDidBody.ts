@@ -12,6 +12,8 @@ export type PatchApiV1DealsDidBody = {
   /** @minLength 1 */
   name?: string;
   structure?: PatchApiV1DealsDidBodyStructure;
+  /** @nullable */
+  agreementBodyText?: string | null;
   /** @minLength 1 */
   currency?: string;
   /** @pattern ^-?\d+$ */

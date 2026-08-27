@@ -1,11 +1,9 @@
 import { Button, Icon, Modal, Select, TextField } from "@showme/design-system";
 import {
+  DEAL_KIND_OPTIONS,
   DEAL_PARTY_ROLE_OPTIONS,
-  DEAL_STRUCTURE_OPTIONS,
-  DEAL_TYPE_OPTIONS,
+  type DealKind,
   type DealPartyRole,
-  type DealStructure,
-  type DealType,
   PAYMENT_TIMING_OPTIONS,
   type PaymentTiming,
   structureNeedsGuarantee,
@@ -36,9 +34,6 @@ export interface DealComposerModalProps {
   pending: boolean;
 }
 
-/** The sentinel the structure dropdown uses for "no settlement math at all". */
-const PAPER_ONLY = "paper_only";
-
 /**
  * Composing an agreement.
  *
@@ -61,8 +56,7 @@ export function DealComposerModal({
   pending,
 }: DealComposerModalProps) {
   const { draft } = composer;
-  const structureOption = DEAL_STRUCTURE_OPTIONS.find((option) => option.value === draft.structure);
-  const typeOption = DEAL_TYPE_OPTIONS.find((option) => option.value === draft.type);
+  const kindOption = DEAL_KIND_OPTIONS.find((option) => option.value === composer.kind);
   const timingOption = PAYMENT_TIMING_OPTIONS.find(
     (option) => option.value === draft.paymentTiming,
   );
@@ -95,34 +89,21 @@ export function DealComposerModal({
           onChange={(event) => composer.setName(event.target.value)}
         />
 
+        {/* ONE menu, not two. It used to ask "Kind of deal" and "How it settles"
+            separately, which is one idea asked twice: the kind IS the settlement
+            shape, and `deals.type` follows from it (`dealTypeForKind`). */}
         <div>
           <Select
             label="Kind of deal"
-            value={draft.type}
-            onChange={(value) => composer.setType(value as DealType)}
-            options={DEAL_TYPE_OPTIONS.map((option) => ({
+            value={composer.kind}
+            onChange={(value) => composer.setKind(value as DealKind)}
+            options={DEAL_KIND_OPTIONS.map((option) => ({
               value: option.value,
               label: option.label,
             }))}
             searchable={false}
           />
-          <FieldNote>{typeOption?.description}</FieldNote>
-        </div>
-
-        <div>
-          <Select
-            label="How it settles"
-            value={draft.structure ?? PAPER_ONLY}
-            onChange={(value) =>
-              composer.setStructure(value === PAPER_ONLY ? null : (value as DealStructure))
-            }
-            options={DEAL_STRUCTURE_OPTIONS.map((option) => ({
-              value: option.value ?? PAPER_ONLY,
-              label: option.label,
-            }))}
-            searchable={false}
-          />
-          <FieldNote>{structureOption?.description}</FieldNote>
+          <FieldNote>{kindOption?.description}</FieldNote>
         </div>
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>

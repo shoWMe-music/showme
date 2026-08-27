@@ -25,6 +25,8 @@ export type PatchApiV1DealsDid200 = {
   priority: number;
   status: string;
   agreementStatus: string;
+  /** @nullable */
+  agreementBodyText: string | null;
   version: number;
   parties: PatchApiV1DealsDid200PartiesItem[];
 };

@@ -47,6 +47,12 @@ export interface SerializedDeal {
   status: string;
   /** Agreement lifecycle (draft|sent|confirmed|signed) — the per-party rollup (#1). */
   agreementStatus: string;
+  /**
+   * The agreement's terms & conditions, as written. Deal-level, not party-scoped:
+   * it is the body EVERY party signs, so redacting it per line would hide from a
+   * signatory the very text they are being asked to confirm.
+   */
+  agreementBodyText: string | null;
   version: number;
   parties: SerializedDealParty[];
 }
@@ -135,6 +141,7 @@ function build(deal: DealRow): Omit<SerializedDeal, "parties"> {
     priority: deal.priority,
     status: deal.status,
     agreementStatus: deal.agreementStatus,
+    agreementBodyText: deal.agreementBodyText ?? null,
     version: deal.version,
   };
 }

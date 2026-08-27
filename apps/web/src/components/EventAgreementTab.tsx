@@ -5,17 +5,19 @@ import {
   useGetApiV1EventsIdSchedule,
 } from "@showme/api-client";
 import { Button, EmptyState, Icon } from "@showme/design-system";
-import { DEAL_STRUCTURE_OPTIONS, DEAL_TYPE_OPTIONS, PAYMENT_TIMING_OPTIONS } from "@showme/shared";
+import { PAYMENT_TIMING_OPTIONS, dealKindLabel } from "@showme/shared";
 import { useState } from "react";
 import { formatDay, formatMoney, formatTime } from "../lib/format";
 import type { AgreementField } from "./AgreementView";
 import { DealAgreementCard, type DealPartyLine, shareLabelOf } from "./DealAgreementCard";
 import { DealComposerModal, type DealPartyChoice } from "./DealComposerModal";
 import { DealReopenModal } from "./DealReopenModal";
+import { DealTermsModal } from "./DealTermsModal";
 import type { ScheduleEntry } from "./ScheduleList";
 import { ErrorState, LoadingState } from "./states";
 import { useDealCardExpansion } from "./useDealCardExpansion";
 import { useDealComposer } from "./useDealComposer";
+import { useDealTermsEditor } from "./useDealTermsEditor";
 import { dealActionsFor, useEventAgreements } from "./useEventAgreements";
 
 type Deal = Awaited<ReturnType<typeof getApiV1EventsIdDeals>>[number];
@@ -87,6 +89,7 @@ export function EventAgreementTab({
   // branches because a hook cannot live behind an early return; before the list
   // arrives it is empty, which the rule answers correctly on its own.
   const expansion = useDealCardExpansion(agreements.deals.map((deal) => deal.id));
+  const terms = useDealTermsEditor(eventId);
 
   if (agreements.isPending) return <LoadingState label="Loading deals" />;
   if (agreements.isError) {
@@ -154,6 +157,22 @@ export function EventAgreementTab({
             parties={partyLines(deal, agreements.roster)}
             actions={dealActionsFor(deal, agreements.authority, agreements.roster)}
             busy={agreements.busyDealId === deal.id}
+            termsText={deal.agreementBodyText}
+            // The terms are live until the last signature and frozen after it —
+            // the same line `agreement_status` already draws for the figures.
+            canEditTerms={
+              agreements.authority.canCompose &&
+              deal.agreementStatus !== "confirmed" &&
+              deal.agreementStatus !== "signed"
+            }
+            onEditTerms={() =>
+              terms.open({
+                id: deal.id,
+                name: deal.name,
+                agreementBodyText: deal.agreementBodyText,
+                version: deal.version,
+              })
+            }
             expanded={expansion.isExpanded(deal.id)}
             onToggleExpanded={() => expansion.toggle(deal.id)}
             onSend={agreements.send}
@@ -176,6 +195,7 @@ export function EventAgreementTab({
         currency={baseCurrency}
         pending={agreements.isBusy}
       />
+      <DealTermsModal editor={terms} />
       <DealReopenModal
         open={reopening !== null}
         dealName={reopening?.name ?? ""}
@@ -253,16 +273,10 @@ function agreementSummary(
 function dealStructureFields(deal: Deal, displayCurrency: string): AgreementField[] {
   const currency = deal.currency ?? displayCurrency;
   const rows: AgreementField[] = [
-    {
-      label: "Kind",
-      value: DEAL_TYPE_OPTIONS.find((option) => option.value === deal.type)?.label ?? deal.type,
-    },
-    {
-      label: "Settles as",
-      value:
-        DEAL_STRUCTURE_OPTIONS.find((option) => option.value === (deal.structure ?? null))?.label ??
-        "Paper agreement only",
-    },
+    // ONE row, because the composer now asks ONE question: the kind of deal IS
+    // the settlement shape, and `deals.type` is derived from it. Reading it back
+    // as "Kind" plus "Settles as" would restate the split the menu just lost.
+    { label: "Kind of deal", value: dealKindLabel(deal.type, deal.structure ?? null) },
   ];
   if (deal.guaranteeAmount) {
     rows.push({ label: "Fixed amount", value: formatMoney(deal.guaranteeAmount, currency) });

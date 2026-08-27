@@ -25,6 +25,8 @@ export type PostApiV1EventsIdDeals201 = {
   priority: number;
   status: string;
   agreementStatus: string;
+  /** @nullable */
+  agreementBodyText: string | null;
   version: number;
   parties: PostApiV1EventsIdDeals201PartiesItem[];
 };

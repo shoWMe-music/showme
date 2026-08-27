@@ -74,6 +74,139 @@ export const DEAL_TYPE_OPTIONS: DealTypeOption[] = [
   },
 ];
 
+/**
+ * A DEAL KIND — one entry in the single "Kind of deal" menu.
+ *
+ * There used to be two menus: "Kind of deal" (the `deal_type` enum) and "How it
+ * settles" (the `deal_structure` enum). Splitting one idea in two is what the
+ * product owner's review caught: *"kind of deal menu doesn't show the deals
+ * possible: Door Split vs Guarantee, Guarantee, Door split, rental. And then all
+ * extra ones like: freelancing employee, service, other (manual)."* Every name in
+ * that list is a settlement SHAPE or a re-labelling of one — nobody thinks of the
+ * relationship and the math as two questions, and the Create-Event wizard already
+ * asked only one.
+ *
+ * So the menu is the shape, and the economic relationship (`deals.type`) is
+ * DERIVED from it — see `dealTypeForKind`. `type` is a classification, never math:
+ * the settlement engine reads `structure` and never `type` (grep it), so deriving
+ * costs nothing and asking twice cost a confused operator every time.
+ *
+ * `service_fee` is the one kind that is not a structure of its own. A freelancer
+ * or a supplier paid a flat amount settles EXACTLY as a guarantee; what differs is
+ * the relationship, which is `deals.type = 'fee'`. Ran named "freelancing
+ * employee" and "service" separately — the model has one word for both, so the
+ * menu has one entry for both rather than a distinction the database cannot keep.
+ */
+export type DealKind = DealStructure | "service_fee" | "paper_only";
+
+export interface DealKindOption {
+  value: DealKind;
+  label: string;
+  description: string;
+  /** The settlement math this kind runs. `null` = nothing is computed. */
+  structure: DealStructure | null;
+  /** The economic relationship it records, before the split refinement below. */
+  type: DealType;
+}
+
+/**
+ * The whole menu. The first four are the whole of `dealEntitlement()` — there is
+ * no fifth structure, and a shape not covered here is recorded manually rather
+ * than invented as a new one (decisions #16.2: free text broke the engine, which
+ * can only reconcile a shape it recognises).
+ */
+export const DEAL_KIND_OPTIONS: DealKindOption[] = [
+  {
+    value: "guarantee",
+    label: "Guarantee",
+    description: "A fixed amount, whatever the night does.",
+    structure: "guarantee",
+    type: "performance",
+  },
+  {
+    value: "door_split",
+    label: "Door split",
+    description: "A share of the pool — revenue less the costs paid to outside suppliers.",
+    structure: "door_split",
+    type: "performance",
+  },
+  {
+    value: "guarantee_vs_door",
+    label: "Guarantee vs door",
+    description: "Whichever of the two is larger. The guarantee is the floor.",
+    structure: "guarantee_vs_door",
+    type: "performance",
+  },
+  {
+    value: "rental",
+    label: "Rental fee",
+    description: "A fixed amount for the room, settled off the top before any split.",
+    structure: "rental",
+    type: "rental",
+  },
+  {
+    value: "service_fee",
+    label: "Fee for a service",
+    description:
+      "A freelancer, crew or a supplier paid a flat amount for the work. Settles like a guarantee.",
+    structure: "guarantee",
+    type: "fee",
+  },
+  {
+    value: "paper_only",
+    label: "Other — agreed manually",
+    description:
+      "shoWMe will not compute this one. Write the terms down, both sides sign them, and the parties settle it between themselves — no figure from it reaches the settlement.",
+    structure: null,
+    type: "performance",
+  },
+];
+
+/** The settlement math a kind runs — `null` for the manually-agreed one. */
+export function structureForKind(kind: DealKind): DealStructure | null {
+  return DEAL_KIND_OPTIONS.find((option) => option.value === kind)?.structure ?? null;
+}
+
+/**
+ * The `deals.type` a kind records — the economic RELATIONSHIP, derived so the
+ * person composing is asked once.
+ *
+ * One rule: the kind names the relationship, except that a payout divided between
+ * more than one entitled party IS the shared-split relationship whatever shape it
+ * settles by ("A pot that several parties divide between them"). A rental and a
+ * service fee keep their own word — two crew on one invoice is still a fee.
+ *
+ * ON THE MANUALLY-AGREED KIND: it states no shape, so it states no relationship
+ * either, and `deals.type` is NOT NULL. It records `performance` — the enum's
+ * neutral member and the composer's own default — which is a LABEL on a deal
+ * nothing computes, not a claim about the money. Every other kind states its type
+ * outright, so this is the only place the column is a placeholder.
+ */
+export function dealTypeForKind(kind: DealKind, parties: readonly DealPartyDraft[]): DealType {
+  const base = DEAL_KIND_OPTIONS.find((option) => option.value === kind)?.type ?? "performance";
+  if (base !== "performance") return base;
+  const entitled = parties.filter(
+    (party) => party.participantId !== "" && ENTITLED_ROLES.includes(party.roleInDeal),
+  );
+  return entitled.length > 1 ? "split" : base;
+}
+
+/**
+ * A STORED deal read back into the menu's own words, so a deal reads the way it
+ * was written. Matched on the pair, because `fee` + `guarantee` is "Fee for a
+ * service" while `performance` + `guarantee` is "Guarantee"; a `split` type falls
+ * back to its shape, which is what the shares beside it already explain.
+ */
+export function dealKindLabel(type: string, structure: string | null): string {
+  const exact = DEAL_KIND_OPTIONS.find(
+    (option) => option.structure === structure && option.type === type,
+  );
+  if (exact) return exact.label;
+  const byStructure = DEAL_KIND_OPTIONS.find((option) => option.structure === structure);
+  if (byStructure) return byStructure.label;
+  return DEAL_TYPE_OPTIONS.find((option) => option.value === type)?.label ?? type;
+}
+
 export interface DealStructureOption {
   /** `null` = a paper-only agreement: recorded, signed, never computed. */
   value: DealStructure | null;
@@ -82,38 +215,21 @@ export interface DealStructureOption {
 }
 
 /**
- * What the settlement engine will actually do with this deal. These four are the
- * whole of `dealEntitlement()` — there is no fifth, and a shape not covered here
- * is a paper-only agreement rather than a new structure (decisions #16.2: free
- * text broke the engine, which can only reconcile a shape it recognises).
+ * The settlement shapes ALONE — the kinds above, minus the ones that only
+ * re-label a shape somebody else already named. A kind IS a shape when its own
+ * name is the structure it settles as; `service_fee` is the only one that is not.
+ *
+ * Kept as its own export because the Create-Event wizard's deal step offers
+ * exactly these, and because reading a stored `deals.structure` back into a label
+ * must not have to know which relationship was recorded beside it.
  */
-export const DEAL_STRUCTURE_OPTIONS: DealStructureOption[] = [
-  {
-    value: "guarantee",
-    label: "Guarantee",
-    description: "A fixed amount, whatever the night does.",
-  },
-  {
-    value: "door_split",
-    label: "Door split",
-    description: "A share of the pool — revenue less the costs paid to outside suppliers.",
-  },
-  {
-    value: "guarantee_vs_door",
-    label: "Guarantee vs door",
-    description: "Whichever of the two is larger. The guarantee is the floor.",
-  },
-  {
-    value: "rental",
-    label: "Rental fee",
-    description: "A fixed amount for the room, settled like a guarantee.",
-  },
-  {
-    value: null,
-    label: "Paper agreement only",
-    description: "Terms both sides sign, with no figure for the settlement to compute.",
-  },
-];
+export const DEAL_STRUCTURE_OPTIONS: DealStructureOption[] = DEAL_KIND_OPTIONS.filter(
+  (option) => option.value === (option.structure ?? "paper_only"),
+).map((option) => ({
+  value: option.structure,
+  label: option.label,
+  description: option.description,
+}));
 
 export interface PaymentTimingOption {
   value: PaymentTiming;
@@ -411,4 +527,50 @@ export function shareBasisPointsOf(share: unknown): number | null {
   if (share == null || typeof share !== "object") return null;
   const value = (share as { splitBasisPoints?: unknown }).splitBasisPoints;
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * TERMS & CONDITIONS — the text of the agreement, and the template it can be
+ * saved as.
+ *
+ * The product owner asked for *"terms and conditions text box and template"* on
+ * the agreement, and in the same breath that *"we are not an agreements app"*.
+ * Both bind: this is a text field and a reusable template, and deliberately NOT a
+ * contract editor — no clause library, no e-signature, no PDF assembly beyond the
+ * Share & Export that already prints `agreement_body_text`.
+ *
+ * The text itself is stored on the deal (`deals.agreement_body_text`, a column
+ * that has existed since the agreement was folded into the deal and until now had
+ * no writer). It is inside `freezeDealSnapshot`, so the words a party confirms are
+ * frozen with the figures — terms that could change after everyone signed would be
+ * terms nobody actually agreed to.
+ *
+ * A saved template rides in `templates.payload` under `category = 'terms'`, which
+ * the enum has carried since the first migration — the same mechanism the Budget
+ * Planner's "Save as Template" uses (`budget-template.ts`), so there is one
+ * template system and not two.
+ */
+
+/** The `templates.category` a saved terms text is stored under. */
+export const TERMS_TEMPLATE_CATEGORY = "terms" as const;
+
+/** A terms template's stored payload — the text, and nothing else. */
+export interface TermsTemplatePayload {
+  readonly text: string;
+}
+
+export function termsTemplatePayload(text: string): TermsTemplatePayload {
+  return { text: text.trim() };
+}
+
+/**
+ * Read a `templates.payload` back into the text box. Tolerant for the same reason
+ * `readBudgetTemplatePayload` is: `payload` is `jsonb` typed `unknown`, and a row
+ * written by an older build or edited by hand must degrade to an empty box rather
+ * than throw inside a screen the operator has already opened.
+ */
+export function readTermsTemplateText(payload: unknown): string {
+  if (typeof payload !== "object" || payload === null) return "";
+  const text = (payload as { text?: unknown }).text;
+  return typeof text === "string" ? text : "";
 }

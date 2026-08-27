@@ -25,6 +25,8 @@ export type GetApiV1EventsIdDeals200Item = {
   priority: number;
   status: string;
   agreementStatus: string;
+  /** @nullable */
+  agreementBodyText: string | null;
   version: number;
   parties: GetApiV1EventsIdDeals200ItemPartiesItem[];
 };

@@ -1,13 +1,14 @@
 import {
   type DealDraft,
+  type DealKind,
   type DealPartyDraft,
   type DealPartyRole,
-  type DealStructure,
-  type DealType,
   type PaymentTiming,
   dealDraftProblems,
+  dealTypeForKind,
   emptyDealDraft,
   emptyDealParty,
+  structureForKind,
 } from "@showme/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -18,11 +19,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
  * decides nothing.
  */
 export interface DealComposer {
+  /**
+   * The draft as the form holds it, with `structure` and `type` DERIVED from the
+   * chosen kind — the two used to be two questions and are now one (`deal-terms`
+   * `DEAL_KIND_OPTIONS`). Never assembled by hand: reading them off the kind in
+   * one place is what stops the pair from disagreeing.
+   */
   draft: DealDraft;
+  /** The single menu's current choice. */
+  kind: DealKind;
   setName: (value: string) => void;
-  setType: (value: DealType) => void;
-  /** `null` chooses a paper-only agreement — recorded and signed, never computed. */
-  setStructure: (value: DealStructure | null) => void;
+  setKind: (value: DealKind) => void;
   setGuaranteeAmount: (value: string) => void;
   setSplitPercent: (value: string) => void;
   setAdvanceAmount: (value: string) => void;
@@ -81,7 +88,8 @@ export function useDealComposer(
   /** Everyone on the event, by name — what an unnamed agreement is named after. */
   partyNames: readonly DealPartyName[] = [],
 ): DealComposer {
-  const [draft, setDraft] = useState<DealDraft>(() => emptyDealDraft(currency));
+  const [held, setDraft] = useState<DealDraft>(() => emptyDealDraft(currency));
+  const [kind, setKind] = useState<DealKind>("guarantee");
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [nextKey, setNextKey] = useState(3);
   /**
@@ -92,8 +100,24 @@ export function useDealComposer(
    */
   const [nameEdited, setNameEdited] = useState(false);
 
+  /**
+   * The draft the rest of the app sees. `structure` is whatever the chosen kind
+   * settles as, and `type` is derived from the kind and the party lines
+   * (`dealTypeForKind`) — computed HERE, once, rather than written by each of the
+   * six mutators that can change a party, which is how the two would drift.
+   */
+  const draft = useMemo<DealDraft>(
+    () => ({
+      ...held,
+      structure: structureForKind(kind),
+      type: dealTypeForKind(kind, held.parties),
+    }),
+    [held, kind],
+  );
+
   const reset = useCallback(() => {
     setDraft(emptyDealDraft(currency));
+    setKind("guarantee");
     setSubmitAttempted(false);
     setNextKey(3);
     setNameEdited(false);
@@ -137,12 +161,12 @@ export function useDealComposer(
 
   return {
     draft,
+    kind,
     setName: (value) => {
       setNameEdited(true);
       setDraft((current) => ({ ...current, name: value }));
     },
-    setType: (value) => setDraft((current) => ({ ...current, type: value })),
-    setStructure: (value) => setDraft((current) => ({ ...current, structure: value })),
+    setKind,
     setGuaranteeAmount: (value) => setDraft((current) => ({ ...current, guaranteeAmount: value })),
     setSplitPercent: (value) => setDraft((current) => ({ ...current, splitPercent: value })),
     setAdvanceAmount: (value) => setDraft((current) => ({ ...current, advanceAmount: value })),

@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEAL_KIND_OPTIONS,
+  DEAL_STRUCTURE_OPTIONS,
   type DealDraft,
+  type DealPartyDraft,
   createDealPayload,
   dealDraftProblems,
+  dealKindLabel,
+  dealTypeForKind,
   emptyDealDraft,
   percentToBasisPoints,
+  readTermsTemplateText,
   shareBasisPointsOf,
+  structureForKind,
+  termsTemplatePayload,
 } from "./deal-terms";
 
 /** A guarantee deal between an operator and one act — the ordinary case. */
@@ -193,5 +201,98 @@ describe("percent conversion", () => {
     expect(shareBasisPointsOf({ splitBasisPoints: 4000 })).toBe(4000);
     expect(shareBasisPointsOf({ terms: "net 30" })).toBeNull();
     expect(shareBasisPointsOf(null)).toBeNull();
+  });
+});
+
+describe("the single deal-kind menu", () => {
+  /** Two party lines, as the composer holds them, with the given roles. */
+  function lines(...roles: DealPartyDraft["roleInDeal"][]): DealPartyDraft[] {
+    return roles.map((roleInDeal, index) => ({
+      key: `line-${index}`,
+      participantId: `party-${index}`,
+      roleInDeal,
+      sharePercent: "",
+    }));
+  }
+
+  it("offers exactly the shapes the product owner named, plus the manual one", () => {
+    expect(DEAL_KIND_OPTIONS.map((option) => option.value)).toEqual([
+      "guarantee",
+      "door_split",
+      "guarantee_vs_door",
+      "rental",
+      "service_fee",
+      "paper_only",
+    ]);
+  });
+
+  it("settles a service fee as a guarantee, and computes nothing for the manual one", () => {
+    expect(structureForKind("service_fee")).toBe("guarantee");
+    expect(structureForKind("paper_only")).toBeNull();
+    expect(structureForKind("guarantee_vs_door")).toBe("guarantee_vs_door");
+  });
+
+  it("derives the deal TYPE from the kind, so nobody is asked twice", () => {
+    expect(dealTypeForKind("guarantee", lines("payer", "payee"))).toBe("performance");
+    expect(dealTypeForKind("rental", lines("payee", "payer"))).toBe("rental");
+    expect(dealTypeForKind("service_fee", lines("payer", "payee"))).toBe("fee");
+  });
+
+  it("calls a payout divided between two entitled lines a shared split", () => {
+    expect(dealTypeForKind("door_split", lines("payer", "split_member", "split_member"))).toBe(
+      "split",
+    );
+    // A rental or a fee keeps its own word — two crew on one invoice is still a fee.
+    expect(dealTypeForKind("service_fee", lines("payer", "payee", "payee"))).toBe("fee");
+  });
+
+  it("ignores party lines that have not chosen a participant yet", () => {
+    const half: DealPartyDraft[] = [
+      { key: "a", participantId: "operator", roleInDeal: "payer", sharePercent: "" },
+      { key: "b", participantId: "act", roleInDeal: "payee", sharePercent: "" },
+      { key: "c", participantId: "", roleInDeal: "payee", sharePercent: "" },
+    ];
+    expect(dealTypeForKind("guarantee", half)).toBe("performance");
+  });
+
+  it("reads a stored deal back into the menu's own words", () => {
+    expect(dealKindLabel("fee", "guarantee")).toBe("Fee for a service");
+    expect(dealKindLabel("performance", "guarantee")).toBe("Guarantee");
+    expect(dealKindLabel("split", "door_split")).toBe("Door split");
+    expect(dealKindLabel("performance", null)).toBe("Other — agreed manually");
+  });
+
+  it("names the manually-agreed option in the words it was asked for", () => {
+    const manual = DEAL_KIND_OPTIONS.find((option) => option.value === "paper_only");
+    expect(manual?.label).toBe("Other — agreed manually");
+    // It has to SAY that nothing is computed — that is the whole difference
+    // between it and a shape the engine settles (decisions #16.2).
+    expect(manual?.description).toContain("will not compute");
+  });
+
+  it("keeps the settlement-shape list to the kinds that ARE a shape", () => {
+    // The Create-Event wizard offers these; a service fee is a guarantee wearing a
+    // different word, so offering it there would be the same shape twice.
+    expect(DEAL_STRUCTURE_OPTIONS.map((option) => option.value)).toEqual([
+      "guarantee",
+      "door_split",
+      "guarantee_vs_door",
+      "rental",
+      null,
+    ]);
+  });
+});
+
+describe("terms & conditions templates", () => {
+  it("stores the text, trimmed, and reads it back", () => {
+    const payload = termsTemplatePayload("  Cancellation: 30 days.  ");
+    expect(payload).toEqual({ text: "Cancellation: 30 days." });
+    expect(readTermsTemplateText(payload)).toBe("Cancellation: 30 days.");
+  });
+
+  it("degrades an unreadable stored payload to an empty box, never a throw", () => {
+    expect(readTermsTemplateText(null)).toBe("");
+    expect(readTermsTemplateText("just a string")).toBe("");
+    expect(readTermsTemplateText({ text: 42 })).toBe("");
   });
 });

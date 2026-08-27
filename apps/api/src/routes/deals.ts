@@ -125,6 +125,21 @@ const ReopenBody = z.object({
 const UpdateDealBody = z.object({
   name: z.string().min(1).optional(),
   structure: dealStructureEnum.optional(),
+  /**
+   * The agreement's TERMS & CONDITIONS — plain text, written on the Deals tab
+   * after the figures are agreed (product owner: the wizard collects the money,
+   * the terms are written on the tab).
+   *
+   * Deliberately not on `CreateDealBody`: composing a deal states what it pays,
+   * and a contract body inside that modal is the "agreements app" this product is
+   * explicitly not (*"we are not an agreements app"*). It is a text field and a
+   * saved template, nothing more — no clause library, no e-signature, and the only
+   * PDF is the Share & Export that already prints this column.
+   *
+   * `null` clears it. `freezeDealSnapshot` copies it into `confirmed_snapshot`, so
+   * the words a party signed are frozen with the figures.
+   */
+  agreementBodyText: z.string().nullable().optional(),
   currency: z.string().min(1).optional(),
   guaranteeAmount: z
     .string()
@@ -168,6 +183,8 @@ const DealResponse = z.object({
   priority: z.number(),
   status: z.string(),
   agreementStatus: z.string(),
+  /** The terms & conditions text, or null when none has been written. */
+  agreementBodyText: z.string().nullable(),
   version: z.number(),
   parties: z.array(DealPartyResponse),
 });
@@ -394,6 +411,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
       "paymentTiming",
       "priority",
       "status",
+      "agreementBodyText",
     ] as const;
     return tracked.filter((field) => String(before[field] ?? "") !== String(after[field] ?? ""));
   }

@@ -25,6 +25,8 @@ export type PostApiV1DealsDidConfirm200 = {
   priority: number;
   status: string;
   agreementStatus: string;
+  /** @nullable */
+  agreementBodyText: string | null;
   version: number;
   parties: PostApiV1DealsDidConfirm200PartiesItem[];
 };

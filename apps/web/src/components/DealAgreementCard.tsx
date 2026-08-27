@@ -30,6 +30,11 @@ export interface DealAgreementCardProps {
   parties: DealPartyLine[];
   actions: DealActions;
   busy: boolean;
+  /** The agreement's terms & conditions as written, or null when none is. */
+  termsText: string | null;
+  /** Whether this caller may write them — never once the terms are frozen. */
+  canEditTerms: boolean;
+  onEditTerms: () => void;
   onSend: (dealId: string) => void;
   onConfirm: (dealId: string) => void;
   onReopen: (dealId: string) => void;
@@ -73,6 +78,9 @@ export function DealAgreementCard({
   parties,
   actions,
   busy,
+  termsText,
+  canEditTerms,
+  onEditTerms,
   onSend,
   onConfirm,
   onReopen,
@@ -243,6 +251,13 @@ export function DealAgreementCard({
             onExportPdf={onExportPdf}
           />
 
+          <DealTermsBlock
+            termsText={termsText}
+            canEdit={canEditTerms}
+            frozen={frozen}
+            onEdit={onEditTerms}
+          />
+
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <Eyebrow>
               {seesEveryLine
@@ -270,6 +285,67 @@ export function DealAgreementCard({
         </div>
       </div>
     </Card>
+  );
+}
+
+/**
+ * The agreement's words, beside its figures.
+ *
+ * The terms are deal-level and every party signs the same ones, so unlike the
+ * party lines there is nothing to redact here — a signatory who could not read
+ * what they are confirming would be being asked to sign blind. Once frozen the
+ * text stays visible and the edit disappears: it is part of what
+ * `confirmed_snapshot` recorded, and changing it under a signature is exactly
+ * what the freeze exists to prevent.
+ */
+function DealTermsBlock({
+  termsText,
+  canEdit,
+  frozen,
+  onEdit,
+}: {
+  termsText: string | null;
+  canEdit: boolean;
+  frozen: boolean;
+  onEdit: () => void;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <Eyebrow>Terms &amp; conditions</Eyebrow>
+        {canEdit && (
+          <Button variant="ghost" leftIcon={<Icon name="pencil" size={14} />} onClick={onEdit}>
+            {termsText ? "Edit terms" : "Write terms"}
+          </Button>
+        )}
+      </div>
+      {termsText ? (
+        <p
+          style={{
+            margin: 0,
+            whiteSpace: "pre-wrap",
+            color: "var(--text)",
+            fontSize: 13.5,
+            lineHeight: 1.6,
+          }}
+        >
+          {termsText}
+        </p>
+      ) : (
+        <span style={{ color: "var(--dim)", fontSize: 12.5 }}>
+          {frozen
+            ? "No terms were written before this deal was signed."
+            : "No terms written yet — the figures above are the whole of this deal."}
+        </span>
+      )}
+    </div>
   );
 }
 

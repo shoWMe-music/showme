@@ -2640,6 +2640,10 @@
                       "agreementStatus": {
                         "type": "string"
                       },
+                      "agreementBodyText": {
+                        "type": "string",
+                        "nullable": true
+                      },
                       "version": {
                         "type": "number"
                       },
@@ -2697,6 +2701,7 @@
                       "priority",
                       "status",
                       "agreementStatus",
+                      "agreementBodyText",
                       "version",
                       "parties"
                     ],
@@ -2864,6 +2869,10 @@
                     "agreementStatus": {
                       "type": "string"
                     },
+                    "agreementBodyText": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "version": {
                       "type": "number"
                     },
@@ -2921,6 +2930,7 @@
                     "priority",
                     "status",
                     "agreementStatus",
+                    "agreementBodyText",
                     "version",
                     "parties"
                   ],
@@ -2997,6 +3007,10 @@
                     "agreementStatus": {
                       "type": "string"
                     },
+                    "agreementBodyText": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "version": {
                       "type": "number"
                     },
@@ -3054,6 +3068,7 @@
                     "priority",
                     "status",
                     "agreementStatus",
+                    "agreementBodyText",
                     "version",
                     "parties"
                   ],
@@ -3079,6 +3094,10 @@
                   "structure": {
                     "type": "string",
                     "enum": ["guarantee", "door_split", "guarantee_vs_door", "rental"]
+                  },
+                  "agreementBodyText": {
+                    "type": "string",
+                    "nullable": true
                   },
                   "currency": {
                     "type": "string",
@@ -3179,6 +3198,10 @@
                     "agreementStatus": {
                       "type": "string"
                     },
+                    "agreementBodyText": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "version": {
                       "type": "number"
                     },
@@ -3236,6 +3259,7 @@
                     "priority",
                     "status",
                     "agreementStatus",
+                    "agreementBodyText",
                     "version",
                     "parties"
                   ],
@@ -3346,6 +3370,10 @@
                     "agreementStatus": {
                       "type": "string"
                     },
+                    "agreementBodyText": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "version": {
                       "type": "number"
                     },
@@ -3403,6 +3431,7 @@
                     "priority",
                     "status",
                     "agreementStatus",
+                    "agreementBodyText",
                     "version",
                     "parties"
                   ],
@@ -3479,6 +3508,10 @@
                     "agreementStatus": {
                       "type": "string"
                     },
+                    "agreementBodyText": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "version": {
                       "type": "number"
                     },
@@ -3536,6 +3569,7 @@
                     "priority",
                     "status",
                     "agreementStatus",
+                    "agreementBodyText",
                     "version",
                     "parties"
                   ],
@@ -3632,6 +3666,10 @@
                     "agreementStatus": {
                       "type": "string"
                     },
+                    "agreementBodyText": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "version": {
                       "type": "number"
                     },
@@ -3689,6 +3727,7 @@
                     "priority",
                     "status",
                     "agreementStatus",
+                    "agreementBodyText",
                     "version",
                     "parties"
                   ],
