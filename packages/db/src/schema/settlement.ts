@@ -237,3 +237,72 @@ export const settlementSnapshots = pgTable("settlement_snapshots", {
   data: jsonb("data").notNull(),
   finalizedAt: timestamp("finalized_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * The budget as it stood at a moment in the settlement's life — the record that
+ * makes planned-vs-actual answerable after the fact (decisions.md #16.8, feeding
+ * the #16.9 analytics surface).
+ *
+ * WHY THIS EXISTS AT ALL. `budgets` / `budget_lines` are edited IN PLACE from
+ * forecast to fact: the planner types 200 tickets x 250 into a line's `details`
+ * before the show, and after it the same row is corrected to the 168 that
+ * actually sold (the 2026-08 settlements meeting requires exactly that — every
+ * collaborator enters real revenue and cost BEFORE the settlement is generated).
+ * Nothing keeps the earlier figure, so "did we beat the plan?" is unanswerable
+ * the moment somebody saves. #16.8's one-line summary of that is "a budget
+ * disappears once it becomes a settlement".
+ *
+ * ALONGSIDE `settlement_snapshots`, NOT INSIDE IT — the wording #16.8 itself
+ * uses, and for three reasons that are not stylistic:
+ *  - `settlement_snapshots` is written ONLY at finalize and its `version` IS the
+ *    finalization sequence (`routes/settlement.ts` numbers the next freeze from
+ *    `max(version)`). Capturing a budget at compute would have to write rows into
+ *    that table for events that are never finalized, which would break both the
+ *    table's meaning and its numbering.
+ *  - The cardinalities differ. A budget is captured whenever it MOVES during the
+ *    settlement conversation; a settlement is frozen once per finalize.
+ *  - The access rule differs, and this is the one that matters. A
+ *    `settlement_snapshots` row is served per party through `serializeSettlement`,
+ *    which redacts the pool for anyone without pool visibility. A budget snapshot
+ *    is the whole night's money — every takings line, every cost, who collected
+ *    what — and there is no per-party reading of it. A separate table means "who
+ *    may read this" has ONE answer for the whole table (`budget.view`, which
+ *    `POOL_CAPABILITIES` makes ungrantable to any arm's-length party) instead of
+ *    a per-column rule someone must remember.
+ *
+ * Rows are APPEND-ONLY and never updated. That is what makes the three
+ * denormalized totals below safe, and it is the difference from migration 0023's
+ * rule against storing what can be derived: the drift 0023 guards against comes
+ * from an UPDATE that touches a summary and not the thing it summarises, and
+ * there is no update path here at all.
+ */
+export const budgetSnapshots = pgTable(
+  "budget_snapshots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    /** 1, 2, 3 … per event. **Version 1 is the plan of record** — see below. */
+    version: integer("version").notNull(),
+    /** `compute` or `finalize` — which act captured it. */
+    reason: text("reason").notNull(),
+    /** Set only on a `finalize` capture: the legal freeze this budget produced. */
+    settlementSnapshotId: uuid("settlement_snapshot_id").references(() => settlementSnapshots.id, {
+      onDelete: "cascade",
+    }),
+    /** The currency the three totals below are stated in (the event's base). */
+    baseCurrency: text("base_currency").notNull(),
+    plannedRevenue: bigint("planned_revenue", { mode: "bigint" }).notNull(), // minor units
+    plannedCosts: bigint("planned_costs", { mode: "bigint" }).notNull(), // minor units
+    /** `plannedRevenue - plannedCosts`, stored so #16.9 can sort on it. */
+    plannedPool: bigint("planned_pool", { mode: "bigint" }).notNull(), // minor units
+    /** The frozen budgets and their lines, plus the FX rates the totals used. */
+    data: jsonb("data").notNull(),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("budget_snapshots_one_version_per_event").on(table.eventId, table.version),
+    index("budget_snapshots_event_id_idx").on(table.eventId),
+  ],
+);

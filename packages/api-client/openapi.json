@@ -5462,6 +5462,309 @@
         }
       }
     },
+    "/api/v1/events/{id}/settlement/planned-vs-actual": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "eventId": {
+                      "type": "string"
+                    },
+                    "baseCurrency": {
+                      "type": "string"
+                    },
+                    "plan": {
+                      "type": "object",
+                      "properties": {
+                        "source": {
+                          "type": "string",
+                          "enum": ["plan", "finalize", "live"]
+                        },
+                        "version": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "capturedAt": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "revenue": {
+                          "type": "string"
+                        },
+                        "costs": {
+                          "type": "string"
+                        },
+                        "pool": {
+                          "type": "string"
+                        },
+                        "withheldBudgetCount": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "source",
+                        "version",
+                        "capturedAt",
+                        "revenue",
+                        "costs",
+                        "pool",
+                        "withheldBudgetCount"
+                      ],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
+                    "actual": {
+                      "type": "object",
+                      "properties": {
+                        "source": {
+                          "type": "string",
+                          "enum": ["plan", "finalize", "live"]
+                        },
+                        "version": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "capturedAt": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "revenue": {
+                          "type": "string"
+                        },
+                        "costs": {
+                          "type": "string"
+                        },
+                        "pool": {
+                          "type": "string"
+                        },
+                        "withheldBudgetCount": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "source",
+                        "version",
+                        "capturedAt",
+                        "revenue",
+                        "costs",
+                        "pool",
+                        "withheldBudgetCount"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "variance": {
+                      "type": "object",
+                      "properties": {
+                        "revenue": {
+                          "type": "string"
+                        },
+                        "costs": {
+                          "type": "string"
+                        },
+                        "pool": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["revenue", "costs", "pool"],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
+                    "settlementPool": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "lineId": {
+                            "type": "string"
+                          },
+                          "budgetId": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["both", "added", "removed"]
+                          },
+                          "planned": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string"
+                              },
+                              "amount": {
+                                "type": "string"
+                              },
+                              "currency": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "amountBase": {
+                                "type": "string"
+                              },
+                              "details": {
+                                "type": "object",
+                                "properties": {
+                                  "basis": {
+                                    "type": "string"
+                                  },
+                                  "unitAmount": {
+                                    "type": "string"
+                                  },
+                                  "quantity": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": ["basis", "unitAmount", "quantity"],
+                                "additionalProperties": false,
+                                "nullable": true
+                              },
+                              "countsTowardPool": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "label",
+                              "amount",
+                              "currency",
+                              "amountBase",
+                              "details",
+                              "countsTowardPool"
+                            ],
+                            "additionalProperties": false,
+                            "nullable": true
+                          },
+                          "actual": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string"
+                              },
+                              "amount": {
+                                "type": "string"
+                              },
+                              "currency": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "amountBase": {
+                                "type": "string"
+                              },
+                              "details": {
+                                "type": "object",
+                                "properties": {
+                                  "basis": {
+                                    "type": "string"
+                                  },
+                                  "unitAmount": {
+                                    "type": "string"
+                                  },
+                                  "quantity": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": ["basis", "unitAmount", "quantity"],
+                                "additionalProperties": false,
+                                "nullable": true
+                              },
+                              "countsTowardPool": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "label",
+                              "amount",
+                              "currency",
+                              "amountBase",
+                              "details",
+                              "countsTowardPool"
+                            ],
+                            "additionalProperties": false,
+                            "nullable": true
+                          },
+                          "variance": {
+                            "type": "string"
+                          },
+                          "poolEffect": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "lineId",
+                          "budgetId",
+                          "label",
+                          "kind",
+                          "status",
+                          "planned",
+                          "actual",
+                          "variance",
+                          "poolEffect"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "captures": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "version": {
+                            "type": "number"
+                          },
+                          "reason": {
+                            "type": "string"
+                          },
+                          "capturedAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["version", "reason", "capturedAt"],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "eventId",
+                    "baseCurrency",
+                    "plan",
+                    "actual",
+                    "variance",
+                    "settlementPool",
+                    "lines",
+                    "captures"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/settlements": {
       "get": {
         "responses": {

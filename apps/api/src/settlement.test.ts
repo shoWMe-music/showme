@@ -2,7 +2,7 @@ import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
 import { convertMinorUnits } from "@showme/shared";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
@@ -1659,6 +1659,58 @@ describe("settlement — multi-currency + locked FX (money.md, #7)", () => {
     });
     expect(response.statusCode).toBe(400);
   });
+
+  /**
+   * The budget snapshot (#16.8) states its totals in BASE, so a line denominated
+   * in another currency has to be converted before it is summed — and with the
+   * rates that were in force when the copy was taken, which is why the capture
+   * stores its own rate map rather than looking one up on read.
+   */
+  it("captures a non-base budget line converted to base, with the rates it used", async () => {
+    const seed = await seedFxExample("fxsnap");
+    await cacheRate("EUR", "SEK", "11.0000000000");
+    const [budget] = await harness.db
+      .select()
+      .from(schema.budgets)
+      .where(eq(schema.budgets.eventId, seed.event.id));
+    // 100.00 EUR of merch, on a SEK event → 1 100.00 SEK at the cached rate.
+    await harness.db.insert(schema.budgetLines).values({
+      budgetId: budget?.id as string,
+      kind: "revenue",
+      label: "Merch (EUR)",
+      amount: 10_000n,
+      currency: "EUR",
+      collectedBy: seed.pPart,
+    });
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const [capture] = await harness.db
+      .select()
+      .from(schema.budgetSnapshots)
+      .where(eq(schema.budgetSnapshots.eventId, seed.event.id));
+    expect(capture?.baseCurrency).toBe("SEK");
+    expect(capture?.plannedRevenue).toBe(310000n); // 200 000 SEK + 110 000 SEK
+    // The rate travels WITH the copy, so the total stays reproducible from the
+    // lines even after the live cache has moved on.
+    expect((capture?.data as { rates: Record<string, string> }).rates.EUR).toBe("11.0000000000");
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlement/planned-vs-actual`,
+      headers: auth(seed.operator.userId),
+    });
+    const body = response.json();
+    const merch = body.lines.find((line: { label: string }) => line.label === "Merch (EUR)");
+    expect(merch.planned.amount).toBe("10000"); // as typed, in EUR
+    expect(merch.planned.currency).toBe("EUR");
+    expect(merch.planned.amountBase).toBe("110000"); // and in SEK, for the arithmetic
+    expect(body.plan.revenue).toBe("310000");
+  });
 });
 
 describe("settlement — per-party split shares (A-01 regression)", () => {
@@ -2670,5 +2722,375 @@ describe("settlement — the 2026-08-26 money rules", () => {
     expect(transfers[0]?.fromParticipant).toBe(seed.bandPart);
     expect(transfers[0]?.toParticipant).toBe(seed.hostPart);
     expect(transfers[0]?.amount).toBe(80000n);
+  });
+});
+
+/**
+ * The budget snapshot (decisions.md #16.8).
+ *
+ * The seeded worked example IS the plan: tickets 1 000 000 collected by the
+ * operator, sound hire 150 000 paid by the operator → a planned pool of 850 000,
+ * which is the same 850 000 the engine reports. Every figure below is that
+ * fixture moved by a stated amount, so all of it is checkable by hand.
+ */
+describe("settlement — the budget snapshot (decisions #16.8)", () => {
+  const snapshotsOf = (eventId: string) =>
+    harness.db
+      .select()
+      .from(schema.budgetSnapshots)
+      .where(eq(schema.budgetSnapshots.eventId, eventId))
+      .orderBy(asc(schema.budgetSnapshots.version));
+
+  const plannedVsActual = (eventId: string, userId: string) =>
+    app.inject({
+      method: "GET",
+      url: `/api/v1/events/${eventId}/settlement/planned-vs-actual`,
+      headers: auth(userId),
+    });
+
+  const computeFor = (eventId: string, userId: string) =>
+    app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/settlement/compute`,
+      headers: auth(userId),
+    });
+
+  const budgetOf = async (eventId: string) => {
+    const [budget] = await harness.db
+      .select()
+      .from(schema.budgets)
+      .where(and(eq(schema.budgets.eventId, eventId), eq(schema.budgets.scope, "shared")));
+    if (!budget) throw new Error("budget missing");
+    return budget;
+  };
+
+  /** Move the seeded "Tickets" line — the box office coming in. */
+  async function restateTickets(eventId: string, amount: bigint) {
+    const budget = await budgetOf(eventId);
+    const [line] = await harness.db
+      .select()
+      .from(schema.budgetLines)
+      .where(
+        and(eq(schema.budgetLines.budgetId, budget.id), eq(schema.budgetLines.label, "Tickets")),
+      );
+    if (!line) throw new Error("tickets line missing");
+    await harness.db
+      .update(schema.budgetLines)
+      .set({ amount })
+      .where(eq(schema.budgetLines.id, line.id));
+    return { budgetId: budget.id, lineId: line.id };
+  }
+
+  const sumPoolEffects = (lines: { poolEffect: string }[]) =>
+    lines.reduce((total, line) => total + BigInt(line.poolEffect), 0n).toString();
+
+  it("the FIRST compute captures version 1 — the plan of record", async () => {
+    const seed = await seedWorkedExample("snap-first");
+    expect(await snapshotsOf(seed.event.id)).toHaveLength(0);
+
+    expect((await computeFor(seed.event.id, seed.operator.userId)).statusCode).toBe(200);
+
+    const rows = await snapshotsOf(seed.event.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.version).toBe(1);
+    expect(rows[0]?.reason).toBe("compute");
+    expect(rows[0]?.settlementSnapshotId).toBeNull();
+    expect(rows[0]?.baseCurrency).toBe("SEK");
+    // The seeded budget, summed by the same rule the engine applies.
+    expect(rows[0]?.plannedRevenue).toBe(1000000n);
+    expect(rows[0]?.plannedCosts).toBe(150000n);
+    expect(rows[0]?.plannedPool).toBe(850000n);
+  });
+
+  it("recomputing an UNCHANGED budget captures nothing", async () => {
+    const seed = await seedWorkedExample("snap-dedupe");
+    await computeFor(seed.event.id, seed.operator.userId);
+    await computeFor(seed.event.id, seed.operator.userId);
+    await computeFor(seed.event.id, seed.operator.userId);
+
+    // Three computes, one capture: the budget never moved, so nothing did.
+    expect(await snapshotsOf(seed.event.id)).toHaveLength(1);
+  });
+
+  it("a MOVED budget captures a new version and leaves version 1 alone", async () => {
+    const seed = await seedWorkedExample("snap-moved");
+    await computeFor(seed.event.id, seed.operator.userId);
+    await restateTickets(seed.event.id, 840000n); // the box office came in 160 000 short
+    await computeFor(seed.event.id, seed.operator.userId);
+
+    const rows = await snapshotsOf(seed.event.id);
+    expect(rows).toHaveLength(2);
+    // The plan of record is IMMUTABLE — the whole point of the table.
+    expect(rows[0]?.version).toBe(1);
+    expect(rows[0]?.plannedRevenue).toBe(1000000n);
+    expect(rows[0]?.plannedPool).toBe(850000n);
+    expect(rows[1]?.version).toBe(2);
+    expect(rows[1]?.plannedRevenue).toBe(840000n);
+    expect(rows[1]?.plannedPool).toBe(690000n);
+  });
+
+  it("answers planned-vs-actual with the real figures, per line and in total", async () => {
+    const seed = await seedWorkedExample("snap-compare");
+    await computeFor(seed.event.id, seed.operator.userId);
+    const { lineId } = await restateTickets(seed.event.id, 840000n);
+    await computeFor(seed.event.id, seed.operator.userId);
+
+    const response = await plannedVsActual(seed.event.id, seed.operator.userId);
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+
+    expect(body.baseCurrency).toBe("SEK");
+    expect(body.plan.source).toBe("plan");
+    expect(body.plan.version).toBe(1);
+    expect(body.plan.revenue).toBe("1000000");
+    expect(body.plan.costs).toBe("150000");
+    expect(body.plan.pool).toBe("850000");
+    // Not finalized, so the actual is the budget as it stands right now.
+    expect(body.actual.source).toBe("live");
+    expect(body.actual.revenue).toBe("840000");
+    expect(body.actual.pool).toBe("690000");
+    expect(body.variance).toEqual({ revenue: "-160000", costs: "0", pool: "-160000" });
+    // The settlement's own pool agrees with the budget's arithmetic here.
+    expect(body.settlementPool).toBe("690000");
+    // One operator, so nothing is hidden from them.
+    expect(body.plan.withheldBudgetCount).toBe(0);
+    expect(body.actual.withheldBudgetCount).toBe(0);
+
+    const tickets = body.lines.find((line: { lineId: string }) => line.lineId === lineId);
+    expect(tickets.status).toBe("both");
+    expect(tickets.kind).toBe("revenue");
+    expect(tickets.planned.amount).toBe("1000000");
+    expect(tickets.actual.amount).toBe("840000");
+    expect(tickets.variance).toBe("-160000");
+    expect(tickets.poolEffect).toBe("-160000");
+    // The cost never moved.
+    const sound = body.lines.find((line: { label: string }) => line.label === "Sound hire");
+    expect(sound.variance).toBe("0");
+    expect(sound.poolEffect).toBe("0");
+
+    // THE INVARIANT a Financials tab rests on: the line effects account for the
+    // whole pool variance, so no part of it is left unattributable.
+    expect(sumPoolEffects(body.lines)).toBe(body.variance.pool);
+
+    // The captures are the history of the settlement conversation, oldest first.
+    expect(body.captures.map((capture: { version: number }) => capture.version)).toEqual([1, 2]);
+  });
+
+  it("reports a line added after the plan, and one removed before the actual", async () => {
+    const seed = await seedWorkedExample("snap-churn");
+    await computeFor(seed.event.id, seed.operator.userId);
+
+    const budget = await budgetOf(seed.event.id);
+    // A cost nobody planned for, and the planned one that never happened.
+    const [added] = await harness.db
+      .insert(schema.budgetLines)
+      .values({
+        budgetId: budget.id,
+        kind: "cost",
+        label: "Broken window",
+        amount: 40000n,
+        paidBy: seed.pPart,
+      })
+      .returning();
+    await harness.db
+      .delete(schema.budgetLines)
+      .where(
+        and(eq(schema.budgetLines.budgetId, budget.id), eq(schema.budgetLines.label, "Sound hire")),
+      );
+    await computeFor(seed.event.id, seed.operator.userId);
+
+    const body = (await plannedVsActual(seed.event.id, seed.operator.userId)).json();
+    const brokenWindow = body.lines.find((line: { lineId: string }) => line.lineId === added?.id);
+    expect(brokenWindow.status).toBe("added");
+    expect(brokenWindow.planned).toBeNull();
+    expect(brokenWindow.variance).toBe("40000");
+    expect(brokenWindow.poolEffect).toBe("-40000"); // an unplanned cost lowers the pool
+
+    const sound = body.lines.find((line: { label: string }) => line.label === "Sound hire");
+    expect(sound.status).toBe("removed");
+    expect(sound.actual).toBeNull();
+    expect(sound.poolEffect).toBe("150000"); // a planned cost that never landed
+
+    // 850 000 planned → 1 000 000 − 40 000 = 960 000 actual.
+    expect(body.actual.pool).toBe("960000");
+    expect(body.variance.pool).toBe("110000");
+    expect(sumPoolEffects(body.lines)).toBe(body.variance.pool);
+  });
+
+  it("finalize captures the budget the frozen figures came out of, and stops the comparison moving", async () => {
+    const seed = await seedWorkedExample("snap-finalize");
+    await computeFor(seed.event.id, seed.operator.userId);
+    await restateTickets(seed.event.id, 840000n);
+    await computeFor(seed.event.id, seed.operator.userId);
+
+    const finalize = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(finalize.statusCode).toBe(200);
+
+    const rows = await snapshotsOf(seed.event.id);
+    expect(rows).toHaveLength(3);
+    const frozen = rows[2];
+    expect(frozen?.reason).toBe("finalize");
+    expect(frozen?.plannedPool).toBe(690000n);
+    // Joined to the legal record, so the frozen figures stay checkable against
+    // the budget they came out of.
+    const [settlementSnapshot] = await harness.db
+      .select()
+      .from(schema.settlementSnapshots)
+      .where(eq(schema.settlementSnapshots.eventId, seed.event.id));
+    expect(frozen?.settlementSnapshotId).toBe(settlementSnapshot?.id);
+
+    // Editing the budget after the freeze must not restate what was concluded.
+    await restateTickets(seed.event.id, 5n);
+    const body = (await plannedVsActual(seed.event.id, seed.operator.userId)).json();
+    expect(body.actual.source).toBe("finalize");
+    expect(body.actual.version).toBe(3);
+    expect(body.actual.pool).toBe("690000");
+    expect(body.variance.pool).toBe("-160000");
+  });
+
+  it("says plan: null on an event that has never been computed, rather than inventing one", async () => {
+    const seed = await seedWorkedExample("snap-empty");
+
+    const body = (await plannedVsActual(seed.event.id, seed.operator.userId)).json();
+    expect(body.plan).toBeNull();
+    expect(body.variance).toBeNull();
+    expect(body.captures).toEqual([]);
+    // The live budget is still readable — there is simply nothing to compare it to.
+    expect(body.actual.source).toBe("live");
+    expect(body.actual.pool).toBe("850000");
+    expect(body.settlementPool).toBeNull();
+    // Every line is "added": it exists now, and existed in no plan.
+    expect(body.lines.every((line: { status: string }) => line.status === "added")).toBe(true);
+  });
+
+  /**
+   * THE POOL CEILING (story.md:44). A budget snapshot is the whole night's money,
+   * so the route is gated on `budget.view` — which `POOL_CAPABILITIES` makes
+   * ungrantable to any role but host/co_host, so an operator cannot hand it over
+   * even deliberately. Both halves are checked here: the performer preset is
+   * refused, and so is a performer holding a set that literally lists the
+   * capability.
+   */
+  it("refuses a performer, even one whose permission set claims budget.view", async () => {
+    const seed = await seedWorkedExample("snap-ceiling");
+    await computeFor(seed.event.id, seed.operator.userId);
+
+    const asBand = await plannedVsActual(seed.event.id, seed.band.userId);
+    expect(asBand.statusCode).toBe(403);
+
+    // Now hand the band a set that names the capability outright. The ceiling,
+    // not the set, is what decides.
+    const [set] = await harness.db
+      .select()
+      .from(schema.permissionSets)
+      .where(eq(schema.permissionSets.profileId, seed.band.profileId));
+    if (!set) throw new Error("permission set missing");
+    await harness.db
+      .update(schema.permissionSets)
+      .set({ capabilities: [...set.capabilities, "budget.view"] })
+      .where(eq(schema.permissionSets.id, set.id));
+
+    const granted = await plannedVsActual(seed.event.id, seed.band.userId);
+    expect(granted.statusCode).toBe(403);
+    const raw = JSON.stringify(granted.json());
+    expect(raw).not.toContain("850000");
+    expect(raw).not.toContain("1000000");
+  });
+
+  it("hides a co-operator's private budget and says how much it withheld", async () => {
+    const seed = await seedWorkedExample("snap-private");
+    // A second operator co-hosts, and keeps a private margin line of their own.
+    const coHost = await seedMemberWithSet(
+      "snap-private-cohost",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const [coHostPart] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: seed.event.id,
+        profileId: coHost.profileId,
+        role: "co_host",
+        permissionSetId: coHost.permissionSetId,
+        status: "confirmed",
+      })
+      .returning();
+    const [privateBudget] = await harness.db
+      .insert(schema.budgets)
+      .values({ eventId: seed.event.id, scope: "private", ownerProfileId: coHost.profileId })
+      .returning();
+    if (!privateBudget || !coHostPart) throw new Error("private budget seed failed");
+    await harness.db.insert(schema.budgetLines).values({
+      budgetId: privateBudget.id,
+      kind: "cost",
+      label: "Co-promoter's own fee",
+      amount: 47000n,
+      paidBy: coHostPart.id,
+    });
+    await computeFor(seed.event.id, seed.operator.userId);
+
+    // The owner sees their own private line, and nothing is withheld from them.
+    const asOwner = (await plannedVsActual(seed.event.id, coHost.userId)).json();
+    expect(asOwner.actual.withheldBudgetCount).toBe(0);
+    expect(asOwner.actual.pool).toBe("803000"); // 1 000 000 − 150 000 − 47 000
+    expect(
+      asOwner.lines.some((line: { label: string }) => line.label === "Co-promoter's own fee"),
+    ).toBe(true);
+
+    // The other operator sees neither the line nor the amount, and is TOLD so
+    // rather than handed totals that quietly fail to add up.
+    const asHost = (await plannedVsActual(seed.event.id, seed.operator.userId)).json();
+    expect(asHost.actual.withheldBudgetCount).toBe(1);
+    expect(asHost.actual.pool).toBe("850000");
+    expect(JSON.stringify(asHost)).not.toContain("Co-promoter's own fee");
+    expect(JSON.stringify(asHost)).not.toContain("47000");
+    // The settlement's pool is withheld too — it covers a line they cannot see.
+    expect(asHost.settlementPool).toBeNull();
+  });
+
+  /**
+   * A cost line carrying `deal_id` IS the deal's own figure, and `reconcileEvent`
+   * drops it at the engine boundary (migration 0019). The planned pool applies the
+   * identical rule, or it could never tie out against the settlement's.
+   */
+  it("excludes a deal's own figure from the planned pool, exactly as the engine does", async () => {
+    const seed = await seedWorkedExample("snap-dealfigure");
+    const budget = await budgetOf(seed.event.id);
+    const [deal] = await harness.db
+      .select()
+      .from(schema.deals)
+      .where(and(eq(schema.deals.eventId, seed.event.id), eq(schema.deals.structure, "guarantee")));
+    if (!deal) throw new Error("guarantee deal missing");
+    const [feeLine] = await harness.db
+      .insert(schema.budgetLines)
+      .values({
+        budgetId: budget.id,
+        kind: "cost",
+        label: "Band fee (from the deal)",
+        amount: 300000n,
+        paidBy: seed.pPart,
+        dealId: deal.id,
+      })
+      .returning();
+
+    const compute = await computeFor(seed.event.id, seed.operator.userId);
+    expect(compute.json().pool).toBe("850000"); // the engine ignored the line
+
+    const rows = await snapshotsOf(seed.event.id);
+    expect(rows[0]?.plannedCosts).toBe(150000n); // and so did the capture
+    expect(rows[0]?.plannedPool).toBe(850000n);
+
+    const body = (await plannedVsActual(seed.event.id, seed.operator.userId)).json();
+    expect(body.actual.pool).toBe("850000");
+    expect(body.settlementPool).toBe("850000");
+    // The line is still SHOWN — the operator planned it and wants to see it — it
+    // simply contributes nothing to the pool, and says which it is.
+    const fee = body.lines.find((line: { lineId: string }) => line.lineId === feeLine?.id);
+    expect(fee.actual.countsTowardPool).toBe(false);
+    expect(fee.poolEffect).toBe("0");
   });
 });

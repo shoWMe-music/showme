@@ -21,6 +21,7 @@ import { writeActivity } from "../lib/activity";
 import type { Transaction } from "../lib/audit";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
+import { captureBudgetSnapshot, plannedVsActual } from "../lib/budget-snapshot";
 import { syncCommissionSettlements } from "../lib/commission-settlement";
 import { loadRatesToBase } from "../lib/exchange-rate";
 import { notifyUsers, settlementRecipients } from "../lib/notify";
@@ -225,6 +226,66 @@ const SettlementsResponse = z.object({
    * same visible set as the settlements themselves, so it widens nothing.
    */
   approvals: z.array(ApprovalResponse),
+});
+
+// ── Planned vs actual (decisions.md #16.8) ──────────────────────────────────
+//
+// Money is STRING minor units throughout, in the event's base currency
+// (money.md). Nothing here is a JS number.
+
+const PlannedVsActualLineDetailsResponse = z.object({
+  basis: z.string(),
+  unitAmount: z.string(),
+  quantity: z.number(),
+});
+
+const PlannedVsActualLineSideResponse = z.object({
+  label: z.string(),
+  /** As the operator typed it, in the line's OWN currency. */
+  amount: z.string(),
+  currency: z.string().nullable(),
+  /** The same money in base — what the variance below is computed in. */
+  amountBase: z.string(),
+  /** The planner's unit x quantity (200 tickets x 250), when the line has one. */
+  details: PlannedVsActualLineDetailsResponse.nullable(),
+  /** False for a cost line the engine drops as a deal's own figure (0019). */
+  countsTowardPool: z.boolean(),
+});
+
+const PlannedVsActualSideResponse = z.object({
+  source: z.enum(["plan", "finalize", "live"]),
+  version: z.number().nullable(),
+  capturedAt: z.string().nullable(),
+  revenue: z.string(),
+  costs: z.string(),
+  pool: z.string(),
+  /** Budgets on this event the caller may not see; their lines are absent above. */
+  withheldBudgetCount: z.number(),
+});
+
+const PlannedVsActualResponse = z.object({
+  eventId: z.string(),
+  baseCurrency: z.string(),
+  /** Null until the first compute — the platform captured nothing before then. */
+  plan: PlannedVsActualSideResponse.nullable(),
+  actual: PlannedVsActualSideResponse,
+  variance: z.object({ revenue: z.string(), costs: z.string(), pool: z.string() }).nullable(),
+  settlementPool: z.string().nullable(),
+  lines: z.array(
+    z.object({
+      lineId: z.string(),
+      budgetId: z.string(),
+      label: z.string(),
+      kind: z.string(),
+      status: z.enum(["both", "added", "removed"]),
+      planned: PlannedVsActualLineSideResponse.nullable(),
+      actual: PlannedVsActualLineSideResponse.nullable(),
+      variance: z.string(),
+      /** Σ over the lines equals `actual.pool − plan.pool`, exactly. */
+      poolEffect: z.string(),
+    }),
+  ),
+  captures: z.array(z.object({ version: z.number(), reason: z.string(), capturedAt: z.string() })),
 });
 
 const OverrideBody = z.object({
@@ -930,6 +991,16 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
             // outside the event's Σnet=0, on every event the agent is present.
             await syncCommissionSettlements(tx, id, result.breakdowns, result.baseCurrency);
 
+            // Copy the budget (decisions.md #16.8). The FIRST compute writes
+            // version 1, which is the plan of record — the budget as it stood
+            // when the operator declared the night ready to reconcile, and the
+            // earliest state anything in this system ever witnessed, because
+            // `budget_lines` are edited in place and everything before it was
+            // overwritten. Later computes capture only when the budget has
+            // actually moved. Purely a record: `reconcile()` has already run
+            // above and nothing here can reach it.
+            await captureBudgetSnapshot(tx, id, "compute");
+
             await writeAudit(tx, request, {
               capability: "settlement.edit",
               action: "settlement.compute",
@@ -962,6 +1033,49 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       );
 
       return reply.status(statusCode as 200).send(body);
+    },
+  );
+
+  // Planned vs actual (decisions.md #16.8, feeding the #16.9 analytics surface):
+  // what the budget said before the reconciliation started, against what the night
+  // actually did — per line, and in total.
+  //
+  // WHO MAY READ THIS, which is the whole security question here. A budget
+  // snapshot is THE WHOLE NIGHT'S MONEY: every takings line, every cost, who
+  // collected which. story.md:44 makes a performer's view of the pool an
+  // inviolable ceiling — "only their own slice — never the event budget/pool …
+  // even if an operator wanted to show them" — so this route is gated on
+  // `budget.view`, the capability that already means exactly "may read the whole
+  // night's money" and guards `GET /events/:id/budgets`.
+  //
+  // `budget.view` and not `settlement.edit`, though both are in
+  // `POOL_CAPABILITIES` and either would hold the ceiling: this endpoint serves a
+  // BUDGET, so the capability that names budgets is the one that should decide,
+  // and reading the plan is not an act of editing the settlement. Because it is a
+  // pool capability, `isGrantable` refuses it to any role but host/co_host — a
+  // performer cannot be granted it even by an operator who wants to hand it over,
+  // so no redaction path exists here and none is needed.
+  //
+  // The second boundary is INSIDE the operators: a co-promoter's private budget
+  // is confidential (`routes/budget.ts` hides it), so the payload is filtered by
+  // the caller's own memberships and says how many budgets it withheld rather
+  // than quietly serving totals that do not add up.
+  app.get(
+    "/events/:id/settlement/planned-vs-actual",
+    { schema: { params: EventParams, response: { 200: PlannedVsActualResponse } } },
+    async (request) => {
+      const { database } = request.server;
+      const { id } = request.params;
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+
+      await requireEventCapability(request, id, "budget.view");
+
+      return plannedVsActual(
+        database,
+        id,
+        principal.memberships.map((membership) => membership.profileId),
+      );
     },
   );
 
@@ -1725,6 +1839,14 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
               })
               .returning();
             if (!row) throw new Error("snapshot insert failed");
+            // The budget the frozen figures came out of (decisions.md #16.8),
+            // joined to the legal record by `settlement_snapshot_id`. Written
+            // unconditionally, even when the budget has not moved since the last
+            // compute capture: this row is not a duplicate of that one but a
+            // different fact — the one that says WHICH budget produced the
+            // snapshot above, and the one planned-vs-actual reads as "actual"
+            // from now on so a later edit cannot restate what was concluded.
+            await captureBudgetSnapshot(tx, id, "finalize", row.id);
             await writeAudit(tx, request, {
               capability: "settlement.finalize",
               action: "settlement.finalize",

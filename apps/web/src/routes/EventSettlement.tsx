@@ -154,6 +154,7 @@ export function EventSettlement() {
           { key: "deals", label: "Deal Structure" },
           { key: "financials", label: "Financials" },
           { key: "settlement", label: "Settlement" },
+          { key: "comments", label: "Comments" },
           { key: "payout", label: "Payout" },
         ]}
       />
@@ -168,10 +169,12 @@ export function EventSettlement() {
         <DealStructureTab settlement={settlement} />
       ) : tab === "financials" ? (
         <FinancialsTab settlement={settlement} />
+      ) : tab === "comments" ? (
+        <CommentsTab settlement={settlement} eventId={eventId} />
       ) : tab === "payout" ? (
         <PayoutTab settlement={settlement} />
       ) : (
-        <SettlementTab settlement={settlement} eventId={eventId} />
+        <SettlementTab settlement={settlement} />
       )}
     </div>
   );
@@ -184,19 +187,6 @@ const TWO_COLUMN = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
   gap: 16,
-  alignItems: "start",
-} as const;
-
-/**
- * The settlement's own split, straight from the design: the figures take the wider
- * column, the conversation about them sits beside it and STAYS there while you
- * scroll the figures (`position: sticky`). Collapses to one column under 900px,
- * because two columns of money on a phone is neither.
- */
-const SETTLEMENT_GRID = {
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1.35fr) minmax(0, 1fr)",
-  gap: 20,
   alignItems: "start",
 } as const;
 
@@ -314,10 +304,7 @@ function DealStructureTab({ settlement }: { settlement: EventSettlementData }) {
   );
 }
 
-function SettlementTab({
-  settlement,
-  eventId,
-}: { settlement: EventSettlementData; eventId: string }) {
+function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
   const confirmDialog = useConfirmDialog();
   const askToFinalize = () =>
     confirmDialog.ask({
@@ -428,10 +415,12 @@ function SettlementTab({
         <NothingSettledYet settlement={settlement} />
       ) : (
         <>
-          {/* The design's split: figures left, the conversation about them in a
-              sticky rail on the right. */}
-          <div style={SETTLEMENT_GRID}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
+          {/* Full width. The design splits this row, with the conversation in a
+              sticky rail beside the figures — but the conversation now has a tab
+              of its own, so nothing is competing for the space and the money gets
+              all of it. */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
+            <>
               <Card padding="lg" style={CARD_COLUMN}>
                 <CardTitle subtitle="What the night took, what it cost, and the net every percentage below is a share of.">
                   Revenue &amp; deductions
@@ -463,21 +452,7 @@ function SettlementTab({
                   Your own line. The other parties' figures on this event aren't shared with you.
                 </span>
               )}
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 20,
-                position: "sticky",
-                top: 96,
-                minWidth: 0,
-              }}
-            >
-              <SettlementThread settlement={settlement} />
-              <RevisionHistory eventId={eventId} />
-            </div>
+            </>
           </div>
 
           {/* Sign-off and what leaves the building, side by side — the design's
@@ -870,6 +845,30 @@ function PayoutTab({ settlement }: { settlement: EventSettlementData }) {
           </Button>
         </div>
       </Card>
+    </div>
+  );
+}
+
+/**
+ * The review conversation, on its own tab.
+ *
+ * The design keeps this in a sticky rail beside the figures. Moved out at the
+ * owner's request: the settlement is long, the rail could only ever show a few
+ * remarks before scrolling inside itself, and giving the thread the full width
+ * lets a discussion actually be read. The figures get the whole Settlement tab in
+ * return.
+ *
+ * The two belong together — a remark and the revision it caused are one story —
+ * so they share the tab rather than becoming two.
+ */
+function CommentsTab({
+  settlement,
+  eventId,
+}: { settlement: EventSettlementData; eventId: string }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <SettlementThread settlement={settlement} />
+      <RevisionHistory eventId={eventId} />
     </div>
   );
 }

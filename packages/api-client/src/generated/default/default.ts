@@ -72,6 +72,7 @@ import type {
   GetApiV1EventsIdSetlists200Item,
   GetApiV1EventsIdSetlistsSetlistIdShares200Item,
   GetApiV1EventsIdSettlementComments200Item,
+  GetApiV1EventsIdSettlementPlannedVsActual200,
   GetApiV1EventsIdSettlements200,
   GetApiV1EventsIdShares200Item,
   GetApiV1EventsParams,
@@ -2910,7 +2911,93 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    export const getApiV1Settlements = (
+    export const getApiV1EventsIdSettlementPlannedVsActual = (
+    id: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1EventsIdSettlementPlannedVsActual200>(
+      {url: `/api/v1/events/${id}/settlement/planned-vs-actual`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1EventsIdSettlementPlannedVsActualQueryKey = (id?: string,) => {
+    return [
+    `/api/v1/events/${id}/settlement/planned-vs-actual`
+    ] as const;
+    }
+
+    
+export const getGetApiV1EventsIdSettlementPlannedVsActualQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1EventsIdSettlementPlannedVsActual>>, TError = unknown>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdSettlementPlannedVsActual>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1EventsIdSettlementPlannedVsActualQueryKey(id);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1EventsIdSettlementPlannedVsActual>>> = ({ signal }) => getApiV1EventsIdSettlementPlannedVsActual(id, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdSettlementPlannedVsActual>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1EventsIdSettlementPlannedVsActualQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1EventsIdSettlementPlannedVsActual>>>
+export type GetApiV1EventsIdSettlementPlannedVsActualQueryError = unknown
+
+
+export function useGetApiV1EventsIdSettlementPlannedVsActual<TData = Awaited<ReturnType<typeof getApiV1EventsIdSettlementPlannedVsActual>>, TError = unknown>(
+ id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdSettlementPlannedVsActual>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1EventsIdSettlementPlannedVsActual>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1EventsIdSettlementPlannedVsActual>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1EventsIdSettlementPlannedVsActual<TData = Awaited<ReturnType<typeof getApiV1EventsIdSettlementPlannedVsActual>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdSettlementPlannedVsActual>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1EventsIdSettlementPlannedVsActual>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1EventsIdSettlementPlannedVsActual>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1EventsIdSettlementPlannedVsActual<TData = Awaited<ReturnType<typeof getApiV1EventsIdSettlementPlannedVsActual>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdSettlementPlannedVsActual>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1EventsIdSettlementPlannedVsActual<TData = Awaited<ReturnType<typeof getApiV1EventsIdSettlementPlannedVsActual>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdSettlementPlannedVsActual>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1EventsIdSettlementPlannedVsActualQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const getApiV1Settlements = (
     
  signal?: AbortSignal
 ) => {
