@@ -148,6 +148,46 @@ body {
   color: var(--dim);
   font-size: 11.5px;
 }
+/* The drawer's close affordance. Desktop has the 250↔72 chevron instead, so
+   this only appears once the sidebar IS a drawer (see the tablet block). */
+.sidebar__close {
+  display: none;
+  margin-left: auto;
+  width: var(--control-height);
+  height: var(--control-height);
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  place-items: center;
+  cursor: pointer;
+}
+
+/* Light/dark, in its drawer position: a full-width row that reads like the nav
+   items above it rather than a stray icon button. Shares SidebarItem's metrics
+   on purpose — it sits directly under that list. */
+.sidebar__theme {
+  display: none;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 9px 11px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--duration-quick);
+}
+.sidebar__theme:hover {
+  color: var(--text);
+}
+
 .sidebar__scrim {
   position: fixed;
   inset: 0;
@@ -167,6 +207,25 @@ body {
   border-radius: 14px;
   background: var(--surface);
   box-shadow: var(--shadow-lg);
+}
+
+/* Under an open drawer: dims and blurs the page it covers, and swallows the tap
+   that closes it. Sits between the top bar (40) and the sidebar (50). */
+.app__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  border: 0;
+  cursor: pointer;
+  background: rgba(10, 6, 4, 0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: smFade var(--duration-slow) var(--ease-out);
+}
+@keyframes smFade {
+  from {
+    opacity: 0;
+  }
 }
 
 /* ── Main column: offset by the sidebar; carries the grid + glow ground. ── */
@@ -246,6 +305,32 @@ body {
   place-items: center;
   cursor: pointer;
 }
+/* The toggle carries its label for the drawer, where there is room to read it.
+   In the top bar the icon says it on its own and the aria-label carries the
+   rest. */
+.topbar__theme .themetoggle__label {
+  display: none;
+}
+
+/* The drawer trigger. Hidden above the tablet breakpoint, where the sidebar is
+   a column and there is nothing to open. */
+.topbar__menu {
+  display: none;
+  width: var(--control-height);
+  height: var(--control-height);
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--control-surface);
+  color: var(--text);
+  place-items: center;
+  cursor: pointer;
+}
+/* `contents` so the wrapper adds no box: the CTA stays a direct flex child of
+   the top bar, and when a non-operator renders nothing there is nothing left. */
+.topbar__cta {
+  display: contents;
+}
 
 .content {
   padding: 30px;
@@ -286,14 +371,114 @@ body {
   color: var(--muted);
 }
 
+/* ── ≤ --breakpoint-tablet (860px) · the STRUCTURAL step ──
+   The sidebar leaves the layout and becomes an off-canvas drawer. It is the SAME
+   element — same nav list, same account block, same glowing active marker — slid
+   out of frame rather than a second, parallel mobile menu that would drift from
+   `navigation.ts`. It used to be `display: none` with nothing in its place,
+   which is why a phone landed on the Dashboard and could not leave it. */
 @media (max-width: 860px) {
   .sidebar {
+    /* Off-canvas, not absent. `visibility` is what keeps a closed drawer out of
+       the tab order and the accessibility tree — a translated panel is still
+       focusable, and an invisible focus stop is worse than no drawer at all. */
+    width: min(84vw, 300px);
+    height: 100dvh;
+    transform: translateX(-100%);
+    visibility: hidden;
+    box-shadow: var(--shadow-lg);
+    overscroll-behavior: contain;
+    /* `visibility` is switched, never interpolated: 0s duration, delayed by the
+       length of the slide so a CLOSING drawer stays on screen while it leaves.
+       Opening uses no delay (see below), so the panel is focusable in the same
+       tick the class lands — a transitioned `visibility` is still `hidden` at
+       progress 0, and `focus()` into a hidden subtree is silently a no-op.
+       Everything rides --duration-slow, so `prefers-reduced-motion` (which zeroes
+       the token) makes the drawer appear rather than travel. */
+    transition: transform var(--duration-slow) var(--ease-out), visibility 0s linear
+      var(--duration-slow);
+  }
+  .app--menu-open .sidebar {
+    transform: translateX(0);
+    visibility: visible;
+    transition: transform var(--duration-slow) var(--ease-out), visibility 0s linear 0s;
+  }
+  /* The 250↔72 rail is a desktop trade; in a drawer there is nothing to trade. */
+  .sidebar__toggle {
     display: none;
   }
+  .sidebar__close,
+  .sidebar__theme {
+    display: flex;
+  }
+  .sidebar__close {
+    display: grid;
+  }
+
   .main {
     margin-left: 0;
   }
+  .topbar {
+    gap: 10px;
+    padding: 12px 16px;
+  }
+  .topbar__menu {
+    display: grid;
+  }
+  /* One line, so the sticky bar keeps a fixed height. The widths below were
+     sized so the longest title ("Financial Projections") fits at 390px; the
+     ellipsis is the safety net, not the plan. */
+  .topbar__heading {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* The search field is `disabled` and answers nothing (no global search
+     endpoint exists yet). On a desktop it can afford to sit there saying so; at
+     390px it was 260px of the 166px overflow every screen shared. A control
+     that does nothing is the first thing a phone gives up. `display: none` also
+     takes it out of the tab order, so it is not a dead stop either. */
+  .topbar .topbar__search {
+    display: none;
+  }
+  .content {
+    padding: 20px 16px;
+  }
   .panelgrid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ── ≤ --breakpoint-phone (560px) · the DENSITY step ──
+   Nothing structural; the chrome gives up what it can afford to so the page
+   title has room to be read. */
+@media (max-width: 560px) {
+  .topbar {
+    gap: 8px;
+    padding: 10px 14px;
+  }
+  .topbar__heading {
+    font-size: 17px;
+  }
+  .topbar__crumb {
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+  }
+  /* "New event" drops to its "+". The design system has no icon-only `cta` and
+     this file may not add one; the label is a bare text node inside the button
+     with no element to target, so it is collapsed with font-size and restored on
+     the icon's own span. It stays in the DOM, so the button keeps "New event" as
+     its accessible name — it is silent, not gone. */
+  .topbar__cta > button {
+    gap: 0;
+    padding: 12px;
+    font-size: 0;
+  }
+  .topbar__cta > button > span {
+    font-size: 14.5px;
+  }
+  .content {
+    padding: 16px 14px;
+    gap: 16px;
   }
 }

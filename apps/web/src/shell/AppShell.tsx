@@ -7,6 +7,7 @@ import { NotificationBell } from "../components/NotificationBell";
 import { useRealtimeStream } from "../hooks/useRealtimeStream";
 import { NewEventProvider, TopbarNewEventButton } from "./NewEventProvider";
 import { type NavRoute, navigationFor } from "./navigation";
+import { useMobileNavigation } from "./useMobileNavigation";
 import { usePageTransition } from "./usePageTransition";
 
 /** Top-bar crumb + title per route — the page title lives in the chrome, not in
@@ -60,6 +61,36 @@ function BrandMark() {
   );
 }
 
+/**
+ * Light/dark, rendered in exactly ONE place at a time: the top bar on a desktop,
+ * the drawer's footer on a phone. It moves rather than duplicating because a
+ * theme is a preference, not a per-screen action — and at 390px the 40px it
+ * costs is the difference between a page title that reads and one that
+ * ellipsises.
+ */
+function ThemeToggle({
+  light,
+  onToggle,
+  className,
+}: {
+  light: boolean;
+  onToggle: () => void;
+  className: string;
+}) {
+  return (
+    <button
+      type="button"
+      className={className}
+      onClick={onToggle}
+      data-testid="theme-toggle"
+      aria-label={light ? "Switch to dark theme" : "Switch to light theme"}
+    >
+      <Icon name={light ? "moon" : "sun"} size={18} />
+      <span className="themetoggle__label">{light ? "Dark theme" : "Light theme"}</span>
+    </button>
+  );
+}
+
 const KIND_LABEL: Record<string, string> = {
   operator: "Operator",
   performer: "Performer",
@@ -82,6 +113,14 @@ export function AppShell() {
   const [collapsed, setCollapsed] = useState(false);
   const [userMenu, setUserMenu] = useState(false);
   const pageRef = usePageTransition(pathname);
+  // Below the `tablet` breakpoint the sidebar stops being a column and becomes
+  // an off-canvas drawer over the page. Same markup, same nav list, same active
+  // marker — only its position and its semantics change.
+  const menu = useMobileNavigation(pathname);
+  // The 72px icon rail is a DESKTOP affordance: its toggle is not rendered in
+  // the drawer, and a drawer that opened as a row of unlabelled icons would be
+  // unreadable. Collapsing therefore only applies while the sidebar is a column.
+  const railCollapsed = collapsed && !menu.compact;
 
   // One SSE subscription for the whole session, mounted here because the shell is
   // the only component alive for all of it. Frames invalidate queries; no component
@@ -114,13 +153,41 @@ export function AppShell() {
 
   return (
     <NewEventProvider>
-      <div className={collapsed ? "app app--collapsed" : "app"}>
-        <aside className="sidebar">
+      <div
+        className={`app${railCollapsed ? " app--collapsed" : ""}${menu.open ? " app--menu-open" : ""}`}
+      >
+        {menu.open && (
+          <button
+            type="button"
+            className="app__scrim"
+            aria-label="Close navigation"
+            onClick={menu.close}
+          />
+        )}
+        <aside
+          className="sidebar"
+          id="app-navigation"
+          ref={menu.drawer}
+          // A drawer over a scrimmed page IS a dialog; a column of the layout is
+          // not. The semantics follow the shape rather than being asserted at both
+          // widths, so a desktop screen reader still meets a plain landmark.
+          {...(menu.compact
+            ? ({ role: "dialog", "aria-modal": true, "aria-label": "Navigation" } as const)
+            : {})}
+        >
           <div className="sidebar__brand">
             <span className="sidebar__logo">
               <BrandMark />
             </span>
-            {!collapsed && <span className="sidebar__word">shoWMe</span>}
+            {!railCollapsed && <span className="sidebar__word">shoWMe</span>}
+            <button
+              type="button"
+              className="sidebar__close"
+              onClick={menu.close}
+              aria-label="Close navigation"
+            >
+              <Icon name="x" size={18} />
+            </button>
           </div>
 
           <button
@@ -143,7 +210,7 @@ export function AppShell() {
                 key={item.to}
                 icon={<Icon name={item.icon} />}
                 label={item.label}
-                collapsed={collapsed}
+                collapsed={railCollapsed}
                 active={isActive(pathname, item.to)}
                 badge={item.badge === "requests" && pendingCount > 0 ? pendingCount : undefined}
                 onClick={() => navigate({ to: item.to })}
@@ -152,6 +219,9 @@ export function AppShell() {
           </nav>
 
           <div className="sidebar__user">
+            {menu.compact && (
+              <ThemeToggle light={light} onToggle={toggleTheme} className="sidebar__theme" />
+            )}
             <button
               type="button"
               className="sidebar__userbtn"
@@ -161,7 +231,7 @@ export function AppShell() {
               data-testid="profile-menu"
             >
               <Avatar initials={initials} tone="brand" shape="circle" size={34} />
-              {!collapsed && (
+              {!railCollapsed && (
                 <span className="sidebar__usermeta">
                   <span className="sidebar__username">{personName}</span>
                   <span className="sidebar__userorg">{orgLine}</span>
@@ -195,6 +265,18 @@ export function AppShell() {
 
         <div className="main">
           <header className="topbar">
+            <button
+              type="button"
+              className="topbar__menu"
+              ref={menu.trigger}
+              onClick={menu.toggle}
+              aria-expanded={menu.open}
+              aria-controls="app-navigation"
+              aria-label="Navigation"
+              data-testid="menu-toggle"
+            >
+              <Icon name="menu" size={18} />
+            </button>
             <div className="topbar__title">
               {crumb && <div className="topbar__crumb">{crumb}</div>}
               {title && <h1 className="topbar__heading">{title}</h1>}
@@ -211,17 +293,15 @@ export function AppShell() {
               disabled
               title="Searching across events and artists is not built yet."
             />
-            <button
-              type="button"
-              className="topbar__theme"
-              onClick={toggleTheme}
-              data-testid="theme-toggle"
-              aria-label="Toggle theme"
-            >
-              <Icon name={light ? "moon" : "sun"} size={18} />
-            </button>
+            {!menu.compact && (
+              <ThemeToggle light={light} onToggle={toggleTheme} className="topbar__theme" />
+            )}
             <NotificationBell />
-            <TopbarNewEventButton />
+            {/* Wrapped so the top bar can collapse the CTA to its "+" on a phone
+                without the button itself having to know about breakpoints. */}
+            <span className="topbar__cta">
+              <TopbarNewEventButton />
+            </span>
           </header>
           <main className="content">
             <div className="content__page" ref={pageRef}>

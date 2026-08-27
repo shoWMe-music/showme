@@ -105,6 +105,11 @@ export type { IconName, IconProps } from "@/icons";
 export { STATUSES, STATUS_LABEL, STATUS_COLOR } from "@/lib/status";
 export type { Status } from "@/lib/status";
 
+/* ── Layout ──
+   The breakpoint scale, mirroring the `--breakpoint-*` tokens. Values only —
+   a media query cannot read a custom property, so JS reads these instead. */
+export { BREAKPOINTS, atMost } from "@/lib/breakpoints";
+
 /* ── Motion ──
    The vocabulary every animated surface in the app is built from: the four
    durations + the easings (mirrors of the `--duration-*` / `--ease-*` tokens),

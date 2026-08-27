@@ -78,6 +78,39 @@
   --duration-base: 200ms;
   --duration-slow: 280ms;
 
+  /* ── PRIMITIVES · breakpoints ──
+     TWO numbers, because this app has exactly two layout states and one density
+     step — not a five-step grid framework nobody spends.
+
+       phone  (≤560) — the DENSITY step. Nothing structural changes; the chrome
+                       gives up what it can afford to. The top bar's "New event"
+                       drops to its icon, the page heading steps down, and the
+                       page gutter narrows. 560 is chosen because every phone in
+                       portrait (360–430 CSS px) is below it and every phone in
+                       LANDSCAPE (640–930) is above it — so a turned phone gets
+                       the roomier chrome it just earned instead of the cramped
+                       one it had.
+       tablet (≤860) — the STRUCTURAL step: the sidebar leaves the layout and
+                       becomes an off-canvas drawer, `.panelgrid` folds to one
+                       column, and the disabled search leaves the top bar. 860 is
+                       not a new number — it is the one the app already used for
+                       `.sidebar { display: none }`, kept so this change alters
+                       the breakpoint's BEHAVIOUR without also moving where it
+                       fires. It is where 250px of sidebar stops being affordable:
+                       860 − 250 = 610px of content, about the narrowest the
+                       two-column screens read at.
+
+     ⚠️  A custom property CANNOT be used in a media query condition —
+     `@media (max-width: var(--breakpoint-tablet))` is invalid CSS and silently
+     never matches. There is no native `@custom-media`. So these tokens are the
+     place the numbers are NAMED and explained, and the JS mirror
+     (`BREAKPOINTS`, design-system/src/lib/breakpoints.ts) is the place they are
+     READ. A `@media` block still repeats the literal — and must cite the token
+     name in a comment so a change here is greppable. Do not add a build step to
+     "fix" this; two literals in one stylesheet is cheaper than a PostCSS plugin. */
+  --breakpoint-phone: 560px;
+  --breakpoint-tablet: 860px;
+
   /* ── SEMANTIC (dark default) — role tokens derived from primitives ── */
   --bg: var(--ink-1000);
   --surface: var(--ink-900);
