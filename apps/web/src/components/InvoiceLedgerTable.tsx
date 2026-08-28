@@ -1,6 +1,7 @@
 import { Badge, Button } from "@showme/design-system";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { formatDay, formatMoney } from "../lib/format";
+import styles from "./InvoiceLedgerTable.module.css";
 import {
   INVOICE_STATE_STATUS,
   type InvoiceRecord,
@@ -43,9 +44,6 @@ import ledgerTable from "./ledgerTable.module.css";
  * `white-space: nowrap` (`Badge.module.css`): a track narrower than the badge
  * does not reflow it, it pushes it back out of the card.
  */
-const GRID_COLUMNS =
-  "minmax(0, 1.6fr) minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(min-content, 1fr) minmax(0, 0.8fr)";
-
 const HEADER_CELLS: { label: string; align?: "right" }[] = [
   { label: "Vendor" },
   { label: "Event / Reference" },
@@ -81,10 +79,8 @@ export function InvoiceLedgerTable({
       }}
     >
       <div
-        className={ledgerTable.cells}
+        className={`${ledgerTable.cells} ${styles.ledgerHeader}`}
         style={{
-          display: "grid",
-          gridTemplateColumns: GRID_COLUMNS,
           gap: 12,
           padding: "13px 22px",
           borderBottom: "1px solid var(--border)",
@@ -152,10 +148,8 @@ function InvoiceLedgerRow({
       onMouseLeave={(mouse) => {
         mouse.currentTarget.style.background = "transparent";
       }}
-      className={ledgerTable.cells}
+      className={`${ledgerTable.cells} ${styles.ledgerRow}`}
       style={{
-        display: "grid",
-        gridTemplateColumns: GRID_COLUMNS,
         gap: 12,
         alignItems: "center",
         padding: "15px 22px",
@@ -166,7 +160,7 @@ function InvoiceLedgerRow({
         transition: "background var(--duration-quick) var(--ease-out)",
       }}
     >
-      <span style={{ minWidth: 0 }}>
+      <span className={styles.cellCounterparty} style={{ minWidth: 0 }}>
         <button
           type="button"
           // The row's keyboard equivalent: already in the tab order, so opening the
@@ -190,7 +184,7 @@ function InvoiceLedgerRow({
         </button>
       </span>
 
-      <span style={{ minWidth: 0 }}>
+      <span className={styles.cellReference} style={{ minWidth: 0 }}>
         <span style={{ display: "block" }}>{label ?? reference}</span>
         {label && (
           <span className="muted" style={{ display: "block", fontSize: 12 }}>
@@ -200,21 +194,21 @@ function InvoiceLedgerRow({
       </span>
 
       {/* No category field on the invoice payload yet — honest placeholder. */}
-      <span className="muted">—</span>
+      <span className={`muted ${styles.cellCategory}`}>—</span>
 
-      <span>{formatDay(invoice.dueDate)}</span>
+      <span className={styles.cellDue}>{formatDay(invoice.dueDate)}</span>
 
-      <span style={{ textAlign: "right" }}>
+      <span className={styles.cellAmount} style={{ textAlign: "right" }}>
         {formatMoney(invoice.total, invoice.currency ?? "EUR")}
       </span>
 
-      <span>
+      <span className={styles.cellState}>
         <Badge status={status} dot>
           {overdue ? "Overdue" : invoiceStateLabel(invoice.state)}
         </Badge>
       </span>
 
-      <span style={{ textAlign: "right" }}>
+      <span className={styles.cellAction} style={{ textAlign: "right" }}>
         {invoice.state === "draft" && (
           <Button
             variant="ghost"

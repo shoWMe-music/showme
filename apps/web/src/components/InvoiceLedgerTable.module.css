@@ -1,0 +1,92 @@
+/* ============================================================================
+   THE INVOICE LEDGER, ON A PHONE — seven columns become a card.
+
+   The same failure Events had, and for the same reason: seven columns do not
+   fit 390px, and the status column's `Badge` is `white-space: nowrap`, so it
+   holds its width and the others give up theirs. Measured before this rule, a
+   vendor called "Nordic Sound Rentals AB" rendered as "Nordi / c / Soun / d /
+   Renta / ls AB", with the due date and the amount broken the same way.
+   Nothing overflowed and nothing was clipped, so the audit was green — the
+   screen was simply unreadable. Correct is not the same as readable.
+
+   Below the phone breakpoint each row becomes a card: who it is with and what
+   it is for across the top, then the due date against the amount, then the
+   state against whatever action the row offers. Same DOM, same order, same
+   click target — only the placement changes.
+
+   THE BREAKPOINT IS THE TABLET ONE, 860px, AND THAT IS MEASURED. 560 was the
+   first guess and it was too low: swept 390 -> 1440, the row still carried an
+   extra wrapped line at 561 and 640 (height 90-91px against its natural 71),
+   because a seven-column table in 600px of content gives each column about
+   50px and a due date does not fit in 50px. The row reaches its natural height
+   at 720 and holds it at 861, where the sidebar returns and the content column
+   actually narrows -- so the honest boundary is the structural one, where the
+   sidebar stops being a column. Below it the app is in its narrow shape and
+   these rows are cards; above it they are a table.
+
+   `--breakpoint-tablet: 860px` (design-system/src/styles/tokens.css); the
+   literal is written out because a custom property cannot appear in a media
+   query condition.
+   ========================================================================== */
+
+/* The desktop table. These live here rather than in an inline `style` because
+   an inline style beats a media query — while they sat on the element, the
+   phone rules below did nothing at all. Values are exactly the ones the old
+   `GRID_COLUMNS` constant carried, so a wide viewport is unchanged. The status
+   track keeps its `min-content` floor: squeezing it does not reflow the badge,
+   it pushes it out of the card. */
+.ledgerHeader,
+.ledgerRow {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.6fr) minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr)
+    minmax(0, 1fr) minmax(min-content, 1fr) minmax(0, 0.8fr);
+}
+
+@media (max-width: 860px) {
+  /* A card has no columns to name, and every value below reads from its own
+     shape — a date, a money amount, a badge. */
+  .ledgerHeader {
+    display: none;
+  }
+
+  .ledgerRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "counterparty counterparty"
+      "reference    reference"
+      "due          amount"
+      "state        action";
+    row-gap: 10px;
+    align-items: center;
+    padding: 16px;
+  }
+
+  .cellCounterparty {
+    grid-area: counterparty;
+    font-size: 15px;
+  }
+  .cellReference {
+    grid-area: reference;
+  }
+  .cellDue {
+    grid-area: due;
+  }
+  .cellAmount {
+    grid-area: amount;
+  }
+  .cellState {
+    grid-area: state;
+  }
+  .cellAction {
+    grid-area: action;
+  }
+
+  /* Category is a hardcoded em-dash on every row — there is no category on the
+     invoice payload yet. A column of dashes is noise on a desktop and a whole
+     wasted line on a phone, so the card does not carry it. Delete this rule the
+     day the field exists (and give it a grid-area then). */
+  .cellCategory {
+    display: none;
+  }
+}

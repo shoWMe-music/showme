@@ -109,9 +109,6 @@ function eventMeta(status: string): { color: string; label: string } {
  * The status track keeps its `min-content` floor because its content genuinely
  * cannot wrap: the badge is `white-space: nowrap`, so a track narrower than the
  * badge does not reflow it, it just pushes it out of the card again. */
-const GRID_COLUMNS =
-  "minmax(0, 2.4fr) minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, .8fr) minmax(min-content, 1.2fr) minmax(0, 1fr) 32px";
-
 export function Events() {
   const navigate = useNavigate();
   const { openNewEvent, canCreateEvent } = useNewEvent();
@@ -407,10 +404,8 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
       }}
     >
       <div
-        className={ledgerTable.cells}
+        className={`${ledgerTable.cells} ${styles.listHeader}`}
         style={{
-          display: "grid",
-          gridTemplateColumns: GRID_COLUMNS,
           gap: 12,
           padding: "13px 22px",
           borderBottom: "1px solid var(--border)",
@@ -445,7 +440,7 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
           // button inside it, which is a real focusable control.
           <div
             key={event.id}
-            className={ledgerTable.cells}
+            className={`${ledgerTable.cells} ${styles.listRow}`}
             onMouseEnter={(mouse) => {
               mouse.currentTarget.style.background = "var(--shape-fill)";
             }}
@@ -455,8 +450,6 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
             style={{
               position: "relative",
               width: "100%",
-              display: "grid",
-              gridTemplateColumns: GRID_COLUMNS,
               gap: 12,
               alignItems: "center",
               padding: "15px 22px",
@@ -472,32 +465,28 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
               onClick={() => onOpen(event.id)}
               style={rowClickTargetStyle}
             />
-            <span style={{ minWidth: 0 }}>
-              <span
-                style={{
-                  display: "block",
-                  fontWeight: 600,
-                  color: "var(--text)",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                {event.title}
-              </span>
+            <span className={styles.cellTitle} style={{ minWidth: 0 }}>
+              {/* The truncation lives in the stylesheet rather than here, because
+                  a phone undoes it — an inline style cannot be overridden by a
+                  media query without `!important`. */}
+              <span className={styles.eventTitle}>{event.title}</span>
               <span style={{ display: "block", color: "var(--muted)", fontSize: 12.5 }}>
                 {event.headlinePerformerName ?? "—"}
               </span>
             </span>
-            <span style={{ color: "var(--muted)", fontSize: 13 }}>{event.venueName ?? "—"}</span>
+            <span className={styles.cellVenue} style={{ color: "var(--muted)", fontSize: 13 }}>
+              {event.venueName ?? "—"}
+            </span>
             {/* Unlinked: the row already IS a link (the stretched button above),
                 and a link inside a link is not a thing. */}
             <DateText
               value={event.eventDate}
               link={false}
+              className={styles.cellDate}
               style={{ fontFamily: "var(--font-mono)", color: "var(--text)", fontSize: 13 }}
             />
             <span
+              className={styles.cellCapacity}
               style={{
                 fontFamily: "var(--font-mono)",
                 color: "var(--muted)",
@@ -507,13 +496,14 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
             >
               {event.capacity ?? "—"}
             </span>
-            <span>
+            <span className={styles.cellStatus}>
               <span style={badgeStyle(meta.color)}>
                 <span style={dotStyle(meta.color)} />
                 {meta.label}
               </span>
             </span>
             <span
+              className={styles.cellSettlement}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -527,7 +517,7 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
             </span>
             {/* Positioned, so it paints ABOVE the stretched click target and
                 takes its own clicks rather than opening the event. */}
-            <span style={{ position: "relative", justifySelf: "end" }}>
+            <span className={styles.cellMenu} style={{ position: "relative", justifySelf: "end" }}>
               <EventRowMenu items={menuItems(event)} label={`Actions for ${event.title}`} />
             </span>
           </div>

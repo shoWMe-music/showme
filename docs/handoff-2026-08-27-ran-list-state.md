@@ -448,6 +448,46 @@ stable geometry" trap that wave 3 hit with modal motion. Poll until two
 consecutive identical readings, and wait for the DATA, not just the shell: an
 earlier attempt reported 7-of-7 because the list had not rendered at all.
 
+### Wave 6 — the LIVE walkthrough, which found what the suite could not
+Daniel asked for a real browser pass at phone and desktop size after five green
+waves. It found three things, and none of them were visible to any assertion.
+
+**1. "Good morning, The".** The Dashboard greeted the venue by the first word of
+"The Lantern Hall". `split(/\s+/)[0]` is right for a person and wrong for an
+organisation, and it was a DESKTOP bug too — nothing to do with mobile. Fixed
+using `session.kind` as the signal rather than a heuristic: `team_and_crew` and
+`agent` name people and get shortened; `operator` (a venue/promoter) and
+`performer` (as often a band as a soloist) keep their whole name. The rule comes
+from docs/story.md's actor boundaries, which is where product rules belong.
+
+**2. Events and Bills were unreadable on a phone**, and this is the sharpest
+example in the whole pass of *correct but unusable*: nothing clipped, nothing
+overflowing, the audit honestly green, and the event's own name truncated to
+"Ma…" with the date running one character per line. Both are now cards below the
+tablet breakpoint. The Bills card drops the Category column, which is a
+hardcoded em-dash on every row because the payload has no category — it still
+shows on desktop, and the CSS says to delete that rule the day the field exists.
+
+**3. AN INLINE STYLE BEATS A MEDIA QUERY — the first fix silently did nothing.**
+The rows carried `display: grid` and `gridTemplateColumns` as inline styles, so
+the phone rules never applied and the screenshot came back unchanged. The
+truncation had already been moved into CSS for exactly this reason; the
+containers themselves were missed. **If a media query appears to do nothing,
+check for an inline style on the same property before doubting the selector.**
+
+**4. THE FIRST BREAKPOINT WAS WRONG, AND ONLY A SWEEP SHOWED IT.** 560px was the
+guess. Measuring row height 390→1440, both tables still carried an extra wrapped
+line at **561 and 640** (h90–91 against a natural h71) — the same unreadable
+state, just relocated to where nobody looks. They reach natural height at 720
+and hold it at 861, where the sidebar returns and the content column actually
+narrows. So the boundary is the structural one, `--breakpoint-tablet: 860px`.
+Row height is a good legibility signal precisely because wrapping makes a row
+taller: it turns "does this look cramped" into a number.
+
+Desktop proved unchanged by measurement, not by eye: identical resolved grid
+tracks (Events `297.719 / 186.078 / 124.047 / 99.2422 / 148.859 / 124.047 /
+32px`), cells at identical x positions, zero overflow. Suite 80/0.
+
 ### Known gaps — still open
 1. **DataTable's pager** left at 30px deliberately: overlays would overlap by
    10px, and spacing them to real 44px targets makes a 9-page pager 508px wide

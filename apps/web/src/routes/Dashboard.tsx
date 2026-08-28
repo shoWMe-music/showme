@@ -8,7 +8,7 @@ import {
 import { Badge, EmptyState, Icon, type IconName } from "@showme/design-system";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { useAuth } from "../auth/AuthProvider";
+import { type AccountKind, useAuth } from "../auth/AuthProvider";
 import { settlementStatusToDisplay, settlementTotals } from "../components/settlementDocument";
 import { ErrorState, LoadingState } from "../components/states";
 import { formatAmount, formatDay, formatMoney } from "../lib/format";
@@ -18,6 +18,28 @@ type TaskItem = { id: string; title: string; dueDate: string | null; completed: 
 
 /** Events still waiting on an operator decision — the prototype's "needs a decision" set. */
 const NEEDS_DECISION = new Set(["pending", "suggested", "on_hold"]);
+
+/**
+ * Who to greet, which is not always the first word of the name.
+ *
+ * Taking `split(/\s+/)[0]` is right for a person — "Marlo Vance" wants to be
+ * greeted as "Marlo" — and wrong for everyone else: it turned the venue "The
+ * Lantern Hall" into "Good morning, The", and would do the same to any band
+ * with an article in its name. The account kind is the honest signal for which
+ * case we are in (docs/story.md: an `operator` is a venue/promoter/festival, and
+ * a `performer` is as often a band as a soloist), so organisations keep their
+ * whole name and only the kinds that name a person get shortened.
+ */
+function displayNameForGreeting(
+  displayName: string | null | undefined,
+  kind: AccountKind | undefined,
+  email: string | null | undefined,
+): string {
+  const name = displayName?.trim();
+  if (!name) return email?.split("@")[0] ?? "there";
+  const namesAPerson = kind === "team_and_crew" || kind === "agent";
+  return namesAPerson ? (name.split(/\s+/)[0] ?? name) : name;
+}
 
 /** Time-of-day greeting, matching the prototype's "Good morning, {name}". */
 function greeting(): string {
@@ -123,8 +145,7 @@ export function Dashboard() {
   const settlementList = useGetApiV1Settlements();
   const tasks = useGetApiV1Tasks({ limit: 5 });
 
-  const firstName =
-    user?.displayName?.trim().split(/\s+/)[0] ?? session?.email?.split("@")[0] ?? "there";
+  const greetingName = displayNameForGreeting(user?.displayName, session?.kind, session?.email);
 
   if (events.isPending) return <LoadingState label="Loading your dashboard" />;
   if (events.isError)
@@ -235,7 +256,7 @@ export function Dashboard() {
               color: "var(--accent)",
             }}
           >
-            {firstName}
+            {greetingName}
           </span>
         </h2>
         <p style={{ color: "var(--muted)", margin: 0, fontSize: 15 }}>

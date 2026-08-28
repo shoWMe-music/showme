@@ -32,3 +32,113 @@
     inset: -3px 0;
   }
 }
+
+/* ============================================================================
+   THE LIST, ON A PHONE — six columns become a card.
+
+   A six-column table does not fit 390px, and the failure is not a clipped edge
+   you could shrug at: measured before this rule, the status column's badge is
+   `white-space: nowrap` and holds an 85px floor, which left about 97px for the
+   other five columns. The date rendered one character per line ("1/4/S/e/p/t"),
+   "Not started" ran vertically, and the event's own name truncated to "Ma…".
+   Nothing overflowed and nothing was clipped — the audit was honestly green —
+   and the screen was unusable. Correct is not the same as readable.
+
+   So below the phone breakpoint the row stops being a table row and becomes a
+   card: the show's name across the top with its menu, the venue under it, then
+   two pairs. Same DOM, same order, same click target — only the placement
+   changes, which is why this is a stylesheet and not a second component.
+
+   THE BREAKPOINT IS THE TABLET ONE, 860px, AND THAT IS MEASURED. 560 was the
+   first guess and it was too low: swept 390 -> 1440, the row still carried an
+   extra wrapped line at 561 and 640 (height 90-91px against its natural 71),
+   because a seven-column table in 600px of content gives each column about
+   50px and a due date does not fit in 50px. The row reaches its natural height
+   at 720 and holds it at 861, where the sidebar returns and the content column
+   actually narrows -- so the honest boundary is the structural one, where the
+   sidebar stops being a column. Below it the app is in its narrow shape and
+   these rows are cards; above it they are a table.
+
+   `--breakpoint-tablet: 860px` (design-system/src/styles/tokens.css); the
+   literal is written out because a custom property cannot appear in a media
+   query condition.
+   ========================================================================== */
+
+/* The desktop table. `display` and the track list live here rather than in an
+   inline `style` for one reason: an inline style beats a media query, so while
+   these sat on the element the phone rules below silently did nothing. The
+   values are exactly what the inline styles carried (the old `GRID_COLUMNS`
+   constant), so a wide viewport is byte-for-byte the layout it already had.
+   The status track keeps its `min-content` floor on purpose: `Badge` is
+   `white-space: nowrap`, so a narrower track does not reflow the pill, it
+   pushes it out of the card. */
+.listHeader,
+.listRow {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 2.4fr) minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 0.8fr)
+    minmax(min-content, 1.2fr) minmax(0, 1fr) 32px;
+}
+
+/* Truncation lives here rather than inline so the phone rule below can undo it.
+   These are the values the inline style used to carry, unchanged. */
+.eventTitle {
+  display: block;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 860px) {
+  /* The header names the columns, and a card has no columns to name — every
+     value below is legible from its own shape (a venue, a date, a badge). */
+  .listHeader {
+    display: none;
+  }
+
+  .listRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "title      menu"
+      "venue      venue"
+      "date       capacity"
+      "status     settlement";
+    row-gap: 10px;
+    align-items: center;
+    padding: 16px;
+  }
+
+  .cellTitle {
+    grid-area: title;
+  }
+  .cellMenu {
+    grid-area: menu;
+    align-self: start;
+  }
+  .cellVenue {
+    grid-area: venue;
+  }
+  .cellDate {
+    grid-area: date;
+  }
+  .cellCapacity {
+    grid-area: capacity;
+  }
+  .cellStatus {
+    grid-area: status;
+  }
+  .cellSettlement {
+    grid-area: settlement;
+    justify-self: end;
+  }
+
+  /* The whole point of the card: the show's name is the one thing a reader is
+     scanning for, so it wraps to as many lines as it needs instead of becoming
+     "Ma…". There is room for it now that it owns the full width of the row. */
+  .eventTitle {
+    white-space: normal;
+    overflow: visible;
+  }
+}
