@@ -395,14 +395,20 @@ card clips it) and it is not inside a dialog (which is the other place the spec
 scans for clipping). Add the same `minmax(0, …)` treatment, and answer the
 design question below at the same time.
 
-### ESCALATED — a design decision, not a bug
-A five-column `DataTable` at 336px is complete and readable but **cramped**: the
-mono header wraps to "NA/ME". Making it comfortable means either a phone layout
-for `DataTable` (stacked cards, one row per card) or a reduced column set per
-table. The agent declined to invent one, correctly — it changes what the product
-looks like on a phone, and Daniel has the design prototype. **This is the one
-open question in the mobile pass that is a product call rather than an
-engineering one.**
+### ESCALATED — PARTLY ANSWERED IN WAVE 6, READ THIS BEFORE RE-LITIGATING
+This section used to say a narrow table was merely "cramped" and that the fix
+was a product call nobody should invent. **Wave 6 built the card layout** for
+the two routes where the screen was not just cramped but unusable (Events and
+Bills — see §Wave 6). So:
+
+- **DONE:** `Events.tsx` and `InvoiceLedgerTable.tsx` become cards at ≤860px.
+- **STILL OPEN, and still Daniel's:** the shared `design-system` `DataTable`
+  (Settlements, Projections, the CSV import preview) has NOT been given a phone
+  layout. A five-column table at 336px is complete and readable but cramped —
+  the mono header wraps to "NA/ME". Whether that wants the same card treatment,
+  a reduced column set, or nothing at all is a design decision, and Daniel has
+  the prototype. Wave 6 deliberately did not generalise the card pattern into
+  the design system on its own authority.
 
 ### Wave 5 — touch, and what the count actually means
 Every remaining sub-44px control on a coarse pointer is now EITHER a documented
@@ -504,6 +510,42 @@ tracks (Events `297.719 / 186.078 / 124.047 / 99.2422 / 148.859 / 124.047 /
 The web app calls ~51 API routes production does not have, so shipping the
 mobile CSS by itself would 404 them. The first deploy must be **migrations
 0027–0029 + API + web**; only then are later mobile waves web-only.
+
+**STEP ZERO, as of 2026-08-28: the gcloud token has EXPIRED.** Every `gcloud`
+call fails with `Reauthentication failed. cannot prompt during non-interactive
+execution`, so nothing below can even be attempted until someone runs:
+
+```
+gcloud auth login          # daniel@showme.music ONLY
+```
+
+Plain `auth login` is the right one — `gcloud auth application-default login`
+**overwrites the Firebase-impersonation ADC** and is not what this needs. For a
+headless session, `gcloud auth login --no-launch-browser` prints a URL and waits
+on stdin for the code; the code is bound to THAT process, so it must stay alive
+(run it `nohup`'d with its stdin on a FIFO that a holder process keeps open — a
+harness-tracked background task got killed and invalidated the first URL).
+
+**THE UNTESTED LEAD ON THE PASSWORD — try this before rotating anything.**
+The symptom is that the password in the `DATABASE_URL` secret does not
+authenticate for `postgres`, the only user, over a proxy that connects fine.
+What was never checked is **whether the secret has multiple versions and the
+running API revision pins an older one than `latest`**:
+
+```
+gcloud secrets versions list DATABASE_URL --project prod-showme
+gcloud run services describe showme-api --region europe-north2 \
+  --project prod-showme --format=json   # look at the secretKeyRef version
+```
+
+If the revision pins an older version, then the tests were run with a NEWER
+secret value against a database still holding the earlier password — which
+explains the symptom completely and means the fix is *reading the right
+version*, with **no rotation and no outage**. Rule this out first.
+
+**Do NOT just reset the password.** The running API revision holds the old value
+in its environment, so rotating it is a production outage unless the API is
+redeployed in the same breath. That is Daniel's call, not an agent's.
 
 Backup `1787867171757` is taken and **verified SUCCESSFUL**. `cloud-sql-proxy`
 connects. But the password in the `DATABASE_URL` secret **fails to
