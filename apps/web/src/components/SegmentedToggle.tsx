@@ -40,6 +40,16 @@ export function SegmentedToggle<Value extends string>({
             type="button"
             role="tab"
             aria-selected={active}
+            // Touch: 28px tall from 6px of padding, and the segments sit 2px
+            // apart — far too close for an overlay, which would put a 44px hit
+            // area 8px inside its neighbour and switch the wrong view. Growth
+            // is the honest fix here and the harmonious one: the Inputs and
+            // Selects these share a toolbar row with are already 44px on a
+            // coarse pointer (tokens.css raises `--control-height`), so a 28px
+            // pill beside them was the odd one out. The utility works through
+            // the inline `style` below because `min-height` clamps a computed
+            // height whatever its specificity. See styles/touch.css.
+            className="touch-target"
             onClick={() => onChange?.(option.value)}
             style={{
               padding: "6px 14px",

@@ -54,6 +54,21 @@
     var(--ease-out);
 }
 
+/* Touch: 11 + 20 + 11 + 1 is 43, one pixel under the floor, on the six rows that
+   ARE the event's detail table. The rule goes on `.row` rather than on
+   `.trigger` so an editable row and a read-only one stay exactly the same
+   height — the fixed line box above is the whole point of this table, and a
+   44px editable row beside a 43px static one would break the rhythm it exists
+   to guarantee. `min-height`, not more padding, because the row is already
+   `align-items: center` and simply redistributes the pixel.
+
+   `pointer: coarse`, not a width: design-system/src/styles/touch.css. */
+@media (pointer: coarse) {
+  .row {
+    min-height: 44px;
+  }
+}
+
 .label {
   color: var(--muted);
   font-size: 13px;

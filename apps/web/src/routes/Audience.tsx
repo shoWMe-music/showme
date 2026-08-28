@@ -119,6 +119,11 @@ function ViewButton({
       aria-label={label}
       aria-pressed={active}
       onClick={onClick}
+      // Touch: 34x30, and the pair sits inside one bordered wrapper with no gap
+      // at all — a 44px halo on either would land squarely on the other and
+      // switch to the view the reader was leaving. Growth is the only safe fix,
+      // and this switcher shares its row with a 44px primary button already.
+      className="touch-target"
       style={{
         display: "inline-flex",
         alignItems: "center",

@@ -1,0 +1,39 @@
+/* Contacts — the one thing on this screen the shared touch utilities cannot do.
+
+   ── The copy buttons: a reasoned partial, in the shape of Chip's ──
+   Each contact card lists up to six values a person retypes into a bank
+   transfer, and the 22x22 copy glyph at the end of each row is the point of the
+   row. Measured on a coarse pointer at 390px they are 22x22, stacked 34px apart
+   (a 22px row plus the card's 12px gap).
+
+   Neither shared utility fits.
+     · Growing to 44 would push every row to 44px tall and add ~130px to a
+       six-field card, and `align-items: baseline` on the row means the label and
+       the value would stop sitting on the same line.
+     · The plain 44px overlay would clear the neighbour below by 1.5px. That is
+       not clearance, it is a coincidence — CI renders text about 10% wider than
+       macOS, and the first row that wraps closes the gap and starts firing the
+       wrong row's copy.
+
+   So the halo is capped at HALF the gutter it has, exactly as `Chip` is capped
+   at half its 8px one: 6px above and below fills the 12px gap so two rows' hit
+   areas meet and never cross. Horizontally there is nothing to protect — the
+   only thing left of the glyph is the value's text — so it takes the full 44.
+
+   44x34 against 22x22 of paint: three times the area, still short of Apple's
+   44x44 on purpose, and comfortably past the 24px WCAG 2.5.8 minimum.
+
+   `pointer: coarse` rather than a width, and `::after` rather than a bigger box,
+   for the reasons written out in design-system/src/styles/touch.css. */
+@media (pointer: coarse) {
+  .copyButton {
+    position: relative;
+  }
+
+  .copyButton::after {
+    content: "";
+    position: absolute;
+    /* -6px vertical: half the 12px row gap. -11px horizontal: 22 + 11 + 11 = 44. */
+    inset: -6px -11px;
+  }
+}

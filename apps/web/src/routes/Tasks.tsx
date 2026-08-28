@@ -524,6 +524,11 @@ function TaskRow({
         type="button"
         onClick={onEdit}
         aria-label="Edit task"
+        // Touch: 32px square, alone at the right end of a task row with the
+        // row's text to its left — nothing to collide with, but growth is still
+        // the cheaper answer than an overlay because the row is already taller
+        // than 44 and simply absorbs it.
+        className="touch-target"
         style={{
           display: "inline-flex",
           alignItems: "center",

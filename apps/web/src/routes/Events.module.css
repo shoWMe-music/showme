@@ -1,0 +1,34 @@
+/* Events — the filter chips' touch halo, which neither shared utility can give.
+
+   ── The status filter chips: the Chip partial, at this strip's own gutter ──
+   `FilterChip` below is this screen's own pill (its active state is a SOLID
+   brand gradient with white text, where the design system's `Chip` is a 16%
+   tint with accent text — they are two different controls that happen to share
+   a silhouette, so this is not a missed reuse). It measures 29px tall on a
+   coarse pointer at 390px, in a `flex-wrap` strip with a 7px gap, and on a phone
+   that strip always wraps to two or three rows.
+
+   The design system's `Chip` met this exact problem and answered it by capping
+   the reach at half the gutter rather than taking the full 44 (see
+   Chip.module.css): two 44px halos 7px apart overlap by 15px, and a tap in the
+   gutter would select the filter on the row ABOVE the thumb. An overlapping
+   target is worse than a small one, because the wrong thing fires.
+
+   Same answer, this strip's number: 3px above and below fills the 7px gutter
+   with a pixel to spare, so neighbouring rows' halos meet and never cross. That
+   is 35px of hit area against 29px of paint. Chip lands on 37 because its
+   gutter is 8px; the two differ only by the gap they were measured in.
+
+   Horizontally nothing is needed — these chips run 41-88px wide.
+
+   `pointer: coarse` rather than a width breakpoint, and `::after` rather than a
+   bigger box: design-system/src/styles/touch.css says why for both. */
+@media (pointer: coarse) {
+  /* `.filterChip` is already `position: relative` — it carries the gradient
+     fill as its own layer — so the halo needs no extra setup. */
+  .filterChip::after {
+    content: "";
+    position: absolute;
+    inset: -3px 0;
+  }
+}

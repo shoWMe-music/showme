@@ -431,6 +431,13 @@ export function Dashboard() {
             <button
               type="button"
               onClick={() => navigate({ to: "/settlements" })}
+              // Touch: 49x18. This one takes the OVERLAY rather than growing,
+              // because growing it would drag the card's heading row to 44px
+              // and push "Recent settlements" off its own baseline. Measured on
+              // a coarse pointer at 390px, the nearest interactive element to
+              // this button is the first settlement row well over 44px below,
+              // so the halo has the clear space `styles/touch.css` asks for.
+              className="touch-target-overlay"
               style={{
                 background: "transparent",
                 border: 0,

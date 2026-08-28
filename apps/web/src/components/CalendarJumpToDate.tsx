@@ -46,6 +46,11 @@ export function CalendarJumpToDate({ value, onSelect, style }: CalendarJumpToDat
         // `true`: there is no field to type into here, so the grid takes the
         // keyboard as soon as the panel opens.
         onClick={() => picker.togglePopover(true)}
+        // The toolbar owns this trigger's whole appearance (`style`), so it has
+        // to own its touch floor too: `.touch-target` here is what puts the
+        // 36px pill on the same 44px footing as the Today and arrow buttons it
+        // sits between on a coarse pointer.
+        className="touch-target"
         style={style}
       >
         <Icon name="calendar" size={15} />

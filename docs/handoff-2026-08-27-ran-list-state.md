@@ -404,6 +404,50 @@ looks like on a phone, and Daniel has the design prototype. **This is the one
 open question in the mobile pass that is a product call rather than an
 engineering one.**
 
+### Wave 5 — touch, and what the count actually means
+Every remaining sub-44px control on a coarse pointer is now EITHER a documented
+deliberate exemption OR an overlay the measurement cannot see. Verified by
+probing with `hasTouch`/`isMobile` and asserting
+`matchMedia("(pointer: coarse)").matches` before trusting a number:
+
+| Screen | small | what they are |
+|---|---|---|
+| Requests | 7 of 100 controls | design-system `Chip` at 29px — the deliberate 37px halo |
+| Calendar | 33 | 32 day-number buttons (see below) + "Manage rooms", which HAS an overlay |
+| Contacts | 30 | 5 chips + 25 copy buttons carrying the 44×34 halo |
+
+**Zero overflow under a coarse pointer**, all 9 widths × 16 screens — the real
+risk of this wave, since `min-width: 44px` widens things.
+
+**The count is a work list, not a score, and it can never reach zero.** An
+overlay is a `::after`, and `getBoundingClientRect()` cannot see a
+pseudo-element, so a control whose hit area really did grow to 44px stays in the
+count forever. Chasing it to zero would mean growing boxes that should not grow.
+
+**The exemptions worth knowing** (full reasoning in `styles/touch.css`):
+- **The small button inside a big clickable row** — the calendar's 24×24 day
+  number and the invoice ledger's vendor name. These *look* like the worst
+  offenders and are not touch targets at all: each exists so a keyboard has
+  something to focus without nesting a button inside a button, and the finger
+  already has the container. Measured coarse at 360px, the day cell is
+  **47×104** and a tap in its empty middle opens that day's menu. Growing the
+  inner button would only steal taps from the event chips stacked under it.
+- **The month grid's event chips** (34×20) — seven columns of a phone leave 31px
+  of content width, so the chip is an ellipsis at any height. That grid needs a
+  day agenda on a phone, which is a design answer; Day and Week views already
+  are that route.
+- **`RemovableChip`'s ×** (13×13 in a 25px pill) — an overlay would reach the
+  next pill in a wrapping strip, on a control whose whole job is deletion.
+- **Inline dates and URLs** — positioned by the flow of surrounding text, which
+  is the exemption WCAG 2.5.8 grants explicitly.
+
+**A probe can lie the same way a suite can.** A first pass reported Requests at
+49; the real figure is 7. The probe measured immediately after a viewport resize
+with only a double-rAF, so it read a layout mid-reflow — the identical "wait for
+stable geometry" trap that wave 3 hit with modal motion. Poll until two
+consecutive identical readings, and wait for the DATA, not just the shell: an
+earlier attempt reported 7-of-7 because the list had not rendered at all.
+
 ### Known gaps — still open
 1. **DataTable's pager** left at 30px deliberately: overlays would overlap by
    10px, and spacing them to real 44px targets makes a 9-page pager 508px wide

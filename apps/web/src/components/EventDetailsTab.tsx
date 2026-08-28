@@ -735,6 +735,9 @@ function TicketInformationCard({
           onClick={() =>
             onSave([...tiers, { id: `tier-${Date.now()}`, name: "", price: 0, max: 0, est: 0 }])
           }
+          // Touch: 33px tall and alone under the ticket-tier list, so it simply
+          // grows — an overlay would hang 6px over the last tier's own fields.
+          className="touch-target"
           style={{
             marginTop: 12,
             display: "inline-flex",

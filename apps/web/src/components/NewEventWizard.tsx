@@ -766,6 +766,12 @@ export function NewEventWizard({
             type="button"
             aria-label="Close"
             onClick={close}
+            // Touch: 34px square. The wizard draws its own panel rather than
+            // using the shared `Modal` shell, so it missed the overlay that
+            // shell's close button already carries. It grows instead of taking
+            // one: it sits in the panel's top-right corner, where half of a
+            // 44px halo would hang outside the panel entirely.
+            className="touch-target"
             style={{
               width: 34,
               height: 34,
@@ -1586,6 +1592,12 @@ function MiniToggle({ checked, onChange }: { checked: boolean; onChange: () => v
       role="switch"
       aria-checked={checked}
       onClick={onChange}
+      // Touch: 42x24, and 44 in both directions would double the height of a
+      // switch that is supposed to read as a small one — the same call the
+      // design system's `Toggle` makes, with the same utility. It sits alone at
+      // the right end of a bordered row whose only other content is its label,
+      // so the halo has nothing to steal.
+      className="touch-target-overlay"
       style={{
         width: 42,
         height: 24,

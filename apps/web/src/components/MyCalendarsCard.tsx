@@ -79,8 +79,19 @@ export function MyCalendarsCard({ groups, periodTitle, onManageRooms }: MyCalend
       <button
         type="button"
         onClick={onManageRooms}
+        // Touch: 324x19. The overlay rather than growth — this is the last line
+        // of a card, and a 44px-tall link would put 25px of dead space between
+        // it and the paragraph it follows. Nothing else in the card is
+        // interactive, so the halo cannot steal anyone's tap.
+        className="touch-target-overlay"
         style={{
           all: "unset",
+          // `all: unset` is an inline declaration, so it beats the utility's
+          // own `position: relative` and would leave the ::after positioning
+          // against some ancestor instead of this button. Restoring it here is
+          // what keeps the halo centred on the link. (The pseudo-element itself
+          // is untouched by `all`.)
+          position: "relative",
           cursor: "pointer",
           display: "inline-flex",
           alignItems: "center",

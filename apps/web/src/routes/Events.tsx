@@ -11,6 +11,7 @@ import { useEventArchive } from "../hooks/useEventArchive";
 import { type EventFilterKey, type EventItem, useEventList } from "../hooks/useEventList";
 import { useEventsViewMotion } from "../hooks/useEventsViewMotion";
 import { useNewEvent } from "../shell/NewEventProvider";
+import styles from "./Events.module.css";
 
 /** Status colour + label map — ported verbatim from the prototype's EVMETA so
  * the pills overlay the design exactly. */
@@ -283,6 +284,10 @@ function FilterChip({
       type="button"
       aria-pressed={active}
       onClick={onSelect}
+      // Touch: 29px tall in a strip that wraps on a phone. The halo is capped at
+      // half this strip's gutter rather than taking the full 44px — the
+      // reasoning is written out in Events.module.css.
+      className={styles.filterChip}
       style={{
         position: "relative",
         padding: "6px 13px",
@@ -347,6 +352,11 @@ function ViewToggle({
             type="button"
             aria-pressed={active}
             onClick={() => onChange(option.key)}
+            // Touch: 28px tall, and the two segments sit 4px apart inside one
+            // pill — an overlay would reach 8px into the other option. Growing
+            // is safe and puts the pill on the same 44px line as the New event
+            // button beside it.
+            className="touch-target"
             style={{
               padding: "6px 16px",
               borderRadius: 999,

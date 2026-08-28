@@ -119,6 +119,13 @@ export function EventRowMenu({ items, label, nested = false }: EventRowMenuProps
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={popover.open}
+        // Touch: 28px square. An overlay is the wrong tool here even though
+        // nothing interactive sits within 44px of it — the row BEHIND this
+        // trigger is itself a stretched button, and a transparent halo hanging
+        // over it is precisely the "wrong thing fires" case. Growth keeps the
+        // trigger a real box in its own `position: relative` wrapper, which
+        // already paints above the row and takes its own clicks.
+        className="touch-target"
         onClick={(clickEvent) => {
           // The row behind the trigger navigates into the event on click.
           clickEvent.stopPropagation();

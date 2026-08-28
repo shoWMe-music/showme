@@ -161,6 +161,12 @@ export function AvailabilityShareModal({
                   type="button"
                   aria-pressed={active}
                   onClick={() => onToggleWeekday?.(index)}
+                  // Touch: 28px tall, seven of them 6px apart in a wrapping row
+                  // — a 44px halo would reach 8px into the neighbouring day and
+                  // block Saturday when the reader meant Friday. They grow: the
+                  // row is a `flex-wrap` strip with nothing under it, so the
+                  // extra height simply pushes the section below down.
+                  className="touch-target"
                   style={{
                     padding: "6px 12px",
                     borderRadius: 999,
@@ -222,6 +228,11 @@ export function AvailabilityShareModal({
             <button
               type="button"
               onClick={onCopyDates}
+              // Touch: 85x16, alone at the end of the date list with the panel's
+              // own padding under it — the clear space an overlay needs, and
+              // growing it would put 28px of nothing between the dates and the
+              // action that copies them.
+              className="touch-target-overlay"
               style={{
                 alignSelf: "flex-end",
                 display: "inline-flex",

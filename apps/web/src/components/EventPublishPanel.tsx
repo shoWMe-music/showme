@@ -376,6 +376,10 @@ function LinkAction({
       onFocus={() => setHovered(true)}
       onBlur={() => setHovered(false)}
       title={label}
+      // Touch: 42px tall — two pixels short, because it stretches to a field
+      // that is 42 tall. Growing it lifts the field with it, which is the right
+      // outcome; an overlay would hang over the URL link beside it.
+      className="touch-target"
       style={{
         display: "inline-flex",
         alignItems: "center",

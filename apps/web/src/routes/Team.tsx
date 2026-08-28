@@ -494,6 +494,7 @@ export function Team() {
           aria-label="List view"
           aria-pressed={viewMode === "list"}
           onClick={() => setViewMode("list")}
+          className="touch-target"
           style={toggleButtonStyle(viewMode === "list")}
         >
           <ListIcon />
@@ -503,6 +504,7 @@ export function Team() {
           aria-label="Grid view"
           aria-pressed={viewMode === "grid"}
           onClick={() => setViewMode("grid")}
+          className="touch-target"
           style={toggleButtonStyle(viewMode === "grid")}
         >
           <Icon name="grid" size={16} />
@@ -560,7 +562,12 @@ export function Team() {
             }}
           >
             <Eyebrow>Groups</Eyebrow>
-            <button type="button" onClick={openCreateGroup} style={newGroupButtonStyle}>
+            <button
+              type="button"
+              onClick={openCreateGroup}
+              className="touch-target"
+              style={newGroupButtonStyle}
+            >
               <Icon name="plus" size={14} />
               New group
             </button>
@@ -783,6 +790,7 @@ function MemberRow({
             setOpenUpward(rect.bottom + estimatedMenuHeight(menuItems) > window.innerHeight);
             onToggleMenu();
           }}
+          className="touch-target"
           style={menuButtonStyle}
         >
           <Icon name="dots-vertical" size={16} />

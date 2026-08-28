@@ -74,6 +74,7 @@ export function MiniMonthCalendar({
           aria-label="Previous month"
           onClick={() => onNavigate?.(-1)}
           tabIndex={focusedDay ? -1 : undefined}
+          className="touch-target"
           style={navButtonStyle}
         >
           <Icon name="chevron-right" size={16} style={{ transform: "rotate(180deg)" }} />
@@ -89,6 +90,7 @@ export function MiniMonthCalendar({
           aria-label="Next month"
           onClick={() => onNavigate?.(1)}
           tabIndex={focusedDay ? -1 : undefined}
+          className="touch-target"
           style={navButtonStyle}
         >
           <Icon name="chevron-right" size={16} />
@@ -166,6 +168,10 @@ export function MiniMonthCalendar({
   );
 }
 
+/* Touch: 28px squares at the two ends of a `space-between` header row with the
+   month name between them, so growing them to 44 costs the title nothing and
+   cannot reach a neighbour. The day cells below need nothing: `aspect-ratio: 1`
+   over seven columns of this card makes them 44px square already. */
 const navButtonStyle = {
   display: "inline-flex",
   alignItems: "center",

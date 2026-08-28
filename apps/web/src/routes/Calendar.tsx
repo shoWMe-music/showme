@@ -176,6 +176,28 @@ function spannedDayKeys(date: string, endDate: string | null | undefined): strin
   return days;
 }
 
+/*
+ * TOUCH — why every button built from the five helpers below carries
+ * `.touch-target` at its call site.
+ *
+ * This toolbar is the densest cluster of hand-styled controls in the app, and
+ * none of it is sized from `--control-height`, so none of it got the 44px floor
+ * tokens.css hands the Inputs and Selects one row further down: measured on a
+ * coarse pointer at 390px the arrows were 36x36, Today and Jump to date 36 tall,
+ * the five action buttons 36, Create Event 34 and the six segments 32.
+ *
+ * All of them GROW rather than take an overlay. The shortfall is 8-12px, which
+ * is the case `styles/touch.css` says to grow for; and the two clusters that
+ * could not take an overlay anyway are here — the arrows sit 6px from Today, and
+ * the segments 2px from each other, so a 44px halo on either would fire the
+ * neighbour. Growing also lines the row up with the filters under it, which are
+ * already 44px tall on a coarse pointer for exactly the same reason.
+ *
+ * The class works through the inline `style` these helpers return because
+ * `min-height`/`min-width` clamp a computed size whatever the specificity of the
+ * `height` that set it.
+ */
+
 /** A bordered secondary control matching the prototype's toolbar buttons. */
 function toolbarButtonStyle(): React.CSSProperties {
   return {
@@ -659,6 +681,7 @@ export function Calendar() {
             <button
               type="button"
               aria-label={`Previous ${viewNoun}`}
+              className="touch-target"
               style={navSquareStyle()}
               onClick={() => stepView(-1)}
             >
@@ -666,6 +689,7 @@ export function Calendar() {
             </button>
             <button
               type="button"
+              className="touch-target"
               style={navPillStyle()}
               onClick={() => goToDay(dayKey(new Date()))}
             >
@@ -674,6 +698,7 @@ export function Calendar() {
             <button
               type="button"
               aria-label={`Next ${viewNoun}`}
+              className="touch-target"
               style={navSquareStyle()}
               onClick={() => stepView(1)}
             >
@@ -694,6 +719,7 @@ export function Calendar() {
                 type="button"
                 role="tab"
                 aria-selected={view === option.value}
+                className="touch-target"
                 style={segmentButtonStyle(view === option.value, 600)}
                 onClick={() => setView(option.value)}
               >
@@ -708,6 +734,7 @@ export function Calendar() {
                 type="button"
                 role="tab"
                 aria-selected={labelMode === option.value}
+                className="touch-target"
                 style={segmentButtonStyle(labelMode === option.value, 500)}
                 onClick={() => setLabelMode(option.value)}
               >
@@ -734,6 +761,7 @@ export function Calendar() {
               <>
                 <button
                   type="button"
+                  className="touch-target"
                   style={{ ...toolbarButtonStyle(), ...markingActiveStyle() }}
                   onClick={markUnavailable.finishMarking}
                 >
@@ -742,6 +770,7 @@ export function Calendar() {
                 </button>
                 <button
                   type="button"
+                  className="touch-target"
                   style={toolbarButtonStyle()}
                   onClick={markUnavailable.cancelMarking}
                 >
@@ -756,6 +785,7 @@ export function Calendar() {
             ) : (
               <button
                 type="button"
+                className="touch-target"
                 style={{
                   ...toolbarButtonStyle(),
                   // A custom-styled button shows nothing of `disabled` on its
@@ -774,12 +804,18 @@ export function Calendar() {
                 Mark Unavailable
               </button>
             ))}
-          <button type="button" style={toolbarButtonStyle()} onClick={() => setShareOpen(true)}>
+          <button
+            type="button"
+            className="touch-target"
+            style={toolbarButtonStyle()}
+            onClick={() => setShareOpen(true)}
+          >
             <Icon name="share" size={15} />
             Check &amp; Share Availability
           </button>
           <button
             type="button"
+            className="touch-target"
             style={toolbarButtonStyle()}
             title={`Download ${periodTitle} as an .ics file`}
             onClick={exportIcs}
@@ -789,6 +825,7 @@ export function Calendar() {
           </button>
           <button
             type="button"
+            className="touch-target"
             style={toolbarButtonStyle()}
             title="Read an .ics file into your calendar"
             // The stub that used to sit here said an imported entry had nowhere
@@ -802,7 +839,12 @@ export function Calendar() {
             Import
           </button>
           {canCreateEvent && (
-            <button type="button" style={primaryButtonStyle()} onClick={() => openNewEvent()}>
+            <button
+              type="button"
+              className="touch-target"
+              style={primaryButtonStyle()}
+              onClick={() => openNewEvent()}
+            >
               <Icon name="plus" size={15} />
               Create Event
             </button>

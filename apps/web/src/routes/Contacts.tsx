@@ -22,6 +22,7 @@ import { ErrorState, LoadingState } from "../components/states";
 import { type Contact, exportContactsCsv, firstContactPerson } from "../hooks/useContactsCsv";
 import { errorMessage } from "../lib/errors";
 import { type ClipboardCopier, useCopyToClipboard } from "../lib/useCopyToClipboard";
+import styles from "./Contacts.module.css";
 
 type ViewMode = "grid" | "list";
 
@@ -115,6 +116,10 @@ function CardField({
             aria-label={justCopied ? `${label} copied` : `Copy ${label.toLowerCase()}`}
             title={`Copy ${label.toLowerCase()}`}
             onClick={() => copier.copy(value, label)}
+            // Touch: 22x22, stacked 34px apart. Neither shared utility fits —
+            // the reasoning, and the 44x34 halo this class draws instead, are
+            // written out in Contacts.module.css.
+            className={styles.copyButton}
             style={{
               display: "inline-flex",
               alignItems: "center",

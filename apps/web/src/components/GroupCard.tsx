@@ -35,7 +35,13 @@ export function GroupCard({
         <span style={{ width: 10, height: 10, borderRadius: "50%", background: color }} />
         <span style={{ flex: 1, color: "var(--text)", fontWeight: 600 }}>{name}</span>
         {onEdit && (
-          <button type="button" aria-label="Edit group" onClick={onEdit} style={iconButtonStyle}>
+          <button
+            type="button"
+            aria-label="Edit group"
+            onClick={onEdit}
+            className="touch-target"
+            style={iconButtonStyle}
+          >
             <Icon name="settings" size={14} />
           </button>
         )}
@@ -44,6 +50,7 @@ export function GroupCard({
             type="button"
             aria-label="Remove group"
             onClick={onRemove}
+            className="touch-target"
             style={iconButtonStyle}
           >
             <Icon name="x" size={14} />
@@ -77,6 +84,12 @@ export function GroupCard({
   );
 }
 
+/* Touch: these two are 24px squares 8px apart, so an overlay on either would
+   reach 8px into the other and REMOVE a group the reader meant to rename — the
+   exact failure `styles/touch.css` warns about. They grow instead
+   (`.touch-target` on each button): the header row is a flex line with a
+   `flex: 1` name beside them, so the extra 20px each comes out of the name's
+   slack rather than widening the card. */
 const iconButtonStyle = {
   display: "inline-flex",
   alignItems: "center",

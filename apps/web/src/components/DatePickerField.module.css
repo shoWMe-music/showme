@@ -56,3 +56,27 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ── Touch: a reasoned partial, not the 44px floor ──
+   The trigger is a 22x24 glyph pinned inside the input, and on a coarse pointer
+   that input is exactly 44px tall (tokens.css raises `--control-height`). So
+   there is no room for 44 in either direction: 44 tall would climb over the
+   label sitting above the field, and 44 wide would swallow the right-hand 44px
+   of the value the reader taps to type into.
+
+   Instead the box grows around its EXISTING centre and stops at the field's own
+   edges. That centre is 16px in from the right (`right: 5` + half of 22) and
+   20px up from the bottom (`bottom: 8` + half of 24), so `right/bottom: 0` with
+   32x40 puts the glyph back on precisely the same pixel — not one painted pixel
+   moves — while the hit area goes from 528px² to 1280px², two and a half times
+   bigger and well past the 24px WCAG 2.5.8 floor.
+
+   `pointer: coarse`, never a width: see design-system/src/styles/touch.css. */
+@media (pointer: coarse) {
+  .trigger {
+    right: 0;
+    bottom: 0;
+    width: 32px;
+    height: 40px;
+  }
+}

@@ -375,6 +375,11 @@ function RequestsByDate({
                   key={request.id}
                   type="button"
                   onClick={() => onSelectDay(key)}
+                  // Touch: these rows are 28px tall and stacked 6px apart, so a
+                  // 44px halo on one would cover 8px of the row above and jump
+                  // the reader to the wrong date. Growing the row itself is
+                  // both safe and what a list of dates wants on a phone.
+                  className="touch-target"
                   style={{
                     display: "flex",
                     alignItems: "center",

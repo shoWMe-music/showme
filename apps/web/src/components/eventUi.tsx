@@ -162,6 +162,12 @@ export function GradientButton({
       type={type}
       onClick={onClick}
       disabled={disabled}
+      // Touch: 34px tall from its padding. This is the primary action on the
+      // Events header and inside the new-event wizard, so it grows rather than
+      // takes an overlay — a transparent halo over a page header would reach
+      // the controls beside it, and 44px is what the Buttons and Selects on the
+      // same row are already at on a coarse pointer.
+      className="touch-target"
       style={{
         display: "inline-flex",
         alignItems: "center",

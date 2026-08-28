@@ -222,6 +222,11 @@ export function EventDetail() {
           <button
             type="button"
             onClick={() => navigate({ to: "/events" })}
+            // Touch: 50x18. An overlay: the breadcrumb is a line of text and
+            // growing it to 44px would set the crumb apart from the title it
+            // names. The only things near it are the calendar glyph and the "/"
+            // separator, neither of which is interactive.
+            className="touch-target-overlay"
             style={{
               background: "transparent",
               border: 0,

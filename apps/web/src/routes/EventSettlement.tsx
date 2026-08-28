@@ -99,6 +99,10 @@ export function EventSettlement() {
         <Link
           to="/events/$eventId"
           params={{ eventId }}
+          // Touch: 98x20. An overlay, not growth: this link sits alone above the
+          // page title with nothing interactive within 44px of it, and growing
+          // it would open a 24px gap under the header it belongs to.
+          className="touch-target-overlay"
           style={{
             display: "inline-flex",
             alignItems: "center",

@@ -52,6 +52,37 @@
        pager 508px wide, which is wider than the phone it is meant to help.
        Deliberately left at 30px until the pager itself is redesigned for narrow
        screens — a small target that works beats a large one that overflows.
+
+     · THE SMALL BUTTON INSIDE A BIG CLICKABLE ROW, of which this app has two
+       families: the calendar month grid's 24x24 day number, and the invoice
+       ledger's vendor name. Both look like the worst offenders in the audit and
+       neither is a touch target at all. Each sits inside a container that
+       carries the SAME click, and each says so in its own comment: "the cell's
+       keyboard equivalent", "the row's keyboard equivalent". They exist so a
+       keyboard has something to focus without nesting a button inside a button.
+       The finger already has the container — measured on a coarse pointer at
+       360px, the month grid's day cell is 47x104 and a tap in its empty middle
+       opens that day's menu. Growing the inner button to 44 would only take
+       taps away from the event chips stacked under it in the same cell.
+
+     · The month grid's event chips (34x20 at 390px). Seven columns of a phone
+       leave 31px of content width, so the chip is an ellipsis at any height, and
+       the 3px between two of them rules out an overlay. What that grid needs on
+       a phone is a day agenda instead of a seven-column table — a design answer,
+       not a hit-area one — and the Day and Week views are already that route.
+
+     · `RemovableChip`'s × (13x13, eventUi.tsx). It lives inside a 25px pill,
+       8px from the label it removes; there is no room for 44 in either
+       direction without growing the pill itself, and an overlay would reach the
+       next pill in a wrapping strip — on a control whose whole job is deletion,
+       which is the worst place to fire the wrong one. Left alone until the pill
+       gets a phone treatment of its own.
+
+     · Dates and URLs rendered as links inside a line of text (`DateText`, the
+       public event URL, the settlement header's dates). Their position is
+       determined by the flow of the text around them, which is the exemption
+       WCAG 2.5.8 grants explicitly; growing them would break the line box they
+       sit in and a 44px halo would cover the row above.
    ========================================================================== */
 
 @media (pointer: coarse) {
