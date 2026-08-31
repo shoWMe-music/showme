@@ -1,6 +1,7 @@
 import fastifyCors, { type FastifyCorsOptions } from "@fastify/cors";
 import fastifySwagger from "@fastify/swagger";
 import type { Database } from "@showme/db";
+import type { EmailSink } from "@showme/shared";
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import {
   type ZodTypeProvider,
@@ -12,7 +13,7 @@ import type { TokenVerifier } from "./auth/token-verifier";
 import { HttpError } from "./errors";
 import type { CalendarIntegration } from "./lib/calendar-integration";
 import { type LeadSink, createNoopLeadSink } from "./lib/clickup";
-import { type EmailSink, createNoopEmailSink } from "./lib/email";
+import { createNoopEmailSink } from "./lib/email";
 import type { Geocoder } from "./lib/geocode";
 import { type StorageSigner, defaultStorageSigner } from "./lib/storage";
 import { loggerOptions } from "./logging";

@@ -1,6 +1,8 @@
 import { Button, Icon } from "@showme/design-system";
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import { ImageCropDialog } from "./ImageCropDialog";
 import { FieldLabel } from "./ProfileLinkListField";
+import { CROP_SHAPES } from "./useImageCropper";
 import { PROFILE_IMAGE_ACCEPT } from "./useProfileImageUpload";
 
 export interface ProfileImageFieldProps {
@@ -12,6 +14,7 @@ export interface ProfileImageFieldProps {
   shape: "avatar" | "banner";
   isUploading: boolean;
   disabled?: boolean;
+  /** The CROPPED file — the picker never hands the parent a raw pick. */
   onPick(file: File): void;
   onRemove(): void;
 }
@@ -24,12 +27,18 @@ export interface ProfileImageFieldProps {
  * hosting somewhere else, which for most of them means they had no way to put a
  * face on their profile at all.
  *
- * Presentational by the review gate's rule — it holds no state and fetches
- * nothing. The upload lives in `useProfileImageUpload`; this takes a URL to draw
- * and emits "the owner picked this file" / "the owner took it off".
+ * Presentational by the review gate's rule — it fetches nothing and derives
+ * nothing. The upload lives in `useProfileImageUpload` and the crop arithmetic
+ * in `useImageCropper`; this takes a URL to draw and emits "the owner chose this
+ * picture" / "the owner took it off".
  *
  * The empty state is a bordered, clickable placeholder rather than nothing:
  * STYLE-GUIDE §7 — an empty value is not a reason for an invisible control.
+ *
+ * Its ONE piece of state is the picked-but-not-yet-cropped file,
+ * because the crop dialog sits BETWEEN the file input this component owns and
+ * the `onPick` it emits. The parent never sees the raw pick — it is handed the
+ * cropped file or nothing, so no caller can accidentally upload the original.
  */
 export function ProfileImageField({
   label,
@@ -42,6 +51,9 @@ export function ProfileImageField({
   onRemove,
 }: ProfileImageFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  // Picked, awaiting a crop. Cleared either way — cancelling must not leave a
+  // file the next pick would have to fight with.
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -107,7 +119,21 @@ export function ProfileImageField({
           const picked = changed.target.files?.[0];
           // Reset the input so picking the SAME file twice still fires a change.
           changed.target.value = "";
-          if (picked) onPick(picked);
+          if (picked) setPendingFile(picked);
+        }}
+      />
+
+      {/* The crop stage. The frame is the shape this picture is USED at — a
+          circle for the avatar, a wide strip for the banner — so the owner
+          chooses the same rectangle CSS would otherwise have chosen for them. */}
+      <ImageCropDialog
+        file={pendingFile}
+        shape={CROP_SHAPES[shape]}
+        title={label}
+        onCancel={() => setPendingFile(null)}
+        onConfirm={(cropped) => {
+          setPendingFile(null);
+          onPick(cropped);
         }}
       />
     </div>

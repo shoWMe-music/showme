@@ -219,6 +219,9 @@ export interface CrewMember {
   id: string;
   name: string;
   initials: string;
+  /** The crew member's profile picture, straight off the roster. Nullable: an
+   * off-platform hand added by name has no profile behind them. */
+  avatarUrl: string | null;
   role: string;
 }
 

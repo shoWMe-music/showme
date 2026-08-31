@@ -78,6 +78,8 @@ export {
 } from "@/components/atoms/NumberField/useNumberField";
 export { Select } from "@/components/atoms/Select/Select";
 export type { SelectProps, SelectOption } from "@/components/atoms/Select/Select";
+export { TagInput } from "@/components/atoms/TagInput/TagInput";
+export type { TagInputProps } from "@/components/atoms/TagInput/TagInput";
 
 export { Stepper } from "@/components/molecules/Stepper/Stepper";
 export type { StepperProps } from "@/components/molecules/Stepper/Stepper";

@@ -305,7 +305,7 @@ function TeamPanel() {
  * One switch per category per channel, saved the moment it moves.
  *
  * The CATEGORIES AND THEIR COPY COME FROM THE API, deliberately — they are a
- * product decision that lives next to the code honouring them (`lib/notify.ts`),
+ * product decision that lives next to the code honouring them (`@showme/db/notify`),
  * and a second list here would be free to offer a switch for something nothing
  * emits, or hide one for something that does.
  */

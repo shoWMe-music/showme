@@ -287,8 +287,8 @@ function OperatorOnlyReports({ children }: { children: ReactNode }) {
   return (
     <EmptyState
       icon={<Icon name="trending-up" />}
-      title="This roll-up belongs to the host"
-      description="It collects the setlists across the shows you host. A performer writes their own setlist on the event itself."
+      title="This roll-up belongs to the operator"
+      description="It collects the setlists across the shows you operate. A performer writes their own setlist on the event itself."
     />
   );
 }

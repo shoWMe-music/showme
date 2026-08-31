@@ -1,5 +1,6 @@
 import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
+import { messageRecipients } from "@showme/db/notify";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -11,7 +12,6 @@ import {
   threadReaderParticipantIds,
   visibleThreads,
 } from "./lib/message-threads";
-import { messageRecipients } from "./lib/notify";
 import { messageRoutes } from "./routes/messages";
 import { buildTestApp } from "./testing";
 

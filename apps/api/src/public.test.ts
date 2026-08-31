@@ -109,7 +109,6 @@ describe("public profiles", () => {
       avatarUrl: "https://cdn/a.png",
       bannerUrl: "https://cdn/b.png",
       genres: [],
-      setups: [],
       socialLinks: [],
       photos: [],
       videos: [],

@@ -12,6 +12,8 @@ export type PostApiV1EventsIdParticipants201 = {
   name: string | null;
   /** @nullable */
   avatarUrl: string | null;
+  /** @nullable */
+  publicSlug: string | null;
   role: string;
   status: string;
   /** @nullable */

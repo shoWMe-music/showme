@@ -1,13 +1,13 @@
 import { schema } from "@showme/db";
-import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
-import type { ZodTypeProvider } from "fastify-type-provider-zod";
-import { z } from "zod";
 import {
   NOTIFICATION_CATEGORIES,
   NOTIFICATION_CATEGORY_KEYS,
   notificationChannelDefault,
-} from "../lib/notify";
+} from "@showme/db/notify";
+import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import type { FastifyInstance } from "fastify";
+import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import { z } from "zod";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
 
 /** Keyset cursor over the `(created_at, id)` order — opaque to the client. */
@@ -49,7 +49,7 @@ const MarkReadResponse = z.object({ updated: z.number() });
  * One switchable category, LABEL AND ALL.
  *
  * The copy travels with the state on purpose. The catalog and its defaults are a
- * product decision that lives in `lib/notify.ts` beside the code that honours it;
+ * product decision that lives in `@showme/db/notify` beside the code that honours it;
  * a second copy in the web app would be free to disagree with it, and the way it
  * would disagree is a screen offering a switch for something nothing emits, or
  * hiding one for something that does. The client renders what it is given.

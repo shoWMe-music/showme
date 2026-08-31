@@ -74,7 +74,7 @@ export function EventSettlementTab({ eventId, currency, capabilities }: EventSet
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           {/* "No settlement rows" and "no settlement row FOR YOU" are different
               facts, and this line used to conflate them: `ownParty` is null for
-              everyone — the host included — until somebody runs the reconcile,
+              everyone — the operator included — until somebody runs the reconcile,
               so an unreconciled event told its own operator they had no stake in
               it. The payload is already party-scoped, so an empty `parties` can
               only mean nothing has been computed yet. */}

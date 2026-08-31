@@ -17,11 +17,17 @@ import {
   Modal,
   SectionHeader,
   Select,
+  TagInput,
   TextField,
   Toggle,
   useToast,
 } from "@showme/design-system";
-import { COUNTRY_CODES, isPlaceProfile, profileTypesForKind } from "@showme/shared";
+import {
+  COUNTRY_CODES,
+  isPlaceProfile,
+  profileTypeLabel,
+  profileTypesForKind,
+} from "@showme/shared";
 import { type FormEvent, useEffect, useState } from "react";
 import { SegmentedToggle } from "../components";
 import { AddressAutocompleteField } from "../components/AddressAutocompleteField";
@@ -45,6 +51,7 @@ import { ErrorState, LoadingState } from "../components/states";
 import { useProfileImageUpload } from "../components/useProfileImageUpload";
 import { getActiveProfileId, setActiveProfileId } from "../lib/activeProfile";
 import { errorMessage } from "../lib/errors";
+import { publicProfileUrl } from "../lib/publicSite";
 
 type Profile = Awaited<ReturnType<typeof getApiV1Profiles>>[number];
 type ProfileDetail = Awaited<ReturnType<typeof getApiV1ProfilesId>>;
@@ -65,13 +72,11 @@ type ViewMode = "edit" | "preview";
 
 const CHIP_TONES: AvatarTone[] = ["brand", "green", "blue", "purple", "amber"];
 
-function capitalize(value: string): string {
-  return value.replace(/^\w/, (character) => character.toUpperCase());
-}
-
-/** Chip subtitle / role label — the granular type wins, else the account kind. */
+/** Chip subtitle / role label — the granular type wins, else the account kind.
+ * `profileTypeLabel` de-slugifies whatever it does not recognise, which is how
+ * `team_and_crew` reads as "Team And Crew" rather than "Team_and_crew". */
 function typeLabel(profile: Pick<Profile, "kind" | "type">): string {
-  return capitalize(profile.type ?? profile.kind);
+  return profileTypeLabel(profile.type ?? profile.kind);
 }
 
 function initialsOf(name: string): string {
@@ -201,55 +206,95 @@ export function Profiles() {
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "stretch" }}>
             {list.map((profile, index) => {
               const active = profile.id === selectedId;
+              // Only a PUBLISHED profile has a page to open. An unpublished one
+              // gets no link at all rather than a link to a 404 — and this is the
+              // one screen that knows both facts, because `GET /profiles` is the
+              // only payload carrying `slug` AND `isPublic` beside the picture.
+              const publicHref =
+                profile.isPublic && profile.slug ? publicProfileUrl(profile.slug) : null;
               return (
-                <button
+                // The chip is a wrapper, not the button. The link CANNOT go
+                // inside the selector button — a link nested in a button is
+                // invalid and swallows one of the two actions — so it sits
+                // beside it, sharing the frame. Same shape `PerformerSearch`
+                // already uses for exactly this problem.
+                <div
                   key={profile.id}
-                  type="button"
-                  onClick={() => selectProfile(profile.id)}
-                  aria-pressed={active}
                   style={{
-                    all: "unset",
-                    cursor: "pointer",
                     display: "flex",
-                    alignItems: "center",
-                    gap: 12,
+                    alignItems: "stretch",
                     borderRadius: 16,
                     minWidth: 180,
-                    // Selection reads as an OUTLINE, not a fill — and a QUIET one.
-                    // Same 1px hairline every other card in the app uses, just
-                    // recoloured to the brand; no ring, no halo, no extra weight.
-                    // The strip sits above a page of 1px-bordered cards, so a
-                    // heavier treatment here reads as a different design language
-                    // rather than as "this one is selected".
                     background: "var(--card)",
                     border: `1px solid ${active ? "var(--brand-red)" : "var(--border)"}`,
-                    // No padding compensation needed: the border width never changes,
-                    // so nothing shifts when selection moves.
-                    padding: "12px 16px",
-                    transition:
-                      "border-color .15s var(--ease-out), box-shadow .15s var(--ease-out)",
+                    transition: "border-color .15s var(--ease-out)",
                   }}
                 >
-                  {/* The owner's own picture when they have one — `Avatar`
+                  <button
+                    type="button"
+                    onClick={() => selectProfile(profile.id)}
+                    aria-pressed={active}
+                    style={{
+                      all: "unset",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      borderRadius: 16,
+                      flex: 1,
+                      minWidth: 0,
+                      // Selection reads as an OUTLINE, not a fill — and a QUIET one.
+                      // Same 1px hairline every other card in the app uses, just
+                      // recoloured to the brand; no ring, no halo, no extra weight.
+                      // The strip sits above a page of 1px-bordered cards, so a
+                      // heavier treatment here reads as a different design language
+                      // rather than as "this one is selected". The border now lives
+                      // on the wrapper, so it can enclose the link too.
+                      // No padding compensation needed: the border width never changes,
+                      // so nothing shifts when selection moves.
+                      padding: "12px 16px",
+                    }}
+                  >
+                    {/* The owner's own picture when they have one — `Avatar`
                       ignores `initials` once `src` is set, so the letters stay
                       as the fallback for a profile with no logo yet. */}
-                  <Avatar
-                    src={profile.avatarUrl ?? undefined}
-                    alt=""
-                    initials={initialsOf(profile.name)}
-                    shape="circle"
-                    size={38}
-                    tone={CHIP_TONES[index % CHIP_TONES.length]}
-                  />
-                  <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.3 }}>
-                    <span style={{ fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
-                      {profile.name}
+                    <Avatar
+                      src={profile.avatarUrl ?? undefined}
+                      alt=""
+                      initials={initialsOf(profile.name)}
+                      shape="circle"
+                      size={38}
+                      tone={CHIP_TONES[index % CHIP_TONES.length]}
+                    />
+                    <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.3 }}>
+                      <span style={{ fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
+                        {profile.name}
+                      </span>
+                      <span style={{ color: "var(--muted)", fontSize: 12.5 }}>
+                        {typeLabel(profile)}
+                      </span>
                     </span>
-                    <span style={{ color: "var(--muted)", fontSize: 12.5 }}>
-                      {typeLabel(profile)}
-                    </span>
-                  </span>
-                </button>
+                  </button>
+                  {publicHref && (
+                    <a
+                      href={publicHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Open ${profile.name}'s public page`}
+                      title="Open public page"
+                      style={{
+                        display: "grid",
+                        placeItems: "center",
+                        flexShrink: 0,
+                        width: 40,
+                        borderRadius: "0 16px 16px 0",
+                        color: "var(--muted)",
+                      }}
+                    >
+                      <Icon name="arrow-right" size={14} />
+                    </a>
+                  )}
+                </div>
               );
             })}
 
@@ -339,7 +384,7 @@ function ProfilePreviewPanel({ profileId, tone }: { profileId: string; tone: Ava
       profile={preview.data.profile}
       comingEvents={preview.data.profile.upcomingShows}
       isPublic={preview.data.isPublic}
-      withheldVenueDetails={preview.data.withheldVenueDetails}
+      withheldDetails={preview.data.withheldDetails}
       tone={tone}
     />
   );
@@ -481,7 +526,7 @@ function ProfileEditor({
   );
   const [city, setCity] = useState(profile.location?.city ?? "");
   const [country, setCountry] = useState(profile.location?.country ?? "");
-  const [genres, setGenres] = useState(initial.genres.join(", "));
+  const [genres, setGenres] = useState<string[]>(initial.genres);
   const [setups, setSetups] = useState<ProfileSetupDraft[]>(initial.setups);
   const [links, setLinks] = useState<ProfileLinkDraft[]>(profile.socialLinks ?? []);
   const [photos, setPhotos] = useState<ProfilePhotoDraft[]>(profile.photos ?? []);
@@ -553,7 +598,7 @@ function ProfileEditor({
     );
     setCity(profile.location?.city ?? "");
     setCountry(profile.location?.country ?? "");
-    setGenres(details.genres.join(", "));
+    setGenres(details.genres);
     setSetups(details.setups);
     setLinks(profile.socialLinks ?? []);
     setPhotos(profile.photos ?? []);
@@ -579,10 +624,6 @@ function ProfileEditor({
       profile.details && typeof profile.details === "object"
         ? (profile.details as Record<string, unknown>)
         : {};
-    const genreList = genres
-      .split(",")
-      .map((genre) => genre.trim())
-      .filter((genre) => genre.length > 0);
     patch.mutate({
       id: profile.id,
       data: {
@@ -607,7 +648,7 @@ function ProfileEditor({
           lat: showsVenueFields ? (coordinates?.lat ?? null) : null,
           lng: showsVenueFields ? (coordinates?.lng ?? null) : null,
         },
-        details: { ...baseDetails, genres: genreList },
+        details: { ...baseDetails, genres },
         // Its own field, not a key we hand-merge into the blob above — the API
         // owns that merge for the same reason it owns `setups`.
         tagline: blankToNull(tagline),
@@ -758,11 +799,19 @@ function ProfileEditor({
           />
         </div>
 
-        <TextField
-          label="Genres (comma-separated)"
+        {/* Pills, not a comma-separated string. The box that used to be here
+            was labelled "Genres (comma-separated)" and `split(",")` on save,
+            which meant nothing showed what was stored, "Live,Club" and
+            "Live, Club" stored differently, and a trailing comma stored an empty
+            genre. `TagInput` keeps pasting a comma list working — that is the
+            habit this replaces — and turns it into pills. */}
+        <TagInput
+          label="Genres"
           value={genres}
+          onChange={setGenres}
           placeholder="e.g. Live, Club, Concert"
-          onChange={(event) => setGenres(event.target.value)}
+          hint="Press Enter or comma after each one."
+          maxTagLength={40}
         />
 
         <hr style={{ border: 0, borderTop: "1px solid var(--border)", margin: "4px 0" }} />

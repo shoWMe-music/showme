@@ -86,7 +86,7 @@ export function EventCollaboratorEditModal({ editor }: { editor: EventCollaborat
           <div style={COLLABORATOR_PANEL_STYLE.fieldGroup}>
             <Eyebrow>Access</Eyebrow>
             <span style={COLLABORATOR_PANEL_STYLE.hint}>
-              They hold full control of this event — the same set the host does. Taking it back
+              They hold full control of this event — the same set the operator does. Taking it back
               isn't something this screen can do: remove them and invite them again at the access
               you want.
             </span>

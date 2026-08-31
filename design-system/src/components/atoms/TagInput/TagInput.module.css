@@ -1,0 +1,152 @@
+.field {
+  display: block;
+}
+
+.label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+/* Same fill, hairline border and 10px radius as TextField / NumberField — the
+   pills live INSIDE that frame, so the control reads as one field rather than a
+   strip of chips that happens to sit above a box.
+
+   `flex-wrap` plus `min-width: 0` on the input is the whole no-sideways-scroll
+   story: a long tag list grows the field downwards, and a single tag longer than
+   the field wraps its own text rather than pushing the frame past the viewport
+   (see `.pillLabel`). */
+.control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 7px 9px;
+  min-height: var(--control-height);
+  border-radius: 10px;
+  border: 1px solid var(--control-border);
+  background: var(--control-surface);
+  color: var(--text);
+  cursor: text;
+  transition: border-color var(--duration-quick);
+}
+.control:focus-within {
+  /* Same 1px border as at rest — only the color changes. */
+  border-color: #ee5746;
+}
+.controlDisabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* The pill. Deliberately the same 999px / hairline / --shape-fill vocabulary as
+   the app's other removable chips, so a genre and an amenity look like the same
+   kind of thing. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 4px 5px 4px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--shape-fill);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+/* No remove button (a disabled field) means no notch to pad for. */
+.pillPlain {
+  padding-right: 11px;
+}
+
+/* `anywhere` rather than `break-word`: a single unbroken token — a pasted URL,
+   somebody's 40-character band name — has no break opportunity for `break-word`
+   to take, so it would overflow the pill and take the page sideways with it.
+   `anywhere` breaks mid-token as a last resort, which is exactly the case. */
+.pillLabel {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.remove {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color var(--duration-quick), background var(--duration-quick);
+}
+.remove:hover {
+  color: var(--text);
+  background: var(--hover-surface);
+}
+
+.input {
+  flex: 1 1 8ch;
+  min-width: 8ch;
+  border: 0;
+  padding: 4px 2px;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+}
+.input::placeholder {
+  color: var(--muted);
+}
+.input:disabled {
+  cursor: not-allowed;
+}
+
+.hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .control,
+  .remove {
+    transition: none;
+  }
+}
+
+/* ── Touch ──
+   NOT `.touch-target-overlay`. styles/touch.css names this exact control family
+   as the case that utility must not have: a 44px halo on an 18px × inside a
+   6px-gapped wrapping strip reaches the NEXT pill, and firing the wrong delete
+   is worse than a small target. (That file's `RemovableChip` note says the same
+   thing about the same shape.)
+
+   So the box grows instead, capped at half the gutter the way `Chip` caps its
+   own: 24px of hit area on the ×, which clears the 24px WCAG 2.5.8 minimum with
+   the neighbours' targets meeting exactly and never crossing. The pill grows
+   with it so the paint stays balanced. Nothing moves on a mouse — the whole
+   block is gated on the pointer, not on a width. */
+@media (pointer: coarse) {
+  .remove {
+    width: 24px;
+    height: 24px;
+  }
+  .pill {
+    padding: 4px 4px 4px 12px;
+  }
+  .pillPlain {
+    padding-right: 12px;
+  }
+}

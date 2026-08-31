@@ -1,11 +1,11 @@
 import { schema } from "@showme/db";
+import { NOTIFICATION_CATEGORY_KEYS, notifyUsers } from "@showme/db/notify";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
+import type { EmailMessage } from "@showme/shared";
 import { and, eq, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
-import type { EmailMessage } from "./lib/email";
-import { NOTIFICATION_CATEGORY_KEYS, notifyUsers } from "./lib/notify";
 import { notificationRoutes } from "./routes/notifications";
 import { buildTestApp } from "./testing";
 
@@ -285,6 +285,53 @@ async function notificationsOf(userId: string) {
     .from(schema.notifications)
     .where(eq(schema.notifications.userId, userId));
 }
+
+describe("the mail path cannot take the bell down with it", () => {
+  it("still writes the in-app row when the EMAIL half's QUERY throws", async () => {
+    await seedUser("mail-throws");
+    // NOT a failing send — `deliverEmail` has always swallowed those per
+    // recipient, so a throwing sink proves nothing and the first version of
+    // this test was vacuous. The unguarded half was `deliverEmail`'s OWN
+    // queries: its preference lookup and its address select. A throw there
+    // aborted `notifyUsers` before a single row was inserted, so a wobble on
+    // the mail path silently cost the user their bell.
+    //
+    // So: fail the FIRST select only. `deliverEmail` runs before the in-app
+    // lookup, so call one belongs to the mail half and everything after it is
+    // the durable half carrying on.
+    let selectCalls = 0;
+    const realDatabase = harness.db as unknown as Record<string, unknown>;
+    const flaky = new Proxy(realDatabase, {
+      get(target, property) {
+        if (property === "select") {
+          return (...args: unknown[]) => {
+            selectCalls += 1;
+            if (selectCalls === 1) throw new Error("connection reset mid-lookup");
+            return (target.select as (...a: unknown[]) => unknown).apply(target, args);
+          };
+        }
+        const value = Reflect.get(target, property);
+        // Bound to the REAL database, not the proxy: drizzle's builders call
+        // back into their own methods, and a `this` of the proxy re-enters this
+        // trap and loses the internals they expect.
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as unknown as typeof harness.db;
+
+    await notifyUsers(
+      flaky,
+      ["mail-throws"],
+      null,
+      { type: "deal.confirmed", title: "the bell must survive" },
+      { sink: recordingEmailSink().sink, message: { subject: "s", html: "<p>h</p>", text: "t" } },
+    );
+
+    expect(selectCalls, "the mail half must have been reached and thrown").toBeGreaterThan(1);
+    const rows = await notificationsOf("mail-throws");
+    expect(rows, "the in-app feed is the durable half and must not depend on mail").toHaveLength(1);
+    expect(rows[0]?.title).toBe("the bell must survive");
+  });
+});
 
 describe("notifyUsers honours the preference", () => {
   it("writes no row at all when the category's in-app channel is off", async () => {

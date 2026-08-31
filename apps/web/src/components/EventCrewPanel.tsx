@@ -126,7 +126,14 @@ export function EventCrewPanel({
                     borderTop: index === 0 ? "none" : "1px solid var(--border)",
                   }}
                 >
-                  <Avatar initials={member.initials} tone="blue" shape="square" size={32} />
+                  <Avatar
+                    src={member.avatarUrl ?? undefined}
+                    alt=""
+                    initials={member.initials}
+                    tone="blue"
+                    shape="square"
+                    size={32}
+                  />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 600, color: "var(--text)", fontSize: 13.5 }}>
                       {member.name}
@@ -278,9 +285,9 @@ function InHousePanel({
             to them. A card that overstated this would be the same bug in a new
             costume. */}
         <p style={{ color: "var(--muted)", fontSize: 12.5, margin: "6px 0 0", lineHeight: 1.55 }}>
-          Call times, notes and assigned work for your own crew. Only you and your co-hosts see this
-          — it is left out of what the performers, their agents and the crew themselves are sent, so
-          a call time here is your plan, not their notification.
+          Call times, notes and assigned work for your own crew. Only you and your co-operators see
+          this — it is left out of what the performers, their agents and the crew themselves are
+          sent, so a call time here is your plan, not their notification.
         </p>
       </SectionCard>
 
@@ -342,7 +349,14 @@ function InHouseCrewCard({
   return (
     <SectionCard>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-        <Avatar initials={member.initials} tone="blue" shape="square" size={32} />
+        <Avatar
+          src={member.avatarUrl ?? undefined}
+          alt=""
+          initials={member.initials}
+          tone="blue"
+          shape="square"
+          size={32}
+        />
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 600, color: "var(--text)", fontSize: 13.5 }}>{member.name}</div>
           <div style={{ color: "var(--muted)", fontSize: 12 }}>{member.role}</div>

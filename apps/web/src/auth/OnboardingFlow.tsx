@@ -1,6 +1,6 @@
 import { postApiV1Profiles } from "@showme/api-client";
 import { Button, Input, SelectCard } from "@showme/design-system";
-import { PROFILE_TYPES_BY_KIND } from "@showme/shared";
+import { PROFILE_TYPES_BY_KIND, profileTypeLabel } from "@showme/shared";
 import gsap from "gsap";
 import {
   type KeyboardEvent,
@@ -100,13 +100,6 @@ interface DraftProfile {
   id: string;
   name: string;
   type: string;
-}
-
-/** The key is what the API stores; this is what a person should read. Falls
- * through for anything unrecognised rather than printing an empty chip. */
-function profileTypeLabel(kind: AccountKind | null, key: string): string {
-  if (!kind) return key;
-  return (PROFILE_TYPES_BY_KIND[kind] ?? []).find((option) => option.key === key)?.label ?? key;
 }
 
 export function OnboardingFlow() {
@@ -366,7 +359,7 @@ export function OnboardingFlow() {
                     <div key={profile.id} style={profileRow}>
                       <span>
                         <b>{profile.name}</b>
-                        {profile.type ? ` · ${profileTypeLabel(activeKind, profile.type)}` : ""}
+                        {profile.type ? ` · ${profileTypeLabel(profile.type)}` : ""}
                       </span>
                       <button type="button" onClick={() => removeProfile(i)} style={ghostText}>
                         Remove
@@ -443,7 +436,7 @@ export function OnboardingFlow() {
                     label={pendingProfiles.length > 1 ? `Profile ${i + 1}` : "Profile"}
                     value={
                       profile.type
-                        ? `${profile.name} · ${profileTypeLabel(activeKind, profile.type)}`
+                        ? `${profile.name} · ${profileTypeLabel(profile.type)}`
                         : profile.name
                     }
                   />

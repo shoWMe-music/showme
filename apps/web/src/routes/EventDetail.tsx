@@ -24,8 +24,9 @@ import {
   type Status,
   TabPanels,
 } from "@showme/design-system";
+import { eventParticipantRoleLabel, humanizeEnumValue } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import {
   BudgetPlanner,
@@ -52,6 +53,7 @@ import { EventDealsTab } from "../components/EventDealsTab";
 import { EventHoldPanel } from "../components/EventHoldPanel";
 import { EventRowMenu } from "../components/EventRowMenu";
 import { EventSettlementTab } from "../components/EventSettlementTab";
+import { ProfileFace } from "../components/ProfileFace";
 import { ShareExportModal } from "../components/ShareExportModal";
 import { budgetPlannerViewFrom } from "../components/budgetPlannerView";
 import {
@@ -76,11 +78,6 @@ type EventInvitation = Awaited<ReturnType<typeof getApiV1EventsIdInvitations>>[n
 type ScheduleItem = Awaited<ReturnType<typeof getApiV1EventsIdSchedule>>[number];
 type Rider = Awaited<ReturnType<typeof getApiV1EventsIdRiders>>[number];
 
-/** Map the API event status onto the display four-stop progression. */
-function statusLabel(raw: string): string {
-  return raw.replace(/_/g, " ").replace(/^\w/, (character) => character.toUpperCase());
-}
-
 function initials(label: string): string {
   const parts = label.trim().split(/\s+/).filter(Boolean);
   const first = parts[0];
@@ -92,14 +89,21 @@ function initials(label: string): string {
 
 /** A participant's display name — real profile name, else its role tag. */
 function participantName(participant: Participant): string {
-  return participant.name ?? participant.performerTag ?? statusLabel(participant.role);
+  return (
+    participant.name ?? participant.performerTag ?? eventParticipantRoleLabel(participant.role)
+  );
 }
 
 export function EventDetail() {
   const { eventId } = useParams({ from: "/events/$eventId" });
+  // Which panel a link asked for (`?tab=budget`). The initial value only —
+  // clicking a tab afterwards moves this state and deliberately does not rewrite
+  // the URL, so the workspace still behaves as one screen rather than pushing a
+  // history entry per tab.
+  const requestedTab = useSearch({ from: "/events/$eventId" }).tab;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState("details");
+  const [tab, setTab] = useState(requestedTab ?? "details");
   const [displayCurrency, setDisplayCurrency] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -170,7 +174,13 @@ export function EventDetail() {
     .filter((party) => party.role === "crew" || party.role === "crew_lead")
     .map((party) => {
       const name = participantName(party);
-      return { id: party.id, name, initials: initials(name), role: statusLabel(party.role) };
+      return {
+        id: party.id,
+        name,
+        initials: initials(name),
+        avatarUrl: party.avatarUrl,
+        role: eventParticipantRoleLabel(party.role),
+      };
     });
 
   const stageIndex = STATUS_STAGE_INDEX[event.status] ?? 0;
@@ -199,6 +209,11 @@ export function EventDetail() {
     { key: "collaborators", label: "Collaborators" },
     { key: "history", label: "Event History" },
   ];
+  // A `?tab=` the reader may not have. "Budget Planner" is drawn only for someone
+  // holding `budget.view`, so a link to it followed by a performer would otherwise
+  // select a panel that renders nothing at all — a blank workspace, which is worse
+  // than the tab they can see.
+  const activeTab = tabs.some((entry) => entry.key === tab) ? tab : "details";
 
   const saveExtras = (next: EventExtras) => {
     patchEvent.mutate({ id: eventId, data: { extras: next, expectedVersion: event.version } });
@@ -292,7 +307,12 @@ export function EventDetail() {
               flexWrap: "wrap",
             }}
           >
-            <IdentityChip initials={initials(performerName)} label={performerName} tone="brand" />
+            <IdentityChip
+              initials={initials(performerName)}
+              label={performerName}
+              avatarUrl={performerParty?.avatarUrl}
+              tone="brand"
+            />
             <span style={{ color: "var(--dim)" }}>·</span>
             <IdentityChip initials={initials(venueLabel)} label={venueLabel} tone="amber" />
             <span style={{ color: "var(--dim)" }}>·</span>
@@ -320,12 +340,12 @@ export function EventDetail() {
               Invite Collaborator
             </Button>
           )}
-          {/* This button existed and printed the page. `EventDetailHeader` has
-              carried an `onShareExport` prop since the header was drawn and
-              NOTHING passed it — the API behind it (create · read · OTP · verify
-              · comment) has been complete the whole time with no door in. This is
-              the door: print is still one of the three ways out, but it is a
-              choice inside the dialog now rather than the whole feature. */}
+          {/* This button existed and printed the page. The share API behind it
+              (create · read · OTP · verify · comment) had been complete the whole
+              time with no door in; this is the door, and print became a choice
+              inside the dialog rather than the whole feature. (The prop that
+              originally carried it lived on `EventDetailHeader`, a component
+              nothing ever rendered — deleted 2026-08-31.) */}
           <Button
             variant="secondary"
             leftIcon={<Icon name="share" size={14} />}
@@ -345,17 +365,17 @@ export function EventDetail() {
       {/* The rail SHOWS where the booking stands. SETTING it is one of the
           event's facts, so it is a row on the Event Information card with the
           rest of them — not a second control above the tabs. */}
-      <EventTabsBar tabs={tabs} value={tab} onChange={setTab} />
+      <EventTabsBar tabs={tabs} value={activeTab} onChange={setTab} />
 
       {/* One wrapper for all nine panels: the content scoots in from whichever
           side the tab moved and cross-fades, instead of flipping while the tab
           bar slides. Nothing inside changes — each panel is still the same bare
-          `{tab === "x" && <X/>}` it always was, and the panel that is not
+          `{activeTab === "x" && <X/>}` it always was, and the panel that is not
           rendered still is not rendered. `order` is the tab array, so the
           direction always agrees with the bar (see `useTabPanelMotion`). */}
       <TabPanels activeKey={tab} order={tabs.map((entry) => entry.key)}>
-        {tab === "todo" && <EventTodoTab eventId={eventId} />}
-        {tab === "budget" && canSeeBudget && (
+        {activeTab === "todo" && <EventTodoTab eventId={eventId} />}
+        {activeTab === "budget" && canSeeBudget && (
           <BudgetTab
             eventId={eventId}
             currency={currency}
@@ -364,7 +384,7 @@ export function EventDetail() {
             performerIdsKey={performerIdsKey}
           />
         )}
-        {tab === "details" && (
+        {activeTab === "details" && (
           <DetailsTab
             event={event}
             operatorName={operatorName}
@@ -374,7 +394,7 @@ export function EventDetail() {
             onSaveExtras={saveExtras}
           />
         )}
-        {tab === "deals" && (
+        {activeTab === "deals" && (
           <EventDealsTab
             eventId={eventId}
             eventTitle={event.title}
@@ -396,7 +416,7 @@ export function EventDetail() {
             canEdit={canEditEvent}
           />
         )}
-        {tab === "crew" && (
+        {activeTab === "crew" && (
           <EventCrewPanel
             eventId={eventId}
             crew={crew}
@@ -409,15 +429,15 @@ export function EventDetail() {
             onInviteCrew={() => openInvite("crew")}
           />
         )}
-        {tab === "settlement" && (
+        {activeTab === "settlement" && (
           <EventSettlementTab
             eventId={eventId}
             currency={event.baseCurrency}
             capabilities={event.capabilities ?? []}
           />
         )}
-        {tab === "messages" && <MessagesTab eventId={eventId} roster={roster} />}
-        {tab === "collaborators" && (
+        {activeTab === "messages" && <MessagesTab eventId={eventId} roster={roster} />}
+        {activeTab === "collaborators" && (
           <CollaboratorsTab
             eventId={eventId}
             hostProfileId={event.hostProfileId}
@@ -434,7 +454,7 @@ export function EventDetail() {
             onInvite={canManageParticipants ? () => openInvite() : undefined}
           />
         )}
-        {tab === "history" && <EventHistoryTab eventId={eventId} />}
+        {activeTab === "history" && <EventHistoryTab eventId={eventId} />}
       </TabPanels>
 
       <ShareExportModal open={shareOpen} onClose={() => setShareOpen(false)} eventId={eventId} />
@@ -469,15 +489,27 @@ function shortCode(id: string): string {
 function IdentityChip({
   initials: text,
   label,
+  avatarUrl,
   tone,
 }: {
   initials: string;
   label: string;
+  /** The performer's own picture when the roster carried one. The venue chip has
+   * none: a venue is named on the event row, not joined as a participant, so
+   * there is no profile behind it to take a face from. */
+  avatarUrl?: string | null;
   tone: "brand" | "amber";
 }) {
   return (
     <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-      <Avatar initials={text} tone={tone} shape="square" size={18} />
+      <Avatar
+        src={avatarUrl ?? undefined}
+        alt=""
+        initials={text}
+        tone={tone}
+        shape="square"
+        size={18}
+      />
       {label}
     </span>
   );
@@ -499,6 +531,7 @@ function performersFrom(roster: Participant[], event: EventDetailData): DetailsP
         id: party.id,
         name,
         initials: initials(name),
+        avatarUrl: party.avatarUrl,
         sub,
         connected: party.status === "confirmed" || party.status === "accepted",
       };
@@ -528,7 +561,7 @@ function DetailsTab({
   const riderRows: DetailsRider[] = (riders.data ?? []).map((rider: Rider) => ({
     id: rider.id,
     name: rider.name,
-    type: statusLabel(rider.type),
+    type: humanizeEnumValue(rider.type),
     description: rider.description,
     // Present only when a document is really attached — `null` is what the API
     // says about a rider that was written down instead of uploaded.
@@ -628,6 +661,21 @@ function BudgetTab({
   const [customFieldKind, setCustomFieldKind] = useState<CustomFieldKind>(null);
   // The cost row whose split is being written, or null when the dialog is closed.
   const [splitTargetKey, setSplitTargetKey] = useState<string | null>(null);
+  // The standing cost headings asked back onto the sheet (`splitCostRows`). View
+  // state, not budget state: a heading with no figure has no row to persist, so
+  // there is nothing here for the editor hook to own or the API to store — the
+  // moment a revealed heading is given a figure it stays by itself.
+  const [revealedCostHeadings, setRevealedCostHeadings] = useState<string[]>([]);
+  // Clearing a standing heading has to take back the reveal as well as the line,
+  // or the row it just deleted comes straight back as a blank one nobody asked
+  // for. A CUSTOM row has no heading to return to, so it only deletes.
+  const removeCost = (key: string) => {
+    const row = editor.costs.find((cost) => cost.key === key);
+    if (row && !row.isCustom) {
+      setRevealedCostHeadings((headings) => headings.filter((label) => label !== row.label));
+    }
+    editor.removeCost(key);
+  };
 
   if (editor.isPending) return <LoadingState label="Loading budget" />;
   if (editor.isError) return <ErrorState error={editor.error} title="Couldn't load the budget" />;
@@ -693,7 +741,9 @@ function BudgetTab({
         onAvgBarSpendChange={editor.changeAverageBarSpend}
         onOtherRevenueChange={editor.changeOtherRevenue}
         onCostChange={editor.changeCost}
-        onRemoveCost={editor.removeCost}
+        onRemoveCost={removeCost}
+        revealedCostHeadings={revealedCostHeadings}
+        onRevealCost={(heading) => setRevealedCostHeadings((headings) => [...headings, heading])}
         onCustomRevenueChange={editor.changeCustomRevenue}
         onRemoveCustomRevenue={editor.removeCustomRevenue}
         onAddCustomField={setCustomFieldKind}
@@ -868,11 +918,28 @@ function CollaboratorsTab({
               style={{ display: "flex", flexDirection: "column", gap: 10 }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-                <Avatar initials={initials(name)} tone={roleTone(party.role)} size={40} />
+                {/* The roster serves `avatarUrl` (`serialize/participant.ts`)
+                    and this card used to throw it away, so a room full of people
+                    who had all uploaded a picture rendered as a grid of initials.
+                    `Avatar` ignores `initials` once `src` is set and falls back
+                    to them when the signed URL expires.
+
+                    The face is a door when there is a page behind it.
+                    `publicSlug` is null unless the profile is PUBLISHED, so an
+                    unpublished act keeps its picture and simply is not a link —
+                    the alternative was a door onto a 404. The card is not itself
+                    clickable, so this nests nothing. */}
+                <ProfileFace
+                  avatarUrl={party.avatarUrl}
+                  publicSlug={party.publicSlug}
+                  name={name}
+                  tone={roleTone(party.role)}
+                  size={40}
+                />
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontWeight: 600, color: "var(--text)", fontSize: 14 }}>{name}</div>
                   <div style={{ color: "var(--muted)", fontSize: 12 }}>
-                    {statusLabel(party.role)}
+                    {eventParticipantRoleLabel(party.role)}
                   </div>
                 </div>
                 {/* The same overflow menu an event row carries, for the same
@@ -922,7 +989,7 @@ function PendingInvitationCard({ invitation }: { invitation: EventInvitation }) 
         <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: 600, color: "var(--text)", fontSize: 14 }}>{label}</div>
           <div style={{ color: "var(--muted)", fontSize: 12 }}>
-            {invitation.role ? statusLabel(invitation.role) : "Collaborator"}
+            {invitation.role ? eventParticipantRoleLabel(invitation.role) : "Collaborator"}
           </div>
         </div>
       </div>
@@ -966,7 +1033,7 @@ const PARTICIPANT_STATUS_LABEL: Record<string, string> = {
 };
 
 function participantStatusLabel(raw: string): string {
-  return PARTICIPANT_STATUS_LABEL[raw] ?? statusLabel(raw);
+  return PARTICIPANT_STATUS_LABEL[raw] ?? humanizeEnumValue(raw);
 }
 
 /**

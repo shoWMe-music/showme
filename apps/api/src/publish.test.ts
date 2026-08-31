@@ -1,8 +1,8 @@
 import type { Database } from "@showme/db";
+import { channelName, publish } from "@showme/db/publish";
 import { type SQL, sql } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
-import { channelName, publish } from "./lib/publish";
 
 /**
  * Unit-level coverage for the realtime publish helper: the channel name matches

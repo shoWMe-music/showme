@@ -99,9 +99,11 @@ export function dealTypeLabel(value: string): string {
  * drives the picker in the app.
  *
  * Vocabulary source: `docs/story.md` § "The account kinds" — operator is
- * "a venue, promoter, organizer, or festival"; performer is "a band, DJ, or solo
- * artist"; team_and_crew is "sound, lighting, catering, security, stage". The
- * agent set comes from `docs/story.md` § Agent plus the seeded `agency` type.
+ * "a venue, promoter, organizer, or festival"; team_and_crew is "sound,
+ * lighting, catering, security, stage". The agent set comes from
+ * `docs/story.md` § Agent plus the seeded `agency` type. story.md's performer
+ * examples ("a band, DJ, or solo artist") are illustrations of the boundary, not
+ * the boundary itself — see the performer list below for why it is wider.
  */
 export const PROFILE_TYPES_BY_KIND: Record<string, readonly AmenityOption[]> = {
   operator: [
@@ -110,10 +112,43 @@ export const PROFILE_TYPES_BY_KIND: Record<string, readonly AmenityOption[]> = {
     { key: "organizer", label: "Event Organizer" },
     { key: "festival", label: "Festival" },
   ],
+  /**
+   * WHO GETS BOOKED ONTO A BILL — not "who makes music".
+   *
+   * This list used to be three music values (`band`, `dj`, `solo_artist`), which
+   * quietly said the product only books music. It does not: story.md's performer
+   * boundary is "the act being booked… receives offers, negotiates their deal,
+   * performs, and gets paid", and every one of a comedian, a theatre company and
+   * a circus act does exactly that on exactly those terms. Nothing downstream
+   * cares which of these it is — the settlement engine, riders and agreements are
+   * all kind-agnostic — so the narrow list was costing us signups and buying
+   * nothing.
+   *
+   * The first three keys are UNCHANGED and stay first: they are stored on real
+   * rows, and music is still the common case. `profiles.type` is free text (not a
+   * Postgres enum) and `isProfileTypeForKind` admits null/empty, so growing this
+   * list needs no migration and cannot invalidate an existing row.
+   *
+   * `other` is deliberate rather than lazy: the picker is a closed `Select` and
+   * the API rejects a value that is not on this list, so without it an act we
+   * did not think of has no way to say what it is at all.
+   */
   performer: [
     { key: "band", label: "Band" },
-    { key: "dj", label: "DJ" },
     { key: "solo_artist", label: "Solo Artist" },
+    { key: "dj", label: "DJ" },
+    { key: "ensemble", label: "Ensemble / Orchestra" },
+    { key: "choir", label: "Choir" },
+    { key: "tribute_act", label: "Tribute Act" },
+    { key: "comedian", label: "Comedian" },
+    { key: "theatre_company", label: "Theatre Company" },
+    { key: "dance_company", label: "Dance Company" },
+    { key: "circus_act", label: "Circus / Variety Act" },
+    { key: "magician", label: "Magician" },
+    { key: "drag_artist", label: "Drag Artist" },
+    { key: "spoken_word", label: "Spoken Word / Poet" },
+    { key: "speaker", label: "Speaker" },
+    { key: "other", label: "Other" },
   ],
   team_and_crew: [
     { key: "sound", label: "Sound" },
@@ -132,6 +167,38 @@ export const PROFILE_TYPES_BY_KIND: Record<string, readonly AmenityOption[]> = {
 /** The types an account of this kind may give a profile; unknown kind → empty. */
 export function profileTypesForKind(kind: string): readonly AmenityOption[] {
   return PROFILE_TYPES_BY_KIND[kind] ?? [];
+}
+
+/** Every type across every kind, keyed by its stored value. The keys are unique
+ * across kinds by construction, which is what lets a label be resolved without
+ * knowing the kind — most render sites have the type and not the kind. */
+const PROFILE_TYPE_LABEL_BY_KEY = new Map(
+  Object.values(PROFILE_TYPES_BY_KIND).flatMap((options) =>
+    options.map((option) => [option.key, option.label] as const),
+  ),
+);
+
+/**
+ * What a person reads for a stored `profiles.type`.
+ *
+ * Four screens were each capitalising the raw key instead
+ * (`type.charAt(0).toUpperCase() + …`), which is fine for `venue` and wrong the
+ * moment a key has an underscore in it — `solo_artist` rendered as
+ * "Solo_artist" in the profile chip strip, and every multi-word performer type
+ * added since would have joined it.
+ *
+ * An unknown value is de-slugified rather than hidden: a row written before this
+ * vocabulary existed still reads as words.
+ */
+export function profileTypeLabel(type: string | null | undefined): string {
+  if (!type) return "";
+  const known = PROFILE_TYPE_LABEL_BY_KEY.get(type);
+  if (known) return known;
+  return type
+    .split(/[_\-\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 /**

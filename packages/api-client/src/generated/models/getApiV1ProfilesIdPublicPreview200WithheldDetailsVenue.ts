@@ -8,7 +8,7 @@
 /**
  * @nullable
  */
-export type GetApiV1ProfilesIdPublicPreview200WithheldVenueDetails = {
+export type GetApiV1ProfilesIdPublicPreview200WithheldDetailsVenue = {
   amenities: string[];
   dealTypes: string[];
   /** @nullable */

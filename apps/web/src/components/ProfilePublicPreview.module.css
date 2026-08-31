@@ -1,0 +1,113 @@
+/* Preview's two media walls — the gallery and the videos.
+   They are here rather than in the component's inline styles because both need a
+   media query, and a media query cannot be written as a style attribute. */
+
+/* THE GALLERY KEEPS EVERY PHOTO'S OWN SHAPE.
+   It used to be a grid forcing `aspect-ratio: 16 / 9` with `object-fit: cover`,
+   which is a crop the uploader never asked for — a portrait shot of a singer came
+   out letterboxed through the middle. Columns give a tall picture a tall tile.
+   `columns: 220px` is a column WIDTH, not a count, so the browser fits as many as
+   the card is wide: three on a desktop, one on a phone, no breakpoint needed.
+   The public page (`apps/marketing/src/styles/profile.css`) draws the same wall
+   the same way — a preview that crops differently from the page it previews is
+   showing the owner a picture nobody else will ever see. */
+.gallery {
+  columns: 220px;
+  column-gap: 12px;
+  margin-top: 12px;
+}
+
+.galleryItem {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin-bottom: 12px;
+  break-inside: avoid;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--shape-fill);
+}
+
+/* THREE TO A ROW, and the first is only bigger when there ARE three.
+   An `auto-fill` grid stretched a lone video across the whole card — one upload,
+   one enormous player. Three fixed columns cap the row; the featured tile takes
+   two of them and two rows, so three videos read as one large and two beside it,
+   which is the arrangement the public page uses. */
+.videos {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.videoTile {
+  position: relative;
+  min-width: 0;
+}
+
+.videoTileFeatured {
+  grid-column: span 2;
+  grid-row: span 2;
+}
+
+/* The way OUT of the embed. Fullscreen already worked; there was no link to the
+   video where it lives, which is what a visitor wants when they mean to
+   subscribe or share. Sits over the player's own top-right corner, clear of the
+   play button. */
+.videoOut {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: 11.5px;
+  text-decoration: none;
+}
+
+.videoOut:hover {
+  border-color: var(--brand-red);
+}
+
+/* A stored link the parser refuses — see the component. Not a player, so it is
+   not in the three-column rhythm; it spans the row and says what it is. */
+.videoUnparsed {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: 13.5px;
+  text-decoration: none;
+  overflow: hidden;
+}
+
+/* ≤ --breakpoint-phone (560px, design-system/src/styles/tokens.css). The literal
+   is repeated because a custom property cannot be used in a media query
+   condition — `@media (max-width: var(--breakpoint-phone))` is invalid CSS and
+   silently never matches.
+
+   One video per row on a phone. Three 16/9 players across a 390px card are 118px
+   wide, which is a thumbnail rather than a video — and the featured tile's
+   `span 2` in a one-column grid would build an implicit second column and push
+   the page sideways, which `apps/web/tests/mobile-audit.spec.ts` asserts against
+   from 360px up. Both spans are reset here, so there is nothing to span into. */
+@media (max-width: 560px) {
+  .videos {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .videoTileFeatured {
+    grid-column: auto;
+    grid-row: auto;
+  }
+}

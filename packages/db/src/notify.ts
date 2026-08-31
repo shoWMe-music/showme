@@ -1,9 +1,29 @@
-import type { Database } from "@showme/db";
-import { schema } from "@showme/db";
+import type { EmailSink, RenderedEmail } from "@showme/shared";
 import { and, eq, inArray, isNotNull, ne } from "drizzle-orm";
-import type { EmailSink } from "./email";
-import type { RenderedEmail } from "./email-templates";
+import type { Database } from "./client";
 import { publish } from "./publish";
+import * as schema from "./schema";
+
+/**
+ * NOTIFICATION DELIVERY — the one implementation, shared by the two apps that
+ * must not drift apart.
+ *
+ * WHY IT LIVES IN `@showme/db` AND NOT `apps/api/src/lib`: the preference gate is
+ * inside `notifyUsers` on purpose, so that "a route cannot forget to honour a
+ * preference, because honouring it is not a thing a route does". `apps/jobs`
+ * emits too — the task-reminder sweep writes the first `task.*` notification this
+ * app has ever sent — and a second copy of the gate there is precisely the drift
+ * that argument exists to prevent: one of the two would eventually stop agreeing
+ * with the settings screen and nobody would find out. `apps/api` and `apps/jobs`
+ * are sibling apps, and this package is the only module both already depend on —
+ * the same argument, and the same home, as `representation-termination.ts`.
+ *
+ * Nothing framework-shaped came with it. The mail it can carry is described by
+ * two interfaces in `@showme/shared` (`EmailSink`, `RenderedEmail`); the copy
+ * that fills them (`apps/api/src/lib/email-templates.ts`) and the Brevo sink that
+ * sends them (`apps/api/src/lib/email.ts`) both stayed in the API, where they
+ * belong.
+ */
 
 /**
  * WHAT A PERSON IS ALLOWED TO HAVE AN OPINION ABOUT.
@@ -192,7 +212,6 @@ async function deliverEmail(
     .where(inArray(schema.users.id, allowed));
 
   for (const row of addresses) {
-    if (!row.email) continue;
     try {
       await email.sink.sendEmail({ to: row.email, ...email.message });
     } catch {
@@ -457,7 +476,19 @@ export async function notifyUsers(
 ): Promise<void> {
   if (recipientUserIds.length === 0) return;
 
-  if (email) await deliverEmail(database, recipientUserIds, notification.type, email);
+  if (email) {
+    // Guarded, because `deliverEmail`'s own QUERIES are not. It swallows a
+    // per-recipient send failure, but a throw from its preference lookup or its
+    // address select would abort this function BEFORE a single `notifications`
+    // row is written — so a wobble on the mail path silently took the bell down
+    // with it, which is exactly what the contract above says cannot happen.
+    try {
+      await deliverEmail(database, recipientUserIds, notification.type, email);
+    } catch {
+      // Best-effort, same as the sends inside it. The in-app feed is the
+      // durable half and carries on regardless.
+    }
+  }
 
   const inAppRecipients = await recipientsAllowing(
     database,
@@ -505,7 +536,10 @@ export async function notifyUsers(
  * is the operator.
  *
  * So this answers, per settlement party: is there a reachable account behind it?
- * `emails` is every verified address that would receive the review mail; empty
+ * `emails` is every account address that would receive the review mail — NOT
+ * "verified", as this said until 2026-08-31: `users` carries no verification
+ * column, so nothing here filters on one and the word promised a check that
+ * does not exist. Empty
  * means the party is off-platform and needs an address assigned before the
  * settlement can reach them.
  *

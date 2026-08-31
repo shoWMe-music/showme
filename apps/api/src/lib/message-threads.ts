@@ -352,7 +352,7 @@ export async function resolveThreadAccess(
  * This has to mirror the read rule, not approximate it. The old recipient rule sent
  * every non-`all` message to the managing operators, which under threads would tell
  * a host that a private sub-hire conversation is happening. The payload carries ids
- * only, so the recipient set IS the protection (`lib/notify.ts`).
+ * only, so the recipient set IS the protection (`@showme/db/notify`).
  *
  * The event room and the back office keep their existing recipient rules — they are
  * unchanged by threading — so `routes/messages.ts` still calls `messageRecipients`

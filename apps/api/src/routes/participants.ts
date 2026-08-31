@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { schema } from "@showme/db";
+import { notifyProfileMembers } from "@showme/db/notify";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -12,7 +13,6 @@ import { requireEventCapability } from "../lib/authorize";
 import { renderOffPlatformPerformerEmail } from "../lib/email-templates";
 import { assertGrantAdminAllows } from "../lib/entitlements";
 import { loadEventSummary } from "../lib/event-summary";
-import { notifyProfileMembers } from "../lib/notify";
 import { createPerformerStub } from "../lib/off-platform";
 import { signProfileImageUrls } from "../lib/profile-media";
 import { withIdempotency } from "../plugins/idempotency";
@@ -63,6 +63,9 @@ const ParticipantResponse = z.object({
   profileId: z.string(),
   name: z.string().nullable(),
   avatarUrl: z.string().nullable(),
+  /** Null unless the profile is published — Fastify strips what is not declared
+   *  here, so without this slot the serializer's value never reaches a caller. */
+  publicSlug: z.string().nullable(),
   role: z.string(),
   status: z.string(),
   performerTag: z.string().nullable(),
@@ -96,6 +99,10 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
           name: schema.profiles.name,
           avatarFileId: schema.profiles.avatarFileId,
           avatarUrl: schema.profiles.avatarUrl,
+          // Both, or the link is a guess: a slug without `is_public` points at a
+          // 404 for every unpublished act.
+          slug: schema.profiles.slug,
+          isPublic: schema.profiles.isPublic,
         })
         .from(schema.eventParticipants)
         .leftJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
@@ -126,7 +133,15 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
         serializeParticipant(
           row.participant,
           capabilities,
-          { name: row.name, avatarFileId: row.avatarFileId, avatarUrl: row.avatarUrl },
+          {
+            name: row.name,
+            avatarFileId: row.avatarFileId,
+            avatarUrl: row.avatarUrl,
+            slug: row.slug,
+            // LEFT JOIN: a participant row can outlive its profile, and no
+            // profile is not a published one.
+            isPublic: row.isPublic ?? false,
+          },
           imageUrls,
           selfProfileIds,
         ),
@@ -410,6 +425,10 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
           name: performerName,
           avatarFileId: null,
           avatarUrl: null,
+          // An off-platform act has no shoWMe profile at all, so there is
+          // nothing to link to — not an unpublished page, no page.
+          slug: null,
+          isPublic: false,
         }),
       );
     },

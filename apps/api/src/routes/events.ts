@@ -1,5 +1,6 @@
 import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
+import { notifyProfileMembers } from "@showme/db/notify";
 import {
   type Capability,
   type DealDraft,
@@ -19,7 +20,6 @@ import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import { assertEventCapAllows } from "../lib/entitlements";
 import { resolveEventTimezone } from "../lib/event-timezone";
-import { notifyProfileMembers } from "../lib/notify";
 import { assertProfileImageFiles, signProfileImageUrls } from "../lib/profile-media";
 import { withIdempotency } from "../plugins/idempotency";
 import { serializeDealUnredacted } from "../serialize/deal";

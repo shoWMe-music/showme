@@ -2,6 +2,8 @@ import {
   type getApiV1EventsIdDeals,
   type getApiV1EventsIdSettlements,
   getGetApiV1EventsIdSettlementCommentsQueryKey,
+  getGetApiV1EventsIdSettlementLinesQueryKey,
+  getGetApiV1EventsIdSettlementPlannedVsActualQueryKey,
   getGetApiV1EventsIdSettlementsQueryKey,
   useGetApiV1EventsIdDeals,
   useGetApiV1EventsIdParticipants,
@@ -16,6 +18,7 @@ import {
   usePostApiV1EventsIdSettlementsSidConfirm,
 } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
+import { eventParticipantRoleLabel } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import { errorMessage } from "../lib/errors";
@@ -320,8 +323,29 @@ export function useEventSettlement(
   // remarks and the event-side ones, never another act's.
   const commentThread = useGetApiV1EventsIdSettlementComments(eventId);
 
+  /**
+   * Everything a compute rewrites, not just the settlements list.
+   *
+   * A compute does three writes, and this used to invalidate one of them.
+   * `reconcileEvent` also runs `ensureSettlementLines` (the settlement's own copy
+   * of the budget) and captures the budget snapshot behind planned-vs-actual
+   * (decisions.md #16.8) — so after "Run the settlement" the Financials tab sat
+   * there still saying "No plan captured yet" over a plan that had just been
+   * captured. Measured on the live stack 2026-08-31: the toast said "Reconciled 6
+   * parties into 2 transfers" and the card below it did not move until a reload.
+   *
+   * `useSettlementLines` already invalidates exactly these three for the same
+   * reason — all three are readings of the same money, and a screen showing one
+   * fresh beside two stale is a screen that has lied once.
+   */
   const refresh = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: getGetApiV1EventsIdSettlementsQueryKey(eventId) });
+    for (const queryKey of [
+      getGetApiV1EventsIdSettlementsQueryKey(eventId),
+      getGetApiV1EventsIdSettlementLinesQueryKey(eventId),
+      getGetApiV1EventsIdSettlementPlannedVsActualQueryKey(eventId),
+    ]) {
+      queryClient.invalidateQueries({ queryKey });
+    }
   }, [queryClient, eventId]);
 
   const computeSettlement = usePostApiV1EventsIdSettlementCompute();
@@ -479,7 +503,7 @@ export function useEventSettlement(
   const nameOf = useCallback(
     (participantId: string | null | undefined): string => {
       const match = (roster ?? []).find((party) => party.id === participantId);
-      if (match) return match.name ?? match.performerTag ?? humanize(match.role);
+      if (match) return match.name ?? match.performerTag ?? eventParticipantRoleLabel(match.role);
       // No roster entry to hand: the short id is honest where an invented label
       // ("Participant 2") would not be.
       return participantId ? participantId.slice(0, 8) : "Participant";
@@ -490,7 +514,7 @@ export function useEventSettlement(
   const roleOf = useCallback(
     (participantId: string | null | undefined): string => {
       const match = (roster ?? []).find((party) => party.id === participantId);
-      return match ? humanize(match.role) : "Party";
+      return match ? eventParticipantRoleLabel(match.role) : "Party";
     },
     [roster],
   );
@@ -689,11 +713,6 @@ export function useEventSettlement(
     confirmOwn,
     markTransfer,
   };
-}
-
-/** `team_and_crew` → "Team and crew". */
-function humanize(raw: string): string {
-  return raw.replace(/_/g, " ").replace(/^\w/, (character) => character.toUpperCase());
 }
 
 function toParty(

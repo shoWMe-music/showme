@@ -112,6 +112,13 @@ const SCREENS: ReadonlyArray<{ readonly path: string; readonly name: string }> =
   { path: "/profiles", name: "My Profiles" },
   { path: "/settings", name: "Settings" },
   { path: "/events/e2e00000-0000-4000-8000-0000000000e1", name: "Event workspace" },
+  // The Budget Planner, by name. The line above lands on Event Details, so the
+  // densest screen in the app — two editor columns, a money field, a quantity
+  // field and three attribution selects per row — was never measured here. It
+  // was over at 390px the whole time (482px against a 390px viewport, measured
+  // 2026-08-31) and this suite was green. `?tab=` makes the panel addressable,
+  // which is what lets it be audited at all.
+  { path: "/events/e2e00000-0000-4000-8000-0000000000e1?tab=budget", name: "Budget Planner" },
   { path: "/events/e2e00000-0000-4000-8000-0000000000e2/settlement", name: "Settlement workspace" },
 ];
 
@@ -661,6 +668,84 @@ test.describe("modals, the viewport inside the viewport", () => {
         dialog,
         "Escape did not close the dialog, so a phone is stuck inside it.",
       ).toBeHidden({ timeout: 10_000 });
+    });
+  }
+});
+
+/**
+ * The crop dialog, which the MODALS table above structurally cannot reach.
+ *
+ * Every entry there is opened by a header BUTTON. This one is opened by picking
+ * a file, so it needs its own journey — and it is exactly the dialog most likely
+ * to break the rule the table exists to enforce, because its whole body is a
+ * fixed-aspect picture frame. A square frame in a 520px dialog is 520px tall
+ * before the guidance line, the zoom row and the footer, and its width is the
+ * one thing that must never exceed the phone.
+ *
+ * A 1×1 PNG is enough: the frame is sized by CSS (`width: 100%` +
+ * `aspect-ratio`) and the picture inside it is absolutely positioned in an
+ * `overflow: hidden` box, so the source's own dimensions cannot influence the
+ * layout being measured. What is being tested is the frame, not the photograph.
+ */
+const ONE_PIXEL_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+test.describe("the crop dialog, opened by a file rather than a button", () => {
+  for (const field of ["Profile picture", "Cover banner"] as const) {
+    test(`cropping a ${field.toLowerCase()} fits the screen at every width`, async ({ page }) => {
+      await page.setViewportSize(PHONE);
+      await page.goto("/profiles");
+      await waitForShell(page);
+
+      const picker = page.locator(`input[type="file"][aria-label="${field}"]`).first();
+      await expect(
+        picker,
+        `No "${field}" file input on /profiles, so its crop dialog cannot be opened. Either the field was renamed or the profile editor no longer renders it.`,
+      ).toBeAttached({ timeout: 15_000 });
+      await picker.setInputFiles({
+        name: "test.png",
+        mimeType: "image/png",
+        buffer: ONE_PIXEL_PNG,
+      });
+
+      // The dialog titles itself "Crop profile picture" / "Crop cover banner",
+      // so the field's own name is what distinguishes it from any other dialog.
+      const dialog = page
+        .getByRole("dialog")
+        .filter({ hasText: new RegExp(`Crop ${field}`, "i") })
+        .first();
+      await expect(dialog).toBeVisible({ timeout: 15_000 });
+      await waitForStableGeometry(dialog);
+
+      const failures: string[] = [];
+      for (const width of WIDTHS) {
+        await page.setViewportSize({ width, height: HEIGHT });
+        await settleLayout(page);
+        let geometry = await measureDialog(dialog);
+        if (
+          !geometry.fitsHorizontally ||
+          geometry.clipped.length > 0 ||
+          !geometry.actionsReachable
+        ) {
+          await settleLayout(page);
+          geometry = await measureDialog(dialog);
+        }
+        failures.push(...describeDialog(width, geometry));
+
+        const behind = await measureOverflow(page.locator("html"));
+        if (behind.scrollWidth > behind.clientWidth) {
+          failures.push(
+            `  ${width}px — the page BEHIND the crop dialog now scrolls sideways by ` +
+              `${behind.scrollWidth - behind.clientWidth}px:\n${indent(behind.widest)}`,
+          );
+        }
+      }
+
+      expect(failures, `The "${field}" crop dialog does not fit:\n${failures.join("\n")}`).toEqual(
+        [],
+      );
     });
   }
 });

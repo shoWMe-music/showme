@@ -3,6 +3,12 @@ import { liveEventDelegations } from "@showme/auth";
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
 import {
+  eventParticipantRecipients,
+  notifyUsers,
+  settlementPartyReach,
+  settlementRecipients,
+} from "@showme/db/notify";
+import {
   type SettlementBudgetLine,
   type SettlementDeal,
   type SettlementInput,
@@ -29,12 +35,6 @@ import { assertEveryAgreementSigned } from "../lib/deal-confirmation";
 import { renderNotificationEmail, renderSettlementReviewEmail } from "../lib/email-templates";
 import { loadEventSummary } from "../lib/event-summary";
 import { loadRatesToBase } from "../lib/exchange-rate";
-import {
-  eventParticipantRecipients,
-  notifyUsers,
-  settlementPartyReach,
-  settlementRecipients,
-} from "../lib/notify";
 import { ensureSettlementLines } from "../lib/settlement-lines";
 import { type DesiredTransfer, reconcileTransfers } from "../lib/settlement-transfers";
 import { createShareWithRecipients, sendShareInvitations } from "../lib/share-invite";

@@ -1,5 +1,6 @@
 import { randomBytes, randomInt } from "node:crypto";
 import { type Database, schema } from "@showme/db";
+import { notifyUsers } from "@showme/db/notify";
 import { invitationExpiresAt } from "@showme/shared";
 import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -11,7 +12,6 @@ import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
 import { renderInvitationEmail } from "../lib/email-templates";
 import { assertGrantAdminAllows, assertProfileAdminGrantAllows } from "../lib/entitlements";
-import { notifyUsers } from "../lib/notify";
 import { withIdempotency } from "../plugins/idempotency";
 
 const TokenParams = z.object({ token: z.string().min(1) });

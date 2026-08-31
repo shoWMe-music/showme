@@ -5,11 +5,10 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { GetApiV1ProfilesIdPublicPreview200Profile } from './getApiV1ProfilesIdPublicPreview200Profile';
-import type { GetApiV1ProfilesIdPublicPreview200WithheldVenueDetails } from './getApiV1ProfilesIdPublicPreview200WithheldVenueDetails';
+import type { GetApiV1ProfilesIdPublicPreview200WithheldDetails } from './getApiV1ProfilesIdPublicPreview200WithheldDetails';
 
 export type GetApiV1ProfilesIdPublicPreview200 = {
   profile: GetApiV1ProfilesIdPublicPreview200Profile;
   isPublic: boolean;
-  /** @nullable */
-  withheldVenueDetails: GetApiV1ProfilesIdPublicPreview200WithheldVenueDetails;
+  withheldDetails: GetApiV1ProfilesIdPublicPreview200WithheldDetails;
 };

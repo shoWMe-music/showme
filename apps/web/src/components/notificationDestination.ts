@@ -2,7 +2,7 @@
  * Where a notification's stored `link` sends the reader.
  *
  * The API writes `link` as a plain path string (`/requests`, `/team`,
- * `/events/<uuid>` — see `apps/api/src/lib/notify.ts` and its callers), but the
+ * `/events/<uuid>` — see `@showme/db/notify` and its callers), but the
  * router is typed: `navigate` wants a route template plus params, not free text.
  * This translates the one into the other.
  *

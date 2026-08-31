@@ -193,7 +193,7 @@ export function useEventCollaborators({
         (remove.isPending && remove.variables?.pid === next.id);
 
       const editRefusal = isHost
-        ? "The host anchors this event — their role and access are fixed."
+        ? "The operator anchors this event — their role and access are fixed."
         : next.role === "agent"
           ? "An agent stands on this event through the performer they represent, not through a role set here."
           : isRemoved
@@ -203,7 +203,7 @@ export function useEventCollaborators({
               : undefined;
 
       const removeRefusal = isHost
-        ? "The host cannot be removed from their own event."
+        ? "The operator cannot be removed from their own event."
         : isRemoved
           ? "Already removed."
           : inFlight

@@ -15,6 +15,14 @@ export interface ParticipantProfileFace {
   name: string | null;
   avatarFileId: string | null;
   avatarUrl: string | null;
+  /** The public page's address, and whether there IS one.
+   *
+   * Both are needed together or neither is usable: a slug with `isPublic:false`
+   * points at a 404, so a caller that linked on the slug alone would offer a
+   * dead door. Carried so a roster face can link to the act's public profile —
+   * without them the picture was reachable and the person behind it was not. */
+  slug: string | null;
+  isPublic: boolean;
 }
 
 export interface SerializedParticipant {
@@ -23,6 +31,13 @@ export interface SerializedParticipant {
   /** The participant profile's display name — the public face (who's on the bill). */
   name: string | null;
   avatarUrl: string | null;
+  /** Where this face's public page lives, or null when it has none.
+   *
+   * Resolved here rather than left to the caller: only the serializer knows
+   * whether the profile is published, and a link built from a slug alone would
+   * point at a 404 for every unpublished act. Null means "draw the face, do not
+   * make it a door". */
+  publicSlug: string | null;
   role: string;
   status: string;
   performerTag: string | null;
@@ -122,6 +137,9 @@ export function serializeParticipant(
     // (`serializeProfile`), so the roster cannot disagree with the profile page
     // about whose face it has. `imageUrls` is minted per response by the route.
     avatarUrl: profile ? resolveImageUrl(profile.avatarFileId, profile.avatarUrl, imageUrls) : null,
+    // Only a PUBLISHED profile gets a slug on the wire. An unpublished one keeps
+    // its face on the roster and simply is not a link.
+    publicSlug: profile?.isPublic ? (profile.slug ?? null) : null,
     role: participant.role,
     status: participant.status,
     performerTag: participant.performerTag,

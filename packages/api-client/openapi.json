@@ -2149,6 +2149,10 @@
                         "type": "string",
                         "nullable": true
                       },
+                      "publicSlug": {
+                        "type": "string",
+                        "nullable": true
+                      },
                       "role": {
                         "type": "string"
                       },
@@ -2170,6 +2174,7 @@
                       "profileId",
                       "name",
                       "avatarUrl",
+                      "publicSlug",
                       "role",
                       "status",
                       "performerTag"
@@ -2254,6 +2259,10 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "publicSlug": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "role": {
                       "type": "string"
                     },
@@ -2275,6 +2284,7 @@
                     "profileId",
                     "name",
                     "avatarUrl",
+                    "publicSlug",
                     "role",
                     "status",
                     "performerTag"
@@ -2364,6 +2374,10 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "publicSlug": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "role": {
                       "type": "string"
                     },
@@ -2385,6 +2399,7 @@
                     "profileId",
                     "name",
                     "avatarUrl",
+                    "publicSlug",
                     "role",
                     "status",
                     "performerTag"
@@ -2478,6 +2493,10 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "publicSlug": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "role": {
                       "type": "string"
                     },
@@ -2499,6 +2518,7 @@
                     "profileId",
                     "name",
                     "avatarUrl",
+                    "publicSlug",
                     "role",
                     "status",
                     "performerTag"
@@ -2553,6 +2573,10 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "publicSlug": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "role": {
                       "type": "string"
                     },
@@ -2574,6 +2598,7 @@
                     "profileId",
                     "name",
                     "avatarUrl",
+                    "publicSlug",
                     "role",
                     "status",
                     "performerTag"
@@ -9530,23 +9555,6 @@
                             "type": "string"
                           }
                         },
-                        "setups": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "name": {
-                                "type": "string"
-                              },
-                              "headcount": {
-                                "type": "number",
-                                "nullable": true
-                              }
-                            },
-                            "required": ["name", "headcount"],
-                            "additionalProperties": false
-                          }
-                        },
                         "socialLinks": {
                           "type": "array",
                           "items": {
@@ -9723,7 +9731,6 @@
                         "avatarUrl",
                         "bannerUrl",
                         "genres",
-                        "setups",
                         "socialLinks",
                         "photos",
                         "videos",
@@ -9736,36 +9743,65 @@
                     "isPublic": {
                       "type": "boolean"
                     },
-                    "withheldVenueDetails": {
+                    "withheldDetails": {
                       "type": "object",
                       "properties": {
-                        "amenities": {
+                        "setups": {
                           "type": "array",
                           "items": {
-                            "type": "string"
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              },
+                              "headcount": {
+                                "type": "number",
+                                "nullable": true
+                              }
+                            },
+                            "required": ["name", "headcount"],
+                            "additionalProperties": false
                           }
                         },
-                        "dealTypes": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
-                        },
-                        "cateringNotes": {
-                          "type": "string",
-                          "nullable": true
-                        },
-                        "accommodationNotes": {
-                          "type": "string",
+                        "venue": {
+                          "type": "object",
+                          "properties": {
+                            "amenities": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "dealTypes": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "cateringNotes": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "accommodationNotes": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          },
+                          "required": [
+                            "amenities",
+                            "dealTypes",
+                            "cateringNotes",
+                            "accommodationNotes"
+                          ],
+                          "additionalProperties": false,
                           "nullable": true
                         }
                       },
-                      "required": ["amenities", "dealTypes", "cateringNotes", "accommodationNotes"],
-                      "additionalProperties": false,
-                      "nullable": true
+                      "required": ["setups", "venue"],
+                      "additionalProperties": false
                     }
                   },
-                  "required": ["profile", "isPublic", "withheldVenueDetails"],
+                  "required": ["profile", "isPublic", "withheldDetails"],
                   "additionalProperties": false
                 }
               }
@@ -18585,23 +18621,6 @@
                         "type": "string"
                       }
                     },
-                    "setups": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "name": {
-                            "type": "string"
-                          },
-                          "headcount": {
-                            "type": "number",
-                            "nullable": true
-                          }
-                        },
-                        "required": ["name", "headcount"],
-                        "additionalProperties": false
-                      }
-                    },
                     "socialLinks": {
                       "type": "array",
                       "items": {
@@ -18773,7 +18792,6 @@
                     "avatarUrl",
                     "bannerUrl",
                     "genres",
-                    "setups",
                     "socialLinks",
                     "photos",
                     "videos",

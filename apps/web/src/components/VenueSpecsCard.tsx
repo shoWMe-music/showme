@@ -1,5 +1,6 @@
 import { Badge, Card, Icon, KeyValueRow } from "@showme/design-system";
 import { amenityLabel, dealTypeLabel } from "@showme/shared";
+import { WithheldNotice } from "./WithheldNotice";
 
 /** The venue facts a stranger may read, as the public projection returns them. */
 export interface VenueSpecsCardProfile {
@@ -12,7 +13,7 @@ export interface VenueSpecsCardProfile {
 /**
  * The venue facts a stranger may NOT read — what the room throws in and the deal
  * shapes it signs (`docs/decisions.md` #19). They arrive on the preview response
- * as `withheldVenueDetails`, beside the public projection rather than inside it,
+ * on `withheldDetails.venue`, beside the public projection rather than inside it,
  * and this card draws them under their own heading so the owner can tell the two
  * apart at a glance.
  */
@@ -126,31 +127,14 @@ export function VenueSpecsCard({ venue, withheld }: VenueSpecsCardProps) {
         <div
           style={{
             marginTop: 20,
-            paddingTop: 16,
+            paddingTop: 2,
             borderTop: "1px dashed var(--border)",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-            <span style={{ color: "var(--muted)", display: "flex" }}>
-              <Icon name="eye-off" size={14} />
-            </span>
-            <p
-              style={{
-                margin: 0,
-                fontFamily: "var(--font-mono)",
-                fontSize: 10.5,
-                letterSpacing: "0.12em",
-                textTransform: "uppercase",
-                color: "var(--muted)",
-              }}
-            >
-              Not on your public page
-            </p>
-          </div>
-          <p style={{ margin: "6px 0 0", fontSize: 13, color: "var(--muted)" }}>
+          <WithheldNotice>
             What the room offers and the deals you sign stay off the open web. You can share them
             when you are talking to someone.
-          </p>
+          </WithheldNotice>
 
           {withheld.amenities.length > 0 && (
             <Section title="Amenities">

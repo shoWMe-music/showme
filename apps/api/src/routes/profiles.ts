@@ -24,11 +24,11 @@ import {
   type ProfileRelations,
   PublishedProfileSchema,
   type RoomCapacitySetup,
-  WithheldVenueTradeDetailsSchema,
+  WithheldProfileDetailsSchema,
   readCapacitySetups,
   serializeProfile,
   serializePublicProfile,
-  serializeWithheldVenueTradeDetails,
+  serializeWithheldProfileDetails,
 } from "../serialize/profile";
 import { loadPublicShows } from "./public";
 
@@ -313,8 +313,9 @@ const PublicPreviewResponse = z.object({
    * (that is the point of a preview), and the screen says so. */
   isPublic: z.boolean(),
   /**
-   * The venue trade details a stranger does NOT get (`docs/decisions.md` #19):
-   * amenities, deal types, catering and accommodation notes.
+   * What a stranger does NOT get (`docs/decisions.md` #19): the venue's trade
+   * details — amenities, deal types, catering and accommodation notes — and the
+   * performer's line-ups, which size a booking the same way.
    *
    * A SIBLING of `profile`, never a field inside it, and that placement is the
    * whole safety argument: `profile` stays byte-identical to the anonymous body,
@@ -323,9 +324,8 @@ const PublicPreviewResponse = z.object({
    *
    * It is here so the Preview can tell the owner the truth in both directions —
    * this is what you entered, and this is the part the open web will not see.
-   * Null for a profile with no venue details.
    */
-  withheldVenueDetails: WithheldVenueTradeDetailsSchema.nullable(),
+  withheldDetails: WithheldProfileDetailsSchema,
 });
 
 const ProfileResponse = z.object({
@@ -990,9 +990,10 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
    *   - No `is_public` gate. That route 404s an unpublished profile, and
    *     previewing before publishing is the entire point of a preview. `isPublic`
    *     rides along so the screen can say "nobody can reach this yet".
-   *   - `withheldVenueDetails` — the trade half a stranger no longer receives
-   *     (`docs/decisions.md` #19), so the owner can see what it has entered and
-   *     that it is being held back, rather than watching it vanish.
+   *   - `withheldDetails` — the trade half a stranger no longer receives (the
+   *     venue's amenities/deal types/catering/accommodation, and the performer's
+   *     line-ups; `docs/decisions.md` #19), so the owner can see what they have
+   *     entered and that it is being held back, rather than watching it vanish.
    *
    * Authorization is ordinary: any member of the profile may look. It reveals
    * strictly less than `GET /profiles/:id`, which they can already call.
@@ -1022,9 +1023,7 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
         isPublic: profile.isPublic,
         // Served only because `requireProfileRole` above already established the
         // caller is a member. The anonymous route has no equivalent line.
-        withheldVenueDetails: relations.venueDetails
-          ? serializeWithheldVenueTradeDetails(relations.venueDetails)
-          : null,
+        withheldDetails: serializeWithheldProfileDetails(profile, relations.venueDetails),
       };
     },
   );

@@ -4,7 +4,6 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
-import type { GetApiV1ProfilesIdPublicPreview200ProfileSetupsItem } from './getApiV1ProfilesIdPublicPreview200ProfileSetupsItem';
 import type { GetApiV1ProfilesIdPublicPreview200ProfileSocialLinksItem } from './getApiV1ProfilesIdPublicPreview200ProfileSocialLinksItem';
 import type { GetApiV1ProfilesIdPublicPreview200ProfileLocation } from './getApiV1ProfilesIdPublicPreview200ProfileLocation';
 import type { GetApiV1ProfilesIdPublicPreview200ProfileVenueDetails } from './getApiV1ProfilesIdPublicPreview200ProfileVenueDetails';
@@ -26,7 +25,6 @@ export type GetApiV1ProfilesIdPublicPreview200Profile = {
   /** @nullable */
   bannerUrl: string | null;
   genres: string[];
-  setups: GetApiV1ProfilesIdPublicPreview200ProfileSetupsItem[];
   socialLinks: GetApiV1ProfilesIdPublicPreview200ProfileSocialLinksItem[];
   photos: string[];
   videos: string[];

@@ -1,5 +1,6 @@
 import { type DealPartyRole, type EventRole, dealPartyBaselineCapabilities } from "@showme/auth";
 import { schema } from "@showme/db";
+import { dealPartyRecipients, notifyUsers } from "@showme/db/notify";
 import type { Capability } from "@showme/shared";
 import { and, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -21,7 +22,6 @@ import {
   confirmDealIfComplete,
 } from "../lib/deal-confirmation";
 import { renderNotificationEmail } from "../lib/email-templates";
-import { dealPartyRecipients, notifyUsers } from "../lib/notify";
 import { withIdempotency } from "../plugins/idempotency";
 import { isDealVisible, serializeDeal, serializeDealUnredacted } from "../serialize/deal";
 

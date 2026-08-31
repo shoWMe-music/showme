@@ -1,5 +1,6 @@
 import { useGetApiV1ProfilesIdContacts, useGetApiV1ProfilesSearch } from "@showme/api-client";
 import { Avatar, Icon, Skeleton } from "@showme/design-system";
+import { profileTypeLabel } from "@showme/shared";
 import { type CSSProperties, useState } from "react";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { publicProfileUrl as publicProfileUrlFor } from "../lib/publicSite";
@@ -206,7 +207,7 @@ export function PerformerSearch({
                         key={profile.id}
                         name={profile.name}
                         avatarUrl={profile.avatarUrl}
-                        meta={[profile.type ?? "Performer", profile.city]
+                        meta={[profileTypeLabel(profile.type) || "Performer", profile.city]
                           .filter(Boolean)
                           .join(" · ")}
                         unclaimed={!profile.claimed}

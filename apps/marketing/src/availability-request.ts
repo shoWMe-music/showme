@@ -91,22 +91,24 @@ export interface DateRequestPanel {
  */
 export type PanelPresentation = "inline" | "modal";
 
+/**
+ * What the ask is called, everywhere it appears — the button that opens the
+ * panel and the panel's own heading.
+ *
+ * Exported so the profile page's lane button reads from the same constant as the
+ * dialog it opens. One string, because it is one action: a public, unauthenticated
+ * `POST /booking-requests` that lands in the target's Requests inbox whoever they
+ * are. It replaces "Pitch a date" and "Request a show", which made a reader work
+ * out that two differently-named buttons did the same thing.
+ */
+export const BOOKING_REQUEST_LABEL = "Send booking request";
+
 interface PanelOptions {
   /** API base including `/api/v1`, e.g. `/api/v1` in dev via the vite proxy. */
   apiBaseUrl: string;
   target: PublicProfileSummary;
   /** Defaults to `inline` — see `PanelPresentation`. */
   presentation?: PanelPresentation;
-  /**
-   * What the form calls itself. Defaults to the ask implied by the target's kind
-   * — "Request a show" of a performer, "Request a date" of everyone else.
-   *
-   * It is overridable because the caller owns the CONTROL that opens it, and a
-   * dialog whose title disagrees with the button just pressed reads as the wrong
-   * dialog: a venue's page invites an artist to "Pitch a date", so that is what
-   * the panel it opens has to be called.
-   */
-  heading?: string;
   /** Fired after a request for `isoDate` is accepted, so the chip can say so. */
   onRequested(isoDate: string): void;
   /** Fired when the panel closes, so the chip can drop its selected state. */
@@ -302,11 +304,12 @@ async function send(apiBaseUrl: string, payload: RequestPayload): Promise<SendRe
 export function createDateRequestPanel(options: PanelOptions): DateRequestPanel {
   const { apiBaseUrl, target, presentation = "inline", onRequested, onClosed } = options;
 
-  // The KIND still decides the wording of the fields below — what a visitor is
-  // asked for when addressing a performer differs from a venue — even when the
-  // caller has named the panel something else.
+  // The KIND still decides the wording of the FIELDS below — what a visitor is
+  // asked for when addressing a performer differs from a venue. It no longer
+  // decides what the panel is CALLED: "Request a show" of an act and "Request a
+  // date" of a room were two names for one form posting one body to one endpoint,
+  // and the option that let a caller pass a third name went with them.
   const asksForAShow = target.kind === "performer";
-  const heading = options.heading ?? (asksForAShow ? "Request a show" : "Request a date");
 
   const panel = element("section", "card request");
   panel.hidden = true;
@@ -316,7 +319,7 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
   panel.setAttribute("aria-live", "off");
   panel.setAttribute("aria-labelledby", "request-heading");
 
-  const title = element("h2", "request__heading", heading);
+  const title = element("h2", "request__heading", BOOKING_REQUEST_LABEL);
   title.id = "request-heading";
 
   const chosenDate = element("p", "request__date");

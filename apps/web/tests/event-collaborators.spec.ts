@@ -76,7 +76,11 @@ test("every collaborator on the event is shown, with role and status", async ({ 
   for (const name of ["The Lantern Hall", "Marlo Vance", "Neon Tide", "Priya Sound", "Astra"]) {
     await expect(page.getByText(name, { exact: false }).first()).toBeVisible();
   }
-  await expect(page.getByText("Host", { exact: true }).first()).toBeVisible();
+  // The `host` ENUM value now renders as "Operator" (decisions.md #16.20 —
+  // "'host' collided with the door-person meaning"). The stored role is
+  // unchanged; this assertion follows the label deliberately, and it is the
+  // regression guard that the roster still prints a role at all.
+  await expect(page.getByText("Operator", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Confirmed").first()).toBeVisible();
 });
 

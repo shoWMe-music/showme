@@ -6,17 +6,7 @@
  * the no-op sink just logs, so the app boots and mutations succeed without Brevo.
  */
 
-export interface EmailMessage {
-  to: string;
-  subject: string;
-  html?: string;
-  text?: string;
-  replyTo?: string;
-}
-
-export interface EmailSink {
-  sendEmail(message: EmailMessage): Promise<void>;
-}
+import type { EmailMessage, EmailSink } from "@showme/shared";
 
 /**
  * No-op sink for local/dev/test — logs the message instead of sending it.

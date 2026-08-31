@@ -5,7 +5,7 @@ import {
   useGetApiV1EventsIdSchedule,
 } from "@showme/api-client";
 import { Button, EmptyState, Icon } from "@showme/design-system";
-import { PAYMENT_TIMING_OPTIONS, dealKindLabel } from "@showme/shared";
+import { PAYMENT_TIMING_OPTIONS, dealKindLabel, eventParticipantRoleLabel } from "@showme/shared";
 import { useState } from "react";
 import { formatDay, formatMoney, formatTime } from "../lib/format";
 import type { AgreementField } from "./AgreementView";
@@ -215,18 +215,16 @@ export function EventAgreementTab({
 
 /** A participant's display name — the public face, else its role tag. */
 function participantName(participant: Participant): string {
-  return participant.name ?? participant.performerTag ?? roleLabel(participant.role);
-}
-
-function roleLabel(raw: string): string {
-  return raw.replace(/_/g, " ").replace(/^\w/, (character) => character.toUpperCase());
+  return (
+    participant.name ?? participant.performerTag ?? eventParticipantRoleLabel(participant.role)
+  );
 }
 
 function partyChoices(roster: Participant[]): DealPartyChoice[] {
   return roster.map((participant) => ({
     id: participant.id,
     label: participantName(participant),
-    roleLabel: roleLabel(participant.role),
+    roleLabel: eventParticipantRoleLabel(participant.role),
     isAgent: participant.role === "agent",
   }));
 }

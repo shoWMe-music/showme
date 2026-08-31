@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
+import { notifyProfileMembers } from "@showme/db/notify";
 import { currencyForCountry, invitationExpiresAt } from "@showme/shared";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -20,7 +21,6 @@ import { requireEventCapability, requireProfileRole } from "../lib/authorize";
 import { renderInvitationEmail } from "../lib/email-templates";
 import { canUseFeature, entitlementRequired } from "../lib/entitlements";
 import { resolveEventTimezone } from "../lib/event-timezone";
-import { notifyProfileMembers } from "../lib/notify";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
 import { createSlidingWindowRateLimiter } from "../lib/rate-limit";
 import { isRepresentationActiveAt } from "../lib/representation-rules";

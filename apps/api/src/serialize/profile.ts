@@ -366,7 +366,6 @@ export function serializeProfile(
  *   genres                                           :218
  *   socialLinks                                      :229
  *   photos · videos                                  :275, :286
- *   performer setups (name + headcount)              :308
  *   venue capacity (+ named setups)                  :329
  *   city · country                                   :220
  *   street · postcode · lat/lng — PLACES ONLY        :261-273, :367
@@ -391,6 +390,13 @@ export function serializeProfile(
  * scraper too. The rule is now: trade details reach signed-in industry, never the
  * open web.
  *
+ * `setups` is the performer's half of that SAME rule and left with them (#19,
+ * completed 2026-08-31). "Full band, 7 people" is what an operator needs to size
+ * the stage, the rider and the travel party before offering — the line-up as a
+ * negotiating fact, not audience copy. A fan does not book a room on headcount;
+ * a rival promoter reads it to price the act. It is withheld from the anonymous
+ * page for the reason the four venue fields are, and served back the same way.
+ *
  * WHAT IS NEVER PUBLIC, and why each one:
  *   artistLogisticsNotes  load-in, back entrance, door code, artist parking —
  *                         `docs/decisions.md` #16.7 puts artist logistics on the
@@ -401,17 +407,18 @@ export function serializeProfile(
  *                         scraper's gift (migration 0010).
  *   billing               legal name, VAT id, invoice sequence.
  *   details (raw)         a jsonb blob whose future keys nobody has vetted. Only
- *                         the two leaves read out by name (`genres`, `setups`)
- *                         are published; the blob itself never is.
+ *                         the leaves read out by name (`genres`, `tagline`) are
+ *                         published; the blob itself never is.
  *   ownerUserId           who owns it is membership, not a listing.
  *   isPublic              a published page saying "published" tells the reader
  *                         nothing and tells a prober something.
- *   amenities · dealTypes · cateringNotes · accommodationNotes
- *                         trade details, per the paragraph above. They are not
- *                         dropped on the floor: the owner's own Preview serves
- *                         them beside this projection as `withheldVenueDetails`
- *                         (see `serializeWithheldVenueTradeDetails`), so a venue
- *                         sees what it entered AND that it is being held back.
+ *   amenities · dealTypes · cateringNotes · accommodationNotes · setups
+ *                         trade details, per the two paragraphs above. They are
+ *                         not dropped on the floor: the owner's own Preview
+ *                         serves them beside this projection as
+ *                         `withheldDetails` (see
+ *                         `serializeWithheldProfileDetails`), so an owner sees
+ *                         what they entered AND that it is being held back.
  *                         They are deliberately NOT inside this projection —
  *                         `profiles.test.ts` asserts the preview's `profile` and
  *                         the anonymous body are equal field for field, and that
@@ -433,7 +440,6 @@ export interface PublicProfile {
   avatarUrl: string | null;
   bannerUrl: string | null;
   genres: string[];
-  setups: SerializedPerformerSetup[];
   socialLinks: SerializedSocialLink[];
   photos: string[];
   videos: string[];
@@ -481,6 +487,24 @@ export interface WithheldVenueTradeDetails {
   accommodationNotes: string | null;
 }
 
+/**
+ * EVERYTHING the public page is not given but the owner still owns — the venue's
+ * trade half and the performer's line-ups, in one shape.
+ *
+ * One sibling rather than one per field family, because there is one rule here,
+ * not two: trade information reaches signed-in industry and not the open web
+ * (`docs/decisions.md` #19). A venue reads the `venue` half; a performer reads
+ * `setups`; nobody has to know which sibling their kind of profile grew.
+ *
+ * `venue` is null for a profile with no `venue_details` row — a band has no room
+ * — while `setups` is an array that is simply empty, because a profile that has
+ * entered no line-ups has entered none rather than being unable to.
+ */
+export interface WithheldProfileDetails {
+  setups: SerializedPerformerSetup[];
+  venue: WithheldVenueTradeDetails | null;
+}
+
 function serializePublicLocation(
   row: ProfileLocationRow,
   publishesAddress: boolean,
@@ -511,18 +535,32 @@ function serializePublicVenueDetails(row: VenueDetailsRow): PublicVenueDetails {
 }
 
 /**
- * The trade half, for a caller that has already been shown to be a member of the
+ * The venue trade half, for a caller already shown to be a member of the
  * profile. `serializePublicVenueDetails` is the stranger's view; this is the
- * remainder, and the only route that calls it is the owner's Preview.
+ * remainder.
  */
-export function serializeWithheldVenueTradeDetails(
-  row: VenueDetailsRow,
-): WithheldVenueTradeDetails {
+function serializeWithheldVenueTradeDetails(row: VenueDetailsRow): WithheldVenueTradeDetails {
   return {
     amenities: row.amenities ?? [],
     dealTypes: row.dealTypes ?? [],
     cateringNotes: row.cateringNotes,
     accommodationNotes: row.accommodationNotes,
+  };
+}
+
+/**
+ * Everything held back from the public page, for a caller that has already been
+ * shown to be a member of the profile. The only route that calls it is the
+ * owner's Preview; a future signed-in industry page is the other caller this is
+ * waiting for (`docs/decisions.md` #19).
+ */
+export function serializeWithheldProfileDetails(
+  profile: ProfileRow,
+  venueDetails: VenueDetailsRow | null | undefined,
+): WithheldProfileDetails {
+  return {
+    setups: readPerformerSetups(profile.details),
+    venue: venueDetails ? serializeWithheldVenueTradeDetails(venueDetails) : null,
   };
 }
 
@@ -549,7 +587,6 @@ export const PublicProfileSchema = z.object({
   avatarUrl: z.string().nullable(),
   bannerUrl: z.string().nullable(),
   genres: z.array(z.string()),
-  setups: z.array(z.object({ name: z.string(), headcount: z.number().nullable() })),
   socialLinks: z.array(z.object({ platform: z.string(), url: z.string() })),
   photos: z.array(z.string()),
   videos: z.array(z.string()),
@@ -565,9 +602,9 @@ export const PublicProfileSchema = z.object({
     .nullable(),
   // No `artistLogisticsNotes`, no `contactEmail`, no `contactPhone`. A field with
   // no slot here cannot be published by a careless line in a handler.
-  // Nor `amenities`, `dealTypes`, `cateringNotes`, `accommodationNotes`: the
-  // trade half has no slot here, so even a handler that spread the whole row in
-  // would publish none of it (`docs/decisions.md` #19).
+  // Nor `amenities`, `dealTypes`, `cateringNotes`, `accommodationNotes`, nor
+  // `setups`: the trade half has no slot here, so even a handler that spread the
+  // whole row in would publish none of it (`docs/decisions.md` #19).
   venueDetails: z
     .object({
       capacity: z.number().nullable(),
@@ -579,15 +616,20 @@ export const PublicProfileSchema = z.object({
 });
 
 /**
- * The wire schema for the withheld trade half. Declared here, next to the
- * projection it is deliberately NOT part of, so the two are read together.
- * Only `GET /profiles/:id/public-preview` names it.
+ * The wire schema for the withheld half. Declared here, next to the projection it
+ * is deliberately NOT part of, so the two are read together. Only
+ * `GET /profiles/:id/public-preview` names it.
  */
-export const WithheldVenueTradeDetailsSchema = z.object({
-  amenities: z.array(z.string()),
-  dealTypes: z.array(z.string()),
-  cateringNotes: z.string().nullable(),
-  accommodationNotes: z.string().nullable(),
+export const WithheldProfileDetailsSchema = z.object({
+  setups: z.array(z.object({ name: z.string(), headcount: z.number().nullable() })),
+  venue: z
+    .object({
+      amenities: z.array(z.string()),
+      dealTypes: z.array(z.string()),
+      cateringNotes: z.string().nullable(),
+      accommodationNotes: z.string().nullable(),
+    })
+    .nullable(),
 });
 
 /**
@@ -666,7 +708,6 @@ export function serializePublicProfile(
     avatarUrl: resolveImageUrl(profile.avatarFileId, profile.avatarUrl, relations?.imageUrls),
     bannerUrl: resolveImageUrl(profile.bannerFileId, profile.bannerUrl, relations?.imageUrls),
     genres: readGenres(profile.details),
-    setups: readPerformerSetups(profile.details),
     socialLinks: (relations?.socialLinks ?? []).map((row) => ({
       platform: row.platform,
       url: row.url,

@@ -1,14 +1,20 @@
 import { Button, Card, Icon, type IconName, Input, KeyValueRow } from "@showme/design-system";
 import { BudgetBreakEvenChart } from "./BudgetBreakEvenChart";
 import { BudgetBreakdownCard } from "./BudgetBreakdownCard";
-import { CostAttribution, DealAssignmentNote, RevenueAttribution } from "./BudgetLineAttribution";
+import {
+  CostAttribution,
+  CostAttributionLegend,
+  DealAssignmentNote,
+  RevenueAttribution,
+} from "./BudgetLineAttribution";
 import { type KpiItem, KpiRow } from "./KpiRow";
 import { PerformingRightsEstimateCard } from "./PerformingRightsEstimateCard";
-import type {
-  BreakEvenDisplay,
-  BreakdownDisplayRow,
-  DealFigureWarning,
-  PerformingRightsDisplay,
+import {
+  type BreakEvenDisplay,
+  type BreakdownDisplayRow,
+  type DealFigureWarning,
+  type PerformingRightsDisplay,
+  splitCostRows,
 } from "./budgetPlannerView";
 import { Eyebrow } from "./primitives";
 import type {
@@ -17,7 +23,7 @@ import type {
   CostBearing,
   CostDealLink,
 } from "./useBudgetEditor";
-import { linkedDealId } from "./useBudgetEditor";
+import { NEW_ROW_PREFIX, linkedDealId } from "./useBudgetEditor";
 
 export interface TicketTypeRow {
   id: string;
@@ -138,6 +144,14 @@ export interface BudgetPlannerProps {
   onOtherRevenueChange?: (value: string) => void;
   onCostChange?: (key: string, value: string) => void;
   onRemoveCost?: (key: string) => void;
+  /**
+   * The standing cost headings the operator has asked back onto the sheet this
+   * session, BY LABEL (see `splitCostRows`). Absent `onRevealCost` nothing
+   * collapses at all — the component still renders every row it is given, so a
+   * caller that does not want the affordance does not get a half-built one.
+   */
+  revealedCostHeadings?: readonly string[];
+  onRevealCost?: (heading: string) => void;
   onCustomRevenueChange?: (id: string, value: string) => void;
   onRemoveCustomRevenue?: (id: string) => void;
   /** Opens the "+ Add Field" modal for one of the two cards. */
@@ -195,19 +209,27 @@ export function BudgetPlanner({
   onOtherRevenueChange,
   onCostChange,
   onRemoveCost,
+  revealedCostHeadings = [],
+  onRevealCost,
   onCustomRevenueChange,
   onRemoveCustomRevenue,
   onAddCustomField,
   onProcessingPercentChange,
   onProcessingFlatPerTicketChange,
 }: BudgetPlannerProps) {
+  // An unused standing heading is not a row yet — see `splitCostRows`. Without a
+  // reveal handler nothing collapses, so the component keeps working standalone.
+  const { budgeted: budgetedCosts, unused: unusedCostHeadings } = onRevealCost
+    ? splitCostRows(costs, revealedCostHeadings)
+    : { budgeted: costs, unused: [] };
+
   // `label` names the field for assistive technology (and for a test that has to
   // pick one row of ten). The rows print their heading as plain text beside the
   // input, which the browser does not connect to it — and now that each row also
   // carries three attribution selects, an unnamed money field is the only control
   // on the row with nothing to call it.
   const money = (value: string, onChange?: (value: string) => void, label?: string) => (
-    <div style={{ width: 130 }}>
+    <div style={{ width: 120, flexShrink: 0 }}>
       <Input
         value={value}
         inputMode="decimal"
@@ -219,20 +241,20 @@ export function BudgetPlanner({
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <Card
-        padding="md"
+        padding="sm"
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 10,
+          gap: 9,
           background: "color-mix(in srgb, var(--brand-amber) 12%, transparent)",
         }}
       >
-        <span style={{ color: "#F4A046", display: "inline-flex" }}>
-          <Icon name="alert" size={18} />
+        <span style={{ color: "#F4A046", display: "inline-flex", flexShrink: 0 }}>
+          <Icon name="alert" size={16} />
         </span>
-        <span style={{ color: "var(--text)", fontSize: 13 }}>{advisory}</span>
+        <span style={{ color: "var(--text)", fontSize: 12.5, lineHeight: 1.45 }}>{advisory}</span>
       </Card>
 
       {toolbar.length > 0 && (
@@ -257,16 +279,20 @@ export function BudgetPlanner({
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-          gap: 16,
+          gap: 14,
         }}
       >
-        <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <Eyebrow style={{ color: "#6FC97A" }}>Revenue</Eyebrow>
           <Eyebrow>Ticket revenue</Eyebrow>
           {ticketTypes.map((ticket) => (
-            <div key={ticket.id} style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ flex: 1 }}>
+            <div key={ticket.id} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {/* Wraps rather than crushing: at 390px a fixed price field, a
+                  quantity field and a delete button leave the NAME about 60px,
+                  which is not a field. `flex: 1 1 140px` lets the name take the
+                  first line on its own and the figures drop under it. */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ flex: "1 1 140px", minWidth: 0 }}>
                   <Input
                     value={ticket.name}
                     placeholder="Ticket type"
@@ -278,7 +304,7 @@ export function BudgetPlanner({
                   (value) => onTicketChange?.(ticket.id, "price", value),
                   `${ticket.name || "Ticket type"} price`,
                 )}
-                <div style={{ width: 80 }}>
+                <div style={{ width: 76, flexShrink: 0 }}>
                   <Input
                     value={ticket.quantity}
                     inputMode="numeric"
@@ -327,8 +353,10 @@ export function BudgetPlanner({
           )}
           <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ flex: 1, color: "var(--text)", fontSize: 14 }}>Capacity</span>
-            <div style={{ width: 130 }}>
+            <span style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 14 }}>
+              Capacity
+            </span>
+            <div style={{ width: 120, flexShrink: 0 }}>
               <Input
                 value={capacity}
                 inputMode="numeric"
@@ -337,7 +365,7 @@ export function BudgetPlanner({
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ flex: 1, color: "var(--text)", fontSize: 14 }}>
+            <span style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 14 }}>
               Average bar spend per guest
             </span>
             {money(avgBarSpend, onAvgBarSpendChange, "Average bar spend per guest")}
@@ -351,7 +379,9 @@ export function BudgetPlanner({
             rowLabel="bar revenue"
           />
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ flex: 1, color: "var(--text)", fontSize: 14 }}>Other revenue</span>
+            <span style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 14 }}>
+              Other revenue
+            </span>
             {money(otherRevenue, onOtherRevenueChange, "Other revenue")}
           </div>
           <RevenueAttribution
@@ -362,9 +392,11 @@ export function BudgetPlanner({
             rowLabel="other revenue"
           />
           {customRevenue.map((row) => (
-            <div key={row.id} style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ flex: 1, color: "var(--text)", fontSize: 14 }}>{row.label}</span>
+            <div key={row.id} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 14 }}>
+                  {row.label}
+                </span>
                 {money(
                   row.value,
                   (value) => onCustomRevenueChange?.(row.id, value),
@@ -403,12 +435,15 @@ export function BudgetPlanner({
           )}
         </Card>
 
-        <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <Eyebrow style={{ color: "#EE5746" }}>Costs</Eyebrow>
-          {costs.map((cost) => (
-            <div key={cost.key} style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+          <CostAttributionLegend />
+          {budgetedCosts.map((cost) => (
+            <div key={cost.key} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ flex: 1, color: "var(--text)", fontSize: 14 }}>{cost.label}</span>
+                <span style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 14 }}>
+                  {cost.label}
+                </span>
                 {cost.readFromDeal
                   ? readOnlyMoney(cost.value, currencySymbol)
                   : money(
@@ -416,14 +451,34 @@ export function BudgetPlanner({
                       (value) => onCostChange?.(cost.key, value),
                       `${cost.label} amount`,
                     )}
-                {cost.isCustom && !cost.readFromDeal && onRemoveCost && (
+                {/*
+                 * EVERY COST ROW CAN NOW BE CLEARED — the reported gap ("no
+                 * delete buttons") was that three of the five row kinds had one.
+                 *
+                 * The two verbs stay different because the two rows are. A
+                 * CUSTOM row is the operator's own invention: removing it deletes
+                 * it outright, and nothing brings it back but typing it again. A
+                 * STANDING heading is one of the six the sheet always offers:
+                 * clearing it deletes the `budget_lines` row behind it and the
+                 * heading drops back into "Not budgeted" below, one click from
+                 * returning. That is why the old comment's objection — "the
+                 * operator would have no way to get it back" — no longer applies.
+                 *
+                 * Offered only for a heading that HAS a stored line. A heading
+                 * showing a figure it read from a deal (the rental seeded into
+                 * "Venue cost", the guarantee in "Performer fee") owns nothing to
+                 * delete; that figure is changed on the deal, which the note under
+                 * the row already says.
+                 */}
+                {!cost.readFromDeal && onRemoveCost && !cost.key.startsWith(NEW_ROW_PREFIX) && (
                   <button
                     type="button"
-                    aria-label={`Remove ${cost.label}`}
+                    aria-label={cost.isCustom ? `Remove ${cost.label}` : `Clear ${cost.label}`}
+                    title={cost.isCustom ? "Remove this row" : "Clear this heading"}
                     onClick={() => onRemoveCost(cost.key)}
                     style={iconButtonStyle}
                   >
-                    <Icon name="x" size={14} />
+                    <Icon name={cost.isCustom ? "x" : "trash"} size={14} />
                   </button>
                 )}
               </div>
@@ -458,7 +513,10 @@ export function BudgetPlanner({
               )}
             </div>
           ))}
-          <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
+          {unusedCostHeadings.length > 0 && onRevealCost && (
+            <UnusedCostHeadings rows={unusedCostHeadings} onReveal={onRevealCost} />
+          )}
+          <div style={{ height: 1, background: "var(--border)", margin: "2px 0" }} />
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <span style={{ color: "var(--text)", fontSize: 13 }}>Payment processing fees</span>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -498,7 +556,7 @@ export function BudgetPlanner({
         </Card>
       </div>
 
-      <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <h4 style={sectionHeadingStyle}>Results</h4>
         {/* Four across, so the seven tiles leave a short last row — that is the
             design, not an accident (handoff §3.5). 180px is the floor before the
@@ -512,7 +570,7 @@ export function BudgetPlanner({
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-          gap: 16,
+          gap: 14,
           alignItems: "start",
         }}
       >
@@ -535,12 +593,54 @@ export function BudgetPlanner({
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 320px), 1fr))",
-          gap: 16,
+          gap: 14,
           alignItems: "start",
         }}
       >
         <PerformingRightsEstimateCard performingRights={performingRights} />
         <div aria-hidden />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * THE STANDING HEADINGS THIS SHOW DOES NOT USE.
+ *
+ * Reported 2026-08-31: the planner is "too big, too much space". Six headings the
+ * sheet always drew, each with a money field, three attribution selects and a
+ * note, is most of that — on a show with two real costs, four fifths of the Costs
+ * card was scaffolding.
+ *
+ * They are not deleted and they are not hidden away: they sit here as one wrapped
+ * line of chips, and one click puts a heading back as a full row. The reason that
+ * is safe is stated where the partition lives (`splitCostRows`) — a heading with
+ * no figure has no `budget_lines` row, so there is nothing here for the settlement
+ * to read whether it is drawn or not.
+ */
+function UnusedCostHeadings({
+  rows,
+  onReveal,
+}: { rows: { key: string; label: string }[]; onReveal: (key: string) => void }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+      <span style={{ color: "var(--dim)", fontSize: 11.5, lineHeight: 1.45 }}>
+        Not budgeted. Nothing is stored for {rows.length === 1 ? "it" : "these"} and the settlement
+        never sees {rows.length === 1 ? "it" : "them"} — add {rows.length === 1 ? "it" : "one"} back
+        whenever the show needs {rows.length === 1 ? "it" : "one"}.
+      </span>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {rows.map((row) => (
+          <button
+            key={row.key}
+            type="button"
+            onClick={() => onReveal(row.label)}
+            style={headingChipStyle}
+          >
+            <Icon name="plus" size={11} />
+            {row.label}
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -626,7 +726,8 @@ function readOnlyMoney(value: string, currencySymbol: string) {
   return (
     <span
       style={{
-        width: 130,
+        width: 120,
+        flexShrink: 0,
         textAlign: "right",
         fontFamily: "var(--font-mono)",
         fontSize: 13,
@@ -677,6 +778,19 @@ const sectionHeadingStyle = {
   fontSize: 14,
   color: "var(--text)",
   margin: 0,
+} as const;
+
+const headingChipStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 5,
+  fontSize: 12,
+  padding: "5px 10px",
+  borderRadius: 999,
+  border: "1px dashed var(--border)",
+  background: "transparent",
+  color: "var(--muted)",
+  cursor: "pointer",
 } as const;
 
 const iconButtonStyle = {

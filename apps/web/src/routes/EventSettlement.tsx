@@ -205,7 +205,12 @@ export function EventSettlement() {
       ) : tab === "overview" ? (
         <OverviewTab event={event.data} settlement={settlement} />
       ) : tab === "financials" ? (
-        <FinancialsTab eventId={eventId} settlement={settlement} currency={baseCurrency} />
+        <FinancialsTab
+          eventId={eventId}
+          settlement={settlement}
+          currency={baseCurrency}
+          onGoToSettlement={() => setTab("settlement")}
+        />
       ) : tab === "comments" ? (
         <CommentsTab settlement={settlement} eventId={eventId} />
       ) : tab === "payout" ? (
@@ -912,7 +917,14 @@ function FinancialsTab({
   eventId,
   settlement,
   currency,
-}: { eventId: string; settlement: EventSettlementData; currency: string }) {
+  onGoToSettlement,
+}: {
+  eventId: string;
+  settlement: EventSettlementData;
+  currency: string;
+  /** Moves the reader to the tab that actually runs the reconciliation. */
+  onGoToSettlement: () => void;
+}) {
   const comparison = useGetApiV1EventsIdSettlementPlannedVsActual(eventId);
   // The event's BASE currency, never the cosmetic preview: these inputs are the
   // real figures being recorded, and money.md is explicit that a display currency
@@ -921,26 +933,53 @@ function FinancialsTab({
   const editor = useSettlementLines(eventId, currency);
 
   if (comparison.isPending) return <LoadingState label="Loading the plan" />;
+
+  // THE ROUTE OUT, DRAWN ABOVE EVERY BRANCH BELOW.
+  //
+  // Reported 2026-08-31: *"settlement don't work … financials tab doesn't let
+  // make the financial settlement."* Both halves of that are the same defect, and
+  // neither is the maths. The tab compares plan with outcome; the act that
+  // produces the outcome is on the Settlement tab and the figures behind the plan
+  // are owned by the Budget Planner (decisions.md #16.8). A reader who came here
+  // to settle found a screen that showed money and offered nothing — and when
+  // nothing had been computed yet, an empty state with no next move at all.
+  //
+  // So the locator is unconditional for anyone who could settle, and it carries
+  // the act rather than describing it.
+  const guide = settlement.authority.canCompute ? (
+    <SettlingHappensHereCard
+      eventId={eventId}
+      settlement={settlement}
+      onGoToSettlement={onGoToSettlement}
+    />
+  ) : null;
+
   // 403 is the ceiling, not a fault: only a party who may read the whole night's
   // money may read the plan behind it.
   if (comparison.isError) {
     return (
-      <EmptyState
-        icon={<Icon name="eye-off" />}
-        title="The plan is the operator's view"
-        description="What this night was budgeted to make is the whole event's money, not your own line."
-      />
+      <div style={{ ...CARD_COLUMN, maxWidth: 860 }}>
+        {guide}
+        <EmptyState
+          icon={<Icon name="eye-off" />}
+          title="The plan is the operator's view"
+          description="What this night was budgeted to make is the whole event's money, not your own line."
+        />
+      </div>
     );
   }
 
   const data = comparison.data;
   if (!data.plan) {
     return (
-      <EmptyState
-        icon={<Icon name="trending-up" />}
-        title="No plan captured yet"
-        description="The budget is snapshotted the first time the settlement is run, and this is where the plan and the outcome are compared."
-      />
+      <div style={{ ...CARD_COLUMN, maxWidth: 860 }}>
+        {guide}
+        <EmptyState
+          icon={<Icon name="trending-up" />}
+          title="No plan captured yet"
+          description="The budget is snapshotted the first time the settlement is run, and this is where the plan and the outcome are compared."
+        />
+      </div>
     );
   }
 
@@ -955,6 +994,7 @@ function FinancialsTab({
 
   return (
     <div style={{ ...CARD_COLUMN, maxWidth: 860 }}>
+      {guide}
       {/* Entry first, comparison second: you arrive here to correct a figure, and
           the variance is what you check afterwards. */}
       {settlement.authority.canCompute && (
@@ -1025,6 +1065,79 @@ function FinancialsTab({
         </Card>
       )}
     </div>
+  );
+}
+
+/**
+ * WHERE SETTLING HAPPENS — the card that stops this tab being a dead end.
+ *
+ * Three things are true at once and the reader could previously see none of them:
+ *
+ *  1. **The reconciliation is run on the Settlement tab.** It is one act — every
+ *     entitlement, every transfer, `Σ net = 0` — and it belongs beside the
+ *     document it produces. The button here is that same act, not a second one:
+ *     it calls `settlement.compute`, the identical mutation the Settlement tab's
+ *     "Run the settlement" calls, so the two can never drift.
+ *  2. **A budget figure is changed in the Budget Planner** (decisions.md #16.8).
+ *     The budget is the prediction and the settlement holds the actuals; editing
+ *     a plan line from two screens is two screens that can disagree about the
+ *     same row. So this points at the planner rather than reproducing it —
+ *     `?tab=budget`, a real link, because "go and find it" is what sent the
+ *     reader round this loop in the first place.
+ *  3. **Tonight's actuals are entered right here**, in the card below. That is
+ *     what the Financials tab is FOR, and saying so is what makes the other two
+ *     read as directions rather than as excuses.
+ *
+ * The #21 gate is repeated here for the same reason it exists on the Settlement
+ * tab: while any agreement on the event is unsigned the API answers 409, so the
+ * button is disabled and the refusal is printed by name beside it. A live-looking
+ * button that fails every time is worse than no button; a disabled one with no
+ * reason is worse than both.
+ */
+function SettlingHappensHereCard({
+  eventId,
+  settlement,
+  onGoToSettlement,
+}: {
+  eventId: string;
+  settlement: EventSettlementData;
+  onGoToSettlement: () => void;
+}) {
+  const blocked = settlement.unsignedAgreementsNotice;
+  return (
+    <Card padding="lg" style={CARD_COLUMN}>
+      <CardTitle subtitle="This tab is the plan against the outcome. The two acts behind it live one click away each.">
+        Settling this event
+      </CardTitle>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {!settlement.isFinalized && (
+          <Button
+            variant={settlement.isComputed ? "secondary" : "primary"}
+            disabled={settlement.isBusy || blocked != null}
+            leftIcon={<Icon name="receipt" size={14} />}
+            onClick={settlement.compute}
+          >
+            {settlement.isComputed ? "Recalculate the settlement" : "Run the settlement"}
+          </Button>
+        )}
+        <Button
+          variant="secondary"
+          rightIcon={<Icon name="chevron-right" size={14} />}
+          onClick={onGoToSettlement}
+        >
+          Open the Settlement tab
+        </Button>
+        <Link to="/events/$eventId" params={{ eventId }} search={{ tab: "budget" }}>
+          <Button variant="ghost" leftIcon={<Icon name="pencil" size={14} />}>
+            Edit the budget
+          </Button>
+        </Link>
+      </div>
+      <p className="muted" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55 }}>
+        {blocked ??
+          "Running it recomputes every party's entitlement and the transfers between them; the Settlement tab is where those figures, the approvals and the review conversation live. What each line was BUDGETED to be is owned by the Budget Planner and changed there — what it actually came to is entered below."}
+      </p>
+    </Card>
   );
 }
 

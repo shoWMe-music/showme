@@ -1,5 +1,10 @@
 export { CAPABILITIES, isCapability, type Capability } from "./capabilities";
 export {
+  eventParticipantRoleLabel,
+  humanizeEnumValue,
+} from "./event-roles";
+export type { EmailMessage, EmailSink, RenderedEmail } from "./email";
+export {
   type BudgetInputs,
   type BudgetProjection,
   computeBudgetProjection,
@@ -166,6 +171,7 @@ export {
   isStandardAmenity,
   isPlaceProfile,
   isProfileTypeForKind,
+  profileTypeLabel,
   profileTypesForKind,
 } from "./venue";
 export {

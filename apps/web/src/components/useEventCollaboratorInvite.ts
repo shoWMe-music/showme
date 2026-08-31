@@ -22,9 +22,10 @@ export interface EventCollaboratorRoleOption {
  * The event roles a collaborator may be invited AS — the `event_participants`
  * role enum (`apps/api/src/routes/participants.ts`) minus two, both deliberately:
  *
- * - **`host`** — the event already has one, and hosting is the account that
- *   created the event and carries the residual (story.md, Operator). A second
- *   host is not an invitation, it is a handover.
+ * - **`host`** — the event already has one. The enum member is still spelled
+ *   `host`, but the product's word for it is **Operator** (decisions.md #16.20):
+ *   the account that created the event and carries the residual (story.md,
+ *   Operator). A second one is not an invitation, it is a handover.
  * - **`agent`** — an agent participation is the PROJECTION of a representation
  *   (docs/decisions.md #14; the authorization skill). `effectiveEventCapabilities`
  *   skips an `agent` row that no live representation backs, so an invited agent
@@ -39,7 +40,7 @@ export interface EventCollaboratorRoleOption {
 export const EVENT_COLLABORATOR_ROLES: EventCollaboratorRoleOption[] = [
   {
     value: "co_host",
-    label: "Co-host",
+    label: "Co-operator",
     description: "Runs the show with you — another promoter, venue or organizer.",
   },
   {
@@ -70,8 +71,8 @@ const DEFAULT_ROLE = "co_host";
 export type EventCollaboratorAccess = "standard" | "full_control";
 
 /**
- * Full control is offered ONLY for a co-host. The permission set behind it is the
- * host's own `operator_full` bundle, which carries `participants.manage` — and the
+ * Full control is offered ONLY for a co-operator. The permission set behind it is
+ * the operator's own `operator_full` bundle, which carries `participants.manage` — and the
  * ceiling (`isGrantable`, decisions #4) refuses budget visibility to anyone who is
  * not host or co_host anyway, so handing it to a crew member would grant a
  * confusing partial set. PLAN.md:614 draws the paid-plan line at exactly this
@@ -86,7 +87,7 @@ export interface UseEventCollaboratorInviteOptions {
   eventId: string;
   /**
    * The admin-grade permission set to attach when "Full control" is chosen — in
-   * practice the host participant's own set, read off `GET /events/:id/participants`
+   * practice the operator participant's own set, read off `GET /events/:id/participants`
    * (the serializer only returns `permissionSetId` to a caller who may manage the
    * roster). There is no route to LIST or CREATE permission sets, so this is the
    * only honest admin-grade bundle the web app can name. `null` hides the option.

@@ -1,24 +1,6 @@
 import { type Database, schema } from "@showme/db";
+import { notifyUsers } from "@showme/db/notify";
 import { and, eq, inArray, isNotNull, isNull, lte } from "drizzle-orm";
-// CROSSING AN APP BOUNDARY ON PURPOSE, AND ONLY THIS FAR.
-//
-// `notifyUsers` is where the notification-preference gate lives, and the comment
-// on it is emphatic about why: "a route cannot forget to honour a preference,
-// because honouring it is not a thing a route does". A sweep is no different. The
-// alternative was a second copy of the gate here, which is precisely the drift
-// that argument exists to prevent — one of the two copies would eventually stop
-// agreeing with the settings screen, and nobody would find out.
-//
-// It costs nothing at runtime: `notify.ts` imports `@showme/db`, `drizzle-orm`
-// and `./publish` (also db-only); its `./email` and `./email-templates` imports
-// are type-only and erase. No Fastify comes with it.
-//
-// THE PROPER HOME IS `@showme/db`, beside `representation-termination.ts`, which
-// was carved out for exactly this reason — "apps/jobs and apps/api are sibling
-// apps that must run the byte-identical effect, and this package is the only
-// module both already depend on". Moving `notify.ts` there touches every route
-// that emits, so it is a change of its own rather than a passenger on this one.
-import { notifyUsers } from "../../api/src/lib/notify";
 
 /**
  * TASK REMINDERS — the sweep half (ClickUp 86cbaxxu1).

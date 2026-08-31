@@ -64,9 +64,9 @@ export const COLLABORATOR_PANEL_STYLE = {
 /**
  * The two grants the web app can honestly offer. "Standard" attaches NO permission
  * set, which is not a downgrade — `baselineCapabilities` gives every role an
- * inalienable floor regardless (decisions #4). "Full control" attaches the host's
+ * inalienable floor regardless (decisions #4). "Full control" attaches the operator's
  * own admin-grade set, and its price is named in the label rather than discovered
- * as a 403 (audit A-21 — charged to the event host's plan, re-checked on accept).
+ * as a 403 (audit A-21 — charged to the event operator's plan, re-checked on accept).
  */
 export const ACCESS_OPTIONS: AccessOption[] = [
   {
@@ -79,7 +79,7 @@ export const ACCESS_OPTIONS: AccessOption[] = [
     value: "full_control",
     label: "Full control — paid plans only",
     description:
-      "Everything the host can do on this event: the budget, the settlement, and inviting others. Charged to this event's host plan — a free plan is refused.",
+      "Everything the operator can do on this event: the budget, the settlement, and inviting others. Charged to this event's operator plan — a free plan is refused.",
   },
 ];
 
@@ -195,7 +195,7 @@ export function EventCollaboratorInviteModal({
                 <span style={{ display: "block", marginTop: 4 }}>
                   Full control is the one grant that costs a plan — it makes them an administrator
                   of this event. Standard access is included on every plan, and you can raise them
-                  later once the host account is on a paid plan.
+                  later once the operator account is on a paid plan.
                 </span>
               )}
             </CollaboratorCallout>

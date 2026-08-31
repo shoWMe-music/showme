@@ -279,7 +279,7 @@ function ProjectionsScreen() {
         <span style={{ fontFamily: "var(--font-mono)", color: "var(--text)" }}>
           {formatMoney(revenue.data.totalRevenue, currency)}
         </span>{" "}
-        across {summary.data.eventsHosted} {pluralEvents(summary.data.eventsHosted)} hosted.
+        across {summary.data.eventsHosted} {pluralEvents(summary.data.eventsHosted)} you operated.
       </div>
     ) : null;
 
@@ -438,7 +438,7 @@ function OperatorOnlyProjections({ children }: { children: ReactNode }) {
     <EmptyState
       icon={<Icon name="trending-up" />}
       title="Projections belong to the venue's books"
-      description="A projection rolls up the event budget, which only the operator hosting the event can see."
+      description="A projection rolls up the event budget, which only the operator running the event can see."
     />
   );
 }

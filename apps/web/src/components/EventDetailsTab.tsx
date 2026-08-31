@@ -82,6 +82,9 @@ export interface DetailsPerformer {
   id: string;
   name: string;
   initials: string;
+  /** The act's own picture, straight off the roster (`serialize/participant.ts`
+   * resolves it). Nullable — an off-platform act has no profile to take one from. */
+  avatarUrl: string | null;
   sub: string;
   connected: boolean;
 }
@@ -232,7 +235,14 @@ function EventInformationCard({
                 padding: "13px 16px",
               }}
             >
-              <Avatar initials={performer.initials} tone="brand" shape="square" size={34} />
+              <Avatar
+                src={performer.avatarUrl ?? undefined}
+                alt=""
+                initials={performer.initials}
+                tone="brand"
+                shape="square"
+                size={34}
+              />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
                   {performer.name}
@@ -332,7 +342,7 @@ function EventPosterCard({ event, canEdit }: { event: DetailsEvent; canEdit: boo
               ? "Around 1200×800. It leads the public page for this show."
               : isHost
                 ? "You need edit rights on this show to change its poster."
-                : "Only the profile hosting this show can change its poster."
+                : "Only the profile operating this show can change its poster."
           }
           previewUrl={event.imageUrl}
           shape="banner"

@@ -20,15 +20,30 @@ import type { SettlementParty } from "./useEventSettlement";
  * card with no rule lines is one whose rules were not this reader's to know.
  */
 
-/** The role's tile — a performer, the room, and whoever is promoting the night. */
+/**
+ * The role's tile — a performer, the room, and whoever is promoting the night.
+ *
+ * **Keyed on the LABEL, normalised, not on the enum.** `party.role` arrives here
+ * already written for the reader (`useEventSettlement`), so `tileFor` lowercases
+ * it and folds spaces to underscores to get back to something table-shaped. That
+ * is why the enum spellings and the label spellings both appear: `host` /
+ * `co_host` are what the old label title-cased from, `operator` / `co-operator`
+ * are what `eventParticipantRoleLabel` writes now (decisions.md #16.20). Both are
+ * kept — the enum entries still serve any caller that passes a raw role, and
+ * dropping them to "tidy up" would silently swap the operator's building tile for
+ * the generic fallback.
+ */
 const ROLE_TILE: Record<string, { icon: IconName; color: string }> = {
   performer: { icon: "music", color: "var(--brand-gold)" },
   support: { icon: "music", color: "var(--brand-gold)" },
   host: { icon: "building", color: "var(--accent)" },
   co_host: { icon: "building", color: "var(--accent)" },
+  operator: { icon: "building", color: "var(--accent)" },
+  "co-operator": { icon: "building", color: "var(--accent)" },
   venue: { icon: "building", color: "var(--accent)" },
   agent: { icon: "user", color: "var(--muted)" },
   crew: { icon: "users", color: "var(--muted)" },
+  crew_lead: { icon: "users", color: "var(--muted)" },
 };
 
 function tileFor(role: string) {

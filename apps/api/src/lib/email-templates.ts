@@ -16,6 +16,8 @@
  * anything more modern.
  */
 
+import type { RenderedEmail } from "@showme/shared";
+
 /** Brand values, copied from `design-system/src/styles/tokens.css`. */
 const BRAND = {
   /** `--ink-1000` — the page ground. */
@@ -57,13 +59,6 @@ export function resolvePublicAppBaseUrl(environment: NodeJS.ProcessEnv = process
 /** Join a relative app path onto the public base URL, yielding an absolute URL. */
 export function buildApplicationUrl(path: string, baseUrl = resolvePublicAppBaseUrl()): string {
   return new URL(path, `${baseUrl}/`).toString();
-}
-
-/** The rendered message body — both parts, always. */
-export interface RenderedEmail {
-  subject: string;
-  html: string;
-  text: string;
 }
 
 /** The event facts a recipient needs to recognize which show is meant. */
@@ -482,7 +477,7 @@ export function renderSettlementReviewEmail(input: {
 }
 
 /**
- * 6. The mail copy of an in-app NOTIFICATION (`lib/notify.ts`, when a caller
+ * 6. The mail copy of an in-app NOTIFICATION (`@showme/db/notify`, when a caller
  *    passes a `NotificationEmail`).
  *
  * The five templates above each exist because one route has one thing to say.

@@ -1,12 +1,12 @@
 import { PRESET_PERMISSION_SETS, effectiveEventCapabilities, resolvePrincipal } from "@showme/auth";
 import { schema } from "@showme/db";
+import { dealPartyRecipients } from "@showme/db/notify";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
 import { assignAgentToEvent } from "./lib/agent-assignment";
-import { dealPartyRecipients } from "./lib/notify";
 import { dealRoutes } from "./routes/deals";
 import { buildTestApp } from "./testing";
 

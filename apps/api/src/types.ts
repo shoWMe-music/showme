@@ -1,10 +1,9 @@
 import type { Principal } from "@showme/auth";
 import type { Database } from "@showme/db";
-import type { Capability } from "@showme/shared";
+import type { Capability, EmailSink } from "@showme/shared";
 import type { FirebaseUser, TokenVerifier } from "./auth/token-verifier";
 import type { CalendarIntegration } from "./lib/calendar-integration";
 import type { LeadSink } from "./lib/clickup";
-import type { EmailSink } from "./lib/email";
 import type { Geocoder } from "./lib/geocode";
 import type { StorageSigner } from "./lib/storage";
 

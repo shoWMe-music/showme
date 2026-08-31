@@ -1111,11 +1111,14 @@ describe("profiles — public preview", () => {
     // The trade half is not in the projection either (decisions.md #19) — but it
     // is not lost: it rides beside it, so Preview can show the owner what it
     // entered while saying it is being held back.
-    expect(preview.json().withheldVenueDetails).toEqual({
-      amenities: ["pa_system", "backline"],
-      dealTypes: ["door_split", "guarantee"],
-      cateringNotes: "Hot meal for up to six.",
-      accommodationNotes: "Two twin rooms across the square.",
+    expect(preview.json().withheldDetails).toEqual({
+      setups: [],
+      venue: {
+        amenities: ["pa_system", "backline"],
+        dealTypes: ["door_split", "guarantee"],
+        cateringNotes: "Hot meal for up to six.",
+        accommodationNotes: "Two twin rooms across the square.",
+      },
     });
 
     // A place publishes its street address — a venue nobody can find is a venue
@@ -1246,7 +1249,78 @@ describe("profiles — public preview", () => {
 
     // The withheld half never reaches the anonymous route even as a sibling: it
     // exists only on the member preview.
-    expect(body.withheldVenueDetails).toBeUndefined();
+    expect(body.withheldDetails).toBeUndefined();
+  });
+
+  /**
+   * THE SAME REGRESSION, THE PERFORMER'S HALF.
+   *
+   * `setups` is the line-up an operator sizes a booking with — "Full Band", 7
+   * people — and it went on publishing to the open web through the first pass of
+   * `docs/decisions.md` #19, which named the four venue fields and missed this
+   * one. It is the same class of fact for the same reason: what it costs to bring
+   * this act is a negotiating position, not audience copy.
+   *
+   * It asserts the same two things #19's venue test does, and the second is the
+   * one that would have caught the miss: the key is absent from `profile`, AND
+   * the VALUES appear nowhere in the serialized body. A field can leave the
+   * projection and come back hung off the root, and only a search of the whole
+   * payload sees that.
+   */
+  it("never publishes a performer's setups to an anonymous visitor", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("preview-setups", "performer");
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: {
+        isPublic: true,
+        bio: "A quartet from Stockholm.",
+        details: { genres: ["jazz", "soul", "afrobeat"] },
+        setups: [
+          { name: "Solo · piano only", headcount: 1 },
+          { name: "Full Band", headcount: 7 },
+        ],
+      },
+    });
+    expect(patched.statusCode).toBe(200);
+
+    const anonymous = await app.inject({
+      method: "GET",
+      url: `/api/v1/public/profiles/${anonymousSlug(patched.json().slug)}`,
+    });
+    expect(anonymous.statusCode).toBe(200);
+    const body = anonymous.json();
+
+    expect(body.setups).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("Full Band");
+    expect(JSON.stringify(body)).not.toContain("Solo · piano only");
+    // The headcount on its own, too — a future handler could publish the numbers
+    // without the names and still have said how big the touring party is.
+    expect(JSON.stringify(body)).not.toContain("headcount");
+
+    // A narrowing, not a blackout: everything else a stranger came for is there,
+    // and ALL of the genres are, which is what the public page draws instead.
+    expect(body.genres).toEqual(["jazz", "soul", "afrobeat"]);
+    expect(body.bio).toBe("A quartet from Stockholm.");
+
+    // And the owner still has them, on the preview, as a sibling of `profile` —
+    // never inside it, so the two bodies stay equal field for field.
+    const preview = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${profileId}/public-preview`,
+      headers: auth(ownerId),
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json().withheldDetails).toEqual({
+      setups: [
+        { name: "Solo · piano only", headcount: 1 },
+        { name: "Full Band", headcount: 7 },
+      ],
+      venue: null,
+    });
+    expect(preview.json().profile.setups).toBeUndefined();
+    expect(preview.json().profile).toEqual(body);
   });
 
   it("lists only published, world-facing events — never a draft", async () => {

@@ -1,11 +1,11 @@
 import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
+import type { EmailMessage } from "@showme/shared";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
-import type { EmailMessage } from "./lib/email";
 import { MAX_VERIFY_ATTEMPTS, emailHash } from "./lib/share-crypto";
 import { activityRoutes } from "./routes/activity";
 import { dealRoutes } from "./routes/deals";

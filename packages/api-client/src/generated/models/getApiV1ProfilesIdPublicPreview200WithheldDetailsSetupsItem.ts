@@ -5,7 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 
-export type GetApiV1PublicProfilesSlug200SetupsItem = {
+export type GetApiV1ProfilesIdPublicPreview200WithheldDetailsSetupsItem = {
   name: string;
   /** @nullable */
   headcount: number | null;

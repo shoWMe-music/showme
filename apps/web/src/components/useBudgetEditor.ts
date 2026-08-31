@@ -13,7 +13,7 @@ import {
   usePostApiV1EventsIdBudgetsBidLines,
 } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
-import type { BudgetInputs } from "@showme/shared";
+import { type BudgetInputs, eventParticipantRoleLabel } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getActiveProfileId } from "../lib/activeProfile";
@@ -230,11 +230,6 @@ const LEGACY_COST_HEADINGS: Record<string, string> = {
   Venue: "Venue cost",
   Other: "Other cost",
 };
-
-/** A participant's event role in the planner's words ("Co host" → "Co host"). */
-function participantRoleLabel(role: string): string {
-  return role.replace(/_/g, " ").replace(/^\w/, (character) => character.toUpperCase());
-}
 
 /** The heading a stored cost line belongs under, old wording or new. */
 function costHeadingOf(label: string): string {
@@ -510,8 +505,10 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       (participantsQuery.data ?? []).map((participant) => ({
         id: participant.id,
         label:
-          participant.name ?? participant.performerTag ?? participantRoleLabel(participant.role),
-        roleLabel: participantRoleLabel(participant.role),
+          participant.name ??
+          participant.performerTag ??
+          eventParticipantRoleLabel(participant.role),
+        roleLabel: eventParticipantRoleLabel(participant.role),
       })),
     [participantsQuery.data],
   );

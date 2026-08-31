@@ -35,9 +35,8 @@
  *               are embedded (see `renderVideos`) — the stored string never
  *               becomes an iframe `src`.
  *   genres      the owner's own words for what they play
- *   setups      "Solo" / "Full band" and how many people come with each
- *   venueDetails capacity, PA, curfew, amenities, deal types, catering, and how
- *               the AUDIENCE gets in. Never the artist half — see below.
+ *   venueDetails capacity, PA, curfew, and how the AUDIENCE gets in. Never the
+ *               artist half, and never the trade half — see below.
  *   upcomingShows the bill: date, room, city, and who else is on it
  *   id          NOT rendered. It is read because "request a date" addresses its
  *               target by id, the way availability.ts does.
@@ -52,11 +51,24 @@
  * endpoint were to offer it: `artistLogisticsNotes` (load-in, back entrance,
  * artist parking — private to booked parties per `docs/decisions.md` #16.7),
  * `contactEmail` and `contactPhone` (an open page that prints a booker's mailbox
- * is a scraper's gift).
+ * is a scraper's gift), the venue trade half — `amenities`, `dealTypes`,
+ * `cateringNotes`, `accommodationNotes` — and `setups`.
+ *
+ * `setups` used to be read and drawn here as the About band's chips. It is trade
+ * information for the same reason the venue's four are (`docs/decisions.md` #19):
+ * "Full band, 7 people" is how an operator sizes the stage, the rider and the
+ * travel party before offering, which is a negotiating fact, not audience copy.
+ * The API stopped sending it; this page stopped asking for it. Neither half is
+ * enough on its own, and a reader that asks for a field it is not owed is how a
+ * disclosure gets re-opened.
  */
 
-import { parseVideoLink } from "@showme/shared";
-import { type DateRequestPanel, createDateRequestPanel } from "./availability-request";
+import { type VideoLink, parseVideoLink } from "@showme/shared";
+import {
+  BOOKING_REQUEST_LABEL,
+  type DateRequestPanel,
+  createDateRequestPanel,
+} from "./availability-request";
 import { element } from "./element";
 
 /** API base including `/api/v1`. Empty renders the page's "unavailable" state
@@ -122,12 +134,6 @@ interface PublicSocialLink {
   url: string;
 }
 
-/** A named line-up: "Full band", 5. */
-interface PublicSetup {
-  name: string;
-  headcount: number | null;
-}
-
 interface PublicProfile {
   id: string;
   name: string;
@@ -143,7 +149,6 @@ interface PublicProfile {
   city: string | null;
   country: string | null;
   genres: string[];
-  setups: PublicSetup[];
   /** Gallery images. Signed URLs when the owner uploaded them — see the API. */
   photos: string[];
   /** YouTube/Vimeo links. Re-parsed here; nothing else ever reaches an iframe. */
@@ -227,22 +232,6 @@ function readVenueDetails(value: unknown): PublicVenueDetails | null {
   };
 }
 
-function readSetups(value: unknown): PublicSetup[] {
-  if (!Array.isArray(value)) return [];
-  const setups: PublicSetup[] = [];
-  for (const entry of value) {
-    if (typeof entry !== "object" || entry === null) continue;
-    const source = entry as Record<string, unknown>;
-    const name = readString(source.name);
-    if (!name) continue;
-    setups.push({
-      name,
-      headcount: typeof source.headcount === "number" ? source.headcount : null,
-    });
-  }
-  return setups;
-}
-
 function readProfile(value: unknown): PublicProfile | null {
   if (typeof value !== "object" || value === null) return null;
   const source = value as Record<string, unknown>;
@@ -268,7 +257,6 @@ function readProfile(value: unknown): PublicProfile | null {
       .filter((url): url is string => url !== null),
     videos: readStringArray(source.videos),
     genres: readStringArray(source.genres),
-    setups: readSetups(source.setups),
     street: readString(location.street),
     postcode: readString(location.postcode),
     city: readString(location.city),
@@ -388,7 +376,16 @@ function humanize(value: string): string {
     .join(" ");
 }
 
-/** The prototype's two vocabularies, chosen once and read everywhere below. */
+/**
+ * The prototype's two vocabularies, chosen once and read everywhere below.
+ *
+ * The ask is deliberately NOT one of the two. A room said "Pitch a date" and an
+ * act said "Request a show", which asked the reader to work out that the two
+ * buttons post the same body to the same endpoint and land in the same inbox.
+ * One thing has one name — `BOOKING_REQUEST_LABEL`, shared with the panel it
+ * opens. The rest of the pair still differs, because a programme and a tour
+ * genuinely are different words.
+ */
 interface Vocabulary {
   showsLabel: string;
   showsAnchor: string;
@@ -396,7 +393,6 @@ interface Vocabulary {
   aboutLabel: string;
   laneEyebrow: string;
   laneProse: string;
-  requestLabel: string;
   emptyShows: string;
 }
 
@@ -410,7 +406,6 @@ function vocabularyFor(profile: PublicProfile): Vocabulary {
         laneEyebrow: "Artists & promoters",
         laneProse:
           "House tech spec, patch list and load-in notes are shared with signed-in artists and crew — never on the open web.",
-        requestLabel: "Pitch a date",
         emptyShows: "Nothing announced right now. Check back soon.",
       }
     : {
@@ -421,7 +416,6 @@ function vocabularyFor(profile: PublicProfile): Vocabulary {
         laneEyebrow: "Booking & industry",
         laneProse:
           "Riders, stage plots and hospitality notes are shared with signed-in venues, promoters and crew — never on the open web.",
-        requestLabel: "Request a show",
         emptyShows: "No dates announced right now. Check back soon.",
       };
 }
@@ -447,9 +441,9 @@ function internalLink(className: string, href: string, label: string): HTMLAncho
   return link;
 }
 
-function pillRow(className: string, labels: string[]): HTMLElement {
+function pillRow(className: string, labels: string[], itemClassName = "pill"): HTMLElement {
   const row = element("div", className);
-  for (const label of labels) row.append(element("span", "pill", label));
+  for (const label of labels) row.append(element("span", itemClassName, label));
   return row;
 }
 
@@ -629,6 +623,20 @@ function renderHero(profile: PublicProfile, vocabulary: Vocabulary): HTMLElement
   body.append(element("h1", "hero__name", profile.name));
   if (profile.tagline) body.append(element("p", "hero__tagline", profile.tagline));
 
+  // EVERY genre, under the tagline, as pills — the same shape the owner sees in
+  // the app's Preview (`apps/web/src/components/ProfilePublicPreview.tsx`), so
+  // the page and the preview of it stop disagreeing.
+  //
+  // They used to be the last two entries of the status row above the name, which
+  // dropped the third genre onto the floor and never ran at all for a venue (that
+  // branch returns before it). A row a fan reads as "what do they play" cannot
+  // answer with a two-item sample, and the crowded strip over the name is not
+  // where it belongs anyway. Hero chrome rather than the `.pill` of the bands
+  // below, because these sit on the cover image.
+  if (profile.genres.length > 0) {
+    body.append(pillRow("hero__genres", profile.genres, "statuspill statuspill--quiet"));
+  }
+
   // ONE button, where the prototype has two. "Follow" is the other, and nothing
   // in this stack can take a follow: `audience_rsvps` is keyed to an EVENT, and
   // there is no profile-level subscription table, endpoint or screen. A Follow
@@ -670,7 +678,7 @@ function heroPills(profile: PublicProfile): string[] {
 
   if (shows > 0) pills.push(shows === 1 ? "1 date announced" : `${shows} dates announced`);
   if (home) pills.push(home);
-  for (const genre of profile.genres.slice(0, 2)) pills.push(genre);
+  // No genres here. They are drawn under the tagline instead — see `renderHero`.
   if (pills.length === 0) pills.push(humanize(profile.type ?? profile.kind));
   return pills;
 }
@@ -814,7 +822,16 @@ function renderShows(profile: PublicProfile, vocabulary: Vocabulary): HTMLElemen
 /* -------------------------------------------------------------------- media */
 
 /**
- * The videos, as the prototype draws them: one large, the rest beside it.
+ * The videos: three to a row, and the first one is larger only when there ARE
+ * three — the prototype's arrangement, which needs two tiles beside the big one
+ * to be an arrangement at all.
+ *
+ * It used to give `--featured` to the first video unconditionally, and the row is
+ * a grid whose cells fill their track, so a profile with ONE video published a
+ * single player two-thirds of the page wide. One upload is the commonest case
+ * there is, and it was the worst-looking one. The links are parsed up front for
+ * exactly this reason: whether the first tile is featured is a fact about how
+ * many videos there are, and that is not known until the last one is read.
  *
  * NOTHING LOADS UNTIL IT IS CLICKED. The tile is a button on the card's own
  * ground; the `<iframe>` replaces it on the first click. That is the prototype's
@@ -831,39 +848,55 @@ function renderShows(profile: PublicProfile, vocabulary: Vocabulary): HTMLElemen
  * written by the current version of the API.
  */
 function renderVideos(videos: string[]): HTMLElement | null {
-  const grid = element("div", "videos");
-  let count = 0;
-  for (const url of videos) {
-    const link = parseVideoLink(url);
-    if (!link) continue;
-    const provider = link.provider === "youtube" ? "YouTube" : "Vimeo";
+  const links = videos.map(parseVideoLink).filter((link): link is VideoLink => link !== null);
+  if (links.length === 0) return null;
 
-    const tile = document.createElement("button");
-    tile.type = "button";
-    tile.className = count === 0 ? "video video--featured" : "video";
-    tile.setAttribute("aria-label", `Play this ${provider} video`);
-    tile.append(element("span", "video__play"), element("span", "video__hint", provider));
-    tile.addEventListener(
-      "click",
-      () => {
-        const frame = document.createElement("iframe");
-        frame.className = "video__frame";
-        frame.src = `${link.embedUrl}${link.embedUrl.includes("?") ? "&" : "?"}autoplay=1`;
-        frame.title = `${provider} video`;
-        frame.referrerPolicy = "strict-origin-when-cross-origin";
-        frame.allow =
-          "autoplay; accelerometer; clipboard-write; encrypted-media; picture-in-picture; fullscreen";
-        frame.allowFullscreen = true;
-        tile.replaceWith(frame);
-        // The tile is gone, so the class that sized it has to move with it.
-        if (count === 0) frame.classList.add("video__frame--featured");
-      },
-      { once: true },
-    );
-    grid.append(tile);
-    count += 1;
+  const grid = element("div", "videos");
+  for (const [index, link] of links.entries()) {
+    // The prototype's one-large-two-small only exists from three up. Below that
+    // every tile is a third of the row, which is what stops a lone video filling
+    // the band.
+    const featured = index === 0 && links.length >= 3;
+    grid.append(videoTile(link, featured));
   }
-  return count > 0 ? grid : null;
+  return grid;
+}
+
+/** One cell of the video wall: the click-to-load player, and the way out of it. */
+function videoTile(link: VideoLink, featured: boolean): HTMLElement {
+  const provider = link.provider === "youtube" ? "YouTube" : "Vimeo";
+  const cell = element("div", featured ? "video video--featured" : "video");
+
+  const tile = document.createElement("button");
+  tile.type = "button";
+  tile.className = "video__tile";
+  tile.setAttribute("aria-label", `Play this ${provider} video`);
+  tile.append(element("span", "video__play"), element("span", "video__hint", provider));
+  tile.addEventListener(
+    "click",
+    () => {
+      const frame = document.createElement("iframe");
+      frame.className = "video__frame";
+      frame.src = `${link.embedUrl}${link.embedUrl.includes("?") ? "&" : "?"}autoplay=1`;
+      frame.title = `${provider} video`;
+      frame.referrerPolicy = "strict-origin-when-cross-origin";
+      frame.allow =
+        "autoplay; accelerometer; clipboard-write; encrypted-media; picture-in-picture; fullscreen";
+      frame.allowFullscreen = true;
+      tile.replaceWith(frame);
+    },
+    { once: true },
+  );
+  cell.append(tile);
+
+  // The way OUT. Fullscreen already worked; there was no way to open the video
+  // where it LIVES, which is what a visitor wants the moment they mean to
+  // subscribe, comment or share. `canonicalUrl` is the page `parseVideoLink`
+  // built from the same provider and id as the embed — never the pasted string —
+  // and it is what the API stored, so this link cannot point anywhere the player
+  // does not.
+  cell.append(externalLink("video__out", link.canonicalUrl, `Watch on ${provider}`));
+  return cell;
 }
 
 /**
@@ -914,13 +947,12 @@ function renderAbout(profile: PublicProfile, vocabulary: Vocabulary): HTMLElemen
     filled = true;
   }
 
-  // The chips under the prose: what a venue offers, or how an act plays. Both are
-  // the owner's own words for "what you get", which is what this band is for.
-  const chips = isPlace(profile)
-    ? roomChips(profile.venueDetails)
-    : profile.setups.map((setup) =>
-        setup.headcount ? `${setup.name} · ${setup.headcount}` : setup.name,
-      );
+  // The chips under the prose: the room, in facts a stranger may read. A
+  // performer's half of this row used to be their line-ups, and those left the
+  // public page with the venue's trade details (`docs/decisions.md` #19) — their
+  // genres are the identity claim that belongs on an open page, and they are
+  // drawn in the hero under the tagline where a visitor reads them first.
+  const chips = isPlace(profile) ? roomChips(profile.venueDetails) : [];
   if (chips.length > 0) {
     prose.append(pillRow("about__chips", chips));
     filled = true;
@@ -928,7 +960,7 @@ function renderAbout(profile: PublicProfile, vocabulary: Vocabulary): HTMLElemen
   body.append(prose);
 
   if (profile.photos.length > 0) {
-    body.append(renderPhotos(profile.photos, isPlace(profile)));
+    body.append(renderPhotos(profile.photos));
     filled = true;
   }
 
@@ -955,9 +987,16 @@ function roomChips(venue: PublicVenueDetails | null): string[] {
  * The gallery. `<img>` rather than a CSS background so the browser can lazy-load
  * it and a screen reader can skip it: these are pictures of the room, not
  * decoration with meaning, so the alt text is empty by design.
+ *
+ * EVERY PHOTO KEEPS THE SHAPE IT WAS UPLOADED IN. This used to take a `place`
+ * flag and crop the wall to `4 / 5` for an act and `5 / 4` for a room, on the
+ * theory that a subject has a correct orientation. An uploader who framed a
+ * landscape shot of a full room got it centre-cropped to a portrait; the flag
+ * decided the shape of a picture it had never seen. The wall is a masonry now
+ * (see `.gallery`), so the pictures decide.
  */
-function renderPhotos(photos: string[], place: boolean): HTMLElement {
-  const grid = element("div", place ? "gallery gallery--landscape" : "gallery");
+function renderPhotos(photos: string[]): HTMLElement {
+  const grid = element("div", "gallery");
   for (const url of photos) {
     const image = document.createElement("img");
     image.className = "gallery__item";
@@ -1009,8 +1048,8 @@ function renderFindUs(profile: PublicProfile): HTMLElement | null {
  *
  * TWO CONTROLS, both real:
  *
- *   Request a date / Pitch a date opens the same form the public availability
- *   page uses (`availability-request.ts`) and POSTs the same public, unauthenticated
+ *   Send booking request opens the same form the public availability page uses
+ *   (`availability-request.ts`) and POSTs the same public, unauthenticated
  *   `POST /booking-requests`. It lands in the target's Requests inbox like any
  *   other. The availability page binds it to a date the sharer published; a
  *   profile has no such list, so it opens with no date — `wanted_date` is
@@ -1038,7 +1077,7 @@ function renderLane(vocabulary: Vocabulary, onRequest: (() => void) | null): HTM
     const request = document.createElement("button");
     request.type = "button";
     request.className = "btn btn--light";
-    request.textContent = vocabulary.requestLabel;
+    request.textContent = BOOKING_REQUEST_LABEL;
     request.addEventListener("click", onRequest);
     actions.append(request);
   }
@@ -1085,6 +1124,14 @@ function renderProfile(container: HTMLElement, profile: PublicProfile): void {
   if (nextShow && !place) container.append(renderNextShow(nextShow, place));
   container.append(renderShows(profile, vocabulary));
 
+  // ABOUT FOLLOWS THE DATES, with nothing between them. "Watch & listen" used to
+  // sit in the gap, which broke the page's one argument in half: the dates say
+  // when, About says who — and a reader who has just finished the bill is asking
+  // the second question, not asking for a video. The media band keeps its place
+  // in the run, one section later.
+  const about = renderAbout(profile, vocabulary);
+  if (about) container.append(about);
+
   const videos = renderVideos(profile.videos);
   const chips = profile.socialLinks.length > 0 ? renderSocialChips(profile.socialLinks) : null;
   if (videos || chips) {
@@ -1093,9 +1140,6 @@ function renderProfile(container: HTMLElement, profile: PublicProfile): void {
     if (chips) body.append(chips);
     container.append(band("listen", videos ? "Watch & listen" : "Listen", null, body));
   }
-
-  const about = renderAbout(profile, vocabulary);
-  if (about) container.append(about);
 
   // A place publishes its doorstep; the server has already decided that, so an
   // empty street here means "not published" and the band simply does not appear.
@@ -1124,8 +1168,8 @@ function createRequestPanel(profile: PublicProfile): DateRequestPanel {
     // bottom of a long page, so a panel that unhid in place would open below
     // wherever the reader is standing.
     presentation: "modal",
-    // The same words as the button in the lane — see `heading`.
-    heading: vocabularyFor(profile).requestLabel,
+    // No `heading`: the panel's default IS the button's words now, read from the
+    // same constant, so passing it would be a second place to keep them equal.
     // The availability page uses these to mark the chip that was asked about;
     // this page has no chips, so there is nothing to mark.
     onRequested: () => {},

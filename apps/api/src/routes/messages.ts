@@ -1,4 +1,6 @@
 import { schema } from "@showme/db";
+import { messageRecipients } from "@showme/db/notify";
+import { publish } from "@showme/db/publish";
 import { and, asc, eq } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -12,8 +14,6 @@ import {
   resolveThreadAccess,
   threadKey,
 } from "../lib/message-threads";
-import { messageRecipients } from "../lib/notify";
-import { publish } from "../lib/publish";
 import { type MessageViewer, canSeeMessage, serializeMessage } from "../serialize/message";
 
 const EventParams = z.object({ id: z.string().uuid() });

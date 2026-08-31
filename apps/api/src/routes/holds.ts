@@ -1,5 +1,6 @@
 import { liveEventDelegations } from "@showme/auth";
 import { schema } from "@showme/db";
+import { eventParticipantRecipients, notifyUsers } from "@showme/db/notify";
 import {
   type Capability,
   type HoldRankUpdate,
@@ -17,7 +18,6 @@ import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { eventCapabilities, requireEventCapability } from "../lib/authorize";
 import { assertEventCapAllows } from "../lib/entitlements";
-import { eventParticipantRecipients, notifyUsers } from "../lib/notify";
 
 const EventParams = z.object({ id: z.string().uuid() });
 

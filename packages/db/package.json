@@ -6,6 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
+    "./notify": "./src/notify.ts",
+    "./publish": "./src/publish.ts",
     "./testing": "./src/testing.ts",
     "./reference-settlement": "./src/reference-settlement.ts",
     "./representation-termination": "./src/representation-termination.ts"

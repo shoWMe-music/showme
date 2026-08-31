@@ -1,11 +1,11 @@
 import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
+import type { EmailMessage } from "@showme/shared";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
-import type { EmailMessage } from "./lib/email";
 import { inboundRoutes } from "./routes/inbound";
 import { buildTestApp } from "./testing";
 

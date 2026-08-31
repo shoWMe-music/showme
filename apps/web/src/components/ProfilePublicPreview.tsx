@@ -1,8 +1,10 @@
 import { Avatar, type AvatarTone, Card, Icon } from "@showme/design-system";
 import { parseVideoLink } from "@showme/shared";
 import { formatDay } from "../lib/format";
+import styles from "./ProfilePublicPreview.module.css";
 import { VenueSpecsCard } from "./VenueSpecsCard";
 import { VideoEmbed } from "./VideoEmbed";
+import { WithheldNotice } from "./WithheldNotice";
 
 /**
  * PREVIEW — the profile as a stranger sees it.
@@ -50,15 +52,19 @@ export interface PublicPreviewVenueDetails {
 }
 
 /**
- * The trade half the anonymous page no longer receives (`docs/decisions.md` #19).
+ * The trade half the anonymous page no longer receives (`docs/decisions.md` #19)
+ * — the venue's, and the performer's line-ups, which size a booking the same way.
  * It rides on the preview response as a SIBLING of `profile`, never inside it, so
  * `profile` stays exactly the anonymous body — see `PublicPreviewResponse`.
  */
-export interface PublicPreviewWithheldVenueDetails {
-  amenities: string[];
-  dealTypes: string[];
-  cateringNotes: string | null;
-  accommodationNotes: string | null;
+export interface PublicPreviewWithheldDetails {
+  setups: PublicPreviewSetup[];
+  venue: {
+    amenities: string[];
+    dealTypes: string[];
+    cateringNotes: string | null;
+    accommodationNotes: string | null;
+  } | null;
 }
 
 export interface PublicPreviewProfile {
@@ -73,7 +79,6 @@ export interface PublicPreviewProfile {
   avatarUrl: string | null;
   bannerUrl: string | null;
   genres: string[];
-  setups: PublicPreviewSetup[];
   socialLinks: PublicPreviewSocialLink[];
   photos: string[];
   videos: string[];
@@ -102,11 +107,12 @@ export interface ProfilePublicPreviewProps {
   /** Whether the page is actually reachable. False → the banner says so. */
   isPublic: boolean;
   /**
-   * The venue trade details a stranger does not get. Drawn in Venue Specs under
-   * its own "not on your public page" heading, so the owner sees what it entered
-   * without being told the open web sees it too.
+   * What a stranger does not get. Drawn under its own "not on your public page"
+   * heading — in Venue Specs for the room's trade half, in its own card for the
+   * line-ups — so the owner sees what they entered without being told the open
+   * web sees it too.
    */
-  withheldVenueDetails: PublicPreviewWithheldVenueDetails | null;
+  withheldDetails: PublicPreviewWithheldDetails;
   /** Avatar colour, so the chip strip and the preview agree. */
   tone: AvatarTone;
 }
@@ -140,7 +146,7 @@ export function ProfilePublicPreview({
   profile,
   comingEvents,
   isPublic,
-  withheldVenueDetails,
+  withheldDetails,
   tone,
 }: ProfilePublicPreviewProps) {
   const address = formatPublicAddress(profile.location);
@@ -312,49 +318,52 @@ export function ProfilePublicPreview({
         )}
       </Card>
 
-      {/* Bio + Location */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)",
-          gap: 16,
-        }}
-      >
-        <Card>
-          <CardHeading title="Bio" />
-          <p
-            style={{
-              margin: "10px 0 0",
-              lineHeight: 1.6,
-              fontSize: 14.5,
-              color: profile.bio ? "var(--text)" : "var(--dim)",
-            }}
-          >
-            {profile.bio ?? "No bio yet."}
-          </p>
-        </Card>
+      {/* Bio, then Location UNDER it. They used to sit side by side, two-thirds
+          and one-third, which gave a paragraph of prose a narrow column and a
+          one-line address a whole card of empty space beside it. Stacked, each
+          gets the width it actually needs and the phone layout is the same
+          layout rather than a collapsed one. */}
+      <Card>
+        <CardHeading title="Bio" />
+        <p
+          style={{
+            margin: "10px 0 0",
+            lineHeight: 1.6,
+            fontSize: 14.5,
+            color: profile.bio ? "var(--text)" : "var(--dim)",
+          }}
+        >
+          {profile.bio ?? "No bio yet."}
+        </p>
+      </Card>
 
-        <Card>
-          <CardHeading icon={<MapPinIcon />} title="Location" />
-          <p
-            style={{
-              margin: "10px 0 0",
-              fontSize: 14.5,
-              color: address ? "var(--text)" : "var(--dim)",
-            }}
-          >
-            {address ?? "No location set"}
-          </p>
-        </Card>
-      </div>
+      <Card>
+        <CardHeading icon={<MapPinIcon />} title="Location" />
+        <p
+          style={{
+            margin: "10px 0 0",
+            fontSize: 14.5,
+            color: address ? "var(--text)" : "var(--dim)",
+          }}
+        >
+          {address ?? "No location set"}
+        </p>
+      </Card>
 
-      {/* Performer line-ups. An operator sizes the stage, the rider and the
-          travel party from this before they make an offer. */}
-      {profile.setups.length > 0 && (
+      {/* Performer line-ups — an operator sizes the stage, the rider and the travel
+          party from this before they make an offer, which is exactly why the open
+          web does not get them (`docs/decisions.md` #19). They arrive on the
+          withheld sibling, never inside `profile`, so this card cannot draw a
+          field the anonymous page also has. */}
+      {withheldDetails.setups.length > 0 && (
         <Card>
           <CardHeading icon={<Icon name="users" />} title="Setup Variations" />
+          <WithheldNotice>
+            Who comes with you sizes an offer, so it stays for the people you are talking to rather
+            than the open web.
+          </WithheldNotice>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
-            {profile.setups.map((setup) => (
+            {withheldDetails.setups.map((setup) => (
               <div
                 key={setup.name}
                 style={{
@@ -384,7 +393,7 @@ export function ProfilePublicPreview({
           trade details, so this card cannot render them as public even by
           accident. The trade half comes in separately and is drawn as withheld. */}
       {profile.venueDetails && (
-        <VenueSpecsCard venue={profile.venueDetails} withheld={withheldVenueDetails} />
+        <VenueSpecsCard venue={profile.venueDetails} withheld={withheldDetails.venue} />
       )}
 
       {/* NO capacity-setups card. It used to render one, and it was the one thing
@@ -402,28 +411,11 @@ export function ProfilePublicPreview({
       {profile.photos.length > 0 && (
         <Card>
           <CardHeading icon={<ImageIcon />} title="Photos" />
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
-              gap: 12,
-              marginTop: 12,
-            }}
-          >
+          {/* Every photo keeps its own shape — see `.gallery` in the stylesheet
+              beside this file for what it used to do instead. */}
+          <div className={styles.gallery}>
             {profile.photos.map((url) => (
-              <img
-                key={url}
-                src={url}
-                alt=""
-                loading="lazy"
-                style={{
-                  width: "100%",
-                  aspectRatio: "16 / 9",
-                  objectFit: "cover",
-                  borderRadius: 12,
-                  border: "1px solid var(--border)",
-                }}
-              />
+              <img key={url} className={styles.galleryItem} src={url} alt="" loading="lazy" />
             ))}
           </div>
         </Card>
@@ -432,40 +424,40 @@ export function ProfilePublicPreview({
       {profile.videos.length > 0 && (
         <Card>
           <CardHeading icon={<VideoIcon />} title="Videos" />
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-              gap: 12,
-              marginTop: 12,
-            }}
-          >
+          {/* Three to a row, the first bigger only when there are three, and a
+              link out of each — see the stylesheet beside this file. */}
+          <div className={styles.videos}>
             {profile.videos.map((url, index) => {
               // Parsed, never interpolated: `VideoEmbed` is handed a link whose
               // `embedUrl` was BUILT from a provider and an id. A stored value
               // this cannot parse predates the rule and stays an honest link.
               const link = parseVideoLink(url);
+              const featured = index === 0 && profile.videos.length >= 3;
               return link ? (
-                <VideoEmbed key={url} link={link} title={`Video ${index + 1}`} />
+                <div
+                  key={url}
+                  className={
+                    featured ? `${styles.videoTile} ${styles.videoTileFeatured}` : styles.videoTile
+                  }
+                >
+                  <VideoEmbed link={link} title={`Video ${index + 1}`} />
+                  <a
+                    className={styles.videoOut}
+                    href={link.canonicalUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <Icon name="link" size={11} />
+                    {link.provider === "youtube" ? "YouTube" : "Vimeo"}
+                  </a>
+                </div>
               ) : (
                 <a
                   key={url}
+                  className={styles.videoUnparsed}
                   href={url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "12px 14px",
-                    borderRadius: 12,
-                    border: "1px solid var(--border)",
-                    background: "var(--card)",
-                    color: "var(--text)",
-                    fontSize: 13.5,
-                    textDecoration: "none",
-                    overflow: "hidden",
-                  }}
                 >
                   <Icon name="link" size={14} />
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{url}</span>

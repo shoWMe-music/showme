@@ -56,7 +56,7 @@ export const notifications = pgTable(
  * settings screen that grows a checkbox with every commit and a stored row that
  * silences a type nobody remembers naming. The category is the coarse thing a
  * person actually has an opinion about — bookings, holds, deals, settlements,
- * events — and `lib/notify.ts` maps type → category in one place.
+ * events — and `@showme/db/notify` maps type → category in one place.
  *
  * A MISSING ROW IS THE DEFAULT, not "off". Rows exist only for the categories a
  * user has actually touched, so a new account is silent in this table and still

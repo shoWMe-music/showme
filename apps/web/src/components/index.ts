@@ -37,9 +37,6 @@ export type { DateTextProps } from "./DateText";
 export { CommentThread } from "./CommentThread";
 export type { CommentThreadProps, ThreadComment } from "./CommentThread";
 
-export { EventDetailHeader } from "./EventDetailHeader";
-export type { EventDetailHeaderProps, EventParty } from "./EventDetailHeader";
-
 export { EventDetailsTab } from "./EventDetailsTab";
 export type {
   DetailsEvent,
@@ -79,9 +76,6 @@ export type { NewEventWizardProps } from "./NewEventWizard";
 export { PerformerSearch } from "./PerformerSearch";
 export type { PerformerSearchProps, PerformerSelection } from "./PerformerSearch";
 
-export { ProfileCard } from "./ProfileCard";
-export type { ProfileCardProps, ProfileStat } from "./ProfileCard";
-
 export { RequestCard } from "./RequestCard";
 export type { RequestCardData, RequestCardProps } from "./RequestCard";
 
@@ -110,3 +104,5 @@ export type {
 } from "./WhoOwesWhomBoard";
 
 export { LoadingState, ErrorState } from "./states";
+export { ProfileFace } from "./ProfileFace";
+export type { ProfileFaceProps } from "./ProfileFace";

@@ -1,4 +1,5 @@
 import { Button, Card, Icon, KeyValueRow } from "@showme/design-system";
+import { eventParticipantRoleLabel } from "@showme/shared";
 import { type ReactNode, useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { AuthScreen } from "../auth/AuthScreen";
@@ -110,7 +111,10 @@ function OfferCard({ offer }: { offer: InvitationOffer }) {
           label={offer.targetKind === "event" ? "Event" : "Account"}
           value={offer.targetName ?? "—"}
         />
-        <KeyValueRow label="Role" value={offer.role ? roleLabel(offer.role) : "—"} />
+        <KeyValueRow
+          label="Role"
+          value={offer.role ? eventParticipantRoleLabel(offer.role) : "—"}
+        />
         <KeyValueRow label="Sent to" value={offer.recipientEmail ?? "Anyone with the link"} />
       </div>
       {offer.claimable && (
@@ -124,12 +128,6 @@ function OfferCard({ offer }: { offer: InvitationOffer }) {
       )}
     </Card>
   );
-}
-
-/** `co_host` → `Co host`. The role is free text on the invitation, so this only tidies. */
-function roleLabel(role: string): string {
-  const spaced = role.replace(/_/g, " ");
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
 /**

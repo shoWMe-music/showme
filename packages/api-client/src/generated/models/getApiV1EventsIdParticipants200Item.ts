@@ -12,6 +12,8 @@ export type GetApiV1EventsIdParticipants200Item = {
   name: string | null;
   /** @nullable */
   avatarUrl: string | null;
+  /** @nullable */
+  publicSlug: string | null;
   role: string;
   status: string;
   /** @nullable */

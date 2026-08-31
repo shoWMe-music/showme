@@ -15,6 +15,7 @@ import {
   dealDraftProblems,
   dealTypeLabel,
   defaultCurrencyForCountry,
+  profileTypeLabel,
   structureNeedsGuarantee,
   structureNeedsSplit,
 } from "@showme/shared";
@@ -111,8 +112,10 @@ const TYPE_META: Record<string, { label: string; icon: IconName }> = {
 function typeMeta(type: string | null): { label: string; icon: IconName } {
   const meta = type ? TYPE_META[type] : undefined;
   if (meta) return meta;
-  const label = type ? type.charAt(0).toUpperCase() + type.slice(1) : "Operator";
-  return { label, icon: "building" };
+  // Not a local capitalise: a multi-word key such as `dance_company` came out of
+  // that as "Dance_company". `profileTypeLabel` knows the vocabulary and
+  // de-slugifies anything it does not.
+  return { label: profileTypeLabel(type) || "Operator", icon: "building" };
 }
 
 /**

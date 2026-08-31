@@ -42,10 +42,18 @@ const routeTree = rootRoute.addChildren([
     },
   }),
   child("/events", Events),
+  // `?tab=` names ONE PANEL of the event workspace, so a panel can be linked to
+  // from outside it. The settlement screen needs exactly this: a budget line is
+  // owned by the Budget Planner (decisions.md #16.8), so "change a figure" has to
+  // be a link the reader can follow rather than an instruction they have to
+  // navigate by hand. Unvalidated it falls through to the workspace's own default
+  // tab, so a hand-typed or stale value can never strand anyone on a blank panel.
   createRoute({
     getParentRoute: () => rootRoute,
     path: "/events/$eventId",
     component: EventDetail,
+    validateSearch: (search: Record<string, unknown>): { tab?: string } =>
+      typeof search.tab === "string" ? { tab: search.tab } : {},
   }),
   // The full settlement workspace. A route of its own rather than a tab: it has
   // its own sub-navigation and its own "Back to event" link, and the Settlements
