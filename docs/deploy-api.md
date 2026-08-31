@@ -28,7 +28,8 @@ manual sequence to actually provision + deploy. **Nothing here has been run.**
    - Then create a dedicated **`showme` database** + an app user (don't run the app as
      the `postgres` superuser). Connection name: `prod-showme:europe-north2:showme-production-db`.
 3. **Secrets** (Secret Manager): `DATABASE_URL`, `CLICKUP_API_TOKEN`, and any of
-   `FIREBASE_SERVICE_ACCOUNT`, `SHARE_JWT_SECRET`, `BREVO_API_KEY` you want live.
+   `FIREBASE_SERVICE_ACCOUNT`, `SHARE_JWT_SECRET`, `BREVO_API_KEY`,
+   `MAPBOX_ACCESS_TOKEN` you want live.
 4. **Run migrations** against the Cloud SQL DB: `DATABASE_URL=... pnpm --filter @showme/db migrate`.
 
 ## Required env / secrets on the service
@@ -56,6 +57,7 @@ As of 2026-08-27 the live service carries all of the following.
 | `PUBLIC_APP_BASE_URL` | **every link in every email** | `https://showme-app.web.app` |
 | `BREVO_API_KEY` / `BREVO_SENDER` | sending email at all | secrets |
 | `SHARE_JWT_SECRET` | the off-platform share front door | secret |
+| `MAPBOX_ACCESS_TOKEN` | the profile editor's address autocomplete (`GET /geocode`) | public `pk.` token, held as a secret (see below) |
 | `PORT` / `HOST` | — | leave unset; Cloud Run sets `PORT`, `HOST` defaults to `0.0.0.0` |
 
 **The last four are what the settlement review flow runs on**, and each fails
@@ -68,6 +70,16 @@ quietly rather than loudly if it goes missing:
   sent and no route errors, because sending is best-effort everywhere by design.
 - No `SHARE_JWT_SECRET` → an off-platform recipient can request a code and never
   redeem it.
+- No `MAPBOX_ACCESS_TOKEN` → `GET /geocode` answers **503** and the profile
+  editor's address field degrades to a plain text box. Addresses still save;
+  `profile_locations.lat`/`.lng` simply stay null, which is what every venue
+  already has. Nothing else in the API notices.
+
+`MAPBOX_ACCESS_TOKEN` is a **public `pk.` token** — Mapbox designs these to be
+visible in a browser and expects them to be restricted by URL in the Mapbox
+dashboard. It lives in Secret Manager anyway, for two reasons that are not
+"it is a secret": it stays out of the web bundle, and every lookup goes through
+one API route we can rate-limit and meter.
 
 ## Build + deploy — one command (Cloud Build from source)
 The `Dockerfile` is at the repo root, so `--source .` builds + deploys in one step
@@ -117,7 +129,7 @@ gcloud run deploy showme-api \
   --source . \
   --allow-unauthenticated \
   --add-cloudsql-instances prod-showme:europe-north2:showme-production-db \
-  --set-secrets "DATABASE_URL=DATABASE_URL:latest,CLICKUP_API_TOKEN=CLICKUP_API_TOKEN:latest,BREVO_API_KEY=BREVO_API_KEY:latest,BREVO_SENDER=BREVO_SENDER:latest,SHARE_JWT_SECRET=SHARE_JWT_SECRET:latest" \
+  --set-secrets "DATABASE_URL=DATABASE_URL:latest,CLICKUP_API_TOKEN=CLICKUP_API_TOKEN:latest,BREVO_API_KEY=BREVO_API_KEY:latest,BREVO_SENDER=BREVO_SENDER:latest,SHARE_JWT_SECRET=SHARE_JWT_SECRET:latest,MAPBOX_ACCESS_TOKEN=MAPBOX_ACCESS_TOKEN:latest" \
   --set-env-vars "^@@^CLICKUP_LEADS_LIST_ID=901524890050@@FIREBASE_PROJECT_ID=music-showme@@FIREBASE_STORAGE_BUCKET=music-showme.firebasestorage.app@@PUBLIC_APP_BASE_URL=https://showme-app.web.app@@LEADS_ALLOWED_ORIGINS=https://showme.music,https://www.showme.music,https://showme-app.web.app,https://music-showme.web.app@@CORS_ALLOWED_ORIGINS=https://showme.music,https://www.showme.music,https://showme-app.web.app,https://music-showme.web.app"
 ```
 - `^@@^` sets `@` as the env-var delimiter so the comma-separated origin lists aren't split.

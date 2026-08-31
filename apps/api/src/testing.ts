@@ -36,6 +36,7 @@ export function buildTestApp(
     dependencies.leadsAllowedOrigins ?? DEFAULT_LEADS_ALLOWED_ORIGINS,
   );
   app.decorate("calendarIntegration", dependencies.calendarIntegration ?? null);
+  app.decorate("geocoder", dependencies.geocoder ?? null);
   app.decorate("storageSigner", dependencies.storageSigner ?? defaultStorageSigner());
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);

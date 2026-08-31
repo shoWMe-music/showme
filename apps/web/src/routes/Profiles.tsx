@@ -24,6 +24,7 @@ import {
 import { COUNTRY_CODES, isPlaceProfile, profileTypesForKind } from "@showme/shared";
 import { type FormEvent, useEffect, useState } from "react";
 import { SegmentedToggle } from "../components";
+import { AddressAutocompleteField } from "../components/AddressAutocompleteField";
 import { ProfileImageField } from "../components/ProfileImageField";
 import { type ProfileLinkDraft, ProfileLinkListField } from "../components/ProfileLinkListField";
 import {
@@ -338,6 +339,7 @@ function ProfilePreviewPanel({ profileId, tone }: { profileId: string; tone: Ava
       profile={preview.data.profile}
       comingEvents={preview.data.profile.upcomingShows}
       isPublic={preview.data.isPublic}
+      withheldVenueDetails={preview.data.withheldVenueDetails}
       tone={tone}
     />
   );
@@ -462,6 +464,21 @@ function ProfileEditor({
   const [banner, setBanner] = useState<ProfileImageDraft>(() => toImageDraft(profile.bannerUrl));
   const [street, setStreet] = useState(profile.location?.street ?? "");
   const [postcode, setPostcode] = useState(profile.location?.postcode ?? "");
+  /**
+   * The map pin, and the reason the address field is an autocomplete rather than
+   * a text box. `profile_locations.lat`/`.lng` have existed since migration 0014
+   * and were never written by anything, because nothing could turn a typed
+   * street into a pair of numbers — so every venue in the database has null
+   * coordinates today.
+   *
+   * Null is therefore a first-class value here, not a failure. It is what a
+   * hand-typed address means, and what an unedited old profile keeps.
+   */
+  const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(
+    profile.location?.lat != null && profile.location?.lng != null
+      ? { lat: profile.location.lat, lng: profile.location.lng }
+      : null,
+  );
   const [city, setCity] = useState(profile.location?.city ?? "");
   const [country, setCountry] = useState(profile.location?.country ?? "");
   const [genres, setGenres] = useState(initial.genres.join(", "));
@@ -529,6 +546,11 @@ function ProfileEditor({
     setBanner(toImageDraft(profile.bannerUrl));
     setStreet(profile.location?.street ?? "");
     setPostcode(profile.location?.postcode ?? "");
+    setCoordinates(
+      profile.location?.lat != null && profile.location?.lng != null
+        ? { lat: profile.location.lat, lng: profile.location.lng }
+        : null,
+    );
     setCity(profile.location?.city ?? "");
     setCountry(profile.location?.country ?? "");
     setGenres(details.genres.join(", "));
@@ -579,6 +601,11 @@ function ProfileEditor({
           postcode: showsVenueFields ? blankToNull(postcode) : null,
           city: blankToNull(city),
           country: blankToNull(country),
+          // Sent every time, and null whenever the address was typed rather than
+          // picked. Anything reading these must cope with null — see the
+          // `coordinates` docstring: that is the state of every existing venue.
+          lat: showsVenueFields ? (coordinates?.lat ?? null) : null,
+          lng: showsVenueFields ? (coordinates?.lng ?? null) : null,
         },
         details: { ...baseDetails, genres: genreList },
         // Its own field, not a key we hand-merge into the blob above — the API
@@ -620,6 +647,25 @@ function ProfileEditor({
         onSubmit={save}
         style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 14 }}
       >
+        {/* The default, stated once. Everything from here to the venue block is
+            published: name, tagline, bio, pictures, genres, links, photos,
+            videos, city and country. Only the venue block below has fields that
+            stop short of the open web, and each of its groups says so on its own
+            heading rather than in a suffix somebody had to remember to type. */}
+        <p
+          style={{
+            margin: 0,
+            fontSize: 12.5,
+            lineHeight: 1.5,
+            color: "var(--dim)",
+            borderLeft: "2px solid var(--border-strong)",
+            paddingLeft: 10,
+          }}
+        >
+          Everything on this form is <strong>published to your public page</strong> unless a heading
+          below says otherwise.
+        </p>
+
         <TextField label="Name" value={name} onChange={(event) => setName(event.target.value)} />
 
         {typeOptions.length > 0 && (
@@ -693,24 +739,9 @@ function ProfileEditor({
         {/* City and country are two fields because they are two columns in
             `profile_locations`, and `country` is the ISO code that decides the
             event timezone and an agent's territory — it cannot be prose.
-            Street and postcode appear for a place only: an audience has to find
-            a venue, and a band's home address is not a listing. */}
-        {showsVenueFields && (
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 14 }}>
-            <TextField
-              label="Street address"
-              value={street}
-              placeholder="e.g. Hornsgatan 12"
-              onChange={(event) => setStreet(event.target.value)}
-            />
-            <TextField
-              label="Postcode"
-              value={postcode}
-              placeholder="e.g. 118 20"
-              onChange={(event) => setPostcode(event.target.value)}
-            />
-          </div>
-        )}
+            The STREET is not here: for a place it belongs with the rest of what
+            the public sees, so it is rendered inside `VenueDetailsFields`'
+            public section below, under a heading that says so. */}
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 14 }}>
           <TextField
             label="City"
@@ -757,7 +788,63 @@ function ProfileEditor({
         {showsVenueFields && (
           <>
             <hr style={{ border: 0, borderTop: "1px solid var(--border)", margin: "4px 0" }} />
-            <VenueDetailsFields value={venue} onChange={setVenue} />
+            <VenueDetailsFields
+              value={venue}
+              onChange={setVenue}
+              addressField={
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                    gap: 14,
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <AddressAutocompleteField
+                      label="Street address"
+                      value={street}
+                      placeholder="Start typing — e.g. Hornsgatan 12"
+                      countryHint={country || undefined}
+                      hint="Pick a suggestion to drop your pin on the map. Typing it by hand still saves the address."
+                      onChangeText={(next) => {
+                        setStreet(next);
+                        // Typed, not picked: whatever pin was attached describes
+                        // a different doorstep now, so it goes rather than
+                        // quietly mislocating the venue.
+                        setCoordinates(null);
+                      }}
+                      onSelect={(suggestion) => {
+                        // Only what the suggestion actually carries. Picking a
+                        // CITY (a valid choice — it is how you pin a room the
+                        // provider has never indexed) has no street, and
+                        // writing its full label into the street box would
+                        // replace a correct doorstep with "Stockholm, Sweden".
+                        if (suggestion.street) setStreet(suggestion.street);
+                        if (suggestion.postcode) setPostcode(suggestion.postcode);
+                        if (suggestion.city) setCity(suggestion.city);
+                        if (suggestion.country) setCountry(suggestion.country);
+                        setCoordinates({ lat: suggestion.lat, lng: suggestion.lng });
+                      }}
+                      footer={
+                        coordinates ? (
+                          <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--dim)" }}>
+                            Pinned at {coordinates.lat.toFixed(5)}, {coordinates.lng.toFixed(5)}.
+                          </p>
+                        ) : null
+                      }
+                    />
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <TextField
+                      label="Postcode"
+                      value={postcode}
+                      placeholder="e.g. 118 20"
+                      onChange={(event) => setPostcode(event.target.value)}
+                    />
+                  </div>
+                </div>
+              }
+            />
             <hr style={{ border: 0, borderTop: "1px solid var(--border)", margin: "4px 0" }} />
           </>
         )}

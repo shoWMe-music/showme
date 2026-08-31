@@ -1,11 +1,11 @@
-import { Button, EmptyState, Icon, StatusDot, TabPanels } from "@showme/design-system";
+import { Avatar, Button, EmptyState, Icon, StatusDot, TabPanels } from "@showme/design-system";
 import { useNavigate } from "@tanstack/react-router";
 import type { CSSProperties } from "react";
 import { DateText } from "../components/DateText";
 import { type EventMenuItem, EventRowMenu, rowClickTargetStyle } from "../components/EventRowMenu";
 import { GradientButton } from "../components/eventUi";
 import ledgerTable from "../components/ledgerTable.module.css";
-import { settlementStatusToDisplay } from "../components/settlementDocument";
+import { initialsOf, settlementStatusToDisplay } from "../components/settlementDocument";
 import { ErrorState, LoadMore, LoadingState } from "../components/states";
 import { useEventArchive } from "../hooks/useEventArchive";
 import { type EventFilterKey, type EventItem, useEventList } from "../hooks/useEventList";
@@ -380,6 +380,39 @@ function ViewToggle({
   );
 }
 
+/**
+ * WHO IS PLAYING, with their face — the sub-line under the event title in both
+ * views.
+ *
+ * The picture is the performer profile's own avatar, resolved and signed by
+ * `GET /events` (`headlinePerformerAvatarUrl`); a profile that has never uploaded
+ * one falls back to initials, which is what the design system's `Avatar` is for.
+ * Nothing is drawn at all for an event with nobody on the bill — an em-dash beside
+ * an empty circle would claim there is an act and that we have lost its picture.
+ */
+function HeadlinePerformer({ name, avatarUrl }: { name: string | null; avatarUrl: string | null }) {
+  if (!name) return <span style={{ color: "var(--muted)" }}>—</span>;
+  return (
+    <>
+      {/* Decorative: the name is read out by the span beside it, so an alt text
+          or initials announced here would say it twice. */}
+      <Avatar
+        initials={initialsOf(name)}
+        src={avatarUrl ?? undefined}
+        alt=""
+        tone="brand"
+        shape="circle"
+        size={18}
+        aria-hidden
+        style={{ flexShrink: 0 }}
+      />
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {name}
+      </span>
+    </>
+  );
+}
+
 /** What both views need: the rows, where a click goes, and what the row's
  * overflow menu offers for one event (built once by `useEventArchive`). */
 interface EventViewProps {
@@ -470,8 +503,20 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
                   a phone undoes it — an inline style cannot be overridden by a
                   media query without `!important`. */}
               <span className={styles.eventTitle}>{event.title}</span>
-              <span style={{ display: "block", color: "var(--muted)", fontSize: 12.5 }}>
-                {event.headlinePerformerName ?? "—"}
+              <span
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  color: "var(--muted)",
+                  fontSize: 12.5,
+                  minWidth: 0,
+                }}
+              >
+                <HeadlinePerformer
+                  name={event.headlinePerformerName}
+                  avatarUrl={event.headlinePerformerAvatarUrl}
+                />
               </span>
             </span>
             <span className={styles.cellVenue} style={{ color: "var(--muted)", fontSize: 13 }}>
@@ -636,13 +681,19 @@ function EventBoard({ rows, onOpen, menuItems }: EventViewProps) {
                 </span>
                 <span
                   style={{
-                    display: "block",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    minWidth: 0,
                     color: "var(--muted)",
                     fontSize: 12,
                     margin: "2px 0 8px",
                   }}
                 >
-                  {event.headlinePerformerName ?? "—"}
+                  <HeadlinePerformer
+                    name={event.headlinePerformerName}
+                    avatarUrl={event.headlinePerformerAvatarUrl}
+                  />
                 </span>
                 <span
                   style={{

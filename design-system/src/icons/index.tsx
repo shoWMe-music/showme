@@ -22,6 +22,7 @@ export type IconName =
   | "mail"
   | "x"
   | "building"
+  | "map-pin"
   | "clock"
   | "menu"
   | "pencil"
@@ -104,6 +105,14 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   x: <path d="M18 6 6 18M6 6l12 12" />,
+  // The address/geo marker — used by the profile editor's address autocomplete
+  // and by anything that plots a venue.
+  "map-pin": (
+    <>
+      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" />
+      <circle cx="12" cy="10" r="3" />
+    </>
+  ),
   building: <path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4" />,
   clock: (
     <>

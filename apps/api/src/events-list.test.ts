@@ -984,6 +984,100 @@ describe("GET /events — the facts a row draws", () => {
     expect(row?.headlinePerformerName).toBe("row-bill-headliner");
   });
 
+  it("carries the headline act's UPLOADED picture, signed for this response", async () => {
+    const caller = await seedMemberWithSet(
+      "row-face-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const headliner = await seedMemberWithSet(
+      "row-face-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const event = await seedHostedEvent("Face Value", caller, "row-face-op");
+
+    // An avatar is normally an UPLOADED file (migration 0022); the legacy
+    // `avatar_url` is left null on purpose, so a query that reads only that
+    // column reports this act as faceless.
+    const [file] = await harness.db
+      .insert(schema.files)
+      .values({
+        ownerUserId: "row-face-perf",
+        ownerProfileId: headliner.profileId,
+        kind: "photo",
+        path: `profiles/${headliner.profileId}/media/avatar.png`,
+        contentType: "image/png",
+        sizeBytes: 2048,
+      })
+      .returning();
+    if (!file) throw new Error("file seed failed");
+    await harness.db
+      .update(schema.profiles)
+      .set({ avatarFileId: file.id, avatarUrl: null })
+      .where(eq(schema.profiles.id, headliner.profileId));
+
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: headliner.profileId,
+      role: "performer",
+      performerTag: "headliner",
+      status: "confirmed",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/events",
+      headers: auth("row-face-op"),
+    });
+    expect(response.statusCode).toBe(200);
+    const row = (
+      response.json().items as {
+        id: string;
+        headlinePerformerName: string | null;
+        headlinePerformerAvatarUrl: string | null;
+      }[]
+    ).find((item) => item.id === event.id);
+    expect(row?.headlinePerformerName).toBe("row-face-perf");
+    // Minted from the FILE'S PATH — this suite's signer is the offline fake, so
+    // the assertion is on the shape. What it proves is that the picture went
+    // through the signer rather than out as a bucket path or as null.
+    expect(row?.headlinePerformerAvatarUrl).toBe(
+      `https://fake.storage.local/download/${encodeURIComponent(file.path)}`,
+    );
+  });
+
+  it("leaves the face null when the headline act has no picture", async () => {
+    const caller = await seedMemberWithSet(
+      "row-noface-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const headliner = await seedMemberWithSet(
+      "row-noface-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const event = await seedHostedEvent("No Face", caller, "row-noface-op");
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: headliner.profileId,
+      role: "performer",
+      status: "confirmed",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/events",
+      headers: auth("row-noface-op"),
+    });
+    expect(response.statusCode).toBe(200);
+    const row = (
+      response.json().items as { id: string; headlinePerformerAvatarUrl: string | null }[]
+    ).find((item) => item.id === event.id);
+    expect(row?.headlinePerformerAvatarUrl).toBeNull();
+  });
+
   it("leaves the bill empty when nobody is on it yet", async () => {
     const caller = await seedMemberWithSet(
       "row-nobill-op",
@@ -998,8 +1092,12 @@ describe("GET /events — the facts a row draws", () => {
       headers: auth("row-nobill-op"),
     });
     expect(response.statusCode).toBe(200);
-    const [row] = response.json().items as { headlinePerformerName: string | null }[];
+    const [row] = response.json().items as {
+      headlinePerformerName: string | null;
+      headlinePerformerAvatarUrl: string | null;
+    }[];
     expect(row?.headlinePerformerName).toBeNull();
+    expect(row?.headlinePerformerAvatarUrl).toBeNull();
   });
 
   it("reports the caller's settlement status, and null until someone runs one", async () => {

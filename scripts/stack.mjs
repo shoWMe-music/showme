@@ -9,6 +9,7 @@
  * real Firebase project. Call `cleanup()` on exit to kill children + drop docker.
  */
 import { execFile, spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import net from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -44,6 +45,26 @@ export function webEmulatorEnv({ apiPort = API_PORT, streamPort = STREAM_PORT } 
     VITE_FIREBASE_MESSAGING_SENDER_ID: "000000000000",
     VITE_FIREBASE_APP_ID: "1:000000000000:web:demoe2e",
   };
+}
+
+/**
+ * Read ONE key out of `apps/api/.env`, so the local stack can pick up the Mapbox
+ * geocoding token a developer naturally put there.
+ *
+ * Deliberately one key and not the whole file: `apps/api/.env` also holds a live
+ * BREVO_API_KEY, and loading it wholesale would have a laptop send real email to
+ * seeded addresses. An exported variable wins — this is only the fallback.
+ */
+function apiEnvValue(key) {
+  if (process.env[key]) return process.env[key];
+  try {
+    const line = readFileSync(`${ROOT}/apps/api/.env`, "utf8")
+      .split("\n")
+      .find((entry) => entry.startsWith(`${key}=`));
+    return line?.slice(key.length + 1).trim() || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 const children = [];
@@ -294,7 +315,8 @@ export async function bringUpStack({ corsOrigins }) {
   });
 
   // ── API pointed at the emulator + that DB. ──
-  log("api", "starting Fastify server");
+  const mapboxAccessToken = apiEnvValue("MAPBOX_ACCESS_TOKEN");
+  log("api", `starting Fastify server${mapboxAccessToken ? " (with address lookup)" : ""}`);
   spawnBackground("api", API_TSX, [`${ROOT}/apps/api/src/server.ts`], {
     ...dbEnv,
     FIREBASE_AUTH_EMULATOR_HOST: AUTH_EMULATOR_HOST,
@@ -302,6 +324,9 @@ export async function bringUpStack({ corsOrigins }) {
     PORT: String(API_PORT),
     HOST: "127.0.0.1",
     CORS_ALLOWED_ORIGINS: corsOrigins,
+    // Address autocomplete. Absent is fine: /geocode answers 503 and the address
+    // field is a plain text box, which is what every test run sees.
+    ...(mapboxAccessToken ? { MAPBOX_ACCESS_TOKEN: mapboxAccessToken } : {}),
   });
   await waitForHttp(`http://127.0.0.1:${API_PORT}/api/v1/health`, 60_000);
 

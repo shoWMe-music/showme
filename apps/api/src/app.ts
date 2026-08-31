@@ -13,6 +13,7 @@ import { HttpError } from "./errors";
 import type { CalendarIntegration } from "./lib/calendar-integration";
 import { type LeadSink, createNoopLeadSink } from "./lib/clickup";
 import { type EmailSink, createNoopEmailSink } from "./lib/email";
+import type { Geocoder } from "./lib/geocode";
 import { type StorageSigner, defaultStorageSigner } from "./lib/storage";
 import { loggerOptions } from "./logging";
 import { authenticate } from "./plugins/authenticate";
@@ -26,6 +27,7 @@ import { eventRoutes } from "./routes/events";
 import { eventListRoutes } from "./routes/events-list";
 import { exchangeRateRoutes } from "./routes/exchange-rate";
 import { createFileRoutes } from "./routes/files";
+import { geocodeRoutes } from "./routes/geocode";
 import { groupRoutes } from "./routes/groups";
 import { healthRoutes } from "./routes/health";
 import { holdRoutes } from "./routes/holds";
@@ -122,6 +124,11 @@ export interface AppDependencies {
    */
   calendarIntegration?: CalendarIntegration | null;
   /**
+   * Optional — turns a typed address into coordinates. Absent means address
+   * suggestions are unavailable (503 on `/geocode`) and nothing else changes.
+   */
+  geocoder?: Geocoder | null;
+  /**
    * Optional — where signed file URLs come from. Defaults to
    * `defaultStorageSigner()` (the real GCS signer when a bucket is
    * configured, the loopback sink on a laptop, the fake under test).
@@ -173,6 +180,7 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     dependencies.leadsAllowedOrigins ?? DEFAULT_LEADS_ALLOWED_ORIGINS,
   );
   app.decorate("calendarIntegration", dependencies.calendarIntegration ?? null);
+  app.decorate("geocoder", dependencies.geocoder ?? null);
   // One signer for the whole app — see the decorator's docstring in types.ts.
   app.decorate("storageSigner", dependencies.storageSigner ?? defaultStorageSigner());
 
@@ -230,6 +238,7 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
       await api.register(planRoutes);
       await api.register(publicRoutes);
       await api.register(exchangeRateRoutes);
+      await api.register(geocodeRoutes);
       await api.register(adminRoutes);
       await api.register(insightRoutes);
       await api.register(createFileRoutes(app.storageSigner));

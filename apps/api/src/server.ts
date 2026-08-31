@@ -5,6 +5,7 @@ import { loadEnv } from "./config";
 import { createCalendarIntegration } from "./lib/calendar-integration";
 import { createLeadSink } from "./lib/clickup";
 import { createEmailSink } from "./lib/email";
+import { createGeocoder } from "./lib/geocode";
 
 /**
  * Production entry point — wires real dependencies from the environment and
@@ -37,6 +38,11 @@ const calendarIntegration = createCalendarIntegration({
   webhookUrl: env.GOOGLE_CALENDAR_WEBHOOK_URL,
 });
 
+// Null without a Mapbox token — see lib/geocode.ts. The token is a public `pk.`
+// one, kept server-side so it stays out of the web bundle and every lookup goes
+// through one rate limiter.
+const geocoder = createGeocoder({ mapboxAccessToken: env.MAPBOX_ACCESS_TOKEN });
+
 const splitOrigins = (value: string | undefined) =>
   value
     ?.split(",")
@@ -54,6 +60,7 @@ const app = buildApp({
   leadsAllowedOrigins,
   corsAllowedOrigins,
   calendarIntegration,
+  geocoder,
 });
 
 app

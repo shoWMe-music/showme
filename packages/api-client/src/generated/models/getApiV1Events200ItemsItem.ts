@@ -31,5 +31,7 @@ export type GetApiV1Events200ItemsItem = {
   /** @nullable */
   headlinePerformerName: string | null;
   /** @nullable */
+  headlinePerformerAvatarUrl: string | null;
+  /** @nullable */
   settlementStatus: string | null;
 };

@@ -57,10 +57,16 @@ export function isStandardAmenity(value: string): boolean {
 }
 
 /**
- * The deal shapes a venue is willing to sign, shown on its profile so a promoter
- * knows before asking. Ported from `../showme-settle-fast/ProfileEditPage.tsx:704`.
- * These mirror the settlement engine's deal structures but are only a *preference*
- * advertised on the profile — the authoritative terms live on the deal itself.
+ * The deal shapes a venue is willing to sign. Ported from
+ * `../showme-settle-fast/ProfileEditPage.tsx:704`. These mirror the settlement
+ * engine's deal structures but are only a *preference* — the authoritative terms
+ * live on the deal itself.
+ *
+ * This comment used to say they are "shown on its profile so a promoter knows
+ * before asking", and that line was the whole stated basis for publishing them
+ * anonymously. It is no longer true: deal types are trade information for
+ * signed-in industry and are withheld from the public profile
+ * (`docs/decisions.md` #19). A venue's own team still edits them freely.
  */
 export const VENUE_DEAL_TYPES: readonly AmenityOption[] = [
   { key: "door_split", label: "Door Split" },

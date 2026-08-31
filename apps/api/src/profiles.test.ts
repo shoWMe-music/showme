@@ -1080,6 +1080,10 @@ describe("profiles — public preview", () => {
           audienceLogisticsNotes: "Entrance on Hornsgatan, step-free at the side",
           contactEmail: "book@lantern.showme.test",
           contactPhone: "+46 70 000 00 00",
+          amenities: ["pa_system", "backline"],
+          dealTypes: ["door_split", "guarantee"],
+          cateringNotes: "Hot meal for up to six.",
+          accommodationNotes: "Two twin rooms across the square.",
         },
       },
     });
@@ -1103,6 +1107,16 @@ describe("profiles — public preview", () => {
     expect(profile.billing).toBeUndefined();
     expect(profile.details).toBeUndefined();
     expect(profile.ownerUserId).toBeUndefined();
+
+    // The trade half is not in the projection either (decisions.md #19) — but it
+    // is not lost: it rides beside it, so Preview can show the owner what it
+    // entered while saying it is being held back.
+    expect(preview.json().withheldVenueDetails).toEqual({
+      amenities: ["pa_system", "backline"],
+      dealTypes: ["door_split", "guarantee"],
+      cateringNotes: "Hot meal for up to six.",
+      accommodationNotes: "Two twin rooms across the square.",
+    });
 
     // A place publishes its street address — a venue nobody can find is a venue
     // nobody attends.
@@ -1156,6 +1170,83 @@ describe("profiles — public preview", () => {
       lat: null,
       lng: null,
     });
+  });
+
+  /**
+   * THE REGRESSION THAT MATTERS.
+   *
+   * `amenities`, `dealTypes`, `cateringNotes` and `accommodationNotes` were
+   * published to anyone who opened the page until 2026-08-31 (`docs/decisions.md`
+   * #18). Two of them — the catering and accommodation notes — were on the wire
+   * and rendered by nothing, which is the shape of disclosure nobody notices: no
+   * screen changes when it leaks, so no screen changes when it comes back.
+   *
+   * This test walks the ANONYMOUS route, unauthenticated, against a venue that
+   * has filled in all four, and asserts the keys are absent rather than blank.
+   * `toBeUndefined` and not `toBeNull` on purpose: a null would mean the field is
+   * published and empty, and the next person to touch the serializer would fill
+   * it in.
+   */
+  it("never publishes the venue trade details to an anonymous visitor", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("preview-trade", "operator");
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/profiles/${profileId}`,
+      headers: auth(ownerId),
+      payload: {
+        type: "venue",
+        isPublic: true,
+        venueDetails: {
+          // No `capacity` — since migration 0029 it is only ever entered against
+          // a room, and `venue_details.capacity` is a derived mirror. This venue
+          // has no rooms, so it stays null, which is beside the point here.
+          soundSystem: "Funktion-One",
+          curfew: "02:00",
+          audienceLogisticsNotes: "Tram 7 to Nybroplan.",
+          amenities: ["pa_system", "backline", "catering"],
+          dealTypes: ["door_split", "guarantee_plus_door_split", "rental", "guarantee"],
+          cateringNotes: "Hot meal for up to six, vegan by default.",
+          accommodationNotes: "Two twin rooms across the square.",
+        },
+      },
+    });
+    expect(patched.statusCode).toBe(200);
+
+    // The venue's own team still has all four — the fields are withheld from
+    // strangers, not deleted.
+    expect(patched.json().venueDetails.amenities).toEqual(["pa_system", "backline", "catering"]);
+    expect(patched.json().venueDetails.cateringNotes).toBe(
+      "Hot meal for up to six, vegan by default.",
+    );
+
+    const anonymous = await app.inject({
+      method: "GET",
+      url: `/api/v1/public/profiles/${anonymousSlug(patched.json().slug)}`,
+    });
+    expect(anonymous.statusCode).toBe(200);
+    const body = anonymous.json();
+
+    for (const field of ["amenities", "dealTypes", "cateringNotes", "accommodationNotes"]) {
+      expect(body.venueDetails[field]).toBeUndefined();
+    }
+    // Not anywhere else in the body either — a future handler could hang them off
+    // the root as easily as off `venueDetails`.
+    expect(JSON.stringify(body)).not.toContain("Hot meal for up to six");
+    expect(JSON.stringify(body)).not.toContain("Two twin rooms across the square");
+    expect(JSON.stringify(body)).not.toContain("guarantee_plus_door_split");
+    expect(JSON.stringify(body)).not.toContain("backline");
+
+    // And the public half is untouched — this is a narrowing, not a blackout.
+    expect(body.venueDetails).toEqual({
+      capacity: null,
+      soundSystem: "Funktion-One",
+      curfew: "02:00",
+      audienceLogisticsNotes: "Tram 7 to Nybroplan.",
+    });
+
+    // The withheld half never reaches the anonymous route even as a sibling: it
+    // exists only on the member preview.
+    expect(body.withheldVenueDetails).toBeUndefined();
   });
 
   it("lists only published, world-facing events — never a draft", async () => {

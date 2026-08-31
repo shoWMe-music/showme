@@ -14,6 +14,7 @@ import { assertGrantAdminAllows } from "../lib/entitlements";
 import { loadEventSummary } from "../lib/event-summary";
 import { notifyProfileMembers } from "../lib/notify";
 import { createPerformerStub } from "../lib/off-platform";
+import { signProfileImageUrls } from "../lib/profile-media";
 import { withIdempotency } from "../plugins/idempotency";
 import { serializeParticipant } from "../serialize/participant";
 
@@ -83,21 +84,39 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
       const capabilities = await requireEventCapability(request, id, "event.view");
       // Join the profile so each row carries its display name/avatar — the public
       // face of who is on the bill (names, not just ids, drive the roster UI).
+      //
+      // BOTH picture columns. Since migration 0022 an avatar is normally an
+      // UPLOADED file (`avatar_file_id` → `files.id`) and `avatar_url` is only the
+      // legacy external address, so selecting the URL alone reported every
+      // performer who uploaded a picture as having none — which is exactly what
+      // this roster did until now.
       const rows = await database
         .select({
           participant: schema.eventParticipants,
           name: schema.profiles.name,
+          avatarFileId: schema.profiles.avatarFileId,
           avatarUrl: schema.profiles.avatarUrl,
         })
         .from(schema.eventParticipants)
         .leftJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
         .where(eq(schema.eventParticipants.eventId, id));
 
+      // Every face on the bill signed in ONE round, not one round trip per row —
+      // the same batched shape the public shows and the admin list use. A signed
+      // URL lives fifteen minutes, so it is minted per response and never stored.
+      const imageUrls = await signProfileImageUrls(
+        database,
+        request.server.storageSigner,
+        rows.map((row) => row.avatarFileId),
+      );
+
       return rows.map((row) =>
-        serializeParticipant(row.participant, capabilities, {
-          name: row.name,
-          avatarUrl: row.avatarUrl,
-        }),
+        serializeParticipant(
+          row.participant,
+          capabilities,
+          { name: row.name, avatarFileId: row.avatarFileId, avatarUrl: row.avatarUrl },
+          imageUrls,
+        ),
       );
     },
   );
@@ -373,11 +392,13 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
         request.log.error({ error }, "off-platform performer email failed");
       }
 
-      return reply
-        .status(201)
-        .send(
-          serializeParticipant(created, capabilities, { name: performerName, avatarUrl: null }),
-        );
+      return reply.status(201).send(
+        serializeParticipant(created, capabilities, {
+          name: performerName,
+          avatarFileId: null,
+          avatarUrl: null,
+        }),
+      );
     },
   );
 

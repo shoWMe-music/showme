@@ -15,12 +15,6 @@ export type GetApiV1ProfilesIdPublicPreview200ProfileVenueDetails = {
   soundSystem: string | null;
   /** @nullable */
   curfew: string | null;
-  amenities: string[];
-  dealTypes: string[];
-  /** @nullable */
-  cateringNotes: string | null;
-  /** @nullable */
-  accommodationNotes: string | null;
   /** @nullable */
   audienceLogisticsNotes: string | null;
 } | null;

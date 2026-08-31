@@ -70,37 +70,17 @@ const API_BASE_URL: string = import.meta.env.VITE_PUBLIC_API_URL ?? "";
  */
 const APP_URL: string = import.meta.env.VITE_APP_URL ?? "";
 
-/** The ten standard amenity keys, mirrored from `packages/shared/src/venue.ts`.
- * An unknown key falls through unchanged, which is also how a venue's own custom
- * amenity ("Green Room") renders. */
-const AMENITY_LABELS: Record<string, string> = {
-  backline: "Full Backline",
-  partial_backline: "Partial Backline",
-  no_backline: "No Backline",
-  pa_system: "PA System",
-  sound_engineer: "Sound Engineer",
-  lighting: "Lighting",
-  light_engineer: "Light Engineer",
-  parking: "Parking",
-  accommodation: "Accommodation",
-  catering: "Catering",
-};
-
-const DEAL_TYPE_LABELS: Record<string, string> = {
-  door_split: "Door Split",
-  guarantee_plus_door_split: "Guarantee + Door Split",
-  rental: "Rental",
-  guarantee: "Guarantee",
-};
-
+/**
+ * The room, as a stranger may read it. Amenities, deal types, catering and
+ * accommodation notes used to arrive here and no longer do — they are trade
+ * details, held back from the open web (`docs/decisions.md` #19). This page must
+ * not grow a slot for them again: the API stopped sending them, and a reader
+ * that asks for a field it is not owed is how a disclosure gets re-opened.
+ */
 interface PublicVenueDetails {
   capacity: number | null;
   soundSystem: string | null;
   curfew: string | null;
-  amenities: string[];
-  dealTypes: string[];
-  cateringNotes: string | null;
-  accommodationNotes: string | null;
   audienceLogisticsNotes: string | null;
 }
 
@@ -240,12 +220,9 @@ function readVenueDetails(value: unknown): PublicVenueDetails | null {
     capacity: typeof source.capacity === "number" ? source.capacity : null,
     soundSystem: readString(source.soundSystem),
     curfew: readString(source.curfew),
-    amenities: readStringArray(source.amenities),
-    dealTypes: readStringArray(source.dealTypes),
-    cateringNotes: readString(source.cateringNotes),
-    accommodationNotes: readString(source.accommodationNotes),
-    // NOTE: `artistLogisticsNotes`, `contactEmail` and `contactPhone` are not
-    // read. Their absence here is the point — see the module docstring.
+    // NOTE: `artistLogisticsNotes`, `contactEmail`, `contactPhone` and the four
+    // trade fields are not read. Their absence here is the point — see the
+    // module docstring.
     audienceLogisticsNotes: readString(source.audienceLogisticsNotes),
   };
 }
@@ -958,15 +935,19 @@ function renderAbout(profile: PublicProfile, vocabulary: Vocabulary): HTMLElemen
   return filled ? band("about", vocabulary.aboutLabel, null, body) : null;
 }
 
-/** "220 capacity · Bar until 02:00 · PA System" — the room, in chips. */
+/**
+ * "220 capacity · Curfew 02:00 · Funktion-One" — the room, in chips.
+ *
+ * Amenity and deal-type chips used to trail these three. They are gone with the
+ * fields that fed them: what a room throws in and which deals it signs is trade
+ * information, not a listing (`docs/decisions.md` #19).
+ */
 function roomChips(venue: PublicVenueDetails | null): string[] {
   if (!venue) return [];
   const chips: string[] = [];
   if (venue.capacity !== null) chips.push(`${venue.capacity} capacity`);
   if (venue.curfew) chips.push(`Curfew ${clockTime(venue.curfew)}`);
   if (venue.soundSystem) chips.push(venue.soundSystem);
-  for (const amenity of venue.amenities) chips.push(AMENITY_LABELS[amenity] ?? amenity);
-  for (const dealType of venue.dealTypes) chips.push(DEAL_TYPE_LABELS[dealType] ?? dealType);
   return chips;
 }
 

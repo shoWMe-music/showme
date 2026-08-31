@@ -46,11 +46,19 @@ export interface PublicPreviewVenueDetails {
   capacity: number | null;
   soundSystem: string | null;
   curfew: string | null;
+  audienceLogisticsNotes: string | null;
+}
+
+/**
+ * The trade half the anonymous page no longer receives (`docs/decisions.md` #19).
+ * It rides on the preview response as a SIBLING of `profile`, never inside it, so
+ * `profile` stays exactly the anonymous body — see `PublicPreviewResponse`.
+ */
+export interface PublicPreviewWithheldVenueDetails {
   amenities: string[];
   dealTypes: string[];
   cateringNotes: string | null;
   accommodationNotes: string | null;
-  audienceLogisticsNotes: string | null;
 }
 
 export interface PublicPreviewProfile {
@@ -93,6 +101,12 @@ export interface ProfilePublicPreviewProps {
   comingEvents: PublicPreviewEvent[];
   /** Whether the page is actually reachable. False → the banner says so. */
   isPublic: boolean;
+  /**
+   * The venue trade details a stranger does not get. Drawn in Venue Specs under
+   * its own "not on your public page" heading, so the owner sees what it entered
+   * without being told the open web sees it too.
+   */
+  withheldVenueDetails: PublicPreviewWithheldVenueDetails | null;
   /** Avatar colour, so the chip strip and the preview agree. */
   tone: AvatarTone;
 }
@@ -126,6 +140,7 @@ export function ProfilePublicPreview({
   profile,
   comingEvents,
   isPublic,
+  withheldVenueDetails,
   tone,
 }: ProfilePublicPreviewProps) {
   const address = formatPublicAddress(profile.location);
@@ -364,10 +379,13 @@ export function ProfilePublicPreview({
         </Card>
       )}
 
-      {/* Venue specs. `venueDetails` arrives already stripped: the projection
-          never selects artist logistics or the booking contact, so this card
-          cannot render them even by accident. */}
-      {profile.venueDetails && <VenueSpecsCard venue={profile.venueDetails} />}
+      {/* Venue specs, in two halves. `venueDetails` arrives already stripped: the
+          projection never selects artist logistics, the booking contact or the
+          trade details, so this card cannot render them as public even by
+          accident. The trade half comes in separately and is drawn as withheld. */}
+      {profile.venueDetails && (
+        <VenueSpecsCard venue={profile.venueDetails} withheld={withheldVenueDetails} />
+      )}
 
       {/* NO capacity-setups card. It used to render one, and it was the one thing
           in this preview a stranger could NOT actually see: the public page

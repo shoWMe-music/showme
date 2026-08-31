@@ -1,6 +1,7 @@
 import { useGetApiV1Profiles, useGetApiV1ProfilesSearch } from "@showme/api-client";
 import { Icon } from "@showme/design-system";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { fieldStyle } from "./eventUi";
 
 /**
@@ -44,15 +45,6 @@ export interface EventVenuePickerProps {
   inputAriaLabel?: string;
 }
 
-function useDebounced(value: string, delayMilliseconds: number): string {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const handle = setTimeout(() => setDebounced(value), delayMilliseconds);
-    return () => clearTimeout(handle);
-  }, [value, delayMilliseconds]);
-  return debounced;
-}
-
 export function EventVenuePicker({
   value,
   onChangeText,
@@ -64,7 +56,7 @@ export function EventVenuePicker({
   inputAriaLabel,
 }: EventVenuePickerProps) {
   const [open, setOpen] = useState(false);
-  const term = useDebounced(value.trim(), 250);
+  const term = useDebouncedValue(value.trim(), 250);
 
   const myProfiles = useGetApiV1Profiles({ query: { enabled: open } });
   const search = useGetApiV1ProfilesSearch(

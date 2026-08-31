@@ -83,6 +83,8 @@ import type {
   GetApiV1ExchangeRateCurrencies200,
   GetApiV1ExchangeRateParams,
   GetApiV1FilesIdDownloadUrl200,
+  GetApiV1Geocode200,
+  GetApiV1GeocodeParams,
   GetApiV1Groups200Item,
   GetApiV1GroupsGid200,
   GetApiV1Health200,
@@ -11428,6 +11430,93 @@ export function useGetApiV1ExchangeRate<TData = Awaited<ReturnType<typeof getApi
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetApiV1ExchangeRateQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const getApiV1Geocode = (
+    params: GetApiV1GeocodeParams,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1Geocode200>(
+      {url: `/api/v1/geocode`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1GeocodeQueryKey = (params?: GetApiV1GeocodeParams,) => {
+    return [
+    `/api/v1/geocode`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+    
+export const getGetApiV1GeocodeQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1Geocode>>, TError = unknown>(params: GetApiV1GeocodeParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1Geocode>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1GeocodeQueryKey(params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1Geocode>>> = ({ signal }) => getApiV1Geocode(params, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1Geocode>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1GeocodeQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1Geocode>>>
+export type GetApiV1GeocodeQueryError = unknown
+
+
+export function useGetApiV1Geocode<TData = Awaited<ReturnType<typeof getApiV1Geocode>>, TError = unknown>(
+ params: GetApiV1GeocodeParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1Geocode>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1Geocode>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1Geocode>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1Geocode<TData = Awaited<ReturnType<typeof getApiV1Geocode>>, TError = unknown>(
+ params: GetApiV1GeocodeParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1Geocode>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1Geocode>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1Geocode>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1Geocode<TData = Awaited<ReturnType<typeof getApiV1Geocode>>, TError = unknown>(
+ params: GetApiV1GeocodeParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1Geocode>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1Geocode<TData = Awaited<ReturnType<typeof getApiV1Geocode>>, TError = unknown>(
+ params: GetApiV1GeocodeParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1Geocode>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1GeocodeQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

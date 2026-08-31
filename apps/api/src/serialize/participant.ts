@@ -1,7 +1,21 @@
 import type { schema } from "@showme/db";
 import type { Capability } from "@showme/shared";
+import { resolveImageUrl } from "./image";
 
 type ParticipantRow = typeof schema.eventParticipants.$inferSelect;
+
+/**
+ * The joined profile's public face. BOTH picture columns, never just one: since
+ * migration 0022 the normal way to have an avatar is to have UPLOADED it
+ * (`avatar_file_id`), and `avatar_url` is the legacy external address. A caller
+ * that hands over only the second one is telling this serializer that every
+ * performer who uploaded a picture has none.
+ */
+export interface ParticipantProfileFace {
+  name: string | null;
+  avatarFileId: string | null;
+  avatarUrl: string | null;
+}
 
 export interface SerializedParticipant {
   id: string;
@@ -36,13 +50,17 @@ export function canManageParticipants(capabilities: Set<Capability>): boolean {
 export function serializeParticipant(
   participant: ParticipantRow,
   capabilities: Set<Capability>,
-  profile?: { name: string | null; avatarUrl: string | null } | null,
+  profile?: ParticipantProfileFace | null,
+  imageUrls?: Map<string, string>,
 ): SerializedParticipant {
   const base: SerializedParticipant = {
     id: participant.id,
     profileId: participant.profileId,
     name: profile?.name ?? null,
-    avatarUrl: profile?.avatarUrl ?? null,
+    // The same file-then-URL ladder every other read of a profile picture uses
+    // (`serializeProfile`), so the roster cannot disagree with the profile page
+    // about whose face it has. `imageUrls` is minted per response by the route.
+    avatarUrl: profile ? resolveImageUrl(profile.avatarFileId, profile.avatarUrl, imageUrls) : null,
     role: participant.role,
     status: participant.status,
     performerTag: participant.performerTag,

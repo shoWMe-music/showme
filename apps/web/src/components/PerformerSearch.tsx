@@ -1,6 +1,7 @@
 import { useGetApiV1ProfilesIdContacts, useGetApiV1ProfilesSearch } from "@showme/api-client";
 import { Avatar, Icon, Skeleton } from "@showme/design-system";
-import { type CSSProperties, useEffect, useState } from "react";
+import { type CSSProperties, useState } from "react";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { publicProfileUrl as publicProfileUrlFor } from "../lib/publicSite";
 import { fieldStyle } from "./eventUi";
 
@@ -30,15 +31,6 @@ export interface PerformerSearchProps {
   publicProfileUrl?: (slug: string) => string;
 }
 
-function useDebounced(value: string, delayMs: number): string {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const handle = setTimeout(() => setDebounced(value), delayMs);
-    return () => clearTimeout(handle);
-  }, [value, delayMs]);
-  return debounced;
-}
-
 function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   const first = parts[0]?.[0] ?? "";
@@ -65,7 +57,7 @@ export function PerformerSearch({
 }: PerformerSearchProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
-  const q = useDebounced(query.trim(), 250);
+  const q = useDebouncedValue(query.trim(), 250);
 
   const profiles = useGetApiV1ProfilesSearch(
     { q: q || undefined, kind: "performer", limit: 8 },

@@ -66,6 +66,13 @@ const EnvSchema = z.object({
   // project — Google refuses to watch anything else, and a *.run.app URL can never
   // qualify (see `lib/google-calendar.ts`).
   GOOGLE_CALENDAR_WEBHOOK_URL: z.string().url().optional(),
+  // Mapbox geocoding for the profile editor's address autocomplete. Optional:
+  // without it `GET /geocode` answers 503 and the address stays a plain text
+  // box — the state on a laptop and in every test. It is a PUBLIC `pk.` token
+  // (Mapbox designs these to be client-visible and restricts them by URL in the
+  // dashboard); keeping it server-side is defence in depth plus one place to
+  // rate-limit, not a claim that it is a secret.
+  MAPBOX_ACCESS_TOKEN: z.string().optional(),
   // pino level for the request/error log (see logging.ts). `info` logs every
   // request; `warn` quiets that down to problems only.
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),

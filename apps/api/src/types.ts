@@ -5,6 +5,7 @@ import type { FirebaseUser, TokenVerifier } from "./auth/token-verifier";
 import type { CalendarIntegration } from "./lib/calendar-integration";
 import type { LeadSink } from "./lib/clickup";
 import type { EmailSink } from "./lib/email";
+import type { Geocoder } from "./lib/geocode";
 import type { StorageSigner } from "./lib/storage";
 
 /**
@@ -27,6 +28,12 @@ declare module "fastify" {
      * every test — the integration routes answer 503 and nothing else notices.
      */
     calendarIntegration: CalendarIntegration | null;
+    /**
+     * Turns a typed address into coordinates. **Null when the deployment has no
+     * Mapbox token** — the address field then behaves exactly as it did before
+     * it could suggest anything.
+     */
+    geocoder: Geocoder | null;
     /**
      * Issues the signed URLs for file bytes. ONE instance per app, shared by
      * every route that needs one — the local-dev loopback signer keeps its

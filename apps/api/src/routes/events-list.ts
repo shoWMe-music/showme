@@ -21,7 +21,9 @@ import { writeAudit } from "../lib/audit";
 import { eventCapabilities, requireEventCapability } from "../lib/authorize";
 import { renderEventNotificationEmail } from "../lib/email-templates";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
+import { signProfileImageUrls } from "../lib/profile-media";
 import { serializeEvent } from "../serialize/event";
+import { resolveImageUrl } from "../serialize/image";
 
 const EventParams = z.object({ id: z.string().uuid() });
 
@@ -131,6 +133,20 @@ const ListEventResponse = EventResponse.extend({
    * the whole page (see the route), never per row.
    */
   headlinePerformerName: z.string().nullable(),
+  /**
+   * The SAME act's face — the picture that belongs beside the name one field up,
+   * null when there is nobody on the bill or they have no picture.
+   *
+   * Resolved down the file-then-URL ladder (`resolveImageUrl`) and signed for the
+   * whole page in one round, exactly as the name is joined for the whole page in
+   * one query. A signed URL expires in fifteen minutes, so it is minted per
+   * response and is never a column.
+   *
+   * NOT the event's poster — see the note beside the query. This is the performer
+   * profile's avatar, the same one `GET /events/:id/participants` already serves
+   * to every reader who can see the event.
+   */
+  headlinePerformerAvatarUrl: z.string().nullable(),
   /**
    * WHERE THE MONEY GOT TO — the caller's own `settlements.status` on this event,
    * or null when nobody has run the settlement yet (the rows are written by the
@@ -252,13 +268,20 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
       // avoid.
       const eventIds = items.map((event) => event.id);
 
-      // The top of the bill. Ordered so the headline act wins — the tagged
-      // `headliner` first, then a `performer` over a `support`, then whoever was
-      // added first — and the first row per event is the one taken below.
+      // The top of the bill — who is playing, and what they look like. Ordered so
+      // the headline act wins — the tagged `headliner` first, then a `performer`
+      // over a `support`, then whoever was added first — and the first row per
+      // event is the one taken below.
       //
       // No widening: reaching this point means the caller can see the event, and
-      // `GET /events/:id/participants` already serves these names to every reader
-      // who can. The list is showing a name they could already ask for.
+      // `GET /events/:id/participants` already serves this name AND this avatar to
+      // every reader who can. The list is showing a face they could already ask
+      // for. (It is emphatically not the public bill, which carries no pictures —
+      // a performer's profile may be `is_public = false`.)
+      //
+      // BOTH picture columns, because an avatar is normally an uploaded file
+      // (`avatar_file_id`, migration 0022) and `avatar_url` is only the legacy
+      // external address.
       const performerRows =
         eventIds.length === 0
           ? []
@@ -266,6 +289,8 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
               .select({
                 eventId: schema.eventParticipants.eventId,
                 name: schema.profiles.name,
+                avatarFileId: schema.profiles.avatarFileId,
+                avatarUrl: schema.profiles.avatarUrl,
               })
               .from(schema.eventParticipants)
               .innerJoin(
@@ -287,10 +312,20 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
                 asc(schema.eventParticipants.createdAt),
               );
 
-      const headlineByEvent = new Map<string, string>();
+      const headlineByEvent = new Map<string, (typeof performerRows)[number]>();
       for (const row of performerRows) {
-        if (!headlineByEvent.has(row.eventId)) headlineByEvent.set(row.eventId, row.name);
+        if (!headlineByEvent.has(row.eventId)) headlineByEvent.set(row.eventId, row);
       }
+
+      // One signing round for the whole page — at most one face per event, and
+      // repeated acts collapse inside the signer's own de-duplication. The
+      // alternative is a round trip per row, which is the thing a keyset list
+      // exists to avoid.
+      const avatarUrls = await signProfileImageUrls(
+        database,
+        request.server.storageSigner,
+        [...headlineByEvent.values()].map((headline) => headline.avatarFileId),
+      );
 
       // The caller's OWN settlement on each event — party-scoped by the same join
       // the list itself is (`settlements ⋈ event_participants ⋈ profile_members`),
@@ -340,19 +375,31 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
 
       // Serialize each by the caller's capabilities on that specific event.
       //
-      // NO POSTERS HERE, deliberately. `ListEventResponse` does not declare
-      // `imageUrl` and nothing on a list screen draws one, so signing them would
-      // be a storage round trip per page in exchange for a field Fastify would
-      // strip on the way out. The detail read, the two public surfaces and the
-      // editor all carry it; when a list wants a thumbnail, the signer already
-      // takes a batch.
+      // STILL NO POSTERS HERE, deliberately — and the arrival of the performer
+      // avatar above does not reopen it. Two different pictures: the poster is the
+      // EVENT'S own artwork (`events.image_file_id`), the avatar is the ACT'S
+      // face, and only the second one is drawn on a list row. `ListEventResponse`
+      // does not declare `imageUrl`, so signing posters would still be work in
+      // exchange for a field Fastify strips on the way out.
+      //
+      // The cost half of that old note is weaker now than it was — this route
+      // already makes one signing round per page — but it is not free: signing is
+      // an IAM `signBlob` call per FILE under Cloud Run's default credentials, so
+      // adding posters would roughly double the round the page pays for. The
+      // detail read, the two public surfaces and the editor all carry the poster;
+      // when a list wants a thumbnail, the signer already takes a batch and the
+      // avatar round above is where it would join.
       const serialized = await Promise.all(
         items.map(async (event) => {
           const capabilities = await eventCapabilities(request, event.id);
+          const headline = headlineByEvent.get(event.id);
           return {
             ...serializeEvent(event, capabilities),
             archived: event.archived,
-            headlinePerformerName: headlineByEvent.get(event.id) ?? null,
+            headlinePerformerName: headline?.name ?? null,
+            headlinePerformerAvatarUrl: headline
+              ? resolveImageUrl(headline.avatarFileId, headline.avatarUrl, avatarUrls)
+              : null,
             settlementStatus: settlementByEvent.get(event.id) ?? null,
           };
         }),

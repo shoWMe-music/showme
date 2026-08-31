@@ -264,6 +264,76 @@ describe("participants — authorize + serialize + audit", () => {
   });
 });
 
+/**
+ * The roster's faces (migration 0022).
+ *
+ * `avatar_file_id` is the NORMAL way to have a picture — you upload one — and
+ * `avatar_url` is only the legacy external address. This list used to select the
+ * legacy column alone, so every performer who had uploaded a picture came back
+ * with `avatarUrl: null` and the roster drew them faceless. Both spellings are
+ * asserted here, because a fix that always signs and never falls back would be
+ * the same bug read from the other end.
+ */
+describe("participants — the roster's pictures", () => {
+  it("signs an UPLOADED avatar, and still serves a legacy external one", async () => {
+    const { db } = harness;
+    const { operator, performer, event } = await seedEventWithHost("face");
+
+    // The uploaded picture, written exactly as `POST /files/upload-url` would:
+    // owned by the performer's profile, inside that profile's storage folder.
+    const [file] = await db
+      .insert(schema.files)
+      .values({
+        ownerUserId: "face-perf",
+        ownerProfileId: performer.profileId,
+        kind: "photo",
+        path: `profiles/${performer.profileId}/media/avatar.png`,
+        contentType: "image/png",
+        sizeBytes: 2048,
+      })
+      .returning();
+    if (!file) throw new Error("file seed failed");
+    await db
+      .update(schema.profiles)
+      .set({ avatarFileId: file.id, avatarUrl: null })
+      .where(eq(schema.profiles.id, performer.profileId));
+
+    // The host keeps the OLD shape — an external address, no file.
+    await db
+      .update(schema.profiles)
+      .set({ avatarFileId: null, avatarUrl: "https://example.test/host.png" })
+      .where(eq(schema.profiles.id, operator.profileId));
+
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: performer.profileId,
+      role: "performer",
+      status: "confirmed",
+    });
+
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("face-op"),
+    });
+    expect(list.statusCode).toBe(200);
+    const rows = list.json() as { profileId: string; avatarUrl: string | null }[];
+
+    // The uploaded one arrives as a URL minted from the FILE'S PATH. This suite's
+    // signer is the offline fake, so the assertion is on the shape — what it
+    // proves is that the response went through the signer at all.
+    const performerRow = rows.find((row) => row.profileId === performer.profileId);
+    expect(performerRow?.avatarUrl).toBe(
+      `https://fake.storage.local/download/${encodeURIComponent(file.path)}`,
+    );
+
+    // And the legacy address is passed straight through, unsigned — there is no
+    // file to sign, and it was never ours to serve bytes for.
+    const hostRow = rows.find((row) => row.profileId === operator.profileId);
+    expect(hostRow?.avatarUrl).toBe("https://example.test/host.png");
+  });
+});
+
 describe("participants — crew sponsor stamp (decisions #12)", () => {
   it("stamps the adder as the sponsor when crew is added directly", async () => {
     const { db } = harness;

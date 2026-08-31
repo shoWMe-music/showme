@@ -596,6 +596,55 @@ Ran's 2026-08-17 landing-page feedback (tracked in ClickUp "Ran's Feedback 2026-
 
 - **#8 — Crew availability feeds event staffing (auto-surface + assign).** Availability is **not** a standalone calendar: when a Team/Crew member marks themselves available on a date that has an event, the operator who owns that crew is **notified the person is free and can click to assign** them to the event. Landing "Availability" copy for Team and Crew now conveys this. **Build:** wire the crew-availability model to the operator's event staffing (surface free crew against event dates → one-click assign into `event_participants(role=crew)`). Intersects availability + `event_participants`; design before building.
 
+## 19. Venue trade details are for signed-in industry, never the open web (2026-08-31)
+
+**Decision.** A venue's **trade details** — `amenities`, `dealTypes`, `cateringNotes`, `accommodationNotes` — are
+**removed from the anonymous public profile payload**. They stay in the database, stay fully editable by the venue's
+own team, and are meant for **signed-in industry**. Nothing else about the public profile changes.
+
+**What stays public** (unchanged): `capacity`, `soundSystem`, `curfew`, `audienceLogisticsNotes` (public by name per
+#16.7), location under the existing place-vs-performer address rule, and the whole non-venue half of the profile.
+**What was already private and stays so:** `artistLogisticsNotes`, `contactEmail`, `contactPhone`, `billing`, payout
+accounts.
+
+**Why.** What a room throws in and which deal shapes it will sign is a **negotiating position**, not audience-facing
+copy. Published anonymously it is handed to every competitor and every scraper at the same time it is handed to the
+promoter it was meant for. `story.md` gives the venue-operator's boundary as running a room and booking it — not
+publishing its commercial terms to the world — and **nothing in `story.md` ever backed the old rule**.
+
+**This overturns a documented decision, and the previous rationale is worth naming so it is not re-adopted by
+accident.** The old rationale lived in a serializer docstring (`apps/api/src/serialize/profile.ts`) and rested on
+three things: a line in `packages/shared/src/venue.ts` saying deal types are "shown on its profile so a promoter
+knows before asking"; migration 0010 treating amenities as the searchable half of "find me a room"; and the
+marketing page already rendering both. **None of those is a product rule** — the first is a code comment, the second
+is about search, and the third is a description of the status quo justifying itself. The docstring has been rewritten
+to state this rule instead of the old one.
+
+**A latent disclosure, now closed.** `cateringNotes` and `accommodationNotes` were on the wire and rendered by
+**nothing** — `apps/marketing/src/profile.ts` parsed them and never drew them. A field that leaks with no visible
+symptom is the one nobody notices coming back, which is why the regression test asserts on the payload rather than
+on the page.
+
+**Where the fields go instead — and what is NOT built.** There is today **no surface where a signed-in operator or
+agent views a different profile**: every `/profiles/:id*` read is membership-gated, `/profiles/search` returns a thin
+card with no venue details, and the only cross-profile view that exists is the anonymous marketing page. So the
+"signed-in industry" half of this decision has **no home yet** and none was invented. Two consequences:
+- The removal from the anonymous payload is implemented on its own — it is the safety-critical half and stands alone.
+- The four fields are still served to the **owner's own Preview** (`GET /profiles/:id/public-preview`) as
+  **`withheldVenueDetails`**, a **sibling** of `profile` rather than a field inside it. That placement is the safety
+  argument: `profile` stays byte-identical to the anonymous body, so the existing "preview equals anonymous, field
+  for field" assertion keeps holding and no trade field can reach the public projection by being "already in the
+  preview". The Preview draws them under an explicit **"Not on your public page"** heading, so the venue sees both
+  what it entered and that it is being held back.
+
+**Follow-up, not built here:** a signed-in profile-viewing surface (an industry-facing venue/act page reachable from
+search or a booking flow), gated through `authorize` on the viewer's principal — never on a query parameter or a
+client-side flag. When that surface exists, `serializeWithheldVenueTradeDetails` is what it calls.
+
+**Enforcement.** At the **serializer**, not in the page: `serializePublicVenueDetails` no longer selects the four,
+and `PublicProfileSchema` has no slot for them, so Fastify's response schema strips them even if a handler
+reintroduces them. Both halves of the double gate were changed together.
+
 ## Still-open product calls (not yet decided)
 
 - ~~**Event start/end mechanism (#16.4)**~~ **RESOLVED 2026-08-02 (see #16.4):** explicit required

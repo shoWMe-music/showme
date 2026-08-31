@@ -5,7 +5,7 @@ export interface VenueNotesFieldProps {
   value: string;
   onChange: (next: string) => void;
   placeholder?: string;
-  /** Sub-label explaining who will see this — used for the privacy split. */
+  /** Sub-label under the box, for a caveat the label has no room for. */
   hint?: string;
   rows?: number;
 }

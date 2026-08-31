@@ -378,13 +378,18 @@ export function serializeProfile(
  * draws the same line here, server-side, so it holds however the page is
  * rendered.
  *
- * Venue specs (`soundSystem`, `curfew`, `amenities`, `dealTypes`, catering and
- * accommodation notes) go out too. That is this repo's own later decision, not
- * the old app's — `packages/shared/src/venue.ts` states deal types are "shown on
- * its profile so a promoter knows before asking", migration 0010 marks amenities
- * as the searchable half of "find me a room", and `apps/marketing/src/profile.ts`
- * already renders all of them. Later decisions override the reference app
- * (CLAUDE.md), so they stay public.
+ * Venue specs are SPLIT, and the split is a later decision overriding an earlier
+ * one. `capacity`, `soundSystem`, `curfew` and `audienceLogisticsNotes` stay
+ * public: they are how an audience and a touring act size up a room before
+ * anyone talks, and #16.7 puts audience logistics on the public side by name.
+ *
+ * `amenities`, `dealTypes`, `cateringNotes` and `accommodationNotes` used to be
+ * published from here and are NOT any more — `docs/decisions.md` #19
+ * (2026-08-31). They are TRADE details: what the room throws in and which deal
+ * shapes it will sign. That is a venue's negotiating position, and a negotiating
+ * position handed to an anonymous visitor is handed to every competitor and
+ * scraper too. The rule is now: trade details reach signed-in industry, never the
+ * open web.
  *
  * WHAT IS NEVER PUBLIC, and why each one:
  *   artistLogisticsNotes  load-in, back entrance, door code, artist parking —
@@ -401,6 +406,17 @@ export function serializeProfile(
  *   ownerUserId           who owns it is membership, not a listing.
  *   isPublic              a published page saying "published" tells the reader
  *                         nothing and tells a prober something.
+ *   amenities · dealTypes · cateringNotes · accommodationNotes
+ *                         trade details, per the paragraph above. They are not
+ *                         dropped on the floor: the owner's own Preview serves
+ *                         them beside this projection as `withheldVenueDetails`
+ *                         (see `serializeWithheldVenueTradeDetails`), so a venue
+ *                         sees what it entered AND that it is being held back.
+ *                         They are deliberately NOT inside this projection —
+ *                         `profiles.test.ts` asserts the preview's `profile` and
+ *                         the anonymous body are equal field for field, and that
+ *                         invariant is what stops a "preview-only" field ever
+ *                         drifting onto the open web.
  *
  * NOTE the return type carries `id` and `slug`. Both are already public — the id
  * is how a "request a date" form addresses its target, and the slug IS the URL.
@@ -435,16 +451,34 @@ export interface PublicProfileLocation {
   lng: number | null;
 }
 
-/** The venue facts a stranger may read. No artist logistics, no contact. */
+/**
+ * The venue facts a stranger may read: the room's size, its rig, its curfew and
+ * how the audience gets in. No artist logistics, no contact, and no trade
+ * details — see `WithheldVenueTradeDetails` for the four that moved out.
+ */
 export interface PublicVenueDetails {
   capacity: number | null;
   soundSystem: string | null;
   curfew: string | null;
+  audienceLogisticsNotes: string | null;
+}
+
+/**
+ * The venue facts that are NOT published — what the room throws in, and the deal
+ * shapes it signs. Served only to a member of the profile, on the owner's own
+ * Preview, so the venue can see both what it has entered and that a stranger
+ * does not get it (`docs/decisions.md` #19).
+ *
+ * Kept as its own type, beside the public projection rather than inside it, so
+ * that "public" stays one word with one meaning. Anything that wants these
+ * fields has to name this type and therefore has to be a route that checked
+ * membership first.
+ */
+export interface WithheldVenueTradeDetails {
   amenities: string[];
   dealTypes: string[];
   cateringNotes: string | null;
   accommodationNotes: string | null;
-  audienceLogisticsNotes: string | null;
 }
 
 function serializePublicLocation(
@@ -469,13 +503,26 @@ function serializePublicVenueDetails(row: VenueDetailsRow): PublicVenueDetails {
     capacity: row.capacity,
     soundSystem: row.soundSystem,
     curfew: row.curfew,
+    // artistLogisticsNotes / contactEmail / contactPhone / amenities / dealTypes
+    // / cateringNotes / accommodationNotes are NOT here. Their absence is the
+    // feature — see the docstring above.
+    audienceLogisticsNotes: row.audienceLogisticsNotes,
+  };
+}
+
+/**
+ * The trade half, for a caller that has already been shown to be a member of the
+ * profile. `serializePublicVenueDetails` is the stranger's view; this is the
+ * remainder, and the only route that calls it is the owner's Preview.
+ */
+export function serializeWithheldVenueTradeDetails(
+  row: VenueDetailsRow,
+): WithheldVenueTradeDetails {
+  return {
     amenities: row.amenities ?? [],
     dealTypes: row.dealTypes ?? [],
     cateringNotes: row.cateringNotes,
     accommodationNotes: row.accommodationNotes,
-    // artistLogisticsNotes / contactEmail / contactPhone are NOT here. Their
-    // absence is the feature — see the docstring above.
-    audienceLogisticsNotes: row.audienceLogisticsNotes,
   };
 }
 
@@ -518,18 +565,29 @@ export const PublicProfileSchema = z.object({
     .nullable(),
   // No `artistLogisticsNotes`, no `contactEmail`, no `contactPhone`. A field with
   // no slot here cannot be published by a careless line in a handler.
+  // Nor `amenities`, `dealTypes`, `cateringNotes`, `accommodationNotes`: the
+  // trade half has no slot here, so even a handler that spread the whole row in
+  // would publish none of it (`docs/decisions.md` #19).
   venueDetails: z
     .object({
       capacity: z.number().nullable(),
       soundSystem: z.string().nullable(),
       curfew: z.string().nullable(),
-      amenities: z.array(z.string()),
-      dealTypes: z.array(z.string()),
-      cateringNotes: z.string().nullable(),
-      accommodationNotes: z.string().nullable(),
       audienceLogisticsNotes: z.string().nullable(),
     })
     .nullable(),
+});
+
+/**
+ * The wire schema for the withheld trade half. Declared here, next to the
+ * projection it is deliberately NOT part of, so the two are read together.
+ * Only `GET /profiles/:id/public-preview` names it.
+ */
+export const WithheldVenueTradeDetailsSchema = z.object({
+  amenities: z.array(z.string()),
+  dealTypes: z.array(z.string()),
+  cateringNotes: z.string().nullable(),
+  accommodationNotes: z.string().nullable(),
 });
 
 /**

@@ -983,6 +983,10 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "headlinePerformerAvatarUrl": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "settlementStatus": {
                             "type": "string",
                             "nullable": true
@@ -1003,6 +1007,7 @@
                           "version",
                           "archived",
                           "headlinePerformerName",
+                          "headlinePerformerAvatarUrl",
                           "settlementStatus"
                         ],
                         "additionalProperties": false
@@ -9599,26 +9604,6 @@
                               "type": "string",
                               "nullable": true
                             },
-                            "amenities": {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              }
-                            },
-                            "dealTypes": {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              }
-                            },
-                            "cateringNotes": {
-                              "type": "string",
-                              "nullable": true
-                            },
-                            "accommodationNotes": {
-                              "type": "string",
-                              "nullable": true
-                            },
                             "audienceLogisticsNotes": {
                               "type": "string",
                               "nullable": true
@@ -9628,10 +9613,6 @@
                             "capacity",
                             "soundSystem",
                             "curfew",
-                            "amenities",
-                            "dealTypes",
-                            "cateringNotes",
-                            "accommodationNotes",
                             "audienceLogisticsNotes"
                           ],
                           "additionalProperties": false,
@@ -9736,9 +9717,37 @@
                     },
                     "isPublic": {
                       "type": "boolean"
+                    },
+                    "withheldVenueDetails": {
+                      "type": "object",
+                      "properties": {
+                        "amenities": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "dealTypes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "cateringNotes": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "accommodationNotes": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": ["amenities", "dealTypes", "cateringNotes", "accommodationNotes"],
+                      "additionalProperties": false,
+                      "nullable": true
                     }
                   },
-                  "required": ["profile", "isPublic"],
+                  "required": ["profile", "isPublic", "withheldVenueDetails"],
                   "additionalProperties": false
                 }
               }
@@ -18650,41 +18659,12 @@
                           "type": "string",
                           "nullable": true
                         },
-                        "amenities": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
-                        },
-                        "dealTypes": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
-                        },
-                        "cateringNotes": {
-                          "type": "string",
-                          "nullable": true
-                        },
-                        "accommodationNotes": {
-                          "type": "string",
-                          "nullable": true
-                        },
                         "audienceLogisticsNotes": {
                           "type": "string",
                           "nullable": true
                         }
                       },
-                      "required": [
-                        "capacity",
-                        "soundSystem",
-                        "curfew",
-                        "amenities",
-                        "dealTypes",
-                        "cateringNotes",
-                        "accommodationNotes",
-                        "audienceLogisticsNotes"
-                      ],
+                      "required": ["capacity", "soundSystem", "curfew", "audienceLogisticsNotes"],
                       "additionalProperties": false,
                       "nullable": true
                     },
@@ -19155,6 +19135,106 @@
                     }
                   },
                   "required": ["from", "to", "rate", "fetchedAt"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/geocode": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 200
+            },
+            "in": "query",
+            "name": "query",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10,
+              "default": 5
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 2
+            },
+            "in": "query",
+            "name": "country",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "street": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "postcode": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "city": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "country": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "lat": {
+                            "type": "number"
+                          },
+                          "lng": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "label",
+                          "street",
+                          "postcode",
+                          "city",
+                          "country",
+                          "lat",
+                          "lng"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["results"],
                   "additionalProperties": false
                 }
               }

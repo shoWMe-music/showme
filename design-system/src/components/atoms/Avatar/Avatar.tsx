@@ -1,4 +1,4 @@
-import type { HTMLAttributes } from "react";
+import { type HTMLAttributes, useEffect, useState } from "react";
 import { classNames } from "@/lib/classNames";
 import styles from "./Avatar.module.css";
 
@@ -39,6 +39,18 @@ export function Avatar({
 }: AvatarProps) {
   const toneStyle = TONE[tone];
   const radius = shape === "circle" ? "50%" : Math.round(size * 0.27);
+  // A picture that will not load falls back to the initials it was covering.
+  // This is not defensive padding: profile images are served as SIGNED URLs
+  // that expire after 15 minutes, so any page left open long enough reaches
+  // this state on its own, as does a revoked file or an offline moment. Without
+  // the fallback the browser draws its broken-image box, which is both ugly and
+  // WIDER than the avatar asked for — measured, a broken image inside an 18px
+  // avatar is 20px, which overflows the box it is meant to fill.
+  const [failed, setFailed] = useState(false);
+  // A new `src` deserves a fresh attempt; without this, one failure would make
+  // the avatar permanently initials-only even after the URL is re-signed.
+  useEffect(() => setFailed(false), [src]);
+  const showImage = Boolean(src) && !failed;
   return (
     <span
       className={classNames(styles.avatar, className)}
@@ -46,14 +58,24 @@ export function Avatar({
         width: size,
         height: size,
         borderRadius: radius,
-        background: src ? undefined : toneStyle.bg,
+        background: showImage ? undefined : toneStyle.bg,
         color: toneStyle.fg,
         fontSize: Math.round(size * 0.32),
         ...style,
       }}
       {...rest}
     >
-      {src ? <img className={styles.img} src={src} alt={alt ?? initials ?? ""} style={{ borderRadius: radius }} /> : initials}
+      {showImage ? (
+        <img
+          className={styles.img}
+          src={src}
+          alt={alt ?? initials ?? ""}
+          style={{ borderRadius: radius }}
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        initials
+      )}
     </span>
   );
 }
