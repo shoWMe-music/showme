@@ -417,8 +417,13 @@ describe("deals — mutation + audit + optimistic lock", () => {
  * Seed an operator (payer) + two performers (payees) and create a split deal via
  * the route. Returns the deal id, the participant ids, and each party's uid so a
  * test can confirm as that party.
+ *
+ * The agreement is SENT before it is handed back, because a draft is no longer
+ * signable: `POST /deals/:did/confirm` refuses one nobody has been shown. Pass
+ * `{ send: false }` to get the draft as created — what the send and state-machine
+ * tests need, and nothing else.
  */
-async function seedSplitDeal(prefix: string) {
+async function seedSplitDeal(prefix: string, options: { send?: boolean } = {}) {
   const operator = await seedMemberWithSet(
     `${prefix}-op`,
     "operator",
@@ -463,9 +468,14 @@ async function seedSplitDeal(prefix: string) {
     },
   });
   expect(created.statusCode).toBe(201);
+  const dealId = created.json().id as string;
+  if (options.send !== false) {
+    const sent = await sendAgreement(dealId, `${prefix}-op`);
+    expect(sent.statusCode).toBe(200);
+  }
   return {
     event,
-    dealId: created.json().id as string,
+    dealId,
     opUid: `${prefix}-op`,
     aUid: `${prefix}-a`,
     bUid: `${prefix}-b`,
@@ -475,6 +485,9 @@ async function seedSplitDeal(prefix: string) {
 const confirm = (dealId: string, uid: string) =>
   app.inject({ method: "POST", url: `/api/v1/deals/${dealId}/confirm`, headers: auth(uid) });
 
+const sendAgreement = (dealId: string, uid: string) =>
+  app.inject({ method: "POST", url: `/api/v1/deals/${dealId}/send`, headers: auth(uid) });
+
 describe("deals — per-party confirm (decisions #1)", () => {
   it("confirms one party at a time and freezes the snapshot only when all have confirmed", async () => {
     const deal = await seedSplitDeal("dc");
@@ -482,7 +495,10 @@ describe("deals — per-party confirm (decisions #1)", () => {
     // Operator confirms its payer line — the agreement is not yet confirmed.
     const afterOp = await confirm(deal.dealId, deal.opUid);
     expect(afterOp.statusCode).toBe(200);
-    expect(afterOp.json().agreementStatus).toBe("draft");
+    // Was `"draft"` until 2026-08-31. Not a weakened assertion — a corrected one:
+    // `confirm` now refuses a draft outright, so an agreement being signed is one
+    // that was SENT, and `sent` is what it stays until the last signatory lands.
+    expect(afterOp.json().agreementStatus).toBe("sent");
     // Operator sees every line (party-scoping): only its own is confirmed.
     const opParties = afterOp.json().parties as Array<{
       roleInDeal: string;
@@ -496,7 +512,7 @@ describe("deals — per-party confirm (decisions #1)", () => {
     // Performer A confirms — still pending B.
     const afterA = await confirm(deal.dealId, deal.aUid);
     expect(afterA.statusCode).toBe(200);
-    expect(afterA.json().agreementStatus).toBe("draft");
+    expect(afterA.json().agreementStatus).toBe("sent");
     // Party-scoped: A sees only its own (now confirmed) line.
     expect(afterA.json().parties).toHaveLength(1);
     expect(afterA.json().parties[0].confirmedAt).not.toBeNull();
@@ -610,7 +626,7 @@ describe("deals — reopen (decisions #1)", () => {
 
 describe("deals — send (decisions #1)", () => {
   it("moves a draft agreement to sent and refuses a non-draft", async () => {
-    const deal = await seedSplitDeal("ds");
+    const deal = await seedSplitDeal("ds", { send: false });
     const sent = await app.inject({
       method: "POST",
       url: `/api/v1/deals/${deal.dealId}/send`,
@@ -629,13 +645,140 @@ describe("deals — send (decisions #1)", () => {
   });
 
   it("forbids a performer (no agreement.manage) from sending", async () => {
-    const deal = await seedSplitDeal("ds2");
+    const deal = await seedSplitDeal("ds2", { send: false });
     const forbidden = await app.inject({
       method: "POST",
       url: `/api/v1/deals/${deal.dealId}/send`,
       headers: auth(deal.aUid),
     });
     expect(forbidden.statusCode).toBe(403);
+  });
+});
+
+/**
+ * The state machine the enum has always described, now enforced.
+ *
+ * `agreement_status` moves draft → sent → confirmed (decisions #1), and `confirm`
+ * used to accept every one of those as a starting point — so a counterparty could
+ * sign terms that had never been put to them. The cost was not theoretical: the
+ * Create-Event wizard's Undo has to hold the timer IN FRONT of the send
+ * (`useDealAutoSend`) precisely because a retract window after sending would let
+ * somebody sign inside it.
+ */
+describe("deals — an agreement must be SENT before anybody can sign it", () => {
+  it("refuses a confirm on a draft nobody has been shown (409) and stamps nothing", async () => {
+    const deal = await seedSplitDeal("dgate", { send: false });
+
+    const early = await confirm(deal.dealId, deal.opUid);
+    expect(early.statusCode).toBe(409);
+    expect(early.json().error.code).toBe("conflict");
+
+    // The state, not only the response: no line was stamped, nothing advanced.
+    const parties = await harness.db
+      .select()
+      .from(schema.dealParties)
+      .where(eq(schema.dealParties.dealId, deal.dealId));
+    expect(parties.every((party) => party.confirmedAt == null)).toBe(true);
+    const [row] = await harness.db
+      .select()
+      .from(schema.deals)
+      .where(eq(schema.deals.id, deal.dealId));
+    expect(row?.agreementStatus).toBe("draft");
+  });
+
+  it("accepts the same confirm once the agreement has been sent", async () => {
+    const deal = await seedSplitDeal("dgate2", { send: false });
+    expect((await confirm(deal.dealId, deal.opUid)).statusCode).toBe(409);
+
+    const sent = await sendAgreement(deal.dealId, deal.opUid);
+    expect(sent.statusCode).toBe(200);
+    expect(sent.json().agreementStatus).toBe("sent");
+
+    // Same caller, same body, same deal — only the status moved.
+    const accepted = await confirm(deal.dealId, deal.opUid);
+    expect(accepted.statusCode).toBe(200);
+    const own = accepted.json().parties.filter((party: { isYours: boolean }) => party.isYours) as {
+      confirmedAt: string | null;
+    }[];
+    expect(own.length).toBeGreaterThan(0);
+    expect(own.every((party) => party.confirmedAt != null)).toBe(true);
+  });
+
+  /**
+   * "Other — agreed manually" (`structure: null`) is a deal shoWMe never computes —
+   * the parties wrote it down and settle it between themselves. It is still an
+   * agreement recorded HERE, and the composer creates it as a draft like every
+   * other kind (`NewEventWizard` excludes it; the Deals tab offers it, and the tab
+   * offers "Send to parties" on any draft whatever its structure). So the manual
+   * kind is NOT an exemption from the order — it walks draft → sent → confirmed
+   * too, and this test exists so that a future "let the paper one skip the send"
+   * has to be an argued change rather than an accident.
+   */
+  it("holds a manually-agreed (paper-only) deal to the same order", async () => {
+    const operator = await seedMemberWithSet(
+      "dgp-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "dgp-p",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const { event, participants } = await seedEvent(
+      operator,
+      [
+        { ...operator, role: "host" },
+        { ...performer, role: "performer" },
+      ],
+      "dgp-op",
+    );
+    const hostPart = participants.find((p) => p.profileId === operator.profileId)?.id as string;
+    const perfPart = participants.find((p) => p.profileId === performer.profileId)?.id as string;
+
+    // No `structure` at all — the paper-only agreement (decisions #16.2 / #15).
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("dgp-op"),
+      payload: {
+        type: "performance",
+        name: "Other — agreed manually",
+        parties: [
+          { participantId: hostPart, roleInDeal: "payer" },
+          { participantId: perfPart, roleInDeal: "payee" },
+        ],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const dealId = created.json().id as string;
+    expect(created.json().structure).toBeNull();
+
+    expect((await confirm(dealId, "dgp-op")).statusCode).toBe(409);
+    expect((await sendAgreement(dealId, "dgp-op")).statusCode).toBe(200);
+    expect((await confirm(dealId, "dgp-op")).statusCode).toBe(200);
+    const done = await confirm(dealId, "dgp-p");
+    expect(done.statusCode).toBe(200);
+    expect(done.json().agreementStatus).toBe("confirmed");
+  });
+
+  it("answers the party question before the status question", async () => {
+    // A stranger on a draft still gets 400 "not a party", not 409 — the order in
+    // the route is 404 → 400 → 403 → 409, so nobody learns the lifecycle position
+    // of a deal they have no line on.
+    const deal = await seedSplitDeal("dgate3", { send: false });
+    const outsider = await seedMemberWithSet(
+      "dgate3-x",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: deal.event.id,
+      profileId: outsider.profileId,
+      role: "performer",
+      status: "confirmed",
+    });
+    expect((await confirm(deal.dealId, "dgate3-x")).statusCode).toBe(400);
   });
 });
 
@@ -826,7 +969,11 @@ async function seedRepresentedAgent(prefix: string, region: string[] = ["SE"]) {
       },
     });
     expect(created.statusCode).toBe(201);
-    return created.json().id as string;
+    const dealId = created.json().id as string;
+    // Put it to the parties: a draft is not signable, and every test on this
+    // fixture is about WHO may sign, not about the lifecycle.
+    expect((await sendAgreement(dealId, `${prefix}-op`)).statusCode).toBe(200);
+    return dealId;
   };
 
   return {
@@ -1011,6 +1158,7 @@ describe("deals — an agent's authority is per-deal, via the representation (de
     });
     expect(shared.statusCode).toBe(201);
     const dealId = shared.json().id as string;
+    expect((await sendAgreement(dealId, fixture.opUid)).statusCode).toBe(200);
 
     // The agent has standing (its client is a party) — but reads ONE line.
     const read = await app.inject({

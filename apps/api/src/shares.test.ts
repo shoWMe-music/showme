@@ -1393,6 +1393,12 @@ describe("shares — off-platform approval (A-33)", () => {
         type: "split",
         currency: "SEK",
         name: "Door Split",
+        // The column defaults to `draft`, and this fixture used to leave it there —
+        // so the test proved that a link-holder may sign an agreement nobody had
+        // been shown. That is the bug, not the behaviour under test here (which is
+        // "one signature stamps one row"), so the deal is now SENT, as the flow
+        // that produces a real share always makes it.
+        agreementStatus: "sent",
         createdBy: seed.operator.userId,
       })
       .returning();
@@ -1428,6 +1434,60 @@ describe("shares — off-platform approval (A-33)", () => {
     expect(supportLine?.confirmedAt).not.toBeNull();
     // The other act's line is untouched — one signature stamps one row.
     expect(headlinerLine?.confirmedAt).toBeNull();
+  });
+
+  it("refuses a link-holder's signature on an agreement that was never sent (409)", async () => {
+    // The off-platform door must answer the lifecycle question the same way the
+    // in-app one does (`deals.test.ts` — "an agreement must be SENT before anybody
+    // can sign it"). A share can be minted while the deal is still a draft, so
+    // this is a reachable state, not a hypothetical one.
+    const seed = await seedEvent("draft-deal");
+    const performer = await seedPerformer(
+      "draft-a",
+      seed.event.id,
+      "draft-perf@band.showme.test",
+      "Support",
+    );
+    const [deal] = await harness.db
+      .insert(schema.deals)
+      .values({
+        eventId: seed.event.id,
+        type: "performance",
+        currency: "SEK",
+        name: "Unsent guarantee",
+        createdBy: seed.operator.userId,
+      })
+      .returning();
+    if (!deal) throw new Error("deal seed failed");
+    await harness.db
+      .insert(schema.dealParties)
+      .values([{ dealId: deal.id, participantId: performer.participantId, roleInDeal: "payee" }]);
+
+    const create = await createShare(seed, {
+      targetKind: "deal",
+      targetId: deal.id,
+      capabilities: ["deal.view.own", "agreement.confirm"],
+      recipients: [{ email: performer.email }],
+    });
+    const token = create.json().token as string;
+    const jwt = await redeem(token, performer.email);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/shares/${token}/approve`,
+      headers: share(jwt),
+      payload: { subject: "agreement", dealId: deal.id },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe("conflict");
+
+    const lines = await harness.db
+      .select()
+      .from(schema.dealParties)
+      .where(eq(schema.dealParties.dealId, deal.id));
+    expect(lines.every((line) => line.confirmedAt == null)).toBe(true);
+    const [row] = await harness.db.select().from(schema.deals).where(eq(schema.deals.id, deal.id));
+    expect(row?.agreementStatus).toBe("draft");
   });
 });
 

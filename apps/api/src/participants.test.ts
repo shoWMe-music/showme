@@ -34,7 +34,7 @@ const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 /** Seed a user + profile + active membership + a permission set, return the ids. */
 async function seedMemberWithSet(
   id: string,
-  kind: "operator" | "performer",
+  kind: "operator" | "performer" | "team_and_crew",
   capabilities: readonly string[],
 ) {
   const { db } = harness;
@@ -206,6 +206,96 @@ describe("participants — authorize + serialize + audit", () => {
       expect(row.permissionSetId).toBeUndefined();
       expect(row.details).toBeUndefined();
     }
+  });
+
+  /**
+   * A crew member is asked to be in the building at a stated time. Until this
+   * test, `serializeParticipant` returned `details` to the managing operators and
+   * to nobody else — so the one person whose whole engagement is "turn up at
+   * 16:15 and mix front of house" was the one party who could not read 16:15.
+   *
+   * The split is between what is ADDRESSED TO the crew member and what is the
+   * operator's own record of them. `docs/story.md` — team_and_crew is an
+   * "arm's-length service provider paid a fixed fee" who "see the schedule and
+   * their own deal, never the budget": the call time and the task are the terms
+   * of the labour, the operator's private note and pay note are the operator's
+   * commentary and bookkeeping, and the roster provenance keys name OTHER rows.
+   */
+  it("shows a crew member their OWN call time but not the operator's notes", async () => {
+    const { db } = harness;
+    const { operator, event, hostParticipant } = await seedEventWithHost("selfcrew");
+    const crew = await seedMemberWithSet(
+      "selfcrew-crew",
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_schedule_only,
+    );
+
+    const [group] = await db
+      .insert(schema.groups)
+      .values({ ownerUserId: "selfcrew-op", name: "Sound crew" })
+      .returning();
+    if (!group) throw new Error("group seed failed");
+
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: crew.profileId,
+      role: "crew",
+      permissionSetId: crew.permissionSetId,
+      status: "confirmed",
+      details: {
+        callTime: "16:15",
+        task: "Front-of-house sound",
+        roleLabel: "Stage Manager",
+        privateNote: "Chronically late — chase him at four.",
+        payNote: "Fee invoiced separately, do not mention on the night",
+        sponsorParticipantId: hostParticipant.id,
+        sourceGroupId: group.id,
+      },
+    });
+
+    const asCrew = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("selfcrew-crew"),
+    });
+    expect(asCrew.statusCode).toBe(200);
+    const own = asCrew
+      .json()
+      .find((row: { profileId: string }) => row.profileId === crew.profileId);
+    // The point of the whole fix.
+    expect(own?.details?.callTime).toBe("16:15");
+    expect(own?.details?.task).toBe("Front-of-house sound");
+    expect(own?.details?.roleLabel).toBe("Stage Manager");
+    // …and none of the operator's side of the blob comes with it.
+    expect(own?.details?.privateNote).toBeUndefined();
+    expect(own?.details?.payNote).toBeUndefined();
+    expect(own?.details?.sponsorParticipantId).toBeUndefined();
+    expect(own?.details?.sourceGroupId).toBeUndefined();
+    // Self-visibility is not a promotion: the permission set stays operator-only.
+    expect(own?.permissionSetId).toBeUndefined();
+
+    // A third party's row is exactly as it was — the public face and nothing else.
+    const host = asCrew
+      .json()
+      .find((row: { profileId: string }) => row.profileId === operator.profileId);
+    expect(host?.details).toBeUndefined();
+
+    // The operator still sees the whole blob, self-branch or no self-branch.
+    const asOperator = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("selfcrew-op"),
+    });
+    expect(asOperator.statusCode).toBe(200);
+    const seenByOperator = asOperator
+      .json()
+      .find((row: { profileId: string }) => row.profileId === crew.profileId);
+    expect(seenByOperator?.details?.callTime).toBe("16:15");
+    expect(seenByOperator?.details?.privateNote).toBe("Chronically late — chase him at four.");
+    expect(seenByOperator?.details?.payNote).toBe(
+      "Fee invoiced separately, do not mention on the night",
+    );
+    expect(seenByOperator?.details?.sponsorParticipantId).toBe(hostParticipant.id);
   });
 
   it("409s a duplicate (same event + profile)", async () => {

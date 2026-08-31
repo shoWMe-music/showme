@@ -37,9 +37,12 @@ import { errorMessage } from "../lib/errors";
  * assigned tasks" and delivering none of the three. It now delivers all three,
  * and each comes from somewhere that was already private:
  *
- * - **Call time** and **private note** live in `event_participants.details`,
- *   which `serializeParticipant` returns to the managing operators and to nobody
- *   else. The write door is `PATCH /events/:id/crew/:pid/in-house`.
+ * - **Call time** and **private note** live in `event_participants.details`.
+ *   `serializeParticipant` returns the whole blob to the managing operators and
+ *   to nobody else; the call time alone also reaches the crew member on their
+ *   OWN row, because the person being asked to turn up at five has to be able to
+ *   read "five". The private note never does. The write door for both is
+ *   `PATCH /events/:id/crew/:pid/in-house`.
  * - **Assigned tasks** are the event's own to-do list filtered to that crew
  *   member's `assigneeParticipantId` — the column the To Do tab now writes. No
  *   new endpoint: the shared list is already gated by `event.view`, and grouping
@@ -96,10 +99,13 @@ export const EMPTY_IN_HOUSE: CrewInHouse = { callTime: null, privateNote: null, 
  * carries `delegatedToAgentProfileId`). Reading two known string keys out of it
  * is the whole of the narrowing this screen needs.
  *
- * AND IT IS ABSENT FOR EVERYONE BUT THE OPERATOR. `serializeParticipant` omits
- * the key entirely below `participants.manage`/`budget.view`, so on a performer's
- * or an agent's own fetch this function is reading from `{}` — the privacy is the
- * server's, not this screen's.
+ * AND THE PRIVATE NOTE IS ABSENT FOR EVERYONE BUT THE OPERATOR.
+ * `serializeParticipant` hands the whole blob only to `participants.manage` /
+ * `budget.view`; a participant reading their OWN row gets `callTime` (and `task`
+ * / `roleLabel`) and nothing else, and a third party gets no `details` key at
+ * all. So on a performer's or an agent's fetch of somebody else this function is
+ * reading from `{}` — the privacy is the server's, not this screen's. This panel
+ * only ever renders under `crew.manage`, so it always sees the operator tier.
  */
 function readInHouse(details: unknown): { callTime: string | null; privateNote: string | null } {
   const bag = (details ?? {}) as Record<string, unknown>;

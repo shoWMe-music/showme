@@ -110,12 +110,25 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
         rows.map((row) => row.avatarFileId),
       );
 
+      // WHICH ROWS ARE THE CALLER'S OWN. The flat membership set — owned plus
+      // member-of together, the same set `authorize()` computes standing from —
+      // so a manager of the crew member's profile reads the call time exactly as
+      // the crew member does, and no second notion of "self" can drift from the
+      // one authorization already uses. Deliberately not `actingProfileId`: the
+      // roster is fetched without a profile header from several screens, and a
+      // missing header must not be the reason someone cannot read their own
+      // call time.
+      const selfProfileIds = new Set(
+        (request.principal?.memberships ?? []).map((membership) => membership.profileId),
+      );
+
       return rows.map((row) =>
         serializeParticipant(
           row.participant,
           capabilities,
           { name: row.name, avatarFileId: row.avatarFileId, avatarUrl: row.avatarUrl },
           imageUrls,
+          selfProfileIds,
         ),
       );
     },

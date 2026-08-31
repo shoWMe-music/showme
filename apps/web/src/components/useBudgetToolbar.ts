@@ -10,9 +10,10 @@ import { useCallback, useMemo, useState } from "react";
 import { getActiveProfileId } from "../lib/activeProfile";
 import { budgetFileName, downloadTextFile, printBudget } from "../lib/budgetExport";
 import { errorMessage } from "../lib/errors";
+import { toMinorUnits } from "../lib/moneyUnits";
 import type { BudgetToolbarAction } from "./BudgetPlanner";
 import { draftsFromTemplate, templateFrom } from "./budgetTemplateDrafts";
-import { type BudgetEditor, budgetInputsFrom, toMinorUnits } from "./useBudgetEditor";
+import { type BudgetEditor, budgetInputsFrom } from "./useBudgetEditor";
 
 /**
  * The Budget Planner's toolbar — Load Template, Save as Template, CSV, PDF.

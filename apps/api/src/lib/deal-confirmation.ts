@@ -1,5 +1,6 @@
 import { schema } from "@showme/db";
 import { eq } from "drizzle-orm";
+import { conflict } from "../errors";
 
 type DealRow = typeof schema.deals.$inferSelect;
 type DealPartyRow = typeof schema.dealParties.$inferSelect;
@@ -26,6 +27,42 @@ type DealPartyRow = typeof schema.dealParties.$inferSelect;
  * ways and asserts the two snapshots are identical, so the duplication cannot
  * drift unnoticed until the in-app route is switched over to this function.
  */
+
+/**
+ * May a signature land on this agreement at all — the question that comes BEFORE
+ * "whose line is it".
+ *
+ * `agreement_status` moves **draft → sent → confirmed** (decisions #1), and until
+ * 2026-08-31 neither door checked it: a party could sign a deal that had never
+ * been sent. A draft is terms nobody has been shown — the composer is still
+ * editing them, `PATCH /deals/:did` moves the figures freely, and no party has
+ * been told the agreement exists. A signature on one binds somebody to a document
+ * that was never delivered, and `freezeDealSnapshot` then preserves it as the
+ * record of what was agreed.
+ *
+ * The cost of leaving it open was not theoretical. The Create-Event wizard holds
+ * its Undo timer IN FRONT of the send (`apps/web/src/hooks/useDealAutoSend.ts`)
+ * rather than offering a retract afterwards, precisely because a counterparty
+ * could sign inside a retract window — a workaround for this gap.
+ *
+ * `confirmed` and `signed` pass: on those, every signatory line already carries a
+ * `confirmed_at`, so confirming again is the no-op the route promises (it is
+ * idempotent per party) — not a transition, and nothing to refuse.
+ *
+ * **The manually-agreed ("Other — agreed manually", `structure: null`) kind is not
+ * an exemption.** It is a paper agreement RECORDED here, and it is recorded the
+ * same way as every other kind: created as a draft (no writer sets any other
+ * initial status — `routes/deals.ts`, `routes/events.ts`), offered "Send to
+ * parties" on the Deals tab whatever its structure, and already gated on `sent`
+ * by the web app's own `dealActionsFor`. Sending is how the other side learns
+ * there is something to countersign; a deal shoWMe does not COMPUTE is still a
+ * deal shoWMe DELIVERS.
+ */
+export function assertAgreementSignable(deal: DealRow): void {
+  if (deal.agreementStatus === "draft") {
+    throw conflict("Only a sent agreement can be confirmed");
+  }
+}
 
 /** Is this party a signatory? Observers watch the deal; they do not sign it. */
 function isSignatory(party: DealPartyRow): boolean {

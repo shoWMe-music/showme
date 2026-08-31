@@ -85,12 +85,17 @@ const AssignResponse = z.object({
  * So it lives where the data model always said it did:
  * `event_participants.details` — "crew_details (call_time, task, pay_note)
  * folded in" (`packages/db/src/schema/events.ts`). That column is ALREADY
- * redacted for everyone but the managing operators by `serializeParticipant`,
- * and the redaction is backed by the ceiling: `budget.view` may only ever be
- * held by a `host`/`co_host` (`isGrantable`), so no permission set an operator
- * can write hands a performer, an agent or a crew member the key. That is why
- * this needed no migration and no new privacy primitive — it needed the one
- * that was already there.
+ * redacted by `serializeParticipant`, and the redaction is backed by the
+ * ceiling: `budget.view` may only ever be held by a `host`/`co_host`
+ * (`isGrantable`), so no permission set an operator can write hands a THIRD
+ * PARTY the key. That is why this needed no migration and no new privacy
+ * primitive — it needed the one that was already there.
+ *
+ * The one exception is the person the note is ABOUT: a participant reading their
+ * OWN row sees the keys addressed to them (`callTime`, `task`, `roleLabel` — see
+ * `SELF_VISIBLE_DETAIL_KEYS`), because the crew member asked to be in the
+ * building at five is the one party who has to be able to read "five". The
+ * `privateNote` this route also writes is NOT among them and stays operator-only.
  */
 const InHouseParams = z.object({ id: z.string().uuid(), pid: z.string().uuid() });
 

@@ -30,9 +30,13 @@ import { errorMessage } from "../lib/errors";
  *    take that back. The performer keeps a bell entry about terms that were
  *    withdrawn seconds later, and the first thing the operator's new agreement
  *    ever said to them was wrong.
- *  - `POST /deals/:did/confirm` does not check `agreement_status`, so a party who
- *    is quick can sign inside the window. A retract would then be voiding a
- *    signature — a far bigger act than "un-press the button".
+ *  - A party who is quick can sign inside the window, and a retract would then be
+ *    voiding a signature — a far bigger act than "un-press the button". (This
+ *    used to be the WORSE half of the argument: `POST /deals/:did/confirm` did
+ *    not check `agreement_status` at all, so a draft could be signed before it
+ *    was ever sent. That gap was closed on 2026-08-31 — confirm now answers 409
+ *    on a draft — which removes the bug but not this reason: once SENT, a deal is
+ *    signable at once, so a retract window is still a window to sign inside.)
  *
  * Holding the send costs the other party nothing, because nothing has reached
  * them yet. Five seconds of silence is not a lie; a recalled notification is.

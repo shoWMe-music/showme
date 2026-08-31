@@ -15,7 +15,7 @@ import {
 import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
-import { confirmDealIfComplete } from "../lib/deal-confirmation";
+import { assertAgreementSignable, confirmDealIfComplete } from "../lib/deal-confirmation";
 import { renderShareVerificationCodeEmail } from "../lib/email-templates";
 import { createSlidingWindowRateLimiter } from "../lib/rate-limit";
 import {
@@ -1006,6 +1006,12 @@ export async function shareRoutes(fastify: FastifyInstance): Promise<void> {
         // at the rest as anything but a rollup count.
         const mine = parties.filter((line) => line.participantId === party.participantId);
         if (mine.length === 0) throw forbidden("You are not a party to this deal");
+        // The SAME lifecycle gate the in-app door runs. Signing by link is still
+        // signing, and a share can be minted while the deal is still a draft — so
+        // without this the two doors would disagree about whether an agreement
+        // nobody was shown may be countersigned, which is exactly the divergence
+        // `lib/deal-confirmation.ts` exists to close.
+        assertAgreementSignable(deal);
 
         const unstamped = mine.filter((line) => line.confirmedAt == null); // idempotent
         for (const line of unstamped) {

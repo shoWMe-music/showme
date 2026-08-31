@@ -1,18 +1,12 @@
 import type { BudgetTemplatePayload } from "@showme/shared";
+import { toBasisPoints, toMajorUnits, toMinorUnits, toPercentText } from "../lib/moneyUnits";
 import type {
   BudgetEditor,
   CostDraft,
   CustomRevenueDraft,
   TicketTierDraft,
 } from "./useBudgetEditor";
-import {
-  NEW_ROW_PREFIX,
-  STANDARD_COST_HEADINGS,
-  toBasisPoints,
-  toMajorUnits,
-  toMinorUnits,
-  toPercentText,
-} from "./useBudgetEditor";
+import { NEW_ROW_PREFIX, STANDARD_COST_HEADINGS } from "./useBudgetEditor";
 
 /**
  * The two directions a Budget Planner and a saved template convert between.

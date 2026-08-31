@@ -13,7 +13,7 @@ import {
   reconcile,
 } from "@showme/settlement";
 import { convertMinorUnits } from "@showme/shared";
-import { and, asc, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -600,10 +600,33 @@ async function reconcileEvent(
     isOperator: OPERATOR_EVENT_ROLES.has(row.role),
   }));
 
+  // A CANCELLED DEAL IS NOT AN AGREEMENT, so it entitles nobody.
+  //
+  // This read used to take every `deals` row of the event whatever its `status`,
+  // so a withdrawn agreement still produced an entitlement and still generated a
+  // transfer — money leaving on the strength of a contract that was cancelled.
+  // `cancelled` is the one member of `deal_status` whose meaning is unambiguous:
+  // there is nothing left to reconcile under it.
+  //
+  // Dropping it cannot unbalance the night. The operator's line is the residual
+  // (pool − Σ everyone else), so the entitlement that disappears is absorbed
+  // there and `Σ net = 0` still holds (`assertBalanced`, and asserted on the wire
+  // in `settlement.test.ts` → "deal status at the engine boundary").
+  //
+  // `draft` IS DELIBERATELY STILL SETTLED, and that is not an oversight.
+  // `deals.status` has no writer: it defaults to `draft` and nothing in the
+  // product ever moves it — `routes/events.ts::createStatedDeal` says so in as
+  // many words, `POST /deals/:did/confirm` and `lib/deal-confirmation.ts` advance
+  // only `agreement_status`, and no screen sends `status` on the deal PATCH.
+  // Filtering to `status = 'confirmed'` would therefore drop every deal an
+  // operator has ever created in the app and pay the performers nothing, which is
+  // a worse money bug than the one above. Whether an UNSIGNED agreement may
+  // settle is a question about `agreement_status` (draft → sent → confirmed →
+  // signed), and it is a product decision, not a code one.
   const dealRows = await database
     .select()
     .from(schema.deals)
-    .where(eq(schema.deals.eventId, eventId));
+    .where(and(eq(schema.deals.eventId, eventId), ne(schema.deals.status, "cancelled")));
   const dealIds = dealRows.map((deal) => deal.id);
   const partyRows =
     dealIds.length > 0

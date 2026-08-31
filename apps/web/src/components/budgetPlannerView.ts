@@ -10,8 +10,9 @@ import {
   estimatePerformingRightsFee,
 } from "@showme/shared";
 import { formatMoney, formatMoneyExact } from "../lib/format";
+import { toMinorUnits } from "../lib/moneyUnits";
 import type { KpiItem } from "./KpiRow";
-import { type BudgetEditor, budgetInputsFrom, minorUnitsOf, toMinorUnits } from "./useBudgetEditor";
+import { type BudgetEditor, budgetInputsFrom, minorUnitsOf } from "./useBudgetEditor";
 
 /**
  * Everything the Budget Planner draws, derived once from the editor's draft.

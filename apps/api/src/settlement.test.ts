@@ -3399,3 +3399,265 @@ describe("settlement lines — the settlement's own copy of the budget", () => {
     expect(blocked.statusCode).toBe(403);
   });
 });
+
+/**
+ * WHICH DEALS MAY SETTLE — `deals.status` at the engine boundary.
+ *
+ * `reconcileEvent` used to read EVERY `deals` row of the event, whatever its
+ * `status`, so a **cancelled** agreement still produced an entitlement and still
+ * generated a transfer. A cancelled deal is the one state the enum has that means
+ * "this is no longer an agreement": nobody is owed anything under it, and paying it
+ * out is money leaving on the strength of a contract that was withdrawn.
+ *
+ * Dropping it cannot unbalance the night. The operator's line is the **residual**
+ * (pool − Σ everyone else), so an entitlement that disappears is absorbed there and
+ * `Σ net = 0` still holds — which every case below asserts rather than assumes.
+ *
+ * `draft` is deliberately NOT filtered here, and that is not an oversight — see the
+ * skipped case at the bottom.
+ */
+describe("settlement — deal status at the engine boundary", () => {
+  /** Σ net = 0, read off the wire rather than trusted from inside the engine. */
+  const sumOfNets = (body: { breakdowns: { net: string }[] }): bigint =>
+    body.breakdowns.reduce((running, row) => running + BigInt(row.net), 0n);
+
+  it("does not settle a cancelled deal", async () => {
+    const seed = await seedWorkedExample("status-cancelled");
+    // The band's guarantee is withdrawn. The venue's rental stands.
+    await harness.db
+      .update(schema.deals)
+      .set({ status: "cancelled" })
+      .where(and(eq(schema.deals.eventId, seed.event.id), eq(schema.deals.name, "Band guarantee")));
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+
+    // The pool is untouched — a deal is an entitlement, never a cash line.
+    expect(body.pool).toBe("850000");
+
+    const byId = new Map<string, string>(
+      body.breakdowns.map((row: { participantId: string; net: string }) => [
+        row.participantId,
+        row.net,
+      ]),
+    );
+    // The band is owed nothing and holds nothing.
+    expect(byId.get(seed.bPart)).toBe("0");
+    // The venue's rental is unaffected.
+    expect(byId.get(seed.vPart)).toBe("100000");
+    // The withdrawn 300 000 stays with the operator, which takes the residual.
+    expect(byId.get(seed.pPart)).toBe("-100000");
+    expect(sumOfNets(body)).toBe(0n);
+
+    // And no transfer is generated for the cancelled deal.
+    const transfers = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.eventId, seed.event.id));
+    expect(transfers).toHaveLength(1);
+    expect(transfers[0]?.toParticipant).toBe(seed.vPart);
+    expect(transfers[0]?.amount).toBe(100000n);
+  });
+
+  it("still settles a confirmed deal", async () => {
+    const seed = await seedWorkedExample("status-confirmed");
+    await harness.db
+      .update(schema.deals)
+      .set({ status: "confirmed" })
+      .where(eq(schema.deals.eventId, seed.event.id));
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.pool).toBe("850000");
+
+    const byId = new Map<string, string>(
+      body.breakdowns.map((row: { participantId: string; net: string }) => [
+        row.participantId,
+        row.net,
+      ]),
+    );
+    expect(byId.get(seed.pPart)).toBe("-400000");
+    expect(byId.get(seed.vPart)).toBe("100000");
+    expect(byId.get(seed.bPart)).toBe("300000");
+    expect(sumOfNets(body)).toBe(0n);
+  });
+
+  /**
+   * A cancelled deal that is ALSO the subject of a planner cost line stays out on
+   * both sides. A `deal_id` cost line is the deal's own figure written into the
+   * plan — a forecast, dropped at the engine boundary so the deal stays the
+   * authority (see "a cost line assigned to a deal" above). Withdrawing the deal
+   * must not resurrect that forecast as real cash, or the pool would fall by a fee
+   * nobody is paying.
+   */
+  it("keeps a cancelled deal's planner line out of the pool as well", async () => {
+    const seed = await seedWorkedExample("status-cancelled-line");
+    const [cancelled] = await harness.db
+      .update(schema.deals)
+      .set({ status: "cancelled" })
+      .where(and(eq(schema.deals.eventId, seed.event.id), eq(schema.deals.name, "Band guarantee")))
+      .returning();
+    if (!cancelled) throw new Error("deal update failed");
+
+    const [budget] = await harness.db
+      .select()
+      .from(schema.budgets)
+      .where(eq(schema.budgets.eventId, seed.event.id));
+    if (!budget) throw new Error("budget missing");
+    await harness.db.insert(schema.budgetLines).values({
+      budgetId: budget.id,
+      kind: "cost",
+      label: "Band guarantee (planned)",
+      amount: 300000n,
+      paidBy: seed.pPart,
+      dealId: cancelled.id,
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.pool).toBe("850000");
+    expect(sumOfNets(body)).toBe(0n);
+  });
+
+  /**
+   * WHAT THIS CHANGE DOES TO A SETTLEMENT THAT IS ALREADY FINALIZED: nothing.
+   *
+   * A finalized settlement is the record of what was agreed, with its FX locked
+   * into the snapshot, and it must not move because a deal was cancelled
+   * afterwards. It cannot: `assertNotFinalized` refuses the recompute outright
+   * (audit A-09), so the stored figures and the snapshot both stand exactly as
+   * they were. Cancelling a deal after the fact is a credit note, not a rewrite.
+   */
+  it("does not rewrite a finalized settlement when a deal is cancelled afterwards", async () => {
+    const seed = await seedWorkedExample("status-cancelled-final");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const finalize = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(finalize.statusCode).toBe(200);
+    const frozen = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+
+    await harness.db
+      .update(schema.deals)
+      .set({ status: "cancelled" })
+      .where(and(eq(schema.deals.eventId, seed.event.id), eq(schema.deals.name, "Band guarantee")));
+
+    const recompute = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(recompute.statusCode).toBe(409);
+
+    const after = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    expect(after.map((row) => row.computed)).toEqual(frozen.map((row) => row.computed));
+    expect(after.every((row) => row.status === "finalized")).toBe(true);
+  });
+
+  /**
+   * The other side of the same coin: a settlement that is COMPUTED but not yet
+   * finalized. Cancelling a deal moves the figures, so finalize refuses rather than
+   * freezing a snapshot whose locked rates and figures disagree — the operator is
+   * told to recompute and re-confirm. Never a silent rewrite (decisions #8).
+   */
+  it("refuses to finalize stale figures after a deal is cancelled", async () => {
+    const seed = await seedWorkedExample("status-cancelled-stale");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    await harness.db
+      .update(schema.deals)
+      .set({ status: "cancelled" })
+      .where(and(eq(schema.deals.eventId, seed.event.id), eq(schema.deals.name, "Band guarantee")));
+
+    const stale = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(stale.statusCode).toBe(409);
+
+    // Recompute, and the same finalize now succeeds on figures that agree.
+    const recompute = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(recompute.statusCode).toBe(200);
+    expect(sumOfNets(recompute.json())).toBe(0n);
+    const finalize = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(finalize.statusCode).toBe(200);
+  });
+
+  /**
+   * A `draft` deal DOES still settle, and this case is skipped rather than deleted
+   * because turning it on today would be a bigger money bug than the one it fixes.
+   *
+   * `deals.status` HAS NO WRITER. It defaults to `draft` and nothing in the product
+   * ever moves it: `routes/events.ts::createStatedDeal` says in as many words that
+   * "both status columns stay on their defaults (`draft`)", `POST /deals/:did/confirm`
+   * and `lib/deal-confirmation.ts` advance only `agreement_status`, and no screen in
+   * `apps/web` sends `status` on the deal PATCH. Filtering to `status = 'confirmed'`
+   * would therefore drop EVERY deal an operator has ever created in the app, collapse
+   * every entitlement into the operator's residual, and pay the performers nothing.
+   * (`docs/db-build-plan.md:50` flags the whole enum as "**assumption, flag**" — it
+   * was never ratified as a lifecycle.)
+   *
+   * The axis the app actually moves is `agreement_status` (draft → sent → confirmed →
+   * signed), and whether an unsigned agreement may settle is a product decision, not
+   * a code one. Until it is made, `cancelled` is the only status the engine refuses.
+   */
+  it.skip("does not settle a draft deal — BLOCKED: `deals.status` has no writer", async () => {
+    const seed = await seedWorkedExample("status-draft");
+    // `seedWorkedExample` leaves both deals on the `draft` default.
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const body = response.json();
+    const byId = new Map<string, string>(
+      body.breakdowns.map((row: { participantId: string; net: string }) => [
+        row.participantId,
+        row.net,
+      ]),
+    );
+    expect(byId.get(seed.bPart)).toBe("0");
+    expect(byId.get(seed.vPart)).toBe("0");
+    expect(byId.get(seed.pPart)).toBe("0");
+    expect(sumOfNets(body)).toBe(0n);
+  });
+});

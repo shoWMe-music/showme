@@ -15,7 +15,11 @@ import {
   requireDealAccess,
   resolveDealAuthority,
 } from "../lib/deal-authority";
-import { allSignatoriesConfirmed, confirmDealIfComplete } from "../lib/deal-confirmation";
+import {
+  allSignatoriesConfirmed,
+  assertAgreementSignable,
+  confirmDealIfComplete,
+} from "../lib/deal-confirmation";
 import { renderNotificationEmail } from "../lib/email-templates";
 import { dealPartyRecipients, notifyUsers } from "../lib/notify";
 import { withIdempotency } from "../plugins/idempotency";
@@ -562,6 +566,8 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
   // two signatories, so without the deal-scoped half it could be sent and could never
   // freeze. Order is therefore: `event.view` → 404, not a party → 400, and only then
   // the capability → 403 — the party question is what the capability now depends on.
+  // The agreement's own state comes LAST (`assertAgreementSignable` → 409): a draft
+  // is terms nobody was shown, and refusing it is "not yet", not "you may not".
   app.post(
     "/deals/:did/confirm",
     { schema: { params: DealParams, response: { 200: DealResponse } } },
@@ -592,6 +598,11 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
         if (!(await maySignOwnLines(tx, capabilities, mine))) {
           throw forbidden("Missing capability: agreement.confirm");
         }
+        // ...and only now the LIFECYCLE. Last, deliberately: the order above is
+        // 404 → 400 → 403, and a 409 that jumped the queue would tell an event
+        // participant with no line on this deal exactly how far along it is.
+        // Someone entitled to sign is entitled to hear "not yet".
+        assertAgreementSignable(deal);
 
         const now = new Date();
         for (const party of mine) {

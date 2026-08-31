@@ -222,6 +222,11 @@ function ShareDocumentBody({
           {...sectionProps("deal", "Your agreement", "your agreement")}
           action={
             document.actions.canConfirmAgreement &&
+            // A draft is not signable — `POST /shares/:token/approve` answers 409
+            // on one, the same as the in-app door. Mirrored here so the button is
+            // offered to exactly the callers the route will accept, which is the
+            // rule `dealActionsFor` already follows inside the app.
+            deal.agreementStatus !== "draft" &&
             !deal.parties.some((party) => party.confirmedAt) ? (
               <Button
                 variant="cta"

@@ -109,10 +109,43 @@ Full scope for the first four is in `backlog-2026-08-27-feature-scopes.md`.
 
 1. **Budget Planner regression test** — `shiftedTwoPlaces` is a pure function with
    no test, because `apps/web` has no unit runner. Blocked on [86cbazcf3](https://app.clickup.com/t/86cbazcf3).
-2. **`reconcileEvent` does not filter deals by `status`** — a `draft` or
-   `cancelled` deal still settles (`apps/api/src/routes/settlement.ts` ~603). Now
-   a visible divergence: the Budget Planner shows only confirmed deals, so a
-   draft deal displays nothing while the settlement would still pay it. **Money.**
+2. **`reconcileEvent` does not filter deals by `status`** — PARTLY FIXED
+   2026-08-31, and **the second half of this entry was WRONG**. Read on before
+   acting on it.
+
+   **`deals.status` HAS NO WRITER ANYWHERE IN THE PRODUCT.** Nothing sets it to
+   `confirmed` — not the event wizard (`routes/events.ts` says so in as many
+   words: "Both status columns stay on their defaults"), not `POST
+   /deals/:did/confirm` (which advances only `agreement_status`), not any screen.
+   `PATCH /deals/:did` accepts it in its Zod body and no caller ever sends it.
+   Only `seed.ts` and `seed-e2e.ts` write `confirmed`. `docs/db-build-plan.md:50`
+   already flagged the enum as an unratified assumption.
+
+   So the "obvious" fix — filter to `status = 'confirmed'` — **would have
+   dropped every deal any operator ever created, collapsed every entitlement
+   into the operator's residual, and paid the performers zero.** It would have
+   satisfied `Σ net = 0` perfectly while being entirely wrong. Do not do it.
+
+   **Fixed:** `cancelled` no longer settles (one `ne()` clause,
+   `routes/settlement.ts:629`). Unambiguous, needs no decision.
+   **Still open:** `draft` still settles, deliberately, with an `it.skip` in
+   `settlement.test.ts` ready to flip the day the axis question is answered.
+
+   **MY EARLIER CLAIM ABOUT THE BUDGET PLANNER WAS INVERTED.** This file said
+   "the planner shows only confirmed deals, so a draft deal displays nothing".
+   The truth is worse: `apps/web/src/components/useBudgetSeed.ts:196` gates on
+   `deal.status !== "confirmed"`, and since NOTHING writes that column, the
+   "Performer fee" heading is blank for **every deal created in the app** — it
+   only ever populates for seeded data. Not just draft deals. All of them.
+
+   **The real question is which axis.** `agreement_status`
+   (`draft → sent → confirmed → signed`) is the one the app actually moves;
+   `deals.status` is an enum with no motion. Answering "may an unsigned deal
+   settle?" is a question about `agreement_status`, and either that column gets
+   a real writer or it should be retired in favour of gating on
+   `agreement_status IN ('confirmed','signed')`. Blast radius is large in the
+   test suite (every settlement fixture seeds on both `draft` defaults) and
+   **zero in production, which has no deal data**.
 3. **The hold pool is not scoped to an operator** — `loadSiblings` keys on
    (date, venue, stage) only, so two operators' holds share one queue. Proven
    live: a rival's hold collided at rank 1 with an existing rank 1, and
