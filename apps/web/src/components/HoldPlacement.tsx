@@ -90,9 +90,16 @@ export function HoldRankBadge({
  * `loadSiblings` in `routes/holds.ts` pools `on_hold` events sharing the exact
  * `(event_date, venue_profile_id, stage_id)`. The wizard creates events with no
  * venue PROFILE and no stage (it captures a free-text venue name), so its holds
- * land in the `(date, NULL, NULL)` pool — and that is the pool this filter
- * reproduces. A hold pinned to a venue profile is a different pool on purpose;
- * counting it here would offer the operator a rank the server would not honour.
+ * land in the `(date, NULL, NULL)` pool — and a pool with no room is scoped to
+ * ONE HOST (decisions #20): there is no room for two operators to be competing
+ * for, so an unpinned hold queues only with its own host's. A hold pinned to a
+ * venue profile is a different pool on purpose; counting it here would offer the
+ * operator a rank the server would not honour.
+ *
+ * This file used to say the server pooled unpinned holds across every operator
+ * and count them accordingly, which was true of the server and wrong of the
+ * queue: it inflated the ranks on offer with strangers' pencils, and taking one
+ * of those ranks demoted them.
  */
 function holdsOnDate(holds: EventItem[], eventDate: string): EventItem[] {
   if (!eventDate) return [];
@@ -128,9 +135,13 @@ export function useHoldPlacement(options: {
 
   const sameDate = holdsOnDate(holdList.items, eventDate);
   const competingHolds = sameDate.filter(
-    (hold) => hold.venueProfileId === null && hold.stageId === null,
+    (hold) =>
+      hold.venueProfileId === null && hold.stageId === null && hold.hostProfileId === hostProfileId,
   ).length;
-  const holdsPinnedToVenue = sameDate.length - competingHolds;
+  // Counted from the venue field rather than as "everything else", so another
+  // host's unpinned hold is not mislabelled as queueing at a venue. It is in
+  // neither queue, which is the honest answer and not a sentence worth drawing.
+  const holdsPinnedToVenue = sameDate.filter((hold) => hold.venueProfileId !== null).length;
   const maxRank = competingHolds + 1;
   const rankOptions = Array.from({ length: maxRank }, (_, index) => index + 1);
   const holdRank = pickedRank === null ? maxRank : Math.min(pickedRank, maxRank);

@@ -39,6 +39,12 @@ export interface HoldPoolEntry {
   holdRank: number;
   holdAutoPromote: boolean;
   isSelf: boolean;
+  /**
+   * Whether this entry is ours to move. A pool for a real room is ONE queue
+   * shared across operators, and nobody reorders a pencil they do not hold — so
+   * a move across a `false` entry is refused by the server, not half-applied.
+   */
+  canReorder: boolean;
 }
 
 /** `GET /events/:id/hold` — see `HoldStateResponse` in the route. */
@@ -65,8 +71,10 @@ export interface EventHoldView {
   canManageRank: boolean;
   /** The booked act, or the agent it delegated to — may confirm or decline. */
   canDecide: boolean;
-  /** The ranks this hold may move to: `1 … pool.length`, never a gap. */
+  /** The ranks this hold can ACTUALLY be moved to — see {@link takeableRanks}. */
   rankOptions: number[];
+  /** 1st is a move this hold can make: not already there, and not a rival's. */
+  canPromoteToFirst: boolean;
   isWorking: boolean;
   setRank: (rank: number) => void;
   promoteToFirst: () => void;
@@ -77,6 +85,36 @@ export interface EventHoldView {
   confirmDate: () => void;
   /** The act turns the date down; the queue closes behind it. */
   declineDate: () => void;
+}
+
+/**
+ * The ranks this hold can actually be moved to.
+ *
+ * TAKING A RANK PUSHES THE HOLDS AT OR BELOW IT DOWN ONE, and a pool for a real
+ * room is one queue shared across operators — so some of the rows a move would
+ * push are not the caller's to push. `POST /hold/rank` refuses such a move
+ * whole (409) rather than half-applying it, which means offering the rank at all
+ * is the exact failure `capabilities[]` exists to end: a control whose click
+ * comes back an error the operator can do nothing about.
+ *
+ * The intervals mirror `computeRankShift` in `@showme/shared`, which is the code
+ * the server actually runs: a demotion to `rank` moves everything in
+ * `(current, rank]`, a promotion moves everything in `[rank, current)`. Staying
+ * put moves nothing, so the current rank always survives the filter and the
+ * Select keeps a valid value.
+ */
+function takeableRanks(pool: HoldPoolEntry[], currentRank: number): number[] {
+  const foreignRanks = pool.filter((entry) => !entry.canReorder).map((entry) => entry.holdRank);
+  const ranks: number[] = [];
+  for (let rank = 1; rank <= Math.max(pool.length, 1); rank++) {
+    const wouldPush = foreignRanks.some((foreignRank) =>
+      rank > currentRank
+        ? foreignRank > currentRank && foreignRank <= rank
+        : foreignRank >= rank && foreignRank < currentRank,
+    );
+    if (!wouldPush) ranks.push(rank);
+  }
+  return ranks;
 }
 
 export function eventHoldQueryKey(eventId: string): readonly unknown[] {
@@ -118,6 +156,7 @@ export function useEventHold(eventId: string): EventHoldView {
   const hold = holdQuery.data;
   const pool = hold?.pool ?? [];
   const holdRank = hold?.holdRank ?? null;
+  const rankOptions = takeableRanks(pool, holdRank ?? 1);
 
   return {
     isLoading: holdQuery.isPending,
@@ -127,9 +166,8 @@ export function useEventHold(eventId: string): EventHoldView {
     pool,
     canManageRank: hold?.canManageRank ?? false,
     canDecide: hold?.canDecide ?? false,
-    // `pool` already contains this hold, so its length IS the number of ranks on
-    // offer — moving to a rank past the end of the queue is not a move.
-    rankOptions: Array.from({ length: Math.max(pool.length, 1) }, (_, index) => index + 1),
+    rankOptions,
+    canPromoteToFirst: (holdRank ?? 1) !== 1 && rankOptions.includes(1),
     isWorking: act.isPending,
     setRank: (rank) =>
       act.mutate({

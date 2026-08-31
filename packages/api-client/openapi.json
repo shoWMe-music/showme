@@ -950,6 +950,9 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "hostProfileId": {
+                            "type": "string"
+                          },
                           "venueProfileId": {
                             "type": "string",
                             "nullable": true
@@ -1000,6 +1003,7 @@
                           "baseCurrency",
                           "eventDate",
                           "timezone",
+                          "hostProfileId",
                           "venueProfileId",
                           "venueName",
                           "capacity",
@@ -2021,6 +2025,9 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "hostProfileId": {
+                      "type": "string"
+                    },
                     "venueProfileId": {
                       "type": "string",
                       "nullable": true
@@ -2056,6 +2063,7 @@
                     "baseCurrency",
                     "eventDate",
                     "timezone",
+                    "hostProfileId",
                     "venueProfileId",
                     "venueName",
                     "capacity",
@@ -8123,9 +8131,19 @@
                           },
                           "isSelf": {
                             "type": "boolean"
+                          },
+                          "canReorder": {
+                            "type": "boolean"
                           }
                         },
-                        "required": ["id", "title", "holdRank", "holdAutoPromote", "isSelf"],
+                        "required": [
+                          "id",
+                          "title",
+                          "holdRank",
+                          "holdAutoPromote",
+                          "isSelf",
+                          "canReorder"
+                        ],
                         "additionalProperties": false
                       }
                     },

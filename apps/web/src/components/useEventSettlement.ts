@@ -234,6 +234,22 @@ export interface EventSettlement {
   isError: boolean;
   error: unknown;
   authority: SettlementAuthority;
+  /**
+   * WHY THE SETTLEMENT CANNOT BE RUN, naming the agreements it is waiting on — or
+   * null when nothing is blocking it. Non-null means compute and finalize will
+   * both be refused (decisions.md #21; the API answers 409 naming the same deals).
+   *
+   * A sentence rather than a list, because all three places that need it need the
+   * same sentence, and three hand-assembled variants of one rule is the kind of
+   * divergence that drifts. The component takes it and renders it.
+   *
+   * Party-scoped, like the deals list it comes from, so it is a lower bound: a
+   * reader who is not a party to some deal will not see that deal here. Which is
+   * why the buttons are DISABLED on a non-null notice rather than enabled on a
+   * null one — null means "nothing I can see is blocking", and the server still
+   * has the last word.
+   */
+  unsignedAgreementsNotice: string | null;
   /** True once the reconciliation has been run at least once on this event. */
   isComputed: boolean;
   /** True once the figures are frozen — no recompute, no second finalize. */
@@ -573,6 +589,29 @@ export function useEventSettlement(
     [rows, deals.data, currency, nameOf, formatAmount],
   );
 
+  /**
+   * The same three questions the server's `assertEveryAgreementSigned` asks, in
+   * the same order: is it withdrawn (nothing to wait for), has anybody actually
+   * got to sign it (an all-`observer` deal can never be confirmed), and is it
+   * signed. Kept literally parallel so a reader can check the two against each
+   * other; the server is the enforcement and this is only the affordance.
+   */
+  const unsignedAgreementsNotice = useMemo(() => {
+    const waiting = (deals.data ?? []).filter(
+      (deal) =>
+        deal.status !== "cancelled" &&
+        deal.parties.some((party) => party.roleInDeal !== "observer") &&
+        deal.agreementStatus !== "confirmed" &&
+        deal.agreementStatus !== "signed",
+    );
+    if (waiting.length === 0) return null;
+    // NAMED, never counted. "1 agreement outstanding" sends the operator hunting
+    // through the Deals tab for it, and chasing the signature is the only move
+    // this message exists to enable.
+    const names = waiting.map((deal) => `“${deal.name}”`).join(", ");
+    return `The settlement cannot open until every agreement is signed. Still waiting on ${names}. Send each to its parties and have them confirm it, or cancel one whose booking is off.`;
+  }, [deals.data]);
+
   return {
     parties,
     transfers,
@@ -607,6 +646,7 @@ export function useEventSettlement(
     isError: settlements.isError,
     error: settlements.error,
     authority: settlementAuthorityOf(capabilities),
+    unsignedAgreementsNotice,
     isComputed: partyRows.some((row) => row.computed != null),
     isFinalized: partyRows.some((row) => FROZEN_STATUSES.has(row.status)),
     status: partyRows[0]?.status ?? "open",

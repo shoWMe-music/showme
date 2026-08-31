@@ -22,6 +22,19 @@ export interface AuditEntry {
   eventId?: string;
   before?: unknown;
   after?: unknown;
+  /**
+   * Whose act this row records. Defaults to the caller, which is right for every
+   * row describing something the caller was authorized to do.
+   *
+   * `"system"` writes NO actor, and exists for a row on a resource the caller has
+   * no authority over at all — a rival operator's hold released because the room
+   * got taken (`routes/holds.ts`). One physical room on one night is ONE queue, so
+   * a confirmation really does end every other pencil on that date; but the actor
+   * columns are this table's answer to "who did this", and naming the confirming
+   * side there would record that they cancelled somebody else's hold, which is the
+   * one thing they may never do. The event happened; nobody did it to them.
+   */
+  actor?: "caller" | "system";
 }
 
 /**
@@ -38,18 +51,20 @@ function jsonSafe(value: unknown): unknown {
 /**
  * Write the forensic `audit_log` row for a mutation, IN THE SAME TRANSACTION as
  * the change (decisions #2) — an unlogged mutation is impossible by construction.
- * The actor is taken from the request principal.
+ * The actor is taken from the request principal, unless the entry says `system`.
  */
 export async function writeAudit(
   tx: Transaction,
   request: FastifyRequest,
   entry: AuditEntry,
 ): Promise<void> {
-  const principal = request.principal;
-  if (!principal) throw new Error("principal missing after authentication");
+  if (entry.actor !== "system" && !request.principal) {
+    throw new Error("principal missing after authentication");
+  }
+  const actor = entry.actor === "system" ? null : request.principal;
   await tx.insert(schema.auditLog).values({
-    actorUserId: principal.userId,
-    actingProfileId: principal.actingProfileId,
+    actorUserId: actor?.userId ?? null,
+    actingProfileId: actor?.actingProfileId ?? null,
     capability: entry.capability,
     action: entry.action,
     targetKind: entry.targetKind,

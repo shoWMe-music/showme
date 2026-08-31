@@ -645,6 +645,211 @@ client-side flag. When that surface exists, `serializeWithheldVenueTradeDetails`
 and `PublicProfileSchema` has no slot for them, so Fastify's response schema strips them even if a handler
 reintroduces them. Both halves of the double gate were changed together.
 
+## 20. The hold pool is one queue per ROOM — shared reads, never shared writes (2026-08-31)
+
+**The bug.** `loadSiblings` (`apps/api/src/routes/holds.ts`) keyed a hold pool on `(event_date,
+venue_profile_id, stage_id)` and nothing else, so two operators pencilling the same room on the same night
+landed in ONE ranked queue — and every cascade then wrote the whole queue. Proven live: a rival's hold
+collided at rank 1 with an existing rank 1, and `POST /hold/confirm` would cancel another operator's pencil.
+Disclosure was already handled (a rival's title is withheld); the problem was the WRITES.
+
+**Decision — one queue, and fix the writes.** The shared ranking STAYS, because it reflects reality: one
+physical room, one night, one show. Two operators competing for that date genuinely are in one queue, and
+separate queues would tell both of them they are first in line. What changes is that **no operator may cancel,
+reorder, demote or otherwise write to a hold they do not own.** When A's date is confirmed, rival holds are
+released *as a consequence of the room being taken* — the venue's state changing — not by A reaching into B's
+row. B is notified. **A is never the actor on B's record.**
+
+**Reads did not widen.** A rival's title is still withheld. The "rivals are visible" option was explicitly not
+chosen.
+
+**The corollary — a hold with no room shares nothing.** `matchNullable` turns a null column into `IS NULL`,
+and on two columns that silently pooled strangers together. The shared queue is justified *entirely* by there
+being one physical room only one show can occupy; where there is no room and no night there is nothing to
+share, so the null match was the bug, not the rule.
+- **No `event_date`** → **no pool at all.** A hold is a claim on a date; without one it claims nothing. Every
+  dateless hold in the database had been matching every other one.
+- **No `venue_profile_id`** → **that host's own holds only.** The create-event wizard captures a free-text
+  venue NAME, so its holds carry neither `venue_profile_id` nor `stage_id`; `IS NULL` put every unpinned hold
+  on a date into one platform-wide queue, and taking "1st hold" from the wizard silently demoted a stranger's
+  pencil in another city. An operator still cannot run two shows on one night, so their OWN unpinned holds
+  keep queueing together. Without this the fix would have been *safe but unusable* — with enough unpinned
+  holds on a date an operator could only ever take the bottom rank.
+- **`stage_id IS NULL` under a real venue profile stays shared**, and should: that is one venue's unassigned
+  room, and two operators pencilling it are competing for the same building on the same night.
+
+**How each write changed.**
+- `POST /hold/rank` — refuses with **409** when any move `computeRankShift` produces lands on a hold the caller
+  lacks `event.edit` on. Refused whole, never half-applied: writing the caller's half and dropping the rest
+  would leave two holds claiming one number, the same lie in the other direction. 409 rather than 403 because
+  the caller IS allowed to rank their own hold — it is the pool's contents that refuse this number.
+- `POST /hold/confirm` — the losing siblings are still cancelled (that is what one queue means), but as an
+  **actor-less consequence**: a new `hold.released_room_taken` audit row and the `hold.lost` feed row are both
+  written on the *released* event with no actor and `capability: null`.
+- `POST /hold/decline` and `/hold/release` (`dropHoldAndRepack`) — a promotion keeps the caller's name only on
+  a hold the caller may write (an operator's own queue closing up is their own housekeeping). On somebody
+  else's row it is actor-less, plus a `hold.promoted_queue_closed` audit row — otherwise a write on a
+  stranger's row left no trace on an event its own operator can read.
+- **Direct** `POST /events/{another operator's hold}/hold/*` was already 404 (no `event.view`, no existence
+  leak) on all five verbs; that is now regression-tested rather than incidental.
+- There is **no hold reaper** in `apps/jobs` — nothing sweeps expiring holds, so nothing there writes a pool.
+
+**The mechanism, so it is not re-derived.** `writeAudit` / `writeActivity` gained `actor?: "caller" | "system"`;
+`"system"` writes no actor at all (both tables' actor columns were already nullable, so no migration). The
+predicate is one helper, `writableHoldIds`, resolving `event.edit` per hold through the ONE authorization
+module — not a host-id comparison, so a co-host with a real permission set is treated correctly. The winner's
+own audit row still lists `cancelled: [...]`: that is A's act described accurately on A's own event, and it is
+the only place a reader can see the cascade as one transaction.
+
+**Client half.** `GET /events/:id/hold` now returns `canReorder` per pool entry (the caller's `event.edit` on
+THAT hold — not derivable from `title === null`, which answers `event.view`). `useEventHold` offers only the
+ranks that can actually be taken, mirroring `computeRankShift`'s intervals, so the refusal stops being a toast
+the operator cannot act on. `apps/web/src/components/HoldPlacement.tsx` had documented the client/server
+disagreement against itself and counted strangers into the operator's own queue; it now scopes the count to
+the host, which needed `hostProfileId` declared on the events-LIST response schema (`serializeEvent` had always
+returned it and Fastify was stripping it — the third field with that story).
+
+### Still open after this — two product calls that were NOT decided here
+
+1. **Does a rank confer first refusal?** `competingHoldIds` in `packages/shared/src/holds.ts` returns *every*
+   sibling in the pool, unconditionally — it is deliberately a named function so this policy lives in one
+   place, and the route pre-filters only the target out. So the act on a **2nd** hold can confirm and take the
+   date out from under a **1st**, including a rival's. Under this decision that is coherent ("the room got
+   taken"), but it means rank promises nothing and there is **no challenge/release flow**: the classic trade
+   practice — a 2nd hold challenges the 1st, who gets 24–48h to confirm or release — does not exist in the
+   model, and `hold_auto_promote` is about repacking after a drop, not about a challenge. Deciding this means
+   deciding what a hold *promises*. **Do not build a challenge flow before it is decided.**
+2. **`PATCH /events/:id` can move an event straight to `confirmed` with no cascade.** `UpdateEventBody` accepts
+   `status`, and unlike `/hold/confirm` that path runs no pool logic: a date can be taken with no competing
+   hold released and nobody notified. It writes only the caller's own event, so it is not a cross-tenant
+   problem — it is an inconsistency between two ways of reaching the same state. Recorded, deliberately not
+   fixed, because the answer depends on (1).
+
+## 21. A settlement cannot open unless the deal is signed (2026-08-31)
+
+**Decision, in the product owner's words:** *"A settlement cannot open unless the deal is signed."*
+`POST /events/:id/settlement/compute` and `POST /events/:id/settlement/finalize` refuse with **409** while any
+deal on the event is unsigned, and the refusal **names each agreement and what it is waiting for**.
+
+**This rule is NEW and appears nowhere in the written record.** Neither PLAN.md nor this document said it, and
+nothing enforced it: `reconcileEvent` happily reconciled an event whose deals were all still `draft`. The only
+precondition anywhere on the settlement surface was `assertNotFinalized`, which is about the settlement's own
+state, not about the agreements behind it. Per this repo's convention — later product decisions override
+PLAN.md and live here — it lands as this entry.
+
+### "Signed" means `agreement_status IN ('confirmed', 'signed')`
+
+`agreement_status` runs `draft → sent → confirmed → signed`. The gate opens on **`confirmed`**, because that is
+the state the product can actually reach: it is written by `confirmDealIfComplete` on exactly the rollup
+`allSignatoriesConfirmed` computes — every non-`observer` `deal_parties` line carrying a `confirmed_at` — and it
+is the transition that freezes `confirmed_snapshot`. "Confirmed" is not a weaker reading of "signed"; it *is*
+every signature being in, recorded against the terms they were given.
+
+**Requiring `signed` would have closed the product.** Nothing writes it: the only occurrences outside the gate
+are `packages/db/seed.ts` and `seed-e2e.ts`, which stamp it by hand. A gate on it would have refused every
+settlement of every event any operator has ever run — the same class of catastrophe as `33e5742`. It passes the
+gate because it is strictly downstream of `confirmed` (#1 makes e-signature "a later meaning-upgrade to
+`signature_hash`, zero schema change"), never weaker.
+
+**It gates on `agreement_status`, not on `deals.status`, and the difference is load-bearing on reopen.**
+Migration `0030` gave `deals.status` its first writer, and on this transition the two columns say the same
+thing — but `POST /deals/:did/reopen` sets `agreement_status → 'sent'` while `status → 'draft'`. Two columns,
+two values, one act. The agreement's own state machine is the thing the rule names, so it is the thing the gate
+reads.
+
+### Where the gate sits: the WRITE path, never the read path
+
+The tension with PLAN.md is real and was resolved deliberately rather than papered over. PLAN.md's settlement
+model is **"render shares live from tables; store an immutable snapshot only when a settlement is
+*finalized*"** (PLAN.md:289, restated at PLAN.md:546), and #1 uses the same pattern for agreements. A
+constraint on *opening* is a new constraint on a model designed to compute continuously — so it is confined to
+the half of that phrase that writes.
+
+The check is one call, `assertEveryAgreementSigned`, at the very top of **`reconcileEvent`** — the only function
+that turns the event's spine into money, and the one both writing doors go through.
+
+| Route | Gated | Why |
+| --- | --- | --- |
+| `POST …/settlement/compute` | **Yes** | This is "opening". It produces every figure and every transfer. |
+| `POST …/settlement/finalize` | **Yes** | It re-derives through the same function and then freezes an *immutable* record with locked FX. Freezing what a party is owed under an agreement that is being renegotiated is precisely the record that must not be written. A rule enforced at one call site is enforced nowhere. |
+| `GET …/settlements`, `GET /settlements`, `GET …/settlement/lines`, `GET …/settlement/planned-vs-actual` | No | Reads. Blocking one would contradict the live-render design and hide an event's money from the operator who most needs to look at it. A settlement that already exists is a fact; refusing to show it changes nothing and helps nobody. |
+| `GET`/`POST …/settlement/comments` | No | The review conversation moves no money. Blocking a party from saying "this figure is wrong" at the exact moment their deal is being renegotiated inverts the point of the rule. |
+| `POST …/settlement/status` | No | Already refuses when no settlement exists ("Run the settlement before sending it for review"), so it is downstream of the gated compute. Gating it again would take `dispute` away from a party mid-review. |
+| `POST …/settlement/invitations` | No | Already requires a settlement row for the named party — downstream of compute for the same reason. |
+| `POST …/settlements/:sid/confirm` | No | A party signing off figures that already exist. It moves no figures. |
+| `PATCH …/settlements/:sid` (manual override) | No | 404s without an existing settlement row, so it too is downstream of compute; and the override is how an operator *corrects* a settlement the review pushed back on. |
+| `POST`/`PATCH`/`DELETE …/settlement/lines` | No | Entering the night's actuals. They produce no figures on their own — the compute that would read them is the gated act — so gating here blocks real work for no safety gain. |
+| `PATCH …/transfers/:tid` | No | Recording that cash physically moved. That is a fact about the world; refusing to record it would strand payments. |
+
+**Ordering.** `requireEventCapability` runs first on both routes, so nothing here leaks an event's existence to
+somebody without `event.view`. `assertNotFinalized` runs *before* the signature gate, so a finalized settlement
+whose deal is later reopened still answers "finalized — the figures are locked", not "go and get a signature"
+for a signature that would change nothing. And the gate runs **before `ensureSettlementLines`**: a refused
+compute must not leave behind the settlement's copy of the budget, sealed away from the planner the operator is
+about to go and edit. **A refusal writes nothing.**
+
+### The rejected alternative, and why
+
+The earlier idea was to **filter unsigned deals out of the maths and report what was dropped**. It was rejected,
+and the reason is the whole point of the rule.
+
+Dropping a deal pays its performer **zero** while `Σ net = 0` still holds *perfectly*, because the operator's
+line is the residual and silently absorbs the missing entitlement. Nothing in the figures says an agreement went
+missing. **A refusal at the door is legible; a zero inside a settlement that balances is not.** The point of the
+rule is that the failure never arises.
+
+This was measured, not asserted. Flipping the engine's own clause to `eq(status, 'confirmed')` turned **33 of
+`settlement.test.ts`'s 76 tests** red, every one of them the same way — `expected '0' to be '300000'`, with
+transfer lists arriving empty. That is the failure mode, reproduced.
+
+### The four cases
+
+1. **An event with no deals at all → NOT blocked.** A show with only budget lines — an operator reconciling
+   their own door and their own costs — has no agreement to wait for. Refusing it would make the settlement
+   unreachable with no action that opens it. story.md has the operator taking the residual; with nobody else
+   entitled, the residual is the whole pool.
+2. **Several deals, some signed → ALL must be signed.** They are reconciled into one `Σ net = 0`; a
+   partly-agreed night has no correct set of figures. The refusal lists every outstanding one, not the first.
+3. **A cancelled deal → does NOT block.** It is withdrawn, and `reconcileEvent` already entitles nobody under it
+   (`ne(status, 'cancelled')`). The gate is handed *the rows that clause returned*, so the set that must be
+   signed is by construction the set the engine will settle — the two cannot drift.
+4. **A reopened deal against an existing settlement → the FIGURES freeze, and nothing else does.** `reopen`
+   clears every confirmation and puts the agreement back to `sent`, so from that moment compute and finalize
+   refuse. Everything that is not the arithmetic carries on: reading the settlement, commenting on it, raising a
+   dispute, signing off a line, and marking a transfer paid. The stored breakdowns stay byte-for-byte what the
+   last compute wrote. **The way out is the act the reopen was for** — re-sign the agreement, or withdraw it —
+   and the 409 says so by name. This is correct rather than merely tolerable: recomputing money under terms
+   that are, by the operator's own act, being renegotiated is exactly what should wait.
+
+**One deliberate carve-out.** A deal whose parties are *all* `observer` is skipped. `allSignatoriesConfirmed`
+returns false on an empty signatory list by design, so such a deal can never reach `confirmed` and would shut
+the settlement permanently with no action that reopens it. It also entitles nobody (the engine pays `payee` and
+`split_member` lines), so skipping it cannot let money move under an unsigned agreement.
+
+### The refusal, and the client
+
+> `This settlement cannot open until every agreement on the event is signed: "Band guarantee" (‹uuid›) is
+> waiting on 2 of 2 signatures. Send each agreement and have its parties confirm it — or cancel one that is no
+> longer happening — then run the settlement again.`
+
+**409, not 403.** The caller may absolutely run this settlement — `settlement.edit` is a pool capability the
+ceiling gives only to host/co_host. It is the event's state that refuses, which is what `assertNotFinalized` and
+"Only a sent agreement can be confirmed" both mean by a conflict.
+
+**It names the deal**, because an operator staring at a 409 has to know which agreement and what it is waiting
+for, or the settlement is unopenable with no diagnosis — the failure `unsettlableLine` exists one layer down to
+prevent. This discloses deal names to a caller who may not be a party to every deal, the same trade
+`unsettlableLine` already makes with settlement-line labels, and for the same reason: the person running the
+night's reconciliation is the person who has to go and chase the signature.
+
+**The web app stops offering buttons that would always fail.** `useEventSettlement` derives one
+`unsignedAgreementsNotice` sentence from the (party-scoped) deals list, and the settlement screen disables "Run
+the settlement", **"Finalize"** and the actuals card's "Recalculate" while it is non-null, printing it beside
+them. Finalize matters as much as compute here: it was the most dangerous-looking button on the screen doing
+nothing at all. "Send for review", "Add revision", "Flag a dispute" and marking a transfer paid stay live,
+because none of them is gated. Disabled and explained rather than hidden — and because the deals list is
+party-scoped the notice is a lower bound, so the server keeps the last word.
+
 ## Still-open product calls (not yet decided)
 
 - ~~**Event start/end mechanism (#16.4)**~~ **RESOLVED 2026-08-02 (see #16.4):** explicit required
@@ -687,6 +892,10 @@ reintroduces them. Both halves of the double gate were changed together.
 - ~~**Paper-only agreements**~~ **RESOLVED:** allowed = a deal with **`NULL structure`** (folded into `deals`).
 - ~~**Financial Projections**~~ **RESOLVED:** a **view over budget (projected income) + settlements (realised
   income)** — projected vs realised. No new model/table; reporting layer only.
+- **Does a hold rank confer first refusal? (see #20)** — `competingHoldIds` cancels every sibling regardless of
+  rank, so a 2nd hold can confirm over a 1st. No challenge/release flow exists. Decision needed, not yet made.
+- **Two ways to reach `confirmed` (see #20)** — `PATCH /events/:id` sets the status with no pool cascade and no
+  notification, where `/hold/confirm` runs the whole queue. Depends on the call above.
 - **[DEFERRED — payments phase] Who bears the FX spread** — Stripe converts at its live rate + ~2% fee, ≠ the
   settlement's locked rate. Recommend **payer/operator absorbs** (deal is denominated in the payee's currency);
   record actual-paid vs settlement-expected. See `docs/money.md` + `docs/payments.md`. Decision needed, not yet made.

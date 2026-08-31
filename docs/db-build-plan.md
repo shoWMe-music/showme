@@ -47,13 +47,17 @@ Fold into a regenerated clean baseline (nothing deployed yet, so squash M1+M2 mi
   `payment_timing`(enum `before_event|at_settlement|due_date`), `priority` int,
   structured cols `guarantee_amount numeric`, `split_percent numeric` + `terms jsonb` (escalators/bonus/commissions),
   `agreement_body_text`, `agreement_status`(enum `draft|sent|confirmed|signed`), `confirmed_snapshot jsonb`,
-  `reopen jsonb`, `status`(enum `draft|confirmed|cancelled` — **assumption, flag**), `created_by`, timestamps.
+  `reopen jsonb`, `status`(enum `draft|confirmed|cancelled` — **ratified 2026-08-31**: the last signature
+  writes `confirmed` and `reopen` writes it back (`apps/api/src/lib/deal-confirmation.ts`), `PATCH /deals/:did`
+  writes `cancelled` and refuses a hand-set `confirmed`, and migration 0030 backfilled it from
+  `agreement_status`), `created_by`, timestamps.
 - `deal_parties`: `deal_id→deals` (cascade), `participant_id→event_participants`,
   `role_in_deal`(enum `payer|payee|split_member|commission|observer`), `share jsonb`, `confirmed_at`,
   `confirmed_by→users`, `signature_hash`. Indexes on `deal_id`, `participant_id`.
 - **Enums:** `deal_type`, `deal_structure`, `payment_timing`, `agreement_status`, `deal_party_role`, `deal_status`.
 - **Verify:** split deal with 2 `split_member` parties + 1 `observer`; "deals for participant X" query;
-  cascade on deal delete; `unique`? (no natural unique — parties can repeat roles). Flag `deal_status` assumption.
+  cascade on deal delete; `unique`? (no natural unique — parties can repeat roles). ~~Flag `deal_status`
+  assumption~~ — settled, above.
 
 ## Module 4 — Budget & settlement  ☑ (7 tables, 4 enums, 2 tests; XOR CHECK verified)
 **Tables:** `budgets`, `budget_lines`, `settlements`, `settlement_transfers`, `settlement_comments`,

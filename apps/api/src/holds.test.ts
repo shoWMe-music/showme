@@ -1029,3 +1029,558 @@ describe("holds — release (operator withdraws its own pencil)", () => {
     expect((await readEvent(first)).status).toBe("on_hold");
   });
 });
+
+/**
+ * ONE QUEUE FOR ONE ROOM — AND NOBODY WRITES A PENCIL THEY DO NOT HOLD.
+ *
+ * A pool is `(event_date, venue_profile_id, stage_id)` and deliberately not scoped
+ * to a host, because one physical room on one night is one queue: two operators
+ * courting that night really are competing, and separate queues would tell both of
+ * them they are first in line. The consequence had been going unchecked in the
+ * other direction, though — the cascades wrote whatever was in the pool. A rival's
+ * hold could be demoted by a stranger's re-rank, and a confirmation cancelled it
+ * with the confirming act's name on the row.
+ *
+ * The rule now: the shared queue stays, the shared WRITES do not. A hold that ends
+ * because the room got taken ends as a consequence of the venue's state changing —
+ * filed with no actor at all, and never as the winning side's doing.
+ *
+ * Reads are untouched: the rival's title stays withheld (see the pool test above).
+ */
+describe("holds — the pool is shared, the rows are not", () => {
+  /**
+   * A second operator's pencil in the SAME pool — the one fixture the seeds do not
+   * already contain. It gets its own host participant, so the rival genuinely
+   * stands on their own hold: reachable by the authorization engine, notifiable,
+   * and countable as "not this caller's" exactly as a real one would be.
+   */
+  async function seedRivalHold(
+    poolMember: Awaited<ReturnType<typeof readEvent>>,
+    rivalUid: string,
+    rival: { profileId: string; permissionSetId: string },
+    holdRank: number,
+  ) {
+    const [hold] = await harness.db
+      .insert(schema.events)
+      .values({
+        hostProfileId: rival.profileId,
+        title: "The rival's secret booking",
+        baseCurrency: "SEK",
+        status: "on_hold",
+        eventDate: poolMember.eventDate,
+        venueProfileId: poolMember.venueProfileId,
+        stageId: poolMember.stageId,
+        holdRank,
+        holdAutoPromote: true,
+        createdBy: rivalUid,
+      })
+      .returning();
+    if (!hold) throw new Error("rival hold seed failed");
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: hold.id,
+      profileId: rival.profileId,
+      role: "host",
+      permissionSetId: rival.permissionSetId,
+      status: "confirmed",
+    });
+    return hold;
+  }
+
+  it("releases a rival's hold when the date is taken, with no actor anywhere on its row", async () => {
+    const operator = await seedMemberWithSet(
+      "x-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "x-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const rival = await seedMemberWithSet(
+      "x-rival",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const [mine] = await seedHoldPool("cross", "x-op", operator, performer, 1);
+    if (!mine) throw new Error("seed failed");
+    const rivalHold = await seedRivalHold(await readEvent(mine), "x-rival", rival, 2);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${mine}/hold/confirm`,
+      headers: auth("x-perf"),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().cancelled).toEqual([rivalHold.id]);
+
+    // Half the point of one queue: the room is taken, so the rival's pencil is gone.
+    expect((await readEvent(mine)).status).toBe("confirmed");
+    expect((await readEvent(rivalHold.id)).status).toBe("cancelled");
+
+    // The other half: nothing on the rival's own event says the act did it to them.
+    const rivalActivity = await harness.db
+      .select()
+      .from(schema.activityLog)
+      .where(eq(schema.activityLog.eventId, rivalHold.id));
+    expect(rivalActivity.map((row) => row.type)).toEqual(["hold.lost"]);
+    expect(rivalActivity[0]?.actorUserId).toBeNull();
+    expect(rivalActivity[0]?.actorProfileId).toBeNull();
+    expect(rivalActivity[0]?.actorDisplay).toBeNull();
+
+    // A release is now recorded on the released event itself. Before, the only
+    // trace lived in the winner's audit row — on an event this operator cannot read.
+    const rivalAudit = await harness.db
+      .select()
+      .from(schema.auditLog)
+      .where(eq(schema.auditLog.eventId, rivalHold.id));
+    expect(rivalAudit.map((row) => row.action)).toEqual(["hold.released_room_taken"]);
+    expect(rivalAudit[0]?.actorUserId).toBeNull();
+    expect(rivalAudit[0]?.actingProfileId).toBeNull();
+    // No capability was checked on this row, so naming one would record a check
+    // that never happened — the same `null` the platform-admin routes use.
+    expect(rivalAudit[0]?.capability).toBeNull();
+
+    // And the rival still LEARNS the date went, through the one notification path.
+    const notifications = await harness.db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, "x-rival"));
+    expect(notifications.map((row) => row.type)).toEqual(["hold.lost"]);
+    expect(notifications[0]?.eventId).toBe(rivalHold.id);
+    expect(notifications[0]?.actorUserId).toBeNull();
+  });
+
+  it("refuses a re-rank that would push another operator's hold down", async () => {
+    const operator = await seedMemberWithSet(
+      "x-op2",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "x-perf2",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const rival = await seedMemberWithSet(
+      "x-rival2",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const [mine] = await seedHoldPool("cross2", "x-op2", operator, performer, 1);
+    if (!mine) throw new Error("seed failed");
+    // The live shape of the bug: the rival got there first and holds 1st; this
+    // operator is 2nd and asks to be 1st, which would demote a row that is not theirs.
+    const rivalHold = await seedRivalHold(await readEvent(mine), "x-rival2", rival, 1);
+    await harness.db.update(schema.events).set({ holdRank: 2 }).where(eq(schema.events.id, mine));
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${mine}/hold/rank`,
+      headers: auth("x-op2"),
+      payload: { holdRank: 1 },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.message).toContain("your own holds");
+
+    // Neither row moved — refused, not half-applied.
+    expect((await readEvent(rivalHold.id)).holdRank).toBe(1);
+    expect((await readEvent(mine)).holdRank).toBe(2);
+  });
+
+  it("still reorders the caller's own holds around a rival's pencil", async () => {
+    const operator = await seedMemberWithSet(
+      "x-op3",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "x-perf3",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const rival = await seedMemberWithSet(
+      "x-rival3",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const [first, second] = await seedHoldPool("cross3", "x-op3", operator, performer, 2);
+    if (!first || !second) throw new Error("seed failed");
+    // The rival sits BELOW both, so swapping the caller's two pencils never reaches it.
+    const rivalHold = await seedRivalHold(await readEvent(first), "x-rival3", rival, 3);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${second}/hold/rank`,
+      headers: auth("x-op3"),
+      payload: { holdRank: 1 },
+    });
+    expect(response.statusCode).toBe(200);
+
+    expect((await readEvent(second)).holdRank).toBe(1);
+    expect((await readEvent(first)).holdRank).toBe(2);
+    expect((await readEvent(rivalHold.id)).holdRank).toBe(3);
+  });
+
+  it("hides the rival's hold from every write route aimed straight at it", async () => {
+    const operator = await seedMemberWithSet(
+      "x-op4",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "x-perf4",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const rival = await seedMemberWithSet(
+      "x-rival4",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const [mine] = await seedHoldPool("cross4", "x-op4", operator, performer, 1);
+    if (!mine) throw new Error("seed failed");
+    const rivalHold = await seedRivalHold(await readEvent(mine), "x-rival4", rival, 2);
+
+    // 404, not 403: without `event.view` the event does not exist as far as this
+    // caller is concerned, and a 403 would confirm that it does. The pool read
+    // discloses the ID and the rank and stops there — that line does not move.
+    const attempts: { path: string; payload?: unknown }[] = [
+      { path: "rank", payload: { holdRank: 1 } },
+      { path: "auto-promote", payload: { holdAutoPromote: false } },
+      { path: "release" },
+      { path: "confirm" },
+      { path: "decline" },
+    ];
+    for (const attempt of attempts) {
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/v1/events/${rivalHold.id}/hold/${attempt.path}`,
+        headers: auth("x-op4"),
+        ...(attempt.payload ? { payload: attempt.payload } : {}),
+      });
+      expect([response.statusCode, attempt.path]).toEqual([404, attempt.path]);
+    }
+
+    const untouched = await readEvent(rivalHold.id);
+    expect(untouched.status).toBe("on_hold");
+    expect(untouched.holdRank).toBe(2);
+    expect(untouched.holdAutoPromote).toBe(true);
+  });
+
+  it("lets the queue close onto a rival's hold, still without an actor on its row", async () => {
+    const operator = await seedMemberWithSet(
+      "x-op5",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "x-perf5",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const rival = await seedMemberWithSet(
+      "x-rival5",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const [mine] = await seedHoldPool("cross5", "x-op5", operator, performer, 1);
+    if (!mine) throw new Error("seed failed");
+    const rivalHold = await seedRivalHold(await readEvent(mine), "x-rival5", rival, 2);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${mine}/hold/release`,
+      headers: auth("x-op5"),
+    });
+    expect(response.statusCode).toBe(200);
+
+    // The queue closes — 2nd becomes 1st, which is what one queue means.
+    expect((await readEvent(rivalHold.id)).holdRank).toBe(1);
+
+    const rivalActivity = await harness.db
+      .select()
+      .from(schema.activityLog)
+      .where(eq(schema.activityLog.eventId, rivalHold.id));
+    expect(rivalActivity.map((row) => row.type)).toEqual(["hold.promoted"]);
+    expect(rivalActivity[0]?.actorUserId).toBeNull();
+    expect(rivalActivity[0]?.actorProfileId).toBeNull();
+
+    const rivalAudit = await harness.db
+      .select()
+      .from(schema.auditLog)
+      .where(eq(schema.auditLog.eventId, rivalHold.id));
+    expect(rivalAudit.map((row) => row.action)).toEqual(["hold.promoted_queue_closed"]);
+    expect(rivalAudit[0]?.actorUserId).toBeNull();
+    expect(rivalAudit[0]?.capability).toBeNull();
+  });
+
+  it("keeps the operator's name on a promotion inside its OWN queue", async () => {
+    const operator = await seedMemberWithSet(
+      "x-op6",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "x-perf6",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const [first, second] = await seedHoldPool("cross6", "x-op6", operator, performer, 2);
+    if (!first || !second) throw new Error("seed failed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first}/hold/release`,
+      headers: auth("x-op6"),
+    });
+    expect(response.statusCode).toBe(200);
+    expect((await readEvent(second)).holdRank).toBe(1);
+
+    // An operator withdrawing one of its own pencils and watching the next step up
+    // is doing its own housekeeping — the actor-less rule is for somebody ELSE's row.
+    const promoted = await harness.db
+      .select()
+      .from(schema.activityLog)
+      .where(
+        and(eq(schema.activityLog.eventId, second), eq(schema.activityLog.type, "hold.promoted")),
+      );
+    expect(promoted).toHaveLength(1);
+    expect(promoted[0]?.actorUserId).toBe("x-op6");
+  });
+});
+
+/**
+ * A HOLD WITH NO ROOM SHARES NOTHING.
+ *
+ * The shared queue is justified by one physical room that only one show can
+ * occupy. The create-event wizard captures a free-text venue NAME, so its holds
+ * carry no `venue_profile_id` and no `stage_id` at all — and `matchNullable`
+ * turned that into `IS NULL`, putting every unpinned hold on a date into a single
+ * platform-wide pool. That is not the shared-room ruling; it is the same
+ * null-matching bug as the dateless case, one column over, and it was the worse
+ * of the two: an operator taking "1st hold" from the wizard silently demoted
+ * every stranger's unpinned hold on that date.
+ *
+ * No room, no shared pool: an unpinned hold queues only with its own host's.
+ */
+describe("holds — a hold with no room queues only with its own host's", () => {
+  /** What the wizard makes: a date, a typed-in venue name, no venue profile. */
+  async function seedRoomlessHold(
+    title: string,
+    hostUid: string,
+    host: { profileId: string; permissionSetId: string },
+    performer: { profileId: string; permissionSetId: string } | null,
+    eventDate: string,
+    holdRank: number,
+  ) {
+    const [event] = await harness.db
+      .insert(schema.events)
+      .values({
+        hostProfileId: host.profileId,
+        title,
+        baseCurrency: "SEK",
+        status: "on_hold",
+        eventDate,
+        venueName: "A room somebody typed the name of",
+        holdRank,
+        holdAutoPromote: true,
+        createdBy: hostUid,
+      })
+      .returning();
+    if (!event) throw new Error("roomless hold seed failed");
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: host.profileId,
+      role: "host",
+      permissionSetId: host.permissionSetId,
+      status: "confirmed",
+    });
+    if (performer) {
+      await harness.db.insert(schema.eventParticipants).values({
+        eventId: event.id,
+        profileId: performer.profileId,
+        role: "performer",
+        permissionSetId: performer.permissionSetId,
+        status: "confirmed",
+      });
+    }
+    return event;
+  }
+
+  it("lets an operator take 1st on an unpinned date without a stranger blocking it", async () => {
+    const operator = await seedMemberWithSet(
+      "n-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const rival = await seedMemberWithSet(
+      "n-rival",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const stranger = await seedRoomlessHold(
+      "Someone else's unpinned night",
+      "n-rival",
+      rival,
+      null,
+      "2026-10-01",
+      1,
+    );
+    const mine = await seedRoomlessHold(
+      "My unpinned night",
+      "n-op",
+      operator,
+      null,
+      "2026-10-01",
+      2,
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${mine.id}/hold/rank`,
+      headers: auth("n-op"),
+      payload: { holdRank: 1 },
+    });
+    // Not a 409: there is no room to compete for, so the stranger was never in
+    // this queue and nothing of theirs is being demoted.
+    expect(response.statusCode).toBe(200);
+    expect((await readEvent(mine.id)).holdRank).toBe(1);
+    expect((await readEvent(stranger.id)).holdRank).toBe(1);
+    // The pool the server ranks by contains only this host's own pencil.
+    expect(response.json().ranks.map((entry: { id: string }) => entry.id)).toEqual([mine.id]);
+  });
+
+  it("does not cancel a stranger's unpinned hold when an unpinned date is confirmed", async () => {
+    const operator = await seedMemberWithSet(
+      "n-op2",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "n-perf2",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const rival = await seedMemberWithSet(
+      "n-rival2",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const stranger = await seedRoomlessHold(
+      "Someone else's unpinned night",
+      "n-rival2",
+      rival,
+      null,
+      "2026-10-02",
+      1,
+    );
+    const mine = await seedRoomlessHold(
+      "My unpinned night",
+      "n-op2",
+      operator,
+      performer,
+      "2026-10-02",
+      1,
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${mine.id}/hold/confirm`,
+      headers: auth("n-perf2"),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().cancelled).toEqual([]);
+    // Two operators booking two different rooms on one night is not a collision.
+    expect((await readEvent(stranger.id)).status).toBe("on_hold");
+  });
+
+  it("still queues one host's own unpinned holds together", async () => {
+    const operator = await seedMemberWithSet(
+      "n-op3",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "n-perf3",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const first = await seedRoomlessHold(
+      "My 1st unpinned night",
+      "n-op3",
+      operator,
+      performer,
+      "2026-10-03",
+      1,
+    );
+    const second = await seedRoomlessHold(
+      "My 2nd unpinned night",
+      "n-op3",
+      operator,
+      performer,
+      "2026-10-03",
+      2,
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${first.id}/hold/confirm`,
+      headers: auth("n-perf3"),
+    });
+    expect(response.statusCode).toBe(200);
+    // The host-scoped pool is a real pool, not a pool of one: this operator cannot
+    // run two shows on the same night either, so their own second pencil still goes.
+    expect(response.json().cancelled).toEqual([second.id]);
+    expect((await readEvent(second.id)).status).toBe("cancelled");
+  });
+
+  it("tells the operator which pool entries are theirs to reorder", async () => {
+    const operator = await seedMemberWithSet(
+      "n-op4",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "n-perf4",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const rival = await seedMemberWithSet(
+      "n-rival4",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const [mine] = await seedHoldPool("reorderable", "n-op4", operator, performer, 1);
+    if (!mine) throw new Error("seed failed");
+    const mineRow = await readEvent(mine);
+    // A rival IN THE SAME ROOM — the pool that really is shared.
+    const [rivalHold] = await harness.db
+      .insert(schema.events)
+      .values({
+        hostProfileId: rival.profileId,
+        title: "The rival's secret booking",
+        baseCurrency: "SEK",
+        status: "on_hold",
+        eventDate: mineRow.eventDate,
+        venueProfileId: mineRow.venueProfileId,
+        stageId: mineRow.stageId,
+        holdRank: 2,
+        createdBy: "n-rival4",
+      })
+      .returning();
+    if (!rivalHold) throw new Error("rival seed failed");
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${mine}/hold`,
+      headers: auth("n-op4"),
+    });
+    expect(response.statusCode).toBe(200);
+    const pool = response.json().pool as { id: string; canReorder: boolean }[];
+    // The panel needs this to stop offering a rank the rank route will refuse —
+    // and it is the caller's OWN authority, not a guess from the withheld title.
+    expect(pool.find((entry) => entry.id === mine)?.canReorder).toBe(true);
+    expect(pool.find((entry) => entry.id === rivalHold.id)?.canReorder).toBe(false);
+  });
+});

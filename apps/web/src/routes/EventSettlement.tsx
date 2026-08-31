@@ -401,7 +401,13 @@ function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
           {settlement.authority.canCompute && !settlement.isFinalized && (
             <Button
               variant={settlement.isComputed ? "secondary" : "primary"}
-              disabled={settlement.isBusy}
+              // A SETTLEMENT CANNOT OPEN UNTIL EVERY DEAL IS SIGNED
+              // (decisions.md #21). The API answers 409, so a live-looking button
+              // here would fail every single time it was pressed — worse than no
+              // button. Disabled rather than hidden, and the reason is printed
+              // beside it: the operator's next move is to go and get a signature,
+              // which they can only do if they are told which one.
+              disabled={settlement.isBusy || settlement.unsignedAgreementsNotice != null}
               leftIcon={<Icon name="receipt" size={14} />}
               onClick={settlement.compute}
             >
@@ -409,7 +415,16 @@ function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
             </Button>
           )}
           {settlement.authority.canFinalize && settlement.isComputed && !settlement.isFinalized && (
-            <Button variant="primary" disabled={settlement.isBusy} onClick={askToFinalize}>
+            <Button
+              variant="primary"
+              // FINALIZE IS THE SECOND DOOR and refuses on the same rule
+              // (decisions.md #21): it re-derives the whole settlement before
+              // freezing it, so it 409s on an unsigned agreement exactly as
+              // compute does. Left enabled it would be the most dangerous-looking
+              // button on the screen doing nothing at all.
+              disabled={settlement.isBusy || settlement.unsignedAgreementsNotice != null}
+              onClick={askToFinalize}
+            >
               Finalize
             </Button>
           )}
@@ -452,6 +467,22 @@ function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
             </Badge>
           )}
         </div>
+        {/*
+         * WHY THE BUTTON ABOVE IS GREYED OUT. A disabled control with no
+         * explanation is the same dead end as a 409 nobody reads — the operator's
+         * next act is to go and chase a signature, and they can only do that if
+         * they are told which agreement is waiting.
+         *
+         * Named, never counted: "1 agreement outstanding" sends somebody hunting
+         * through the Deals tab for it.
+         */}
+        {settlement.authority.canCompute &&
+          !settlement.isFinalized &&
+          settlement.unsignedAgreementsNotice && (
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              {settlement.unsignedAgreementsNotice}
+            </p>
+          )}
       </Card>
 
       {settlement.parties.length === 0 ? (
@@ -686,9 +717,14 @@ function NothingSettledYet({ settlement }: { settlement: EventSettlementData }) 
       icon={<Icon name="receipt" />}
       title="Nothing settled yet"
       description={
-        settlement.authority.canCompute
-          ? "Running the settlement reconciles the budget's cash against what each deal entitles its parties to, and works out who owes whom."
-          : "Once the operator runs the settlement, your own entitlement and transfers appear here."
+        // An unsigned agreement holds the whole reconciliation shut (decisions.md
+        // #21), so the empty state has to say WHY it is empty rather than describe
+        // a button that is greyed out three inches above it.
+        settlement.authority.canCompute && settlement.unsignedAgreementsNotice
+          ? settlement.unsignedAgreementsNotice
+          : settlement.authority.canCompute
+            ? "Running the settlement reconciles the budget's cash against what each deal entitles its parties to, and works out who owes whom."
+            : "Once the operator runs the settlement, your own entitlement and transfers appear here."
       }
     />
   );
@@ -927,6 +963,7 @@ function FinancialsTab({
           currency={currency}
           isFinalized={settlement.isFinalized}
           onRecalculate={settlement.compute}
+          recalculateBlockedReason={settlement.unsignedAgreementsNotice}
         />
       )}
       <Card padding="lg" style={CARD_COLUMN}>

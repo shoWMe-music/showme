@@ -33,6 +33,18 @@ export interface SettlementActualsCardProps {
   isFinalized: boolean;
   /** Has anything moved since the last compute? Drives the nudge. */
   onRecalculate?: () => void;
+  /**
+   * Why recalculating is unavailable right now, or null when it is available.
+   *
+   * Today this is only ever an unsigned agreement (decisions.md #21) — the API
+   * refuses the compute with a 409, so the button would fail every time it was
+   * pressed. It is a REASON rather than a boolean because a control that is
+   * greyed out without saying why leaves the operator with no next move, and the
+   * next move here is to go and get a particular signature. It replaces the
+   * ordinary nudge rather than sitting beside it: only one of the two can be
+   * true at a time.
+   */
+  recalculateBlockedReason?: string | null;
 }
 
 export function SettlementActualsCard({
@@ -40,6 +52,7 @@ export function SettlementActualsCard({
   currency,
   isFinalized,
   onRecalculate,
+  recalculateBlockedReason = null,
 }: SettlementActualsCardProps) {
   if (editor.isPending) return <LoadingState label="Loading the settlement's lines" />;
   if (editor.isError) {
@@ -86,12 +99,12 @@ export function SettlementActualsCard({
           }}
         >
           <span style={{ color: "var(--muted)", fontSize: 12.5, flex: 1 }}>
-            Changes here are not settled until you recalculate — the parties keep seeing the last
-            figures you sent them until then.
+            {recalculateBlockedReason ??
+              "Changes here are not settled until you recalculate — the parties keep seeing the last figures you sent them until then."}
           </span>
           <Button
             variant="primary"
-            disabled={editor.isBusy}
+            disabled={editor.isBusy || recalculateBlockedReason != null}
             leftIcon={<Icon name="receipt" size={14} />}
             onClick={onRecalculate}
           >

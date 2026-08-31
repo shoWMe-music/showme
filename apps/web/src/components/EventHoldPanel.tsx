@@ -151,7 +151,7 @@ function OperatorControls({
         <Button
           variant="secondary"
           onClick={hold.promoteToFirst}
-          disabled={hold.isWorking || (hold.holdRank ?? 1) === 1}
+          disabled={hold.isWorking || !hold.canPromoteToFirst}
         >
           Promote to 1st
         </Button>

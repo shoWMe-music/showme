@@ -12,4 +12,5 @@ export type GetApiV1EventsIdHold200PoolItem = {
   holdRank: number;
   holdAutoPromote: boolean;
   isSelf: boolean;
+  canReorder: boolean;
 };

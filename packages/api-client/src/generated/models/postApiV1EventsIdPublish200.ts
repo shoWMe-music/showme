@@ -15,6 +15,7 @@ export type PostApiV1EventsIdPublish200 = {
   eventDate: string | null;
   /** @nullable */
   timezone: string | null;
+  hostProfileId: string;
   /** @nullable */
   venueProfileId: string | null;
   /** @nullable */

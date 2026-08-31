@@ -89,6 +89,15 @@ const EventResponse = z.object({
   baseCurrency: z.string(),
   eventDate: z.string().nullable(),
   timezone: z.string().nullable(),
+  /**
+   * The third field with the `venueName` story below: `serializeEvent` has always
+   * returned it and this schema never declared it, so Fastify stripped it out of
+   * every list row. The cost showed up in the create wizard, which counts the
+   * holds already competing for a date — a pool the server scopes to the host
+   * when there is no venue profile (decisions #20) — and had no way to tell whose
+   * hold a row was, so it counted strangers into the operator's own queue.
+   */
+  hostProfileId: z.string(),
   venueProfileId: z.string().nullable(),
   /**
    * `serializeEvent` has always returned this; the list schema simply never

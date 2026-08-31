@@ -1324,6 +1324,46 @@ describe("shares — off-platform approval (A-33)", () => {
     expect(snapshot.terms.agreementBodyText).toBe("The usual terms.");
   });
 
+  /**
+   * AND THE DEAL ITSELF IS CONFIRMED, not only its paperwork — through THIS door
+   * as much as the in-app one.
+   *
+   * `deals.status` gained a writer on 2026-08-31 (`confirmDealIfComplete`), and it
+   * was put in the shared helper rather than in `routes/deals.ts` precisely so
+   * this case could not be the one that was forgotten: a signature that arrives by
+   * link is still the last signature, and the settlement engine and the Budget
+   * Planner both read the column without any idea which door it came through. The
+   * in-app half of this is asserted in `deals.test.ts`; this is the half that
+   * would otherwise drift.
+   */
+  it("advances `deals.status` when the last signature arrives off-platform", async () => {
+    const { seed, deal, token, performer } = await seedTwoPartyDeal("status-off");
+
+    expect((await confirmInApp(seed, deal.id)).statusCode).toBe(200);
+    const [waiting] = await harness.db
+      .select()
+      .from(schema.deals)
+      .where(eq(schema.deals.id, deal.id));
+    // One signature short: the deal is still a proposal.
+    expect(waiting?.status).toBe("draft");
+
+    const jwt = await redeem(token, performer.email);
+    const approve = await app.inject({
+      method: "POST",
+      url: `/api/v1/shares/${token}/approve`,
+      headers: share(jwt),
+      payload: { subject: "agreement", dealId: deal.id },
+    });
+    expect(approve.statusCode).toBe(200);
+
+    const [confirmed] = await harness.db
+      .select()
+      .from(schema.deals)
+      .where(eq(schema.deals.id, deal.id));
+    expect(confirmed?.status).toBe("confirmed");
+    expect(confirmed?.agreementStatus).toBe("confirmed");
+  });
+
   it("freezes the same snapshot whichever door the last signature came through", async () => {
     // Off-platform last.
     const viaShare = await seedTwoPartyDeal("drift-share");

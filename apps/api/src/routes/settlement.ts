@@ -25,6 +25,7 @@ import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import { captureBudgetSnapshot, plannedVsActual } from "../lib/budget-snapshot";
 import { syncCommissionSettlements } from "../lib/commission-settlement";
+import { assertEveryAgreementSigned } from "../lib/deal-confirmation";
 import { renderNotificationEmail, renderSettlementReviewEmail } from "../lib/email-templates";
 import { loadEventSummary } from "../lib/event-summary";
 import { loadRatesToBase } from "../lib/exchange-rate";
@@ -585,6 +586,50 @@ async function reconcileEvent(
   database: Database | Transaction,
   eventId: string,
 ): Promise<ReconciledEvent> {
+  // THE DEALS COME FIRST, AHEAD OF EVERY WRITE THIS FUNCTION MAKES.
+  //
+  // A CANCELLED DEAL IS NOT AN AGREEMENT, so it entitles nobody.
+  //
+  // This read used to take every `deals` row of the event whatever its `status`,
+  // so a withdrawn agreement still produced an entitlement and still generated a
+  // transfer — money leaving on the strength of a contract that was cancelled.
+  // `cancelled` is the one member of `deal_status` whose meaning is unambiguous:
+  // there is nothing left to reconcile under it.
+  //
+  // Dropping it cannot unbalance the night. The operator's line is the residual
+  // (pool − Σ everyone else), so the entitlement that disappears is absorbed
+  // there and `Σ net = 0` still holds (`assertBalanced`, and asserted on the wire
+  // in `settlement.test.ts` → "deal status at the engine boundary").
+  const dealRows = await database
+    .select()
+    .from(schema.deals)
+    .where(and(eq(schema.deals.eventId, eventId), ne(schema.deals.status, "cancelled")));
+  const dealIds = dealRows.map((deal) => deal.id);
+  const partyRows =
+    dealIds.length > 0
+      ? await database
+          .select()
+          .from(schema.dealParties)
+          .where(inArray(schema.dealParties.dealId, dealIds))
+      : [];
+
+  // ...AND NOW THE DOOR: "a settlement cannot open unless the deal is signed"
+  // (the product owner, 2026-08-31). The reasoning, and why it is a refusal
+  // rather than a filter on the maths, is on `assertEveryAgreementSigned`.
+  //
+  // It is the FIRST thing this function does with what it read, and that ordering
+  // is load-bearing: `ensureSettlementLines` below takes the settlement's copy of
+  // the budget and SEALS it from the planner forever. A refused compute must not
+  // leave that behind — an operator who is told to go and get a signature would
+  // come back to a settlement quietly detached from the budget they then edited.
+  // A refusal writes nothing.
+  //
+  // It sits here rather than in the two handlers for the same reason the deal
+  // read does: compute and finalize are two doors into one piece of arithmetic,
+  // and a rule enforced at one call site is enforced nowhere. The rows checked
+  // are literally the rows the engine is about to settle.
+  assertEveryAgreementSigned(dealRows, partyRows);
+
   // Take the settlement's copy of the budget if it does not have one yet. A
   // no-op on every run after the first — the copy is sealed, and re-pulling
   // would discard the actuals somebody typed into it (`lib/settlement-lines.ts`).
@@ -599,42 +644,6 @@ async function reconcileEvent(
     participantId: row.id,
     isOperator: OPERATOR_EVENT_ROLES.has(row.role),
   }));
-
-  // A CANCELLED DEAL IS NOT AN AGREEMENT, so it entitles nobody.
-  //
-  // This read used to take every `deals` row of the event whatever its `status`,
-  // so a withdrawn agreement still produced an entitlement and still generated a
-  // transfer — money leaving on the strength of a contract that was cancelled.
-  // `cancelled` is the one member of `deal_status` whose meaning is unambiguous:
-  // there is nothing left to reconcile under it.
-  //
-  // Dropping it cannot unbalance the night. The operator's line is the residual
-  // (pool − Σ everyone else), so the entitlement that disappears is absorbed
-  // there and `Σ net = 0` still holds (`assertBalanced`, and asserted on the wire
-  // in `settlement.test.ts` → "deal status at the engine boundary").
-  //
-  // `draft` IS DELIBERATELY STILL SETTLED, and that is not an oversight.
-  // `deals.status` has no writer: it defaults to `draft` and nothing in the
-  // product ever moves it — `routes/events.ts::createStatedDeal` says so in as
-  // many words, `POST /deals/:did/confirm` and `lib/deal-confirmation.ts` advance
-  // only `agreement_status`, and no screen sends `status` on the deal PATCH.
-  // Filtering to `status = 'confirmed'` would therefore drop every deal an
-  // operator has ever created in the app and pay the performers nothing, which is
-  // a worse money bug than the one above. Whether an UNSIGNED agreement may
-  // settle is a question about `agreement_status` (draft → sent → confirmed →
-  // signed), and it is a product decision, not a code one.
-  const dealRows = await database
-    .select()
-    .from(schema.deals)
-    .where(and(eq(schema.deals.eventId, eventId), ne(schema.deals.status, "cancelled")));
-  const dealIds = dealRows.map((deal) => deal.id);
-  const partyRows =
-    dealIds.length > 0
-      ? await database
-          .select()
-          .from(schema.dealParties)
-          .where(inArray(schema.dealParties.dealId, dealIds))
-      : [];
 
   // THE SETTLEMENT'S OWN LINES, never the planner's.
   //

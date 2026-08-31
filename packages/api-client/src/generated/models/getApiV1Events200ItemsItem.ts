@@ -15,6 +15,7 @@ export type GetApiV1Events200ItemsItem = {
   eventDate: string | null;
   /** @nullable */
   timezone: string | null;
+  hostProfileId: string;
   /** @nullable */
   venueProfileId: string | null;
   /** @nullable */

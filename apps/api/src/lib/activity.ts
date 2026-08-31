@@ -115,6 +115,19 @@ export interface ActivityEntry {
    * hand a performer a figure the serializer redacts from the resource itself.
    */
   summary?: Record<string, unknown>;
+  /**
+   * Whose act this row records. Defaults to the caller.
+   *
+   * `"system"` writes NO actor — for a line on somebody else's event that the
+   * caller's action CAUSED rather than performed. A hold pool is one queue per
+   * (date, venue, stage) and is not scoped to one host, so confirming a date ends
+   * every rival pencil on it and dropping one lets the rest close up. Those rows
+   * belong on the rival's event, and they must not say a stranger did it: the feed
+   * renders `actorDisplay` beside the line (`EventExtraTabs.tsx`), and an operator
+   * reading "Jane Doe · cancelled" on their own hold would be reading a false
+   * statement about a person who has no standing there at all.
+   */
+  actor?: "caller" | "system";
 }
 
 /**
@@ -128,13 +141,13 @@ export async function writeActivity(
   request: FastifyRequest,
   entry: ActivityEntry,
 ): Promise<void> {
-  const principal = request.principal;
+  const actor = entry.actor === "system" ? null : request.principal;
   await tx.insert(schema.activityLog).values({
     eventId: entry.eventId,
     type: entry.type,
-    actorUserId: principal?.userId,
-    actorProfileId: principal?.actingProfileId,
-    actorDisplay: request.firebaseUser?.name,
+    actorUserId: actor?.userId ?? null,
+    actorProfileId: actor?.actingProfileId ?? null,
+    actorDisplay: actor ? (request.firebaseUser?.name ?? null) : null,
     targetKind: entry.targetKind,
     targetId: entry.targetId,
     summary: entry.summary ?? null,

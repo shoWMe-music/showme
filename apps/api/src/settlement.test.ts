@@ -6,8 +6,9 @@ import { and, asc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
+import { dealRoutes } from "./routes/deals";
 import { settlementRoutes } from "./routes/settlement";
-import { buildTestApp } from "./testing";
+import { buildTestApp, signEveryAgreement } from "./testing";
 
 /** Fake verifier: the bearer token IS the uid, so tests just send `Bearer <uid>`. */
 const fakeVerifier: TokenVerifier = {
@@ -21,7 +22,15 @@ let app: FastifyInstance;
 
 beforeAll(async () => {
   harness = await startTestDatabase();
-  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [settlementRoutes]);
+  // `dealRoutes` rides along so the two ends of this question can be driven through
+  // their REAL routes rather than by writing the column by hand: the deal lifecycle
+  // is what moves `deals.status`, and the engine is what reads it. Asserting they
+  // agree is the whole point of "deal status at the engine boundary" below, and a
+  // hand-set column would only prove the fixture agrees with itself.
+  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [
+    settlementRoutes,
+    dealRoutes,
+  ]);
   await app.ready();
 });
 
@@ -172,6 +181,12 @@ async function seedWorkedExample(prefix: string) {
     },
     { budgetId: budget.id, kind: "cost", label: "Sound hire", amount: 150000n, paidBy: pPart },
   ]);
+
+  // Both agreements are signed, because since 2026-08-31 a settlement cannot
+  // open otherwise — see `signEveryAgreement`. The state is written by the same
+  // function the real confirm routes call, and the case below that drives those
+  // routes on this very fixture proves the two land in the same place.
+  await signEveryAgreement(db, event.id);
 
   return { event, operator, venue, band, pPart, vPart, bPart };
 }
@@ -1569,6 +1584,7 @@ describe("settlement — multi-currency + locked FX (money.md, #7)", () => {
       collectedBy: pPart,
     });
 
+    await signEveryAgreement(db, event.id);
     return { event, operator, pPart, bPart };
   }
 
@@ -1877,6 +1893,7 @@ describe("settlement — per-party split shares (A-01 regression)", () => {
       },
     ]);
 
+    await signEveryAgreement(db, event.id);
     return { event, operator, aPart, bPart };
   }
 
@@ -2597,6 +2614,7 @@ describe("settlement — the 2026-08-26 money rules", () => {
       },
     ]);
 
+    await signEveryAgreement(db, event.id);
     return { event, operator, hostPart, venuePart, bandPart, agencyPart, door };
   }
 
@@ -2762,6 +2780,7 @@ describe("settlement — the 2026-08-26 money rules", () => {
         : []),
     ]);
 
+    await signEveryAgreement(db, event.id);
     return { event, operator, hostPart, bandPart };
   }
 
@@ -3623,31 +3642,335 @@ describe("settlement — deal status at the engine boundary", () => {
   });
 
   /**
-   * A `draft` deal DOES still settle, and this case is skipped rather than deleted
-   * because turning it on today would be a bigger money bug than the one it fixes.
+   * THE `it.skip` THAT USED TO SIT HERE IS GONE, AND SO IS THE THING THAT BLOCKED IT.
    *
-   * `deals.status` HAS NO WRITER. It defaults to `draft` and nothing in the product
-   * ever moves it: `routes/events.ts::createStatedDeal` says in as many words that
-   * "both status columns stay on their defaults (`draft`)", `POST /deals/:did/confirm`
-   * and `lib/deal-confirmation.ts` advance only `agreement_status`, and no screen in
-   * `apps/web` sends `status` on the deal PATCH. Filtering to `status = 'confirmed'`
-   * would therefore drop EVERY deal an operator has ever created in the app, collapse
-   * every entitlement into the operator's residual, and pay the performers nothing.
-   * (`docs/db-build-plan.md:50` flags the whole enum as "**assumption, flag**" — it
-   * was never ratified as a lifecycle.)
+   * It was titled "does not settle a draft deal — BLOCKED: `deals.status` has no
+   * writer", and it asserted that a draft deal pays everybody nothing. Two things
+   * happened on 2026-08-31, in this order.
    *
-   * The axis the app actually moves is `agreement_status` (draft → sent → confirmed →
-   * signed), and whether an unsigned agreement may settle is a product decision, not
-   * a code one. Until it is made, `cancelled` is the only status the engine refuses.
+   * First the block was lifted: `deals.status` gained a real writer — the last
+   * signature advances it (`lib/deal-confirmation.ts`), `reopen` puts it back,
+   * migration 0030 backfilled the rows signed before it existed, and
+   * `PATCH /deals/:did` now refuses a hand-set `confirmed`.
+   *
+   * Then the product decision the skipped case was waiting on was actually taken,
+   * and it went the OTHER way from what that case proposed: **"a settlement cannot
+   * open unless the deal is signed"** (the product owner). Not "drop the unsigned
+   * deals from the maths" — refuse the whole reconciliation at the door.
+   *
+   * **The distinction is the entire point, and the measurement that used to live
+   * here is what makes it legible.** Flipping the engine's own clause to
+   * `eq(status, 'confirmed')` turned **33 of this file's 76 tests** red, every one
+   * of them the same way: `expected '0' to be '300000'`, with transfer lists
+   * arriving empty. That is exactly the failure mode the owner's rule exists to
+   * make impossible — a deal one signature short pays its performer **zero** while
+   * `Σ net = 0` still holds perfectly, because the operator's residual absorbs the
+   * missing entitlement and no field in the response says an agreement went
+   * missing. A refusal at the door is legible; a zero inside a balanced settlement
+   * is not.
+   *
+   * So the clause was never flipped. `reconcileEvent` still drops `cancelled` and
+   * nothing else, and `assertEveryAgreementSigned` — checking the very rows that
+   * clause returns — decides whether the maths runs at all. The 33 fixtures were
+   * not wrong either: they build deals nobody has signed, which is genuinely what
+   * an operator has on the day they open the settlement screen early. They now
+   * sign them, through `signEveryAgreement`, and the case below drives the real
+   * `send`/`confirm` endpoints on the same fixture to prove that helper is not
+   * inventing a state the app cannot reach.
    */
-  it.skip("does not settle a draft deal — BLOCKED: `deals.status` has no writer", async () => {
-    const seed = await seedWorkedExample("status-draft");
-    // `seedWorkedExample` leaves both deals on the `draft` default.
+  it("settles a deal signed through the real confirm route, which now reads `confirmed`", async () => {
+    const seed = await seedWorkedExample("status-signed");
+    // Reopen through the REAL route, so the deal is genuinely back to `sent` with
+    // every confirmation cleared — the product's own way of un-signing something.
+    const [guarantee] = await harness.db
+      .select()
+      .from(schema.deals)
+      .where(and(eq(schema.deals.eventId, seed.event.id), eq(schema.deals.name, "Band guarantee")));
+    if (!guarantee) throw new Error("deal seed failed");
+    const reopened = await app.inject({
+      method: "POST",
+      url: `/api/v1/deals/${guarantee.id}/reopen`,
+      headers: auth(seed.operator.userId),
+      payload: { reason: "renegotiating the fee" },
+    });
+    expect(reopened.statusCode).toBe(200);
+    const [afterReopen] = await harness.db
+      .select()
+      .from(schema.deals)
+      .where(eq(schema.deals.id, guarantee.id));
+    expect(afterReopen?.status).toBe("draft");
+    expect(afterReopen?.agreementStatus).toBe("sent");
+
+    // The lifecycle as the app walks it: both signatories sign. Nothing here writes
+    // `status` — it moves because the agreement completed.
+    for (const userId of [seed.operator.userId, seed.band.userId]) {
+      const signed = await app.inject({
+        method: "POST",
+        url: `/api/v1/deals/${guarantee.id}/confirm`,
+        headers: auth(userId),
+      });
+      expect(signed.statusCode).toBe(200);
+    }
+    const [afterSigning] = await harness.db
+      .select()
+      .from(schema.deals)
+      .where(eq(schema.deals.id, guarantee.id));
+    expect(afterSigning?.status).toBe("confirmed");
+    expect(afterSigning?.agreementStatus).toBe("confirmed");
+    // The REAL route and `signEveryAgreement` land in the same place — which is
+    // what licenses every other fixture in this file to use the shortcut.
+    expect(afterSigning?.confirmedSnapshot).not.toBeNull();
+
+    // And the night reconciles exactly as the worked example says — the lifecycle
+    // moved columns, not figures.
     const response = await app.inject({
       method: "POST",
       url: `/api/v1/events/${seed.event.id}/settlement/compute`,
       headers: auth(seed.operator.userId),
     });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.pool).toBe("850000");
+    const byId = new Map<string, string>(
+      body.breakdowns.map((row: { participantId: string; net: string }) => [
+        row.participantId,
+        row.net,
+      ]),
+    );
+    expect(byId.get(seed.pPart)).toBe("-400000");
+    expect(byId.get(seed.vPart)).toBe("100000");
+    expect(byId.get(seed.bPart)).toBe("300000");
+    expect(sumOfNets(body)).toBe(0n);
+  });
+});
+
+/**
+ * THE DOOR — "a settlement cannot open unless the deal is signed" (the product
+ * owner, 2026-08-31).
+ *
+ * The block above is about WHICH deals the engine reads. This one is about whether
+ * it reads them at all. `assertEveryAgreementSigned` sits at the top of
+ * `reconcileEvent`, so it guards **both** doors into the arithmetic — compute and
+ * finalize — and checks precisely the rows that function is about to settle.
+ *
+ * Every case here drives the deal lifecycle through its REAL routes (`send`,
+ * `confirm`, `reopen`, the status PATCH), because the whole question is what the
+ * app can actually produce.
+ */
+describe("settlement — the door: an unsigned agreement holds it shut", () => {
+  /** Σ net = 0, read off the wire rather than trusted from inside the engine. */
+  const sumOfNets = (body: { breakdowns: { net: string }[] }): bigint =>
+    body.breakdowns.reduce((running, row) => running + BigInt(row.net), 0n);
+
+  const compute = (eventId: string, userId: string) =>
+    app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/settlement/compute`,
+      headers: auth(userId),
+    });
+
+  /** The deal the worked example hangs its 300 000 guarantee on. */
+  async function bandGuaranteeOf(eventId: string) {
+    const [deal] = await harness.db
+      .select()
+      .from(schema.deals)
+      .where(and(eq(schema.deals.eventId, eventId), eq(schema.deals.name, "Band guarantee")));
+    if (!deal) throw new Error("deal seed failed");
+    return deal;
+  }
+
+  it("refuses to compute while an agreement is waiting on a signature, and says whose", async () => {
+    const seed = await seedWorkedExample("door-unsigned");
+    const guarantee = await bandGuaranteeOf(seed.event.id);
+    // Reopened for renegotiation: back to `sent`, both confirmations cleared.
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/deals/${guarantee.id}/reopen`,
+          headers: auth(seed.operator.userId),
+          payload: {},
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    const refused = await compute(seed.event.id, seed.operator.userId);
+    // 409, not 403: the operator MAY run this settlement — it is the event's state
+    // that refuses, exactly as `assertNotFinalized` means it.
+    expect(refused.statusCode).toBe(409);
+    const message = refused.json().error.message as string;
+    // The message has to name the agreement and what it is waiting for, or the
+    // settlement is unopenable with no diagnosis.
+    expect(message).toContain("Band guarantee");
+    expect(message).toContain(guarantee.id);
+    expect(message).toContain("waiting on 2 of 2 signatures");
+    // The venue's rental IS signed, so it is not on the list.
+    expect(message).not.toContain("Venue rental");
+
+    // A REFUSAL WRITES NOTHING. `ensureSettlementLines` seals the settlement's copy
+    // of the budget away from the planner the first time it runs; leaving that
+    // behind on a refused compute would silently detach the budget the operator is
+    // about to go and edit.
+    const settlements = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    expect(settlements).toHaveLength(0);
+    const lines = await harness.db
+      .select()
+      .from(schema.settlementLines)
+      .where(eq(schema.settlementLines.eventId, seed.event.id));
+    expect(lines).toHaveLength(0);
+  });
+
+  it("names an agreement that was never even sent, in its own words", async () => {
+    const seed = await seedWorkedExample("door-draft");
+    // A third agreement, composed through the real route and therefore a DRAFT —
+    // terms nobody has been shown yet.
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/deals`,
+      headers: auth(seed.operator.userId),
+      payload: {
+        type: "fee",
+        structure: "guarantee",
+        name: "Support fee",
+        guaranteeAmount: "50000",
+        parties: [
+          { participantId: seed.pPart, roleInDeal: "payer" },
+          { participantId: seed.bPart, roleInDeal: "payee" },
+        ],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const refused = await compute(seed.event.id, seed.operator.userId);
+    expect(refused.statusCode).toBe(409);
+    const message = refused.json().error.message as string;
+    expect(message).toContain("Support fee");
+    expect(message).toContain("has not been sent to its parties");
+
+    // Sent, but only half signed — the wording moves with the state.
+    const sent = await app.inject({
+      method: "POST",
+      url: `/api/v1/deals/${created.json().id}/send`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(sent.statusCode).toBe(200);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/deals/${created.json().id}/confirm`,
+          headers: auth(seed.operator.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+    const half = await compute(seed.event.id, seed.operator.userId);
+    expect(half.statusCode).toBe(409);
+    expect(half.json().error.message).toContain("waiting on 1 of 2 signatures");
+
+    // The band signs, and the door opens on all three agreements.
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/deals/${created.json().id}/confirm`,
+          headers: auth(seed.band.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+    const opened = await compute(seed.event.id, seed.operator.userId);
+    expect(opened.statusCode).toBe(200);
+    const body = opened.json();
+    const byId = new Map<string, string>(
+      body.breakdowns.map((row: { participantId: string; net: string }) => [
+        row.participantId,
+        row.net,
+      ]),
+    );
+    // 300 000 guarantee + 50 000 support fee to the band; the venue's rental
+    // unchanged; the operator takes what is left of the 850 000 pool.
+    expect(byId.get(seed.bPart)).toBe("350000");
+    expect(byId.get(seed.vPart)).toBe("100000");
+    expect(byId.get(seed.pPart)).toBe("-450000");
+    expect(sumOfNets(body)).toBe(0n);
+  });
+
+  /**
+   * AN EVENT WITH NO DEALS AT ALL IS NOT BLOCKED, and that is deliberate rather
+   * than incidental.
+   *
+   * A show with only budget lines — an operator reconciling their own door and
+   * their own costs — has no agreement to wait for. Refusing it would make the
+   * settlement unreachable with no action that opens it, which is a gate that
+   * strands work rather than one that protects money. story.md has the operator
+   * taking the residual, and with nobody else entitled the residual is the whole
+   * pool.
+   */
+  it("opens for an event with no deals at all — there is nothing to wait for", async () => {
+    const seed = await seedWorkedExample("door-no-deals");
+    const deals = await harness.db
+      .select()
+      .from(schema.deals)
+      .where(eq(schema.deals.eventId, seed.event.id));
+    for (const deal of deals) {
+      await harness.db.delete(schema.dealParties).where(eq(schema.dealParties.dealId, deal.id));
+    }
+    await harness.db.delete(schema.deals).where(eq(schema.deals.eventId, seed.event.id));
+
+    const response = await compute(seed.event.id, seed.operator.userId);
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.pool).toBe("850000");
+    const byId = new Map<string, string>(
+      body.breakdowns.map((row: { participantId: string; net: string }) => [
+        row.participantId,
+        row.net,
+      ]),
+    );
+    // The operator collected the pool and is entitled to all of it — net zero, and
+    // nothing to transfer to anybody.
+    expect(byId.get(seed.pPart)).toBe("0");
+    expect(byId.get(seed.vPart)).toBe("0");
+    expect(byId.get(seed.bPart)).toBe("0");
+    expect(sumOfNets(body)).toBe(0n);
+    expect(body.transfers).toHaveLength(0);
+  });
+
+  /**
+   * A CANCELLED DEAL DOES NOT HOLD THE DOOR SHUT. It is withdrawn — nobody is
+   * waiting on a signature for an agreement that is no longer happening, and
+   * `reconcileEvent` already entitles nobody under it (`ne(status, 'cancelled')`).
+   * The gate reads the rows that clause returns, so the two cannot disagree.
+   */
+  it("is not held shut by a cancelled deal, however unsigned it is", async () => {
+    const seed = await seedWorkedExample("door-cancelled");
+    const guarantee = await bandGuaranteeOf(seed.event.id);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/deals/${guarantee.id}/reopen`,
+          headers: auth(seed.operator.userId),
+          payload: {},
+        })
+      ).statusCode,
+    ).toBe(200);
+    // Unsigned, so the door is shut...
+    expect((await compute(seed.event.id, seed.operator.userId)).statusCode).toBe(409);
+
+    // ...until the agreement is withdrawn through the real route.
+    const cancelled = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${guarantee.id}`,
+      headers: auth(seed.operator.userId),
+      payload: { status: "cancelled" },
+    });
+    expect(cancelled.statusCode).toBe(200);
+
+    const response = await compute(seed.event.id, seed.operator.userId);
+    expect(response.statusCode).toBe(200);
     const body = response.json();
     const byId = new Map<string, string>(
       body.breakdowns.map((row: { participantId: string; net: string }) => [
@@ -3655,9 +3978,206 @@ describe("settlement — deal status at the engine boundary", () => {
         row.net,
       ]),
     );
+    // The band is owed nothing under a withdrawn deal; the venue's signed rental
+    // stands; the operator absorbs the difference in the residual.
     expect(byId.get(seed.bPart)).toBe("0");
-    expect(byId.get(seed.vPart)).toBe("0");
-    expect(byId.get(seed.pPart)).toBe("0");
+    expect(byId.get(seed.vPart)).toBe("100000");
+    expect(byId.get(seed.pPart)).toBe("-100000");
     expect(sumOfNets(body)).toBe(0n);
+  });
+
+  /**
+   * FINALIZE IS THE SECOND DOOR, and it refuses too.
+   *
+   * It re-derives the whole settlement through `reconcileEvent` before freezing an
+   * immutable snapshot and locking the FX. Freezing the legal record of what each
+   * party is owed under an agreement that has been reopened for renegotiation is
+   * precisely the record that must not be written — the terms are, by definition,
+   * in flux. A rule enforced at one call site is enforced nowhere.
+   */
+  it("refuses to finalize while an agreement is unsigned, and freezes nothing", async () => {
+    const seed = await seedWorkedExample("door-finalize");
+    expect((await compute(seed.event.id, seed.operator.userId)).statusCode).toBe(200);
+
+    const guarantee = await bandGuaranteeOf(seed.event.id);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/deals/${guarantee.id}/reopen`,
+          headers: auth(seed.operator.userId),
+          payload: {},
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    const refused = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.message).toContain("Band guarantee");
+
+    const rows = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    expect(rows.every((row) => row.status !== "finalized")).toBe(true);
+    const snapshots = await harness.db
+      .select()
+      .from(schema.settlementSnapshots)
+      .where(eq(schema.settlementSnapshots.eventId, seed.event.id));
+    expect(snapshots).toHaveLength(0);
+  });
+
+  /**
+   * WHAT A REOPENED DEAL DOES TO A SETTLEMENT SOMEBODY IS MID-WAY THROUGH: it stops
+   * the FIGURES moving, and nothing else.
+   *
+   * This is the case worth being careful about, because a gate that strands work is
+   * worse than no gate. `POST /deals/:did/reopen` clears every confirmation and puts
+   * the deal back to `sent`, so from that moment the door is shut — but the review
+   * conversation, a party's objection, and marking cash as received all carry on,
+   * because none of them restates the night. The way out is one act: sign the
+   * agreement again, or withdraw it.
+   */
+  it("stops a recompute after a reopen, but strands nothing that was already open", async () => {
+    const seed = await seedWorkedExample("door-reopen-midway");
+    expect((await compute(seed.event.id, seed.operator.userId)).statusCode).toBe(200);
+    const before = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+
+    const guarantee = await bandGuaranteeOf(seed.event.id);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/deals/${guarantee.id}/reopen`,
+          headers: auth(seed.operator.userId),
+          payload: {},
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    // The figures may not move...
+    expect((await compute(seed.event.id, seed.operator.userId)).statusCode).toBe(409);
+
+    // ...and they have not: the stored breakdowns are byte-for-byte what the
+    // compute before the reopen wrote.
+    const after = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    expect(after.map((row) => row.computed)).toEqual(before.map((row) => row.computed));
+
+    // Everything that is not the arithmetic carries on. Reading it:
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlements`,
+      headers: auth(seed.band.userId),
+    });
+    expect(read.statusCode).toBe(200);
+    // Saying it is wrong:
+    const commented = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/comments`,
+      headers: auth(seed.band.userId),
+      payload: { message: "My fee is being renegotiated — hold this." },
+    });
+    expect(commented.statusCode).toBe(201);
+    const disputed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/status`,
+      headers: auth(seed.band.userId),
+      payload: { status: "dispute" },
+    });
+    expect(disputed.statusCode).toBe(200);
+    // And recording cash that really did move:
+    const [transfer] = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.eventId, seed.event.id));
+    if (!transfer) throw new Error("transfer missing");
+    const paid = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.event.id}/transfers/${transfer.id}`,
+      headers: auth(seed.operator.userId),
+      payload: { state: "paid" },
+    });
+    expect(paid.statusCode).toBe(200);
+
+    // The one act that reopens the door is the one the reopen was for.
+    for (const userId of [seed.operator.userId, seed.band.userId]) {
+      expect(
+        (
+          await app.inject({
+            method: "POST",
+            url: `/api/v1/deals/${guarantee.id}/confirm`,
+            headers: auth(userId),
+          })
+        ).statusCode,
+      ).toBe(200);
+    }
+    const reopened = await compute(seed.event.id, seed.operator.userId);
+    expect(reopened.statusCode).toBe(200);
+    expect(sumOfNets(reopened.json())).toBe(0n);
+  });
+
+  /**
+   * A FINALIZED SETTLEMENT IS UNTOUCHED, and it answers with the RIGHT refusal.
+   *
+   * Ordering matters here: `assertNotFinalized` runs before `reconcileEvent`, so a
+   * finalized settlement whose deal is later reopened still says "finalized — the
+   * figures are locked", not "go and get a signature". Telling an operator to chase
+   * a signature that would change nothing is the "right status, wrong reason" trap
+   * the verify-e2e skill names.
+   */
+  it("keeps saying `finalized` — not `unsigned` — once the figures are frozen", async () => {
+    const seed = await seedWorkedExample("door-reopen-finalized");
+    expect((await compute(seed.event.id, seed.operator.userId)).statusCode).toBe(200);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+          headers: auth(seed.operator.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    const guarantee = await bandGuaranteeOf(seed.event.id);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/deals/${guarantee.id}/reopen`,
+          headers: auth(seed.operator.userId),
+          payload: {},
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    const refused = await compute(seed.event.id, seed.operator.userId);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.message).toContain("finalized");
+    expect(refused.json().error.message).not.toContain("Band guarantee");
+
+    // And the transfers can still be settled, which is the whole point of the
+    // finalized state.
+    const [transfer] = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.eventId, seed.event.id));
+    if (!transfer) throw new Error("transfer missing");
+    const paid = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.event.id}/transfers/${transfer.id}`,
+      headers: auth(seed.operator.userId),
+      payload: { state: "paid" },
+    });
+    expect(paid.statusCode).toBe(200);
   });
 });

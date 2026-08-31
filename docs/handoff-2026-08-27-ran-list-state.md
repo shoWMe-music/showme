@@ -109,43 +109,75 @@ Full scope for the first four is in `backlog-2026-08-27-feature-scopes.md`.
 
 1. **Budget Planner regression test** — `shiftedTwoPlaces` is a pure function with
    no test, because `apps/web` has no unit runner. Blocked on [86cbazcf3](https://app.clickup.com/t/86cbazcf3).
-2. **`reconcileEvent` does not filter deals by `status`** — PARTLY FIXED
-   2026-08-31, and **the second half of this entry was WRONG**. Read on before
-   acting on it.
+2. **`reconcileEvent` does not filter deals by `status`** — **DONE 2026-08-31.**
+   Both halves. Read the whole entry before re-opening it: the middle of this
+   story is a fix that would have been a disaster, and the shape of it is worth
+   keeping.
 
-   **`deals.status` HAS NO WRITER ANYWHERE IN THE PRODUCT.** Nothing sets it to
-   `confirmed` — not the event wizard (`routes/events.ts` says so in as many
-   words: "Both status columns stay on their defaults"), not `POST
-   /deals/:did/confirm` (which advances only `agreement_status`), not any screen.
-   `PATCH /deals/:did` accepts it in its Zod body and no caller ever sends it.
-   Only `seed.ts` and `seed-e2e.ts` write `confirmed`. `docs/db-build-plan.md:50`
-   already flagged the enum as an unratified assumption.
+   **What was wrong.** `deals.status` had an enum, two readers, and NO WRITER
+   ANYWHERE IN THE PRODUCT. It defaulted to `draft` and stayed there for every
+   deal any operator ever created — the wizard said so in as many words, both
+   confirm doors advanced only `agreement_status`, and no screen sent it. Only
+   `seed.ts` / `seed-e2e.ts` wrote `confirmed`, and `db-build-plan.md:50` had
+   flagged the whole enum as an unratified assumption.
 
-   So the "obvious" fix — filter to `status = 'confirmed'` — **would have
-   dropped every deal any operator ever created, collapsed every entitlement
-   into the operator's residual, and paid the performers zero.** It would have
-   satisfied `Σ net = 0` perfectly while being entirely wrong. Do not do it.
+   **The fix NOT made, on 2026-08-31's first pass.** Filtering the engine to
+   `status = 'confirmed'` while nothing wrote it would have dropped every deal
+   an operator ever created, collapsed every entitlement into the operator's
+   residual, and **paid the performers zero** — while satisfying `Σ net = 0`
+   perfectly. Only `cancelled` was filtered; `draft` kept settling, with an
+   `it.skip` holding the reasoning.
 
-   **Fixed:** `cancelled` no longer settles (one `ne()` clause,
-   `routes/settlement.ts:629`). Unambiguous, needs no decision.
-   **Still open:** `draft` still settles, deliberately, with an `it.skip` in
-   `settlement.test.ts` ready to flip the day the axis question is answered.
+   **What landed on the second pass (Daniel's decision: give the column a real
+   writer).**
+   - **The writer is the signature rollup**, in `apps/api/src/lib/deal-confirmation.ts`
+     beside the freeze — so BOTH doors get it (`POST /deals/:did/confirm` and
+     `POST /shares/:token/approve`). `status → 'confirmed'` when the last
+     signatory line is stamped, which is the same condition that freezes
+     `confirmed_snapshot`.
+   - **`POST /deals/:did/reopen` writes it back to `draft`.** Reopening tears up
+     every signature; a `status` left at `confirmed` would be a high-water mark,
+     not a fact, and the Budget Planner would keep rendering a read-only fee from
+     an agreement under renegotiation.
+   - **`PATCH /deals/:did` now REFUSES a hand-set `confirmed`** (400, "confirmed
+     by its parties' signatures, not by hand"). It had always accepted `status`
+     in its Zod body, which was harmless while the column was inert and is not
+     harmless now: `deal.edit` belongs to ONE side of an agreement.
+   - **`cancelled` has no dedicated route and none was invented.** That same
+     PATCH is the whole cancel path in the product (`DELETE /deals/:did` hard-
+     deletes the row instead), and nothing in `apps/web` sends it yet. A
+     signature does not un-cancel a withdrawn deal — the writer preserves
+     `cancelled` deliberately.
+   - **Migration `0030_a_deal_is_confirmed_by_its_signatures.sql`** backfills
+     `status = 'confirmed'` from `agreement_status IN ('confirmed','signed')`,
+     never touches `cancelled`, and **refuses** (guarded `RAISE`) if it finds the
+     mirror-image row — `status = 'confirmed'` on an agreement still draft/sent —
+     rather than demoting it silently. Tested both ways on a throwaway database.
 
-   **MY EARLIER CLAIM ABOUT THE BUDGET PLANNER WAS INVERTED.** This file said
-   "the planner shows only confirmed deals, so a draft deal displays nothing".
-   The truth is worse: `apps/web/src/components/useBudgetSeed.ts:196` gates on
-   `deal.status !== "confirmed"`, and since NOTHING writes that column, the
-   "Performer fee" heading is blank for **every deal created in the app** — it
-   only ever populates for seeded data. Not just draft deals. All of them.
+   **The engine still gates on `cancelled` ONLY, and that is now a decision
+   rather than an obstruction.** Once the writer exists, `status` is
+   `agreement_status IN ('confirmed','signed')` under another name, so gating on
+   it answers "may an unsigned agreement settle?" — which is a product question
+   nobody has answered. And the failure mode has not changed shape: a deal one
+   signature short (including the OPERATOR'S OWN payer line) would pay its
+   performer nothing, with `Σ net = 0` intact and nothing in the response saying
+   a deal was dropped. **Measured:** flipping the clause turns **33 of the 76
+   tests in `settlement.test.ts` red**, all of them `expected '0' to be
+   '300000'`-shaped. The `it.skip` is GONE — replaced by two passing tests that
+   pin both halves (a signed deal settles and reads `confirmed`; a deal in
+   flight settles too). If the product later wants unsigned agreements excluded,
+   it is one clause in `routes/settlement.ts` and the cost above is the price tag.
 
-   **The real question is which axis.** `agreement_status`
-   (`draft → sent → confirmed → signed`) is the one the app actually moves;
-   `deals.status` is an enum with no motion. Answering "may an unsigned deal
-   settle?" is a question about `agreement_status`, and either that column gets
-   a real writer or it should be retired in favour of gating on
-   `agreement_status IN ('confirmed','signed')`. Blast radius is large in the
-   test suite (every settlement fixture seeds on both `draft` defaults) and
-   **zero in production, which has no deal data**.
+   **The Budget Planner is fixed by the writer, with no web change.**
+   `useBudgetSeed.ts:196` gates on `status === 'confirmed'`, which is why the
+   "Performer fee" heading was blank for every deal made in the app. Verified in
+   the browser as the operator: a deal created, sent and signed entirely in the
+   app now renders **"Performer fee — SEK 25,000 · Read from the deal 'Headline
+   fee'"** as the read-only heading, and reopening the agreement puts the row
+   back to a blank, typeable input. (My 2026-08-27 claim that the planner "shows
+   only confirmed deals so a draft shows nothing" was inverted; the 2026-08-31
+   correction of it stands.)
+
 3. **The hold pool is not scoped to an operator** — `loadSiblings` keys on
    (date, venue, stage) only, so two operators' holds share one queue. Proven
    live: a rival's hold collided at rank 1 with an existing rank 1, and

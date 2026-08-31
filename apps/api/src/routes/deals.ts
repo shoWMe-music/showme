@@ -157,6 +157,10 @@ const UpdateDealBody = z.object({
   splitBasisPoints: z.number().int().optional(),
   paymentTiming: paymentTimingEnum.optional(),
   priority: z.number().int().optional(),
+  /**
+   * `draft` or `cancelled` only — see the guard in the handler. `confirmed` is
+   * derived from the parties' signatures and is refused here.
+   */
   status: dealStatusEnum.optional(),
   /** Expected version for optimistic locking (decisions #8); mismatch → 409. */
   expectedVersion: z.number().int().optional(),
@@ -430,6 +434,27 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
       const { authority: viewer } = await requireDealAccess(request, before, "deal.edit");
 
       const { expectedVersion, guaranteeAmount, advanceAmount, ...rest } = request.body;
+      // CONFIRMATION IS DERIVED FROM SIGNATURES, NEVER TYPED.
+      //
+      // This body has always accepted `status`, and while the column was inert
+      // (nothing anywhere wrote it) that was harmless. It stopped being harmless
+      // on 2026-08-31, when the last signature started advancing it: `deal.edit`
+      // is held by ONE side of an agreement — the operator on its own deals, an
+      // agent on its clients' — so a hand-set `confirmed` here would let that side
+      // declare the other side's signature. Both readers would believe it: the
+      // engine would settle a deal nobody signed, and the Budget Planner would
+      // render its fee as the signed, un-editable heading its own contract says
+      // may only ever come from an agreement "both parties have signed".
+      //
+      // `cancelled` and `draft` stay writable. Withdrawing an agreement is the
+      // operator's own call, this PATCH is the only route in the product that does
+      // it (`DELETE /deals/:did` hard-deletes the row instead), and it is what the
+      // engine's `ne(status, 'cancelled')` filter reads.
+      if (rest.status === "confirmed") {
+        throw badRequest(
+          "A deal is confirmed by its parties' signatures, not by hand — POST /deals/:did/confirm",
+        );
+      }
       const fields = {
         ...rest,
         ...(guaranteeAmount != null ? { guaranteeAmount: BigInt(guaranteeAmount) } : {}),
@@ -743,6 +768,16 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
           .update(schema.deals)
           .set({
             agreementStatus: "sent",
+            // AND THE DEAL GOES BACK WITH IT. `deals.status` is written forward by
+            // the last signature (`lib/deal-confirmation.ts`); reopening tears
+            // every signature up, so a `status` left reading `confirmed` would be
+            // a high-water mark rather than a fact — and its two readers would act
+            // on it. The Budget Planner would keep rendering the fee as a signed,
+            // READ-ONLY heading ("a number you cannot edit had better be one both
+            // parties have signed", `useBudgetSeed`) for terms that are back under
+            // negotiation. A withdrawn deal stays withdrawn: reopening an
+            // agreement is not a way to un-cancel the deal it belonged to.
+            status: deal.status === "cancelled" ? "cancelled" : "draft",
             confirmedSnapshot: null,
             reopen: {
               reopenedBy: principal.userId,

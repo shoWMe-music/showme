@@ -20,7 +20,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
 import { settlementRoutes } from "./routes/settlement";
-import { buildTestApp } from "./testing";
+import { buildTestApp, signEveryAgreement } from "./testing";
 
 /**
  * The reference concluded event — the fixture both seeds ship as the platform's
@@ -227,6 +227,13 @@ async function seedReferenceEvent(prefix: string, settled: boolean): Promise<Ref
       })),
     );
   }
+
+  // Signed, because since 2026-08-31 a settlement cannot open otherwise
+  // (decisions.md #21). The fixture inserts its `deals` row straight into the
+  // table, so it needs the agreement walked to `confirmed` the way the real
+  // confirm routes walk it — which is exactly what `signEveryAgreement` does,
+  // through the product's own `confirmDealIfComplete`.
+  await signEveryAgreement(db, event.id);
 
   return {
     eventId: event.id,
@@ -579,6 +586,9 @@ describe("the seeded album split deal (A-01's leftover)", () => {
         ...line,
       })),
     );
+
+    // The agreement is signed before the settlement may open (decisions.md #21).
+    await signEveryAgreement(db, event.id);
 
     const response = await app.inject({
       method: "POST",

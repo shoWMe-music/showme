@@ -782,6 +782,189 @@ describe("deals — an agreement must be SENT before anybody can sign it", () =>
   });
 });
 
+/**
+ * `deals.status` GETS A WRITER — the column stops being decoration.
+ *
+ * Until 2026-08-31 nothing in the product ever moved it. It defaulted to `draft`
+ * and stayed there for every deal any operator ever created: `routes/events.ts`
+ * said so in as many words, both confirm doors advanced only `agreement_status`,
+ * and no screen sent it. Two readers had already been written against it and both
+ * were therefore dead — the engine's `ne(status, 'cancelled')` filter
+ * (`routes/settlement.ts`) and the Budget Planner's "Performer fee" heading
+ * (`apps/web/src/components/useBudgetSeed.ts`, which gates on
+ * `status === 'confirmed'` and so was blank for every deal made in the app).
+ *
+ * THE WRITER IS THE ROLLUP, NOT THE ROUTE. It lives in `confirmDealIfComplete`,
+ * beside the freeze, for the reason that module exists at all: there are TWO
+ * doors onto a signature (`POST /deals/:did/confirm` and
+ * `POST /shares/:token/approve`), they differ only in how they decide WHO may
+ * sign, and they must not differ by a line in what signing DOES. `shares.test.ts`
+ * asserts the off-platform door lands in the same place.
+ *
+ * WHAT "CONFIRMED" MEANS HERE is exactly what it means for the agreement: every
+ * signatory line stamped (`allSignatoriesConfirmed` — observers watch, they do not
+ * sign). One party short is not a confirmed deal, and the column says so.
+ */
+describe("deals — the last signature confirms the DEAL, not only the agreement", () => {
+  /** The stored row, which is the thing the two readers actually query. */
+  const statusOf = async (dealId: string) => {
+    const [row] = await harness.db.select().from(schema.deals).where(eq(schema.deals.id, dealId));
+    return { status: row?.status, agreementStatus: row?.agreementStatus };
+  };
+
+  it("advances status to confirmed when the LAST signatory signs, and not before", async () => {
+    const deal = await seedSplitDeal("dstat");
+    expect(await statusOf(deal.dealId)).toEqual({ status: "draft", agreementStatus: "sent" });
+
+    // Two of three signatories. The agreement is still `sent`, and so is the deal:
+    // a deal one signature short is not an agreement anybody may be paid under.
+    expect((await confirm(deal.dealId, deal.opUid)).statusCode).toBe(200);
+    expect(await statusOf(deal.dealId)).toEqual({ status: "draft", agreementStatus: "sent" });
+    expect((await confirm(deal.dealId, deal.aUid)).statusCode).toBe(200);
+    expect(await statusOf(deal.dealId)).toEqual({ status: "draft", agreementStatus: "sent" });
+
+    // The last one. Both columns move together, in one write.
+    const last = await confirm(deal.dealId, deal.bUid);
+    expect(last.statusCode).toBe(200);
+    expect(last.json().status).toBe("confirmed");
+    expect(await statusOf(deal.dealId)).toEqual({
+      status: "confirmed",
+      agreementStatus: "confirmed",
+    });
+  });
+
+  it("does not advance a deal whose signatory lines are not all stamped", async () => {
+    const deal = await seedSplitDeal("dstat2");
+    // Only the operator signs, and then signs again — confirm is idempotent per
+    // party, so a caller cannot walk the deal forward by repeating themselves.
+    expect((await confirm(deal.dealId, deal.opUid)).statusCode).toBe(200);
+    expect((await confirm(deal.dealId, deal.opUid)).statusCode).toBe(200);
+    expect(await statusOf(deal.dealId)).toEqual({ status: "draft", agreementStatus: "sent" });
+
+    const unstamped = await harness.db
+      .select()
+      .from(schema.dealParties)
+      .where(eq(schema.dealParties.dealId, deal.dealId));
+    expect(unstamped.filter((party) => party.confirmedAt == null)).toHaveLength(2);
+  });
+
+  /**
+   * REOPEN PUTS IT BACK, and this is the half that would rot silently if it were
+   * missed. `reopen` clears every signature and returns `agreement_status` to
+   * `sent`; a `status` left reading `confirmed` would then be a deal the Budget
+   * Planner still renders as a signed, READ-ONLY "Performer fee" — a figure the
+   * operator cannot edit on the budget screen, sourced from an agreement that has
+   * just been torn up. The column has to be able to go backwards or it is not a
+   * fact, it is a high-water mark.
+   */
+  it("returns status to draft when a confirmed agreement is reopened", async () => {
+    const deal = await seedSplitDeal("dstat3");
+    await confirm(deal.dealId, deal.opUid);
+    await confirm(deal.dealId, deal.aUid);
+    await confirm(deal.dealId, deal.bUid);
+    expect(await statusOf(deal.dealId)).toEqual({
+      status: "confirmed",
+      agreementStatus: "confirmed",
+    });
+
+    const reopened = await reopen(deal.dealId, deal.opUid, "renegotiate the door split");
+    expect(reopened.statusCode).toBe(200);
+    expect(reopened.json().status).toBe("draft");
+    expect(await statusOf(deal.dealId)).toEqual({ status: "draft", agreementStatus: "sent" });
+
+    // And it can be signed back up to confirmed — the transition is a cycle, not a
+    // one-way latch.
+    await confirm(deal.dealId, deal.opUid);
+    await confirm(deal.dealId, deal.aUid);
+    await confirm(deal.dealId, deal.bUid);
+    expect(await statusOf(deal.dealId)).toEqual({
+      status: "confirmed",
+      agreementStatus: "confirmed",
+    });
+  });
+
+  /**
+   * AND NOBODY MAY TYPE IT. `PATCH /deals/:did` has always accepted `status` in
+   * its Zod body; no caller ever sent it, so while the column was inert this was
+   * harmless. It is not harmless now. `deal.edit` belongs to the operator ALONE on
+   * its own deals, so a hand-set `confirmed` would let one side of an agreement
+   * declare the other side's signature — and the Budget Planner's contract for
+   * that heading is explicitly "a number you cannot edit had better be one both
+   * parties have signed". Confirmation is derived from signatures or it means
+   * nothing.
+   *
+   * `cancelled` and `draft` stay writable: withdrawing an agreement is the
+   * operator's own call and there is no other route that does it (see below).
+   */
+  it("refuses to hand-set status = confirmed on the deal PATCH", async () => {
+    const deal = await seedSplitDeal("dstat4");
+    const forged = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${deal.dealId}`,
+      headers: auth(deal.opUid),
+      payload: { status: "confirmed" },
+    });
+    expect(forged.statusCode).toBe(400);
+    expect(await statusOf(deal.dealId)).toEqual({ status: "draft", agreementStatus: "sent" });
+  });
+
+  /**
+   * THE ONLY WRITER OF `cancelled` IN THE PRODUCT, and it is worth naming because
+   * the settlement engine reads it: `reconcileEvent` drops a cancelled deal
+   * outright (2026-08-31). There is no `POST /deals/:did/cancel` — `DELETE
+   * /deals/:did` hard-deletes the row instead — so this PATCH is the whole of the
+   * cancel path, and nothing in `apps/web` sends it yet.
+   */
+  it("still allows the PATCH to cancel a deal, and to restore it to draft", async () => {
+    const deal = await seedSplitDeal("dstat5");
+    const cancelled = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${deal.dealId}`,
+      headers: auth(deal.opUid),
+      payload: { status: "cancelled" },
+    });
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json().status).toBe("cancelled");
+
+    const restored = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${deal.dealId}`,
+      headers: auth(deal.opUid),
+      payload: { status: "draft" },
+    });
+    expect(restored.statusCode).toBe(200);
+    expect(restored.json().status).toBe("draft");
+  });
+
+  /**
+   * A CANCELLED DEAL IS NOT RESURRECTED BY A SIGNATURE. Cancelling does not touch
+   * `agreement_status`, so a withdrawn deal can still be sitting at `sent` with a
+   * live share link out — and the last signature to arrive would otherwise walk it
+   * to `confirmed` and put it straight back into the settlement, which is the
+   * money bug `ne(status, 'cancelled')` was added to close.
+   */
+  it("does not un-cancel a withdrawn deal when the last signature lands", async () => {
+    const deal = await seedSplitDeal("dstat6");
+    await confirm(deal.dealId, deal.opUid);
+    await confirm(deal.dealId, deal.aUid);
+    const cancelled = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${deal.dealId}`,
+      headers: auth(deal.opUid),
+      payload: { status: "cancelled" },
+    });
+    expect(cancelled.statusCode).toBe(200);
+
+    // The last signatory signs anyway — the agreement freezes (the terms they
+    // signed are still a record worth keeping), but the deal stays withdrawn.
+    expect((await confirm(deal.dealId, deal.bUid)).statusCode).toBe(200);
+    expect(await statusOf(deal.dealId)).toEqual({
+      status: "cancelled",
+      agreementStatus: "confirmed",
+    });
+  });
+});
+
 describe("deals — advance marker (decisions #1)", () => {
   it("round-trips advanceAmount and marks the guarantee as the advance on a guarantee_vs_door deal", async () => {
     const operator = await seedMemberWithSet(
