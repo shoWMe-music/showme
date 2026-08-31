@@ -39,9 +39,13 @@ product rule isn't written down, **infer it from story.md's purpose/boundary**, 
 - **Hosting:** **Firebase Hosting** (SPA + public SSR rewrites → Cloud Run). API on `api.` subdomain; SSE on `stream.` (bypasses the CDN).
 - **Files:** **Firebase Storage** (GCS); access via **API-issued signed URLs**; metadata in a `files` table.
 - **Email:** **Brevo.** **FX:** exchangerate-api (display only).
-- **Frontend:** **React 19 + Vite + TanStack** Router/Query (+ the incoming design). Public pages **full-SSR**'d by a
-  separate Vite SSR service (`apps/ssr`) on Cloud Run.
-- **Monorepo:** **pnpm** workspaces + **Turborepo**. `apps/` = `api`, `stream`, `web`, `ssr`; `packages/` = `db`,
+- **Frontend:** **React 19 + Vite + TanStack** Router/Query (+ the incoming design).
+  **`apps/ssr` DOES NOT EXIST and never has** (`docs/cicd-plan.md:49` — PLAN.md's full-SSR public
+  service is unbuilt). The public profile and event pages are **`apps/marketing`**, a plain Vite
+  static site that fetches `/public/*` from the **browser** after load. This line used to claim
+  otherwise and cost an agent a wrong conclusion on 2026-08-31 (it reasoned about caching a
+  server-rendered page that does not exist) — do not re-inherit it.
+- **Monorepo:** **pnpm** workspaces + **Turborepo**. `apps/` = `api`, `stream`, `web`, `marketing`, `jobs`; `packages/` = `db`,
   `shared`, `auth`, `settlement`, `ui`, `api-client`.
 - **Types across the stack:** drizzle-zod → Fastify OpenAPI → **orval**-generated TanStack Query hooks (`packages/api-client`).
 - **Tooling:** **Node 22**, **Biome** (lint/format), **Vitest** + **Testcontainers** + **Playwright**, **drizzle-kit**
