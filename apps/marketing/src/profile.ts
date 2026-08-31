@@ -1052,8 +1052,8 @@ function renderFindUs(profile: PublicProfile): HTMLElement | null {
  *   (`availability-request.ts`) and POSTs the same public, unauthenticated
  *   `POST /booking-requests`. It lands in the target's Requests inbox like any
  *   other. The availability page binds it to a date the sharer published; a
- *   profile has no such list, so it opens with no date — `wanted_date` is
- *   nullable and the API's public body makes it optional.
+ *   profile has no such list, so the form carries its own date field (and room
+ *   for a few alternatives) — every request names a night since 2026-08-31.
  *
  *   Sign in for documents goes to the app. The documents themselves are not here
  *   and never will be; the lane's job is to say they exist and that there is a

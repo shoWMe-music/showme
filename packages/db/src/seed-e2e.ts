@@ -1522,6 +1522,9 @@ async function main() {
           phone: "+46 70 123 45 67",
           artistName: "The Midnight Echo",
           wantedDate: dateOffsetFromToday(38),
+          // The alternates a sender may name (up to five), so the inbox's
+          // "these also work" line has something to render.
+          additionalDates: [dateOffsetFromToday(45), dateOffsetFromToday(52)],
           artistFee: 3000000n, // 30 000.00 SEK asking fee
           pitch:
             "Four-piece indie rock, just wrapped a Nordic club tour. Would love a Friday slot.",
@@ -1604,6 +1607,12 @@ async function main() {
           artistName: E2E_ACCOUNTS.performerB.profileName,
           wantedDate: dateOffsetFromToday(32),
           offerFeeMin: 1500000n, // 15 000.00 SEK
+          // Read, and by whom — the shared-inbox state the Requests screen shows.
+          // Only this one, so the Unread chip and the sidebar's unread badge both
+          // have something to count and something to leave out. (The demo seed
+          // marks its own accepted row the same way, for the same reason.)
+          readAt: new Date(),
+          readByUserId: operatorUserId,
           pitch: "Synth-pop live set, seated show. Confirmed and looking forward to it.",
           senderType: "performer",
           performerType: "band",

@@ -2432,3 +2432,168 @@ describe("deals — terms & conditions text (product review 86cbaxv2a)", () => {
     expect(JSON.stringify(summary)).not.toContain("Hospitality");
   });
 });
+
+/**
+ * A DEAL WITHOUT A COLLABORATOR — the standalone operator.
+ *
+ * The product owner's finding: *"I can't create deals in the deals tab if there
+ * is no collaborator connected. Why? A user should be able to use the system
+ * also as a standalone if they like. Deal details like all details should be
+ * able to be inserted regardless of collaborators or connectivity."*
+ *
+ * A deal is a record of terms first and a settlement input second. It may name
+ * nobody it PAYS — the engine then settles it as nothing and the night's money
+ * stays with the operator's residual, which is exactly right and which
+ * `settlement.test.ts` proves with `Σ net = 0` rather than asserting.
+ *
+ * The one shape that is still refused is the incoherent one: money stated as
+ * already paid, to nobody. Left open it is not a policy question but a 500 —
+ * `reconcile()` throws "names no payee" and the operator gets
+ * `{"error":{"code":"internal"}}` on every compute from then on.
+ */
+describe("deals — a standalone operator, alone on the event", () => {
+  it("creates a deal naming only the operator, with nobody paid by it", async () => {
+    const operator = await seedMemberWithSet(
+      "solo-deal-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const { event, participants } = await seedEvent(
+      operator,
+      [{ ...operator, role: "host" }],
+      "solo-deal-op",
+    );
+    const host = participants[0];
+    if (!host) throw new Error("participant seed failed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("solo-deal-op"),
+      payload: {
+        type: "performance",
+        structure: "guarantee",
+        name: "Door money to the house",
+        guaranteeAmount: "300000",
+        paymentTiming: "at_settlement",
+        parties: [{ participantId: host.id, roleInDeal: "payer" }],
+      },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(response.json().parties).toHaveLength(1);
+    expect(response.json().guaranteeAmount).toBe("300000");
+  });
+
+  it("refuses money stated as paid before the event with nobody it was paid to", async () => {
+    const operator = await seedMemberWithSet(
+      "solo-prepaid-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const { event, participants } = await seedEvent(
+      operator,
+      [{ ...operator, role: "host" }],
+      "solo-prepaid-op",
+    );
+    const host = participants[0];
+    if (!host) throw new Error("participant seed failed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("solo-prepaid-op"),
+      payload: {
+        type: "performance",
+        structure: "guarantee",
+        name: "Paid up front to nobody",
+        guaranteeAmount: "300000",
+        advanceAmount: "100000",
+        paymentTiming: "before_event",
+        parties: [{ participantId: host.id, roleInDeal: "payer" }],
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toContain("names nobody it was paid to");
+  });
+
+  it("refuses the same shape reached through a PATCH, not only at create", async () => {
+    const operator = await seedMemberWithSet(
+      "solo-patch-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const { event, participants } = await seedEvent(
+      operator,
+      [{ ...operator, role: "host" }],
+      "solo-patch-op",
+    );
+    const host = participants[0];
+    if (!host) throw new Error("participant seed failed");
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("solo-patch-op"),
+      payload: {
+        type: "performance",
+        structure: "guarantee",
+        name: "Fine at first",
+        guaranteeAmount: "300000",
+        paymentTiming: "at_settlement",
+        parties: [{ participantId: host.id, roleInDeal: "payer" }],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${created.json().id}`,
+      headers: auth("solo-patch-op"),
+      payload: { paymentTiming: "before_event" },
+    });
+    expect(patched.statusCode).toBe(400);
+    expect(patched.json().error.message).toContain("names nobody it was paid to");
+  });
+
+  it("still allows a prepaid deal that DOES name a payee", async () => {
+    const operator = await seedMemberWithSet(
+      "solo-ok-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const act = await seedMemberWithSet(
+      "solo-ok-act",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const { event, participants } = await seedEvent(
+      operator,
+      [
+        { ...operator, role: "host" },
+        { ...act, role: "performer" },
+      ],
+      "solo-ok-op",
+    );
+    const [host, band] = participants;
+    if (!host || !band) throw new Error("participant seed failed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("solo-ok-op"),
+      payload: {
+        type: "performance",
+        structure: "guarantee",
+        name: "Advance paid",
+        guaranteeAmount: "300000",
+        advanceAmount: "100000",
+        paymentTiming: "before_event",
+        parties: [
+          { participantId: host.id, roleInDeal: "payer" },
+          { participantId: band.id, roleInDeal: "payee" },
+        ],
+      },
+    });
+    expect(response.statusCode).toBe(201);
+  });
+});

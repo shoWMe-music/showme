@@ -1,6 +1,7 @@
 import { Avatar, Button, EmptyState, Icon, StatusDot, TabPanels } from "@showme/design-system";
 import { useNavigate } from "@tanstack/react-router";
 import type { CSSProperties } from "react";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DateText } from "../components/DateText";
 import { type EventMenuItem, EventRowMenu, rowClickTargetStyle } from "../components/EventRowMenu";
 import { GradientButton } from "../components/eventUi";
@@ -129,7 +130,7 @@ export function Events() {
   // Filing an event away, from either view. The hook owns the calls, the toast
   // (with its Undo) and the cache invalidation; the rows below just draw what it
   // says the menu offers.
-  const { menuItems } = useEventArchive();
+  const { menuItems, confirmDialogProps } = useEventArchive();
   const viewPanel = useEventsViewMotion(view);
 
   const openEvent = (eventId: string) => navigate({ to: "/events/$eventId", params: { eventId } });
@@ -201,6 +202,9 @@ export function Events() {
           </TabPanels>
         </div>
       )}
+      {/* One dialog for the whole screen — the row menu raises it, `useEventArchive`
+          holds the question, and both layouts share it. */}
+      <ConfirmDialog {...confirmDialogProps} />
     </div>
   );
 }

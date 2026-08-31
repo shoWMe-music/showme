@@ -16,6 +16,8 @@ export type PostApiV1OffersBody = {
   targetProfileId: string;
   /** @pattern ^\d{4}-\d{2}-\d{2}$ */
   wantedDate: string;
+  /** @maxItems 5 */
+  additionalDates?: string[];
   /** @pattern ^\d+$ */
   offerFeeMin?: string;
   /** @pattern ^\d+$ */

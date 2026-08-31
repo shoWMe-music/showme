@@ -45,12 +45,16 @@ describe("reapExpiredOffers", () => {
   it("expires only stale, pending performer offers", async () => {
     const { profileId } = await seedProfile(`offers-${randomUUID()}`);
 
+    // Each row names a different night: `wanted_date` is NOT NULL since migration
+    // 0031 (a request always names a date), and the pending-dedup index would
+    // collide two pending offers from one sender for one night.
     const [stale] = await harness.db
       .insert(schema.bookingRequests)
       .values({
         source: "performer_offer",
         status: "pending",
         targetProfileId: profileId,
+        wantedDate: "2027-01-05",
         createdAt: daysAgo(40),
       })
       .returning({ id: schema.bookingRequests.id });
@@ -60,6 +64,7 @@ describe("reapExpiredOffers", () => {
         source: "performer_offer",
         status: "pending",
         targetProfileId: profileId,
+        wantedDate: "2027-01-06",
         createdAt: daysAgo(5),
       })
       .returning({ id: schema.bookingRequests.id });
@@ -69,6 +74,7 @@ describe("reapExpiredOffers", () => {
         source: "public_form",
         status: "pending",
         targetProfileId: profileId,
+        wantedDate: "2027-01-07",
         createdAt: daysAgo(40),
       })
       .returning({ id: schema.bookingRequests.id });
@@ -78,6 +84,7 @@ describe("reapExpiredOffers", () => {
         source: "performer_offer",
         status: "accepted",
         targetProfileId: profileId,
+        wantedDate: "2027-01-08",
         createdAt: daysAgo(40),
       })
       .returning({ id: schema.bookingRequests.id });

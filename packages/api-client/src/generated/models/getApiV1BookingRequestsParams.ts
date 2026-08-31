@@ -16,4 +16,5 @@ cursor?: string;
 limit?: number;
 status?: GetApiV1BookingRequestsStatus;
 direction?: GetApiV1BookingRequestsDirection;
+unread?: boolean;
 };

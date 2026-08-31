@@ -755,6 +755,24 @@ async function reconcileEvent(
         deal.advanceAmount != null ? toBase(deal.advanceAmount, deal.currency) : undefined,
     });
 
+    // A DEAL THAT PREPAID NOBODY IS UNSETTLABLE, AND SAYS SO.
+    //
+    // `reconcile()` throws a bare `Error` here ("states money paid before the
+    // event but names no payee"), which reaches the caller as a 500 whose body is
+    // `{"error":{"code":"internal"}}` — the same opaque failure `unsettlableLine`
+    // exists to replace one layer down, and the same 409 for the same reason: the
+    // request is fine, the stored state is what blocks it. A deal that pays nobody
+    // is deliberately allowed (the standalone operator's own record); it is the
+    // money *already moved* to nobody that cannot be reconciled.
+    //
+    // `routes/deals.ts` refuses to WRITE this shape, so nothing reaches here that
+    // was authored after that guard. This catches the rows that were not.
+    if (payees.length === 0 && prepaidAmount > 0n) {
+      throw conflict(
+        `Deal "${deal.name}" (${deal.id}) states money paid before the event but names nobody it was paid to, so the settlement cannot balance. Give a party the Is paid role on it, or set it to settle at the event, then compute again.`,
+      );
+    }
+
     return {
       dealId: deal.id,
       structure: deal.structure,

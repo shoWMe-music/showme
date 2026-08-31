@@ -1,6 +1,7 @@
 import { type DealPartyRole, type EventRole, dealPartyBaselineCapabilities } from "@showme/auth";
 import { schema } from "@showme/db";
 import { dealPartyRecipients, notifyUsers } from "@showme/db/notify";
+import { type PrepaidTerms, prepaidAmountOf } from "@showme/settlement";
 import type { Capability } from "@showme/shared";
 import { and, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -239,6 +240,41 @@ async function assertPartiesAreEntitled(
 }
 
 /**
+ * A DEAL MAY PAY NOBODY. IT MAY NOT PREPAY NOBODY.
+ *
+ * The composer used to refuse any settling deal with no entitled line, which is
+ * what stopped a standalone operator writing a deal at all: alone on their own
+ * event the only party they can name is themselves, and the rule then demanded
+ * they mark themselves "Is paid". That refusal is gone (`@showme/shared`
+ * `dealDraftProblems`), and the money is unaffected — `settleDeal` claims `0n`
+ * from a deal with no payees, so the whole pool lands on the operator's residual
+ * and `Σ net = 0` holds exactly (`settlement.test.ts`, "a deal that entitles
+ * nobody").
+ *
+ * Exactly one shape had to keep being refused, and it is not a policy choice.
+ * `reconcile()` throws a bare `Error` on money moved before the event with no
+ * payee to have received it, so a row in that state 500s every compute of its
+ * event, forever, with `{"error":{"code":"internal"}}` as the only diagnosis. It
+ * is refused here — at both doors, create and update, because a rule enforced at
+ * one call site is enforced nowhere — and `reconcileEvent` turns the same shape
+ * into a legible 409 for any row written before this guard existed.
+ */
+function assertPrepaymentNamesAPayee(
+  deal: { name: string },
+  terms: PrepaidTerms,
+  parties: { roleInDeal: string }[],
+): void {
+  const entitled = parties.some(
+    (party) => party.roleInDeal === "payee" || party.roleInDeal === "split_member",
+  );
+  if (entitled) return;
+  if (prepaidAmountOf(terms) === 0n) return;
+  throw badRequest(
+    `"${deal.name}" says money was paid before the event, but names nobody it was paid to. Give a party the Is paid role, or set it to settle at the event.`,
+  );
+}
+
+/**
  * An agent's `deal.edit` is a per-deal authority, not an event-level one (A-02).
  * When the caller reaches this event ONLY through an `agent` participant row, the
  * deal it writes must carry a party line for a performer it actually represents
@@ -317,6 +353,16 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
       const body = request.body;
 
       await assertPartiesAreEntitled(request, eventId, body.parties);
+      assertPrepaymentNamesAPayee(
+        body,
+        {
+          structure: body.structure ?? null,
+          paymentTiming: body.paymentTiming,
+          guaranteeAmount: body.guaranteeAmount != null ? BigInt(body.guaranteeAmount) : undefined,
+          advanceAmount: body.advanceAmount != null ? BigInt(body.advanceAmount) : undefined,
+        },
+        body.parties,
+      );
       // A-02's create half: an agent's `deal.edit` is scoped to the performers it
       // represents on this event — never a licence to author deals it has no
       // standing on (and never one that makes the agent itself a party).
@@ -462,6 +508,24 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
           ? { advanceAmount: advanceAmount === null ? null : BigInt(advanceAmount) }
           : {}),
       };
+      // The same rule as the create, measured against the deal this PATCH LEAVES
+      // BEHIND: `paymentTiming: "before_event"` on its own is enough to turn a
+      // fixed amount into a prepayment, so the terms have to be merged before the
+      // question can be asked.
+      assertPrepaymentNamesAPayee(
+        { name: fields.name ?? before.name },
+        {
+          structure: fields.structure ?? before.structure,
+          paymentTiming: fields.paymentTiming ?? before.paymentTiming,
+          guaranteeAmount: fields.guaranteeAmount ?? before.guaranteeAmount ?? undefined,
+          advanceAmount:
+            advanceAmount !== undefined
+              ? (fields.advanceAmount ?? undefined)
+              : (before.advanceAmount ?? undefined),
+        },
+        await loadDealParties(request, before.id),
+      );
+
       const where =
         expectedVersion != null
           ? and(eq(schema.deals.id, before.id), eq(schema.deals.version, expectedVersion))

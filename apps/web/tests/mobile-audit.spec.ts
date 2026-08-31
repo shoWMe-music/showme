@@ -95,16 +95,38 @@ const WIDTHS = [360, 390, 414, 430, 560, 561, 768, 860, 861] as const;
 /** The width the drawer/modal journeys run at — a phone, not a tablet. */
 const PHONE = { width: 390, height: HEIGHT };
 
-/** Every screen the operator's sidebar can reach, plus the two deep ones. */
-const SCREENS: ReadonlyArray<{ readonly path: string; readonly name: string }> = [
+/**
+ * Every screen the operator's sidebar can reach, plus the deep ones.
+ *
+ * `prepare` is for a screen with a SECOND layout behind a control rather than
+ * behind a URL. A screen measured only in the state it opens in is half measured
+ * — the same lesson as the Budget Planner line below, which was invisible to
+ * this sweep until `?tab=` made it addressable. Where a query parameter can do
+ * the job it still should; `prepare` is for view modes that are component state.
+ */
+const SCREENS: ReadonlyArray<{
+  readonly path: string;
+  readonly name: string;
+  readonly prepare?: (page: Page) => Promise<void>;
+}> = [
   { path: "/", name: "Dashboard" },
   { path: "/calendar", name: "Calendar" },
   { path: "/events", name: "Events" },
   { path: "/tasks", name: "Tasks" },
-  { path: "/reports", name: "Setlists" },
+  { path: "/reports", name: "Performance Reports" },
   { path: "/settlements", name: "Settlements" },
   { path: "/projections", name: "Financial Projections" },
   { path: "/requests", name: "Requests" },
+  // The list view. Same rows, a completely different box model — a wrapping
+  // summary line with a date, a name, a badge and a fee on it, which is exactly
+  // the shape that runs a 360px phone off the side of the screen.
+  {
+    path: "/requests",
+    name: "Requests (list view)",
+    prepare: async (page) => {
+      await page.getByRole("tab", { name: "List" }).click();
+    },
+  },
   { path: "/invoices", name: "Bills & Invoices" },
   { path: "/team", name: "Team" },
   { path: "/contacts", name: "Contacts" },
@@ -120,6 +142,28 @@ const SCREENS: ReadonlyArray<{ readonly path: string; readonly name: string }> =
   // which is what lets it be audited at all.
   { path: "/events/e2e00000-0000-4000-8000-0000000000e1?tab=budget", name: "Budget Planner" },
   { path: "/events/e2e00000-0000-4000-8000-0000000000e2/settlement", name: "Settlement workspace" },
+  // The acts' setlists as the operator running the night reads them. Same panel
+  // the performer authors in, so the sweep below covers the read side here and
+  // the write side under `PERFORMER_SCREENS`.
+  { path: "/events/e2e00000-0000-4000-8000-0000000000e1?tab=setlist", name: "Setlist tab" },
+];
+
+/**
+ * The screens only a PERFORMER has, swept as one.
+ *
+ * They cannot ride the list above: it runs under the operator's saved session,
+ * and `/setlists` under an operator renders the "a setlist belongs to the act"
+ * notice rather than the editor — a screen measured in its refusal state is a
+ * screen that is not measured. The editor is the densest thing here (a numbered
+ * row with two fields and three buttons, per song), so it is exactly the shape
+ * that overflows a 360px column if nobody looks.
+ */
+const PERFORMER_SCREENS: ReadonlyArray<{ readonly path: string; readonly name: string }> = [
+  { path: "/setlists", name: "Setlists" },
+  {
+    path: "/events/e2e00000-0000-4000-8000-0000000000e1?tab=setlist",
+    name: "Setlist tab (performer)",
+  },
 ];
 
 test.use({ storageState: authFile("operator"), viewport: PHONE });
@@ -399,6 +443,33 @@ test.describe(`page layout, swept ${WIDTHS[0]}–${WIDTHS[WIDTHS.length - 1]}px`
     test(`${screen.name} does not scroll sideways at any width`, async ({ page }) => {
       await page.goto(screen.path);
       await waitForShell(page);
+      await screen.prepare?.(page);
+
+      const failures = await sweepWidths(page, page.locator("html"), page.locator("body"));
+
+      expect(
+        failures,
+        `${screen.name} (${screen.path}) does not fit — ${failures.length} break(s) across ` +
+          `${WIDTHS.length} widths:\n${failures.join("\n")}`,
+      ).toEqual([]);
+    });
+  }
+});
+
+test.describe(`the performer's screens, swept ${WIDTHS[0]}–${WIDTHS[WIDTHS.length - 1]}px`, () => {
+  test.use({ storageState: authFile("performerA") });
+
+  for (const screen of PERFORMER_SCREENS) {
+    test(`${screen.name} does not scroll sideways at any width`, async ({ page }) => {
+      await page.goto(screen.path);
+      await waitForShell(page);
+      // The setlist editor only exists once a row is open, and on `/setlists`
+      // that is a click. Measuring the collapsed list would measure the easy half.
+      const open = page.getByRole("button", { name: /(Write|Edit) setlist/ }).first();
+      if (await open.isVisible().catch(() => false)) {
+        await open.click();
+        await waitForShell(page);
+      }
 
       const failures = await sweepWidths(page, page.locator("html"), page.locator("body"));
 
@@ -804,6 +875,7 @@ test.describe("navigation at 390px", () => {
     for (const screen of SCREENS) {
       await page.goto(screen.path);
       await page.locator("main").first().waitFor({ timeout: 30_000 });
+      await screen.prepare?.(page);
       const small = await page.evaluate(() => {
         return [...document.querySelectorAll<HTMLElement>("button, a[href], [role='tab']")]
           .map((node) => node.getBoundingClientRect())

@@ -14,4 +14,6 @@ export type PatchApiV1EventsIdBodyExtrasGuestListGuestsItem = {
    */
   tickets: number;
   invitedBy: string;
+  /** @nullable */
+  note?: string | null;
 };

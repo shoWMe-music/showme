@@ -30,11 +30,15 @@ const ALL_EVENTS = Object.values(EVENT);
  * this asserts is that the navigation stops offering a venue operator's screens
  * to accounts that can never fill them (see the reasons in `navigation.ts`).
  */
-const OPERATOR_NAV = [
+const EVERY_NAV_ITEM = [
   "Dashboard",
   "Calendar",
   "Events",
   "Tasks",
+  // The two halves of the setlist module, in `navigation.ts` order and NEVER
+  // both: the operator files the performed-works report, the act writes the
+  // setlist it is derived from (decisions.md "Setlists"). No kind holds both.
+  "Performance Reports",
   "Setlists",
   "Settlements",
   "Financial Projections",
@@ -47,22 +51,26 @@ const OPERATOR_NAV = [
   "Settings",
 ] as const;
 
-/** The operator set minus the items that kind has no data or no business for. */
-const without = (...hidden: string[]) => OPERATOR_NAV.filter((label) => !hidden.includes(label));
+/** The whole set minus the items that kind has no data or no business for. */
+const without = (...hidden: string[]) => EVERY_NAV_ITEM.filter((label) => !hidden.includes(label));
 
 const EXPECTED_NAV: Record<E2eAccountName, string[]> = {
-  operator: [...OPERATOR_NAV],
+  // The operator files; they never author, so no Setlists.
+  operator: without("Setlists"),
   // A co-promoter is an operator and gets the operator's nav — the account kind
   // gates the dashboard, and co-hosting is a role on one event, not a lesser kind.
-  coHost: [...OPERATOR_NAV],
-  // No PRO filing (the operator files; the performer authors the setlist) and no
-  // projections (only operator profiles host events, and the budget is not theirs).
-  performerA: without("Setlists", "Financial Projections"),
-  performerB: without("Setlists", "Financial Projections"),
-  // …and no fan CRM: crew are an arm's-length service, not talent.
-  teamAndCrew: without("Setlists", "Financial Projections", "Audience"),
-  // …and no fan CRM: the act's following belongs to the act, not its agency.
-  agent: without("Setlists", "Financial Projections", "Audience"),
+  coHost: without("Setlists"),
+  // The mirror image: the act authors and never files, so it gets Setlists and
+  // not Performance Reports. No projections either (only operator profiles host
+  // events, and the budget is not theirs).
+  performerA: without("Performance Reports", "Financial Projections"),
+  performerB: without("Performance Reports", "Financial Projections"),
+  // Neither half — "crew are NOT a core consumer" (decisions.md); a shared set is
+  // reached on the event itself. …and no fan CRM: an arm's-length service, not talent.
+  teamAndCrew: without("Performance Reports", "Setlists", "Financial Projections", "Audience"),
+  // Neither half — an agent carries business authority, never the songs. …and no
+  // fan CRM: the act's following belongs to the act, not its agency.
+  agent: without("Performance Reports", "Setlists", "Financial Projections", "Audience"),
 };
 
 /** For each kind: the exact event titles it should reach on the Events list. */
@@ -102,8 +110,8 @@ for (const name of Object.keys(E2E_ACCOUNTS) as E2eAccountName[]) {
 
     test("sidebar shows exactly the destinations this kind can use", async ({ page }) => {
       await page.goto("/");
-      // Read the `title` attribute, not the text: the Requests row also renders a
-      // pending-count badge inside the button.
+      // Read the `title` attribute, not the text: the Requests row also renders an
+      // unread-count badge inside the button.
       const navigationButtons = page.locator('nav[aria-label="Primary"] button');
       // `evaluateAll` is a one-shot read with no auto-waiting, so the shell has to be
       // rendered BEFORE it runs or it silently returns an empty array.

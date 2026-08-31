@@ -14,4 +14,6 @@ export type GetApiV1EventsId200ExtrasGuestListGuestsItem = {
    */
   tickets: number;
   invitedBy: string;
+  /** @nullable */
+  note?: string | null;
 };

@@ -11,6 +11,9 @@ export type PutApiV1EventsIdSetlists200 = {
   eventId: string;
   participantId: string;
   /** @nullable */
+  performerName: string | null;
+  mine: boolean;
+  /** @nullable */
   items?: PutApiV1EventsIdSetlists200Items;
   updatedAt: string;
 };

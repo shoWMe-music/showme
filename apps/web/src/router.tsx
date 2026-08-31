@@ -13,6 +13,7 @@ import { Profiles } from "./routes/Profiles";
 import { Projections } from "./routes/Projections";
 import { Reports } from "./routes/Reports";
 import { Requests } from "./routes/Requests";
+import { Setlists } from "./routes/Setlists";
 import { Settings } from "./routes/Settings";
 import { Settlements } from "./routes/Settlements";
 import { Tasks } from "./routes/Tasks";
@@ -65,6 +66,7 @@ const routeTree = rootRoute.addChildren([
   }),
   child("/tasks", Tasks),
   child("/reports", Reports),
+  child("/setlists", Setlists),
   child("/settlements", Settlements),
   child("/projections", Projections),
   child("/requests", Requests),

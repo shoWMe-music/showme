@@ -10,4 +10,5 @@
  */
 export type PostApiV1NotificationsReadBodyAnyOf = {
   ids?: string[];
+  read?: boolean;
 } | null;

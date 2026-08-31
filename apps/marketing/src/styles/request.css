@@ -319,3 +319,68 @@
     opacity: 1;
   }
 }
+
+/* ---------- The dates being asked about ---------- */
+/* Shown only when the visitor names the night themselves (the profile page's
+   dialog). On the availability page the date came from a chip they clicked, and
+   the whole group is hidden — see `availability-request.ts`. */
+.request__dates {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr 1fr;
+}
+
+@media (max-width: 560px) {
+  .request__dates {
+    grid-template-columns: 1fr;
+  }
+}
+
+.request__dates[hidden] {
+  display: none;
+}
+
+.request__alternates {
+  display: grid;
+  gap: 8px;
+}
+
+/* The input takes the room; "Remove" sits beside it and stays legible. */
+.request__alternate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.request__alternate .field__control {
+  flex: 1 1 auto;
+}
+
+.request__add-date,
+.request__remove-date {
+  font: inherit;
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--button-surface);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 7px 12px;
+  cursor: pointer;
+  justify-self: start;
+}
+
+.request__add-date:hover,
+.request__remove-date:hover {
+  color: var(--text);
+  border-color: var(--hover-border);
+}
+
+.request__add-date:focus-visible,
+.request__remove-date:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.request__add-date[hidden] {
+  display: none;
+}

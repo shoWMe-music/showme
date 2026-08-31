@@ -463,6 +463,10 @@
                                 },
                                 "invitedBy": {
                                   "type": "string"
+                                },
+                                "note": {
+                                  "type": "string",
+                                  "nullable": true
                                 }
                               },
                               "required": ["id", "name", "tickets", "invitedBy"],
@@ -804,6 +808,10 @@
                                   },
                                   "invitedBy": {
                                     "type": "string"
+                                  },
+                                  "note": {
+                                    "type": "string",
+                                    "nullable": true
                                   }
                                 },
                                 "required": ["id", "name", "tickets", "invitedBy"],
@@ -1248,6 +1256,10 @@
                                   },
                                   "invitedBy": {
                                     "type": "string"
+                                  },
+                                  "note": {
+                                    "type": "string",
+                                    "nullable": true
                                   }
                                 },
                                 "required": ["id", "name", "tickets", "invitedBy"],
@@ -1493,6 +1505,10 @@
                                 },
                                 "invitedBy": {
                                   "type": "string"
+                                },
+                                "note": {
+                                  "type": "string",
+                                  "nullable": true
                                 }
                               },
                               "required": ["id", "name", "tickets", "invitedBy"],
@@ -1758,6 +1774,10 @@
                                   },
                                   "invitedBy": {
                                     "type": "string"
+                                  },
+                                  "note": {
+                                    "type": "string",
+                                    "nullable": true
                                   }
                                 },
                                 "required": ["id", "name", "tickets", "invitedBy"],
@@ -12149,6 +12169,13 @@
                       "participantId": {
                         "type": "string"
                       },
+                      "performerName": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "mine": {
+                        "type": "boolean"
+                      },
                       "items": {
                         "nullable": true
                       },
@@ -12156,7 +12183,14 @@
                         "type": "string"
                       }
                     },
-                    "required": ["id", "eventId", "participantId", "updatedAt"],
+                    "required": [
+                      "id",
+                      "eventId",
+                      "participantId",
+                      "performerName",
+                      "mine",
+                      "updatedAt"
+                    ],
                     "additionalProperties": false
                   }
                 }
@@ -12208,6 +12242,13 @@
                     "participantId": {
                       "type": "string"
                     },
+                    "performerName": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "mine": {
+                      "type": "boolean"
+                    },
                     "items": {
                       "nullable": true
                     },
@@ -12215,7 +12256,14 @@
                       "type": "string"
                     }
                   },
-                  "required": ["id", "eventId", "participantId", "updatedAt"],
+                  "required": [
+                    "id",
+                    "eventId",
+                    "participantId",
+                    "performerName",
+                    "mine",
+                    "updatedAt"
+                  ],
                   "additionalProperties": false
                 }
               }
@@ -13944,6 +13992,9 @@
                           "type": "string",
                           "format": "uuid"
                         }
+                      },
+                      "read": {
+                        "type": "boolean"
                       }
                     },
                     "additionalProperties": false,
@@ -15399,6 +15450,14 @@
                     "type": "string",
                     "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
                   },
+                  "additionalDates": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    },
+                    "maxItems": 5
+                  },
                   "pitch": {
                     "allOf": [
                       {
@@ -15420,7 +15479,7 @@
                     "pattern": "^\\d+$"
                   }
                 },
-                "required": ["source", "targetProfileId", "contactName", "email"],
+                "required": ["source", "targetProfileId", "contactName", "email", "wantedDate"],
                 "additionalProperties": false
               }
             }
@@ -15485,6 +15544,14 @@
             "in": "query",
             "name": "direction",
             "required": false
+          },
+          {
+            "schema": {
+              "type": "boolean"
+            },
+            "in": "query",
+            "name": "unread",
+            "required": false
           }
         ],
         "responses": {
@@ -15541,6 +15608,19 @@
                             "nullable": true
                           },
                           "wantedDate": {
+                            "type": "string"
+                          },
+                          "additionalDates": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "readAt": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "readByUserId": {
                             "type": "string",
                             "nullable": true
                           },
@@ -15597,6 +15677,7 @@
                           "onBehalfOfProfileId",
                           "onBehalfOfName",
                           "wantedDate",
+                          "additionalDates",
                           "pitch",
                           "note",
                           "musicUrl",
@@ -15617,6 +15698,61 @@
                     }
                   },
                   "required": ["items", "nextCursor"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/booking-requests/read": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "not": {}
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "maxItems": 200
+                      },
+                      "read": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "nullable": true
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "updated": {
+                      "type": "number"
+                    }
+                  },
+                  "required": ["updated"],
                   "additionalProperties": false
                 }
               }
@@ -15705,6 +15841,19 @@
                       "nullable": true
                     },
                     "wantedDate": {
+                      "type": "string"
+                    },
+                    "additionalDates": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "readAt": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "readByUserId": {
                       "type": "string",
                       "nullable": true
                     },
@@ -15761,6 +15910,7 @@
                     "onBehalfOfProfileId",
                     "onBehalfOfName",
                     "wantedDate",
+                    "additionalDates",
                     "pitch",
                     "note",
                     "musicUrl",
@@ -15796,6 +15946,14 @@
                   "wantedDate": {
                     "type": "string",
                     "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "additionalDates": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    },
+                    "maxItems": 5
                   },
                   "offerFeeMin": {
                     "type": "string",
@@ -15949,6 +16107,19 @@
                       "nullable": true
                     },
                     "wantedDate": {
+                      "type": "string"
+                    },
+                    "additionalDates": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "readAt": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "readByUserId": {
                       "type": "string",
                       "nullable": true
                     },
@@ -16005,6 +16176,7 @@
                     "onBehalfOfProfileId",
                     "onBehalfOfName",
                     "wantedDate",
+                    "additionalDates",
                     "pitch",
                     "note",
                     "musicUrl",
@@ -16197,6 +16369,28 @@
                       },
                       "required": ["allowed", "used", "limit", "chargedAtConfirm"],
                       "additionalProperties": false
+                    },
+                    "sender": {
+                      "type": "object",
+                      "properties": {
+                        "channel": {
+                          "type": "string",
+                          "enum": ["notification", "invitation", "none"]
+                        },
+                        "profileId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "email": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "emailed": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["channel", "profileId", "email", "emailed"],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
@@ -16206,7 +16400,8 @@
                     "eventDate",
                     "baseCurrency",
                     "status",
-                    "eventCap"
+                    "eventCap",
+                    "sender"
                   ],
                   "additionalProperties": false
                 }

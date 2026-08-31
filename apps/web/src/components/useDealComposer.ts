@@ -4,6 +4,7 @@ import {
   type DealPartyDraft,
   type DealPartyRole,
   type PaymentTiming,
+  dealDraftNotices,
   dealDraftProblems,
   dealTypeForKind,
   emptyDealDraft,
@@ -41,6 +42,13 @@ export interface DealComposer {
   removeParty: (key: string) => void;
   /** Everything wrong with the draft right now, in plain sentences. */
   problems: string[];
+  /**
+   * What the draft will DO that is not obvious and is not an error — today, only
+   * that a deal paying nobody records terms and computes nothing. Shown from the
+   * first keystroke rather than on submit, because it describes what the operator
+   * is about to save, not a reason they cannot.
+   */
+  notices: string[];
   /** True once the composer has been asked to submit — problems show only then. */
   submitAttempted: boolean;
   markSubmitAttempted: () => void;
@@ -146,6 +154,7 @@ export function useDealComposer(
     () => dealDraftProblems(draft, agentParticipantIds),
     [draft, agentParticipantIds],
   );
+  const notices = useMemo(() => dealDraftNotices(draft), [draft]);
 
   // The agreement names itself after the parties it pays, until somebody names it
   // themselves. Done as an effect off the parties rather than inside
@@ -189,6 +198,7 @@ export function useDealComposer(
         parties: current.parties.filter((party) => party.key !== key),
       })),
     problems,
+    notices,
     submitAttempted,
     markSubmitAttempted: () => setSubmitAttempted(true),
     reset,

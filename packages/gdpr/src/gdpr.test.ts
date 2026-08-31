@@ -175,6 +175,8 @@ describe("exportUserData", () => {
       senderUserId: userId,
       email,
       contactName: "Export Me",
+      // NOT NULL since migration 0031 — a request always names a date.
+      wantedDate: "2027-02-02",
     });
     await harness.db.insert(schema.payoutAccounts).values({
       profileId: profile.id,

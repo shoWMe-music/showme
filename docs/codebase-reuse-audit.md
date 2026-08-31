@@ -477,3 +477,52 @@ use the user id as the folder segment while passing the profile's uuid as
 Profile media enforces the same rule at its own attach point
 (`lib/profile-media.ts` — owner AND prefix), so a picture cannot be published out
 of another profile's folder; the WRITE hole above is still open for every caller.
+
+## Added 2026-08-31 (booking requests) — what WAS shared, and the one stub-minting copy left standing
+
+The "Create Offer → draft event" work (Ran's fix list) needed two things three
+routes in `apps/api/src/routes/inbound.ts` were each about to answer for
+themselves.
+
+**Extracted, because it was the third call site.** "Can this request's sender be
+reached, and as a profile or only as an email address?" is now
+`apps/api/src/lib/booking-request-sender.ts` (`resolveBookingRequestSender`),
+called by triage (`PATCH /booking-requests/:id`), "Make Offer"
+(`…/counter-offer`) and "Create Draft" (`…/draft-event`). It also answers the
+part only an inbound route thinks to ask — when an AGENT sent the offer, who is
+the ACT (`on_behalf_of_profile_id`) as opposed to who is the correspondent. Three
+hand-written `if (row.senderProfileId)` branches would have drifted, and the way
+they drift is a sender silently dropped.
+
+**Reused rather than copied.** The stranger branch of the draft event calls
+`createPerformerStub` (`lib/off-platform.ts`) — the unclaimed profile plus the
+email-bearing `profile_members` row that IS the claim key — so an act invited off
+a booking request claims their profile through exactly the mechanic
+`POST /events/:id/participants/off-platform` already uses. Same for
+`loadEventSummary` + `renderOffPlatformPerformerEmail`, and for
+`autoAssignAgentOnPerformerJoin`, which is what makes an agented act reach the
+draft with the same standing whichever door it came through.
+
+**Left alone, on purpose: the invitation insert.** `attachSenderToEvent`
+(inbound.ts) and `POST /events/:id/participants/off-platform` (participants.ts)
+now write a very similar `invitations` row — `type: profile_member`, `source:
+performer_offer`, a token, the recipient's address, the target stub and event.
+They were NOT folded into one helper:
+
+- The two differ in more than arguments. The participants route resolves its name
+  and email from a CONTACT CARD when given one and writes the invitation id back
+  onto that contact; it takes role and performer tag from the request body; its
+  participant is `invited` by an operator who chose to add them. The inbound one
+  derives everything from the request row, has no contact, and fixes the role at
+  `performer` because that is what asking to play means.
+- A helper covering both would take a parameter per difference and read as a
+  configuration object — the "helper with one call site is worse than the lines it
+  replaced" failure mode, twice over.
+- Timing: `routes/participants.ts` was being edited by concurrent work during this
+  change, and a merge conflict in a shared write path is a worse outcome than two
+  honest inserts.
+
+**The trigger for revisiting:** a THIRD caller minting a stub-plus-invitation, or
+the invitation shape itself changing (an expiry rule, a new `source`). At that
+point extract `inviteStubToEvent(tx, …)` next to `createPerformerStub`, which is
+already the home of this mechanic, and move all three onto it.

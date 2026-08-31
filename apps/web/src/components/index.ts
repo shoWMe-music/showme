@@ -77,7 +77,7 @@ export { PerformerSearch } from "./PerformerSearch";
 export type { PerformerSearchProps, PerformerSelection } from "./PerformerSearch";
 
 export { RequestCard } from "./RequestCard";
-export type { RequestCardData, RequestCardProps } from "./RequestCard";
+export type { RequestAlternateDate, RequestCardData, RequestCardProps } from "./RequestCard";
 
 export { RevenueDeductionsEditor } from "./RevenueDeductionsEditor";
 export type { EditableFigure, RevenueDeductionsEditorProps } from "./RevenueDeductionsEditor";

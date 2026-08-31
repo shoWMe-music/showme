@@ -19,7 +19,11 @@ const PAGE_TITLES: Record<string, { crumb: string; title: string }> = {
   "/calendar": { crumb: "Schedule", title: "Calendar" },
   "/events": { crumb: "All events", title: "Events" },
   "/tasks": { crumb: "To do", title: "Tasks" },
-  "/reports": { crumb: "Your shows", title: "Setlists" },
+  // The operator's PRO filing desk (see `navigation.ts`), and the performer's
+  // authoring screen. Two screens, two halves of one module — never one screen
+  // wearing the other's name.
+  "/reports": { crumb: "Performing rights", title: "Performance Reports" },
+  "/setlists": { crumb: "Your shows", title: "Setlists" },
   "/settlements": { crumb: "Money", title: "Settlements" },
   "/projections": { crumb: "Forecast", title: "Financial Projections" },
   "/requests": { crumb: "Bookings", title: "Requests" }, // direction-neutral; the page states which way
@@ -149,10 +153,32 @@ export function AppShell() {
   // reads the stream directly.
   useRealtimeStream(import.meta.env.VITE_STREAM_URL);
 
-  // The Requests badge is the count of pending INCOMING booking requests (the
-  // default direction), i.e. what is waiting on this user to triage.
-  const { data: requests } = useGetApiV1BookingRequests({ status: "pending" });
-  const pendingCount = requests?.items.length ?? 0;
+  /**
+   * The Requests badge counts UNREAD incoming booking requests, not pending ones.
+   *
+   * Pending and unread are different questions and only one of them belongs on a
+   * badge. Pending is a WORKLOAD — a venue that has consciously parked thirty
+   * open requests carries a permanent "30" it learns to ignore, and a number
+   * that never reaches zero stops being a signal. Unread is NEWS: it means
+   * "something arrived that nobody here has looked at", it is clearable, and
+   * clearing it is a deliberate act (`/requests` never marks on open). That is
+   * also exactly what the bell's badge means two components away, so the shell
+   * now says one thing rather than two.
+   *
+   * The workload has not gone anywhere — the Requests screen's own header still
+   * shows "N pending", beside the Pending chip it opens on. Shell = news, screen
+   * = work.
+   *
+   * `?unread=true` is incoming-only by construction (the route refuses it on the
+   * sent view, since a read receipt is the recipient's business), which is the
+   * right scope for the badge anyway.
+   */
+  // 99, so that a cursor coming back means "more than 99" exactly. The API
+  // exposes no count, and a badge that claims a precise number it cannot know is
+  // worse than one that says "many".
+  const { data: requests } = useGetApiV1BookingRequests({ unread: true, limit: 99 });
+  const unreadCount = requests?.items.length ?? 0;
+  const unreadBadge = requests?.nextCursor ? "99+" : unreadCount;
 
   // The sidebar tells the truth about the signed-in account kind — the mapping,
   // and the reason for every exclusion, live in ./navigation.
@@ -234,7 +260,7 @@ export function AppShell() {
                 label={item.label}
                 collapsed={railCollapsed}
                 active={isActive(pathname, item.to)}
-                badge={item.badge === "requests" && pendingCount > 0 ? pendingCount : undefined}
+                badge={item.badge === "requests" && unreadCount > 0 ? unreadBadge : undefined}
                 onClick={() => navigate({ to: item.to })}
               />
             ))}

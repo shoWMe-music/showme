@@ -20,6 +20,7 @@ const STATIC_ROUTES = [
   "/events",
   "/tasks",
   "/reports",
+  "/setlists",
   "/settlements",
   "/projections",
   "/requests",

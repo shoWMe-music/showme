@@ -4,7 +4,7 @@ import {
   NOTIFICATION_CATEGORY_KEYS,
   notificationChannelDefault,
 } from "@showme/db/notify";
-import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -21,7 +21,17 @@ const ListQuery = PaginationQuery.extend({
   unread: z.coerce.boolean().optional(),
 });
 
-const MarkReadBody = z.object({ ids: z.array(z.string().uuid()).optional() }).nullish();
+/**
+ * `read: false` marks them UNREAD again. The door was one-way until 2026-08-31 —
+ * it only ever stamped `read_at` — which made the bell a place things went to
+ * disappear: a notification opened on a phone between other things could not be
+ * put back, and "mark all read" was irreversible. Ran asked for read AND unread
+ * on booking requests; the same complaint applies here, and the fix is the same
+ * flag on the same route rather than a second endpoint saying the opposite.
+ */
+const MarkReadBody = z
+  .object({ ids: z.array(z.string().uuid()).optional(), read: z.boolean().optional() })
+  .nullish();
 
 const NotificationResponse = z.object({
   id: z.string(),
@@ -183,9 +193,10 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
     },
   );
 
-  // Mark the caller's notifications read. With `ids`, only those rows (that belong
-  // to the caller and are still unread); without, ALL of the caller's unread. The
-  // `user_id` predicate makes marking another user's rows impossible → count 0.
+  // Mark the caller's notifications read — or, with `read: false`, unread again.
+  // With `ids`, only those rows (that belong to the caller and are not already in
+  // the state asked for); without, ALL of them. The `user_id` predicate makes
+  // touching another user's rows impossible → count 0.
   app.post(
     "/notifications/read",
     { schema: { body: MarkReadBody, response: { 200: MarkReadResponse } } },
@@ -194,20 +205,24 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
       if (!principal) throw new Error("principal missing after authentication");
       const { database } = request.server;
       const ids = request.body?.ids;
+      const read = request.body?.read ?? true;
 
       if (ids && ids.length === 0) {
         return { updated: 0 };
       }
 
+      // Only rows that would actually change, in either direction — so `updated`
+      // counts the work done, and re-marking never rewrites the timestamp of a
+      // notification that was read last week.
       const scope = and(
         eq(schema.notifications.userId, principal.userId),
-        isNull(schema.notifications.readAt),
+        read ? isNull(schema.notifications.readAt) : isNotNull(schema.notifications.readAt),
         ids ? inArray(schema.notifications.id, ids) : undefined,
       );
 
       const updated = await database
         .update(schema.notifications)
-        .set({ readAt: new Date() })
+        .set({ readAt: read ? new Date() : null })
         .where(scope)
         .returning({ id: schema.notifications.id });
 

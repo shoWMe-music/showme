@@ -11,6 +11,9 @@ export type GetApiV1EventsIdSetlists200Item = {
   eventId: string;
   participantId: string;
   /** @nullable */
+  performerName: string | null;
+  mine: boolean;
+  /** @nullable */
   items?: GetApiV1EventsIdSetlists200ItemItems;
   updatedAt: string;
 };

@@ -14,4 +14,6 @@ export type PostApiV1EventsBodyExtrasGuestListGuestsItem = {
    */
   tickets: number;
   invitedBy: string;
+  /** @nullable */
+  note?: string | null;
 };

@@ -1,15 +1,32 @@
-/* The request card's field grid — wanted date / source / fee / email / phone. */
+/* The request, in both of its shapes.
 
+   THE NARROW RULES REPEAT THE BREAKPOINT AS A LITERAL. A custom property cannot
+   be used in a media query condition — `@media (max-width: var(--breakpoint-
+   tablet))` is invalid CSS and silently never matches — so the numbers are
+   written out and the tokens they mirror are named beside them
+   (`--breakpoint-phone: 560px`, `--breakpoint-tablet: 860px`, in
+   design-system/src/styles/tokens.css). */
+
+/* ── Shared ─────────────────────────────────────────────────────────────── */
+
+/* Everything below the fold, in either layout. The card supplies its own
+   padding; the row has to add it, so the gap lives here and the inset is set
+   per layout below. */
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* The request's field grid — wanted date / source / fee / email. */
 .fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 14px;
 }
 
-/* ≤ --breakpoint-tablet (860px, design-system/src/styles/tokens.css). The
-   literal is repeated because a custom property cannot be used in a media query
-   condition — `@media (max-width: var(--breakpoint-tablet))` is invalid CSS and
-   silently never matches.
+/* ≤ --breakpoint-tablet (860px).
 
    An email address is a single unbreakable word. Measured across a width sweep,
    `anders@midnightecho.showme.test` was 38px wider than its cell at 414px and
@@ -23,5 +40,238 @@
   .fields > * {
     min-width: 0;
     overflow-wrap: anywhere;
+  }
+}
+
+.message {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.draftLink {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--shape-fill);
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+/* ── The card head ──────────────────────────────────────────────────────── */
+
+/* It WRAPS, and the name block carries a 180px basis. Without the basis the
+   name is the only item on the row that may shrink, so on a 390px phone the
+   avatar and the two trailing controls kept their width and "The Midnight Echo"
+   came out as three one-word lines in a 60px column. Wrapping instead drops the
+   controls onto their own line and gives the name the full width of the card,
+   which is the reading order a phone wants anyway. */
+.cardHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.cardHeadBody {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.cardHeadActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+/* ── Unread ─────────────────────────────────────────────────────────────── */
+
+/* Unread is drawn as a MARK, never as a colour on the surface. The status badge
+   already owns the card's colour, and a second hue competing with it makes both
+   harder to read — a tinted "unread declined request" says two things at once
+   and neither of them loudly. (A border tint was tried and dropped: `Card` sets
+   its border with the `border` shorthand at the same specificity, so which rule
+   won came down to stylesheet order — a rule that works by luck is worse than
+   no rule.) */
+.unreadDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand-red);
+  flex-shrink: 0;
+}
+
+.unreadLabel {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--brand-red);
+}
+
+/* The date + fee a FOLDED card still shows. Without it a collapsed inbox is a
+   column of names, and finding a night means opening every one. */
+.foldedSummary {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+}
+
+/* ── The alternate nights ───────────────────────────────────────────────── */
+
+.alternates {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.alternateList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.alternate {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--shape-fill);
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* Only the actionable ones look pressable. A date that cannot be chosen (a
+   declined request, or one already drafted) keeps the same shape and loses the
+   affordance, rather than being a control that does nothing. */
+.alternateAction {
+  cursor: pointer;
+  transition: border-color var(--duration-quick) var(--ease-out), background var(--duration-quick)
+    var(--ease-out);
+}
+
+.alternateAction:hover {
+  border-color: var(--brand-red);
+}
+
+.alternateAction:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+.alternateHint {
+  margin: 0;
+  color: var(--dim);
+  font-size: 12px;
+}
+
+/* ── The list row ───────────────────────────────────────────────────────── */
+
+.row {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rowHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+  min-width: 0;
+}
+
+/* The whole line is the disclosure control. It wraps rather than truncating:
+   a row that hides the fee to stay on one line has stopped being a list of
+   requests and become a list of names. */
+.rowSummary {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-quick) var(--ease-out);
+}
+
+.rowSummary:hover {
+  background: var(--shape-fill);
+}
+
+.rowSummary:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+
+.rowDate {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* A FLEX BASIS, not `flex: 1`. With only `flex: 1` the name is the one item on
+   the line that may shrink, so on a 390px phone the date, the badge and the fee
+   all held their width and "The Midnight Echo" was crushed into a 40px column
+   and broken mid-word — "The Mid nigh t Ech o". A basis of 140px makes the line
+   WRAP before the name is squeezed: the name keeps a readable column and the
+   badge and fee drop onto the next line, which is what a phone wants anyway.
+   `overflow-wrap` stays as the last resort for a single unbreakable word. */
+.rowName {
+  flex: 1 1 140px;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.rowAlternates {
+  font-size: 11.5px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.rowFee {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+/* The row's body sits under the summary, inset to the same gutter. */
+.row .body {
+  padding: 0 14px 14px;
+}
+
+/* ≤ --breakpoint-phone (560px). `margin-left: auto` on the fee pushes it to the
+   far end of whatever line it lands on; once the row has wrapped that reads as
+   a stray number floating away from its request, so on a phone the fee simply
+   follows the rest of the line. */
+@media (max-width: 560px) {
+  .rowFee {
+    margin-left: 0;
   }
 }

@@ -361,8 +361,15 @@ const PERFORMER_AUTHORED_CAPABILITIES: ReadonlySet<Capability> = new Set(["setli
  */
 const OPERATOR_FILING_CAPABILITIES: ReadonlySet<Capability> = new Set(["performance_report.file"]);
 
-/** The event roles that ARE the act — the only ones who may author its content. */
-const PERFORMING_EVENT_ROLES: ReadonlySet<EventRole> = new Set(["performer", "support"]);
+/**
+ * The event roles that ARE the act — the only ones who may author its content.
+ *
+ * Exported because it answers a question outside the ceiling too: when one user
+ * stands behind SEVERAL participants on an event (a promoter who also plays),
+ * the setlist upsert has to know which of their rows is the performing one, and
+ * re-listing the roles beside that write would be a second copy of this rule.
+ */
+export const PERFORMING_EVENT_ROLES: ReadonlySet<EventRole> = new Set(["performer", "support"]);
 
 /**
  * The CEILING (decisions #4): what a relationship may be granted at all. Only the

@@ -425,7 +425,18 @@ describe("the deal the create wizard states (ClickUp 86cbaxu52)", () => {
     expect(refused.json().error.message).toMatch(/participant on this event/i);
   });
 
-  it("refuses a nobody-is-paid agreement", async () => {
+  /**
+   * CHANGED DELIBERATELY, 2026-08-31. This used to assert a 400 — "Nobody on this
+   * agreement is paid by it" — from the wizard's own `assertDealIsSettleable`.
+   * That rule is what stopped a standalone operator writing a deal at all, and it
+   * is gone (`@showme/shared` `dealDraftProblems`): a deal is a record of terms
+   * first and a settlement input second, and one that entitles nobody claims
+   * nothing from the pool, so the whole pool stays on the operator's residual and
+   * `Σ net = 0` holds exactly (`settlement.test.ts`, "a deal that entitles
+   * nobody"). The wizard shares the rule with the Deals tab on purpose, so it
+   * accepts the same shape.
+   */
+  it("accepts an agreement that pays nobody — the standalone operator's record", async () => {
     const operator = await seedMemberWithSet(
       "deal-op-unpaid",
       "operator",
@@ -457,8 +468,47 @@ describe("the deal the create wizard states (ClickUp 86cbaxu52)", () => {
         },
       },
     });
+    expect(refused.statusCode).toBe(201);
+    const written = await harness.db
+      .select()
+      .from(schema.deals)
+      .where(eq(schema.deals.eventId, refused.json().id));
+    expect(written).toHaveLength(1);
+    expect(written[0]?.guaranteeAmount).toBe(100000n);
+  });
+
+  /**
+   * …and the one shape it still refuses, for the reason the relaxation could not
+   * touch: `reconcile()` throws on money moved before the event with nobody to
+   * have received it, so accepting it here would trade a sentence for a 500 on
+   * every later compute.
+   */
+  it("refuses an agreement that prepaid nobody", async () => {
+    const operator = await seedMemberWithSet(
+      "deal-op-prepaid",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+
+    const refused = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("deal-op-prepaid"), "x-profile-id": operator.profileId },
+      payload: {
+        title: "Prepaid nobody",
+        baseCurrency: "SEK",
+        deal: {
+          type: "performance",
+          structure: "guarantee",
+          name: "prepaid",
+          guaranteeAmount: "100000",
+          advanceAmount: "50000",
+          parties: [{ profileId: operator.profileId, roleInDeal: "payer" }],
+        },
+      },
+    });
     expect(refused.statusCode).toBe(400);
-    expect(refused.json().error.message).toMatch(/Nobody on this agreement is paid/i);
+    expect(refused.json().error.message).toMatch(/names nobody it was paid to/i);
   });
 
   /**

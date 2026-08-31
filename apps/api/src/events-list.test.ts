@@ -260,6 +260,17 @@ describe("GET /events — access-scoped list", () => {
   });
 });
 
+/**
+ * CHANGED DELIBERATELY, 2026-08-31. These two used to delete an event with no
+ * preconditions beyond `event.delete` and an optimistic lock, and with no acting
+ * profile at all — which is what the route was, and it was wrong twice over: it
+ * destroyed every other party's record of the show, and it 500'd on any event
+ * that had ever been budgeted (`lib/event-delete.ts` has the measurement). The
+ * contract is now "only while it is nobody's record but yours", reached from the
+ * ARCHIVE — so both tests act as the host profile and file the show away first.
+ * The whole rule is exercised in `events-archive.test.ts`; what these two still
+ * guard is the audit trail surviving the row it describes (A-11).
+ */
 describe("DELETE /events/:id", () => {
   it("deletes an event and writes an audit row", async () => {
     const { db } = harness;
@@ -269,11 +280,18 @@ describe("DELETE /events/:id", () => {
       PRESET_PERMISSION_SETS.operator_full,
     );
     const event = await seedHostedEvent("Doomed", caller, "del-op");
+    const headers = { ...auth("del-op"), "x-profile-id": caller.profileId };
+    const archived = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/archive`,
+      headers,
+    });
+    expect(archived.statusCode).toBe(200);
 
     const response = await app.inject({
       method: "DELETE",
       url: `/api/v1/events/${event.id}`,
-      headers: auth("del-op"),
+      headers,
       payload: { expectedVersion: 1 },
     });
     expect(response.statusCode).toBe(200);
@@ -326,6 +344,13 @@ describe("DELETE /events/:id", () => {
     expect(created.statusCode).toBe(201);
     const eventId = created.json().id;
 
+    const archived = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/archive`,
+      headers,
+    });
+    expect(archived.statusCode).toBe(200);
+
     const deleted = await app.inject({
       method: "DELETE",
       url: `/api/v1/events/${eventId}`,
@@ -343,7 +368,14 @@ describe("DELETE /events/:id", () => {
       .select()
       .from(schema.auditLog)
       .where(eq(schema.auditLog.eventId, eventId));
-    expect(trail.map((row) => row.action).sort()).toEqual(["event.create", "event.delete"]);
+    // `event.archive` is in the trail because deleting now goes through the
+    // archive — that IS the flow, and its audit row must survive the deletion for
+    // the same reason the other two do.
+    expect(trail.map((row) => row.action).sort()).toEqual([
+      "event.archive",
+      "event.create",
+      "event.delete",
+    ]);
   });
 
   it("forbids a caller without event.delete (403)", async () => {
@@ -1173,5 +1205,241 @@ describe("GET /events — the facts a row draws", () => {
     // The performer's line is theirs (decisions #4). The host holds no settlement
     // row here, so the honest answer is nothing — not the other party's status.
     expect(row?.settlementStatus).toBeNull();
+  });
+});
+
+/**
+ * The guest list's limits, which used to be decoration.
+ *
+ * The product owner's finding: *"the guest list limits only present but don't
+ * actually work. And 'note' field is missing."* Both settings persisted and
+ * neither was read back — not by the add form, and not by the API, which took
+ * two free numbers and never compared them to the list beside them. A limit only
+ * the form respects is not a limit, so the rule is enforced HERE, on both routes
+ * that write `extras` (`packages/shared/src/guest-list.ts` holds the rule; the
+ * card calls the same function so the sentence appears under the cursor too).
+ */
+describe("PATCH/POST /events — the guest list's limits are enforced", () => {
+  const guest = (name: string, tickets: number, note?: string) => ({
+    id: `guest-${name}`,
+    name,
+    tickets,
+    invitedBy: "Promoter",
+    ...(note !== undefined ? { note } : {}),
+  });
+
+  it("accepts a list inside both limits", async () => {
+    const host = await seedMemberWithSet(
+      "gl-ok-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const event = await seedHostedEvent("Comps fine", host, "gl-ok-op");
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("gl-ok-op"),
+      payload: {
+        extras: {
+          guestList: { limitTotal: 40, limitPerGuest: 4, guests: [guest("Ada", 4)] },
+        },
+      },
+    });
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("refuses a list over the TOTAL limit, naming the overage", async () => {
+    const host = await seedMemberWithSet(
+      "gl-total-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const event = await seedHostedEvent("Comps over", host, "gl-total-op");
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("gl-total-op"),
+      payload: {
+        extras: {
+          guestList: {
+            limitTotal: 40,
+            guests: [guest("Ada", 40), guest("Grace", 3)],
+          },
+        },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toContain("3 over the 40 you allow in total");
+
+    // Nothing was written: a refusal leaves the stored document alone.
+    const [row] = await harness.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.id, event.id));
+    expect(row?.extras).toBeNull();
+  });
+
+  it("refuses a guest over the PER-GUEST limit, naming the guest", async () => {
+    const host = await seedMemberWithSet(
+      "gl-each-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const event = await seedHostedEvent("Comps each", host, "gl-each-op");
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("gl-each-op"),
+      payload: {
+        extras: { guestList: { limitPerGuest: 2, guests: [guest("Ada", 5)] } },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toContain(
+      "Ada is down for 5 tickets — 3 over the 2 you allow per guest",
+    );
+  });
+
+  /**
+   * The already-over case, which is a product decision and not an oversight:
+   * LOWERING a limit under a list that already breaks it is REFUSED. Accepting
+   * it would store a document the rule says cannot exist, and from then on "the
+   * limit" is advisory again — the exact defect being fixed.
+   */
+  it("refuses a limit LOWERED under a list that already breaks it", async () => {
+    const host = await seedMemberWithSet(
+      "gl-lower-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const event = await seedHostedEvent("Comps lowered", host, "gl-lower-op");
+    const guests = [guest("Ada", 20), guest("Grace", 23)];
+
+    const seeded = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("gl-lower-op"),
+      payload: { extras: { guestList: { limitTotal: 50, guests } } },
+    });
+    expect(seeded.statusCode).toBe(200);
+
+    const lowered = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("gl-lower-op"),
+      payload: { extras: { guestList: { limitTotal: 40, guests } } },
+    });
+    expect(lowered.statusCode).toBe(400);
+    expect(lowered.json().error.message).toContain("3 over the 40 you allow in total");
+    expect(lowered.json().error.message).toContain("Take 3 tickets off the list");
+  });
+
+  it("refuses the same thing on CREATE — one call site is no call sites", async () => {
+    const host = await seedMemberWithSet(
+      "gl-create-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("gl-create-op"), "x-profile-id": host.profileId },
+      payload: {
+        title: "Born over the limit",
+        baseCurrency: "SEK",
+        extras: { guestList: { limitTotal: 2, guests: [guest("Ada", 5)] } },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toContain("3 over the 2 you allow in total");
+  });
+
+  it("round-trips a guest's note — the field that was missing", async () => {
+    const host = await seedMemberWithSet(
+      "gl-note-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const event = await seedHostedEvent("Comps noted", host, "gl-note-op");
+
+    const written = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("gl-note-op"),
+      payload: {
+        extras: {
+          guestList: { guests: [guest("Ada", 2, "collects at the box office")] },
+        },
+      },
+    });
+    expect(written.statusCode).toBe(200);
+
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("gl-note-op"),
+    });
+    expect(read.statusCode).toBe(200);
+    expect(read.json().extras.guestList.guests[0]).toMatchObject({
+      name: "Ada",
+      tickets: 2,
+      note: "collects at the box office",
+    });
+  });
+});
+
+/**
+ * The one door the limit rule must NOT stand in: an operator editing something
+ * else entirely. `extras` is written whole, so every PATCH carries the guest list
+ * whether or not it is what changed.
+ */
+describe("PATCH /events/:id — a guest list saved before the rule does not brick the card", () => {
+  it("lets an unrelated extras edit through, then refuses the moment the list is touched", async () => {
+    const { db } = harness;
+    const host = await seedMemberWithSet(
+      "gl-legacy-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const guestList = {
+      limitTotal: 2,
+      guests: [{ id: "g1", name: "Ada", tickets: 9, invitedBy: "Promoter" }],
+    };
+    // Written straight to the column, exactly as a row from before the rule.
+    const event = await seedHostedEvent("Legacy comps", host, "gl-legacy-op", {
+      extras: { guestList },
+    });
+
+    const unrelated = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("gl-legacy-op"),
+      payload: { extras: { guestList, cateringNotes: "Two vegan mains" } },
+    });
+    expect(unrelated.statusCode).toBe(200);
+    const [after] = await db.select().from(schema.events).where(eq(schema.events.id, event.id));
+    expect((after?.extras as { cateringNotes?: string })?.cateringNotes).toBe("Two vegan mains");
+
+    const touched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("gl-legacy-op"),
+      payload: {
+        extras: {
+          guestList: {
+            ...guestList,
+            guests: [
+              ...guestList.guests,
+              { id: "g2", name: "Grace", tickets: 1, invitedBy: "Promoter" },
+            ],
+          },
+        },
+      },
+    });
+    expect(touched.statusCode).toBe(400);
+    expect(touched.json().error.message).toContain("8 over the 2 you allow in total");
   });
 });

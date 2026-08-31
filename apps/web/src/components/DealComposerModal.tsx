@@ -201,6 +201,31 @@ export function DealComposerModal({
           )}
         </div>
 
+        {/* NOT an error, and not gated on submit: it says what this deal will do
+            once saved. A deal that pays nobody is allowed on purpose (a
+            standalone operator has nobody else to name), and the one thing that
+            must never happen is its settling as nothing without anybody having
+            been told — which is exactly what the refusal it replaced used to
+            prevent. */}
+        {composer.notices.length > 0 && (
+          <ul
+            style={{
+              margin: 0,
+              paddingLeft: 18,
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+              color: "var(--muted)",
+              fontSize: 12.5,
+              lineHeight: 1.45,
+            }}
+          >
+            {composer.notices.map((notice) => (
+              <li key={notice}>{notice}</li>
+            ))}
+          </ul>
+        )}
+
         {composer.submitAttempted && composer.problems.length > 0 && (
           <ul
             style={{

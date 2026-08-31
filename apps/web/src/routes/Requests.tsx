@@ -1,5 +1,6 @@
 import {
   Badge,
+  Button,
   Card,
   Chip,
   Icon,
@@ -23,7 +24,13 @@ import { dayKey } from "../components/calendarGrid";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
 import { useRequestTriage } from "../components/useRequestTriage";
-import { type RequestItem, useRequestInbox } from "../hooks/useRequestInbox";
+import {
+  type RequestItem,
+  type RequestViewMode,
+  UNREAD_FILTER,
+  isUnread,
+  useRequestInbox,
+} from "../hooks/useRequestInbox";
 import { formatAmount, formatDay, formatMoney, relativeTime } from "../lib/format";
 import styles from "./Requests.module.css";
 
@@ -37,12 +44,28 @@ const REQUEST_STATUS: Record<string, { status: Status; label: string }> = {
   expired: { status: "draft", label: "Expired" },
 };
 
-/** The status filter chips (main column), in shot order. They narrow the right
- * column only — the calendar, the date rail and the "N pending" badge always
- * describe the whole inbox, which is why `useRequestInbox` holds all of it. */
+/**
+ * The filter chips (main column), in shot order. They narrow the right column
+ * only — the calendar, the date rail and the "N pending" badge always describe
+ * the whole inbox, which is why `useRequestInbox` holds all of it.
+ *
+ * PENDING LEADS, because it is the default (Ran, 2026-08-31) and because the
+ * chip order is also the panel's motion order: the bucket the screen opens on
+ * has to be the leftmost one, or the first click a reader ever makes scoots the
+ * list backwards. "All" sits beside it as the escape hatch, and the settled
+ * buckets keep their lifecycle order behind the two.
+ *
+ * UNREAD IS A BUCKET, NOT A SECOND AXIS. It could have been an independent
+ * toggle crossed with the status — "unread AND declined" is a legal question —
+ * but the chips are a single-select set and adding a second kind of chip to the
+ * same row teaches nothing except that some of them behave differently. One
+ * axis, and unread reads as what it is: the part of the inbox nobody has looked
+ * at yet. It exists on the incoming view only; see `Requests` below.
+ */
 const FILTERS: { key: string; label: string }[] = [
-  { key: "all", label: "All" },
   { key: "pending", label: "Pending" },
+  { key: UNREAD_FILTER, label: "Unread" },
+  { key: "all", label: "All" },
   { key: "accepted", label: "Accepted" },
   { key: "declined", label: "Declined" },
   { key: "flagged", label: "Flagged" },
@@ -50,8 +73,11 @@ const FILTERS: { key: string; label: string }[] = [
   { key: "expired", label: "Expired" },
 ];
 
-/** The chips in display order — what tells the panel which way to scoot. */
-const FILTER_ORDER = FILTERS.map((option) => option.key);
+/** The two layouts, on the toggle `Contacts` already uses for exactly this. */
+const VIEW_OPTIONS: { value: RequestViewMode; label: string }[] = [
+  { value: "cards", label: "Cards" },
+  { value: "list", label: "List" },
+];
 
 /**
  * A request is triaged once. `pending` is the live case; `accepted` still allows
@@ -127,16 +153,23 @@ function toCardData(request: RequestItem): RequestCardData {
     status: meta.status,
     statusLabel: meta.label,
     wantedDate: formatDay(request.wantedDate),
+    // The raw key travels with the label: the label is for the reader, the key
+    // is what `POST /booking-requests/:id/draft-event` takes back as `eventDate`.
+    alternateDates: request.additionalDates.map((date) => ({
+      key: date,
+      label: formatDay(date),
+    })),
     source: request.source
       ? request.source.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase())
       : "—",
     fee: formatFee(request),
     email: request.email ?? undefined,
     message: request.pitch ?? undefined,
-    // `eventId` is served by `GET /booking-requests` (it is on the response
-    // schema) but the generated types predate it, so it is read defensively here
-    // rather than being invisible until the client is regenerated.
-    draftEventId: (request as { eventId?: string | null }).eventId ?? undefined,
+    draftEventId: request.eventId ?? undefined,
+    // `undefined`, not `false`, where the row carries no read state at all — a
+    // sent offer never discloses whether the venue opened it, so the card must
+    // render no read control rather than an honest-looking "read" one.
+    unread: request.readAt === undefined ? undefined : isUnread(request),
     canTriage: TRIAGEABLE_STATUSES.has(request.status),
     canRestore: RESTORABLE_STATUSES.has(request.status),
   };
@@ -166,6 +199,10 @@ export function Requests() {
     setDirection,
     filter,
     setFilter,
+    view,
+    setView,
+    expansion,
+    expansionKey,
     selectedDay,
     toggleDay,
     selectDay,
@@ -174,6 +211,9 @@ export function Requests() {
     requests,
     visible,
     pendingCount,
+    unreadCount,
+    setRead,
+    isSettingRead,
     markedDates,
     isPending,
     isError,
@@ -206,8 +246,47 @@ export function Requests() {
           ...triage.handlers,
           onOpenDraftEvent: (eventId: string) =>
             navigate({ to: "/events/$eventId", params: { eventId } }),
+          /**
+           * Choosing one of the sender's alternate nights is not a fifth triage
+           * action — it is "Create Draft", started on a different date. The API
+           * takes it (`POST /booking-requests/:id/draft-event` accepts
+           * `eventDate`), so the dialog opens pre-filled on the night that was
+           * picked and the operator still confirms it.
+           */
+          onUseAlternateDate: (id: string, date: string) => triage.handlers.onCreateDraft(id, date),
+          onSetRead: (id: string, read: boolean) => setRead({ ids: [id], read }),
         }
       : {};
+
+  /**
+   * READ IS AN EXPLICIT ACT HERE, and deliberately not the inbox convention.
+   *
+   * Two reasons, and the first is structural: this screen has no "open". In the
+   * card view every request is already rendered in full, side by side — there is
+   * no detail pane to enter — so "mark on open" could only mean "mark everything
+   * the moment you land on /requests", which clears the whole inbox for the act
+   * of looking at it. The list view does have a disclosure to hang it on, but a
+   * rule that fires in one layout and not in the other is a rule nobody can
+   * predict, and it would quietly make the layout switch destructive.
+   *
+   * The second is what a request IS. A notification is news, and news is read
+   * once; a booking request is a decision somebody still owes an answer to, and
+   * the unread mark is the only to-do list they have for it. Silently clearing
+   * it is how "I'll deal with that on Monday" becomes a lost booking.
+   *
+   * So: a control per request, and "Mark all read" for the sweep — the same two
+   * moves, and the same words, as the notification bell, so the app has one
+   * vocabulary for this rather than two.
+   */
+  const markAllRead = () => setRead({ read: true });
+
+  // Read state belongs to the recipient, so the sent view has no unread bucket
+  // to offer. Dropping the chip also drops it from the panel's motion order,
+  // which is the same list by construction rather than a second one to keep
+  // in step.
+  const chips =
+    direction === "incoming" ? FILTERS : FILTERS.filter((option) => option.key !== UNREAD_FILTER);
+  const chipOrder = chips.map((option) => option.key);
 
   return (
     <>
@@ -220,7 +299,11 @@ export function Requests() {
             : "Manage booking requests from artists, agents, and venues."
         }
         actions={
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          // A fragment, not a row: `SectionHeader` already lays its actions out
+          // in a flex row that WRAPS. A second row inside it is one unbreakable
+          // child, which is what pushes a phone sideways instead of dropping
+          // onto a second line (the same trap `Contacts` records).
+          <>
             {!isOperator && (
               <SegmentedToggle
                 aria-label="Request direction"
@@ -232,12 +315,23 @@ export function Requests() {
                 ]}
               />
             )}
+            <SegmentedToggle<RequestViewMode>
+              aria-label="Layout"
+              value={view}
+              onChange={setView}
+              options={VIEW_OPTIONS}
+            />
+            {direction === "incoming" && unreadCount > 0 && (
+              <Button variant="ghost" onClick={markAllRead} disabled={isSettingRead}>
+                Mark all read
+              </Button>
+            )}
             {pendingCount > 0 ? (
               <Badge status="pending" dot>
                 {pendingCount} pending
               </Badge>
             ) : null}
-          </div>
+          </>
         }
       />
 
@@ -267,13 +361,15 @@ export function Requests() {
                   style={{ fontFamily: "var(--font-display)", fontSize: 16, marginRight: 8 }}
                 />
               )}
-              {FILTERS.map((option) => (
+              {chips.map((option) => (
                 <Chip
                   key={option.key}
                   active={filter === option.key}
                   onClick={() => setFilter(option.key)}
                 >
-                  {option.label}
+                  {option.key === UNREAD_FILTER && unreadCount > 0
+                    ? `${option.label} ${unreadCount}`
+                    : option.label}
                 </Chip>
               ))}
             </div>
@@ -287,7 +383,7 @@ export function Requests() {
                 simply blanks. */}
             <TabPanels
               activeKey={filter}
-              order={FILTER_ORDER}
+              order={chipOrder}
               // The wrapper owns the spacing now. The parent column's gap used to
               // separate the cards; once they moved inside one child it separated
               // nothing, and the list rendered flush. Same 16 as everywhere else on
@@ -304,7 +400,14 @@ export function Requests() {
                 </Card>
               ) : (
                 visible.map((request) => (
-                  <RequestCard key={request.id} request={toCardData(request)} {...triageActions} />
+                  <RequestCard
+                    key={request.id}
+                    request={toCardData(request)}
+                    layout={view === "list" ? "row" : "card"}
+                    expanded={expansion.isExpanded(expansionKey(request.id))}
+                    onToggleExpanded={(id) => expansion.toggle(expansionKey(id))}
+                    {...triageActions}
+                  />
                 ))
               )}
             </TabPanels>

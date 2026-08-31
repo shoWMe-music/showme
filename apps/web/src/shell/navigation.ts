@@ -9,6 +9,7 @@ export type NavRoute =
   | "/events"
   | "/tasks"
   | "/reports"
+  | "/setlists"
   | "/settlements"
   | "/projections"
   | "/requests"
@@ -64,16 +65,33 @@ export const NAV: readonly NavItem[] = [
   { label: "Events", icon: "calendar-check", to: "/events", kinds: EVERY_KIND },
   // `GET /tasks` = the caller's own + their profiles' + an event's shared to-do.
   { label: "Tasks", icon: "check", to: "/tasks", kinds: EVERY_KIND },
-  // Operator only. This screen is the PRO *filing* — every card's only action is
-  // "Report to STIM · Not filed" — and decisions.md #627-629 puts the report on
-  // the operator (`setlist_reports`) and the setlist on the performer.
-  //   · performer — authors the setlist, never files it; their surface is the
-  //     Setlists screen, which does not exist yet (the rest of A-25).
+  // Operator only, and NAMED for what it is. This screen is the PRO filing desk:
+  // the performed-works report for a night, the society that covers the
+  // territory, the royalty estimate and the record of the filing. It carried the
+  // label "Setlists" and it is not one — decisions.md #627-629 puts the *report*
+  // on the operator (`performance_reports`) and the *setlist* on the performer,
+  // and Ran said the same in the 2026-08-31 review: "Operators don't need
+  // setlists page, just that the setlists from performers will be connected to
+  // their event managers". The connection is the event workspace's Setlist tab;
+  // this is the desk the report is filed from. The label is the product's own
+  // vocabulary — `performance_reports`, `performance_report.file`,
+  // `PerformanceReportModal`, `GET /events/:id/performance-report`.
+  //   · performer — authors the setlist, never files it; that is `/setlists`.
   //   · team_and_crew — "crew are NOT a core consumer" (decisions.md #631); they
   //     only ever see a setlist explicitly shared to their participant row.
   //   · agent — a booking agent handles live bookings only, "not publishing"
   //     (story.md); PRO royalties are the writer's income, not the agent's.
-  { label: "Setlists", icon: "trending-up", to: "/reports", kinds: ["operator"] },
+  { label: "Performance Reports", icon: "file", to: "/reports", kinds: ["operator"] },
+  // The other half of the same module, and the act's side of it. A performer
+  // authors one setlist per show they are on (`setlists`, unique on event +
+  // participant) and the `setlist.author` capability is refused to every other
+  // relationship by the ceiling — an operator cannot write one and an agent
+  // carries business authority, never the songs (`packages/auth/src/presets.ts`).
+  //   · operator — reads the acts' sets on the event workspace, and files from
+  //     Performance Reports above; there is nothing for them to author.
+  //   · team_and_crew / agent — see the reasons on the item above; a crew member
+  //     reaches a shared set on the event itself, which is the only door.
+  { label: "Setlists", icon: "music", to: "/setlists", kinds: ["performer"] },
   // `GET /settlements` is party-scoped: one settlement row per participant, so a
   // performer's payouts, a crew fee and an agent's net-0 line all live here. This
   // is the money screen for everyone — never cut it for looking operator-ish.

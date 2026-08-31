@@ -1,0 +1,76 @@
+/* The song row of the setlist editor, and the column header above it.
+
+   ONE grid, declared twice, so the header cannot drift off the fields it names —
+   the first draft used two inline `gridTemplateColumns` and the "LENGTH" label
+   sat over the reorder buttons, because an `auto` track collapses to nothing in
+   a header row whose last cell is empty. The action column is therefore a fixed
+   width in both. */
+
+.head,
+.row {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 84px 136px;
+  align-items: center;
+  gap: 8px;
+}
+
+.head {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.row {
+  padding: 7px 0;
+}
+
+.index {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.actions {
+  display: flex;
+  gap: 2px;
+  justify-content: flex-end;
+}
+
+/* Below the phone breakpoint the four tracks do not fit: 246px of them are
+   fixed, which leaves a song title about forty pixels wide on a 360px screen.
+   The row folds instead — title on the first line, length and the reorder
+   controls on the second — so nothing has to shrink below its content and the
+   page never scrolls sideways.
+
+   560px is the literal value of `--breakpoint-phone`
+   (`design-system/src/styles/tokens.css`); a media query cannot read a custom
+   property, which is why the number is written out here. */
+@media (max-width: 560px) {
+  .head,
+  .row {
+    grid-template-columns: 26px minmax(0, 1fr) auto;
+  }
+
+  .title {
+    grid-column: 2 / -1;
+  }
+
+  .duration {
+    grid-column: 2;
+    width: 84px;
+  }
+
+  .actions {
+    grid-column: 3;
+  }
+
+  /* The header names three columns that are no longer in a row together. The
+     numbers and the fields are self-evident at this size; a label sitting over
+     the wrong one is not. */
+  .head {
+    display: none;
+  }
+}

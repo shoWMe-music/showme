@@ -5,6 +5,7 @@ import {
   type DealDraft,
   type DealPartyDraft,
   createDealPayload,
+  dealDraftNotices,
   dealDraftProblems,
   dealKindLabel,
   dealTypeForKind,
@@ -69,10 +70,62 @@ describe("deal draft — what it refuses", () => {
     expect(dealDraftProblems(draft)).toContainEqual(expect.stringContaining("only one line"));
   });
 
-  it("refuses a settling deal that pays nobody", () => {
+  /**
+   * CHANGED DELIBERATELY, 2026-08-31. This used to assert that a settling deal
+   * paying nobody was REFUSED ("Nobody on this agreement is paid by it…"). That
+   * rule is what stopped a standalone operator from writing a deal at all —
+   * alone on their own event the only party they can name is themselves, and the
+   * refusal then demanded they mark themselves "Is paid". The deal is now
+   * allowed and says so out loud instead (`dealDraftNotices`); the money is
+   * unaffected, which `apps/api/src/settlement.test.ts` proves with Σ net = 0.
+   */
+  it("allows a settling deal that pays nobody — the standalone operator's record", () => {
     const draft = guaranteeDraft();
     draft.parties[1] = { key: "b", participantId: "act", roleInDeal: "observer", sharePercent: "" };
-    expect(dealDraftProblems(draft)).toContainEqual(expect.stringContaining("Nobody"));
+    expect(dealDraftProblems(draft)).toEqual([]);
+  });
+
+  it("says out loud that a deal paying nobody will not be computed", () => {
+    const draft = guaranteeDraft();
+    draft.parties[1] = { key: "b", participantId: "act", roleInDeal: "observer", sharePercent: "" };
+    expect(dealDraftNotices(draft)).toContainEqual(
+      expect.stringContaining("shoWMe will not compute it"),
+    );
+    // And nothing to say about the ordinary two-party case.
+    expect(dealDraftNotices(guaranteeDraft())).toEqual([]);
+  });
+
+  it("names the manual case in its own words when the shape is paper-only", () => {
+    const draft = guaranteeDraft();
+    draft.structure = null;
+    draft.guaranteeAmount = "";
+    draft.parties[1] = { key: "b", participantId: "act", roleInDeal: "observer", sharePercent: "" };
+    expect(dealDraftNotices(draft)).toContainEqual(
+      expect.stringContaining("no figure from it reaches the settlement"),
+    );
+  });
+
+  /**
+   * The ONE shape the relaxation had to keep refusing. `reconcile()` throws a bare
+   * Error on an advance with no payee, so accepting this would trade a sentence
+   * for a 500 on every compute of that event from then on.
+   */
+  it("refuses money declared already paid with nobody it was paid to", () => {
+    const draft = guaranteeDraft();
+    draft.parties[1] = { key: "b", participantId: "act", roleInDeal: "observer", sharePercent: "" };
+    draft.advanceAmount = "1000";
+    expect(dealDraftProblems(draft)).toContainEqual(
+      expect.stringContaining("names nobody it was paid to"),
+    );
+  });
+
+  it("refuses the same thing stated as before_event timing rather than an advance", () => {
+    const draft = guaranteeDraft();
+    draft.parties[1] = { key: "b", participantId: "act", roleInDeal: "observer", sharePercent: "" };
+    draft.paymentTiming = "before_event";
+    expect(dealDraftProblems(draft)).toContainEqual(
+      expect.stringContaining("names nobody it was paid to"),
+    );
   });
 
   it("allows a paper agreement that pays nobody", () => {

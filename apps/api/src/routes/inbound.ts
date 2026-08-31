@@ -3,7 +3,7 @@ import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import { notifyProfileMembers } from "@showme/db/notify";
 import { currencyForCountry, invitationExpiresAt } from "@showme/shared";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -16,11 +16,19 @@ import {
   tooManyRequests,
 } from "../errors";
 import { writeActivity } from "../lib/activity";
+import { autoAssignAgentOnPerformerJoin } from "../lib/agent-assignment";
+import type { Transaction } from "../lib/audit";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
-import { renderInvitationEmail } from "../lib/email-templates";
+import {
+  type BookingRequestSender,
+  resolveBookingRequestSender,
+} from "../lib/booking-request-sender";
+import { renderInvitationEmail, renderOffPlatformPerformerEmail } from "../lib/email-templates";
 import { canUseFeature, entitlementRequired } from "../lib/entitlements";
+import { loadEventSummary } from "../lib/event-summary";
 import { resolveEventTimezone } from "../lib/event-timezone";
+import { createPerformerStub } from "../lib/off-platform";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
 import { createSlidingWindowRateLimiter } from "../lib/rate-limit";
 import { isRepresentationActiveAt } from "../lib/representation-rules";
@@ -79,6 +87,56 @@ const calendarDate = z
   }, "Not a real calendar date");
 
 /**
+ * How many OTHER nights a sender may name (`additional_dates`).
+ *
+ * Five, because the field is "these also work", not a calendar. A recipient reads
+ * the options as a set and has to hold them in their head against their own
+ * diary; past half a dozen the honest answer is "when are you free?", which is a
+ * conversation and not a request. It also keeps the row small enough to render as
+ * chips in an inbox line.
+ */
+const MAXIMUM_ADDITIONAL_DATES = 5;
+
+/**
+ * The alternates, unsorted and unchecked against the wanted date — the two
+ * cross-field rules are applied by `refuseRepeatedDates` on the body that holds
+ * both. Distinctness is REFUSED rather than silently deduplicated: a repeated
+ * date is a mistake in the sender's own form, and quietly swallowing it teaches
+ * them the field does something it does not.
+ */
+const additionalDates = z.array(calendarDate).max(MAXIMUM_ADDITIONAL_DATES);
+
+/**
+ * The cross-field date rule, shared by the public form and `POST /offers`: an
+ * alternate may not repeat the wanted date, and may not repeat another alternate.
+ * Both would be a promise of choice the sender did not actually make.
+ */
+function refuseRepeatedDates(
+  body: { wantedDate: string; additionalDates?: string[] },
+  context: z.RefinementCtx,
+): void {
+  const alternates = body.additionalDates;
+  if (!alternates || alternates.length === 0) return;
+  const seen = new Set([body.wantedDate]);
+  for (const [position, date] of alternates.entries()) {
+    if (seen.has(date)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["additionalDates", position],
+        message: `${date} is already one of the dates asked for`,
+      });
+      return;
+    }
+    seen.add(date);
+  }
+}
+
+/** Alternates as they are stored: calendar order, because the set is unordered. */
+function sortedAdditionalDates(dates: string[] | undefined): string[] | undefined {
+  return dates && dates.length > 0 ? [...dates].sort() : undefined;
+}
+
+/**
  * The statuses a recipient may move a request to. `pending` is included so an
  * archive or a decline can be UNDONE — the screen offers "Restore", and without
  * it archiving is a one-way door with no route back. `expired` is deliberately
@@ -94,26 +152,57 @@ const bookingRequestStatus = z.enum(["pending", "accepted", "declined", "archive
  * into a `date` column. It now uses exactly the sanitizers the AUTHENTICATED
  * `CreateOfferBody` below already used.
  */
-const CreatePublicRequestBody = z.object({
-  source: z.literal("public_form"),
-  targetProfileId: z.string().uuid(),
-  contactName: singleLineText(200),
-  email: emailAddress,
-  artistName: singleLineText(200).optional(),
-  wantedDate: calendarDate.optional(),
-  pitch: multipleLineText(5000).optional(),
-  offerFeeMin: MinorUnits.optional(),
-  offerFeeMax: MinorUnits.optional(),
-});
+const CreatePublicRequestBody = z
+  .object({
+    source: z.literal("public_form"),
+    targetProfileId: z.string().uuid(),
+    contactName: singleLineText(200),
+    email: emailAddress,
+    artistName: singleLineText(200).optional(),
+    // REQUIRED since 2026-08-31 (Ran). It was optional so that the public PROFILE
+    // page — which, unlike the availability page, has no list of published days to
+    // click — could ask "are you free at all". That ask is unanswerable: it cannot
+    // be placed on a calendar, cannot become a dated draft event, and cannot be
+    // deduplicated. The profile page now carries a date input instead
+    // (`apps/marketing/src/availability-request.ts`), so the question survives and
+    // names a night.
+    wantedDate: calendarDate,
+    additionalDates: additionalDates.optional(),
+    pitch: multipleLineText(5000).optional(),
+    offerFeeMin: MinorUnits.optional(),
+    offerFeeMax: MinorUnits.optional(),
+  })
+  .superRefine(refuseRepeatedDates);
 
 const ListQuery = PaginationQuery.extend({
   status: z.enum(["pending", "accepted", "declined", "flagged", "archived", "expired"]).optional(),
   // "incoming" (default) = requests targeting a profile I am a member of.
   // "outgoing" = offers/requests I have SENT from one of my profiles (fix-list #6).
   direction: z.enum(["incoming", "outgoing"]).optional().default("incoming"),
+  /** `?unread=true` — the badge's query. Incoming only; see the route. */
+  unread: z.coerce.boolean().optional(),
 });
 
 const UpdateStatusBody = z.object({ status: bookingRequestStatus });
+
+/**
+ * Mark requests read — or unread again. Ran asked for both, and the existing
+ * notifications door was one-way (`routes/notifications.ts` only ever stamped
+ * `read_at`), which is how "I'll deal with that later" becomes "I lost it".
+ *
+ * `ids` omitted means EVERY unread request in the caller's inboxes ("mark all
+ * read"), the same shape `POST /notifications/read` uses. The cap is the same
+ * order as a page of the inbox — a longer list is a client bug, not a use.
+ */
+const MarkReadBody = z
+  .object({
+    ids: z.array(z.string().uuid()).max(200).optional(),
+    /** False marks them UNREAD again. */
+    read: z.boolean().optional(),
+  })
+  .nullish();
+
+const MarkReadResponse = z.object({ updated: z.number() });
 
 /**
  * An outgoing offer. The date and the fee range are the ASK; everything below the
@@ -122,25 +211,29 @@ const UpdateStatusBody = z.object({ status: bookingRequestStatus });
  * The identity fields are optional on the wire but never optional in the row: when
  * the caller omits them they are derived from the sending user and profile.
  */
-const CreateOfferBody = z.object({
-  targetProfileId: z.string().uuid(),
-  wantedDate: calendarDate,
-  offerFeeMin: MinorUnits.optional(),
-  offerFeeMax: MinorUnits.optional(),
-  // Who is offering. Defaulted from the sender when omitted — never left blank.
-  contactName: singleLineText(200).optional(),
-  email: emailAddress.optional(),
-  artistName: singleLineText(200).optional(),
-  // Why. Free text, sanitized and length-bounded like any other inbox-bound input.
-  pitch: multipleLineText(5000).optional(),
-  note: multipleLineText(2000).optional(),
-  musicUrl: linkUrl.optional(),
-  videoUrl: linkUrl.optional(),
-  // AGENT ONLY: the performer this offer is FOR (decisions.md #14). Accepted only
-  // from an `agent`-kind profile with an ACTIVE representation of that performer;
-  // anything else is a 400, never a silent drop.
-  onBehalfOfProfileId: z.string().uuid().optional(),
-});
+const CreateOfferBody = z
+  .object({
+    targetProfileId: z.string().uuid(),
+    wantedDate: calendarDate,
+    /** "Any of these would also work" — see `MAXIMUM_ADDITIONAL_DATES`. */
+    additionalDates: additionalDates.optional(),
+    offerFeeMin: MinorUnits.optional(),
+    offerFeeMax: MinorUnits.optional(),
+    // Who is offering. Defaulted from the sender when omitted — never left blank.
+    contactName: singleLineText(200).optional(),
+    email: emailAddress.optional(),
+    artistName: singleLineText(200).optional(),
+    // Why. Free text, sanitized and length-bounded like any other inbox-bound input.
+    pitch: multipleLineText(5000).optional(),
+    note: multipleLineText(2000).optional(),
+    musicUrl: linkUrl.optional(),
+    videoUrl: linkUrl.optional(),
+    // AGENT ONLY: the performer this offer is FOR (decisions.md #14). Accepted only
+    // from an `agent`-kind profile with an ACTIVE representation of that performer;
+    // anything else is a 400, never a silent drop.
+    onBehalfOfProfileId: z.string().uuid().optional(),
+  })
+  .superRefine(refuseRepeatedDates);
 
 const FlagSpamBody = z.object({ kind: z.string().min(1) });
 
@@ -202,7 +295,22 @@ const BookingRequestResponse = z.object({
   // (`contactName`). `onBehalfOfName` is the performer profile's own display name.
   onBehalfOfProfileId: z.string().nullable(),
   onBehalfOfName: z.string().nullable(),
-  wantedDate: z.string().nullable(),
+  // Never null since 0031 — every request names a night (Ran, 2026-08-31).
+  wantedDate: z.string(),
+  /** The other nights that would also work, in calendar order. `[]`, never null. */
+  additionalDates: z.array(z.string()),
+  /**
+   * WHEN THE RECIPIENT'S TEAM READ IT, and who read it — present only for the
+   * profile the request was sent TO.
+   *
+   * ABSENT, not null, on an outgoing row. Whether a venue has opened your offer
+   * is the venue's business: story.md draws the line at "each party sees only
+   * their slice", and a read receipt is a fact about how the other party works
+   * its inbox, not a fact about the offer. `null` would be a lie in the other
+   * direction (it reads as "not yet"), so the key is simply not there.
+   */
+  readAt: z.string().nullable().optional(),
+  readByUserId: z.string().nullable().optional(),
   pitch: z.string().nullable(),
   note: z.string().nullable(),
   musicUrl: z.string().nullable(),
@@ -262,6 +370,30 @@ const HandoffResponse = z.object({
  * at creation. Returning the live counter lets the screen say that honestly
  * instead of either hiding the cost or inventing one.
  */
+/**
+ * What happened to the person who asked, when their request became a draft.
+ *
+ * Reported rather than assumed, because the two branches are visibly different
+ * things on the screen: an on-platform act is simply THERE on the event and has
+ * been told, while a stranger is there as an unclaimed stub with an invitation
+ * mail in flight — and a mail that did not leave is something the operator can
+ * act on (they can send the link themselves) only if we say so.
+ */
+const DraftEventSenderResponse = z.object({
+  /**
+   * `notification` — they have an account: added as the act and told in-app.
+   * `invitation`   — a stranger: an unclaimed stub profile + a claim invitation.
+   * `none`         — neither an account nor an address; nobody was added.
+   */
+  channel: z.enum(["notification", "invitation", "none"]),
+  /** The profile now on the event as the act — theirs, or the stub just minted. */
+  profileId: z.string().nullable(),
+  /** Where the invitation was sent, when the channel is `invitation`. */
+  email: z.string().nullable(),
+  /** False when the mail did not leave — the invitation still stands. */
+  emailed: z.boolean(),
+});
+
 const DraftEventResponse = z.object({
   requestId: z.string(),
   eventId: z.string(),
@@ -276,6 +408,7 @@ const DraftEventResponse = z.object({
     /** Always true: the cap bites when the event is confirmed, not now. */
     chargedAtConfirm: z.literal(true),
   }),
+  sender: DraftEventSenderResponse,
 });
 
 const CounterOfferResponse = z.object({
@@ -305,6 +438,11 @@ interface BookingRequestCursor {
 function serializeBookingRequest(
   row: BookingRequestRow,
   onBehalfOfName: string | null = null,
+  /**
+   * True when the caller is reading their OWN inbox. The read state is theirs;
+   * see `BookingRequestResponse.readAt` for why a sender never gets it.
+   */
+  viewerIsRecipient = true,
 ): z.infer<typeof BookingRequestResponse> {
   return {
     id: row.id,
@@ -319,6 +457,10 @@ function serializeBookingRequest(
     onBehalfOfProfileId: row.onBehalfOfProfileId,
     onBehalfOfName,
     wantedDate: row.wantedDate,
+    additionalDates: row.additionalDates ?? [],
+    ...(viewerIsRecipient
+      ? { readAt: row.readAt?.toISOString() ?? null, readByUserId: row.readByUserId }
+      : {}),
     pitch: row.pitch,
     note: row.note,
     musicUrl: row.musicUrl,
@@ -428,6 +570,22 @@ function counterOfferTerms(offer: {
 }
 
 /**
+ * "They asked about 2027-03-10, or 2027-03-12 / 2027-03-17." — the one line an
+ * arrival notification carries. The alternates belong here rather than only in
+ * the row: a recipient whose 10th is taken can answer from the notification
+ * itself instead of opening the inbox to find out there was a second option.
+ */
+function datesAsked(bookingRequest: {
+  wantedDate: string;
+  additionalDates: string[] | null;
+}): string {
+  const alternates = bookingRequest.additionalDates ?? [];
+  return alternates.length > 0
+    ? `They asked about ${bookingRequest.wantedDate}, or ${alternates.join(" / ")}.`
+    : `They asked about ${bookingRequest.wantedDate}.`;
+}
+
+/**
  * The draft event's notes: who asked, how to answer them, what they asked for,
  * and what they said. The fee is written here rather than into a deal on purpose
  * — a fee becomes real when both parties agree it, and the request is one party
@@ -435,8 +593,13 @@ function counterOfferTerms(offer: {
  */
 function draftEventNotes(bookingRequest: BookingRequestRow): string {
   const askedFee = bookingRequest.artistFee ?? bookingRequest.offerFeeMin;
+  const alternates = bookingRequest.additionalDates ?? [];
   const lines = [
-    `From a booking request${bookingRequest.wantedDate ? ` for ${bookingRequest.wantedDate}` : ""}.`,
+    `From a booking request for ${bookingRequest.wantedDate}.`,
+    // The alternates survive into the event because the draft takes ONE of the
+    // dates — the operator who later has to move the night needs to know which
+    // others the act already said yes to.
+    alternates.length > 0 ? `They could also play: ${alternates.join(", ")}.` : null,
     bookingRequest.contactName
       ? `Contact: ${bookingRequest.contactName}${bookingRequest.email ? ` <${bookingRequest.email}>` : ""}`
       : null,
@@ -478,6 +641,196 @@ function clientIp(request: FastifyRequest): string {
 function isAllowedPublicOrigin(request: FastifyRequest): boolean {
   const origin = request.headers.origin;
   return typeof origin === "string" && request.server.leadsAllowedOrigins.includes(origin);
+}
+
+/** What "Create Draft" did with the person who asked, as the response reports it. */
+type AttachedSender = z.infer<typeof DraftEventSenderResponse>;
+
+/**
+ * Put the person who asked ONTO the draft event, through whichever of the two
+ * doors their sender identity opens (`resolveBookingRequestSender`).
+ *
+ * Both doors already existed and neither was reachable from here: the profile
+ * branch is an ordinary `event_participants` insert, and the stranger branch is
+ * the stub-and-claim mechanic `POST /events/:id/participants/off-platform` uses —
+ * `createPerformerStub` mints the unclaimed profile and the email-bearing
+ * membership that IS the claim key, so signing up with that address later
+ * inherits this event through the normal access join. This is the third caller of
+ * that mechanic (off-platform participants, the venue handoff, and now here), so
+ * it is called rather than copied.
+ *
+ * Runs INSIDE the draft-event transaction: an act half-added to an event, or an
+ * invitation to an event that rolled back, is worse than no draft at all.
+ */
+async function attachSenderToEvent(
+  tx: Transaction,
+  input: {
+    sender: BookingRequestSender;
+    event: typeof schema.events.$inferSelect;
+    operatorUserId: string;
+    actingProfileId: string | null;
+  },
+): Promise<AttachedSender> {
+  const { sender, event, operatorUserId, actingProfileId } = input;
+  // A `venue_handoff` row can carry neither an account nor an address. Nothing to
+  // add and nobody to write to — said plainly in the response, not papered over.
+  if (sender.channel === "none") {
+    return { channel: "none", profileId: null, email: null, emailed: false };
+  }
+
+  // The act IS the host. `POST /offers` does not refuse a profile addressing
+  // itself, so an operator can pitch their own venue and then draft it; the host
+  // participant is already written, and adding a second row for the same profile
+  // is a 23505 the caller would see as a bare 500. Nobody is added and nobody is
+  // told, which is the truth — you cannot support your own show.
+  if (sender.channel === "profile" && sender.actProfileId === event.hostProfileId) {
+    return { channel: "none", profileId: null, email: null, emailed: false };
+  }
+
+  const profileId =
+    sender.channel === "profile"
+      ? sender.actProfileId
+      : (
+          await createPerformerStub(tx, {
+            name: sender.name,
+            email: sender.email,
+            operatorUserId,
+          })
+        ).profileId;
+
+  // The act's own permission set, minted per event exactly as the host's is two
+  // lines above in the caller (and as `POST /calendar-items/:id/event` does).
+  const [permissionSet] = await tx
+    .insert(schema.permissionSets)
+    .values({
+      profileId,
+      name: "performer",
+      capabilities: [...PRESET_PERMISSION_SETS.performer],
+    })
+    .returning();
+  if (!permissionSet) throw new Error("permission set create failed");
+
+  await tx.insert(schema.eventParticipants).values({
+    eventId: event.id,
+    profileId,
+    role: "performer",
+    permissionSetId: permissionSet.id,
+    status: "invited",
+    addedBy: operatorUserId,
+  });
+
+  if (sender.channel === "profile") {
+    // decisions #14: a represented act joining an in-region event hands control to
+    // their agent in the same breath — the same call `POST /events/:id/participants`
+    // makes, so an act reaches an event with the same standing whichever door it
+    // came through. A stub has no representations, so this is the profile branch only.
+    await autoAssignAgentOnPerformerJoin(tx, event, profileId);
+    return { channel: "notification", profileId, email: null, emailed: false };
+  }
+
+  await tx.insert(schema.invitations).values({
+    // `profile_member` + `performer_offer`: the invitation is to CLAIM the stub
+    // profile (and with it this event), which is the shape the off-platform
+    // participant route writes and the claim flow already understands.
+    type: "profile_member",
+    source: "performer_offer",
+    status: "pending",
+    token: generateToken(),
+    expiresAt: invitationExpiresAt("performer_offer", new Date()),
+    recipientEmail: sender.email,
+    recipientName: sender.name,
+    targetProfileId: profileId,
+    targetEventId: event.id,
+    role: "owner",
+    createdByUser: operatorUserId,
+    createdByProfile: actingProfileId,
+  });
+
+  return { channel: "invitation", profileId, email: sender.email, emailed: false };
+}
+
+/**
+ * Tell them. Best-effort by design and by precedent (`POST /invitations`, the
+ * venue handoff, every notification in this file): the rows are committed and
+ * redeemable, so a delivery failure costs a copy-paste, never the draft.
+ */
+async function deliverDraftEventInvitation(
+  request: FastifyRequest,
+  input: {
+    sender: BookingRequestSender;
+    event: typeof schema.events.$inferSelect;
+    attached: AttachedSender;
+  },
+): Promise<AttachedSender> {
+  const { sender, event, attached } = input;
+  const { database } = request.server;
+
+  if (attached.channel === "notification" && sender.channel === "profile") {
+    try {
+      // Addressed to the SENDING profile, not the act: when an agency offered, the
+      // agency is who is holding the conversation (story.md — the agent negotiates
+      // on the act's behalf). The act sees the event itself, as a participant.
+      await notifyProfileMembers(
+        database,
+        sender.senderProfileId,
+        request.principal?.userId ?? null,
+        {
+          type: "booking_request.draft_event",
+          title: `${event.title} is being drafted`,
+          body: `Your request became a draft event${event.eventDate ? ` on ${event.eventDate}` : ""}. You are on it as the act.`,
+          eventId: event.id,
+          actorDisplay: request.firebaseUser?.name ?? undefined,
+          link: `/events/${event.id}`,
+          metadata: { eventId: event.id, profileId: attached.profileId },
+        },
+      );
+    } catch (error) {
+      request.log.error({ error, eventId: event.id }, "draft-event notification failed");
+    }
+
+    // When an AGENT asked, the act itself is now standing on an event it has not
+    // heard about — the agency got the reply, and the performer got a new booking.
+    // Both are affected, so both are told; they are the same profile on a direct
+    // offer, and then this does not run at all.
+    if (attached.profileId && attached.profileId !== sender.senderProfileId) {
+      try {
+        await notifyProfileMembers(
+          database,
+          attached.profileId,
+          request.principal?.userId ?? null,
+          {
+            type: "event.participant_added",
+            title: `Added to "${event.title}"`,
+            body: `Your agent's request became a draft event${event.eventDate ? ` on ${event.eventDate}` : ""}. You are on it as the act.`,
+            eventId: event.id,
+            actorDisplay: request.firebaseUser?.name ?? undefined,
+            link: `/events/${event.id}`,
+            metadata: { eventId: event.id },
+          },
+        );
+      } catch (error) {
+        request.log.error({ error, eventId: event.id }, "draft-event act notification failed");
+      }
+    }
+    return attached;
+  }
+
+  if (attached.channel === "invitation" && sender.channel === "email") {
+    try {
+      await request.server.emailSink.sendEmail({
+        to: sender.email,
+        ...renderOffPlatformPerformerEmail({
+          performerName: sender.name,
+          event: await loadEventSummary(database, event.id),
+        }),
+      });
+      return { ...attached, emailed: true };
+    } catch (error) {
+      request.log.error({ error, eventId: event.id }, "draft-event invitation email failed");
+    }
+  }
+
+  return attached;
 }
 
 /** An opaque link token for the handoff invitation — never guessable, never typed. */
@@ -545,28 +898,30 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
       // their email, on the same target and date, while the earlier request is
       // still pending. The `booking_requests_pending_dedup` index cannot do this —
       // its first column is `sender_user_id`, NULL here, and Postgres treats NULLs
-      // as distinct — so today two identical public submissions both land. This
-      // closes the double-submit and the repeat-pitch; it is a read-then-write, so
-      // two SIMULTANEOUS posts can still slip through (the insert below still
-      // catches a 23505 if a partial index is ever added). Dateless requests are
-      // NOT deduped, matching the index's own rule: two undated asks are two
-      // different messages, not a duplicate.
-      if (body.wantedDate) {
-        const [duplicate] = await database
-          .select({ id: schema.bookingRequests.id })
-          .from(schema.bookingRequests)
-          .where(
-            and(
-              eq(schema.bookingRequests.targetProfileId, body.targetProfileId),
-              eq(schema.bookingRequests.source, "public_form"),
-              eq(schema.bookingRequests.status, "pending"),
-              eq(schema.bookingRequests.wantedDate, body.wantedDate),
-              sql`lower(${schema.bookingRequests.email}) = ${body.email}`,
-            ),
-          )
-          .limit(1);
-        if (duplicate) throw conflict("You already have a pending request for this date");
-      }
+      // as distinct — so without this two identical public submissions both land.
+      // This closes the double-submit and the repeat-pitch; it is a read-then-write,
+      // so two SIMULTANEOUS posts can still slip through (the insert below still
+      // catches a 23505 if a partial index is ever added).
+      //
+      // Unconditional since the date became required: the old `if (body.wantedDate)`
+      // guard existed because a dateless ask had nothing to compare, and there is
+      // no such ask any more. The ALTERNATES are deliberately not part of the key —
+      // "I'd also take the 12th" is one ask, not four, and matching on them would
+      // make two genuinely different pitches collide because they share a fallback.
+      const [duplicate] = await database
+        .select({ id: schema.bookingRequests.id })
+        .from(schema.bookingRequests)
+        .where(
+          and(
+            eq(schema.bookingRequests.targetProfileId, body.targetProfileId),
+            eq(schema.bookingRequests.source, "public_form"),
+            eq(schema.bookingRequests.status, "pending"),
+            eq(schema.bookingRequests.wantedDate, body.wantedDate),
+            sql`lower(${schema.bookingRequests.email}) = ${body.email}`,
+          ),
+        )
+        .limit(1);
+      if (duplicate) throw conflict("You already have a pending request for this date");
 
       let created: BookingRequestRow;
       try {
@@ -580,6 +935,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
             email: body.email,
             artistName: body.artistName,
             wantedDate: body.wantedDate,
+            additionalDates: sortedAdditionalDates(body.additionalDates),
             pitch: body.pitch,
             offerFeeMin: body.offerFeeMin != null ? BigInt(body.offerFeeMin) : undefined,
             offerFeeMax: body.offerFeeMax != null ? BigInt(body.offerFeeMax) : undefined,
@@ -605,9 +961,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
         await notifyProfileMembers(database, created.targetProfileId, null, {
           type: "booking_request.received",
           title: `Booking request from ${created.artistName ?? created.contactName ?? "an artist"}`,
-          body: created.wantedDate
-            ? `They asked about ${created.wantedDate}.`
-            : "A new request is waiting in your inbox.",
+          body: datesAsked(created),
           link: "/requests",
           metadata: { bookingRequestId: created.id, source: created.source },
         });
@@ -634,7 +988,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
       const { database } = request.server;
       const principal = request.principal;
       if (!principal) throw new Error("principal missing after authentication");
-      const { cursor, limit, status, direction } = request.query;
+      const { cursor, limit, status, direction, unread } = request.query;
 
       const profileIds = principal.memberships.map((membership) => membership.profileId);
       if (profileIds.length === 0) {
@@ -646,6 +1000,14 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
         direction === "outgoing"
           ? inArray(schema.bookingRequests.senderProfileId, profileIds)
           : inArray(schema.bookingRequests.targetProfileId, profileIds);
+
+      // `read_at` is the RECIPIENT's state, so filtering an outgoing list by it
+      // would answer "has the venue opened my offer yet?" — the read receipt the
+      // payload deliberately withholds, asked sideways. Refused in words rather
+      // than ignored, so a client that tries learns why.
+      if (unread && direction === "outgoing") {
+        throw badRequest("`unread` describes your own inbox — it does not apply to sent requests");
+      }
 
       // Truncate to milliseconds so the JS-Date-round-tripped cursor stays exact
       // (same approach as events-list) and never re-emits the boundary row.
@@ -665,7 +1027,12 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
           eq(schema.profiles.id, schema.bookingRequests.onBehalfOfProfileId),
         )
         .where(
-          and(scope, status ? eq(schema.bookingRequests.status, status) : undefined, afterCursor),
+          and(
+            scope,
+            status ? eq(schema.bookingRequests.status, status) : undefined,
+            unread ? isNull(schema.bookingRequests.readAt) : undefined,
+            afterCursor,
+          ),
         )
         .orderBy(asc(createdAtMillis), asc(schema.bookingRequests.id))
         .limit(limit + 1);
@@ -676,9 +1043,69 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
       }));
 
       return {
-        items: items.map((row) => serializeBookingRequest(row.request, row.onBehalfOfName)),
+        items: items.map((row) =>
+          serializeBookingRequest(row.request, row.onBehalfOfName, direction === "incoming"),
+        ),
         nextCursor,
       };
+    },
+  );
+
+  /**
+   * Mark requests in the caller's inbox read, or unread again.
+   *
+   * WHO MAY: any ACTIVE member of the target profile, which is a wider set than
+   * triage's owner/admin on purpose. Reading is not deciding — an editor who
+   * opens the inbox has read it, and refusing to record that would leave the
+   * badge lying to the rest of the team. The membership set IS the authorization,
+   * folded into the UPDATE's WHERE: a request belonging to somebody else's
+   * profile simply does not match, so the answer is `updated: 0` and never a
+   * disclosure that the id exists.
+   *
+   * SENT requests are out of scope by the same predicate. Read state belongs to
+   * the inbox that received the request; a sender marking their own offer read
+   * would be marking the venue's inbox.
+   *
+   * NOT AUDITED. The audit log records decisions about someone else's business
+   * (a status change, a spam report, a draft event); "I looked at it" is not one,
+   * and every open of an inbox writing a row would drown the trail it protects.
+   */
+  app.post(
+    "/booking-requests/read",
+    { schema: { body: MarkReadBody, response: { 200: MarkReadResponse } } },
+    async (request) => {
+      const { database } = request.server;
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+
+      const ids = request.body?.ids;
+      const read = request.body?.read ?? true;
+      if (ids && ids.length === 0) return { updated: 0 };
+
+      const profileIds = principal.memberships.map((membership) => membership.profileId);
+      if (profileIds.length === 0) return { updated: 0 };
+
+      // Only rows that would actually CHANGE are touched, so `updated` is a true
+      // count of the work done and re-marking is a cheap no-op rather than a
+      // rewrite that moves the timestamp (and the name) of a read from last week.
+      const scope = and(
+        inArray(schema.bookingRequests.targetProfileId, profileIds),
+        ids ? inArray(schema.bookingRequests.id, ids) : undefined,
+        read ? isNull(schema.bookingRequests.readAt) : isNotNull(schema.bookingRequests.readAt),
+      );
+
+      const updated = await database
+        .update(schema.bookingRequests)
+        .set(
+          read
+            ? { readAt: new Date(), readByUserId: principal.userId }
+            : // Both cleared together: "read by nobody at 14:02" is not a state.
+              { readAt: null, readByUserId: null },
+        )
+        .where(scope)
+        .returning({ id: schema.bookingRequests.id });
+
+      return { updated: updated.length };
     },
   );
 
@@ -723,19 +1150,24 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
         return after;
       });
 
-      // Realtime + feed: the sender is waiting on this answer. Only on-platform
-      // senders have a profile to notify; a public-form request has none, and the
-      // operator replies to them by email instead.
-      if (updated.senderProfileId) {
+      // Realtime + feed: the sender is waiting on this answer. The same branch the
+      // other two routes ask (`resolveBookingRequestSender`) — only an on-platform
+      // sender has a feed to reach. A public-form sender is reachable by EMAIL and
+      // is deliberately not mailed here: this route says nothing a decline email
+      // could not say better, and "Make Offer" is the door that writes to them.
+      // Stated rather than left implicit, because the shape makes the missing arm
+      // visible instead of hiding it inside a truthiness check.
+      const requester = resolveBookingRequestSender(updated);
+      if (requester.channel === "profile") {
         try {
           await notifyProfileMembers(
             database,
-            updated.senderProfileId,
+            requester.senderProfileId,
             request.principal?.userId ?? null,
             {
               type: "booking_request.status_changed",
               title: `Your request was ${updated.status}`,
-              body: updated.wantedDate ? `For ${updated.wantedDate}.` : undefined,
+              body: `For ${updated.wantedDate}.`,
               link: "/requests",
               metadata: { bookingRequestId: updated.id, status: updated.status },
             },
@@ -846,6 +1278,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
               musicUrl: body.musicUrl,
               videoUrl: body.videoUrl,
               wantedDate: body.wantedDate,
+              additionalDates: sortedAdditionalDates(body.additionalDates),
               offerFeeMin: body.offerFeeMin != null ? BigInt(body.offerFeeMin) : undefined,
               offerFeeMax: body.offerFeeMax != null ? BigInt(body.offerFeeMax) : undefined,
               currency,
@@ -874,8 +1307,8 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
           type: "offer.received",
           title: `Offer from ${artistName}`,
           body: onBehalfOfName
-            ? `${contactName} is offering ${onBehalfOfName} for ${created.wantedDate}.`
-            : `Offered to play on ${created.wantedDate}.`,
+            ? `${contactName} is offering ${onBehalfOfName}. ${datesAsked(created)}`
+            : `Offered to play. ${datesAsked(created)}`,
           link: "/requests",
           metadata: { bookingRequestId: created.id },
         });
@@ -883,7 +1316,11 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
         request.log.error({ error, offerId: created.id }, "offer notification failed");
       }
 
-      return reply.status(201).send(serializeBookingRequest(created, onBehalfOfName));
+      // `viewerIsRecipient: false` — this is the SENDER's copy of their own offer.
+      // The row is a millisecond old and unread by definition, so nothing is
+      // hidden here in practice; it keeps the one rule ("read state belongs to the
+      // inbox") true on every path rather than only where it currently matters.
+      return reply.status(201).send(serializeBookingRequest(created, onBehalfOfName, false));
     },
   );
 
@@ -996,6 +1433,31 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
    * declines it or offers terms. And it creates no deal: the asked fee is written
    * into the event's notes, because the fee only becomes real when both parties
    * agree it, which is the deal flow.
+   *
+   * AND IT BRINGS THE PERSON WHO ASKED ONTO THE EVENT (Ran, 2026-08-31: "that
+   * should create a draft event and invite the collaborator with their email").
+   * Until now the only participant written was the host — the recipient's own
+   * profile — so "Create Offer" produced a private event with no counterparty on
+   * it, and the act found out nothing. Which of the two doors they come through is
+   * `resolveBookingRequestSender`, the same branch triage and "Make Offer" use:
+   *
+   *   an account  → their profile joins as a participant and their feed says so.
+   *   an email    → an unclaimed stub profile + a claim invitation + that email,
+   *                 exactly the mechanic `POST /events/:id/participants/off-platform`
+   *                 uses (`lib/off-platform.ts`), so signing up with that address
+   *                 inherits this event.
+   *
+   * They join as `performer`, never `co_host`: they asked to PLAY. story.md is
+   * explicit that operator is the party running the show and carrying the
+   * residual, and handing a co-host seat to whoever wrote in would hand them the
+   * budget. When an AGENT sent the offer the participant is the ACT they
+   * represent, not the agency (decisions.md #14, story.md "a booking agent, not
+   * the talent") — and the agent then reaches the event the normal way, through
+   * `autoAssignAgentOnPerformerJoin`, which is the same door a performer added by
+   * hand goes through.
+   *
+   * Status `invited`, not `confirmed`: nobody has agreed to anything yet, which is
+   * the same reason the request stays `pending`.
    */
   app.post(
     "/booking-requests/:id/draft-event",
@@ -1032,6 +1494,9 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
       if (bookingRequest.eventId) {
         throw conflict("This request already has an event");
       }
+      // The same question triage and "Make Offer" ask: can this sender be reached,
+      // and if so as a profile or only as an address? One definition, three routes.
+      const sender = resolveBookingRequestSender(bookingRequest);
 
       // Currency is not guessable: an event's `base_currency` is the money the
       // whole budget and settlement are denominated in, so a wrong default is
@@ -1099,12 +1564,26 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
           status: "confirmed",
         });
 
+        // The act joins the same event, through whichever of the two doors fits.
+        const attached = await attachSenderToEvent(tx, {
+          sender,
+          event,
+          operatorUserId: principal.userId,
+          actingProfileId: principal.actingProfileId ?? null,
+        });
+
+        // THE LINK IS THE LOCK. Re-stating the `event_id IS NULL` check inside the
+        // write is what makes a second call — or a second CLICK arriving while the
+        // first is still in flight — impossible to double-invite with: the 409
+        // above is a read-then-write and two concurrent requests can both pass it,
+        // but only one can match this UPDATE. The loser rolls back the event, the
+        // participants and the invitation together.
         const [linked] = await tx
           .update(schema.bookingRequests)
           .set({ eventId: event.id, updatedAt: new Date() })
-          .where(eq(schema.bookingRequests.id, id))
+          .where(and(eq(schema.bookingRequests.id, id), isNull(schema.bookingRequests.eventId)))
           .returning();
-        if (!linked) throw notFound("Booking request not found");
+        if (!linked) throw conflict("This request already has an event");
 
         await writeAudit(tx, request, {
           capability: "event.edit",
@@ -1113,7 +1592,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
           targetId: event.id,
           eventId: event.id,
           before: bookingRequest,
-          after: { event, bookingRequestId: id },
+          after: { event, bookingRequestId: id, sender: attached },
         });
         await writeActivity(tx, request, {
           eventId: event.id,
@@ -1123,7 +1602,20 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
           summary: { title: event.title, fromBookingRequestId: id },
         });
 
-        return event;
+        return { event, attached };
+      });
+
+      // Delivery, after the commit and best-effort: the act is ON the event and
+      // the invitation is redeemable whatever happens here, so a mail outage or a
+      // notification hiccup must never undo the work. Reported honestly in the
+      // response instead (`sender.emailed`), which is what lets the operator send
+      // the link themselves rather than believe a mail that never left. Note that
+      // `pnpm dev` does not load BREVO_API_KEY: locally this lands in the no-op
+      // sink and prints to the console.
+      const senderOutcome = await deliverDraftEventInvitation(request, {
+        sender,
+        event: created.event,
+        attached: created.attached,
       });
 
       // A FRESH read of the entitlement layer (decisions #4 — never conflated with
@@ -1133,17 +1625,18 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
 
       return reply.status(201).send({
         requestId: id,
-        eventId: created.id,
-        title: created.title,
-        eventDate: created.eventDate ?? null,
-        baseCurrency: created.baseCurrency,
-        status: created.status,
+        eventId: created.event.id,
+        title: created.event.title,
+        eventDate: created.event.eventDate ?? null,
+        baseCurrency: created.event.baseCurrency,
+        status: created.event.status,
         eventCap: {
           allowed: cap.allowed,
           used: cap.used ?? null,
           limit: cap.limit ?? null,
           chargedAtConfirm: true as const,
         },
+        sender: senderOutcome,
       });
     },
   );
@@ -1228,13 +1721,17 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
       // email IS the only channel back to them. Failure is reported to the caller
       // (`delivered: false`) rather than swallowed: "I sent your terms" has to be
       // true, and the operator can act on a failure they can see.
+      // The branch itself is `resolveBookingRequestSender` — one definition, shared
+      // with triage above and "Create Draft" below, so the three cannot drift into
+      // disagreeing about who is reachable and how.
+      const requester = resolveBookingRequestSender(bookingRequest);
       let channel: "notification" | "email" | "none" = "none";
       let deliveredTo: string | null = null;
       let delivered = false;
       try {
-        if (bookingRequest.senderProfileId) {
+        if (requester.channel === "profile") {
           channel = "notification";
-          await notifyProfileMembers(database, bookingRequest.senderProfileId, principal.userId, {
+          await notifyProfileMembers(database, requester.senderProfileId, principal.userId, {
             type: "booking_request.counter_offer",
             title: `${fromName} replied with terms`,
             body: terms ? `${terms} — ${body.message}` : body.message,
@@ -1248,11 +1745,11 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
             },
           });
           delivered = true;
-        } else if (bookingRequest.email) {
+        } else if (requester.channel === "email") {
           channel = "email";
-          deliveredTo = bookingRequest.email;
+          deliveredTo = requester.email;
           await request.server.emailSink.sendEmail({
-            to: bookingRequest.email,
+            to: requester.email,
             subject: `${fromName} replied to your booking request`,
             text: [
               `${bookingRequest.contactName ?? "Hi"},`,

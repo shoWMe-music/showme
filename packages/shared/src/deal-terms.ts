@@ -425,10 +425,34 @@ export function dealDraftProblems(
   }
 
   const entitled = chosen.filter((party) => ENTITLED_ROLES.includes(party.roleInDeal));
-  if (draft.structure !== null && entitled.length === 0) {
-    problems.push(
-      "Nobody on this agreement is paid by it. Give a party the Is paid or Takes a share role, or record it as a paper agreement.",
-    );
+
+  // A DEAL THAT PAYS NOBODY IS ALLOWED. See `dealDraftNotices` for the whole of
+  // the reasoning; what belongs here is only why it is not a PROBLEM: refusing it
+  // made the product unusable alone. An operator with nobody else on the event
+  // can name exactly one party — themselves — and this rule then demanded they
+  // mark themselves "Is paid" for a night they are running, which is not a thing
+  // anybody means. (Product owner: *"A user should be able to use the system also
+  // as a standalone if they like."*)
+  //
+  // The one shape that stays refused is the incoherent one: money declared
+  // already paid, to nobody. That is not a policy call — `reconcile()` throws on
+  // it (`prepaid.ts`: "states money paid before the event but names no payee"),
+  // so allowing it through would swap a legible refusal for a 500 on every
+  // subsequent compute. `routes/deals.ts` refuses the same shape server-side.
+  if (entitled.length === 0) {
+    const advanceStated = amountToMinor(draft.advanceAmount, draft.currency);
+    const guaranteeStated = amountToMinor(draft.guaranteeAmount, draft.currency);
+    const prepays =
+      (advanceStated != null && advanceStated > 0n) ||
+      (draft.paymentTiming === "before_event" &&
+        guaranteeStated != null &&
+        guaranteeStated > 0n &&
+        structureNeedsGuarantee(draft.structure));
+    if (prepays) {
+      problems.push(
+        "This deal says money was paid before the event, but names nobody it was paid to. Give a party the Is paid role, or set it to settle at the event.",
+      );
+    }
   }
 
   if (structureNeedsGuarantee(draft.structure)) {
@@ -480,6 +504,36 @@ export function dealDraftProblems(
   }
 
   return problems;
+}
+
+/**
+ * WHAT THE DRAFT DOES NOT REFUSE, BUT MUST NOT DO QUIETLY.
+ *
+ * A notice is not a problem: it never blocks the send. It exists because the one
+ * thing this module's own docstring warns against is a deal that is *"accepted
+ * and then quietly settles as nothing"* — and a deal naming nobody it pays is
+ * exactly that shape. It is now allowed (a standalone operator has nobody else to
+ * name), so the honesty has to move from the refusal to the record.
+ *
+ * The economics behind the sentence, so it can be checked rather than believed:
+ * `reconcile()`'s `settleDeal` returns `0n` the moment a deal has no entitled
+ * line, and the operator's entitlement is `pool − Σ everyone else`. So a deal
+ * that entitles nobody claims nothing, the whole pool lands on the operator's own
+ * line, and `Σ net = 0` holds exactly — proved, not asserted, in
+ * `apps/api/src/settlement.test.ts` ("a deal that entitles nobody").
+ */
+export function dealDraftNotices(draft: DealDraft): string[] {
+  const notices: string[] = [];
+  const chosen = draft.parties.filter((party) => party.participantId !== "");
+  const entitled = chosen.filter((party) => ENTITLED_ROLES.includes(party.roleInDeal));
+  if (chosen.length > 0 && entitled.length === 0) {
+    notices.push(
+      draft.structure === null
+        ? "Nobody on this deal is paid by it, and it is agreed manually — the terms are recorded and no figure from it reaches the settlement."
+        : "Nobody on this deal is paid by it, so shoWMe will not compute it: the terms are recorded, and the night's money stays with the operator. Give a party the Is paid or Takes a share role to have it settled.",
+    );
+  }
+  return notices;
 }
 
 /**

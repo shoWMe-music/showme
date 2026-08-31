@@ -4181,3 +4181,202 @@ describe("settlement — the door: an unsigned agreement holds it shut", () => {
     expect(paid.statusCode).toBe(200);
   });
 });
+
+/**
+ * THE STANDALONE OPERATOR'S NIGHT, AND WHY IT STILL BALANCES.
+ *
+ * The product owner asked that a user *"be able to use the system also as a
+ * standalone"*, and the deal composer's guard — *"Nobody on this agreement is
+ * paid by it"* — was what stopped them: alone on the event, the only line an
+ * operator can write is their own, and the guard then demanded they name
+ * THEMSELVES as "Is paid", which is nonsense for someone planning their own night.
+ *
+ * The relaxation is safe for one reason, and this is the reason rather than an
+ * assertion of it: `reconcile()`'s `settleDeal` returns `0n` the moment a deal
+ * names no payee, so a deal that entitles nobody claims nothing from the pool —
+ * and the operator's entitlement is `pool − Σ everyone else`, so the whole pool
+ * lands on the operator's own line and `Σ net = 0` holds exactly. The figures
+ * below are the same with the deal and without it; only the RECORD differs, which
+ * is the entire point of allowing it.
+ */
+describe("settlement — a deal that entitles nobody", () => {
+  async function seedStandaloneNight(prefix: string) {
+    const { db } = harness;
+    const operator = await seedMemberWithSet(
+      `${prefix}-solo-op`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: operator.profileId,
+        title: "My own night",
+        baseCurrency: "SEK",
+        createdBy: operator.userId,
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    const [host] = await db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: operator.profileId,
+        role: "host",
+        permissionSetId: operator.permissionSetId,
+        status: "confirmed",
+      })
+      .returning();
+    if (!host) throw new Error("participant seed failed");
+
+    const [budget] = await db.insert(schema.budgets).values({ eventId: event.id }).returning();
+    if (!budget) throw new Error("budget seed failed");
+    await db.insert(schema.budgetLines).values([
+      {
+        budgetId: budget.id,
+        kind: "revenue",
+        label: "Tickets",
+        amount: 1000000n,
+        collectedBy: host.id,
+      },
+      { budgetId: budget.id, kind: "cost", label: "Sound hire", amount: 200000n, paidBy: host.id },
+    ]);
+    return { event, operator, host };
+  }
+
+  it("leaves the whole pool with the operator, and Σ net = 0", async () => {
+    const { db } = harness;
+    const seed = await seedStandaloneNight("entitles-nobody");
+
+    // The deal the composer used to refuse: written through the REAL route, with
+    // the operator's own line and no payee at all.
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/deals`,
+      headers: auth(seed.operator.userId),
+      payload: {
+        type: "performance",
+        structure: "guarantee",
+        name: "What I agreed to pay the DJ, on paper",
+        guaranteeAmount: "300000",
+        paymentTiming: "at_settlement",
+        parties: [{ participantId: seed.host.id, roleInDeal: "payer" }],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    // A settlement cannot open on an unsigned agreement (decisions #21), and the
+    // operator's own payer line is a signatory like any other.
+    await signEveryAgreement(db, seed.event.id);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.pool).toBe("800000");
+
+    const breakdowns = body.breakdowns as { participantId: string; net: string }[];
+    expect(breakdowns).toHaveLength(1);
+    expect(breakdowns[0]?.participantId).toBe(seed.host.id);
+    // Entitled to the whole pool and holding the whole pool → owed nothing, owing
+    // nothing. THE CONSERVATION LAW, read off the response rather than trusted.
+    expect(breakdowns[0]?.net).toBe("0");
+    const sum = breakdowns.reduce((running, row) => running + BigInt(row.net), 0n);
+    expect(sum).toBe(0n);
+
+    // Nothing moves, because nobody is owed anything.
+    const transfers = await db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.eventId, seed.event.id));
+    expect(transfers).toHaveLength(0);
+
+    // The stored settlement says the same thing the response did.
+    const rows = await db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    expect(rows).toHaveLength(1);
+    const stored = rows[0]?.computed as { entitlement: string; net: string } | null;
+    expect(stored?.entitlement).toBe("800000");
+    expect(stored?.net).toBe("0");
+  });
+
+  it("settles identically whether or not the payee-less deal is there", async () => {
+    const { db } = harness;
+    const withoutDeal = await seedStandaloneNight("no-deal");
+    const bare = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${withoutDeal.event.id}/settlement/compute`,
+      headers: auth(withoutDeal.operator.userId),
+    });
+    expect(bare.statusCode).toBe(200);
+
+    const withDeal = await seedStandaloneNight("with-deal");
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${withDeal.event.id}/deals`,
+      headers: auth(withDeal.operator.userId),
+      payload: {
+        type: "performance",
+        structure: "door_split",
+        name: "A split with nobody on the other end",
+        splitBasisPoints: 5000,
+        paymentTiming: "at_settlement",
+        parties: [{ participantId: withDeal.host.id, roleInDeal: "payer" }],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    await signEveryAgreement(db, withDeal.event.id);
+    const settled = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${withDeal.event.id}/settlement/compute`,
+      headers: auth(withDeal.operator.userId),
+    });
+    expect(settled.statusCode).toBe(200);
+
+    expect(settled.json().pool).toBe(bare.json().pool);
+    expect(settled.json().breakdowns[0].net).toBe(bare.json().breakdowns[0].net);
+    expect(settled.json().breakdowns[0].entitlement).toBe(bare.json().breakdowns[0].entitlement);
+  });
+
+  /**
+   * The one shape the relaxation had to close, and the reason the deal routes
+   * refuse it: `reconcile()` throws a bare Error on an advance with no payee, so
+   * a row written before that guard existed would 500 every compute forever. The
+   * engine's own message is not a diagnosis, so the settlement turns it into one.
+   */
+  it("refuses to compute a stored deal that prepaid nobody, naming the deal", async () => {
+    const { db } = harness;
+    const seed = await seedStandaloneNight("prepaid-nobody");
+    const [deal] = await db
+      .insert(schema.deals)
+      .values({
+        eventId: seed.event.id,
+        type: "performance",
+        structure: "guarantee",
+        name: "Advance into the void",
+        guaranteeAmount: 300000n,
+        advanceAmount: 100000n,
+        paymentTiming: "before_event",
+        createdBy: seed.operator.userId,
+      })
+      .returning();
+    if (!deal) throw new Error("deal seed failed");
+    await db
+      .insert(schema.dealParties)
+      .values({ dealId: deal.id, participantId: seed.host.id, roleInDeal: "payer" });
+    await signEveryAgreement(db, seed.event.id);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.message).toContain("Advance into the void");
+    expect(response.json().error.message).toContain("names nobody it was paid to");
+  });
+});

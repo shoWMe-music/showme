@@ -992,6 +992,9 @@ async function main() {
           phone: "+46 70 123 45 67",
           artistName: "The Midnight Echo",
           wantedDate: dateOffsetFromToday(38),
+          // "Any of these three nights works" — the alternates a sender may name
+          // (up to five). Seeded so the inbox has something to render for them.
+          additionalDates: [dateOffsetFromToday(45), dateOffsetFromToday(52)],
           artistFee: 3000000n, // 30 000.00 SEK asking fee
           pitch:
             "Four-piece indie rock, just wrapped a Nordic club tour. Would love a Friday slot.",
@@ -1039,6 +1042,10 @@ async function main() {
           artistName: "Lena Fors Quartet",
           wantedDate: dateOffsetFromToday(32),
           artistFee: 1500000n, // 15 000.00 SEK
+          // Read, and by whom — the shared-inbox state the screen shows. Only
+          // this one, so the unread badge has something to count.
+          readAt: new Date(),
+          readByUserId: operatorUserId,
           pitch: "Acoustic jazz quartet, seated show. Confirmed and looking forward to it.",
           note: "Handled by Söder Live agency.",
           senderType: "performer",

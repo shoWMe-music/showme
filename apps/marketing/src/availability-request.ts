@@ -5,9 +5,17 @@
  *
  * TWO HOSTS, ONE FORM. The availability page opens it bound to a date the sharer
  * published (`openForDate`); a profile page has no such list and opens it with no
- * date at all (`open`). `booking_requests.wanted_date` is nullable and the API's
- * public body makes `wantedDate` optional, so the dateless ask is the same
- * request minus one field — not a second endpoint and not a second form.
+ * date at all (`open`) — and therefore with a DATE FIELD of its own, plus room to
+ * name a few alternatives. Same endpoint, same body, same validation: the only
+ * difference is where the date comes from, a chip on the page or the visitor.
+ *
+ * It used to send no date at all from the profile page, because
+ * `booking_requests.wanted_date` was nullable and the public body made
+ * `wantedDate` optional. Both changed on 2026-08-31 (Ran: "requests should always
+ * come with a date or multiple dates to select from"), and rightly: "are you free
+ * sometime?" is not something a venue can answer, put on a calendar, or turn into
+ * a draft event. Asking for the night is one more input; leaving it out cost the
+ * visitor the reply.
  *
  * The visitor is looking at a list of free dates, so asking for one of them is a
  * single action: click the date, and this panel opens with that date already
@@ -65,11 +73,10 @@ export interface DateRequestPanel {
   /** Open (or re-target) the form for one of the published dates. */
   openForDate(isoDate: string, dateLabel: string): void;
   /**
-   * Open the form with NO date attached — the public profile page, where there
-   * is no list of published days to pick from and the ask is "are you free at
-   * all". `booking_requests.wanted_date` is nullable and the API's public body
-   * makes `wantedDate` optional, so this is the same request minus one field,
-   * not a second kind of request.
+   * Open the form with no date CHOSEN — the public profile page, where there is
+   * no list of published days to pick from. The visitor names the night in the
+   * form's own date field, and may add a few alternates; it is the same request
+   * with the date typed rather than clicked, not a second kind of request.
    */
   open(): void;
   /** Close without sending. */
@@ -231,8 +238,10 @@ interface RequestPayload {
   targetProfileId: string;
   contactName: string;
   email: string;
-  /** Omitted entirely when the visitor did not come from a date — see `open()`. */
-  wantedDate?: string;
+  /** The night being asked about — a clicked chip, or the form's own date field. */
+  wantedDate: string;
+  /** Other nights that would also work. Sent only when there are any. */
+  additionalDates?: string[];
   pitch: string;
   artistName?: string;
 }
@@ -354,6 +363,22 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
     maximumLength: 200,
     required: false,
   });
+  /**
+   * The night, when the visitor has to name it themselves (`open()`); hidden when
+   * they got here by clicking a published date (`openForDate`), which has already
+   * answered the question and shows the answer in `chosenDate`.
+   */
+  const dateField = createField({
+    name: "wantedDate",
+    label: "Date",
+    inputType: "date",
+    hint: "The night you are asking about.",
+    // A `date` input ignores maxLength; the value is `YYYY-MM-DD` either way and
+    // the server validates it as a real calendar date.
+    maximumLength: 10,
+    required: true,
+  });
+
   const messageField = createField({
     name: "pitch",
     label: "Message",
@@ -364,6 +389,70 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
     maximumLength: 2000,
     required: true,
   });
+
+  /**
+   * The alternates — "any of these would also work". Offered only alongside the
+   * typed date, for the same reason the date field is: on the availability page
+   * the ask is bound to a chip the sharer published, and letting a visitor type
+   * extra nights there would name days that page deliberately does not discuss.
+   *
+   * Capped at the five the API accepts (`MAXIMUM_ADDITIONAL_DATES` in
+   * `routes/inbound.ts`), so the button disappears rather than earning a refusal.
+   */
+  const MAXIMUM_ALTERNATE_DATES = 5;
+
+  const alternates: HTMLInputElement[] = [];
+  const alternateList = element("div", "request__alternates");
+  const alternateGroup = element("div", "field");
+  const alternateLabel = element("p", "field__label", "Other dates that work (optional)");
+  const addAlternateButton = document.createElement("button");
+  addAlternateButton.type = "button";
+  addAlternateButton.className = "request__add-date";
+  addAlternateButton.textContent = "Add another date";
+
+  function refreshAddAlternateButton(): void {
+    addAlternateButton.hidden = alternates.length >= MAXIMUM_ALTERNATE_DATES;
+  }
+
+  function addAlternate(): void {
+    if (alternates.length >= MAXIMUM_ALTERNATE_DATES) return;
+    const row = element("div", "request__alternate");
+    const input = document.createElement("input");
+    input.type = "date";
+    input.className = "field__control";
+    input.name = `additionalDate-${alternates.length + 1}`;
+    input.setAttribute("aria-label", `Alternative date ${alternates.length + 1}`);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "request__remove-date";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => {
+      row.remove();
+      alternates.splice(alternates.indexOf(input), 1);
+      refreshAddAlternateButton();
+      addAlternateButton.focus();
+    });
+    row.append(input, remove);
+    alternateList.append(row);
+    alternates.push(input);
+    refreshAddAlternateButton();
+    input.focus();
+  }
+
+  addAlternateButton.addEventListener("click", addAlternate);
+  alternateGroup.append(alternateLabel, alternateList, addAlternateButton);
+
+  /** The alternates actually filled in, in the order they were added. */
+  function alternateValues(): string[] {
+    return alternates.map((input) => input.value).filter((value) => value.length > 0);
+  }
+
+  /** Drop every alternate input — used on reset and on close. */
+  function clearAlternates(): void {
+    alternateList.replaceChildren();
+    alternates.length = 0;
+    refreshAddAlternateButton();
+  }
 
   const form = document.createElement("form");
   form.className = "request__form";
@@ -420,9 +509,21 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
   privacyLink.textContent = "Privacy";
   consent.append(privacyLink, document.createTextNode("."));
 
-  form.append(honeypot, nameAndEmail, artistField.wrapper, messageField.wrapper, actions, status);
+  // The date group is one block: the night, then the nights that would also do.
+  const dateGroup = element("div", "request__dates");
+  dateGroup.append(dateField.wrapper, alternateGroup);
 
-  const fields = [nameField, emailField, artistField, messageField];
+  form.append(
+    honeypot,
+    nameAndEmail,
+    dateGroup,
+    artistField.wrapper,
+    messageField.wrapper,
+    actions,
+    status,
+  );
+
+  const fields = [nameField, emailField, dateField, artistField, messageField];
 
   /* ------------------------------------------------------------- the states */
 
@@ -440,12 +541,17 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
   }
 
   let selectedDate = "";
-  /** True while the panel is showing a date the visitor picked off the page. */
-  let needsADate = false;
+  /**
+   * True when the date came from a chip the visitor clicked on the page, false
+   * when they have to name it in the form. It decides whether the date group is
+   * shown, and whether "Pick another date" is a thing that exists after sending.
+   */
+  let dateComesFromThePage = false;
 
   function close(): void {
     selectedDate = "";
-    needsADate = false;
+    dateComesFromThePage = false;
+    clearAlternates();
     if (dialog) {
       // Closed only once the way OUT has played. `dialog.close()` mid-animation
       // removes the element from the top layer and the last frames are never
@@ -477,7 +583,7 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
     another.type = "button";
     another.className = "request__cancel";
     // "Pick another date" is only true on a page that HAS dates to pick.
-    another.textContent = needsADate ? "Pick another date" : "Close";
+    another.textContent = dateComesFromThePage ? "Pick another date" : "Close";
     another.addEventListener("click", () => {
       close();
     });
@@ -505,6 +611,28 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
       problems.push([messageField, "Write a line or two — an empty request is noise."]);
     }
 
+    // Only when the visitor is the one naming the night; a clicked chip has
+    // already answered this and the field is not even on screen.
+    if (!dateComesFromThePage) {
+      const wanted = dateField.control.value;
+      if (wanted.length === 0) {
+        problems.push([dateField, "Name the night you are asking about."]);
+      } else {
+        // The same two rules the API applies, so a refusal happens here — next to
+        // the field that is wrong — instead of as an anonymous 400 after sending.
+        const seen = new Set([wanted]);
+        for (const input of alternates) {
+          const value = input.value;
+          if (value.length === 0) continue;
+          if (seen.has(value)) {
+            problems.push([dateField, "Each date can only be asked for once."]);
+            break;
+          }
+          seen.add(value);
+        }
+      }
+    }
+
     if (problems.length === 0) return true;
     for (const [field, message] of problems) field.showError(message);
     problems[0]?.[0].control.focus();
@@ -517,7 +645,7 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
     event.preventDefault();
     clearStatus();
 
-    if (needsADate && !selectedDate) {
+    if (dateComesFromThePage && !selectedDate) {
       showStatus("Pick one of the dates above first.");
       return;
     }
@@ -531,14 +659,17 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
     }
 
     const artistName = artistField.value();
+    // The clicked chip when there was one, the visitor's own answer otherwise.
+    const wantedDate = selectedDate || dateField.control.value;
+    const otherDates = dateComesFromThePage ? [] : alternateValues();
     const payload: RequestPayload = {
       source: "public_form",
       targetProfileId: target.id,
       contactName: nameField.value(),
       email: emailField.value().toLowerCase(),
-      // Sent only when there IS one. The API's `calendarDate` refuses "", so an
-      // empty string here would turn a dateless enquiry into a 400.
-      ...(selectedDate ? { wantedDate: selectedDate } : {}),
+      wantedDate,
+      // Omitted rather than sent empty — the API takes the key or takes nothing.
+      ...(otherDates.length > 0 ? { additionalDates: otherDates } : {}),
       pitch: messageField.value(),
       // Omitted rather than sent empty: the API's schema requires at least one
       // character when the key is present.
@@ -553,8 +684,9 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
 
     switch (result.outcome) {
       case "sent": {
-        const sentDate = selectedDate;
+        const sentDate = wantedDate;
         for (const field of fields) field.reset();
+        clearAlternates();
         showSent();
         onRequested(sentDate);
         return;
@@ -677,17 +809,23 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
     element: dialog ?? panel,
     openForDate(isoDate, dateLabel) {
       selectedDate = isoDate;
-      needsADate = true;
+      dateComesFromThePage = true;
       chosenDate.textContent = dateLabel;
+      // The night is settled and named above the form; a second, empty date field
+      // under it would read as a question that has already been answered.
+      dateGroup.hidden = true;
+      clearAlternates();
       reveal();
     },
     open() {
       selectedDate = "";
-      needsADate = false;
-      // No date line at all rather than an empty one holding its own space: the
-      // profile page's ask is "are you free", and a blank slot where a date
-      // belongs reads as a field that failed to load.
+      dateComesFromThePage = false;
+      // No date LINE (that names a chip nobody clicked) — but the date FIELD, and
+      // room for a couple of alternatives: since 2026-08-31 every request names a
+      // night, and this is the host where the visitor supplies it.
       chosenDate.textContent = "";
+      dateGroup.hidden = false;
+      clearAlternates();
       reveal();
     },
     close,

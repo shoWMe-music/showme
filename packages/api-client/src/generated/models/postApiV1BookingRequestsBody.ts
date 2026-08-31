@@ -17,7 +17,9 @@ export type PostApiV1BookingRequestsBody = {
   email: PostApiV1BookingRequestsBodyEmail;
   artistName?: PostApiV1BookingRequestsBodyArtistName;
   /** @pattern ^\d{4}-\d{2}-\d{2}$ */
-  wantedDate?: string;
+  wantedDate: string;
+  /** @maxItems 5 */
+  additionalDates?: string[];
   pitch?: PostApiV1BookingRequestsBodyPitch;
   /** @pattern ^\d+$ */
   offerFeeMin?: string;

@@ -33,6 +33,9 @@ const EMAILS = {
   performerB: "performer.b@e2e.showme.test",
   teamAndCrew: "professional@e2e.showme.test",
   agent: "agent@e2e.showme.test",
+  // The second operator, co-promoting one show. It was missing here while it
+  // existed in the seed, so any probe naming it died on INVALID_EMAIL.
+  coHost: "co.host@e2e.showme.test",
 };
 const PASSWORD = "Test123!pass";
 

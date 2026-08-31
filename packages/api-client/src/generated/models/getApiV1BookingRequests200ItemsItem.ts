@@ -24,8 +24,12 @@ export type GetApiV1BookingRequests200ItemsItem = {
   onBehalfOfProfileId: string | null;
   /** @nullable */
   onBehalfOfName: string | null;
+  wantedDate: string;
+  additionalDates: string[];
   /** @nullable */
-  wantedDate: string | null;
+  readAt?: string | null;
+  /** @nullable */
+  readByUserId?: string | null;
   /** @nullable */
   pitch: string | null;
   /** @nullable */

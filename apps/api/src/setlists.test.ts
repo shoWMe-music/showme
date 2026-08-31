@@ -32,7 +32,7 @@ afterAll(async () => {
 const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 
 type AccountKind = "operator" | "performer" | "team_and_crew" | "agent";
-type ParticipantRole = "host" | "performer" | "crew" | "agent";
+type ParticipantRole = "host" | "co_host" | "performer" | "support" | "crew" | "agent";
 
 async function seedMemberWithSet(id: string, kind: AccountKind, capabilities: readonly string[]) {
   const { db } = harness;
@@ -489,5 +489,201 @@ describe("setlist shares — the crew's only legitimate access", () => {
       payload: { participantId: otherEventParticipant.id },
     });
     expect(notMine.statusCode).toBe(403);
+  });
+});
+
+/**
+ * WHOSE CLAIM, AND ON WHAT GROUND (A-25).
+ *
+ * The operator's standing over an act's setlist is the FILING — decisions.md
+ * "Setlists" puts the performed-works report on the operator, and
+ * `performing-rights.ts` states the obligation it discharges ("an operator who
+ * puts on a show owes the local PRO"). It is emphatically not the budget: a
+ * co-promoter handed the money sheet has been told about the money, and story.md
+ * is explicit that an operator's broad visibility is *emergent* from the
+ * relationships they actually hold, never a see-everything grant.
+ *
+ * The list route used to read `budget.view` as a stand-in for "is an operator",
+ * the same proxy `rider.view` was fixed for in `presets.ts`. Here that proxy let
+ * a purely financial grant read the songs.
+ */
+describe("setlists — the operator's claim is the FILING, not the budget", () => {
+  it("a host holding budget.view but not performance_report.file sees no act's setlist", async () => {
+    const operator = await seedMemberWithSet(
+      "s6-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    // A co-promoter given the money sheet and nothing else: every pool capability
+    // the ceiling allows a `co_host`, minus the filing.
+    const moneyOnly = await seedMemberWithSet("s6-money", "operator", [
+      "event.view",
+      "budget.view",
+      "budget.edit",
+      "revenue.edit",
+    ]);
+    const performer = await seedMemberWithSet(
+      "s6-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const { event } = await seedEvent(
+      operator,
+      [
+        { ...operator, role: "host" },
+        { ...moneyOnly, role: "co_host" },
+        { ...performer, role: "performer" },
+      ],
+      "s6-op",
+    );
+
+    const authored = await app.inject({
+      method: "PUT",
+      url: `/api/v1/events/${event.id}/setlists`,
+      headers: auth("s6-perf"),
+      payload: { items: [{ title: "Neon Rooftops", duration: 245 }] },
+    });
+    expect(authored.statusCode).toBe(200);
+
+    // The filing operator reads it — that is what the capability is for.
+    const asFiler = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/setlists`,
+      headers: auth("s6-op"),
+    });
+    expect(asFiler.statusCode).toBe(200);
+    expect(asFiler.json()).toHaveLength(1);
+
+    // The co-promoter who only sees the money does not. Seeing the pool is not a
+    // claim on the act's songs.
+    const asMoneyOnly = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/setlists`,
+      headers: auth("s6-money"),
+    });
+    expect(asMoneyOnly.statusCode).toBe(200);
+    expect(asMoneyOnly.json()).toHaveLength(0);
+  });
+
+  it("names the act on every row and marks the caller's own", async () => {
+    const operator = await seedMemberWithSet(
+      "s7-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const headliner = await seedMemberWithSet(
+      "s7-head",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const support = await seedMemberWithSet(
+      "s7-supp",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const { event } = await seedEvent(
+      operator,
+      [
+        { ...operator, role: "host" },
+        { ...headliner, role: "performer" },
+        { ...support, role: "support" },
+      ],
+      "s7-op",
+    );
+
+    for (const uid of ["s7-head", "s7-supp"]) {
+      const put = await app.inject({
+        method: "PUT",
+        url: `/api/v1/events/${event.id}/setlists`,
+        headers: auth(uid),
+        payload: { items: [{ title: `${uid} opener`, duration: 200 }] },
+      });
+      expect(put.statusCode).toBe(200);
+      // The author's own row says so, so a screen never has to guess which of
+      // the rows it may edit.
+      expect(put.json().mine).toBe(true);
+      expect(put.json().performerName).toBe(uid);
+    }
+
+    // The operator gets both, each naming the act that played it — the same join
+    // the performed-works report makes, so a support slot's songs are never
+    // filed under the headliner.
+    const asOperator = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/setlists`,
+      headers: auth("s7-op"),
+    });
+    expect(asOperator.statusCode).toBe(200);
+    expect(asOperator.json().map((row: { performerName: string }) => row.performerName)).toEqual([
+      "s7-head",
+      "s7-supp",
+    ]);
+    expect(asOperator.json().every((row: { mine: boolean }) => row.mine === false)).toBe(true);
+
+    // …and the headliner sees exactly one row, flagged as theirs.
+    const asHeadliner = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/setlists`,
+      headers: auth("s7-head"),
+    });
+    expect(asHeadliner.json()).toHaveLength(1);
+    expect(asHeadliner.json()[0].mine).toBe(true);
+    expect(asHeadliner.json()[0].performerName).toBe("s7-head");
+  });
+});
+
+/**
+ * The setlist is attached to the participant row that IS the act.
+ *
+ * One user can stand behind several participants on one event — a promoter who
+ * also plays keeps both an operator profile and a performer profile, and the
+ * capability engine unions across every row they reach. The upsert used to take
+ * whichever row the database happened to return first, so the songs could land
+ * on the HOST participant. Nothing rejects that write, and the damage is silent:
+ * `performance-reports.ts` names each set by joining the participant to its
+ * profile, so the act's songs would be filed with a society under the venue's
+ * name.
+ */
+describe("setlists — the row the songs are attached to", () => {
+  it("attaches to the performing participant when the author is also the host", async () => {
+    const operator = await seedMemberWithSet(
+      "s8-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "s8-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    // The same human runs the night and plays it: an admin on the operator
+    // profile as well as the owner of their own act.
+    await harness.db.insert(schema.profileMembers).values({
+      profileId: operator.profileId,
+      userId: "s8-perf",
+      role: "admin",
+      status: "active",
+    });
+
+    const { event, participants } = await seedEvent(
+      operator,
+      [
+        { ...operator, role: "host" },
+        { ...performer, role: "performer" },
+      ],
+      "s8-op",
+    );
+    const performingParticipant = participants.find((row) => row.profileId === performer.profileId);
+    if (!performingParticipant) throw new Error("participant seed failed");
+
+    const put = await app.inject({
+      method: "PUT",
+      url: `/api/v1/events/${event.id}/setlists`,
+      headers: auth("s8-perf"),
+      payload: { items: [{ title: "Ember", duration: 312 }] },
+    });
+    expect(put.statusCode).toBe(200);
+    expect(put.json().participantId).toBe(performingParticipant.id);
+    expect(put.json().performerName).toBe("s8-perf");
   });
 });

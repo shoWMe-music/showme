@@ -42,17 +42,34 @@ function workTitle(item: unknown): string {
   return "Untitled";
 }
 
+/**
+ * A song length as a PERSON types it, in seconds — `3:45`, or a bare number of
+ * minutes. Null for anything unreadable, and null for empty: a set list entry
+ * with no length recorded is unknown, never zero.
+ *
+ * The inverse of `formatDurationClock`, and the reason both live here: the
+ * performer's authoring field and the tolerant reader below have to agree about
+ * what `3:45` means, or the length shown back to the writer is not the length
+ * that reaches the society.
+ */
+export function parseDurationText(text: string): number | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const clock = trimmed.match(/^(\d+):([0-5]?\d)$/);
+  if (clock) return Number(clock[1]) * 60 + Number(clock[2]);
+  // A bare number is MINUTES — "4" is a four-minute song, not four seconds. A
+  // comma is a decimal point in most of the territories shoWMe operates in.
+  const minutes = Number(trimmed.replace(",", "."));
+  if (!Number.isNaN(minutes) && minutes >= 0) return Math.round(minutes * 60);
+  return null;
+}
+
 function workSeconds(item: unknown): number | null {
   if (!item || typeof item !== "object") return null;
   const record = item as Record<string, unknown>;
   const raw = record.duration ?? record.durationSeconds ?? record.seconds ?? record.length;
   if (typeof raw === "number" && Number.isFinite(raw)) return raw;
-  if (typeof raw === "string") {
-    const clock = raw.match(/^(\d+):(\d{2})$/);
-    if (clock) return Number(clock[1]) * 60 + Number(clock[2]);
-    const minutes = Number(raw);
-    if (!Number.isNaN(minutes)) return Math.round(minutes * 60);
-  }
+  if (typeof raw === "string") return parseDurationText(raw);
   return null;
 }
 

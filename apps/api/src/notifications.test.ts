@@ -130,6 +130,53 @@ describe("notifications — user-scoped feed", () => {
     expect(remaining[0]?.id).toBe(first.id);
   });
 
+  it("puts a notification back to unread, and cannot un-read someone else's", async () => {
+    await seedUser("notif-unread");
+    await seedUser("notif-unread-other");
+    const mine = await seedNotification("notif-unread", "put me back", false);
+    const theirs = await seedNotification("notif-unread-other", "not yours", false);
+
+    const read = (uid: string, ids: string[]) =>
+      app.inject({
+        method: "POST",
+        url: "/api/v1/notifications/read",
+        headers: auth(uid),
+        payload: { ids },
+      });
+    const unread = (uid: string, ids: string[]) =>
+      app.inject({
+        method: "POST",
+        url: "/api/v1/notifications/read",
+        headers: auth(uid),
+        payload: { ids, read: false },
+      });
+
+    expect((await read("notif-unread", [mine.id])).json().updated).toBe(1);
+    expect((await read("notif-unread-other", [theirs.id])).json().updated).toBe(1);
+
+    // The way back, which this route did not have until 2026-08-31: a bell you
+    // can only ever silence is a place things go to be lost.
+    const putBack = await unread("notif-unread", [mine.id]);
+    expect(putBack.json().updated).toBe(1);
+
+    const [after] = await harness.db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.id, mine.id));
+    expect(after?.readAt).toBeNull();
+
+    // Marking it unread AGAIN is a no-op, not a second update.
+    expect((await unread("notif-unread", [mine.id])).json().updated).toBe(0);
+
+    // The user predicate guards both directions.
+    expect((await unread("notif-unread", [theirs.id])).json().updated).toBe(0);
+    const [untouched] = await harness.db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.id, theirs.id));
+    expect(untouched?.readAt).not.toBeNull();
+  });
+
   it("cannot mark another user's notifications", async () => {
     await seedUser("notif-owner");
     await seedUser("notif-attacker");

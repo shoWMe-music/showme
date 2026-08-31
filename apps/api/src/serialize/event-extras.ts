@@ -25,6 +25,18 @@ const GuestEntry = z.object({
   tickets: z.number().int().positive(),
   /** Free-text "invited by" attribution (performer / venue / promoter …). */
   invitedBy: z.string(),
+  /**
+   * The operator's own note on this guest — *"+1 is their manager"*, *"collects
+   * at the box office"*. Asked for by name by the product owner.
+   *
+   * It had to be DECLARED, not merely tolerated: `.passthrough()` on the extras
+   * object above keeps unknown *top-level* leaves, but this is a `z.object`
+   * inside it, and Zod strips unknown keys from those. A note written by the
+   * card was therefore accepted with a 200 and silently dropped on the way into
+   * the column — the same class of silent-strip defect that hid `capacity` from
+   * the events list.
+   */
+  note: z.string().nullable().optional(),
 });
 
 /**

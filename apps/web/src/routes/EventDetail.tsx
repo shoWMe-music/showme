@@ -52,6 +52,7 @@ import { EventCrewPanel } from "../components/EventCrewPanel";
 import { EventDealsTab } from "../components/EventDealsTab";
 import { EventHoldPanel } from "../components/EventHoldPanel";
 import { EventRowMenu } from "../components/EventRowMenu";
+import { EventSetlistTab } from "../components/EventSetlistTab";
 import { EventSettlementTab } from "../components/EventSettlementTab";
 import { ProfileFace } from "../components/ProfileFace";
 import { ShareExportModal } from "../components/ShareExportModal";
@@ -204,6 +205,14 @@ export function EventDetail() {
     // general information; the old "Agreement" tab is folded in here.
     { key: "deals", label: "Deals" },
     { key: "crew", label: "Team / Crew" },
+    // The act's running order, on the show it is about — the half Ran asked for
+    // on 2026-08-31: "the setlists from performers will be connected to their
+    // event managers". Offered to everyone who can reach the event because the
+    // tab shows three different things depending on who is reading (own set,
+    // every act's set, a shared set) and only the server knows which; the panel
+    // says so plainly when there is nothing for this reader. See
+    // `routes/setlists.ts` for the three standings and why the operator holds one.
+    { key: "setlist", label: "Setlist" },
     { key: "settlement", label: "Settlement" },
     { key: "messages", label: "Messages" },
     { key: "collaborators", label: "Collaborators" },
@@ -429,6 +438,7 @@ export function EventDetail() {
             onInviteCrew={() => openInvite("crew")}
           />
         )}
+        {activeTab === "setlist" && <EventSetlistTab eventId={eventId} />}
         {activeTab === "settlement" && (
           <EventSettlementTab
             eventId={eventId}

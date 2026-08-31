@@ -17,18 +17,27 @@ import { PRO_FILING_AVAILABLE, PRO_FILING_COMING_SOON } from "../lib/proFilingAv
 import { isDestinationForKind } from "../shell/navigation";
 
 /**
- * Every setlist played on the operator's shows, one card per night.
+ * The operator's PRO filing desk: one performed-works report per night.
  *
- * SETLIST-FIRST, FILING DARK. This screen was built as the PRO filing desk and is
- * now the roll-up of the thing that works: the set a performer wrote, which the
- * venue can read without asking for it. Filing to a collecting society waits on
- * deals with the societies (`lib/proFilingAvailability`), so the report actions
- * and the filed/not-filed state are behind `PRO_FILING_AVAILABLE` rather than
- * deleted — the generator, the export and the modal are all still here.
+ * IT IS NOT THE SETLISTS SCREEN, and it used to be labelled as one. decisions.md
+ * ("Setlists", RESOLVED) splits the module in two — the performer authors the
+ * setlist, the operator files the report DERIVED from it — and Ran said the same
+ * on 2026-08-31: *"Operators don't need setlists page, just that the setlists
+ * from performers will be connected to their event managers."* That connection is
+ * the event workspace's Setlist tab (`EventSetlistTab`); the act's authoring
+ * surface is `/setlists`. What is left here is the filing: the collected running
+ * order for a night, the society covering its territory, the royalty estimate and
+ * the record of a filing made.
  *
- * A SET IS ABOUT A NIGHT, NOT ABOUT AN ACT, which is what makes this a per-EVENT
- * list rather than a per-setlist one: a society is told about a night once, and a
- * three-band bill produces one collected set with every act's works in it.
+ * FILING DARK. Sending anything to a society waits on commercial agreements with
+ * the societies (`lib/proFilingAvailability`), so the report actions and the
+ * filed/not-filed state are behind `PRO_FILING_AVAILABLE` rather than deleted —
+ * the generator, the export and the modal are all still here and still tested.
+ * The report itself is worth reading meanwhile, which is why the screen stays.
+ *
+ * A REPORT IS ABOUT A NIGHT, NOT ABOUT AN ACT, which is what makes this a
+ * per-EVENT list: a society is told about a performance once, and a three-band
+ * bill produces one collected running order with every act's works in it.
  */
 
 type SetlistCardData = {
@@ -37,7 +46,7 @@ type SetlistCardData = {
 };
 
 /**
- * The collected setlist for every event the operator can see.
+ * The performed-works report for every event the operator can see.
  *
  * TWO PASSES ON PURPOSE. The setlist list is one cheap query per event and
  * answers "was anything played at all"; the endpoint behind it resolves a
@@ -238,27 +247,27 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SetlistsScreen() {
+function PerformanceReportsScreen() {
   const [target, setTarget] = useState<PerformanceReportTarget | null>(null);
   const setlists = useEventSetlists();
 
   return (
     <>
-      <SectionHeader eyebrow="Your shows" title="Setlists" />
+      <SectionHeader eyebrow="Performing rights" title="Performance Reports" />
 
       {!setlists.profileId ? (
         <EmptyState icon={<Icon name="file" />} title="No profile selected" />
       ) : setlists.isPending ? (
-        <LoadingState label="Loading setlists" />
+        <LoadingState label="Loading performance reports" />
       ) : setlists.isError ? (
-        <ErrorState error={setlists.error} title="Couldn't load setlists" />
+        <ErrorState error={setlists.error} title="Couldn't load performance reports" />
       ) : setlists.childrenPending ? (
-        <LoadingState label="Loading setlists" />
+        <LoadingState label="Loading performance reports" />
       ) : setlists.cards.length === 0 ? (
         <EmptyState
           icon={<Icon name="file" />}
-          title="No setlists yet"
-          description="A show appears here once a performer on it writes a setlist."
+          title="Nothing to report yet"
+          description="A show appears here once a performer on it writes a setlist — the report is derived from what they wrote."
         />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -286,9 +295,9 @@ function OperatorOnlyReports({ children }: { children: ReactNode }) {
   if (isDestinationForKind("/reports", session?.kind ?? null)) return <>{children}</>;
   return (
     <EmptyState
-      icon={<Icon name="trending-up" />}
-      title="This roll-up belongs to the operator"
-      description="It collects the setlists across the shows you operate. A performer writes their own setlist on the event itself."
+      icon={<Icon name="file" />}
+      title="The filing belongs to the operator"
+      description="A performed-works report is filed by whoever ran the show. A performer writes the setlist it is derived from — that is the Setlists screen."
     />
   );
 }
@@ -296,7 +305,7 @@ function OperatorOnlyReports({ children }: { children: ReactNode }) {
 export function Reports() {
   return (
     <OperatorOnlyReports>
-      <SetlistsScreen />
+      <PerformanceReportsScreen />
     </OperatorOnlyReports>
   );
 }

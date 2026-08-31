@@ -187,6 +187,8 @@ import type {
   PostApiV1BookingRequestsIdDraftEventBody,
   PostApiV1BookingRequestsIdFlagSpam201,
   PostApiV1BookingRequestsIdFlagSpamBody,
+  PostApiV1BookingRequestsRead200,
+  PostApiV1BookingRequestsReadBody,
   PostApiV1Calendar201,
   PostApiV1CalendarBody,
   PostApiV1CalendarIdPromoteEvent201,
@@ -9041,7 +9043,65 @@ export function useGetApiV1BookingRequests<TData = Awaited<ReturnType<typeof get
 
 
 
-export const patchApiV1BookingRequestsId = (
+export const postApiV1BookingRequestsRead = (
+    postApiV1BookingRequestsReadBody: PostApiV1BookingRequestsReadBody,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1BookingRequestsRead200>(
+      {url: `/api/v1/booking-requests/read`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: postApiV1BookingRequestsReadBody, signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1BookingRequestsReadMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1BookingRequestsRead>>, TError,{data: PostApiV1BookingRequestsReadBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1BookingRequestsRead>>, TError,{data: PostApiV1BookingRequestsReadBody}, TContext> => {
+
+const mutationKey = ['postApiV1BookingRequestsRead'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1BookingRequestsRead>>, {data: PostApiV1BookingRequestsReadBody}> = (props) => {
+          const {data} = props ?? {};
+
+          return  postApiV1BookingRequestsRead(data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1BookingRequestsReadMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1BookingRequestsRead>>>
+    export type PostApiV1BookingRequestsReadMutationBody = PostApiV1BookingRequestsReadBody
+    export type PostApiV1BookingRequestsReadMutationError = unknown
+
+    export const usePostApiV1BookingRequestsRead = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1BookingRequestsRead>>, TError,{data: PostApiV1BookingRequestsReadBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1BookingRequestsRead>>,
+        TError,
+        {data: PostApiV1BookingRequestsReadBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1BookingRequestsReadMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const patchApiV1BookingRequestsId = (
     id: string,
     patchApiV1BookingRequestsIdBody: PatchApiV1BookingRequestsIdBody,
  ) => {

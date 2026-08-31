@@ -597,3 +597,346 @@ describe("archiving never moves a plan slot", () => {
     expect(row?.status).toBe("draft");
   });
 });
+
+/**
+ * DELETING AN ARCHIVED EVENT — the one irreversible act in the product.
+ *
+ * The product owner asked for it in the same breath as the archive: *"Users
+ * should be able to move events into archive and then delete them from there if
+ * they wish."* The archive half already existed; the delete half existed too, and
+ * that was the problem — `DELETE /events/:id` was a bare hard delete behind
+ * `event.delete` and an optimistic lock, and it took twenty-three cascading
+ * tables with it for every party on the event, not only the caller.
+ *
+ * The rule it now enforces, reasoned from `docs/story.md`: **archiving is one
+ * profile's filing; the EVENT is the shared object where every party meets.**
+ * There is one row, so there is no per-party delete to be had — a venue deleting
+ * a show would destroy the performer's record of a night they played and were
+ * paid for. So an event may be deleted only **while it is nobody's record but
+ * yours**, and every clause below is one way it could be somebody else's.
+ */
+describe("DELETE /events/:id — only while it is nobody's record but yours", () => {
+  async function archivedSoloEvent(prefix: string) {
+    const host = await seedMemberWithSet(
+      `${prefix}-op`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const event = await seedHostedEvent(`${prefix} night`, host);
+    const archived = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/archive`,
+      headers: actingAs(host.userId, host.profileId),
+    });
+    expect(archived.statusCode).toBe(200);
+    return { host, event };
+  }
+
+  it("deletes a solo, archived event and takes its whole tree with it", async () => {
+    const { db } = harness;
+    const { host, event } = await archivedSoloEvent("del-solo");
+    const [participant] = await db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.eventId, event.id));
+    if (!participant) throw new Error("participant seed failed");
+
+    // Everything a solo operator can accumulate on their own show, INCLUDING the
+    // rows that reference `event_participants` with no `ON DELETE` of their own —
+    // those are the ones a plain cascade can trip over, so they are exactly the
+    // ones worth putting in the way.
+    const [deal] = await db
+      .insert(schema.deals)
+      .values({
+        eventId: event.id,
+        type: "performance",
+        structure: "guarantee",
+        name: "Draft terms",
+        guaranteeAmount: 100000n,
+        createdBy: host.userId,
+      })
+      .returning();
+    if (!deal) throw new Error("deal seed failed");
+    await db
+      .insert(schema.dealParties)
+      .values({ dealId: deal.id, participantId: participant.id, roleInDeal: "payer" });
+    const [budget] = await db.insert(schema.budgets).values({ eventId: event.id }).returning();
+    if (!budget) throw new Error("budget seed failed");
+    await db.insert(schema.budgetLines).values({
+      budgetId: budget.id,
+      kind: "revenue",
+      label: "Tickets",
+      amount: 500000n,
+      collectedBy: participant.id,
+    });
+    await db.insert(schema.riders).values({
+      eventId: event.id,
+      ownerParticipantId: participant.id,
+      type: "tech",
+      name: "House tech",
+      createdBy: host.userId,
+    });
+    await db.insert(schema.scheduleItems).values({
+      eventId: event.id,
+      label: "Doors open",
+      ownerParticipantId: participant.id,
+    });
+    await db.insert(schema.eventMessages).values({
+      eventId: event.id,
+      senderUserId: host.userId,
+      senderParticipantId: participant.id,
+      body: "Note to self",
+    });
+    await db.insert(schema.tasks).values({
+      eventId: event.id,
+      ownerProfileId: host.profileId,
+      title: "Book the PA",
+      assigneeParticipantId: participant.id,
+    });
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+      payload: { expectedVersion: 1 },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().deleted).toBe(true);
+
+    // ASSERTED IN THE DATABASE, not in the response — the response cannot tell you
+    // what a foreign key took with it.
+    expect(await db.select().from(schema.events).where(eq(schema.events.id, event.id))).toEqual([]);
+    expect(
+      await db
+        .select()
+        .from(schema.eventParticipants)
+        .where(eq(schema.eventParticipants.eventId, event.id)),
+    ).toEqual([]);
+    expect(await db.select().from(schema.deals).where(eq(schema.deals.id, deal.id))).toEqual([]);
+    expect(
+      await db.select().from(schema.dealParties).where(eq(schema.dealParties.dealId, deal.id)),
+    ).toEqual([]);
+    expect(
+      await db.select().from(schema.budgets).where(eq(schema.budgets.eventId, event.id)),
+    ).toEqual([]);
+    expect(
+      await db.select().from(schema.budgetLines).where(eq(schema.budgetLines.budgetId, budget.id)),
+    ).toEqual([]);
+    expect(
+      await db.select().from(schema.riders).where(eq(schema.riders.eventId, event.id)),
+    ).toEqual([]);
+    expect(
+      await db
+        .select()
+        .from(schema.scheduleItems)
+        .where(eq(schema.scheduleItems.eventId, event.id)),
+    ).toEqual([]);
+    expect(
+      await db
+        .select()
+        .from(schema.eventMessages)
+        .where(eq(schema.eventMessages.eventId, event.id)),
+    ).toEqual([]);
+    expect(await db.select().from(schema.tasks).where(eq(schema.tasks.eventId, event.id))).toEqual(
+      [],
+    );
+  });
+
+  it("records in the audit trail WHAT was destroyed, not merely that it was", async () => {
+    const { db } = harness;
+    const { host, event } = await archivedSoloEvent("del-audit");
+    const [participant] = await db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.eventId, event.id));
+    if (!participant) throw new Error("participant seed failed");
+    const [budget] = await db.insert(schema.budgets).values({ eventId: event.id }).returning();
+    if (!budget) throw new Error("budget seed failed");
+    await db.insert(schema.budgetLines).values([
+      {
+        budgetId: budget.id,
+        kind: "revenue",
+        label: "Tickets",
+        amount: 500000n,
+        collectedBy: participant.id,
+      },
+      { budgetId: budget.id, kind: "cost", label: "PA", amount: 100000n, paidBy: participant.id },
+    ]);
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+      payload: { expectedVersion: 1 },
+    });
+    expect(response.statusCode).toBe(200);
+
+    const [audit] = await db
+      .select()
+      .from(schema.auditLog)
+      .where(
+        and(eq(schema.auditLog.eventId, event.id), eq(schema.auditLog.action, "event.delete")),
+      );
+    const changes = audit?.changes as {
+      before: { event: { title: string }; alsoDeleted: Record<string, number> };
+    };
+    expect(changes.before.event.title).toBe("del-audit night");
+    expect(changes.before.alsoDeleted.eventParticipants).toBe(1);
+    expect(changes.before.alsoDeleted.budgetLines).toBe(2);
+    expect(changes.before.alsoDeleted.budgets).toBe(1);
+  });
+
+  it("refuses while anybody else is on the bill, naming how many", async () => {
+    const { host, event } = await archivedSoloEvent("del-bill");
+    const act = await seedMemberWithSet(
+      "del-bill-act",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    await addParticipant(event.id, act);
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+      payload: { expectedVersion: 1 },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.message).toContain("1 other party");
+    expect(
+      await harness.db.select().from(schema.events).where(eq(schema.events.id, event.id)),
+    ).toHaveLength(1);
+  });
+
+  it("refuses while a settlement exists — that is a financial record", async () => {
+    const { db } = harness;
+    const { host, event } = await archivedSoloEvent("del-settled");
+    const [participant] = await db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.eventId, event.id));
+    if (!participant) throw new Error("participant seed failed");
+    await db
+      .insert(schema.settlements)
+      .values({ eventId: event.id, participantId: participant.id });
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+      payload: { expectedVersion: 1 },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.message).toContain("settlement");
+    expect(
+      await db.select().from(schema.events).where(eq(schema.events.id, event.id)),
+    ).toHaveLength(1);
+  });
+
+  it("refuses while an agreement is confirmed — signatures are on it", async () => {
+    const { db } = harness;
+    const { host, event } = await archivedSoloEvent("del-signed");
+    await db.insert(schema.deals).values({
+      eventId: event.id,
+      type: "performance",
+      structure: "guarantee",
+      name: "Signed terms",
+      agreementStatus: "confirmed",
+      createdBy: host.userId,
+    });
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+      payload: { expectedVersion: 1 },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.message).toContain("Signed terms");
+  });
+
+  it("refuses while an invoice has been raised", async () => {
+    const { db } = harness;
+    const { host, event } = await archivedSoloEvent("del-invoiced");
+    await db.insert(schema.invoices).values({
+      eventId: event.id,
+      ownerProfileId: host.profileId,
+      direction: "issued",
+      number: "INV-1",
+      currency: "SEK",
+    });
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+      payload: { expectedVersion: 1 },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.message).toContain("invoice");
+  });
+
+  it("refuses an event that has not been archived — delete lives in the archive", async () => {
+    const host = await seedMemberWithSet(
+      "del-live-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const event = await seedHostedEvent("Still live", host);
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+      payload: { expectedVersion: 1 },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.message).toContain("Archive");
+    expect(
+      await harness.db.select().from(schema.events).where(eq(schema.events.id, event.id)),
+    ).toHaveLength(1);
+  });
+
+  it("refuses a co-host with event.delete who is not the profile operating the show", async () => {
+    const { host, event } = await archivedSoloEvent("del-cohost");
+    const coHost = await seedMemberWithSet(
+      "del-cohost-other",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: coHost.profileId,
+      role: "co_host",
+      permissionSetId: coHost.permissionSetId,
+      status: "confirmed",
+    });
+    // The co-host archives their own copy, so the archive clause cannot be what
+    // refuses them.
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/archive`,
+      headers: actingAs(coHost.userId, coHost.profileId),
+    });
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(coHost.userId, coHost.profileId),
+      payload: { expectedVersion: 1 },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toContain("operating this show");
+    expect(
+      await harness.db.select().from(schema.events).where(eq(schema.events.id, event.id)),
+    ).toHaveLength(1);
+    // …and the host is still refused too, because the co-host is on the bill.
+    const hostAttempt = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+      payload: { expectedVersion: 1 },
+    });
+    expect(hostAttempt.statusCode).toBe(409);
+  });
+});

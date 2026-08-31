@@ -125,14 +125,18 @@ describe("canUseFeature — create_event", () => {
 
 describe("canUseFeature — send_offer", () => {
   /** `wantedDate` keeps two pending offers to the same venue distinct — the
-   * `booking_requests_pending_dedup` index treats one night as one offer. A
-   * dateless offer ("I'd love to play sometime") is outside that rule: Postgres
-   * counts NULLs as distinct, so two of them are two offers, and the index the
-   * agent-on-behalf-of work added (A-24) deliberately kept it that way. */
+   * `booking_requests_pending_dedup` index treats one night as one offer.
+   *
+   * It is REQUIRED here since migration 0031 (Ran, 2026-08-31: "requests should
+   * always come with a date"), where `wanted_date` became NOT NULL. It used to be
+   * optional, and the sibling test below asserted that two DATELESS offers to one
+   * venue counted as two — true, because Postgres counts NULLs as distinct, but a
+   * state the app can no longer produce or store. That test is now the assertion
+   * that the database refuses such a row at all. */
   async function seedOffer(
     senderUserId: string,
     targetProfileId: string,
-    wantedDate?: string,
+    wantedDate: string,
     createdAt?: Date,
   ) {
     await harness.db.insert(schema.bookingRequests).values({
@@ -154,14 +158,25 @@ describe("canUseFeature — send_offer", () => {
     expect(check).toMatchObject({ allowed: true, used: 2, limit: 50 });
   });
 
-  it("counts two DATELESS offers to the same venue as two", async () => {
+  it("cannot be sent a DATELESS offer to meter at all", async () => {
     const performer = await seedProfile("performer");
     const target = await seedProfile("operator");
-    await seedOffer(performer.ownerUserId, target.profileId);
-    await seedOffer(performer.ownerUserId, target.profileId);
+
+    // Deliberately replaces "counts two DATELESS offers to the same venue as two".
+    // That behaviour was real (NULLs are distinct, so the dedup index let both in)
+    // and is now unreachable: 0031 made `wanted_date` NOT NULL, so the row the old
+    // test seeded cannot be written. Asserting the refusal keeps the rule covered
+    // instead of deleting the case and leaving a silent gap.
+    await expect(
+      harness.db.insert(schema.bookingRequests).values({
+        source: "performer_offer",
+        senderUserId: performer.ownerUserId,
+        targetProfileId: target.profileId,
+      } as never),
+    ).rejects.toThrow();
 
     const check = await canUseFeature(harness.db, performer.profileId, "send_offer");
-    expect(check).toMatchObject({ allowed: true, used: 2, limit: 50 });
+    expect(check).toMatchObject({ allowed: true, used: 0, limit: 50 });
   });
 
   it("gives a paid artist unlimited offers", async () => {
@@ -521,13 +536,15 @@ describe("the entitlement refusal is a distinct error code", () => {
   it("a free artist over the offer cap is refused with the same code", async () => {
     const performer = await seedProfile("performer");
     const venue = await seedProfile("operator");
-    // 50 dateless offers = 50 offers (Postgres counts NULL `wanted_date` as distinct),
-    // which is exactly the free_artist monthly limit.
+    // 50 offers on 50 different nights — exactly the free_artist monthly limit.
+    // They were dateless until 0031 made `wanted_date` NOT NULL; one night each is
+    // the same count and, unlike a heap of undated rows, a thing that can happen.
     for (let index = 0; index < 50; index += 1) {
       await harness.db.insert(schema.bookingRequests).values({
         source: "performer_offer",
         senderUserId: performer.ownerUserId,
         targetProfileId: venue.profileId,
+        wantedDate: `2026-${String(1 + Math.floor(index / 28)).padStart(2, "0")}-${String(1 + (index % 28)).padStart(2, "0")}`,
       });
     }
     const gate = await canUseFeature(harness.db, performer.profileId, "send_offer");

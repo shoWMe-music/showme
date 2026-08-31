@@ -19,4 +19,5 @@ export {
   baselineCapabilities,
   dealPartyBaselineCapabilities,
   isGrantable,
+  PERFORMING_EVENT_ROLES,
 } from "./presets";

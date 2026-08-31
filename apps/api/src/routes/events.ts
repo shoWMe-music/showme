@@ -6,6 +6,7 @@ import {
   type DealDraft,
   basisPointsToPercent,
   dealDraftProblems,
+  guestListProblem,
   minorToDecimalString,
 } from "@showme/shared";
 import { and, desc, eq, inArray, ne } from "drizzle-orm";
@@ -50,6 +51,66 @@ async function assertEventImageFile(
 ): Promise<void> {
   if (!imageFileId) return;
   await assertProfileImageFiles(database, hostProfileId, [imageFileId]);
+}
+
+/**
+ * The operator's guest list must fit the limits the same document states.
+ *
+ * The product owner's finding was that the two limits were *"only present but
+ * don't actually work"*: they persisted, and nothing read them — not the add
+ * form, and not this API, which took two free numbers and never compared them to
+ * the `guests` array beside them. A limit only the form respects is not a limit.
+ *
+ * The rule itself is in `@showme/shared` so the card can refuse before it writes
+ * and say exactly the same sentence; this is the authority. **400, not 409**: the
+ * request body is what is wrong — it describes a list that breaks its own stated
+ * limits — which is `badRequest`'s meaning, and unlike the settlement's stored-
+ * state conflicts there is nothing on the server to go and fix first.
+ *
+ * `extras` is written WHOLE by both routes, so the body always carries the
+ * complete document and this can be a pure check with no read behind it. That is
+ * also what makes the lower-a-limit case fall out for free: lowering `limitTotal`
+ * under a list that already breaks it arrives here as one document that does not
+ * satisfy itself, and is refused with the overage named.
+ */
+function assertGuestListFitsItsLimits(
+  extras: EventExtras | null | undefined,
+  /**
+   * The guest list already on the row, on the edit path. A request that leaves
+   * everything the LIMITS ARE ABOUT untouched is not refused for it.
+   *
+   * `extras` is written whole, so every PATCH carries the guest list whether or
+   * not it is what the operator came to change. Without this, a list stored
+   * before the rule existed would block every later edit to the catering notes,
+   * the amenities and the ticket tiers — a row nobody could get out of except by
+   * fixing a guest list they did not come to fix.
+   *
+   * It is not a loophole. Such a list can only exist by having been written
+   * before the rule, and the first request that moves a limit or a ticket count
+   * is refused like any other. (Renaming a guest or writing a note passes,
+   * correctly: neither is a thing a limit constrains.)
+   */
+  stored?: EventExtras["guestList"],
+): void {
+  const guestList = extras?.guestList;
+  if (!guestList) return;
+  if (stored !== undefined && limitRelevantShape(guestList) === limitRelevantShape(stored)) return;
+  const problem = guestListProblem(guestList);
+  if (problem) throw badRequest(problem);
+}
+
+/**
+ * The part of a guest list the limits read: the two limits and each guest's
+ * ticket count. Compared as a string rather than deep-equalled because a value
+ * read back out of `jsonb` has its own key order, so the documents can be the
+ * same fact and different bytes.
+ */
+function limitRelevantShape(guestList: EventExtras["guestList"]): string {
+  return JSON.stringify([
+    guestList?.limitTotal ?? null,
+    guestList?.limitPerGuest ?? null,
+    (guestList?.guests ?? []).map((guest) => [guest.id, guest.tickets]),
+  ]);
 }
 
 /**
@@ -790,6 +851,10 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
       }
       const { database } = request.server;
 
+      // Same rule as the PATCH: a show may not be BORN over its own guest-list
+      // limits. One call site is no call sites.
+      assertGuestListFitsItsLimits(request.body.extras);
+
       // The bill and the agreement, checked BEFORE anything is written. The
       // creator is the host of the event it is creating and receives the
       // `operator_full` set in this same transaction, which carries both
@@ -1029,6 +1094,11 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
       // profile: an agent or a co-host may hold `event.edit` here, and the file
       // that ends up on the row has to live in the folder the event belongs to.
       await assertEventImageFile(database, before.hostProfileId, fields.imageFileId);
+
+      // The guest list must fit the limits it states — see the helper for why
+      // this is the whole document every time, and why lowering a limit under an
+      // over-long list is refused here rather than stored and displayed.
+      assertGuestListFitsItsLimits(fields.extras, (before.extras as EventExtras | null)?.guestList);
 
       // A-22's preconditions live on `POST /events/:id/publish`, which is the
       // audited path and the one that writes an `event.published` history line.

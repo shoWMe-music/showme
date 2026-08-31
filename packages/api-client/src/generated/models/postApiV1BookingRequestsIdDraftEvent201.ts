@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { PostApiV1BookingRequestsIdDraftEvent201EventCap } from './postApiV1BookingRequestsIdDraftEvent201EventCap';
+import type { PostApiV1BookingRequestsIdDraftEvent201Sender } from './postApiV1BookingRequestsIdDraftEvent201Sender';
 
 export type PostApiV1BookingRequestsIdDraftEvent201 = {
   requestId: string;
@@ -15,4 +16,5 @@ export type PostApiV1BookingRequestsIdDraftEvent201 = {
   baseCurrency: string;
   status: string;
   eventCap: PostApiV1BookingRequestsIdDraftEvent201EventCap;
+  sender: PostApiV1BookingRequestsIdDraftEvent201Sender;
 };

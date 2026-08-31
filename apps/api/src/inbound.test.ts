@@ -189,6 +189,9 @@ describe("inbound — public booking request + listing", () => {
         targetProfileId: owner.profileId,
         contactName: "Ben",
         email: "ben@example.showme.test",
+        // Dated because every request is, since 0031 (Ran, 2026-08-31). This
+        // fixture was dateless when the public body made the field optional.
+        wantedDate: "2027-01-20",
       },
     });
     const id = created.json().id;
@@ -606,6 +609,7 @@ describe("inbound — Block reports the SENDER and clears the request", () => {
         targetProfileId: venue.profileId,
         contactName: "Spammer",
         email: "spam@example.showme.test",
+        wantedDate: "2027-02-15",
       },
     });
     const id = created.json().id;
@@ -641,6 +645,7 @@ describe("inbound — Block reports the SENDER and clears the request", () => {
         targetProfileId: venue.profileId,
         contactName: "Ada",
         email: "ada@example.showme.test",
+        wantedDate: "2027-01-21",
       },
     });
     const id = created.json().id;
@@ -824,6 +829,12 @@ describe("inbound — the public form is an anonymous, hardened endpoint", () =>
     targetProfileId,
     contactName: "Ada Booker",
     email: "ada@example.showme.test",
+    // A date, because a request always names one (0031). It matters that the
+    // VALID body is valid here: these tests check the guards AROUND the schema —
+    // the origin, the rate limiter, the target — and a body the schema itself
+    // refuses would 400 before any of them, turning every one of them green for
+    // the wrong reason.
+    wantedDate: "2027-02-14",
     pitch: "We would love to play.",
     ...overrides,
   });
@@ -1110,13 +1121,17 @@ describe("inbound — Create Draft turns a request into a draft event", () => {
     expect(event?.notes).toContain("Touring in August.");
     expect(event?.notes).toContain("650");
 
-    // The host stands on their own event, or they cannot open it.
+    // The host stands on their own event, or they cannot open it — and since
+    // 2026-08-31 so does the act that asked. This assertion read `toHaveLength(1)`
+    // when "Create Draft" wrote the host and nobody else; the act is the point of
+    // the feature now (Ran: "invite the collaborator with their email"), so the
+    // count changed deliberately rather than the rule being relaxed.
     const participants = await harness.db
       .select()
       .from(schema.eventParticipants)
       .where(eq(schema.eventParticipants.eventId, created.eventId));
-    expect(participants).toHaveLength(1);
-    expect(participants[0]?.role).toBe("host");
+    expect(participants).toHaveLength(2);
+    expect(participants.find((row) => row.profileId === owner.profileId)?.role).toBe("host");
 
     // The request now points at the draft — and is STILL pending, because
     // starting work is not answering the sender.
@@ -1346,6 +1361,7 @@ describe("inbound — Make Offer counters back to whoever asked", () => {
         targetProfileId: venue.profileId,
         contactName: "Ada",
         email: "ada@example.showme.test",
+        wantedDate: "2027-01-22",
       },
     });
 
@@ -1356,5 +1372,659 @@ describe("inbound — Make Offer counters back to whoever asked", () => {
       payload: { message: "Let me answer someone else's inbox." },
     });
     expect(response.statusCode).toBe(404);
+  });
+});
+
+describe("inbound — a request always names a date", () => {
+  /**
+   * Ran, 2026-08-31: "requests should always come with a date or multiple dates
+   * to select from." A dateless ask ("are you free sometime?") is unanswerable —
+   * it cannot be checked against a calendar, cannot become a draft event with a
+   * date on it, and cannot be deduplicated. So `wanted_date` is required on every
+   * writing path and NOT NULL in the column, and the alternates the sender is
+   * happy with live in `additional_dates`.
+   */
+  it("refuses a dateless public-form request, writing nothing", async () => {
+    const owner = await seedOwnerWithProfile("date-public");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: {
+        source: "public_form",
+        targetProfileId: owner.profileId,
+        contactName: "Ada Booker",
+        email: "ada@example.showme.test",
+        pitch: "Are you free sometime?",
+      },
+    });
+    expect(response.statusCode).toBe(400);
+
+    const rows = await harness.db
+      .select()
+      .from(schema.bookingRequests)
+      .where(eq(schema.bookingRequests.targetProfileId, owner.profileId));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("refuses a dateless offer", async () => {
+    const target = await seedOwnerWithProfile("date-offer-target");
+    const performer = await seedOwnerWithProfile("date-offer-perf", "performer");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("date-offer-perf"), "x-profile-id": performer.profileId },
+      payload: { targetProfileId: target.profileId, offerFeeMin: "80000" },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("round-trips the alternates a sender offers, sorted, on both writing paths", async () => {
+    const owner = await seedOwnerWithProfile("date-alts");
+    const performer = await seedOwnerWithProfile("date-alts-perf", "performer");
+
+    const publicRequest = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: {
+        source: "public_form",
+        targetProfileId: owner.profileId,
+        contactName: "Ada Booker",
+        email: "ada@example.showme.test",
+        wantedDate: "2027-03-10",
+        // Deliberately out of order: the stored set is an unordered set of
+        // options, so it comes back in calendar order whatever order it arrived.
+        additionalDates: ["2027-03-17", "2027-03-12"],
+        pitch: "Any of these three nights works for us.",
+      },
+    });
+    expect(publicRequest.statusCode).toBe(201);
+
+    const offer = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("date-alts-perf"), "x-profile-id": performer.profileId },
+      payload: {
+        targetProfileId: owner.profileId,
+        wantedDate: "2027-04-01",
+        additionalDates: ["2027-04-02"],
+      },
+    });
+    expect(offer.statusCode).toBe(201);
+    expect(offer.json().additionalDates).toEqual(["2027-04-02"]);
+
+    const listed = await app.inject({
+      method: "GET",
+      url: "/api/v1/booking-requests",
+      headers: auth("date-alts"),
+    });
+    const rows = listed.json().items as { id: string; additionalDates: string[] }[];
+    const fromForm = rows.find((row) => row.id === publicRequest.json().id);
+    expect(fromForm?.additionalDates).toEqual(["2027-03-12", "2027-03-17"]);
+
+    // And it is a real jsonb array in the column, not a string.
+    const [stored] = await harness.db
+      .select()
+      .from(schema.bookingRequests)
+      .where(eq(schema.bookingRequests.id, publicRequest.json().id));
+    expect(stored?.additionalDates).toEqual(["2027-03-12", "2027-03-17"]);
+
+    // A request with no alternates reads as an empty list, never null — one
+    // shape for the client to render.
+    const plain = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("date-alts-perf"), "x-profile-id": performer.profileId },
+      payload: { targetProfileId: owner.profileId, wantedDate: "2027-04-20" },
+    });
+    expect(plain.json().additionalDates).toEqual([]);
+  });
+
+  it("refuses an alternate that repeats the wanted date or another alternate", async () => {
+    const owner = await seedOwnerWithProfile("date-dupes");
+
+    const repeatsWanted = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: {
+        source: "public_form",
+        targetProfileId: owner.profileId,
+        contactName: "Ada",
+        email: "ada@example.showme.test",
+        wantedDate: "2027-05-01",
+        additionalDates: ["2027-05-01"],
+      },
+    });
+    expect(repeatsWanted.statusCode).toBe(400);
+
+    const repeatsItself = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: {
+        source: "public_form",
+        targetProfileId: owner.profileId,
+        contactName: "Ada",
+        email: "ada@example.showme.test",
+        wantedDate: "2027-05-01",
+        additionalDates: ["2027-05-02", "2027-05-02"],
+      },
+    });
+    expect(repeatsItself.statusCode).toBe(400);
+  });
+
+  it("refuses more alternates than a human can hold in their head", async () => {
+    const owner = await seedOwnerWithProfile("date-toomany");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: {
+        source: "public_form",
+        targetProfileId: owner.profileId,
+        contactName: "Ada",
+        email: "ada@example.showme.test",
+        wantedDate: "2027-06-01",
+        additionalDates: [
+          "2027-06-02",
+          "2027-06-03",
+          "2027-06-04",
+          "2027-06-05",
+          "2027-06-06",
+          "2027-06-07",
+        ],
+      },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+});
+
+describe("inbound — a request is read by the profile, not by one person", () => {
+  /** A second active member of `profileId`, so "who read it" can be told apart. */
+  async function seedSecondMember(profileId: string, id: string) {
+    await seedUser(id, "operator");
+    await harness.db
+      .insert(schema.profileMembers)
+      .values({ profileId, userId: id, role: "admin", status: "active" });
+  }
+
+  /** A dated public-form request aimed at `profileId`. */
+  async function seedRequest(profileId: string, wantedDate: string) {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: {
+        source: "public_form",
+        targetProfileId: profileId,
+        contactName: "Ada Booker",
+        email: "ada@example.showme.test",
+        wantedDate,
+        pitch: "We would love to play.",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    return created.json().id as string;
+  }
+
+  it("marks a request read, then unread, and the inbox filter follows both ways", async () => {
+    const owner = await seedOwnerWithProfile("read-owner");
+    const requestId = await seedRequest(owner.profileId, "2027-07-01");
+
+    const unreadBefore = await app.inject({
+      method: "GET",
+      url: "/api/v1/booking-requests?unread=true",
+      headers: auth("read-owner"),
+    });
+    expect(unreadBefore.json().items.map((row: { id: string }) => row.id)).toContain(requestId);
+
+    const marked = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests/read",
+      headers: auth("read-owner"),
+      payload: { ids: [requestId] },
+    });
+    expect(marked.statusCode).toBe(200);
+    expect(marked.json().updated).toBe(1);
+
+    const [afterRead] = await harness.db
+      .select()
+      .from(schema.bookingRequests)
+      .where(eq(schema.bookingRequests.id, requestId));
+    expect(afterRead?.readAt).toBeInstanceOf(Date);
+    expect(afterRead?.readByUserId).toBe("read-owner");
+
+    const unreadAfter = await app.inject({
+      method: "GET",
+      url: "/api/v1/booking-requests?unread=true",
+      headers: auth("read-owner"),
+    });
+    expect(unreadAfter.json().items.map((row: { id: string }) => row.id)).not.toContain(requestId);
+
+    // Ran asked for read AND unread — the way back is the same door.
+    const unmarked = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests/read",
+      headers: auth("read-owner"),
+      payload: { ids: [requestId], read: false },
+    });
+    expect(unmarked.json().updated).toBe(1);
+
+    const [afterUnread] = await harness.db
+      .select()
+      .from(schema.bookingRequests)
+      .where(eq(schema.bookingRequests.id, requestId));
+    expect(afterUnread?.readAt).toBeNull();
+    expect(afterUnread?.readByUserId).toBeNull();
+  });
+
+  it("reads for the whole profile: a colleague sees it read, and by whom", async () => {
+    const owner = await seedOwnerWithProfile("read-shared");
+    await seedSecondMember(owner.profileId, "read-colleague");
+    const requestId = await seedRequest(owner.profileId, "2027-07-02");
+
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests/read",
+      headers: auth("read-colleague"),
+      payload: { ids: [requestId] },
+    });
+
+    const listed = await app.inject({
+      method: "GET",
+      url: "/api/v1/booking-requests",
+      headers: auth("read-shared"),
+    });
+    const row = listed.json().items.find((item: { id: string }) => item.id === requestId) as Record<
+      string,
+      unknown
+    >;
+    expect(row.readAt).toEqual(expect.any(String));
+    expect(row.readByUserId).toBe("read-colleague");
+  });
+
+  it("marks everything unread in one call when no ids are named", async () => {
+    const owner = await seedOwnerWithProfile("read-all");
+    const first = await seedRequest(owner.profileId, "2027-07-03");
+    const second = await seedRequest(owner.profileId, "2027-07-04");
+
+    const marked = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests/read",
+      headers: auth("read-all"),
+      payload: {},
+    });
+    expect(marked.json().updated).toBe(2);
+
+    const unread = await app.inject({
+      method: "GET",
+      url: "/api/v1/booking-requests?unread=true",
+      headers: auth("read-all"),
+    });
+    const ids = unread.json().items.map((row: { id: string }) => row.id);
+    expect(ids).not.toContain(first);
+    expect(ids).not.toContain(second);
+  });
+
+  it("refuses to mark a stranger's inbox read", async () => {
+    const owner = await seedOwnerWithProfile("read-victim");
+    const stranger = await seedOwnerWithProfile("read-thief");
+    expect(stranger.profileId).toBeDefined();
+    const requestId = await seedRequest(owner.profileId, "2027-07-05");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests/read",
+      headers: auth("read-thief"),
+      payload: { ids: [requestId] },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().updated).toBe(0);
+
+    const [row] = await harness.db
+      .select()
+      .from(schema.bookingRequests)
+      .where(eq(schema.bookingRequests.id, requestId));
+    expect(row?.readAt).toBeNull();
+  });
+
+  it("never tells a sender whether the recipient opened their offer", async () => {
+    const target = await seedOwnerWithProfile("read-receipt-venue");
+    const performer = await seedOwnerWithProfile("read-receipt-act", "performer");
+
+    const offer = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("read-receipt-act"), "x-profile-id": performer.profileId },
+      payload: { targetProfileId: target.profileId, wantedDate: "2027-07-06" },
+    });
+    expect(offer.statusCode).toBe(201);
+
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests/read",
+      headers: auth("read-receipt-venue"),
+      payload: {},
+    });
+
+    const outgoing = await app.inject({
+      method: "GET",
+      url: "/api/v1/booking-requests?direction=outgoing",
+      headers: { ...auth("read-receipt-act"), "x-profile-id": performer.profileId },
+    });
+    const row = outgoing
+      .json()
+      .items.find((item: { id: string }) => item.id === offer.json().id) as Record<string, unknown>;
+    expect(row).toBeDefined();
+    expect(row.readAt).toBeUndefined();
+    expect(row.readByUserId).toBeUndefined();
+
+    // And the filter that would ask the same question sideways is refused.
+    const sideways = await app.inject({
+      method: "GET",
+      url: "/api/v1/booking-requests?direction=outgoing&unread=true",
+      headers: { ...auth("read-receipt-act"), "x-profile-id": performer.profileId },
+    });
+    expect(sideways.statusCode).toBe(400);
+  });
+});
+
+describe("inbound — Create Draft invites whoever asked", () => {
+  async function seedPrimaryLocation(profileId: string, country: string) {
+    await harness.db
+      .insert(schema.profileLocations)
+      .values({ profileId, country, city: "Stockholm", isPrimary: true });
+  }
+
+  const draftEvent = (uid: string, profileId: string, requestId: string) =>
+    app.inject({
+      method: "POST",
+      url: `/api/v1/booking-requests/${requestId}/draft-event`,
+      headers: { ...auth(uid), "x-profile-id": profileId },
+      payload: {},
+    });
+
+  it("adds an on-platform sender to the draft as the ACT, and tells them", async () => {
+    const venue = await seedOwnerWithProfile("inv-venue");
+    await seedPrimaryLocation(venue.profileId, "SE");
+    const performer = await seedOwnerWithProfile("inv-act", "performer");
+
+    const offer = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("inv-act"), "x-profile-id": performer.profileId },
+      payload: { targetProfileId: venue.profileId, wantedDate: "2027-09-09" },
+    });
+    expect(offer.statusCode).toBe(201);
+
+    const draft = await draftEvent("inv-venue", venue.profileId, offer.json().id);
+    expect(draft.statusCode).toBe(201);
+    const eventId = draft.json().eventId;
+
+    const participants = await harness.db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.eventId, eventId));
+    const act = participants.find((row) => row.profileId === performer.profileId);
+    expect(act).toBeDefined();
+    // They asked to PLAY, so they join as the act — never as a second operator.
+    expect(act?.role).toBe("performer");
+    // Invited, not confirmed: a draft is the recipient starting work, not an answer.
+    expect(act?.status).toBe("invited");
+    expect(act?.permissionSetId).toBeTruthy();
+
+    // The response says what it did, so the screen need not guess.
+    expect(draft.json().sender).toMatchObject({
+      channel: "notification",
+      profileId: performer.profileId,
+    });
+
+    const notifications = await harness.db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, "inv-act"));
+    expect(notifications.some((row) => row.eventId === eventId)).toBe(true);
+  });
+
+  it("adds the agent's ACT rather than the agency", async () => {
+    const venue = await seedOwnerWithProfile("inv-ag-venue");
+    await seedPrimaryLocation(venue.profileId, "SE");
+    const agent = await seedOwnerWithProfile("inv-ag-agency", "agent");
+    const act = await seedOwnerWithProfile("inv-ag-act", "performer");
+    await seedRepresentation(agent.profileId, act.profileId, "active");
+
+    const offer = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("inv-ag-agency"), "x-profile-id": agent.profileId },
+      payload: {
+        targetProfileId: venue.profileId,
+        wantedDate: "2027-09-10",
+        onBehalfOfProfileId: act.profileId,
+      },
+    });
+    expect(offer.statusCode).toBe(201);
+
+    const draft = await draftEvent("inv-ag-venue", venue.profileId, offer.json().id);
+    expect(draft.statusCode).toBe(201);
+
+    const participants = await harness.db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.eventId, draft.json().eventId));
+    const profileIds = participants.map((row) => row.profileId);
+    // The performer is the act on the bill (story.md: an agent is not the talent).
+    expect(profileIds).toContain(act.profileId);
+    expect(participants.find((row) => row.profileId === act.profileId)?.role).toBe("performer");
+    // The agency is not a participant: they negotiated, they did not get booked.
+    // (They reach the event through the representation fan-out when the venue is
+    // in their territory — decisions #14 — which this fixture's venue is not.)
+    expect(profileIds).not.toContain(agent.profileId);
+
+    // BOTH parties hear about it: the agency that asked, and the act that is now
+    // on somebody's calendar.
+    const notified = await harness.db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.eventId, draft.json().eventId));
+    const notifiedUsers = notified.map((row) => row.userId);
+    expect(notifiedUsers).toContain("inv-ag-agency");
+    expect(notifiedUsers).toContain("inv-ag-act");
+  });
+
+  it("mints a stub profile, an invitation and an email for a stranger off the public form", async () => {
+    const sent: EmailMessage[] = [];
+    const emailApp = buildTestApp(
+      {
+        database: harness.db,
+        tokenVerifier: fakeVerifier,
+        emailSink: {
+          async sendEmail(message) {
+            sent.push(message);
+          },
+        },
+      },
+      [inboundRoutes],
+    );
+    await emailApp.ready();
+
+    const venue = await seedOwnerWithProfile("inv-stranger-venue");
+    await seedPrimaryLocation(venue.profileId, "SE");
+
+    const created = await emailApp.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: {
+        source: "public_form",
+        targetProfileId: venue.profileId,
+        contactName: "Ada Booker",
+        email: "ada@example.showme.test",
+        artistName: "The Adas",
+        wantedDate: "2027-09-11",
+        pitch: "Touring in September.",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const draft = await emailApp.inject({
+      method: "POST",
+      url: `/api/v1/booking-requests/${created.json().id}/draft-event`,
+      headers: { ...auth("inv-stranger-venue"), "x-profile-id": venue.profileId },
+      payload: {},
+    });
+    expect(draft.statusCode).toBe(201);
+    const eventId = draft.json().eventId;
+    expect(draft.json().sender).toMatchObject({
+      channel: "invitation",
+      email: "ada@example.showme.test",
+    });
+
+    const participants = await harness.db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.eventId, eventId));
+    expect(participants).toHaveLength(2); // the host, and the act that asked
+
+    const stubParticipant = participants.find((row) => row.profileId !== venue.profileId);
+    const [stub] = await harness.db
+      .select()
+      .from(schema.profiles)
+      .where(eq(schema.profiles.id, stubParticipant?.profileId ?? ""));
+    expect(stub?.kind).toBe("performer");
+    expect(stub?.claimedAt).toBeNull(); // unclaimed until they sign up
+    expect(stub?.name).toBe("The Adas");
+
+    // The email is the claim key: signing up with it inherits this event.
+    const [member] = await harness.db
+      .select()
+      .from(schema.profileMembers)
+      .where(eq(schema.profileMembers.profileId, stub?.id ?? ""));
+    expect(member?.email).toBe("ada@example.showme.test");
+    expect(member?.userId).toBeNull();
+
+    const invitations = await harness.db
+      .select()
+      .from(schema.invitations)
+      .where(eq(schema.invitations.targetEventId, eventId));
+    expect(invitations).toHaveLength(1);
+    expect(invitations[0]?.recipientEmail).toBe("ada@example.showme.test");
+    expect(invitations[0]?.status).toBe("pending");
+
+    expect(sent.some((message) => message.to === "ada@example.showme.test")).toBe(true);
+
+    await emailApp.close();
+  });
+
+  it("keeps the invitation when the email fails", async () => {
+    const emailApp = buildTestApp(
+      {
+        database: harness.db,
+        tokenVerifier: fakeVerifier,
+        emailSink: {
+          async sendEmail() {
+            throw new Error("brevo is down");
+          },
+        },
+      },
+      [inboundRoutes],
+    );
+    await emailApp.ready();
+
+    const venue = await seedOwnerWithProfile("inv-mailfail-venue");
+    await seedPrimaryLocation(venue.profileId, "SE");
+    const created = await emailApp.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: {
+        source: "public_form",
+        targetProfileId: venue.profileId,
+        contactName: "Bo Booker",
+        email: "bo@example.showme.test",
+        artistName: "Bo's Band",
+        wantedDate: "2027-09-12",
+      },
+    });
+
+    const draft = await emailApp.inject({
+      method: "POST",
+      url: `/api/v1/booking-requests/${created.json().id}/draft-event`,
+      headers: { ...auth("inv-mailfail-venue"), "x-profile-id": venue.profileId },
+      payload: {},
+    });
+    // The DB write stands; only the delivery flag says otherwise.
+    expect(draft.statusCode).toBe(201);
+    expect(draft.json().sender.emailed).toBe(false);
+
+    const invitations = await harness.db
+      .select()
+      .from(schema.invitations)
+      .where(eq(schema.invitations.targetEventId, draft.json().eventId));
+    expect(invitations).toHaveLength(1);
+
+    await emailApp.close();
+  });
+
+  it("adds nobody when the profile that asked is the one hosting", async () => {
+    const venue = await seedOwnerWithProfile("inv-self-venue");
+    await seedPrimaryLocation(venue.profileId, "SE");
+
+    // `POST /offers` does not refuse a profile addressing itself, so this row can
+    // exist; the host participant is already written, and a second row for the
+    // same profile would be a unique violation surfacing as a 500.
+    const offer = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("inv-self-venue"), "x-profile-id": venue.profileId },
+      payload: { targetProfileId: venue.profileId, wantedDate: "2027-09-14" },
+    });
+    expect(offer.statusCode).toBe(201);
+
+    const draft = await draftEvent("inv-self-venue", venue.profileId, offer.json().id);
+    expect(draft.statusCode).toBe(201);
+    expect(draft.json().sender.channel).toBe("none");
+
+    const participants = await harness.db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.eventId, draft.json().eventId));
+    expect(participants).toHaveLength(1);
+    expect(participants[0]?.role).toBe("host");
+  });
+
+  it("cannot double-invite: a second draft-event is refused and writes nothing", async () => {
+    const venue = await seedOwnerWithProfile("inv-twice-venue");
+    await seedPrimaryLocation(venue.profileId, "SE");
+    const performer = await seedOwnerWithProfile("inv-twice-act", "performer");
+
+    const offer = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("inv-twice-act"), "x-profile-id": performer.profileId },
+      payload: { targetProfileId: venue.profileId, wantedDate: "2027-09-13" },
+    });
+
+    const first = await draftEvent("inv-twice-venue", venue.profileId, offer.json().id);
+    expect(first.statusCode).toBe(201);
+    const second = await draftEvent("inv-twice-venue", venue.profileId, offer.json().id);
+    expect(second.statusCode).toBe(409);
+
+    const events = await harness.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.hostProfileId, venue.profileId));
+    expect(events).toHaveLength(1);
+
+    const participants = await harness.db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.eventId, first.json().eventId));
+    expect(participants).toHaveLength(2); // host + act, once each
   });
 });

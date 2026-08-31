@@ -20,6 +20,7 @@ import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { eventCapabilities, requireEventCapability } from "../lib/authorize";
 import { renderEventNotificationEmail } from "../lib/email-templates";
+import { assertEventIsDeletable, deleteEventTree } from "../lib/event-delete";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
 import { signProfileImageUrls } from "../lib/profile-media";
 import { serializeEvent } from "../serialize/event";
@@ -418,7 +419,9 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // Delete: authorize `event.delete`, optimistic-lock, cascade + audit.
+  // Delete: authorize `event.delete`, prove the event is nobody's record but the
+  // caller's (`lib/event-delete.ts` holds the whole rule and the reasoning),
+  // optimistic-lock, tear the tree down IN ORDER, and record what went.
   app.delete(
     "/events/:id",
     {
@@ -433,26 +436,38 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
       const [before] = await database.select().from(schema.events).where(eq(schema.events.id, id));
       if (!before) throw notFound("Event not found");
 
+      // Every clause, before anything is written. A REFUSAL WRITES NOTHING.
+      await assertEventIsDeletable(database, request, before);
+
       const where =
         expectedVersion != null
           ? and(eq(schema.events.id, id), eq(schema.events.version, expectedVersion))
           : eq(schema.events.id, id);
 
       await database.transaction(async (tx) => {
+        // The tree first, in an order the foreign keys can survive — see
+        // `deleteEventTree` for why a plain cascade cannot do this.
+        const alsoDeleted = await deleteEventTree(tx, id);
         const [deleted] = await tx.delete(schema.events).where(where).returning();
         if (!deleted) {
-          // Row exists (checked above) but the version moved → conflict.
+          // Row exists (checked above) but the version moved → conflict. The
+          // transaction rolls back, so the tree is still there.
           throw conflict("Event was changed by someone else; reload and retry");
         }
         // `eventId` is recorded even though the row is gone: `audit_log.event_id`
         // carries no foreign key precisely so the trail survives the deletion.
+        //
+        // `before` carries the event AND the tally of everything that went with
+        // it. A trail that recorded only the event would describe the one row
+        // anybody could already see was missing, and say nothing about the deals,
+        // budget lines, riders and messages destroyed alongside it.
         await writeAudit(tx, request, {
           capability: "event.delete",
           action: "event.delete",
           targetKind: "event",
           targetId: id,
           eventId: id,
-          before,
+          before: { event: before, alsoDeleted },
         });
       });
 

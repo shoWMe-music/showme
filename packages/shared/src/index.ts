@@ -52,6 +52,7 @@ export { type ProSociety, societyForCountry } from "./pro-societies";
 export {
   formatDurationClock,
   mergeSetlistWorks,
+  parseDurationText,
   parseSetlistWorks,
   type SetlistWork,
   totalDurationSeconds,
@@ -117,6 +118,7 @@ export {
   TERMS_TEMPLATE_CATEGORY,
   basisPointsToPercent,
   createDealPayload,
+  dealDraftNotices,
   dealDraftProblems,
   dealKindLabel,
   dealTypeForKind,
@@ -130,6 +132,12 @@ export {
   structureNeedsSplit,
   termsTemplatePayload,
 } from "./deal-terms";
+export {
+  type GuestListDocument,
+  type GuestListEntry,
+  guestListProblem,
+  guestListTickets,
+} from "./guest-list";
 export { convertMinorUnits } from "./exchange";
 export { type CsvColumn, escapeCsvField, parseCsv, toCsv } from "./csv";
 export {

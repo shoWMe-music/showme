@@ -91,11 +91,17 @@ export interface RequestTriage {
   /** What the draft flow produced, so the dialog can report the plan consequence. */
   draftResult: DraftEventResult | null;
   counterResult: CounterOfferResult | null;
-  open: (action: RequestTriageAction, request: RequestItem) => void;
+  /**
+   * Start an action on a request. `preferredDate` overrides the night the date
+   * fields open on — that is how choosing one of the sender's ALTERNATE dates
+   * drafts the show on it instead of on `wantedDate`.
+   */
+  open: (action: RequestTriageAction, request: RequestItem, preferredDate?: string) => void;
   close: () => void;
   confirm: () => void;
   handlers: {
-    onCreateDraft: (id: string) => void;
+    /** `preferredDate` = an alternate night the reader chose. */
+    onCreateDraft: (id: string, preferredDate?: string) => void;
     onMakeOffer: (id: string) => void;
     onDecline: (id: string) => void;
     onBlock: (id: string) => void;
@@ -182,20 +188,23 @@ export function useRequestTriage({
     createDraftEvent.isPending ||
     sendCounterOffer.isPending;
 
-  function open(nextAction: RequestTriageAction, nextRequest: RequestItem) {
+  function open(nextAction: RequestTriageAction, nextRequest: RequestItem, preferredDate?: string) {
     setAction(nextAction);
     setRequest(nextRequest);
     setRefusal(null);
     setDraftResult(null);
     setCounterResult(null);
     // Every open starts from what the request actually says, so the operator is
-    // editing the ask rather than retyping it.
+    // editing the ask rather than retyping it. The exception is a night the
+    // reader picked deliberately — one of the sender's alternates — which is
+    // the whole point of naming more than one.
+    const startingDate = preferredDate ?? nextRequest.wantedDate ?? "";
     setMessage("");
     setFeeMinimum("");
     setFeeMaximum("");
-    setOfferedDate(nextRequest.wantedDate ?? "");
+    setOfferedDate(startingDate);
     setDraftTitle(nextRequest.artistName ?? nextRequest.contactName ?? "");
-    setDraftDate(nextRequest.wantedDate ?? "");
+    setDraftDate(startingDate);
     setDraftCurrency(nextRequest.currency ?? "");
   }
 
@@ -285,9 +294,9 @@ export function useRequestTriage({
   }
 
   /** Card → dialog. An id with no row behind it opens nothing, rather than acting blind. */
-  const openById = (nextAction: RequestTriageAction) => (id: string) => {
+  const openById = (nextAction: RequestTriageAction) => (id: string, preferredDate?: string) => {
     const match = requests.find((candidate) => candidate.id === id);
-    if (match) open(nextAction, match);
+    if (match) open(nextAction, match, preferredDate);
   };
 
   return {

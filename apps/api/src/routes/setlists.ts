@@ -1,5 +1,6 @@
+import { type EventRole, PERFORMING_EVENT_ROLES } from "@showme/auth";
 import { schema } from "@showme/db";
-import { and, eq, inArray, ne, or } from "drizzle-orm";
+import { type SQL, and, asc, eq, inArray, ne, or } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -35,6 +36,24 @@ const SetlistResponse = z.object({
   id: z.string(),
   eventId: z.string(),
   participantId: z.string(),
+  /**
+   * The act that wrote it, from the participant's PROFILE — the same join
+   * `performance-reports.ts` makes to keep a support slot's songs from being
+   * filed under the headliner. Resolved here so a reader who is shown several
+   * acts' sets (the operator on the event workspace) does not have to fetch the
+   * roster and re-derive the answer.
+   */
+  performerName: z.string().nullable(),
+  /**
+   * Whether the caller stands behind this setlist's participant row — i.e.
+   * whether it is theirs to edit.
+   *
+   * Server-computed on purpose. A client could try to guess it by matching the
+   * roster against its own memberships, and would have to hold the whole roster
+   * to do it; "is this yours" is a fact about the caller's standing, which is
+   * the serializer's job (`.claude/skills/authorization`), not the screen's.
+   */
+  mine: z.boolean(),
   items: z.unknown().nullable(),
   updatedAt: z.string(),
 });
@@ -49,11 +68,17 @@ const SetlistShareResponse = z.object({
 type SetlistRow = typeof schema.setlists.$inferSelect;
 type SetlistShareRow = typeof schema.setlistShares.$inferSelect;
 
-function serializeSetlist(setlist: SetlistRow) {
+function serializeSetlist(
+  setlist: SetlistRow,
+  performerName: string | null,
+  ownParticipantIds: readonly string[],
+) {
   return {
     id: setlist.id,
     eventId: setlist.eventId,
     participantId: setlist.participantId,
+    performerName: performerName?.trim() || null,
+    mine: ownParticipantIds.includes(setlist.participantId),
     items: setlist.items ?? null,
     updatedAt: setlist.updatedAt.toISOString(),
   };
@@ -68,17 +93,38 @@ function serializeSetlistShare(share: SetlistShareRow) {
   };
 }
 
-/** The `event_participant` ids the caller stands behind on this event (their active memberships). */
-async function callerParticipantIds(request: FastifyRequest, eventId: string): Promise<string[]> {
+/** One participant row the caller stands behind, with what it is and who it is. */
+interface CallerParticipant {
+  readonly id: string;
+  readonly role: EventRole;
+  readonly profileName: string | null;
+}
+
+/**
+ * Every `event_participant` the caller stands behind on this event, through
+ * their active memberships. A user can hold SEVERAL — a promoter who also plays
+ * brings an operator profile and a performer profile to the same night — which
+ * is why this is a list and why the writes below have to say which of them they
+ * mean.
+ */
+async function callerParticipants(
+  request: FastifyRequest,
+  eventId: string,
+): Promise<CallerParticipant[]> {
   const principal = request.principal;
   if (!principal) throw new Error("principal missing after authentication");
-  const rows = await request.server.database
-    .select({ id: schema.eventParticipants.id, profileId: schema.eventParticipants.profileId })
+  return await request.server.database
+    .select({
+      id: schema.eventParticipants.id,
+      role: schema.eventParticipants.role,
+      profileName: schema.profiles.name,
+    })
     .from(schema.eventParticipants)
     .innerJoin(
       schema.profileMembers,
       eq(schema.profileMembers.profileId, schema.eventParticipants.profileId),
     )
+    .innerJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
     .where(
       and(
         eq(schema.eventParticipants.eventId, eventId),
@@ -86,7 +132,40 @@ async function callerParticipantIds(request: FastifyRequest, eventId: string): P
         eq(schema.profileMembers.status, "active"),
       ),
     );
-  return rows.map((row) => row.id);
+}
+
+/** One setlist plus the act behind it — the shape every read here returns. */
+interface SetlistWithAct {
+  readonly setlist: SetlistRow;
+  readonly performerName: string | null;
+}
+
+/**
+ * Setlists on an event, each carrying the name of the PROFILE behind its
+ * participant, ordered by that name so the list is stable between reads. Same
+ * join as `performance-reports.ts`: the participant's `performer_tag` holds the
+ * slot ("headliner"), not the artist.
+ */
+async function loadSetlists(
+  request: FastifyRequest,
+  eventId: string,
+  restriction?: SQL,
+): Promise<SetlistWithAct[]> {
+  const rows = await request.server.database
+    .select({ setlist: schema.setlists, performerName: schema.profiles.name })
+    .from(schema.setlists)
+    .innerJoin(
+      schema.eventParticipants,
+      eq(schema.eventParticipants.id, schema.setlists.participantId),
+    )
+    .innerJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
+    .where(
+      restriction
+        ? and(eq(schema.setlists.eventId, eventId), restriction)
+        : eq(schema.setlists.eventId, eventId),
+    )
+    .orderBy(asc(schema.profiles.name));
+  return rows;
 }
 
 /**
@@ -104,8 +183,8 @@ async function requireAuthoredSetlist(
     .where(and(eq(schema.setlists.id, setlistId), eq(schema.setlists.eventId, eventId)));
   if (!setlist) throw notFound("Setlist not found");
 
-  const participantIds = await callerParticipantIds(request, eventId);
-  if (!participantIds.includes(setlist.participantId)) {
+  const participants = await callerParticipants(request, eventId);
+  if (!participants.some((participant) => participant.id === setlist.participantId)) {
     throw forbidden("Only the performer who authored the setlist may share it");
   }
   return setlist;
@@ -114,8 +193,25 @@ async function requireAuthoredSetlist(
 export async function setlistRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
-  // List setlists — operators (`budget.view`) see all; everyone else sees their
-  // own PLUS any explicitly shared with one of their participant rows.
+  /**
+   * List setlists on an event.
+   *
+   * THREE STANDINGS, and each one is a different claim:
+   *   · the FILING operator (`performance_report.file`) sees every act's set,
+   *     because the performed-works report they owe the society is derived from
+   *     all of them (decisions.md "Setlists"; `performing-rights.ts`);
+   *   · the ACT sees its own — the inviolable slice of story.md; and
+   *   · anyone else sees only what was explicitly SHARED to one of their
+   *     participant rows, which is the lighting operator's one legitimate door.
+   *
+   * The operator's gate used to be `budget.view`, which is the same "read a
+   * money capability as a stand-in for *is an operator*" shortcut that
+   * `presets.ts` records fixing for `rider.view`. It is wrong for a reason that
+   * shows up the moment a co-promoter is handed the sheet and nothing else:
+   * seeing the pool is a claim on the money, never on the act's songs. The
+   * capability that IS the claim is the filing, and the ceiling already keeps it
+   * to the managing operators.
+   */
   app.get(
     "/events/:id/setlists",
     { schema: { params: EventParams, response: { 200: z.array(SetlistResponse) } } },
@@ -124,16 +220,14 @@ export async function setlistRoutes(fastify: FastifyInstance): Promise<void> {
       const eventId = request.params.id;
 
       const capabilities = await requireEventCapability(request, eventId, "event.view");
+      const participants = await callerParticipants(request, eventId);
+      const participantIds = participants.map((participant) => participant.id);
 
-      if (capabilities.has("budget.view")) {
-        const all = await database
-          .select()
-          .from(schema.setlists)
-          .where(eq(schema.setlists.eventId, eventId));
-        return all.map(serializeSetlist);
+      if (capabilities.has("performance_report.file")) {
+        const all = await loadSetlists(request, eventId);
+        return all.map((row) => serializeSetlist(row.setlist, row.performerName, participantIds));
       }
 
-      const participantIds = await callerParticipantIds(request, eventId);
       if (participantIds.length === 0) return [];
 
       const shares = await database
@@ -142,21 +236,19 @@ export async function setlistRoutes(fastify: FastifyInstance): Promise<void> {
         .where(inArray(schema.setlistShares.participantId, participantIds));
       const sharedSetlistIds = shares.map((share) => share.setlistId);
 
-      const ownOrShared = await database
-        .select()
-        .from(schema.setlists)
-        .where(
-          and(
-            eq(schema.setlists.eventId, eventId),
-            sharedSetlistIds.length > 0
-              ? or(
-                  inArray(schema.setlists.participantId, participantIds),
-                  inArray(schema.setlists.id, sharedSetlistIds),
-                )
-              : inArray(schema.setlists.participantId, participantIds),
-          ),
-        );
-      return ownOrShared.map(serializeSetlist);
+      const ownOrShared = await loadSetlists(
+        request,
+        eventId,
+        sharedSetlistIds.length > 0
+          ? or(
+              inArray(schema.setlists.participantId, participantIds),
+              inArray(schema.setlists.id, sharedSetlistIds),
+            )
+          : inArray(schema.setlists.participantId, participantIds),
+      );
+      return ownOrShared.map((row) =>
+        serializeSetlist(row.setlist, row.performerName, participantIds),
+      );
     },
   );
 
@@ -172,9 +264,19 @@ export async function setlistRoutes(fastify: FastifyInstance): Promise<void> {
       const eventId = request.params.id;
 
       await requireEventCapability(request, eventId, "setlist.author");
-      const participantIds = await callerParticipantIds(request, eventId);
-      const participantId = participantIds[0];
-      if (!participantId) throw forbidden("You are not a participant on this event");
+      // WHICH of the caller's rows the songs hang on. One user can stand behind
+      // several participants on one night — a promoter who also plays — and the
+      // capability engine unions across all of them, so holding `setlist.author`
+      // says nothing about which row is the act. Taking whichever row the
+      // database returned first could attach the set to the HOST participant,
+      // and `performance-reports.ts` names each set by joining the participant to
+      // its profile: the songs would reach the society under the venue's name.
+      const participants = await callerParticipants(request, eventId);
+      const author =
+        participants.find((participant) => PERFORMING_EVENT_ROLES.has(participant.role)) ??
+        participants[0];
+      if (!author) throw forbidden("You are not a participant on this event");
+      const participantId = author.id;
 
       const items = request.body.items ?? null;
 
@@ -214,7 +316,7 @@ export async function setlistRoutes(fastify: FastifyInstance): Promise<void> {
         return setlist;
       });
 
-      return serializeSetlist(saved);
+      return serializeSetlist(saved, author.profileName, [participantId]);
     },
   );
 

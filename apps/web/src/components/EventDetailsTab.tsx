@@ -1,5 +1,6 @@
 import { getGetApiV1EventsIdQueryKey, usePatchApiV1EventsId } from "@showme/api-client";
 import { Avatar, Button, Icon, Select, TextField, useToast } from "@showme/design-system";
+import { type GuestListEntry, guestListProblem } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { getActiveProfileId } from "../lib/activeProfile";
@@ -71,12 +72,13 @@ export interface TicketTier {
   max: number;
   est: number;
 }
-export interface Guest {
-  id: string;
-  name: string;
-  tickets: number;
-  invitedBy: string;
-}
+/**
+ * One row of the guest list. Aliased to the shared shape rather than restated,
+ * so the card, the API's `event-extras` schema and the limit rule cannot drift
+ * apart — the `note` field going missing from one of three copies is exactly how
+ * it went missing in the first place.
+ */
+export type Guest = GuestListEntry;
 
 export interface DetailsPerformer {
   id: string;
@@ -156,6 +158,7 @@ export function EventDetailsTab({
       {canSeeExtras && (
         <GuestListCard
           guestList={extras.guestList ?? {}}
+          savedGuestList={event.extras?.guestList ?? {}}
           canEdit={canEdit}
           onSave={(guestList) => extrasEditor.save({ ...extras, guestList })}
           onDraft={(guestList) => extrasEditor.change({ ...extras, guestList })}
@@ -366,12 +369,19 @@ function EventPosterCard({ event, canEdit }: { event: DetailsEvent; canEdit: boo
 
 function GuestListCard({
   guestList,
+  savedGuestList,
   canEdit,
   onSave,
   onDraft,
   onCommit,
 }: {
   guestList: NonNullable<EventExtras["guestList"]>;
+  /**
+   * The list as the SERVER holds it. Only ever read to put a refused limit back:
+   * `guestList` above is the draft, so once a lowered limit has been rejected
+   * there is nothing else on the screen that still knows what it was.
+   */
+  savedGuestList: NonNullable<EventExtras["guestList"]>;
   canEdit: boolean;
   onSave: (next: NonNullable<EventExtras["guestList"]>) => void;
   onDraft: (next: NonNullable<EventExtras["guestList"]>) => void;
@@ -382,6 +392,24 @@ function GuestListCard({
   const [name, setName] = useState("");
   const [tickets, setTickets] = useState("1");
   const [invitedBy, setInvitedBy] = useState("Promoter");
+  const [note, setNote] = useState("");
+  /**
+   * Why the last thing the operator tried was not saved, in the same sentence the
+   * API would have answered with (`@showme/shared/guest-list` is the one rule,
+   * called on both sides). Held rather than toasted because it belongs beside the
+   * fields it is about — and cleared by the next thing that works.
+   */
+  const [problem, setProblem] = useState<string | null>(null);
+  /**
+   * Bumped whenever a limit is refused, and part of both limit fields' `key`.
+   *
+   * `NumericField` holds the digits as its own text so a half-typed value
+   * survives, and it seeds that text once. Putting the draft back therefore is
+   * not enough on its own — the box would go on showing a number nothing stored,
+   * which is the one thing a refusal must not leave behind. Remounting re-seeds
+   * it from the saved value, so what is on screen is what is in the document.
+   */
+  const [limitResetToken, setLimitResetToken] = useState(0);
 
   const add = () => {
     const trimmed = name.trim();
@@ -394,10 +422,47 @@ function GuestListCard({
       name: trimmed,
       tickets: count,
       invitedBy,
+      ...(note.trim() !== "" ? { note: note.trim() } : {}),
     };
-    onSave({ ...guestList, guests: [...guests, guest] });
+    const next = { ...guestList, guests: [...guests, guest] };
+    // The limits are checked HERE, before the write, so an over-limit guest is
+    // refused under the cursor rather than after a round trip. The server checks
+    // the same thing and has the last word.
+    const refusal = guestListProblem(next);
+    if (refusal) {
+      setProblem(refusal);
+      return;
+    }
+    setProblem(null);
+    onSave(next);
     setName("");
     setTickets("1");
+    setNote("");
+  };
+
+  /**
+   * A limit, once the operator has finished typing it.
+   *
+   * Lowering one under a list that already breaks it is REFUSED rather than
+   * stored-and-flagged (see `guest-list.ts` for the reasoning), so the field goes
+   * back to the value the server holds and the sentence says which guests are in
+   * the way. Only the limits are reverted — anything else the draft is carrying
+   * is somebody's unrelated edit and is not this refusal's business.
+   */
+  const commitLimits = () => {
+    const refusal = guestListProblem(guestList);
+    if (refusal) {
+      setProblem(refusal);
+      onDraft({
+        ...guestList,
+        limitTotal: savedGuestList.limitTotal ?? null,
+        limitPerGuest: savedGuestList.limitPerGuest ?? null,
+      });
+      setLimitResetToken((token) => token + 1);
+      return;
+    }
+    setProblem(null);
+    onCommit();
   };
 
   return (
@@ -424,22 +489,30 @@ function GuestListCard({
         }}
       >
         <NumericField
+          key={`limit-total-${limitResetToken}`}
           label="Limit list to total tickets"
           value={guestList.limitTotal ?? null}
           disabled={!canEdit}
           placeholder="No limit"
           onDraft={(limitTotal) => onDraft({ ...guestList, limitTotal })}
-          onCommit={onCommit}
+          onCommit={commitLimits}
         />
         <NumericField
+          key={`limit-per-guest-${limitResetToken}`}
           label="Limit tickets per guest"
           value={guestList.limitPerGuest ?? null}
           disabled={!canEdit}
           placeholder="No limit"
           onDraft={(limitPerGuest) => onDraft({ ...guestList, limitPerGuest })}
-          onCommit={onCommit}
+          onCommit={commitLimits}
         />
       </div>
+
+      {problem && (
+        <p role="alert" style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--brand-red)" }}>
+          {problem}
+        </p>
+      )}
 
       {canEdit && (
         <div
@@ -478,6 +551,15 @@ function GuestListCard({
               options={["Promoter", "Performer", "Venue"]}
             />
           </div>
+          <div style={{ flex: 1, minWidth: 160 }}>
+            <TextField
+              label="Note"
+              value={note}
+              onChange={(changeEvent) => setNote(changeEvent.target.value)}
+              onKeyDown={(keyEvent) => keyEvent.key === "Enter" && add()}
+              placeholder="Optional — e.g. collects at the box office"
+            />
+          </div>
           <Button
             variant="primary"
             aria-label="Add guest"
@@ -507,7 +589,33 @@ function GuestListCard({
               ...rowBorder,
             }}
           >
-            <span style={{ flex: 1 }}>{guest.name}</span>
+            <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+              <span>{guest.name}</span>
+              {/* The note is editable in place: one typed on the way in that
+                  cannot be corrected afterwards is a note people stop writing.
+                  Draft on every keystroke, persist once on blur — the same
+                  contract `NumericField` keeps, for the same reason. */}
+              {canEdit ? (
+                <TextField
+                  aria-label={`Note for ${guest.name}`}
+                  value={guest.note ?? ""}
+                  placeholder="Add a note…"
+                  onChange={(changeEvent) =>
+                    onDraft({
+                      ...guestList,
+                      guests: guests.map((row, position) =>
+                        position === index ? { ...row, note: changeEvent.target.value } : row,
+                      ),
+                    })
+                  }
+                  onBlur={onCommit}
+                />
+              ) : (
+                guest.note && (
+                  <span style={{ color: "var(--dim)", fontSize: 12 }}>{guest.note}</span>
+                )
+              )}
+            </div>
             <MonoPill>{guest.invitedBy}</MonoPill>
             <span
               style={{
@@ -522,12 +630,13 @@ function GuestListCard({
             {canEdit && (
               <GlyphButton
                 ariaLabel={`Remove ${guest.name}`}
-                onClick={() =>
+                onClick={() => {
+                  setProblem(null);
                   onSave({
                     ...guestList,
                     guests: guests.filter((_, position) => position !== index),
-                  })
-                }
+                  });
+                }}
               >
                 <XIcon />
               </GlyphButton>
