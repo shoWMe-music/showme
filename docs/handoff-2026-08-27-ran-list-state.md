@@ -374,6 +374,85 @@ environment noise was describing a real production state.*
   stance. Daniel chose that knowingly; Leaflet+OpenStreetMap draws it and Mapbox
   is used **only** for geocoding.
 
+## 8c. Ran's SECOND list — 2026-08-31, all 26 items landed
+
+Commits `c556bd7` (17 items) and `a2ffc1e` (9 items), both CI-green. Product
+decisions are `docs/decisions.md` #19-#21. This section is the residue: what was
+NOT what it looked like, and what is still owed.
+
+### FIVE items were already working — check before scoping these again
+- **Video fullscreen** — `allowFullScreen` was always set; only the link-out was
+  missing.
+- **Collapsible offers** — deals already collapsed and persisted; the REQUESTS
+  inbox was the surface that did not.
+- **Archiving** — fully built, three-dots menu included. Only *delete* was
+  missing (and see below).
+- **Riders/documents** — the upload code is complete. It is DELIBERATELY disabled
+  for operators: `RIDER_BEARING_ROLES` excludes `host`. Ran pressed a button that
+  is locked on purpose. Whether a venue should attach its own house documents is
+  an open product question, not a bug.
+- **Email** — the sink is complete and both Brevo secrets ARE set in production.
+  `pnpm dev` deliberately does not load `BREVO_API_KEY` (`scripts/stack.mjs:55`),
+  which is why a share link cannot be verified locally; the no-op sink prints the
+  OTP to the console.
+
+### THE REPORTED BUG SAT ON A WORSE ONE — four times
+This is the pattern of the whole list and worth expecting next time.
+
+1. **`DELETE /events/:id` existed and was broken twice.** In `events-list.ts:421`,
+   not `events.ts`. It destroyed OTHER PARTIES' records (archive is
+   reader-scoped; delete had no such seam), and it did not work anyway:
+   `budget_lines.collected_by` → `event_participants` is `NO ACTION` and the
+   cascade reaches participants first, so any event with a revenue line naming
+   its host raised a foreign-key violation and returned a 500.
+2. **The setlist list route gated on `budget.view`** — a money capability read as
+   a stand-in for "is an operator", so a co-promoter handed only the budget could
+   read every act's songs. The repo had already fixed this exact shortcut once
+   for `rider.view` (`presets.ts` records it). And the upsert took
+   `participantIds[0]`, so a promoter who also plays could have their songs filed
+   at a performing-rights society **under the venue's name**.
+3. **The guest-list `note` was accepted with a 200 and thrown away** —
+   `.passthrough()` is on the OUTER extras object, so Zod stripped unknown keys
+   from the inner one.
+4. **"Paid by is always the operator" was a DISPLAY fallback**, not a stored
+   value: every unset row rendered the planner's own name as though chosen.
+
+### Blind spots closed, and the one that keeps recurring
+- **The mobile audit never covered the Budget Planner.** It visits
+  `/events/:id`, which lands on Event Details, so a **482px sideways overflow**
+  sat there under a green suite. Fourth blind spot of this family (after
+  `position: fixed`, `overflow: hidden`, and pseudo-elements).
+  **Rule: a screen not in `SCREENS` is not covered. Add every new screen, and
+  exercise any non-default view mode** — a screen tested only in its default
+  state is half-tested.
+- **`setups` was missed by decisions #19** because that entry was written as a
+  fact about VENUES, so the search was for venue columns and `setups` is a
+  performer field. #19 now records the failure mode.
+
+### Still open — product calls, not code
+- **Rank and first refusal** (decisions #20): a 2nd hold can confirm over a 1st,
+  so rank buys nothing. No challenge/release flow exists.
+- **`PATCH /events/:id` reaching `confirmed` with no cascade** — a date can be
+  taken with no hold released and nobody notified.
+- **May an unsigned agreement settle?** Answered for the DOOR (#21 gates compute
+  and finalize) but `draft` deals still settle once the door is open.
+- **Should an operator attach house documents** (riders, above).
+- **An industry-facing profile view** — #19's middle tier is enforced with
+  nowhere to render; no screen lets one account browse another's profile.
+
+### Environment, and a trap that cost a session's verification
+- **The disk filled to 293 MiB free of 228 GiB and wedged Docker.** Cause: **297
+  abandoned Testcontainers volumes, 16.24 GB** — the suites get killed mid-run by
+  the port-bind flake and never clean up. Removed the 296 anonymous 64-hex
+  volumes and PRESERVED the one named volume,
+  `showme-2026_showme-pgdata` (the dev database). **Do not run
+  `docker volume prune`** — it takes named volumes too.
+- Docker Desktop's VM image does NOT shrink on macOS when volumes are deleted.
+  The space is free inside the VM; reclaiming it on the host needs
+  Troubleshoot → Purge data.
+- This will recur. `docker volume ls -q | grep -E '^[0-9a-f]{64}$' | xargs docker volume rm`
+  is the safe sweep.
+
 ## 8. The mobile loop — running when this was written
 
 Daniel's brief: *"Make it recursive so you run it until everything is verified
