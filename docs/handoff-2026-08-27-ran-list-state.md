@@ -526,7 +526,45 @@ on stdin for the code; the code is bound to THAT process, so it must stay alive
 (run it `nohup`'d with its stdin on a FIFO that a holder process keeps open — a
 harness-tracked background task got killed and invalidated the first URL).
 
-**THE UNTESTED LEAD ON THE PASSWORD — try this before rotating anything.**
+**THE SECRET-VERSION LEAD IS REFUTED — 2026-08-29.** Checked directly:
+`DATABASE_URL` has exactly **one** version (v1, created 2026-08-18) and the
+running revision `showme-api-00018-wp6` pins `latest`. There is no older version
+to be stuck on, so that hypothesis is dead. Do not spend time on it again.
+
+**WHAT ACTUALLY BLOCKS THE PROXY: the ADC, not the password.** With gcloud CLI
+freshly logged in, `cloud-sql-proxy` still fails:
+```
+auth: "invalid_grant" "reauth related error (invalid_rapt)"
+```
+The proxy authenticates with **Application Default Credentials**, which
+`gcloud auth login` does NOT refresh — `docs/deployment-status.md` records the
+same failure happening before. It needs `gcloud auth application-default login`
+(a SECOND browser login; Firebase is a third).
+
+Two things measured before running it, so nobody re-inherits the old warning:
+the active ADC is a plain `authorized_user` with quota project `prod-showme` and
+**no impersonation**, and the Firebase impersonation ADC is already safely backed
+up at `~/.config/gcloud/application_default_credentials.firebase-impersonation.bak.json`
+(verified: `impersonated_service_account` →
+`firebase-adminsdk-fbsvc@music-showme.iam.gserviceaccount.com`). So refreshing
+ADC costs nothing irreversible here. **It was started but never completed** —
+the ADC on disk is still the Aug 26 one.
+
+**A LIVE SUSPICION ABOUT THE PASSWORD, still untested.** The password is 16
+chars and contains **`$` and `+`**. A `$` passed through double-quoted shell
+interpolation silently expands to nothing, which would make a perfectly valid
+password fail authentication — and that is a very plausible cause of the
+original "password authentication failed". Test it by piping the value on
+**stdin** so no shell can touch it, never by interpolating it into a command:
+```
+gcloud secrets versions access latest --secret=DATABASE_URL --project prod-showme \
+  | python3 -c 'import sys,urllib.parse as up; print(up.urlparse(sys.stdin.read().strip()).password, end="")' \
+  | <consumer reading stdin>
+```
+There is no `psql` on this machine and Docker was down; the repo's own `pg`
+driver (`node_modules/.pnpm/pg@8.23.0`) works, imported as a CommonJS default.
+
+**THE OLD LEAD, kept for context — try this before rotating anything.**
 The symptom is that the password in the `DATABASE_URL` secret does not
 authenticate for `postgres`, the only user, over a proxy that connects fine.
 What was never checked is **whether the secret has multiple versions and the
