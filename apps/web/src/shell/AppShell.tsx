@@ -98,8 +98,30 @@ const KIND_LABEL: Record<string, string> = {
   agent: "Booking agent",
 };
 
+/**
+ * Deep routes whose sidebar home is NOT their URL prefix.
+ *
+ * The prefix rule answers almost everything — `/events/:id` belongs under
+ * Events — but the settlement workspace is a money document that happens to be
+ * REACHED through an event. `pageTitle` above already calls it "Money ·
+ * Settlement", so leaving the sidebar marker on Events made the chrome
+ * contradict itself: the top bar said one thing and the rail said another.
+ * Reported by Ran, 2026-08-31.
+ *
+ * Keep this list beside `pageTitle`'s matching branch — a route that gets its
+ * own title almost always wants its own home, and the two drifting apart is the
+ * bug this entry exists to fix.
+ */
+const DEEP_ROUTE_HOME: ReadonlyArray<{ readonly pattern: RegExp; readonly home: NavRoute }> = [
+  { pattern: /^\/events\/[^/]+\/settlement\/?$/, home: "/settlements" },
+];
+
 function isActive(pathname: string, to: NavRoute): boolean {
   if (to === "/") return pathname === "/";
+  // An explicit home wins outright, so the owning destination lights up and the
+  // one that merely shares a prefix does not.
+  const deepHome = DEEP_ROUTE_HOME.find((entry) => entry.pattern.test(pathname));
+  if (deepHome) return deepHome.home === to;
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
