@@ -232,6 +232,83 @@ budget already uses. One template system, not two.
 
 ---
 
+## 8b. Public profiles + the map — 2026-08-31 (commit `8fe37b5`, CI green)
+
+Four asks from Daniel and Ran, delivered together. Full reasoning for the
+visibility rule is **`docs/decisions.md` #19**; this is the operational residue.
+
+### OWED: the Mapbox token is NOT in production
+The geocoder ships disabled. Without `MAPBOX_ACCESS_TOKEN` the route returns a
+clean **503 `geocoder_unavailable`** and the address field degrades to plain
+typing — which is what every venue has today, so nothing regresses. To enable:
+
+```
+printf '<the pk. production token, in docs/deploy-api.md and the prior app>' \
+  | gcloud secrets create MAPBOX_ACCESS_TOKEN \
+      --project prod-showme --replication-policy=automatic --data-file=-
+
+gcloud run deploy showme-api --project prod-showme --region europe-north2 --source . \
+  --update-secrets "MAPBOX_ACCESS_TOKEN=MAPBOX_ACCESS_TOKEN:latest"
+```
+
+**`--update-secrets`, NEVER `--set-secrets`** — the latter replaces the whole set
+and would drop `DATABASE_URL`. Also worth doing: restrict that token by URL in
+the Mapbox dashboard, now that it is only ever called from Cloud Run. These are
+`pk.` tokens (designed to be client-visible), so server-side is defence in depth
+and one metered chokepoint, not a claim that it is a secret.
+
+### The tier that has no home
+Daniel chose "amenities and deal types stay visible to signed-in industry". They
+are off the anonymous payload — but **there is no screen anywhere in the product
+where one account can view another's profile.** Every `/profiles/:id*` read is
+membership-gated, `/profiles/search` returns a thin card, and the only
+cross-profile view that exists is the anonymous marketing page.
+
+So the middle tier is enforced and unrendered. No browsing screen was invented.
+`serializeWithheldVenueTradeDetails` is what one would call. **Until venue
+discovery exists, promoters have simply lost information they used to have** —
+worth saying out loud to Ran rather than letting him find it.
+
+The editor's copy for that tier deliberately describes **today**, not the plan
+(`apps/web/src/components/FieldAudience.tsx`). Widen it in the same change that
+ships the surface — a form that overstates who sees a field is the exact defect
+this work fixed.
+
+### A ROBUSTNESS BUG THE MOBILE AUDIT CAUGHT SIDEWAYS
+Worth generalising. The Events sweep failed on a **20px broken-image box inside
+an 18px avatar** — trivially dismissable as a fake-storage artefact, since the
+e2e signed URLs point at a sink that serves no bytes.
+
+It was real. **Profile images are signed URLs with a 15-MINUTE EXPIRY**, so any
+page left open long enough reaches the broken state on its own, as does a revoked
+file or a moment offline — and the browser's placeholder box is *wider than the
+avatar asked for*. `Avatar` now falls back to its initials `onError` and resets
+that state when `src` changes, so a re-signed URL gets a fresh attempt instead of
+being stuck on initials forever.
+
+**The old one-assertion audit could never have seen this** — the avatar has
+`overflow: hidden`, so nothing overflowed the document. It took the clip scan
+added in wave 4. And note the shape of it: *a failure that looks like test-
+environment noise was describing a real production state.*
+
+### Other findings worth not rediscovering
+- **A half-migration, now closed:** since `0022` every performer with an
+  UPLOADED picture returned `avatarUrl: null` from the event roster; only legacy
+  external URLs rendered. `avatarFileId` is now REQUIRED on the participant face
+  type, so a caller that omits it fails to compile rather than silently
+  reintroducing the bug.
+- **`lat`/`lng` were published for months and never written** — no geocoder
+  existed. They are still null for every venue in the database; a pin appears
+  only when someone re-picks their address. Any bulk backfill should be a
+  one-off script driving `GET /geocode` with a human reviewing ambiguous hits,
+  **never a migration calling a third-party API**.
+- **Public performer avatars: still not published**, deliberately. Doing it needs
+  `is_public` gating on the *performer*, or a venue's page publishes the face of
+  someone who kept their own profile private.
+- The interactive map overturns the marketing page's zero-third-party-request
+  stance. Daniel chose that knowingly; Leaflet+OpenStreetMap draws it and Mapbox
+  is used **only** for geocoding.
+
 ## 8. The mobile loop — running when this was written
 
 Daniel's brief: *"Make it recursive so you run it until everything is verified
