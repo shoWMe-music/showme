@@ -6,6 +6,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
+import { COLLABORATION_INVITE_CREDITS, collaborationCreditBalance } from "./lib/entitlements";
 import { invitationRoutes } from "./routes/invitations";
 import { buildTestApp } from "./testing";
 
@@ -1963,5 +1964,141 @@ describe("invitations — claiming links the stub's own membership", () => {
     expect(members).toHaveLength(1);
     expect(members[0]?.userId).toBe("nolink-invitee");
     expect(members[0]?.role).toBe("owner");
+  });
+});
+
+/**
+ * THE COLLABORATION-CREDIT CAP (ClickUp 86cbcbgx2).
+ *
+ * The rule these prove, in the words it was decided in: performers only, external
+ * invitations only, and "when they get a response they get 1 back".
+ *
+ * Worth stating what makes these tests capable of failing, because the feature
+ * they cover spent months looking finished: `credit_ledger` and a balance reader
+ * existed all along and every balance was 0, so ANY assertion that the balance
+ * "looks right" passed while nothing was wired up. These assert the DIFFERENCE a
+ * send makes, which is the thing that was missing.
+ */
+describe("invitations — the collaboration-credit cap", () => {
+  /** A performer profile, since the cap applies to that kind and no other. */
+  async function seedPerformerSender(id: string) {
+    const { db } = harness;
+    await seedUser(id, "performer");
+    const [profile] = await db
+      .insert(schema.profiles)
+      .values({ kind: "performer", ownerUserId: id, name: id, slug: id, claimedAt: new Date() })
+      .returning();
+    if (!profile) throw new Error("profile seed failed");
+    await db
+      .insert(schema.profileMembers)
+      .values({ profileId: profile.id, userId: id, role: "owner", status: "active" });
+    return { profileId: profile.id };
+  }
+
+  async function balanceOf(profileId: string): Promise<number> {
+    return collaborationCreditBalance(harness.db, profileId);
+  }
+
+  function inviteTo(uid: string, profileId: string, email: string) {
+    return app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth(uid), "x-profile-id": profileId },
+      payload: {
+        type: "profile_member",
+        source: "collaborator",
+        recipientEmail: email,
+        recipientName: "Someone",
+        targetProfileId: profileId,
+        role: "editor",
+      },
+    });
+  }
+
+  it("charges a credit for an invitation to somebody NOT on shoWMe", async () => {
+    const sender = await seedPerformerSender("cred-external");
+    expect(await balanceOf(sender.profileId)).toBe(COLLABORATION_INVITE_CREDITS);
+
+    const created = await inviteTo("cred-external", sender.profileId, "nobody@example.test");
+    expect(created.statusCode).toBe(201);
+
+    expect(await balanceOf(sender.profileId)).toBe(COLLABORATION_INVITE_CREDITS - 1);
+  });
+
+  it("charges NOTHING for an invitation to somebody who already has an account", async () => {
+    const sender = await seedPerformerSender("cred-internal");
+    await seedUser("cred-internal-invitee", "performer");
+
+    const created = await inviteTo(
+      "cred-internal",
+      sender.profileId,
+      "cred-internal-invitee@example.showme.test",
+    );
+    expect(created.statusCode).toBe(201);
+
+    // Inviting a colleague who is already here is collaboration, not outreach.
+    expect(await balanceOf(sender.profileId)).toBe(COLLABORATION_INVITE_CREDITS);
+  });
+
+  it("gives the credit back when the invitation is DECLINED, not just accepted", async () => {
+    const sender = await seedPerformerSender("cred-declined");
+    await seedUser("cred-decliner", "performer");
+    // Sent to an address with no account, so it is charged...
+    const created = await inviteTo("cred-declined", sender.profileId, "cred-decliner@nowhere.test");
+    expect(created.statusCode).toBe(201);
+    expect(await balanceOf(sender.profileId)).toBe(COLLABORATION_INVITE_CREDITS - 1);
+
+    // ...then the address is claimed by a real account, which declines it.
+    const token = created.json().token as string;
+    await harness.db
+      .update(schema.invitations)
+      .set({ recipientEmail: "cred-decliner@example.showme.test" })
+      .where(eq(schema.invitations.token, token));
+
+    const declined = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${token}/decline`,
+      headers: auth("cred-decliner"),
+    });
+    expect(declined.statusCode).toBe(200);
+
+    // Ran's spec said declines don't refill. Daniel's rule says a RESPONSE does.
+    expect(await balanceOf(sender.profileId)).toBe(COLLABORATION_INVITE_CREDITS);
+  });
+
+  it("refuses the send once every credit is out, and does not offer an upgrade", async () => {
+    const sender = await seedPerformerSender("cred-empty");
+    // Spend the allowance directly — twenty round trips would prove nothing extra.
+    for (let index = 0; index < COLLABORATION_INVITE_CREDITS; index += 1) {
+      await harness.db.insert(schema.creditLedger).values({
+        profileId: sender.profileId,
+        delta: -1,
+        reason: `invite:seeded-${index}`,
+      });
+    }
+    expect(await balanceOf(sender.profileId)).toBe(0);
+
+    const refused = await inviteTo("cred-empty", sender.profileId, "one-too-many@nowhere.test");
+    expect(refused.statusCode).toBe(403);
+    // NOT `entitlement_required`: there is no performer PRO to sell yet, so the
+    // refusal must not render as an upgrade prompt.
+    expect(refused.json().error.code).toBe("forbidden");
+    expect(refused.json().error.message).toContain("waiting for a reply");
+  });
+
+  it("does not cap an OPERATOR, however many invitations they send", async () => {
+    const owner = await seedOwnerWithProfile("cred-operator");
+    for (let index = 0; index < COLLABORATION_INVITE_CREDITS; index += 1) {
+      await harness.db.insert(schema.creditLedger).values({
+        profileId: owner.profileId,
+        delta: -1,
+        reason: `invite:op-${index}`,
+      });
+    }
+
+    const created = await inviteTo("cred-operator", owner.profileId, "venue-guest@nowhere.test");
+    // A venue curating its own roster is the quality filter — Ran's spec is
+    // explicit that this kind is uncapped.
+    expect(created.statusCode).toBe(201);
   });
 });

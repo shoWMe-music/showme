@@ -5,7 +5,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { writeAudit } from "../lib/audit";
 import { requireProfileRole } from "../lib/authorize";
-import { canUseFeature, creditBalance, getPlanTier } from "../lib/entitlements";
+import { canUseFeature, collaborationCreditBalance, getPlanTier } from "../lib/entitlements";
 
 const ProfileParams = z.object({ profileId: z.string().uuid() });
 const IdParams = z.object({ id: z.string().uuid() });
@@ -60,7 +60,7 @@ export async function planRoutes(fastify: FastifyInstance): Promise<void> {
         .select()
         .from(schema.plans)
         .where(eq(schema.plans.profileId, profileId));
-      const credits = await creditBalance(database, profileId);
+      const credits = await collaborationCreditBalance(database, profileId);
 
       if (!plan) {
         const tier = await getPlanTier(database, profileId);
@@ -140,7 +140,7 @@ export async function planRoutes(fastify: FastifyInstance): Promise<void> {
         canUseFeature(database, id, "create_event"),
         canUseFeature(database, id, "send_offer"),
         canUseFeature(database, id, "not_spam_suspended"),
-        creditBalance(database, id),
+        collaborationCreditBalance(database, id),
       ]);
 
       return {

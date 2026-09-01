@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
+import { COLLABORATION_INVITE_CREDITS } from "./lib/entitlements";
 import { planRoutes } from "./routes/plans";
 import { buildTestApp } from "./testing";
 
@@ -59,9 +60,11 @@ async function seedStranger() {
 describe("GET /plans/:profileId", () => {
   it("returns a computed default plan + credit balance for a member with no plan row", async () => {
     const operator = await seedOwnedProfile("operator");
+    // The balance is the standing allowance plus the ledger, so a spend of four
+    // reads as four fewer — not as four.
     await harness.db
       .insert(schema.creditLedger)
-      .values({ profileId: operator.profileId, delta: 4, reason: "grant" });
+      .values({ profileId: operator.profileId, delta: -4, reason: "invite:seeded" });
 
     const response = await app.inject({
       method: "GET",
@@ -73,7 +76,7 @@ describe("GET /plans/:profileId", () => {
       profileId: operator.profileId,
       tier: "free_operator",
       status: "active",
-      creditBalance: 4,
+      creditBalance: COLLABORATION_INVITE_CREDITS - 4,
     });
   });
 
@@ -137,7 +140,8 @@ describe("GET /profiles/:id/cap-status", () => {
     expect(body.createEvent).toMatchObject({ allowed: true, used: 0, limit: 3 });
     expect(body.sendOffer.allowed).toBe(true);
     expect(body.spamSuspended).toBe(false);
-    expect(body.credits).toBe(0);
+    // A profile that has never sent an invitation is at its full allowance.
+    expect(body.credits).toBe(COLLABORATION_INVITE_CREDITS);
   });
 
   it("404s a non-member", async () => {

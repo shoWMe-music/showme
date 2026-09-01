@@ -11,7 +11,14 @@ import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
 import { renderInvitationEmail } from "../lib/email-templates";
-import { assertGrantAdminAllows, assertProfileAdminGrantAllows } from "../lib/entitlements";
+import {
+  assertGrantAdminAllows,
+  assertProfileAdminGrantAllows,
+  canUseFeature,
+  entitlementRequired,
+  refillCollaborationCredit,
+  spendCollaborationCredit,
+} from "../lib/entitlements";
 import { withIdempotency } from "../plugins/idempotency";
 
 const TokenParams = z.object({ token: z.string().min(1) });
@@ -377,6 +384,38 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
         });
       }
 
+      // ── THE COLLABORATION-CREDIT CAP ─────────────────────────────────────────
+      // EXTERNAL invitations only. Ran's spec and Daniel's confirmation both say
+      // so, and the reason is what the cap is for: inviting a colleague who
+      // already has an account is not outreach, it is collaboration, and charging
+      // for it would meter the wrong thing.
+      //
+      // "External" is decided HERE, once, by the same address lookup the in-app
+      // notification does after the commit — one answer to "is this person on
+      // shoWMe", not two that can disagree. No address at all (a link the sender
+      // hands over in person) is external by definition: nobody has been matched
+      // to an account.
+      const invitedEmail = normalizeEmail(body.recipientEmail);
+      const existingAccounts = invitedEmail
+        ? await database
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .where(sql`lower(${schema.users.email}) = ${invitedEmail}`)
+        : [];
+      const goesOffPlatform = existingAccounts.length === 0;
+
+      // Composed AFTER authorization, like every other gate, and charged to the
+      // profile the invitation is sent FROM. A caller with no acting profile is
+      // not spending anybody's allowance.
+      if (goesOffPlatform && principal.actingProfileId) {
+        const credits = await canUseFeature(
+          database,
+          principal.actingProfileId,
+          "send_external_invite",
+        );
+        if (!credits.allowed) throw entitlementRequired("send_external_invite", credits);
+      }
+
       const { statusCode, body: result } = await withIdempotency(
         request,
         "POST /invitations",
@@ -409,6 +448,15 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
               })
               .returning();
             if (!invitation) throw new Error("invitation create failed");
+            // The charge rides in the SAME transaction as the invitation, so an
+            // invitation can never exist uncharged and a charge can never exist
+            // without its invitation. The pairing is what lets the refill be safe.
+            if (goesOffPlatform && principal.actingProfileId) {
+              await spendCollaborationCredit(tx, {
+                profileId: principal.actingProfileId,
+                invitationId: invitation.id,
+              });
+            }
             await writeAudit(tx, request, {
               capability: auditCapability,
               action: "invitation.create",
@@ -836,6 +884,13 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
             .where(eq(schema.invitations.id, invitation.id))
             .returning();
           if (!after) throw new Error("invitation accept failed");
+          // The sender gets their credit back the moment somebody ANSWERS —
+          // inside the same transaction as the answer, so the two can never
+          // disagree. A no-op unless this invitation actually cost one.
+          await refillCollaborationCredit(tx, {
+            profileId: invitation.createdByProfile,
+            invitationId: invitation.id,
+          });
           await writeAudit(tx, request, {
             capability: grantsEventParticipant ? "participants.manage" : "members.manage",
             action: "invitation.accept",
@@ -918,6 +973,14 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
           .where(eq(schema.invitations.id, invitation.id))
           .returning();
         if (!after) throw new Error("invitation decline failed");
+        // A DECLINE refills too. Ran's spec says accepted-only; Daniel's rule is
+        // "when they get a response they get 1 back", and the wider rule is the
+        // better brake — the cap exists to stop invitations fired into the void,
+        // and somebody taking the time to say no is the opposite of that.
+        await refillCollaborationCredit(tx, {
+          profileId: invitation.createdByProfile,
+          invitationId: invitation.id,
+        });
         await writeAudit(tx, request, {
           capability: "members.manage",
           action: "invitation.decline",
@@ -1013,6 +1076,12 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
       try {
         updated = await database.transaction(async (tx) => {
           const now = new Date();
+          // A CLAIM is the strongest answer there is, so it settles up like the
+          // other two. A no-op unless this invitation cost a credit.
+          await refillCollaborationCredit(tx, {
+            profileId: invitation.createdByProfile,
+            invitationId: invitation.id,
+          });
           await tx
             .update(schema.profiles)
             .set({ ownerUserId: principal.userId, claimedAt: now, updatedAt: now })

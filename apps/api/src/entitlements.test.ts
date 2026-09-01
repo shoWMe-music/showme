@@ -3,17 +3,20 @@ import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  COLLABORATION_INVITE_CREDITS,
   ENTITLEMENT_REQUIRED_CODE,
   assertEventCapAllows,
   assertGrantAdminAllows,
   assertProfileAdminGrantAllows,
   canUseFeature,
+  collaborationCreditBalance,
   confersAdminAuthority,
   countsTowardEventCap,
-  creditBalance,
   entitlementRequired,
   getPlanTier,
   isPlanGatedFeature,
+  refillCollaborationCredit,
+  spendCollaborationCredit,
 } from "./lib/entitlements";
 
 let harness: TestDatabase;
@@ -228,17 +231,71 @@ describe("canUseFeature — not_spam_suspended", () => {
   });
 });
 
-describe("creditBalance", () => {
-  it("sums the ledger deltas (0 when empty)", async () => {
+describe("collaborationCreditBalance", () => {
+  it("opens at the full allowance with no ledger rows at all", async () => {
     const profile = await seedProfile("operator");
-    expect(await creditBalance(harness.db, profile.profileId)).toBe(0);
+    // The allowance is a constant, not a granted row — which is what makes the
+    // number right for every profile that predates the feature, with no backfill.
+    expect(await collaborationCreditBalance(harness.db, profile.profileId)).toBe(
+      COLLABORATION_INVITE_CREDITS,
+    );
+  });
 
+  it("moves with the ledger", async () => {
+    const profile = await seedProfile("operator");
     await harness.db.insert(schema.creditLedger).values([
-      { profileId: profile.profileId, delta: 5, reason: "grant" },
-      { profileId: profile.profileId, delta: -2, reason: "spend" },
-      { profileId: profile.profileId, delta: 3, reason: "grant" },
+      { profileId: profile.profileId, delta: -1, reason: "invite:a" },
+      { profileId: profile.profileId, delta: -1, reason: "invite:b" },
+      { profileId: profile.profileId, delta: 1, reason: "invite-answered:a" },
     ]);
-    expect(await creditBalance(harness.db, profile.profileId)).toBe(6);
+    expect(await collaborationCreditBalance(harness.db, profile.profileId)).toBe(
+      COLLABORATION_INVITE_CREDITS - 1,
+    );
+  });
+});
+
+describe("spendCollaborationCredit / refillCollaborationCredit", () => {
+  it("charges a send and returns it when the invitation is answered", async () => {
+    const profile = await seedProfile("performer");
+    await spendCollaborationCredit(harness.db, {
+      profileId: profile.profileId,
+      invitationId: "11111111-1111-1111-1111-111111111111",
+    });
+    expect(await collaborationCreditBalance(harness.db, profile.profileId)).toBe(
+      COLLABORATION_INVITE_CREDITS - 1,
+    );
+
+    await refillCollaborationCredit(harness.db, {
+      profileId: profile.profileId,
+      invitationId: "11111111-1111-1111-1111-111111111111",
+    });
+    expect(await collaborationCreditBalance(harness.db, profile.profileId)).toBe(
+      COLLABORATION_INVITE_CREDITS,
+    );
+  });
+
+  it("never pays twice for one invitation", async () => {
+    const profile = await seedProfile("performer");
+    const invitationId = "22222222-2222-2222-2222-222222222222";
+    await spendCollaborationCredit(harness.db, { profileId: profile.profileId, invitationId });
+    await refillCollaborationCredit(harness.db, { profileId: profile.profileId, invitationId });
+    await refillCollaborationCredit(harness.db, { profileId: profile.profileId, invitationId });
+    expect(await collaborationCreditBalance(harness.db, profile.profileId)).toBe(
+      COLLABORATION_INVITE_CREDITS,
+    );
+  });
+
+  it("mints nothing for an invitation that was never charged", async () => {
+    // The in-platform case: inviting somebody who already has an account costs
+    // nothing, so answering it must not hand out a credit that was never spent.
+    const profile = await seedProfile("performer");
+    await refillCollaborationCredit(harness.db, {
+      profileId: profile.profileId,
+      invitationId: "33333333-3333-3333-3333-333333333333",
+    });
+    expect(await collaborationCreditBalance(harness.db, profile.profileId)).toBe(
+      COLLABORATION_INVITE_CREDITS,
+    );
   });
 });
 
