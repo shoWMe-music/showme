@@ -3,6 +3,7 @@ import {
   applyRepresentationTermination,
   dueRepresentationTerminations,
 } from "@showme/db/representation-termination";
+import { type StubPurgeResult, purgeUnclaimedStubProfiles } from "@showme/db/stub-purge";
 import { VENUE_HANDOFF_EXPIRY_DAYS } from "@showme/shared";
 import { and, eq, isNull, lt, or } from "drizzle-orm";
 
@@ -79,6 +80,21 @@ export async function reapExpiredHandoffs(database: Database, now: Date): Promis
     )
     .returning({ id: schema.invitations.id });
   return expired.length;
+}
+
+/**
+ * Erase unclaimed stub accounts 90 days old (docs/gdpr.md). The one reaper that
+ * DELETES rather than flipping a status, and the only one whose work cannot be
+ * undone — so the decisions it makes are all in `@showme/db/stub-purge`, written
+ * out one foreign key at a time, and this is only the scheduling of them.
+ *
+ * Returns the full result rather than a count, because the skips matter as much
+ * as the deletions: a stub left alone is a profile holding somebody's email past
+ * the retention date, and it must be visible in the sweep's output rather than
+ * inferred from a number that came back smaller than expected.
+ */
+export async function reapUnclaimedStubs(database: Database, now: Date): Promise<StubPurgeResult> {
+  return purgeUnclaimedStubProfiles(database, now);
 }
 
 /**

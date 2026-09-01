@@ -869,6 +869,67 @@ nothing at all. "Send for review", "Add revision", "Flag a dispute" and marking 
 because none of them is gated. Disabled and explained rather than hidden — and because the deals list is
 party-scoped the notice is a lower bound, so the server keeps the last word.
 
+## 18. Claiming an invited account: prove the address, then use whichever you like (2026-09-01)
+
+**Decided by Daniel, resolving a conflict between the code and Ran's invitation spec.** His words: *"The email
+must verify it. So some type of OTP. But they should be able to change the email."*
+
+**The conflict.** `assertInvitationRecipient` required the signed-in Firebase address to EQUAL the invited one,
+and `docs/off-platform-access.md` made that the platform-wide rule. It is airtight and it is unusable in the
+case the product is for: a venue is invited at `info@`, and the person who runs it has their own account. Ran's
+spec went the other way — *"the invitee can sign up with whatever email they prefer"* — which makes the link the
+only credential and hands the account to whoever it is forwarded to.
+
+**The rule.** Control of the invited address is proved ONCE, with a one-time code mailed to it
+(`POST /invitations/:token/claim-otp` → `invitation_otps`, migration 0033). The account that then takes ownership
+may be any address, as long as Firebase says it is verified. This is *stronger* than what Ran asked for — a
+forwarded link alone is not enough, because the code went to the original address — and *more usable* than what
+it replaced.
+
+**Scope: claim only.** `accept` and `decline` still go by the signed-in address. They are small, reversible-ish
+grants; a claim hands over ownership of a whole profile and everything it participates in, and it is the only one
+worth a second factor.
+
+**And the invited address is told what happened.** A "claimed by [name] on [date]" email goes to the original
+recipient on every claim, not only event-linked ones. Ran filed this under transparency; since the claimant's own
+address may now differ, it is also the only message that address ever gets about the account it was offered.
+
+## 19. Unclaimed stub accounts are erased at 90 days, but their names stay on the bill (2026-09-01)
+
+**Decided by Daniel:** *"Every unclaimed stub over 90 days. But it should keep the names in the events, not as
+accounts but just as a name / contact, so it doesn't break the events."*
+
+Wider than Ran's spec, which scoped the deletion to invitations that were never accepted. Every unclaimed stub
+goes, whatever created it, because an invitation still `pending` after three months is not a live conversation.
+
+**What survives is one field.** `event_participants.profile_id` became nullable and the row gained
+`display_name` (migration 0032), so the participant row outlives its profile: the account, the membership and
+the email are gone, and a settled show still names who played it. `events.venue_name` does the same job for a
+handoff stub.
+
+**What the purge refuses to do.** It skips — and reports — any stub that hosts an event, owns a share or a
+private budget, or filed a performing-rights report. Those are records we have no business destroying on a timer,
+and a skip is reported rather than counted, because a skipped stub is a profile still holding somebody's email
+past its retention date.
+
+## 20. The collaboration-invite cap applies to performers only, and refills on any response (2026-09-01)
+
+**Decided by Daniel.** Ran's spec: 20 credits, +1 per **accepted** invite, declined and expired do not refill.
+Daniel: *"It's a cap based on response. So when they get a response they get 1 back."*
+
+- **Performers only.** Venues are uncapped in the spec because curating a roster is its own quality filter;
+  agents and crew were left uncapped too, by reading the spec literally. An agency doing volume outreach is the
+  obvious candidate for the next revision — noted, not assumed.
+- **External invitations only.** Inviting somebody who already has a shoWMe account is collaboration, not
+  outreach, and charging for it meters the wrong thing.
+- **Accepted OR declined refills; expiry does not.** The cap defends against invitations fired into the void, and
+  somebody taking the time to say no is the opposite of that. Silence is the thing being metered.
+- **No upgrade prompt at zero.** A plain `forbidden`, not `entitlement_required`, because there is no performer
+  PRO to sell yet: *"Potentially we could offer a non-cap pro version when we build the pro for performers."*
+
+Consequence worth stating: because a refill only ever follows a spend, the balance can never exceed the
+allowance, so "20 credits" means **20 unanswered invitations at a time**, not 20 for all time.
+
 ## Still-open product calls (not yet decided)
 
 - ~~**Event start/end mechanism (#16.4)**~~ **RESOLVED 2026-08-02 (see #16.4):** explicit required

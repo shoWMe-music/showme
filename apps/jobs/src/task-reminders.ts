@@ -111,11 +111,15 @@ async function recipientsByTask(
     participantProfiles.map((row) => [row.id, row.profileId] as const),
   );
 
+  // A participant's profile can be NULL since migration 0032: an erased stub
+  // leaves a name-only row on the bill. There is nobody behind it to remind, so
+  // it drops out here rather than reaching `inArray` as a null.
   const profileIds = [
-    ...new Set([
-      ...tasks.map((task) => task.ownerProfileId).filter((id) => id !== null),
-      ...profileOfParticipant.values(),
-    ]),
+    ...new Set(
+      [...tasks.map((task) => task.ownerProfileId), ...profileOfParticipant.values()].filter(
+        (id): id is string => id !== null,
+      ),
+    ),
   ];
   const members = profileIds.length
     ? await database

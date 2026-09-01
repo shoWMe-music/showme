@@ -609,6 +609,8 @@ export * from './postApiV1InvitationsBodyType';
 export * from './postApiV1InvitationsIdRevoke200';
 export * from './postApiV1InvitationsTokenAccept200';
 export * from './postApiV1InvitationsTokenClaim200';
+export * from './postApiV1InvitationsTokenClaimBody';
+export * from './postApiV1InvitationsTokenClaimOtp200';
 export * from './postApiV1InvitationsTokenDecline200';
 export * from './postApiV1Invoices201';
 export * from './postApiV1InvoicesBody';

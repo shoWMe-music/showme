@@ -6,15 +6,44 @@ import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { badRequest, conflict, forbidden, isUniqueViolation, notFound } from "../errors";
+import { HttpError, badRequest, conflict, forbidden, isUniqueViolation, notFound } from "../errors";
 import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
-import { renderInvitationEmail } from "../lib/email-templates";
-import { assertGrantAdminAllows, assertProfileAdminGrantAllows } from "../lib/entitlements";
+import {
+  renderInvitationClaimCodeEmail,
+  renderInvitationClaimedEmail,
+  renderInvitationEmail,
+} from "../lib/email-templates";
+import {
+  assertGrantAdminAllows,
+  assertProfileAdminGrantAllows,
+  canUseFeature,
+  entitlementRequired,
+  refillCollaborationCredit,
+  spendCollaborationCredit,
+} from "../lib/entitlements";
+import {
+  MAX_VERIFY_ATTEMPTS,
+  OTP_TTL_MS,
+  RATE_LIMIT,
+  RATE_WINDOW_MS,
+  generateOtpCode,
+  generateSalt,
+  hashOtpCode,
+  verifyOtpCode,
+} from "../lib/share-crypto";
 import { withIdempotency } from "../plugins/idempotency";
 
 const TokenParams = z.object({ token: z.string().min(1) });
+
+/**
+ * The code proving control of the address the invitation was SENT to. Required
+ * on a claim, because a claim hands over ownership of a whole profile; accept and
+ * decline are unchanged and still go by the signed-in address.
+ */
+const ClaimBody = z.object({ otp: z.string().min(4).max(12) });
+const ClaimOtpResponse = z.object({ sent: z.literal(true), expiresInMinutes: z.number() });
 const EventParams = z.object({ id: z.string().uuid() });
 const IdParams = z.object({ id: z.string().uuid() });
 
@@ -318,6 +347,48 @@ async function loadInvitation(request: FastifyRequest, param: string): Promise<I
   return invitation;
 }
 
+/**
+ * Verify — and spend — the code proving control of the invited address.
+ *
+ * The counters are the ones `share_otps` established and migration 0018 argued
+ * for: five wrong guesses burn the code, and the row survives being spent so the
+ * hourly issue window cannot be reset by asking for a fresh one. Every refusal
+ * says which rule refused it, because a 403 nobody can read is a 403 nobody can
+ * act on.
+ */
+async function consumeInvitationOtp(
+  database: FastifyInstance["database"],
+  invitationId: string,
+  code: string,
+): Promise<void> {
+  const [row] = await database
+    .select()
+    .from(schema.invitationOtps)
+    .where(eq(schema.invitationOtps.invitationId, invitationId));
+  if (!row) throw forbidden("Request a verification code first");
+  if (row.consumedAt) throw forbidden("That verification code has already been used");
+  if (row.expiresAt.getTime() < Date.now()) throw forbidden("That verification code has expired");
+  if (row.attempts >= MAX_VERIFY_ATTEMPTS) {
+    throw forbidden("Too many incorrect codes; request a new one");
+  }
+
+  if (!verifyOtpCode(row.salt, code, row.codeHash)) {
+    const attempts = row.attempts + 1;
+    await database
+      .update(schema.invitationOtps)
+      // The fifth wrong guess spends the code as surely as a right one does, so a
+      // burnt code cannot be guessed at forever by asking politely.
+      .set({ attempts, consumedAt: attempts >= MAX_VERIFY_ATTEMPTS ? new Date() : null })
+      .where(eq(schema.invitationOtps.invitationId, invitationId));
+    throw forbidden("That verification code is not correct");
+  }
+
+  await database
+    .update(schema.invitationOtps)
+    .set({ consumedAt: new Date() })
+    .where(eq(schema.invitationOtps.invitationId, invitationId));
+}
+
 export async function invitationRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -377,6 +448,38 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
         });
       }
 
+      // ── THE COLLABORATION-CREDIT CAP ─────────────────────────────────────────
+      // EXTERNAL invitations only. Ran's spec and Daniel's confirmation both say
+      // so, and the reason is what the cap is for: inviting a colleague who
+      // already has an account is not outreach, it is collaboration, and charging
+      // for it would meter the wrong thing.
+      //
+      // "External" is decided HERE, once, by the same address lookup the in-app
+      // notification does after the commit — one answer to "is this person on
+      // shoWMe", not two that can disagree. No address at all (a link the sender
+      // hands over in person) is external by definition: nobody has been matched
+      // to an account.
+      const invitedEmail = normalizeEmail(body.recipientEmail);
+      const existingAccounts = invitedEmail
+        ? await database
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .where(sql`lower(${schema.users.email}) = ${invitedEmail}`)
+        : [];
+      const goesOffPlatform = existingAccounts.length === 0;
+
+      // Composed AFTER authorization, like every other gate, and charged to the
+      // profile the invitation is sent FROM. A caller with no acting profile is
+      // not spending anybody's allowance.
+      if (goesOffPlatform && principal.actingProfileId) {
+        const credits = await canUseFeature(
+          database,
+          principal.actingProfileId,
+          "send_external_invite",
+        );
+        if (!credits.allowed) throw entitlementRequired("send_external_invite", credits);
+      }
+
       const { statusCode, body: result } = await withIdempotency(
         request,
         "POST /invitations",
@@ -409,6 +512,15 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
               })
               .returning();
             if (!invitation) throw new Error("invitation create failed");
+            // The charge rides in the SAME transaction as the invitation, so an
+            // invitation can never exist uncharged and a charge can never exist
+            // without its invitation. The pairing is what lets the refill be safe.
+            if (goesOffPlatform && principal.actingProfileId) {
+              await spendCollaborationCredit(tx, {
+                profileId: principal.actingProfileId,
+                invitationId: invitation.id,
+              });
+            }
             await writeAudit(tx, request, {
               capability: auditCapability,
               action: "invitation.create",
@@ -836,6 +948,13 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
             .where(eq(schema.invitations.id, invitation.id))
             .returning();
           if (!after) throw new Error("invitation accept failed");
+          // The sender gets their credit back the moment somebody ANSWERS —
+          // inside the same transaction as the answer, so the two can never
+          // disagree. A no-op unless this invitation actually cost one.
+          await refillCollaborationCredit(tx, {
+            profileId: invitation.createdByProfile,
+            invitationId: invitation.id,
+          });
           await writeAudit(tx, request, {
             capability: grantsEventParticipant ? "participants.manage" : "members.manage",
             action: "invitation.accept",
@@ -918,6 +1037,14 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
           .where(eq(schema.invitations.id, invitation.id))
           .returning();
         if (!after) throw new Error("invitation decline failed");
+        // A DECLINE refills too. Ran's spec says accepted-only; Daniel's rule is
+        // "when they get a response they get 1 back", and the wider rule is the
+        // better brake — the cap exists to stop invitations fired into the void,
+        // and somebody taking the time to say no is the opposite of that.
+        await refillCollaborationCredit(tx, {
+          profileId: invitation.createdByProfile,
+          invitationId: invitation.id,
+        });
         await writeAudit(tx, request, {
           capability: "members.manage",
           action: "invitation.decline",
@@ -969,9 +1096,95 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
 
   // Claim — take ownership of the unclaimed stub profile this invite links, then
   // add an owner membership. One-shot: the invite is spent (status='used').
+  /**
+   * Send the code that proves the claimant controls the invited address.
+   *
+   * The address is NOT taken from the caller — it is the one already written on
+   * the invitation, so this cannot be used to redirect an invitation to an
+   * address of the caller's choosing. That is also why the response says nothing
+   * about where it went: the person holding the link may not be entitled to learn
+   * the invited address, and an endpoint that echoed it would be an oracle.
+   */
+  app.post(
+    "/invitations/:token/claim-otp",
+    { schema: { params: TokenParams, response: { 200: ClaimOtpResponse } } },
+    async (request) => {
+      const { database } = request.server;
+      const invitation = await loadInvitation(request, request.params.token);
+      if (!invitation.recipientEmail) {
+        throw forbidden("This invitation is not addressed to anyone, so it cannot be claimed");
+      }
+      if (invitation.status !== "pending") {
+        throw conflict(alreadyAnswered(invitation.status));
+      }
+
+      const now = Date.now();
+      const [existing] = await database
+        .select()
+        .from(schema.invitationOtps)
+        .where(eq(schema.invitationOtps.invitationId, invitation.id));
+
+      // The window rides on the same row as the code — see migration 0033, and
+      // 0018 before it, for why the row is never deleted while it is open.
+      const windowOpen =
+        existing?.rateWindowStart != null &&
+        now - existing.rateWindowStart.getTime() < RATE_WINDOW_MS;
+      const issuesSoFar = windowOpen && existing ? existing.issues : 0;
+      if (issuesSoFar >= RATE_LIMIT) {
+        throw new HttpError(
+          429,
+          "Too many verification codes requested; try again later",
+          "rate_limited",
+        );
+      }
+
+      const code = generateOtpCode();
+      const salt = generateSalt();
+      const values = {
+        codeHash: hashOtpCode(salt, code),
+        salt,
+        expiresAt: new Date(now + OTP_TTL_MS),
+        // A fresh code gets a fresh guess budget; the ISSUE count belongs to the
+        // window and carries across. Two counters, on purpose.
+        attempts: 0,
+        consumedAt: null,
+        issues: issuesSoFar + 1,
+        rateWindowStart:
+          windowOpen && existing?.rateWindowStart ? existing.rateWindowStart : new Date(now),
+      };
+
+      if (existing) {
+        await database
+          .update(schema.invitationOtps)
+          .set(values)
+          .where(eq(schema.invitationOtps.invitationId, invitation.id));
+      } else {
+        await database
+          .insert(schema.invitationOtps)
+          .values({ invitationId: invitation.id, ...values });
+      }
+
+      // Best-effort, like every other send in this file: the code is persisted and
+      // the caller can ask for another. A mail failure must not 500 the request.
+      try {
+        await request.server.emailSink.sendEmail({
+          to: invitation.recipientEmail,
+          ...renderInvitationClaimCodeEmail({
+            code,
+            expiresInMinutes: Math.round(OTP_TTL_MS / 60_000),
+          }),
+        });
+      } catch (error) {
+        request.log.error({ error, invitationId: invitation.id }, "claim code email failed");
+      }
+
+      return { sent: true as const, expiresInMinutes: Math.round(OTP_TTL_MS / 60_000) };
+    },
+  );
+
   app.post(
     "/invitations/:token/claim",
-    { schema: { params: TokenParams, response: { 200: InvitationResponse } } },
+    { schema: { params: TokenParams, body: ClaimBody, response: { 200: InvitationResponse } } },
     async (request) => {
       const { database } = request.server;
       const principal = request.principal;
@@ -992,7 +1205,21 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
       // longer narrows. It is the claim key twice over: the recipient check
       // below, and the stub membership this links.
       const invitedEmail = invitation.recipientEmail.trim().toLowerCase();
-      assertInvitationRecipient(request, invitation);
+      // THE ADDRESS IS PROVED, NOT MATCHED (Daniel, 2026-09-01: "The email must
+      // verify it. So some type of OTP. But they should be able to change the
+      // email."). What replaced `assertInvitationRecipient` here is strictly
+      // stronger than the rule Ran's spec asked for — a forwarded link alone is
+      // not enough, because the code went to the invited address — and strictly
+      // more usable than the rule it replaced, which demanded the claimant sign in
+      // as `info@` to claim a venue invited at `info@`.
+      //
+      // The claiming ACCOUNT must still be email-verified. Its address simply no
+      // longer has to be the invited one; it is a real, proven identity taking
+      // ownership, not an anonymous bearer of a link.
+      if (request.firebaseUser?.emailVerified !== true) {
+        throw forbidden("Verify your email address before claiming this account");
+      }
+      await consumeInvitationOtp(database, invitation.id, request.body.otp);
       if (invitation.status !== "pending") {
         throw conflict(alreadyAnswered(invitation.status));
       }
@@ -1013,6 +1240,12 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
       try {
         updated = await database.transaction(async (tx) => {
           const now = new Date();
+          // A CLAIM is the strongest answer there is, so it settles up like the
+          // other two. A no-op unless this invitation cost a credit.
+          await refillCollaborationCredit(tx, {
+            profileId: invitation.createdByProfile,
+            invitationId: invitation.id,
+          });
           await tx
             .update(schema.profiles)
             .set({ ownerUserId: principal.userId, claimedAt: now, updatedAt: now })
@@ -1089,6 +1322,28 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
           throw conflict("Already a member of this profile");
         }
         throw error;
+      }
+
+      // TELL THE ADDRESS THAT WAS INVITED WHAT BECAME OF IT (Ran's spec, under
+      // transparency). It matters more now than when he wrote it: since the OTP
+      // rule the claimant may be signed in under a completely different address,
+      // so this is the only message the invited address ever gets about the
+      // account it was offered.
+      //
+      // Post-commit and best-effort, like every other emitter here. Transparency
+      // must never be able to fail a claim that has already happened.
+      try {
+        const targetName = await loadInvitationTargetName(database, invitation);
+        await request.server.emailSink.sendEmail({
+          to: invitedEmail,
+          ...renderInvitationClaimedEmail({
+            claimantName: request.firebaseUser?.name,
+            claimedAt: updated.usedAt ?? new Date(),
+            targetName,
+          }),
+        });
+      } catch (error) {
+        request.log.error({ error, invitationId: invitation.id }, "claim notice email failed");
       }
 
       return serializeInvitation(updated);

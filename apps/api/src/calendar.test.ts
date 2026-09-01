@@ -520,3 +520,103 @@ describe("calendar — .ics import", () => {
     expect(nonsense.json().timeZone).toBe("UTC");
   });
 });
+
+/**
+ * TASKS ON THE GRID (ClickUp 86cbcbjfh).
+ *
+ * A task with a due date used to be invisible on that date, because
+ * `GET /calendar` only read `calendar_items`. It is now projected in at read
+ * time — and the third test here is the one that earns its keep: the projection
+ * must never reach the availability union, or a to-do would quietly make
+ * somebody unbookable.
+ */
+describe("calendar — tasks projected onto the grid", () => {
+  it("returns a task with a due date as a calendar entry on that day", async () => {
+    const profileId = await seedUserWithProfile("cal-task-owner");
+    const [task] = await harness.db
+      .insert(schema.tasks)
+      .values({
+        ownerProfileId: profileId,
+        title: "Chase the rider",
+        dueDate: "2027-03-14",
+      })
+      .returning({ id: schema.tasks.id });
+    if (!task) throw new Error("task seed failed");
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/calendar?from=2027-03-01&to=2027-03-31",
+      headers: auth("cal-task-owner"),
+    });
+    expect(response.statusCode).toBe(200);
+
+    const entry = response.json().find((row: { taskId: string | null }) => row.taskId === task.id);
+    expect(entry).toBeDefined();
+    expect(entry.type).toBe("task");
+    expect(entry.title).toBe("Chase the rider");
+    expect(entry.date).toBe("2027-03-14");
+    // Clickable through to the task flow, and distinguishable from a stored item.
+    expect(entry.id).toBe(`task:${task.id}`);
+    expect(entry.completed).toBe(false);
+  });
+
+  it("leaves out a task with no due date — there is no day to draw it on", async () => {
+    const profileId = await seedUserWithProfile("cal-task-undated");
+    await harness.db
+      .insert(schema.tasks)
+      .values({ ownerProfileId: profileId, title: "Someday", dueDate: null });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/calendar",
+      headers: auth("cal-task-undated"),
+    });
+    const titles = response.json().map((row: { title: string }) => row.title);
+    expect(titles).not.toContain("Someday");
+  });
+
+  it("NEVER lets a task occupy availability", async () => {
+    const profileId = await seedUserWithProfile("cal-task-availability");
+    await harness.db.insert(schema.tasks).values({
+      ownerProfileId: profileId,
+      title: "Deadline, not a booking",
+      dueDate: "2027-04-02",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/calendar?from=2027-04-01&to=2027-04-30",
+      headers: auth("cal-task-availability"),
+    });
+    const entry = response.json().find((row: { type: string }) => row.type === "task");
+    expect(entry.blocksAvailability).toBe(false);
+
+    // And the stronger guarantee, which is structural rather than a flag: the
+    // projection writes NOTHING, so the table the availability union actually
+    // reads has no row for this task at all. A future refactor that starts
+    // trusting `blocksAvailability` alone would still be safe; one that started
+    // mirroring tasks into `calendar_items` would not, and this is what would
+    // catch it.
+    const stored = await harness.db
+      .select()
+      .from(schema.calendarItems)
+      .where(eq(schema.calendarItems.ownerProfileId, profileId));
+    expect(stored).toHaveLength(0);
+  });
+
+  it("does not show one profile's tasks to an unrelated caller", async () => {
+    const profileId = await seedUserWithProfile("cal-task-mine");
+    await seedUserWithProfile("cal-task-stranger");
+    await harness.db
+      .insert(schema.tasks)
+      .values({ ownerProfileId: profileId, title: "Private to-do", dueDate: "2027-05-09" });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/calendar?from=2027-05-01&to=2027-05-31",
+      headers: auth("cal-task-stranger"),
+    });
+    const titles = response.json().map((row: { title: string }) => row.title);
+    expect(titles).not.toContain("Private to-do");
+  });
+});

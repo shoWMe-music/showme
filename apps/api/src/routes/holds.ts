@@ -233,7 +233,11 @@ async function callerIsBookedAct(request: FastifyRequest, eventId: string): Prom
     );
 
   const bookedActs = participants.filter((row) => row.role === "performer");
-  const isBookedAct = bookedActs.some((row) => profileIds.has(row.profileId));
+  // An erased participant (migration 0032) belongs to nobody, so it can never be
+  // the caller's own booked act.
+  const isBookedAct = bookedActs.some(
+    (row) => row.profileId !== null && profileIds.has(row.profileId),
+  );
 
   // "Their agent" means an agent a LIVE representation still puts behind a booked
   // act. The `delegatedToAgentProfileId` stamp survives an effective-dated

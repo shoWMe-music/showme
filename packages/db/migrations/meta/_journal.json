@@ -225,6 +225,20 @@
       "when": 1788912242003,
       "tag": "0031_a_request_always_names_a_date",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1788912243003,
+      "tag": "0032_a_bill_outlives_its_account",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1788912244003,
+      "tag": "0033_a_code_proves_the_address",
+      "breakpoints": true
     }
   ]
 }

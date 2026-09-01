@@ -59,7 +59,13 @@ export async function ensureEventBudgets(
   const privateOwners = new Set(
     existing.filter((budget) => budget.scope === "private").map((budget) => budget.ownerProfileId),
   );
-  const operatingProfileIds = new Set(operators.map((operator) => operator.profileId));
+  // An erased participant (migration 0032) is a name on the bill with no profile
+  // behind it, so it can never be the operator a private ledger belongs to.
+  const operatingProfileIds = new Set(
+    operators
+      .map((operator) => operator.profileId)
+      .filter((profileId): profileId is string => profileId !== null),
+  );
   const callerProfileIds = new Set(forProfileIds);
 
   const missing: { eventId: string; scope: "private" | "shared"; ownerProfileId: string | null }[] =

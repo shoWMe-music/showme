@@ -274,14 +274,19 @@ export async function loadEventThreadGraph(
       ),
     );
 
-  const participants: ParticipantNode[] = rows.map((row) => ({
-    id: row.id,
-    profileId: row.profileId,
-    profileName: row.profileName,
-    role: row.role as EventRole,
-    sponsorParticipantId:
-      (row.details as { sponsorParticipantId?: string } | null)?.sponsorParticipantId ?? null,
-  }));
+  // The inner join to `profiles` above already drops erased participants
+  // (migration 0032) — there is nobody behind a name-only row to hold a thread
+  // with. The narrowing here is the type system catching up with that join.
+  const participants: ParticipantNode[] = rows
+    .filter((row): row is typeof row & { profileId: string } => row.profileId !== null)
+    .map((row) => ({
+      id: row.id,
+      profileId: row.profileId,
+      profileName: row.profileName,
+      role: row.role as EventRole,
+      sponsorParticipantId:
+        (row.details as { sponsorParticipantId?: string } | null)?.sponsorParticipantId ?? null,
+    }));
 
   // Only pay for the agent feature when an agent is actually here.
   const hasAgent = participants.some((participant) => participant.role === "agent");

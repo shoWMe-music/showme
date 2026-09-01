@@ -8,6 +8,7 @@ import {
   reapExpiredHandoffs,
   reapExpiredOffers,
   reapExpiredShares,
+  reapUnclaimedStubs,
 } from "./reapers";
 
 let harness: TestDatabase;
@@ -413,5 +414,191 @@ describe("reapDueRepresentationTerminations", () => {
     const second = await reapDueRepresentationTerminations(harness.db, NOW);
     expect(first).toBeGreaterThanOrEqual(1);
     expect(second).toBe(0);
+  });
+});
+
+/**
+ * The 90-day erasure of unclaimed stub accounts. The only reaper that DELETES,
+ * so these tests are as much about what it REFUSES to touch as about what it
+ * removes — and about the one field that must survive it: the name on the bill.
+ */
+describe("reapUnclaimedStubs", () => {
+  /** An unclaimed stub of the shape `createPerformerStub` mints, aged to taste. */
+  async function seedStub(
+    slug: string,
+    createdAt: Date,
+    kind: "operator" | "performer" = "performer",
+  ): Promise<{ profileId: string; ownerUserId: string }> {
+    const ownerUserId = `owner-${randomUUID()}`;
+    await harness.db
+      .insert(schema.users)
+      .values({ id: ownerUserId, email: `${slug}-owner@example.com`, kind: "operator" });
+    const [stub] = await harness.db
+      .insert(schema.profiles)
+      .values({
+        kind,
+        ownerUserId,
+        name: `${slug} the act`,
+        slug,
+        claimedAt: null,
+        createdAt,
+        createdBy: ownerUserId,
+      })
+      .returning({ id: schema.profiles.id });
+    if (!stub) throw new Error("failed to seed stub");
+    // The membership carrying the EMAIL — the personal data this job exists to remove.
+    await harness.db.insert(schema.profileMembers).values({
+      profileId: stub.id,
+      userId: null,
+      email: `${slug}@example.com`,
+      displayName: `${slug} the act`,
+      role: "owner",
+      status: "active",
+      addedBy: ownerUserId,
+    });
+    return { profileId: stub.id, ownerUserId };
+  }
+
+  it("erases a 90-day-old stub but keeps its name on the bill", async () => {
+    const slug = `stale-${randomUUID().slice(0, 8)}`;
+    const host = await seedProfile(`host-${slug}`);
+    const stub = await seedStub(slug, daysAgo(120));
+
+    const [event] = await harness.db
+      .insert(schema.events)
+      .values({
+        hostProfileId: host.profileId,
+        title: `${slug} show`,
+        baseCurrency: "SEK",
+        status: "concluded",
+        createdBy: host.userId,
+      })
+      .returning({ id: schema.events.id });
+    if (!event) throw new Error("failed to seed event");
+    const [participant] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: stub.profileId,
+        role: "performer",
+        status: "confirmed",
+      })
+      .returning({ id: schema.eventParticipants.id });
+    if (!participant) throw new Error("failed to seed participant");
+
+    const result = await reapUnclaimedStubs(harness.db, NOW);
+    expect(result.purged).toBeGreaterThanOrEqual(1);
+
+    // The account is gone — profile and, with it, the membership holding the email.
+    const profiles = await harness.db
+      .select()
+      .from(schema.profiles)
+      .where(eq(schema.profiles.id, stub.profileId));
+    expect(profiles).toHaveLength(0);
+    const members = await harness.db
+      .select()
+      .from(schema.profileMembers)
+      .where(eq(schema.profileMembers.profileId, stub.profileId));
+    expect(members).toHaveLength(0);
+
+    // The bill still names them. This is the whole point.
+    const [row] = await harness.db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.id, participant.id));
+    expect(row).toBeDefined();
+    expect(row?.profileId).toBeNull();
+    expect(row?.displayName).toBe(`${slug} the act`);
+  });
+
+  it("leaves a stub that is not yet 90 days old", async () => {
+    const slug = `young-${randomUUID().slice(0, 8)}`;
+    const stub = await seedStub(slug, daysAgo(45));
+
+    await reapUnclaimedStubs(harness.db, NOW);
+
+    const profiles = await harness.db
+      .select()
+      .from(schema.profiles)
+      .where(eq(schema.profiles.id, stub.profileId));
+    expect(profiles).toHaveLength(1);
+  });
+
+  it("leaves a CLAIMED profile alone however old it is", async () => {
+    const slug = `claimed-${randomUUID().slice(0, 8)}`;
+    const stub = await seedStub(slug, daysAgo(400));
+    await harness.db
+      .update(schema.profiles)
+      .set({ claimedAt: daysAgo(399) })
+      .where(eq(schema.profiles.id, stub.profileId));
+
+    await reapUnclaimedStubs(harness.db, NOW);
+
+    const profiles = await harness.db
+      .select()
+      .from(schema.profiles)
+      .where(eq(schema.profiles.id, stub.profileId));
+    expect(profiles).toHaveLength(1);
+  });
+
+  it("keeps the venue's name on the event when a handoff stub is erased", async () => {
+    const slug = `venue-${randomUUID().slice(0, 8)}`;
+    const host = await seedProfile(`vhost-${slug}`);
+    const stub = await seedStub(slug, daysAgo(120), "operator");
+
+    const [event] = await harness.db
+      .insert(schema.events)
+      .values({
+        hostProfileId: host.profileId,
+        venueProfileId: stub.profileId,
+        venueName: null,
+        title: `${slug} show`,
+        baseCurrency: "SEK",
+        status: "concluded",
+        createdBy: host.userId,
+      })
+      .returning({ id: schema.events.id });
+    if (!event) throw new Error("failed to seed event");
+
+    await reapUnclaimedStubs(harness.db, NOW);
+
+    const [row] = await harness.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.id, event.id));
+    expect(row?.venueProfileId).toBeNull();
+    expect(row?.venueName).toBe(`${slug} the act`);
+  });
+
+  it("REFUSES to erase a stub that hosts an event, and says why", async () => {
+    const slug = `hosting-${randomUUID().slice(0, 8)}`;
+    const stub = await seedStub(slug, daysAgo(120), "operator");
+    await harness.db.insert(schema.events).values({
+      hostProfileId: stub.profileId,
+      title: `${slug} show`,
+      baseCurrency: "SEK",
+      status: "confirmed",
+      createdBy: stub.ownerUserId,
+    });
+
+    const result = await reapUnclaimedStubs(harness.db, NOW);
+
+    const skipped = result.skipped.find((entry) => entry.profileId === stub.profileId);
+    expect(skipped).toBeDefined();
+    expect(skipped?.reason).toBe("hosts an event");
+    const profiles = await harness.db
+      .select()
+      .from(schema.profiles)
+      .where(eq(schema.profiles.id, stub.profileId));
+    expect(profiles).toHaveLength(1);
+  });
+
+  it("is idempotent — a second sweep finds nothing left to erase", async () => {
+    const slug = `twice-${randomUUID().slice(0, 8)}`;
+    await seedStub(slug, daysAgo(200));
+    const first = await reapUnclaimedStubs(harness.db, NOW);
+    expect(first.purged).toBeGreaterThanOrEqual(1);
+    const second = await reapUnclaimedStubs(harness.db, NOW);
+    expect(second.purged).toBe(0);
   });
 });

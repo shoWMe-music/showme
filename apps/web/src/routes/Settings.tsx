@@ -511,7 +511,11 @@ function PlanCard({ profileId }: { profileId: string }) {
       <div style={{ display: "flex", flexDirection: "column" }}>
         <KeyValueRow label="Seats" value={String(seats)} mono />
         <KeyValueRow label="Source" value={source} />
-        <KeyValueRow label="Credit balance" value={String(creditBalance)} mono />
+        {/* The number now MEANS something: it moves down on every invitation
+            sent off-platform and back up when that person answers. Labelled for
+            what it counts rather than as an abstract "credit balance", because
+            the only place a user meets it otherwise is the refusal at zero. */}
+        <KeyValueRow label="Invitations left" value={String(creditBalance)} mono />
         <KeyValueRow label="Renews" value={renewalAt ? formatDay(renewalAt) : "—"} />
       </div>
     </PanelCard>

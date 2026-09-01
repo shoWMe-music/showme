@@ -151,9 +151,37 @@ export const eventParticipants = pgTable(
     eventId: uuid("event_id")
       .notNull()
       .references(() => events.id, { onDelete: "cascade" }),
-    profileId: uuid("profile_id")
-      .notNull()
-      .references(() => profiles.id),
+    /**
+     * The profile on the bill — NULL only once that profile has been ERASED.
+     *
+     * It was `NOT NULL` until the GDPR purge existed (migration 0032). An
+     * unclaimed stub is a real person's name and email held on an account they
+     * never asked for, and `docs/gdpr.md` requires it gone after 90 days — but
+     * deleting the row it points at would either fail on this foreign key or, if
+     * we cascaded, quietly delete a name off a bill that a settled show still
+     * refers to. Neither is acceptable, so the row survives its profile and
+     * carries `display_name` instead.
+     *
+     * A NULL here is INERT BY CONSTRUCTION, which is the property that made this
+     * safe to do. Every access path joins `event_participants` to
+     * `profile_members` on this column (`packages/auth/src/authorize.ts`), and an
+     * equality join never matches NULL — so a name-only row grants nobody
+     * anything, in every query, without any of them being changed. The paths that
+     * had to change are the two that DISPLAY a roster, because an inner join to
+     * `profiles` would silently drop the name we went to this trouble to keep.
+     */
+    profileId: uuid("profile_id").references(() => profiles.id),
+    /**
+     * The name to show when `profile_id` is NULL — the last thing kept of an
+     * erased stub, and nothing else about them.
+     *
+     * Written only by the purge (`packages/db/src/stub-purge.ts`), so a row with
+     * a live profile leaves it NULL and readers take the name from `profiles` as
+     * they always have. Deliberately not a copy maintained for every participant:
+     * a second name on every row is denormalization that drifts the first time
+     * somebody renames their act, which is exactly what this rebuild deletes.
+     */
+    displayName: text("display_name"),
     role: eventParticipantRole("role").notNull(),
     permissionSetId: uuid("permission_set_id").references(() => permissionSets.id),
     performerTag: performerTag("performer_tag"),

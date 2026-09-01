@@ -2159,7 +2159,8 @@
                         "type": "string"
                       },
                       "profileId": {
-                        "type": "string"
+                        "type": "string",
+                        "nullable": true
                       },
                       "name": {
                         "type": "string",
@@ -2269,7 +2270,8 @@
                       "type": "string"
                     },
                     "profileId": {
-                      "type": "string"
+                      "type": "string",
+                      "nullable": true
                     },
                     "name": {
                       "type": "string",
@@ -2384,7 +2386,8 @@
                       "type": "string"
                     },
                     "profileId": {
-                      "type": "string"
+                      "type": "string",
+                      "nullable": true
                     },
                     "name": {
                       "type": "string",
@@ -2503,7 +2506,8 @@
                       "type": "string"
                     },
                     "profileId": {
-                      "type": "string"
+                      "type": "string",
+                      "nullable": true
                     },
                     "name": {
                       "type": "string",
@@ -2583,7 +2587,8 @@
                       "type": "string"
                     },
                     "profileId": {
-                      "type": "string"
+                      "type": "string",
+                      "nullable": true
                     },
                     "name": {
                       "type": "string",
@@ -13055,6 +13060,14 @@
                         "type": "string",
                         "nullable": true
                       },
+                      "taskId": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "completed": {
+                        "type": "boolean",
+                        "nullable": true
+                      },
                       "createdAt": {
                         "type": "string"
                       },
@@ -13080,6 +13093,8 @@
                       "externalId",
                       "blocksAvailability",
                       "promotedEventId",
+                      "taskId",
+                      "completed",
                       "createdAt",
                       "updatedAt"
                     ],
@@ -13216,6 +13231,14 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "taskId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "completed": {
+                      "type": "boolean",
+                      "nullable": true
+                    },
                     "createdAt": {
                       "type": "string"
                     },
@@ -13241,6 +13264,8 @@
                     "externalId",
                     "blocksAvailability",
                     "promotedEventId",
+                    "taskId",
+                    "completed",
                     "createdAt",
                     "updatedAt"
                   ],
@@ -13387,6 +13412,14 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "taskId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "completed": {
+                      "type": "boolean",
+                      "nullable": true
+                    },
                     "createdAt": {
                       "type": "string"
                     },
@@ -13412,6 +13445,8 @@
                     "externalId",
                     "blocksAvailability",
                     "promotedEventId",
+                    "taskId",
+                    "completed",
                     "createdAt",
                     "updatedAt"
                   ],
@@ -13558,6 +13593,14 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "taskId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "completed": {
+                      "type": "boolean",
+                      "nullable": true
+                    },
                     "createdAt": {
                       "type": "string"
                     },
@@ -13583,6 +13626,8 @@
                     "externalId",
                     "blocksAvailability",
                     "promotedEventId",
+                    "taskId",
+                    "completed",
                     "createdAt",
                     "updatedAt"
                   ],
@@ -15305,8 +15350,65 @@
         }
       }
     },
+    "/api/v1/invitations/{token}/claim-otp": {
+      "post": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "token",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sent": {
+                      "type": "boolean",
+                      "enum": [true]
+                    },
+                    "expiresInMinutes": {
+                      "type": "number"
+                    }
+                  },
+                  "required": ["sent", "expiresInMinutes"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/invitations/{token}/claim": {
       "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "otp": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 12
+                  }
+                },
+                "required": ["otp"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {

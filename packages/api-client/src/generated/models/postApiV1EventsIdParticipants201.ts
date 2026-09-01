@@ -7,7 +7,8 @@
 
 export type PostApiV1EventsIdParticipants201 = {
   id: string;
-  profileId: string;
+  /** @nullable */
+  profileId: string | null;
   /** @nullable */
   name: string | null;
   /** @nullable */

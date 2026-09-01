@@ -27,8 +27,18 @@ export interface ParticipantProfileFace {
 
 export interface SerializedParticipant {
   id: string;
-  profileId: string;
-  /** The participant profile's display name — the public face (who's on the bill). */
+  /**
+   * NULL once the profile behind this row has been erased (migration 0032). The
+   * row stays on the bill under `name`; there is simply no account to link to.
+   */
+  profileId: string | null;
+  /**
+   * The participant's display name — the public face (who's on the bill).
+   *
+   * Taken from the live profile, and falling back to `display_name` for a row
+   * whose profile has been erased. That fallback is the entire point of the GDPR
+   * purge keeping a name: without it a settled show loses a line off its bill.
+   */
   name: string | null;
   avatarUrl: string | null;
   /** Where this face's public page lives, or null when it has none.
@@ -132,7 +142,7 @@ export function serializeParticipant(
   const base: SerializedParticipant = {
     id: participant.id,
     profileId: participant.profileId,
-    name: profile?.name ?? null,
+    name: profile?.name ?? participant.displayName ?? null,
     // The same file-then-URL ladder every other read of a profile picture uses
     // (`serializeProfile`), so the roster cannot disagree with the profile page
     // about whose face it has. `imageUrls` is minted per response by the route.
@@ -151,7 +161,9 @@ export function serializeParticipant(
     return base;
   }
 
-  if (selfProfileIds?.has(participant.profileId)) {
+  // An erased participant is nobody's "self" — a NULL profile matches no
+  // membership, so the self tier is unreachable for it.
+  if (participant.profileId !== null && selfProfileIds?.has(participant.profileId)) {
     const visible = selfVisibleDetails(participant.details);
     if (visible) base.details = visible;
   }

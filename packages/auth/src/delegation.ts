@@ -86,6 +86,11 @@ export async function liveEventDelegationsForEvents(
     );
 
   for (const row of rows) {
+    // The inner join above matches `representations.performer_profile_id` to this
+    // column, so an erased participant (NULL since migration 0032) never reaches
+    // here. Stated rather than asserted, because a delegation naming nobody would
+    // be a hole in the authorization graph.
+    if (row.performerProfileId === null) continue;
     if (!isRepresentationActiveAt(row, now)) continue;
     const bucket = byEvent.get(row.eventId);
     const delegation: LiveDelegation = {

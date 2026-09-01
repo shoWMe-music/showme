@@ -3,6 +3,7 @@ import { schema } from "@showme/db";
 import type { Capability } from "@showme/shared";
 import { and, count, countDistinct, eq, gte, inArray, sql } from "drizzle-orm";
 import { HttpError } from "../errors";
+import type { Transaction } from "./audit";
 
 /**
  * The entitlement layer (PLAN.md §C) — plan limits, kept STRICTLY SEPARATE from
@@ -16,7 +17,12 @@ import { HttpError } from "../errors";
 
 export type PlanTier = "free_operator" | "operator_pro" | "free_artist" | "artist_pro";
 
-export type Feature = "create_event" | "send_offer" | "grant_admin" | "not_spam_suspended";
+export type Feature =
+  | "create_event"
+  | "send_offer"
+  | "grant_admin"
+  | "not_spam_suspended"
+  | "send_external_invite";
 
 /** The verdict for one feature: allowed, plus the counts behind it when metered. */
 export interface FeatureCheck {
@@ -47,6 +53,12 @@ export const ENTITLEMENT_REQUIRED_CODE = "entitlement_required";
  * wrong and insulting. It stays an ordinary `forbidden`.
  */
 const PLAN_GATED_FEATURES: readonly Feature[] = ["create_event", "send_offer", "grant_admin"];
+// `send_external_invite` is deliberately absent, for the same reason
+// `not_spam_suspended` is: running out of invitation credits is not a purchase
+// away. Daniel, 2026-09-01: "It's a cap based on response. So when they get a
+// response they get 1 back. Potentially we could offer a non-cap pro version
+// when we build the pro for performers." Until that plan exists, answering an
+// empty balance with "upgrade" would be selling something we do not sell.
 
 /** Is a refusal of this feature an upgrade prompt, or an ordinary refusal? */
 export function isPlanGatedFeature(feature: Feature): boolean {
@@ -122,6 +134,18 @@ const FREE_OPERATOR_EVENT_LIMIT = 3;
 const FREE_ARTIST_OFFER_LIMIT = 50;
 /** A profile is spam-suspended once this many DISTINCT reporters flag it in 90 days. */
 const SPAM_DISTINCT_REPORTER_LIMIT = 3;
+/**
+ * How many EXTERNAL collaboration invitations a free performer may have out at
+ * once — Ran's spec, "20 credits, +1 per accepted invite".
+ *
+ * It is an ALLOWANCE, not a stored balance, and deliberately not a ledger row:
+ * granting it as a row would need a backfill for every profile that already
+ * exists and a hook on every profile created after, and the number would then
+ * live in two places. `collaborationCreditBalance` is this constant plus the
+ * ledger's sum, so a profile that has never sent anything reads 20 without a
+ * single row having been written for it.
+ */
+export const COLLABORATION_INVITE_CREDITS = 20;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -234,6 +258,36 @@ export async function canUseFeature(
       return { allowed, reason: allowed ? undefined : "Granting admin requires a paid plan" };
     }
 
+    case "send_external_invite": {
+      // PERFORMERS ONLY (Daniel, 2026-09-01). Ran's spec caps performers and
+      // leaves venues unlimited because "curating their roster is natural quality
+      // filtering"; it says nothing about the other two kinds, and the call was to
+      // read it literally. An agency doing volume outreach is the obvious next
+      // candidate — noted, not assumed.
+      const [profile] = await db
+        .select({ kind: schema.profiles.kind })
+        .from(schema.profiles)
+        .where(eq(schema.profiles.id, profileId));
+      if (profile?.kind !== "performer") return { allowed: true };
+      // A paid artist plan lifts the cap — the "non-cap pro version" this is
+      // waiting for. Until that plan is sold, nobody is on this branch.
+      if (tier !== "free_artist") return { allowed: true };
+
+      const balance = await collaborationCreditBalance(db, profileId);
+      // `used` is what is OUTSTANDING, not what was ever sent: a refill on answer
+      // means the number on screen is "invitations waiting on a reply".
+      const used = COLLABORATION_INVITE_CREDITS - balance;
+      return {
+        allowed: balance > 0,
+        used,
+        limit: COLLABORATION_INVITE_CREDITS,
+        reason:
+          balance > 0
+            ? undefined
+            : "All 20 invitations are waiting for a reply. You get one back each time somebody answers.",
+      };
+    }
+
     case "not_spam_suspended": {
       const cutoff = new Date(now.getTime() - 90 * DAY_MS);
       const [row] = await db
@@ -257,13 +311,26 @@ export async function canUseFeature(
   }
 }
 
-/** The profile's collaboration-credit balance — `SUM(credit_ledger.delta)`, never stored. */
-export async function creditBalance(db: Database, profileId: string): Promise<number> {
+/**
+ * How many external collaboration invitations this profile may still send —
+ * the opening allowance plus every movement since, computed, never stored.
+ *
+ * The ledger holds only what HAPPENED: `-1` when an invitation goes to somebody
+ * who is not on shoWMe, `+1` when that invitation is answered. The allowance is
+ * a constant rather than a row, so the number is right for profiles that predate
+ * this feature without any backfill (see `COLLABORATION_INVITE_CREDITS`).
+ *
+ * A consequence worth naming, because it is the product rule stated in arithmetic:
+ * a refill only ever follows a spend, so the balance can never exceed the
+ * allowance, and "20 credits" means **20 unanswered invitations at a time** — not
+ * 20 for all time. Sending into the void is what costs; being turned down is not.
+ */
+export async function collaborationCreditBalance(db: Database, profileId: string): Promise<number> {
   const [row] = await db
     .select({ total: sql<string>`coalesce(sum(${schema.creditLedger.delta}), 0)` })
     .from(schema.creditLedger)
     .where(eq(schema.creditLedger.profileId, profileId));
-  return Number(row?.total ?? 0);
+  return COLLABORATION_INVITE_CREDITS + Number(row?.total ?? 0);
 }
 
 /**
@@ -373,4 +440,89 @@ export async function assertProfileAdminGrantAllows(
 
   const gate = await canUseFeature(database, profileId, "grant_admin");
   if (!gate.allowed) throw entitlementRequired("grant_admin", gate);
+}
+
+/**
+ * ── THE LEDGER'S TWO MOVEMENTS ───────────────────────────────────────────────
+ *
+ * Every change to a balance is an INSERT describing what happened, never an
+ * UPDATE of a total. That is the whole reason `credit_ledger` is shaped the way
+ * it is: a balance that is summed can be audited and re-derived, a balance that
+ * is overwritten can only be believed.
+ *
+ * The two are paired by `reason`, which carries the invitation's id. Pairing is
+ * what makes the refill safe: without it, answering an invitation that never cost
+ * anything — one sent to somebody already on shoWMe — would mint a credit out of
+ * nothing, and a performer could farm their allowance upward by inviting
+ * colleagues.
+ */
+
+/** `reason` for the debit taken when an invitation leaves the platform. */
+function spendReason(invitationId: string): string {
+  return `invite:${invitationId}`;
+}
+
+/** `reason` for the credit returned when that invitation is answered. */
+function refillReason(invitationId: string): string {
+  return `invite-answered:${invitationId}`;
+}
+
+/**
+ * Charge one credit for an invitation going to somebody who is NOT on shoWMe.
+ *
+ * Called inside the same transaction that writes the invitation, so an invitation
+ * can never exist uncharged and a charge can never exist without its invitation.
+ */
+export async function spendCollaborationCredit(
+  tx: Database | Transaction,
+  input: { profileId: string; invitationId: string },
+): Promise<void> {
+  await tx.insert(schema.creditLedger).values({
+    profileId: input.profileId,
+    delta: -1,
+    reason: spendReason(input.invitationId),
+  });
+}
+
+/**
+ * Return the credit an invitation cost, once its recipient ANSWERS — accepted or
+ * declined alike.
+ *
+ * Daniel, 2026-09-01: "It's a cap based on response. So when they get a response
+ * they get 1 back." This is a deliberate departure from Ran's spec, which reads
+ * "+1 per accepted invite, declined/expired don't refill". Refunding a decline is
+ * the better brake: what the cap is defending against is invitations fired into
+ * the void, and somebody taking the time to say no is the opposite of that. An
+ * EXPIRY still costs — silence is exactly the thing being metered.
+ *
+ * Idempotent and paired. It returns nothing unless the matching debit exists, and
+ * refuses to pay twice for one invitation, so a re-answer, a retry or a second
+ * code path cannot inflate the balance.
+ */
+export async function refillCollaborationCredit(
+  tx: Database | Transaction,
+  input: { profileId: string | null; invitationId: string },
+): Promise<void> {
+  if (!input.profileId) return;
+  const rows = await tx
+    .select({ reason: schema.creditLedger.reason })
+    .from(schema.creditLedger)
+    .where(
+      and(
+        eq(schema.creditLedger.profileId, input.profileId),
+        inArray(schema.creditLedger.reason, [
+          spendReason(input.invitationId),
+          refillReason(input.invitationId),
+        ]),
+      ),
+    );
+  const wasCharged = rows.some((row) => row.reason === spendReason(input.invitationId));
+  const alreadyRefilled = rows.some((row) => row.reason === refillReason(input.invitationId));
+  if (!wasCharged || alreadyRefilled) return;
+
+  await tx.insert(schema.creditLedger).values({
+    profileId: input.profileId,
+    delta: 1,
+    reason: refillReason(input.invitationId),
+  });
 }

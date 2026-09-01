@@ -70,6 +70,10 @@ export interface SerializedCalendarItem {
   externalId: string | null;
   blocksAvailability: boolean;
   promotedEventId: string | null;
+  /** Set only when the entry is a `tasks` row projected onto the grid. */
+  taskId: string | null;
+  /** A task's done state; null for stored calendar items. */
+  completed: boolean | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -106,6 +110,10 @@ export function serializeCalendarItem(
     externalId: item.externalId,
     blocksAvailability: item.blocksAvailability,
     promotedEventId: item.promotedEventId,
+    // A stored calendar item is never a task row — see `taskCalendarEntries` in
+    // `routes/calendar.ts` for the entries that carry these.
+    taskId: null,
+    completed: null,
     createdAt: item.createdAt.toISOString(),
     updatedAt: item.updatedAt.toISOString(),
   };

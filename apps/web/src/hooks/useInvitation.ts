@@ -4,6 +4,7 @@ import {
   getApiV1InvitationsToken,
   postApiV1InvitationsTokenAccept,
   postApiV1InvitationsTokenClaim,
+  postApiV1InvitationsTokenClaimOtp,
   postApiV1InvitationsTokenDecline,
 } from "@showme/api-client";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -79,6 +80,8 @@ const STAGE_FOR_STATUS: Record<string, InvitationStage> = {
 export function useInvitation(token: string) {
   const { status: authStatus, user, refreshSession } = useAuth();
   const [answered, setAnswered] = useState<"accepted" | "declined" | "claimed" | null>(null);
+  /** Whether a claim code has been sent in this sitting — drives the code step. */
+  const [claimCodeSent, setClaimCodeSent] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
 
   const offer = useQuery({
@@ -109,8 +112,19 @@ export function useInvitation(token: string) {
     mutationFn: () => postApiV1InvitationsTokenDecline(token),
     onSuccess: () => settle("declined"),
   });
+  /**
+   * Claiming is now TWO steps, because the invited address is proved rather than
+   * matched (decisions #18): a code goes to the address on the invitation, and
+   * the reader types it back. The reader may be signed in as somebody else
+   * entirely — that is the whole point — so the code is the only thing that
+   * connects them to the account they are taking over.
+   */
+  const requestClaimCode = useMutation({
+    mutationFn: () => postApiV1InvitationsTokenClaimOtp(token),
+    onSuccess: () => setClaimCodeSent(true),
+  });
   const claim = useMutation({
-    mutationFn: () => postApiV1InvitationsTokenClaim(token),
+    mutationFn: (otp: string) => postApiV1InvitationsTokenClaim(token, { otp }),
     onSuccess: () => settle("claimed"),
   });
 
@@ -151,6 +165,8 @@ export function useInvitation(token: string) {
     accept,
     decline,
     claim,
+    requestClaimCode,
+    claimCodeSent,
     sendVerification,
     recheckVerification,
     verificationSent,
@@ -181,8 +197,18 @@ function resolveStage(input: {
   if (terminal) return terminal;
 
   if (input.authStatus === "anon") return "signed_out";
-  if (input.offer.boundToEmail && !input.offer.viewer.emailMatches) return "wrong_account";
+  // A CLAIM no longer requires signing in as the invited address (decisions #18):
+  // the address is proved with a code instead, so being "the wrong account" is
+  // the ordinary case rather than a dead end — a venue invited at `info@` is
+  // claimed by the person who runs it. Accept and decline still go by address.
+  if (!input.offer.claimable && input.offer.boundToEmail && !input.offer.viewer.emailMatches) {
+    return "wrong_account";
+  }
   if (input.authStatus === "onboarding") return "needs_account";
-  if (input.offer.boundToEmail && !input.offer.viewer.emailVerified) return "email_unverified";
+  // The claiming ACCOUNT must still be verified — its address simply no longer
+  // has to be the invited one.
+  if ((input.offer.boundToEmail || input.offer.claimable) && !input.offer.viewer.emailVerified) {
+    return "email_unverified";
+  }
   return "ready";
 }

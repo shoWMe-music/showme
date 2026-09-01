@@ -109,7 +109,11 @@ async function resolveRepresentedParticipants(
           inArray(schema.representations.agentProfileId, agentProfileIds),
           inArray(
             schema.representations.performerProfileId,
-            delegated.map((participant) => participant.profileId),
+            // An erased participant (migration 0032) has no profile, so no
+            // representation can name it as the performer being represented.
+            delegated
+              .map((participant) => participant.profileId)
+              .filter((profileId): profileId is string => profileId !== null),
           ),
           eq(schema.representations.status, "active"),
         ),
@@ -182,7 +186,13 @@ export async function resolveDealAuthority(
     );
 
   const ownParticipantIds = rows.map((row) => row.id);
-  const agentProfileIds = rows.filter((row) => row.role === "agent").map((row) => row.profileId);
+  // The inner join to `profile_members` above already excludes erased
+  // participants — an equality join never matches a NULL `profile_id` — so this
+  // filter is the type system catching up with the query, not a second rule.
+  const agentProfileIds = rows
+    .filter((row) => row.role === "agent")
+    .map((row) => row.profileId)
+    .filter((profileId): profileId is string => profileId !== null);
   const representedParticipantIds =
     agentProfileIds.length > 0
       ? await resolveRepresentedParticipants(request, eventId, agentProfileIds)

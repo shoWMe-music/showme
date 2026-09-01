@@ -98,8 +98,13 @@ export function useRiderUpload(eventId: string): RiderUploadView {
   // participation the caller is a member of — so the rider is filed under the act
   // that is actually on the bill, not under whichever profile the sidebar shows.
   const myProfileIds = new Set((me.data?.memberships ?? []).map((one) => one.profileId));
+  // `profileId` is null for an erased participant (API migration 0032) — a name
+  // left on the bill with no account behind it, which is never the caller.
   const mine = (participants.data ?? []).filter(
-    (party) => myProfileIds.has(party.profileId) && RIDER_BEARING_ROLES.has(party.role),
+    (party) =>
+      party.profileId !== null &&
+      myProfileIds.has(party.profileId) &&
+      RIDER_BEARING_ROLES.has(party.role),
   );
   const acting = getActiveProfileId();
   const participant = mine.find((party) => party.profileId === acting) ?? mine[0];

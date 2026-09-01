@@ -60,7 +60,9 @@ const UpdateParticipantBody = z.object({
 
 const ParticipantResponse = z.object({
   id: z.string(),
-  profileId: z.string(),
+  /** Null once the profile behind the row has been erased (migration 0032) —
+   *  the name stays on the bill, but there is no account left to link to. */
+  profileId: z.string().nullable(),
   name: z.string().nullable(),
   avatarUrl: z.string().nullable(),
   /** Null unless the profile is published — Fastify strips what is not declared
@@ -252,7 +254,9 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
                   .select()
                   .from(schema.events)
                   .where(eq(schema.events.id, id));
-                if (event) {
+                // `profile_id` is nullable since 0032, but a row this code just
+                // inserted always carries one.
+                if (event && participant.profileId) {
                   await autoAssignAgentOnPerformerJoin(tx, event, participant.profileId);
                 }
               }
@@ -272,6 +276,10 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
               .select({ title: schema.events.title })
               .from(schema.events)
               .where(eq(schema.events.id, id));
+            // `profile_id` is nullable since 0032; a row this route just created
+            // always has one, so this only satisfies the type — and if it were
+            // ever null there would be no members to notify anyway.
+            if (!created.profileId) throw new Error("participant created without a profile");
             await notifyProfileMembers(database, created.profileId, principal.userId, {
               type: "event.participant_added",
               title: `Added to "${event?.title ?? "an event"}"`,

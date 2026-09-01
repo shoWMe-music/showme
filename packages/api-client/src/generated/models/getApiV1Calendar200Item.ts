@@ -34,6 +34,10 @@ export type GetApiV1Calendar200Item = {
   blocksAvailability: boolean;
   /** @nullable */
   promotedEventId: string | null;
+  /** @nullable */
+  taskId: string | null;
+  /** @nullable */
+  completed: boolean | null;
   createdAt: string;
   updatedAt: string;
 };

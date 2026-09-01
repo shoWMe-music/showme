@@ -105,11 +105,21 @@ export function useTaskForm({
   open,
   task,
   eventId,
+  initialDueDate,
   onSaved,
 }: {
   open: boolean;
   task: Task | null;
   eventId?: string;
+  /**
+   * The due date a NEW task opens with, as "yyyy-mm-dd". Set when the dialog is
+   * opened from a day on the calendar: the day that was clicked is the whole
+   * reason the reader is here, and making them pick it again is the difference
+   * between "add a task on the 14th" and "go to the Tasks screen".
+   *
+   * Ignored when editing — an existing task's own due date wins.
+   */
+  initialDueDate?: string;
   onSaved: () => void;
 }): TaskForm {
   const toast = useToast();
@@ -127,11 +137,11 @@ export function useTaskForm({
     setTitle(task?.title ?? "");
     setDescription(task?.description ?? "");
     // "yyyy-mm-dd" — the exact shape a `type="date"` input round-trips.
-    setDueDate(task?.dueDate ? task.dueDate.slice(0, 10) : "");
+    setDueDate(task?.dueDate ? task.dueDate.slice(0, 10) : (initialDueDate ?? ""));
     setRemindAt(instantToLocalInput(remindAtOf(task)));
     setGroupId(task?.groupId ?? "");
     setAssigneeParticipantId(task?.assigneeParticipantId ?? "");
-  }, [open, task]);
+  }, [open, task, initialDueDate]);
 
   // Only fetched while the dialog is open on an event task — the roster is a
   // second request, and a closed dialog has no business making it.

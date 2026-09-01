@@ -34,6 +34,10 @@ export type PatchApiV1CalendarIdAvailability200 = {
   blocksAvailability: boolean;
   /** @nullable */
   promotedEventId: string | null;
+  /** @nullable */
+  taskId: string | null;
+  /** @nullable */
+  completed: boolean | null;
   createdAt: string;
   updatedAt: string;
 };
