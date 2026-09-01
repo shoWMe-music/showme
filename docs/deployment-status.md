@@ -4,7 +4,7 @@ The standing answer to "what's deployed where". Update it when that changes.
 Account/project map and the domain history live in
 [handoff-2026-08-23-marketing-and-hosting.md](./handoff-2026-08-23-marketing-and-hosting.md).
 
-## 2026-09-01 (end of session) — migration 0034, API 00027, both sites. THIS IS CURRENT.
+## 2026-09-01/02 — migration 0034, API 00028, both sites. THIS IS CURRENT.
 
 Six API revisions went out in one session. Each is listed because the *reason*
 matters more than the number when something later looks wrong.
@@ -17,6 +17,7 @@ matters more than the number when something later looks wrong.
 | `00025-jzd` | the app-calendar push no longer 403s and mis-reports it as a revoked grant |
 | `00026-qbw` | seats are counted, and `editor` costs one |
 | `00027-gsv` | seats reported on `cap-status`, so the ceiling is visible before it is hit |
+| `00028-7pj` | **free operators get unlimited events** — the code enforced a cap of 3 while the live pricing page advertised "Unlimited events" |
 
 **Database: 35 rows** in `drizzle.__drizzle_migrations` (through 0034). Backups
 `1788252441485` and `1788256506985` taken before 0032–0033 and 0034 respectively.
@@ -44,6 +45,21 @@ one Cloud Run service, `showme-api`, and the Cloud Scheduler API is not enabled
 on the project at all. So the offer expiry, handoff expiry, share revocation,
 task reminders, exchange-rate refresh **and the new GDPR purge** are all written,
 tested, and not happening. Standing the runner up is a Terraform change.
+
+### The entitlement layer was reconciled against the live pricing page (00028)
+Three divergences. **Fixed:** Basic advertised "Unlimited events" and the code
+capped free operators at three confirmed-or-concluded shows a year — a 403
+contradicting the page the customer signed up from. `FREE_OPERATOR_EVENT_LIMIT`
+is now `null`, with the counting machinery intact so a number is one line.
+
+**Matching, checked:** Basic's one seat, Pro's two seats plus purchased extras,
+Performer's 50 offers a month, Agent's unlimited offers.
+
+**Still divergent, deliberately unfixed** (ClickUp `86cbcy6j7`): "2 templates"
+and "One profile per account" are advertised and enforced nowhere. Both ADD a
+restriction, so they can break accounts already over the line — including Ran's,
+who holds two profiles. The page currently offers more than the code enforces,
+which is the harmless direction; decide the migration before building.
 
 ### Google Calendar is still Internal
 `orgInternalOnly: true` on the `prod-showme` consent screen, so only
