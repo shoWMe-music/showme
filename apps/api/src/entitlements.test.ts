@@ -7,15 +7,17 @@ import {
   ENTITLEMENT_REQUIRED_CODE,
   assertEventCapAllows,
   assertGrantAdminAllows,
-  assertProfileAdminGrantAllows,
+  assertSeatAvailableForRole,
   canUseFeature,
   collaborationCreditBalance,
   confersAdminAuthority,
+  countConsumedSeats,
   countsTowardEventCap,
   entitlementRequired,
   getPlanTier,
   isPlanGatedFeature,
   refillCollaborationCredit,
+  roleConsumesSeat,
   spendCollaborationCredit,
 } from "./lib/entitlements";
 
@@ -581,9 +583,19 @@ describe("the entitlement refusal is a distinct error code", () => {
       message: "Granting admin requires a paid plan",
     });
 
-    // 3. The PROFILE-level admin grant (A-37).
+    // 3. The PROFILE-level grant is now a SEAT check rather than a tier check
+    // (2026-09-01). The owner's membership is what occupies the free tier's
+    // single seat — `seedProfile` does not write one, so it is written here, the
+    // way `POST /profiles` does for a real account.
+    await harness.db.insert(schema.profileMembers).values({
+      profileId: operator.profileId,
+      userId: operator.ownerUserId,
+      role: "owner",
+      status: "active",
+      seatConsumed: true,
+    });
     await expect(
-      assertProfileAdminGrantAllows(harness.db, {
+      assertSeatAvailableForRole(harness.db, {
         profileId: operator.profileId,
         nextRole: "admin",
       }),
@@ -611,5 +623,130 @@ describe("the entitlement refusal is a distinct error code", () => {
       code: ENTITLEMENT_REQUIRED_CODE,
       message: "Monthly offer limit reached",
     });
+  });
+});
+
+/**
+ * SEATS (ClickUp — Daniel, 2026-09-01).
+ *
+ * "Freemium gets one admin seat the rest are all view roles (team/crew). Paid
+ * gets two account Admins which means two admin/Editor roles, the rest are view
+ * only. Otherwise giving freemium team members an admin or edit role means the
+ * paying for seat is canibalized."
+ *
+ * The third test is the one that matters: `editor` was ungated on every tier, so
+ * the paid seat was bypassed by picking the role one notch below the gated one.
+ */
+describe("seats", () => {
+  /** A profile with its owner membership, as `POST /profiles` really writes it. */
+  async function seedProfileWithOwner(kind: "operator" | "performer") {
+    const profile = await seedProfile(kind);
+    await harness.db.insert(schema.profileMembers).values({
+      profileId: profile.profileId,
+      userId: profile.ownerUserId,
+      role: "owner",
+      status: "active",
+      seatConsumed: true,
+    });
+    return profile;
+  }
+
+  async function addMember(profileId: string, role: "admin" | "editor" | "viewer" | "crew") {
+    await harness.db.insert(schema.profileMembers).values({
+      profileId,
+      email: `seat-${seq++}@example.showme.test`,
+      role,
+      status: "active",
+      seatConsumed: roleConsumesSeat(role),
+    });
+  }
+
+  it("free: the owner holds the only seat, so nobody else can administer", async () => {
+    const operator = await seedProfileWithOwner("operator");
+    await expect(
+      assertSeatAvailableForRole(harness.db, { profileId: operator.profileId, nextRole: "admin" }),
+    ).rejects.toMatchObject({ statusCode: 403, code: ENTITLEMENT_REQUIRED_CODE });
+  });
+
+  it("free: EDITOR is refused too — this is the seat that was being cannibalized", async () => {
+    const operator = await seedProfileWithOwner("operator");
+    // Until 2026-09-01 this resolved happily: the gate returned early unless the
+    // role was exactly "admin", so unlimited edit access was one dropdown away.
+    await expect(
+      assertSeatAvailableForRole(harness.db, { profileId: operator.profileId, nextRole: "editor" }),
+    ).rejects.toMatchObject({ statusCode: 403, code: ENTITLEMENT_REQUIRED_CODE });
+  });
+
+  it("free: view-only roles are always free, however many", async () => {
+    const operator = await seedProfileWithOwner("operator");
+    for (const role of ["viewer", "crew"] as const) {
+      await expect(
+        assertSeatAvailableForRole(harness.db, { profileId: operator.profileId, nextRole: role }),
+      ).resolves.toBeUndefined();
+      await addMember(operator.profileId, role);
+    }
+    // Ten viewers later, still nothing spent.
+    expect(await countConsumedSeats(harness.db, operator.profileId)).toBe(1);
+  });
+
+  it("paid: two seats — the owner and one more, then refused", async () => {
+    const operator = await seedProfileWithOwner("operator");
+    await setTier(operator.profileId, "operator_pro");
+
+    // Second seat is available.
+    await expect(
+      assertSeatAvailableForRole(harness.db, { profileId: operator.profileId, nextRole: "admin" }),
+    ).resolves.toBeUndefined();
+    await addMember(operator.profileId, "admin");
+
+    // Third is not.
+    await expect(
+      assertSeatAvailableForRole(harness.db, { profileId: operator.profileId, nextRole: "editor" }),
+    ).rejects.toMatchObject({ statusCode: 403, code: ENTITLEMENT_REQUIRED_CODE });
+    expect(await countConsumedSeats(harness.db, operator.profileId)).toBe(2);
+  });
+
+  it("moving sideways between seat-consuming roles costs nothing", async () => {
+    const operator = await seedProfileWithOwner("operator");
+    await setTier(operator.profileId, "operator_pro");
+    await addMember(operator.profileId, "admin");
+
+    // Both seats are taken, but admin → editor is not a NEW grant: they are
+    // already occupying the seat, so re-charging them would refuse a demotion.
+    await expect(
+      assertSeatAvailableForRole(harness.db, {
+        profileId: operator.profileId,
+        nextRole: "editor",
+        currentRole: "admin",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("a negotiated seat count larger than the tier default wins", async () => {
+    const operator = await seedProfileWithOwner("operator");
+    await harness.db.insert(schema.plans).values({
+      profileId: operator.profileId,
+      tier: "operator_pro",
+      seats: 5,
+    });
+    for (let index = 0; index < 4; index += 1) await addMember(operator.profileId, "admin");
+    expect(await countConsumedSeats(harness.db, operator.profileId)).toBe(5);
+    await expect(
+      assertSeatAvailableForRole(harness.db, { profileId: operator.profileId, nextRole: "admin" }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it("a stored seat count SMALLER than the tier default is ignored, not obeyed", async () => {
+    // Every existing row carries the column default of 1. Honouring that would
+    // hand every paid account a downgrade the moment this deployed.
+    const operator = await seedProfileWithOwner("operator");
+    await harness.db.insert(schema.plans).values({
+      profileId: operator.profileId,
+      tier: "operator_pro",
+      seats: 1,
+    });
+    await expect(
+      assertSeatAvailableForRole(harness.db, { profileId: operator.profileId, nextRole: "admin" }),
+    ).resolves.toBeUndefined();
   });
 });

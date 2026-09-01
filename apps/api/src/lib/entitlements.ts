@@ -22,7 +22,8 @@ export type Feature =
   | "send_offer"
   | "grant_admin"
   | "not_spam_suspended"
-  | "send_external_invite";
+  | "send_external_invite"
+  | "seat_available";
 
 /** The verdict for one feature: allowed, plus the counts behind it when metered. */
 export interface FeatureCheck {
@@ -52,7 +53,14 @@ export const ENTITLEMENT_REQUIRED_CODE = "entitlement_required";
  * gate, and answering a suspended profile with "upgrade to Pro" would be both
  * wrong and insulting. It stays an ordinary `forbidden`.
  */
-const PLAN_GATED_FEATURES: readonly Feature[] = ["create_event", "send_offer", "grant_admin"];
+const PLAN_GATED_FEATURES: readonly Feature[] = [
+  "create_event",
+  "send_offer",
+  "grant_admin",
+  // A seat IS a thing we sell, so running out of them is genuinely an upgrade
+  // prompt — unlike the invitation credits below.
+  "seat_available",
+];
 // `send_external_invite` is deliberately absent, for the same reason
 // `not_spam_suspended` is: running out of invitation credits is not a purchase
 // away. Daniel, 2026-09-01: "It's a cap based on response. So when they get a
@@ -288,6 +296,25 @@ export async function canUseFeature(
       };
     }
 
+    case "seat_available": {
+      // Reported as used/limit like the other metered features, so a screen can
+      // say "2 of 2 seats used" instead of only discovering the ceiling by
+      // hitting it. The per-grant decision is `assertSeatAvailableForRole`,
+      // which also knows the role being granted; this is the standing snapshot.
+      const [plan] = await db
+        .select({ seats: schema.plans.seats })
+        .from(schema.plans)
+        .where(eq(schema.plans.profileId, profileId));
+      const limit = seatAllowance(tier, plan?.seats);
+      const used = await countConsumedSeats(db, profileId);
+      return {
+        allowed: used < limit,
+        used,
+        limit,
+        reason: used < limit ? undefined : "Every administrator seat on this plan is taken",
+      };
+    }
+
     case "not_spam_suspended": {
       const cutoff = new Date(now.getTime() - 90 * DAY_MS);
       const [row] = await db
@@ -416,19 +443,85 @@ export async function assertGrantAdminAllows(
 }
 
 /**
- * The PROFILE-level sibling of `assertGrantAdminAllows` (A-37).
+ * ── SEATS ────────────────────────────────────────────────────────────────────
  *
- * A-21 closed every EVENT-level path to admin authority. This is the other half:
- * an `admin` membership on a profile carries `members.manage` over the whole
- * account — a strictly larger grant than admin on a single event — so it is the
- * same paid-plan feature and it consumes a seat. Charged to the TARGET profile,
- * because that is the account gaining an administrator.
+ * WHICH ROLES COST ONE. A membership that can CHANGE the account costs a seat;
+ * one that can only look does not. Daniel, 2026-09-01: *"Freemium gets one admin
+ * seat the rest are all view roles (team/crew). Paid gets two account Admins
+ * which means two admin/Editor roles, the rest are view only."*
  *
- * Shaped like its event-level twin on purpose: promoting someone who is already
- * an admin re-grants nothing and so costs nothing.
+ * `editor` is in this list, and that is the whole point of the change. It was
+ * ungated on every tier: `assertProfileAdminGrantAllows` returned early unless
+ * the role was exactly `admin`, so a free account could hand out unlimited edit
+ * access simply by picking the role one notch down. In Daniel's words, that
+ * "cannibalizes" the seat somebody else is paying for.
+ *
+ * `owner` counts too — it is the account's own administrator, and
+ * `POST /profiles` has always written `seat_consumed: true` for it. So a free
+ * account's single seat is the owner's, which is exactly "freemium gets one
+ * admin seat" read literally.
  */
-export async function assertProfileAdminGrantAllows(
-  database: Database,
+export const SEAT_CONSUMING_ROLES = ["owner", "admin", "editor"] as const;
+
+/** Does holding this role occupy one of the account's seats? */
+export function roleConsumesSeat(role: string | null | undefined): boolean {
+  return (SEAT_CONSUMING_ROLES as readonly string[]).includes(role ?? "");
+}
+
+/** The free tier's allowance: the owner, and nobody else who can change things. */
+const FREE_TIER_SEATS = 1;
+/** A paid plan buys one more administrator — two in total. */
+const PAID_TIER_SEATS = 2;
+
+/**
+ * How many seats this account has.
+ *
+ * The tier decides it, but a STORED `plans.seats` larger than the tier default
+ * wins — that is how a negotiated or enterprise allowance is expressed, and
+ * reading the column the other way round would silently cancel one. A stored
+ * value SMALLER than the default is ignored rather than obeyed: every row
+ * predates this rule and carries the column default of 1, and honouring that
+ * would hand every paid account a downgrade on deploy.
+ */
+export function seatAllowance(tier: PlanTier, storedSeats?: number | null): number {
+  const base = isPaidTier(tier) ? PAID_TIER_SEATS : FREE_TIER_SEATS;
+  return Math.max(base, storedSeats ?? 0);
+}
+
+/** Seats currently occupied — a COUNT, never a stored total, like every limit here. */
+export async function countConsumedSeats(db: Database, profileId: string): Promise<number> {
+  const [row] = await db
+    .select({ used: count() })
+    .from(schema.profileMembers)
+    .where(
+      and(
+        eq(schema.profileMembers.profileId, profileId),
+        eq(schema.profileMembers.status, "active"),
+        inArray(schema.profileMembers.role, [...SEAT_CONSUMING_ROLES]),
+      ),
+    );
+  return row?.used ?? 0;
+}
+
+/**
+ * May this profile give somebody a role that can change the account?
+ *
+ * Replaces `assertProfileAdminGrantAllows`, which asked the wrong question. That
+ * one gated `admin` on "is this a paid plan?" and let `editor` through on every
+ * tier — so the paid seat was bypassed by choosing the role beneath it, and a
+ * paid account could mint unlimited admins because nothing ever counted them.
+ * `seat_consumed` was written in three places and read in none.
+ *
+ * Promoting somebody who already holds a seat-consuming role costs nothing: they
+ * are already occupying the seat, and admin → editor is not a new grant. Only a
+ * move from a view-only role into a seat-consuming one is charged.
+ *
+ * A refusal here IS an upgrade prompt — unlike the invitation-credit gate, a
+ * seat is a thing we sell, and "buy a plan to add another administrator" is a
+ * true and useful sentence.
+ */
+export async function assertSeatAvailableForRole(
+  db: Database,
   grant: {
     profileId: string;
     nextRole: string | null | undefined;
@@ -436,10 +529,28 @@ export async function assertProfileAdminGrantAllows(
   },
 ): Promise<void> {
   const { profileId, nextRole, currentRole = null } = grant;
-  if (nextRole !== "admin" || currentRole === "admin") return;
+  if (!roleConsumesSeat(nextRole)) return;
+  if (roleConsumesSeat(currentRole)) return;
 
-  const gate = await canUseFeature(database, profileId, "grant_admin");
-  if (!gate.allowed) throw entitlementRequired("grant_admin", gate);
+  const tier = await getPlanTier(db, profileId);
+  const [plan] = await db
+    .select({ seats: schema.plans.seats })
+    .from(schema.plans)
+    .where(eq(schema.plans.profileId, profileId));
+
+  const limit = seatAllowance(tier, plan?.seats);
+  const used = await countConsumedSeats(db, profileId);
+  if (used < limit) return;
+
+  throw entitlementRequired("seat_available", {
+    allowed: false,
+    used,
+    limit,
+    reason:
+      limit === FREE_TIER_SEATS
+        ? "Your plan includes one administrator. Everyone else can be added as a viewer or crew."
+        : `Your plan includes ${limit} administrators. Everyone else can be added as a viewer or crew.`,
+  });
 }
 
 /**

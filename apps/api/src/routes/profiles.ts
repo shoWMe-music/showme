@@ -16,7 +16,7 @@ import { type Transaction, writeAudit } from "../lib/audit";
 import { requireProfileRole } from "../lib/authorize";
 import { readProfileBusyTime } from "../lib/availability";
 import { validateTemplatePayload } from "../lib/budget-template-payload";
-import { assertProfileAdminGrantAllows } from "../lib/entitlements";
+import { assertSeatAvailableForRole, roleConsumesSeat } from "../lib/entitlements";
 import { assertProfileImageFiles, signProfileImageUrls } from "../lib/profile-media";
 import type { StorageSigner } from "../lib/storage";
 import { withIdempotency } from "../plugins/idempotency";
@@ -1364,9 +1364,10 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
       const principal = request.principal;
       if (!principal) throw new Error("principal missing after authentication");
 
-      // Entitlement gate (decisions #4/§C, #12): granting admin consumes a seat and
-      // is a paid-plan feature. Composed AFTER authorization, always a fresh read.
-      await assertProfileAdminGrantAllows(database, { profileId: id, nextRole: request.body.role });
+      // Entitlement gate (decisions #4/§C, #12): a role that can CHANGE the
+      // account consumes one of the plan's seats. Composed AFTER authorization,
+      // always a fresh read.
+      await assertSeatAvailableForRole(database, { profileId: id, nextRole: request.body.role });
 
       let created: MemberRow;
       try {
@@ -1380,7 +1381,7 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
               displayName: request.body.displayName ?? null,
               role: request.body.role,
               status: "active",
-              seatConsumed: request.body.role === "admin",
+              seatConsumed: roleConsumesSeat(request.body.role),
               addedBy: principal.userId,
             })
             .returning();
@@ -1423,8 +1424,10 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
         throw forbidden("The owner membership cannot be changed");
       }
 
-      // Promoting to admin is gated (and consumes a seat) — same paid-plan rule as add.
-      await assertProfileAdminGrantAllows(database, {
+      // Promoting into a seat-consuming role is charged against the plan's seats.
+      // Someone already holding one is not charged twice — admin → editor is a
+      // sideways move, not a new grant.
+      await assertSeatAvailableForRole(database, {
         profileId: id,
         nextRole: request.body.role,
         currentRole: before.role,
@@ -1433,7 +1436,7 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
       const fields: Partial<typeof schema.profileMembers.$inferInsert> = {};
       if (request.body.role !== undefined) {
         fields.role = request.body.role;
-        fields.seatConsumed = request.body.role === "admin";
+        fields.seatConsumed = roleConsumesSeat(request.body.role);
       }
       if (request.body.displayName !== undefined) fields.displayName = request.body.displayName;
 

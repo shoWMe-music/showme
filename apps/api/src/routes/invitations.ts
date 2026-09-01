@@ -17,10 +17,11 @@ import {
 } from "../lib/email-templates";
 import {
   assertGrantAdminAllows,
-  assertProfileAdminGrantAllows,
+  assertSeatAvailableForRole,
   canUseFeature,
   entitlementRequired,
   refillCollaborationCredit,
+  roleConsumesSeat,
   spendCollaborationCredit,
 } from "../lib/entitlements";
 import {
@@ -442,7 +443,7 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
       // `POST /profiles/:id/members` applies to the very same grant. Charged to
       // the TARGET profile, which is the account gaining an administrator.
       if (body.targetProfileId) {
-        await assertProfileAdminGrantAllows(database, {
+        await assertSeatAvailableForRole(database, {
           profileId: body.targetProfileId,
           nextRole: body.role,
         });
@@ -902,7 +903,7 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
       // plan can lapse between the invite being sent and the invitee redeeming
       // it, and redemption is the write that actually confers the authority.
       if (grantsProfileMember && invitation.targetProfileId) {
-        await assertProfileAdminGrantAllows(database, {
+        await assertSeatAvailableForRole(database, {
           profileId: invitation.targetProfileId,
           nextRole: invitation.role,
         });
@@ -922,7 +923,7 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
               // `POST /profiles/:id/members` has always recorded that, and a
               // redeemed invitation now records it too, or the seat count is a
               // lie the moment anyone invites rather than adds.
-              seatConsumed: invitation.role === "admin",
+              seatConsumed: roleConsumesSeat(invitation.role),
               permissionSetId: invitation.permissionSetId,
               addedBy: invitation.createdByUser,
             });

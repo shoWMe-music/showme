@@ -139,7 +139,7 @@ describe("invitations — create, redeem, decline", () => {
         recipientEmail: "inv-recipient@example.showme.test",
         recipientName: "Rae Recipient",
         targetProfileId: owner.profileId,
-        role: "editor",
+        role: "viewer",
         permissionSetId: owner.permissionSetId,
       },
     });
@@ -167,7 +167,7 @@ describe("invitations — create, redeem, decline", () => {
       status: "pending",
       targetKind: "profile",
       targetName: "inv-owner",
-      role: "editor",
+      role: "viewer",
       recipientName: "Rae Recipient",
       // Their own address, in full, because it is theirs.
       recipientEmail: "inv-recipient@example.showme.test",
@@ -197,7 +197,7 @@ describe("invitations — create, redeem, decline", () => {
         ),
       );
     expect(membership).toHaveLength(1);
-    expect(membership[0]?.role).toBe("editor");
+    expect(membership[0]?.role).toBe("viewer");
     expect(membership[0]?.status).toBe("active");
 
     const acceptAudit = await db
@@ -235,7 +235,7 @@ describe("invitations — create, redeem, decline", () => {
         type: "code",
         source: "collaborator",
         targetProfileId: owner.profileId,
-        role: "editor",
+        role: "viewer",
       },
     });
     const code = created.json().code as string;
@@ -255,7 +255,7 @@ describe("invitations — create, redeem, decline", () => {
     await harness.db.insert(schema.profileMembers).values({
       profileId: owner.profileId,
       userId: "perm-editor",
-      role: "editor",
+      role: "viewer",
       status: "active",
     });
 
@@ -281,7 +281,7 @@ describe("invitations — create, redeem, decline", () => {
         type: "code",
         source: "collaborator",
         targetProfileId: owner.profileId,
-        role: "editor",
+        role: "viewer",
       },
     });
     const code = created.json().code as string;
@@ -632,7 +632,9 @@ describe("invitations — the PROFILE-level grant_admin gate (A-37)", () => {
       },
     });
     expect(response.statusCode).toBe(403);
-    expect(response.json().error.message).toBe("Granting admin requires a paid plan");
+    expect(response.json().error.message).toBe(
+      "Your plan includes one administrator. Everyone else can be added as a viewer or crew.",
+    );
 
     const rows = await harness.db
       .select()
@@ -711,7 +713,9 @@ describe("invitations — the PROFILE-level grant_admin gate (A-37)", () => {
       headers: auth(invitee.userId),
     });
     expect(response.statusCode).toBe(403);
-    expect(response.json().error.message).toBe("Granting admin requires a paid plan");
+    expect(response.json().error.message).toBe(
+      "Your plan includes one administrator. Everyone else can be added as a viewer or crew.",
+    );
 
     // Nothing landed: no membership, and the invitation is still redeemable.
     const members = await db
@@ -731,7 +735,7 @@ describe("invitations — the PROFILE-level grant_admin gate (A-37)", () => {
     expect(after?.status).toBe("pending");
   });
 
-  it("never charges an ordinary team invitation on a free plan, and takes no seat", async () => {
+  it("does not charge a VIEW-ONLY team invitation on a free plan, and takes no seat", async () => {
     const { db } = harness;
     const owner = await seedOwnerWithProfile("inv-pa-plain");
     const invitee = await seedInvitee("inv-pa-plain-rec");
@@ -745,7 +749,7 @@ describe("invitations — the PROFILE-level grant_admin gate (A-37)", () => {
         source: "team",
         recipientEmail: `${invitee.userId}@example.showme.test`,
         targetProfileId: owner.profileId,
-        role: "editor",
+        role: "viewer",
       },
     });
     expect(created.statusCode).toBe(201);
@@ -766,7 +770,7 @@ describe("invitations — the PROFILE-level grant_admin gate (A-37)", () => {
           eq(schema.profileMembers.userId, invitee.userId),
         ),
       );
-    expect(member?.role).toBe("editor");
+    expect(member?.role).toBe("viewer");
     expect(member?.seatConsumed).toBe(false);
   });
 });
@@ -900,7 +904,7 @@ describe("invitations — what reaches an event's history", () => {
         source: "collaborator",
         recipientEmail: "someone-else@example.showme.test",
         targetProfileId: host.profileId,
-        role: "editor",
+        role: "viewer",
       },
     });
     expect(profileInvite.statusCode).toBe(201);
@@ -1264,7 +1268,7 @@ describe("invitations — the invitation is bound to the address it names", () =
         recipientEmail: `${prefix}-invitee@example.showme.test`,
         recipientName: "Rae Recipient",
         targetProfileId: owner.profileId,
-        role: "editor",
+        role: "viewer",
         createdByUser: `${prefix}-owner`,
       })
       .returning();
@@ -1511,7 +1515,7 @@ describe("GET /invitations/:token — the offer a link-holder reads", () => {
       recipientEmail: "Daniel@ShowMe.Test",
       recipientName: "Daniel",
       targetProfileId: owner.profileId,
-      role: "editor",
+      role: "viewer",
       createdByUser: "offer-anon-owner",
     });
 
@@ -1524,7 +1528,7 @@ describe("GET /invitations/:token — the offer a link-holder reads", () => {
     expect(response.statusCode).toBe(200);
     const offer = response.json();
     expect(offer.status).toBe("pending");
-    expect(offer.role).toBe("editor");
+    expect(offer.role).toBe("viewer");
     expect(offer.targetKind).toBe("profile");
     expect(offer.inviterName).toBe("offer-anon-owner");
     expect(offer.recipientName).toBe("Daniel");
@@ -1550,7 +1554,7 @@ describe("GET /invitations/:token — the offer a link-holder reads", () => {
       token: "offer-wrong-token",
       recipientEmail: "invitee@elsewhere.showme.test",
       targetProfileId: owner.profileId,
-      role: "editor",
+      role: "viewer",
       createdByUser: "offer-wrong-owner",
     });
 
@@ -1746,7 +1750,7 @@ describe("invitations — expiry and revocation", () => {
         token: "expiry-bite-token",
         recipientEmail: "expiry-bite-invitee@example.showme.test",
         targetProfileId: owner.profileId,
-        role: "editor",
+        role: "viewer",
         expiresAt: new Date(Date.now() - 60_000),
         createdByUser: "expiry-bite",
       })
@@ -1897,7 +1901,7 @@ describe("invitations — expiry and revocation", () => {
         source: "team",
         recipientEmail: "revoke-late-invitee@example.showme.test",
         targetProfileId: owner.profileId,
-        role: "editor",
+        role: "viewer",
       },
     });
     const { id, token } = created.json();
@@ -2068,7 +2072,7 @@ describe("invitations — the collaboration-credit cap", () => {
         recipientEmail: email,
         recipientName: "Someone",
         targetProfileId: profileId,
-        role: "editor",
+        role: "viewer",
       },
     });
   }

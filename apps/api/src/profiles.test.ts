@@ -373,7 +373,7 @@ describe("profiles — authorize + serialize + audit", () => {
   it("lets an owner add a member and 409s a duplicate", async () => {
     const { profileId, ownerId } = await seedProfileOwner("add", "operator");
     await seedUser("add-newmember", "operator");
-    const payload = { userId: "add-newmember", role: "editor" as const };
+    const payload = { userId: "add-newmember", role: "viewer" as const };
 
     const first = await app.inject({
       method: "POST",
@@ -382,7 +382,7 @@ describe("profiles — authorize + serialize + audit", () => {
       payload,
     });
     expect(first.statusCode).toBe(201);
-    expect(first.json().role).toBe("editor");
+    expect(first.json().role).toBe("viewer");
 
     const second = await app.inject({
       method: "POST",
@@ -687,16 +687,29 @@ describe("profiles — grant_admin entitlement gate (decisions #12)", () => {
     expect(row?.seatConsumed).toBe(true);
   });
 
-  it("does not gate adding a non-admin member on a free plan", async () => {
+  it("does not gate a VIEW-ONLY member on a free plan, but does gate an editor", async () => {
     const free = await seedProfileOwner("ga-editor", "operator");
     await seedUser("ga-editor-m", "operator");
+    await seedUser("ga-editor-v", "operator");
+
+    // A viewer costs no seat, however many of them there are.
+    const viewer = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${free.profileId}/members`,
+      headers: auth(free.ownerId),
+      payload: { userId: "ga-editor-v", role: "viewer" },
+    });
+    expect(viewer.statusCode).toBe(201);
+
+    // EDITOR does — and until 2026-09-01 it did not, which is how a free account
+    // handed out unlimited edit access and bypassed the seat somebody pays for.
     const editor = await app.inject({
       method: "POST",
       url: `/api/v1/profiles/${free.profileId}/members`,
       headers: auth(free.ownerId),
       payload: { userId: "ga-editor-m", role: "editor" },
     });
-    expect(editor.statusCode).toBe(201);
+    expect(editor.statusCode).toBe(403);
   });
 
   it("gates PATCH promotion to admin by plan", async () => {
