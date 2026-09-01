@@ -4,7 +4,62 @@ The standing answer to "what's deployed where". Update it when that changes.
 Account/project map and the domain history live in
 [handoff-2026-08-23-marketing-and-hosting.md](./handoff-2026-08-23-marketing-and-hosting.md).
 
-## 2026-09-01 — migrations 0027–0031, API 00021, web app. THIS IS CURRENT.
+## 2026-09-01 (later) — migrations 0032–0033, API 00022, web app. THIS IS CURRENT.
+
+| | |
+|---|---|
+| Backup | On-demand **`1788252441485`**, polled to SUCCESSFUL before anything ran. |
+| Database | **32 → 34** rows in `drizzle.__drizzle_migrations` (0032, 0033). Verified per-migration by real objects: `event_participants.profile_id` is now nullable and `display_name` exists, `invitation_otps` exists, `profiles_unclaimed_created_idx` is present. |
+| Data after | 6 profiles, 0 name-only participants (nothing has been purged and nothing should have been). |
+| API | **`showme-api-00022-lj4`**, serving 100%. Image-only deploy, so the existing secrets and env are untouched. |
+| Web app | `showme-app.web.app` on `music-showme` — served bundle `index-BaaOHEQs.js` matches the local build byte for byte. |
+| Marketing | **Untouched.** Still 200. Different project, different account. |
+
+**Verified by behaviour, not by the deploy's success line.** The served OpenAPI
+carries `POST /api/v1/invitations/{token}/claim-otp`, a route that exists only in
+this build — that single fact proves the new revision is the one answering, which
+is the check the 00019 incident above exists to enforce. Also confirmed on the
+live spec: `participants.profileId` is `nullable: true` (migration 0032), and the
+calendar item carries `taskId` and `completed`. `/api/v1/events` is still 401
+unauthenticated.
+
+### The thing this deploy caught, and it was nearly a catastrophe
+
+The 90-day stub purge keyed on `claimed_at IS NULL`. **That is not what an
+unclaimed stub is.** `POST /profiles` — the ordinary path, where a signed-in
+person creates their own profile — has never written that column; it is stamped
+only by the two CLAIM paths. So a null there means "nobody ever had cause to set
+this", which is true of **every real account ever created**.
+
+Checked against production before the reaper had run anywhere: **all six profiles
+carry `claimed_at = NULL`, including both of Ran's**, and every one has a
+`profile_members` row pointing at a real user. Under the first version of the
+query each would have become a hard-delete candidate the day it turned ninety
+days old.
+
+Fixed by requiring that no `profile_members` row carries a `user_id` — which is
+what actually distinguishes a stub, since `createPerformerStub` writes its
+membership with `user_id: null` and the invitee's email. The regression test was
+confirmed to FAIL against the old query before being committed.
+
+**The unit tests were green the whole time**, because they seeded stubs the way
+the query imagined them. One more entry for the CLAUDE.md list.
+
+### And the purge cannot run in production yet, by an unrelated gap
+
+`gcloud run services list` on `prod-showme` returns **exactly one service:
+`showme-api`**. There is no jobs service and no stream service, and the **Cloud
+Scheduler API is not enabled on the project at all**. So nothing in `apps/jobs`
+has ever run in production — not the offer expiry, not the handoff expiry, not
+share revocation, not task reminders, not the exchange-rate refresh, and not the
+new purge.
+
+That is why the bug above was latent rather than live. It also means the 90-day
+GDPR deletion is written, tested and **still not happening in production**.
+Standing up the jobs runner is a Terraform change (`infra/*.tf`), deliberately not
+done by hand here.
+
+## 2026-09-01 — migrations 0027–0031, API 00021, web app. superseded by the entry above.
 
 | | |
 |---|---|
