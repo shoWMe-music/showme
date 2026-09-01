@@ -2,9 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   GOOGLE_APP_CALENDAR_SCOPE,
   GOOGLE_CALENDAR_SCOPE,
-  GoogleAuthorizationRevokedError,
+  createAppCalendar,
   deleteCalendarEvent,
-  findOrCreateAppCalendar,
   hasAppCalendarScope,
   insertCalendarEvent,
   patchCalendarEvent,
@@ -204,34 +203,37 @@ describe("google write — editing and cancelling", () => {
 });
 
 describe("google write — the dedicated calendar", () => {
-  it("reuses the shoWMe calendar when it already exists", async () => {
-    const { calls, implementation } = recordingFetch({
-      items: [
-        { id: "other-cal", summary: "Family" },
-        { id: "showme-cal", summary: "shoWMe" },
-      ],
-    });
+  it("CREATES the calendar without listing first, because the scope forbids listing", async () => {
+    const { calls, implementation } = recordingFetch({ id: "showme-cal" });
 
-    const id = await findOrCreateAppCalendar({
+    const id = await createAppCalendar({
       accessToken: "token",
       summary: "shoWMe",
       fetchImplementation: implementation,
     });
 
     expect(id).toBe("showme-cal");
-    // One call: it found it and did not create a second one.
+    // ONE call, and it is the insert. An earlier version listed
+    // `users/me/calendarList` first to find an existing calendar — but that method
+    // is NOT authorized under `calendar.app.created` (checked against Google's
+    // reference), so it would have answered 403 on every call. Worse, `googleWrite`
+    // maps 403 to GoogleAuthorizationRevokedError, which the sync reacts to by
+    // marking the connection as needing reconnection — so the first push would
+    // have told every user their working Google connection had been revoked.
     expect(calls).toHaveLength(1);
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toMatch(/\/calendars$/);
+    expect(calls.some((call) => call.url.includes("calendarList"))).toBe(false);
   });
 
-  it("raises the revoked-grant error when the scope is missing, rather than half-creating", async () => {
-    const { implementation } = recordingFetch({ error: "forbidden" }, 403);
-
+  it("refuses to invent an id when Google does not return one", async () => {
+    const { implementation } = recordingFetch({});
     await expect(
-      findOrCreateAppCalendar({
+      createAppCalendar({
         accessToken: "token",
         summary: "shoWMe",
         fetchImplementation: implementation,
       }),
-    ).rejects.toBeInstanceOf(GoogleAuthorizationRevokedError);
+    ).rejects.toThrow(/no id/);
   });
 });

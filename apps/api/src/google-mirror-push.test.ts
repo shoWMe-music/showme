@@ -275,6 +275,41 @@ describe("pushMirroredEvents", () => {
     expect(mirrors).toHaveLength(0);
   });
 
+  it("forgets the calendar id when the user deleted our calendar, so the next sync remakes it", async () => {
+    const seeded = await seedConnectionWithEvent("mirror-deleted-cal", {
+      status: "confirmed",
+      eventDate: "2027-03-01",
+    });
+    await harness.db
+      .update(schema.calendarConnections)
+      .set({ appCalendarId: "showme-cal-gone" })
+      .where(eq(schema.calendarConnections.id, seeded.connection.id));
+
+    // Google answers 404 for every write: the calendar we stored is not there.
+    const gone = (async () =>
+      new Response(JSON.stringify({ error: "notFound" }), {
+        status: 404,
+      })) as unknown as typeof fetch;
+
+    const result = await pushMirroredEvents(
+      harness.db,
+      integrationWith(gone),
+      { ...seeded.connection, appCalendarId: "showme-cal-gone" },
+      "token",
+      NOW,
+    );
+
+    // It stops rather than collecting the same 404 once per show...
+    expect(result.created).toBe(0);
+    // ...and forgets the id, so the next run creates a fresh calendar instead of
+    // failing forever against one the user deliberately deleted.
+    const [after] = await harness.db
+      .select()
+      .from(schema.calendarConnections)
+      .where(eq(schema.calendarConnections.id, seeded.connection.id));
+    expect(after?.appCalendarId).toBeNull();
+  });
+
   it("has nothing to mirror for an undated event", async () => {
     const seeded = await seedConnectionWithEvent("mirror-undated", {
       status: "confirmed",

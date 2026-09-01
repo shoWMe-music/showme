@@ -9,9 +9,10 @@ import {
   recordMirrorPush,
 } from "./external-calendar";
 import {
+  GoogleApiError,
   GoogleAuthorizationRevokedError,
+  createAppCalendar,
   deleteCalendarEvent,
-  findOrCreateAppCalendar,
   hasAppCalendarScope,
   insertCalendarEvent,
   patchCalendarEvent,
@@ -199,12 +200,13 @@ export async function pushMirroredEvents(
 
   const fetchImplementation = integration.googleOAuthClient.fetchImplementation;
 
-  // Find (or make) our calendar once per sync, and remember it. The listing this
-  // performs is itself a 403 without the app-calendar scope, which is the second
-  // reason the guard above comes first rather than letting the call fail.
+  // MAKE our calendar once, and remember it forever after. It cannot be looked
+  // up: `calendarList.list` is NOT authorized under `calendar.app.created`
+  // (checked against Google's reference, 2026-09-01), which is precisely why
+  // `calendar_connections.app_calendar_id` exists. See `createAppCalendar`.
   let calendarId = connection.appCalendarId;
   if (!calendarId) {
-    calendarId = await findOrCreateAppCalendar({
+    calendarId = await createAppCalendar({
       accessToken,
       summary: APP_CALENDAR_SUMMARY,
       fetchImplementation,
@@ -218,93 +220,134 @@ export async function pushMirroredEvents(
   const result: MirrorPushResult = { created: 0, updated: 0, removed: 0, skippedStale: 0 };
 
   for (const { event, mirror } of await mirrorableEvents(database, connection.profileId, now)) {
-    const cancelled = !MIRRORED_EVENT_STATUSES.has(event.status);
-
-    // A show that stopped being a show: take the copy back off their calendar.
-    // Only meaningful when we put one there — there is nothing to withdraw
-    // otherwise, and a cancelled event that was never mirrored is not a task.
-    if (cancelled) {
-      if (!mirror) continue;
-      await deleteCalendarEvent({
+    try {
+      await pushOneEvent(database, {
         accessToken,
         calendarId,
-        eventId: mirror.providerEventId,
         fetchImplementation,
-      });
-      await database
-        .delete(schema.externalCalendarMirrors)
-        .where(
-          and(
-            eq(schema.externalCalendarMirrors.provider, connection.provider),
-            eq(schema.externalCalendarMirrors.providerCalendarId, calendarId),
-            eq(schema.externalCalendarMirrors.providerEventId, mirror.providerEventId),
-          ),
-        );
-      result.removed += 1;
-      continue;
-    }
-
-    const payload = mirrorPayloadForEvent(event);
-    // An undated event has nothing to mirror; the seam already refuses to invent
-    // a day for one, and this is what that refusal means here.
-    if (!payload) continue;
-
-    const write = {
-      summary: payload.title,
-      date: payload.date,
-      startTime: payload.startTime,
-      endTime: payload.endTime,
-      timeZone: payload.timezone,
-      location: payload.location,
-    };
-
-    if (!mirror) {
-      const written = await insertCalendarEvent({
-        accessToken,
-        calendarId,
-        event: write,
-        // Nobody is invited to a mirrored show: it is a copy for the owner's own
-        // calendar, not an invitation to anyone. Attendee mail belongs to the
-        // appointment flow, which is a different feature with a different consent.
-        notifyAttendees: false,
-        fetchImplementation,
-      });
-      await recordMirrorPush(database, {
-        eventId: event.id,
         provider: connection.provider,
-        providerCalendarId: calendarId,
-        providerEventId: written.eventId,
+        event,
+        mirror,
+        result,
       });
-      result.created += 1;
-      continue;
+    } catch (error) {
+      // THE USER DELETED OUR CALENDAR — which they are entitled to do, and half
+      // the reason we made a separate one. Every write then 404s against an id we
+      // still have stored. Forget it so the next sync makes a fresh calendar, and
+      // stop here rather than grinding through the window collecting the same
+      // error once per show.
+      const status = error instanceof GoogleApiError ? error.status : null;
+      if (status === 404 || status === 410) {
+        await database
+          .update(schema.calendarConnections)
+          .set({ appCalendarId: null })
+          .where(eq(schema.calendarConnections.id, connection.id));
+        return result;
+      }
+      throw error;
     }
+  }
 
-    // THE FAR SIDE MOVED. Skip and count it — never overwrite. The user edited
-    // their own copy, and an integration that quietly reverts a person's edit
-    // teaches them not to trust it.
-    if (mirrorIsStale(mirror)) {
-      result.skippedStale += 1;
-      continue;
-    }
+  return result;
+}
 
-    await patchCalendarEvent({
+/** One show's copy, brought into line. Mutates `result` with what it did. */
+async function pushOneEvent(
+  database: Database,
+  input: {
+    accessToken: string;
+    calendarId: string;
+    fetchImplementation?: typeof fetch;
+    provider: string;
+    event: MirrorableEvent & { status: string };
+    mirror: { providerEventId: string; pushedAt: Date; remoteUpdatedAt: Date | null } | null;
+    result: MirrorPushResult;
+  },
+): Promise<void> {
+  const { accessToken, calendarId, fetchImplementation, provider, event, mirror, result } = input;
+
+  // A show that stopped being a show: take the copy back off their calendar.
+  // Only meaningful when we put one there — a cancelled event that was never
+  // mirrored is not a task.
+  if (!MIRRORED_EVENT_STATUSES.has(event.status)) {
+    if (!mirror) return;
+    await deleteCalendarEvent({
       accessToken,
       calendarId,
       eventId: mirror.providerEventId,
+      fetchImplementation,
+    });
+    await database
+      .delete(schema.externalCalendarMirrors)
+      .where(
+        and(
+          eq(schema.externalCalendarMirrors.provider, provider),
+          eq(schema.externalCalendarMirrors.providerCalendarId, calendarId),
+          eq(schema.externalCalendarMirrors.providerEventId, mirror.providerEventId),
+        ),
+      );
+    result.removed += 1;
+    return;
+  }
+
+  const payload = mirrorPayloadForEvent(event);
+  // An undated event has nothing to mirror; the seam already refuses to invent a
+  // day for one, and this is what that refusal means here.
+  if (!payload) return;
+
+  const write = {
+    summary: payload.title,
+    date: payload.date,
+    startTime: payload.startTime,
+    endTime: payload.endTime,
+    timeZone: payload.timezone,
+    location: payload.location,
+  };
+
+  if (!mirror) {
+    const written = await insertCalendarEvent({
+      accessToken,
+      calendarId,
       event: write,
+      // Nobody is invited to a mirrored show: it is a copy for the owner's own
+      // calendar, not an invitation to anyone. Attendee mail belongs to the
+      // appointment flow, which is a different feature with a different consent.
       notifyAttendees: false,
       fetchImplementation,
     });
     await recordMirrorPush(database, {
       eventId: event.id,
-      provider: connection.provider,
+      provider,
       providerCalendarId: calendarId,
-      providerEventId: mirror.providerEventId,
+      providerEventId: written.eventId,
     });
-    result.updated += 1;
+    result.created += 1;
+    return;
   }
 
-  return result;
+  // THE FAR SIDE MOVED. Skip and count it — never overwrite. The user edited
+  // their own copy, and an integration that quietly reverts a person's edit
+  // teaches them not to trust it.
+  if (mirrorIsStale(mirror)) {
+    result.skippedStale += 1;
+    return;
+  }
+
+  await patchCalendarEvent({
+    accessToken,
+    calendarId,
+    eventId: mirror.providerEventId,
+    event: write,
+    notifyAttendees: false,
+    fetchImplementation,
+  });
+  await recordMirrorPush(database, {
+    eventId: event.id,
+    provider,
+    providerCalendarId: calendarId,
+    providerEventId: mirror.providerEventId,
+  });
+  result.updated += 1;
 }
 
 /**
