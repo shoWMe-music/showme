@@ -4,7 +4,55 @@ The standing answer to "what's deployed where". Update it when that changes.
 Account/project map and the domain history live in
 [handoff-2026-08-23-marketing-and-hosting.md](./handoff-2026-08-23-marketing-and-hosting.md).
 
-## 2026-09-01 (later) — migrations 0032–0033, API 00022, web app. THIS IS CURRENT.
+## 2026-09-01 (end of session) — migration 0034, API 00027, both sites. THIS IS CURRENT.
+
+Six API revisions went out in one session. Each is listed because the *reason*
+matters more than the number when something later looks wrong.
+
+| Revision | What it carried |
+|---|---|
+| `00022-lj4` | migrations 0032–0033: the GDPR stub purge, the OTP claim, calendar↔tasks, invite credits |
+| `00023-dks` | **stopped publishing the hours of somebody's day** — `busyTimes` removed from the public availability payload |
+| `00024-z7n` | migration 0034: shoWMe shows push out to the user's own Google calendar (gated off) |
+| `00025-jzd` | the app-calendar push no longer 403s and mis-reports it as a revoked grant |
+| `00026-qbw` | seats are counted, and `editor` costs one |
+| `00027-gsv` | seats reported on `cap-status`, so the ceiling is visible before it is hit |
+
+**Database: 35 rows** in `drizzle.__drizzle_migrations` (through 0034). Backups
+`1788252441485` and `1788256506985` taken before 0032–0033 and 0034 respectively.
+Verified by real objects each time: `event_participants.display_name` +
+nullable `profile_id`, `invitation_otps`, `profiles_unclaimed_created_idx`,
+`calendar_connections.app_calendar_id`.
+
+**Web app** `showme-app.web.app` on `music-showme` — bundle `index-BaaOHEQs.js`,
+matched against the local build. **Marketing** `www.showme.music` on the **gmail
+account's** `showme-production` — redeployed for the privacy policy's new section
+9 (connected calendars), which the OAuth verification submission depends on. Both
+verified live afterwards, not from the deploy's success line.
+
+### Two things a later session must not re-learn the hard way
+
+**`claimed_at IS NULL` does not mean "unclaimed stub".** `POST /profiles` has
+never written that column — it is stamped only by the two claim paths. All six
+production profiles carry a null there, including both of Ran's. The first
+version of the GDPR purge would have hard-deleted every account on the platform
+as it turned ninety days old. The real test is whether any `profile_members` row
+carries a `user_id`. See `packages/db/src/stub-purge.ts`.
+
+**Nothing in `apps/jobs` has ever run in production.** `prod-showme` has exactly
+one Cloud Run service, `showme-api`, and the Cloud Scheduler API is not enabled
+on the project at all. So the offer expiry, handoff expiry, share revocation,
+task reminders, exchange-rate refresh **and the new GDPR purge** are all written,
+tested, and not happening. Standing the runner up is a Terraform change.
+
+### Google Calendar is still Internal
+`orgInternalOnly: true` on the `prod-showme` consent screen, so only
+`@showme.music` accounts can connect one — production has **zero**
+`calendar_connections` rows, which is what that predicts. The outbound push is
+gated behind `GOOGLE_APP_CALENDAR_ENABLED` (unset) and stays inert until an
+External client is verified. ClickUp `86cbcet5w` carries the submission pack.
+
+## 2026-09-01 (earlier) — migrations 0032–0033, API 00022, web app. Superseded by the entry above.
 
 | | |
 |---|---|
