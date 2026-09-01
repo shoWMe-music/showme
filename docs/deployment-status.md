@@ -4,6 +4,42 @@ The standing answer to "what's deployed where". Update it when that changes.
 Account/project map and the domain history live in
 [handoff-2026-08-23-marketing-and-hosting.md](./handoff-2026-08-23-marketing-and-hosting.md).
 
+## 2026-09-01 — migrations 0027–0031, API 00021, web app. THIS IS CURRENT.
+
+| | |
+|---|---|
+| Backup | On-demand **`1788244448191`**, polled to SUCCESSFUL before anything ran. |
+| Database | **27 → 32** rows in `drizzle.__drizzle_migrations` (0027–0031). 32 files on disk, 32 applied. Verified per-migration, not by the success line: `task_reminders` dropped, `stages.capacity_setups` added, `deals.status` present, `booking_requests.wanted_date` NOT NULL with `read_at` + `read_by_user_id`. |
+| Data after | 9 events, 6 profiles, 4 settlements, 3 stages, 2 notifications, 0 deals, 0 booking_requests. |
+| API | **`showme-api-00021-9h4`**, serving 100%. Six secrets bound, `MAPBOX_ACCESS_TOKEN` newly among them. |
+| Web app | `showme-app.web.app` on `music-showme` — live bundle hash matched the local build. |
+| Marketing | **Untouched**, deliberately. Still 200. Different project, different account. |
+
+**Migration 0031 refused to run at first, by design** — two dateless
+`booking_requests` (both Ran's tests, both terminal, the only two rows). Deleted
+in a transaction scoped to `dateless AND terminal AND public_form`. Zero inbound
+FKs, so nothing cascaded.
+
+**A 500 was introduced and fixed the same hour.** `GET /public/profiles/:slug`
+threw "The default Firebase app does not exist" — `initializeApp()` had been a
+side effect of verifying a token, so a PUBLIC route left Firebase uninitialised
+and the storage signer failed. Fixed in `lib/firebase-app.ts`.
+
+> **THE VERIFICATION TRAP, and it nearly hid that bug.** Immediately after
+> deploying revision 00019 the route returned **200** — from a warm instance of
+> the PREVIOUS revision, still serving during the traffic shift. Rolling back to
+> 00019 reproduced the 500. **Wait for the rollout to settle, or confirm which
+> revision answered, before believing a post-deploy check.**
+
+**And `update-traffic --to-revisions` PINS traffic.** After a rollback, every
+later deploy lands at 0% until `update-traffic --to-latest` releases the pin —
+the deploy "succeeds" and changes nothing.
+
+**Secrets are granted PER-SECRET here**, not project-wide: a new secret needs its
+own `secretAccessor` binding for `680839076083-compute@developer.gserviceaccount.com`
+or the revision fails at startup. Wire with `--update-secrets`; `--set-secrets`
+replaces the whole set and would drop `DATABASE_URL`.
+
 ## 2026-08-27 — the domain move is STAGED, waiting on three DNS records
 
 `www.showme.music` and `showme.music` are now claimed on **`music-showme`**

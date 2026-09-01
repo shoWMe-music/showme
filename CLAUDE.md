@@ -76,6 +76,35 @@ failure and exited 0; the same run unpiped exits 1.
 - **Or do not pipe** — redirect to a file and grep that, so the real status survives.
 - A count is only evidence if you also know the baseline. "784 passed" means nothing without "up from 770".
 
+## Green is not the same as correct — ask what the check CAN fail on
+Four times in one week a suite was green over real breakage, always because the
+assertion was structurally incapable of failing on that shape. `scrollWidth <=
+clientWidth` cannot fail on anything `position: fixed` (every modal overhung
+every phone), on anything an `overflow: hidden` ancestor clips (three tables
+amputated their last column), or on a pseudo-element (touch overlays are
+invisible to it) — and a screen the sweep never visits is not covered at all
+(a 482px overflow sat on the Budget Planner for weeks). **When something passes,
+ask what it is capable of failing on. Green means "the thing I measured was
+fine", never "the app is fine".**
+
+Two more ways a check lies, both measured here:
+- **CI renders text ~10% wider than macOS.** A layout that fits locally with no
+  headroom fails there. A test that passes with zero headroom is not passing, it
+  is pending — fix by removing the floor (`minmax(0, 1fr)`, `min-width: 0`), not
+  by buying pixels.
+- **A post-deploy check can be answered by the revision you just replaced.** A
+  warm instance serves during the traffic shift. Wait for the rollout, or
+  confirm which revision answered.
+
+## An error at the end of a tunnel may belong to the tunnel
+`cloud-sql-proxy` authenticates with **Application Default Credentials**, which
+`gcloud auth login` does NOT refresh. A stale ADC surfaces as
+`password authentication failed for user "postgres"` — indistinguishable from a
+wrong password, and it nearly cost a rotation of a working production one. Four
+credentials expire independently: `gcloud auth login`, `gcloud auth
+application-default login`, and `firebase login` **per account** (use
+`firebase login:add` for a second account — `--reauth` REPLACES the first).
+
 ## Review gate — after every agent, before the work is accepted
 An agent finishing is not the work landing. Review its diff against the bar below **before** committing it,
 and fix or hand back what fails. This is cheapest at the moment of introduction, while the diff is small and
