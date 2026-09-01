@@ -268,6 +268,8 @@ import type {
   PostApiV1InvitationsIdRevoke200,
   PostApiV1InvitationsTokenAccept200,
   PostApiV1InvitationsTokenClaim200,
+  PostApiV1InvitationsTokenClaimBody,
+  PostApiV1InvitationsTokenClaimOtp200,
   PostApiV1InvitationsTokenDecline200,
   PostApiV1Invoices201,
   PostApiV1InvoicesBody,
@@ -8842,14 +8844,73 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    export const postApiV1InvitationsTokenClaim = (
+    export const postApiV1InvitationsTokenClaimOtp = (
     token: string,
  signal?: AbortSignal
 ) => {
       
       
+      return customFetch<PostApiV1InvitationsTokenClaimOtp200>(
+      {url: `/api/v1/invitations/${token}/claim-otp`, method: 'POST', signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1InvitationsTokenClaimOtpMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1InvitationsTokenClaimOtp>>, TError,{token: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1InvitationsTokenClaimOtp>>, TError,{token: string}, TContext> => {
+
+const mutationKey = ['postApiV1InvitationsTokenClaimOtp'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1InvitationsTokenClaimOtp>>, {token: string}> = (props) => {
+          const {token} = props ?? {};
+
+          return  postApiV1InvitationsTokenClaimOtp(token,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1InvitationsTokenClaimOtpMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1InvitationsTokenClaimOtp>>>
+    
+    export type PostApiV1InvitationsTokenClaimOtpMutationError = unknown
+
+    export const usePostApiV1InvitationsTokenClaimOtp = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1InvitationsTokenClaimOtp>>, TError,{token: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1InvitationsTokenClaimOtp>>,
+        TError,
+        {token: string},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1InvitationsTokenClaimOtpMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const postApiV1InvitationsTokenClaim = (
+    token: string,
+    postApiV1InvitationsTokenClaimBody: PostApiV1InvitationsTokenClaimBody,
+ signal?: AbortSignal
+) => {
+      
+      
       return customFetch<PostApiV1InvitationsTokenClaim200>(
-      {url: `/api/v1/invitations/${token}/claim`, method: 'POST', signal
+      {url: `/api/v1/invitations/${token}/claim`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: postApiV1InvitationsTokenClaimBody, signal
     },
       );
     }
@@ -8857,8 +8918,8 @@ const {mutation: mutationOptions} = options ?
 
 
 export const getPostApiV1InvitationsTokenClaimMutationOptions = <TError = unknown,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1InvitationsTokenClaim>>, TError,{token: string}, TContext>, }
-): UseMutationOptions<Awaited<ReturnType<typeof postApiV1InvitationsTokenClaim>>, TError,{token: string}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1InvitationsTokenClaim>>, TError,{token: string;data: PostApiV1InvitationsTokenClaimBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1InvitationsTokenClaim>>, TError,{token: string;data: PostApiV1InvitationsTokenClaimBody}, TContext> => {
 
 const mutationKey = ['postApiV1InvitationsTokenClaim'];
 const {mutation: mutationOptions} = options ?
@@ -8870,10 +8931,10 @@ const {mutation: mutationOptions} = options ?
       
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1InvitationsTokenClaim>>, {token: string}> = (props) => {
-          const {token} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1InvitationsTokenClaim>>, {token: string;data: PostApiV1InvitationsTokenClaimBody}> = (props) => {
+          const {token,data} = props ?? {};
 
-          return  postApiV1InvitationsTokenClaim(token,)
+          return  postApiV1InvitationsTokenClaim(token,data,)
         }
 
         
@@ -8882,15 +8943,15 @@ const {mutation: mutationOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type PostApiV1InvitationsTokenClaimMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1InvitationsTokenClaim>>>
-    
+    export type PostApiV1InvitationsTokenClaimMutationBody = PostApiV1InvitationsTokenClaimBody
     export type PostApiV1InvitationsTokenClaimMutationError = unknown
 
     export const usePostApiV1InvitationsTokenClaim = <TError = unknown,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1InvitationsTokenClaim>>, TError,{token: string}, TContext>, }
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1InvitationsTokenClaim>>, TError,{token: string;data: PostApiV1InvitationsTokenClaimBody}, TContext>, }
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof postApiV1InvitationsTokenClaim>>,
         TError,
-        {token: string},
+        {token: string;data: PostApiV1InvitationsTokenClaimBody},
         TContext
       > => {
 

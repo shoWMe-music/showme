@@ -523,3 +523,62 @@ export function renderNotificationEmail(input: {
       "You received this because your shoWMe notification settings allow email for this kind of update. Change them in Settings → Notifications.",
   });
 }
+
+/**
+ * The code that proves control of an invited address, before that address's
+ * account may be claimed (`POST /invitations/:token/claim-otp`, migration 0033).
+ *
+ * Deliberately says nothing about WHAT is being claimed — not the profile, not
+ * the event, not who invited them. Whoever holds the link already knows; whoever
+ * received this email by mistake should learn nothing from it, and this is the
+ * one message that goes to an address we have never verified.
+ */
+export function renderInvitationClaimCodeEmail(input: {
+  code: string;
+  expiresInMinutes: number;
+}): RenderedEmail {
+  return render({
+    subject: "Your shoWMe account claim code",
+    preheader: `This code expires in ${input.expiresInMinutes} minutes.`,
+    heading: "Confirm this is your address",
+    paragraphs: [
+      `Enter this code to finish claiming the shoWMe account set up for this address. It expires in ${input.expiresInMinutes} minutes.`,
+      "You can then sign in with whichever email address you prefer — this one only proves the invitation reached you.",
+    ],
+    callout: { label: "Claim code", value: input.code },
+    footerNote:
+      "If you were not expecting this, ignore this email. Nothing can be claimed without the code.",
+  });
+}
+
+/**
+ * "This account was claimed by [Name] on [Date]" — sent to the address the
+ * invitation was ORIGINALLY addressed to, after somebody claims it.
+ *
+ * Ran's spec files this under transparency, and it is also the safety net for the
+ * rule above: the claimant may now sign up under a different address, so the
+ * invited address has to be told what became of the account offered to it. Sent
+ * on EVERY claim, not only the ones attached to an event.
+ */
+export function renderInvitationClaimedEmail(input: {
+  claimantName?: string | null;
+  claimedAt: Date;
+  targetName?: string | null;
+}): RenderedEmail {
+  const who = input.claimantName?.trim() || "Someone";
+  const when = input.claimedAt.toISOString().slice(0, 10);
+  const what = input.targetName?.trim();
+  return render({
+    subject: what ? `${what} has been claimed on shoWMe` : "Your shoWMe invitation was claimed",
+    preheader: `Claimed by ${who} on ${when}.`,
+    heading: "The account has been claimed",
+    paragraphs: [
+      what
+        ? `${who} claimed the shoWMe account for ${what} on ${when}.`
+        : `${who} claimed the shoWMe account invited at this address on ${when}.`,
+      "They confirmed this address with a one-time code before claiming it, and may be signed in under a different email.",
+    ],
+    footerNote:
+      "If this was not you or somebody you know, reply to this email and we will look into it.",
+  });
+}

@@ -132,6 +132,12 @@ non-users). Drop it — in Postgres the token principal + serializer read **live
 - **Claiming** = one `UPDATE profiles SET owner_user_id=:uid, claimed_at=now() WHERE id=:stub` — no cross-doc
   repointing, no `accessUids`/`accessProfileIds` rewrite (access is a join). Deletes a large chunk of legacy LOC.
 - Account's email must be **verified** to inherit shared access (Firebase verification / the passed OTP proves it).
+- **The claiming account no longer has to BE the invited address** (2026-09-01, decisions #18). Control of the
+  invited address is proved once, with a one-time code sent to it (`POST /invitations/:token/claim-otp`,
+  `invitation_otps`, migration 0033); the account that then takes ownership may be any Firebase-verified address.
+  The old rule — signed-in address must equal the invited one — made a venue invited at `info@` unclaimable by the
+  person who runs it. `claimStubsForEmail` still matches on the invited address, so an inherited stub is linked by
+  the address it was minted with, not by whatever the claimant signed up as.
 
 ## Venue handoff = the delegation case
 

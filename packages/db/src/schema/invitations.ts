@@ -1,4 +1,12 @@
-import { type AnyPgColumn, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  type AnyPgColumn,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { permissionSets } from "./authorization";
 import { invitationSource, invitationStatus, invitationType } from "./enums";
 import { events } from "./events";
@@ -56,4 +64,44 @@ export const contacts = pgTable("contacts", {
   invitationId: uuid("invitation_id").references((): AnyPgColumn => invitations.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * A one-time code proving control of the address an invitation was SENT to.
+ *
+ * WHY THIS EXISTS. Claiming an invited account used to require signing in with
+ * the invited address itself (`assertInvitationRecipient`) — which is airtight
+ * and, in practice, wrong: a venue is invited at `info@`, and the person who runs
+ * it signs up as themselves. Ran's spec went the other way and made the link the
+ * only credential, which hands the account to whoever the email is forwarded to.
+ *
+ * Daniel, 2026-09-01, choosing neither: "The email must verify it. So some type
+ * of OTP. But they should be able to change the email." So control of the invited
+ * address is proved ONCE, by a code sent to it, and the account it becomes may
+ * then be any address the claimant likes. A forwarded link is not enough, because
+ * the code goes to the original address and not to whoever received the forward.
+ *
+ * Modelled on `share_otps`, down to the two counters, because the reasoning there
+ * was paid for once already (migration 0018): `attempts` is wrong guesses against
+ * the live code, `issues` is codes sent inside the window, and they are separate
+ * so that asking for a fresh code cannot reset the hour. The row is never deleted
+ * while its window is open, for the same reason. There is no `email_hash` column —
+ * unlike a share, an invitation names exactly one address, so the invitation IS
+ * the key.
+ */
+export const invitationOtps = pgTable("invitation_otps", {
+  invitationId: uuid("invitation_id")
+    .primaryKey()
+    .references(() => invitations.id, { onDelete: "cascade" }),
+  codeHash: text("code_hash").notNull(),
+  salt: text("salt").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  /** Wrong guesses against the code that is live right now. Max 5, then spent. */
+  attempts: integer("attempts").notNull().default(0),
+  /** Codes SENT inside the current window. Max 3 — its own counter, so a fresh
+   *  code cannot reset the hour by resetting `attempts`. */
+  issues: integer("issues").notNull().default(0),
+  /** Set when the code is spent — verified, or burnt out on wrong guesses. */
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  rateWindowStart: timestamp("rate_window_start", { withTimezone: true }),
 });

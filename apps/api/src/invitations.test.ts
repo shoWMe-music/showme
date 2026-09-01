@@ -27,11 +27,61 @@ const fakeVerifier: TokenVerifier = {
 let harness: TestDatabase;
 let app: FastifyInstance;
 
+/**
+ * Every email the shared app sends. Needed since the claim flow stopped being
+ * "sign in as the invited address" and became "prove that address with a code":
+ * the code exists only in the message, by design — it is stored salted-hashed —
+ * so a test that claims has to read it the way a person would.
+ */
+const sentFromApp: EmailMessage[] = [];
+
 beforeAll(async () => {
   harness = await startTestDatabase();
-  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [invitationRoutes]);
+  app = buildTestApp(
+    {
+      database: harness.db,
+      tokenVerifier: fakeVerifier,
+      emailSink: {
+        async sendEmail(message) {
+          sentFromApp.push(message);
+        },
+      },
+    },
+    [invitationRoutes],
+  );
   await app.ready();
 });
+
+/**
+ * Ask for a claim code and read it out of the email, exactly as the recipient
+ * would. Returns the six digits.
+ */
+async function requestClaimCode(token: string, uid: string): Promise<string> {
+  const before = sentFromApp.length;
+  const issued = await app.inject({
+    method: "POST",
+    url: `/api/v1/invitations/${token}/claim-otp`,
+    headers: auth(uid),
+  });
+  if (issued.statusCode !== 200) {
+    throw new Error(`claim-otp failed: ${issued.statusCode} ${issued.body}`);
+  }
+  const message = sentFromApp.slice(before).at(-1);
+  const code = message?.text?.match(/\b\d{6}\b/)?.[0] ?? message?.html?.match(/\b\d{6}\b/)?.[0];
+  if (!code) throw new Error("no claim code in the email");
+  return code;
+}
+
+/** Claim, doing the two steps the route now requires. */
+async function claimWith(token: string, uid: string) {
+  const otp = await requestClaimCode(token, uid);
+  return app.inject({
+    method: "POST",
+    url: `/api/v1/invitations/${token}/claim`,
+    headers: auth(uid),
+    payload: { otp },
+  });
+}
 
 afterAll(async () => {
   await app?.close();
@@ -327,11 +377,7 @@ describe("invitations — create, redeem, decline", () => {
       .returning();
     if (!invite) throw new Error("invite seed failed");
 
-    const claimed = await app.inject({
-      method: "POST",
-      url: "/api/v1/invitations/claim-token-abc/claim",
-      headers: auth("claim-user"),
-    });
+    const claimed = await claimWith("claim-token-abc", "claim-user");
     expect(claimed.statusCode).toBe(200);
     expect(claimed.json().status).toBe("used");
 
@@ -1341,12 +1387,32 @@ describe("invitations — the invitation is bound to the address it names", () =
       .returning();
     if (!invitation) throw new Error("invitation seed failed");
 
+    // THE RULE THIS ASSERTS CHANGED ON 2026-09-01, and it is worth being precise
+    // about how. It used to be "your signed-in address must equal the invited
+    // one", which stopped this stranger — and also stopped the person who runs a
+    // venue invited at `info@` from ever claiming it. It is now "prove the
+    // invited address with a code that was sent to it", so what stops the
+    // stranger is that the code did not come to them.
     const response = await app.inject({
       method: "POST",
       url: "/api/v1/invitations/bind-claim-token/claim",
       headers: auth("bind-claim-stranger"),
+      payload: { otp: "000000" },
     });
     expect(response.statusCode).toBe(403);
+
+    // And the code goes to the INVITED address — never to the caller's, which is
+    // the property the whole rule rests on. Asking for one as a stranger tells
+    // them nothing and mails them nothing.
+    const before = sentFromApp.length;
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations/bind-claim-token/claim-otp",
+      headers: auth("bind-claim-stranger"),
+    });
+    expect(sentFromApp.slice(before).map((message) => message.to)).toEqual([
+      "bind-claim-invitee@example.showme.test",
+    ]);
 
     const [untouched] = await db
       .select()
@@ -1355,11 +1421,7 @@ describe("invitations — the invitation is bound to the address it names", () =
     expect(untouched?.claimedAt).toBeNull();
     expect(untouched?.ownerUserId).toBe("bind-claim-host");
 
-    const claimed = await app.inject({
-      method: "POST",
-      url: "/api/v1/invitations/bind-claim-token/claim",
-      headers: auth("bind-claim-invitee"),
-    });
+    const claimed = await claimWith("bind-claim-token", "bind-claim-invitee");
     expect(claimed.statusCode).toBe(200);
   });
 
@@ -1391,6 +1453,9 @@ describe("invitations — the invitation is bound to the address it names", () =
       method: "POST",
       url: "/api/v1/invitations/bind-open-token/claim",
       headers: auth("bind-open-passerby"),
+      // A code cannot even be requested for an invitation that names nobody —
+      // there is no address to send it to — so this is any six digits.
+      payload: { otp: "000000" },
     });
     expect(response.statusCode).toBe(403);
     expect(response.json().error.message).toBe(
@@ -1581,11 +1646,7 @@ describe("GET /invitations/:token — the offer a link-holder reads", () => {
     expect(before.json().claimable).toBe(true);
     expect(before.json().targetName).toBe("Held For You");
 
-    const claimed = await app.inject({
-      method: "POST",
-      url: "/api/v1/invitations/offer-claim-token/claim",
-      headers: auth("offer-claim-invitee"),
-    });
+    const claimed = await claimWith("offer-claim-token", "offer-claim-invitee");
     expect(claimed.statusCode).toBe(200);
 
     const after = await app.inject({
@@ -1694,11 +1755,16 @@ describe("invitations — expiry and revocation", () => {
 
     // Gone, for every verb — and WITHOUT the reaper having run, which is the
     // point: the column is the authority, the sweep only tidies the status.
-    for (const verb of ["accept", "decline", "claim"]) {
+    // `claim-otp` is in the list because an expired invitation must not even be
+    // able to send a code — otherwise the dead link still puts mail in somebody's
+    // inbox. `claim` carries a body because the route requires one; the value is
+    // irrelevant, since the invitation is gone before the code is ever read.
+    for (const verb of ["accept", "decline", "claim", "claim-otp"]) {
       const response = await app.inject({
         method: "POST",
         url: `/api/v1/invitations/expiry-bite-token/${verb}`,
         headers: auth("expiry-bite-invitee"),
+        payload: verb === "claim" ? { otp: "000000" } : undefined,
       });
       expect(response.statusCode).toBe(404);
     }
@@ -1903,11 +1969,7 @@ describe("invitations — claiming links the stub's own membership", () => {
       createdByUser: "link-host",
     });
 
-    const claimed = await app.inject({
-      method: "POST",
-      url: "/api/v1/invitations/link-token/claim",
-      headers: auth("link-invitee"),
-    });
+    const claimed = await claimWith("link-token", "link-invitee");
     expect(claimed.statusCode).toBe(200);
 
     const members = await db
@@ -1950,11 +2012,7 @@ describe("invitations — claiming links the stub's own membership", () => {
       createdByUser: "nolink-host",
     });
 
-    const claimed = await app.inject({
-      method: "POST",
-      url: "/api/v1/invitations/nolink-token/claim",
-      headers: auth("nolink-invitee"),
-    });
+    const claimed = await claimWith("nolink-token", "nolink-invitee");
     expect(claimed.statusCode).toBe(200);
 
     const members = await db
@@ -2100,5 +2158,111 @@ describe("invitations — the collaboration-credit cap", () => {
     // A venue curating its own roster is the quality filter — Ran's spec is
     // explicit that this kind is uncapped.
     expect(created.statusCode).toBe(201);
+  });
+});
+
+/**
+ * THE OTP CLAIM (ClickUp 86cbcbgbe / 86cbcbgmu, migration 0033).
+ *
+ * The behaviour that did not exist before: the invited address is PROVED with a
+ * code, and the account it becomes can then belong to a different address
+ * entirely. Every other claim test above proves the rule still holds for the
+ * ordinary case; these two prove the case it was changed for.
+ */
+describe("invitations — claiming under a different address", () => {
+  it("lets somebody claim with a code, signed in as a DIFFERENT address", async () => {
+    const { db } = harness;
+    await seedUser("otp-host", "operator");
+    // The person who actually runs the venue. Their account is their own name,
+    // not the `info@` address the invitation was sent to — which is the entire
+    // case the old equality rule made impossible.
+    await seedUser("otp-real-person", "operator");
+    const [stub] = await db
+      .insert(schema.profiles)
+      .values({
+        kind: "operator",
+        ownerUserId: "otp-host",
+        name: "The Lantern Hall",
+        slug: "otp-lantern",
+        claimedAt: null,
+      })
+      .returning();
+    if (!stub) throw new Error("stub seed failed");
+    await db.insert(schema.invitations).values({
+      type: "profile_member",
+      source: "venue_handoff",
+      status: "pending",
+      token: "otp-different-token",
+      recipientEmail: "info@lanternhall.test",
+      targetProfileId: stub.id,
+      createdByUser: "otp-host",
+    });
+
+    const claimed = await claimWith("otp-different-token", "otp-real-person");
+    expect(claimed.statusCode).toBe(200);
+
+    const [after] = await db.select().from(schema.profiles).where(eq(schema.profiles.id, stub.id));
+    expect(after?.ownerUserId).toBe("otp-real-person");
+    expect(after?.claimedAt).not.toBeNull();
+  });
+
+  it("refuses a wrong code, and tells the invited address once it IS claimed", async () => {
+    const { db } = harness;
+    await seedUser("otp-notice-host", "operator");
+    await seedUser("otp-notice-claimer", "operator");
+    const [stub] = await db
+      .insert(schema.profiles)
+      .values({
+        kind: "operator",
+        ownerUserId: "otp-notice-host",
+        name: "Notice Hall",
+        slug: "otp-notice",
+        claimedAt: null,
+      })
+      .returning();
+    if (!stub) throw new Error("stub seed failed");
+    await db.insert(schema.invitations).values({
+      type: "profile_member",
+      source: "venue_handoff",
+      status: "pending",
+      token: "otp-notice-token",
+      recipientEmail: "desk@noticehall.test",
+      targetProfileId: stub.id,
+      createdByUser: "otp-notice-host",
+    });
+
+    // A real code exists, and a wrong guess is still refused.
+    const realCode = await requestClaimCode("otp-notice-token", "otp-notice-claimer");
+    const wrong = String((Number(realCode) + 1) % 1000000).padStart(6, "0");
+    const refused = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations/otp-notice-token/claim",
+      headers: auth("otp-notice-claimer"),
+      payload: { otp: wrong },
+    });
+    expect(refused.statusCode).toBe(403);
+    const [stillUnclaimed] = await db
+      .select()
+      .from(schema.profiles)
+      .where(eq(schema.profiles.id, stub.id));
+    expect(stillUnclaimed?.claimedAt).toBeNull();
+
+    // The right code claims it, and the INVITED address is told what became of
+    // the account — the transparency half, and the safety net for the fact that
+    // the claimer's own address is now allowed to differ.
+    const before = sentFromApp.length;
+    const claimed = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations/otp-notice-token/claim",
+      headers: auth("otp-notice-claimer"),
+      payload: { otp: realCode },
+    });
+    expect(claimed.statusCode).toBe(200);
+
+    const notice = sentFromApp
+      .slice(before)
+      .find((message) => message.to === "desk@noticehall.test");
+    expect(notice).toBeDefined();
+    expect(notice?.subject).toContain("Notice Hall");
   });
 });
