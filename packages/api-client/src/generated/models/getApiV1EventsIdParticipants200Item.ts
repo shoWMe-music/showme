@@ -7,7 +7,8 @@
 
 export type GetApiV1EventsIdParticipants200Item = {
   id: string;
-  profileId: string;
+  /** @nullable */
+  profileId: string | null;
   /** @nullable */
   name: string | null;
   /** @nullable */

@@ -339,7 +339,12 @@ async function joinParticipants(
       .select()
       .from(schema.events)
       .where(eq(schema.events.id, input.eventId));
-    if (event) await autoAssignAgentOnPerformerJoin(tx, event, participant.profileId);
+    // `profile_id` is nullable since migration 0032 (an erased stub leaves a
+    // name-only row), but a participant this code just inserted always has one —
+    // the check is the type system's, and costs nothing.
+    if (event && participant.profileId) {
+      await autoAssignAgentOnPerformerJoin(tx, event, participant.profileId);
+    }
   }
   return participantIdByProfile;
 }

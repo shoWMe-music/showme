@@ -1,5 +1,5 @@
 import { schema } from "@showme/db";
-import { and, asc, eq, gte, inArray, ne, or } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -345,19 +345,31 @@ async function loadPublicLineups(
       eventId: schema.eventParticipants.eventId,
       role: schema.eventParticipants.role,
       tag: schema.eventParticipants.performerTag,
-      name: schema.profiles.name,
+      // COALESCE, not `profiles.name`: an erased participant (migration 0032)
+      // keeps its place on the bill under `display_name`, and taking the name
+      // from the profile alone would blank it.
+      name: sql<string>`coalesce(${schema.profiles.name}, ${schema.eventParticipants.displayName})`,
     })
     .from(schema.eventParticipants)
-    .innerJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
+    // LEFT, not INNER. An inner join drops every row whose profile is gone —
+    // silently, with no type error and no failing test — which is precisely the
+    // name the purge went to the trouble of keeping.
+    .leftJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
     .where(
       and(
         inArray(schema.eventParticipants.eventId, eventIds),
-        ne(schema.eventParticipants.profileId, excludeProfileId),
+        // `<> excludeProfileId` is NULL for an erased row, and a NULL predicate
+        // filters it out — so the NULL case has to be spelled out or the LEFT
+        // join above buys nothing.
+        or(
+          isNull(schema.eventParticipants.profileId),
+          ne(schema.eventParticipants.profileId, excludeProfileId),
+        ),
         eq(schema.eventParticipants.status, "confirmed"),
         inArray(schema.eventParticipants.role, [...PUBLICLY_BILLED_ACT_ROLES]),
       ),
     )
-    .orderBy(asc(schema.profiles.name));
+    .orderBy(asc(sql`coalesce(${schema.profiles.name}, ${schema.eventParticipants.displayName})`));
 
   const byEvent = new Map<string, PublicShowLineupEntry[]>();
   for (const row of rows) {

@@ -340,6 +340,12 @@ async function filingProfileId(request: FastifyRequest, eventId: string): Promis
   if (!participant) {
     throw new Error("filing capability held without a managing-operator participation");
   }
+  // The inner join to `profile_members` above cannot match an erased participant
+  // (migration 0032) — an equality join never matches a NULL `profile_id` — so
+  // this states what the query already guarantees.
+  if (!participant.profileId) {
+    throw new Error("filing participation has no profile");
+  }
   return participant.profileId;
 }
 

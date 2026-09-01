@@ -10,7 +10,8 @@
     "./publish": "./src/publish.ts",
     "./testing": "./src/testing.ts",
     "./reference-settlement": "./src/reference-settlement.ts",
-    "./representation-termination": "./src/representation-termination.ts"
+    "./representation-termination": "./src/representation-termination.ts",
+    "./stub-purge": "./src/stub-purge.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

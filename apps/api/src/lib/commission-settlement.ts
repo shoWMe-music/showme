@@ -56,6 +56,9 @@ export async function syncCommissionSettlements(
   );
 
   for (const performer of participants) {
+    // An erased participant (migration 0032) has no profile to hold a
+    // representation, so there is no commission to compute for it.
+    if (performer.profileId === null) continue;
     const details = performer.details as { delegatedToAgentProfileId?: string } | null;
     const agentProfileId = details?.delegatedToAgentProfileId;
     if (!agentProfileId) continue;

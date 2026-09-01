@@ -48,7 +48,9 @@ import { errorMessage } from "../lib/errors";
 /** The subset of a serialized participant these actions need. */
 export interface EventCollaborator {
   id: string;
-  profileId: string;
+  /** Null once the profile behind the row has been erased (API migration 0032):
+   *  a name kept on the bill, with no account left to manage. */
+  profileId: string | null;
   role: string;
   status: string;
   /** Present only for a caller who may manage the roster (`serializeParticipant`). */

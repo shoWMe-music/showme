@@ -152,7 +152,10 @@ async function resolveCallerParticipant(
   const preferred = rows.find((row) => row.profileId === principal.actingProfileId);
   const participant = preferred ?? rows[0];
   if (!participant) throw forbidden("You are not a participant on this event");
-  return participant;
+  // The inner join to `profile_members` above cannot match an erased participant
+  // (migration 0032), so a NULL here is impossible rather than merely unlikely.
+  if (!participant.profileId) throw forbidden("You are not a participant on this event");
+  return { id: participant.id, profileId: participant.profileId };
 }
 
 const CREW_ROLES = new Set(["crew", "crew_lead"]);

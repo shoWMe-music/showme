@@ -2159,7 +2159,8 @@
                         "type": "string"
                       },
                       "profileId": {
-                        "type": "string"
+                        "type": "string",
+                        "nullable": true
                       },
                       "name": {
                         "type": "string",
@@ -2269,7 +2270,8 @@
                       "type": "string"
                     },
                     "profileId": {
-                      "type": "string"
+                      "type": "string",
+                      "nullable": true
                     },
                     "name": {
                       "type": "string",
@@ -2384,7 +2386,8 @@
                       "type": "string"
                     },
                     "profileId": {
-                      "type": "string"
+                      "type": "string",
+                      "nullable": true
                     },
                     "name": {
                       "type": "string",
@@ -2503,7 +2506,8 @@
                       "type": "string"
                     },
                     "profileId": {
-                      "type": "string"
+                      "type": "string",
+                      "nullable": true
                     },
                     "name": {
                       "type": "string",
@@ -2583,7 +2587,8 @@
                       "type": "string"
                     },
                     "profileId": {
-                      "type": "string"
+                      "type": "string",
+                      "nullable": true
                     },
                     "name": {
                       "type": "string",
