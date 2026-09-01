@@ -5,6 +5,8 @@
  * Postgres per request (PLAN.md: "Keep Firebase Auth; Postgres is the brain").
  */
 
+import { ensureFirebaseApp } from "../lib/firebase-app";
+
 export interface FirebaseUser {
   uid: string;
   email?: string;
@@ -16,12 +18,6 @@ export interface FirebaseUser {
 
 export interface TokenVerifier {
   verify(idToken: string): Promise<FirebaseUser>;
-}
-
-/** Decode a service account passed either as raw JSON or base64-encoded JSON. */
-function decodeServiceAccount(value: string): Record<string, unknown> {
-  const json = value.trim().startsWith("{") ? value : Buffer.from(value, "base64").toString("utf8");
-  return JSON.parse(json);
 }
 
 /**
@@ -39,27 +35,15 @@ export function createFirebaseTokenVerifier(config: {
   const resolveAuth = () => {
     if (!authPromise) {
       authPromise = (async () => {
-        const { initializeApp, cert, applicationDefault, getApps } = await import(
-          "firebase-admin/app"
-        );
         const { getAuth } = await import("firebase-admin/auth");
-        // When the Auth emulator is targeted (FIREBASE_AUTH_EMULATOR_HOST, read
-        // automatically by firebase-admin), tokens are emulator-signed and need
-        // no real credential — initialize with the project id only. Otherwise use
-        // the service account / application-default credential as in production.
-        const usingEmulator = !!process.env.FIREBASE_AUTH_EMULATOR_HOST;
-        const app =
-          getApps()[0] ??
-          initializeApp(
-            usingEmulator
-              ? { projectId: config.projectId ?? "demo-showme" }
-              : {
-                  credential: config.serviceAccount
-                    ? cert(decodeServiceAccount(config.serviceAccount))
-                    : applicationDefault(),
-                  projectId: config.projectId,
-                },
-          );
+        // Initialisation moved to `lib/firebase-app` — it is a fact about the
+        // PROCESS, not about verifying a token. While it lived here, a public
+        // route (which carries no token) left Firebase uninitialised and the
+        // storage signer threw. See that file for the whole story.
+        const app = await ensureFirebaseApp({
+          projectId: config.projectId,
+          serviceAccount: config.serviceAccount,
+        });
         return getAuth(app);
       })();
     }

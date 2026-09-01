@@ -10,6 +10,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { serviceUnavailable } from "../errors";
+import { ensureFirebaseApp } from "./firebase-app";
 
 /**
  * An issued upload URL and the headers the client MUST send with it. The headers
@@ -74,6 +75,15 @@ export function createFakeStorageSigner(): StorageSigner {
  */
 export function createFirebaseStorageSigner(bucketName: string): StorageSigner {
   async function bucket() {
+    // MUST come before `getStorage()`. Signing is reachable from PUBLIC routes,
+    // which carry no token, so the token verifier — which used to be the only
+    // thing that ever called `initializeApp()` — never runs on that path. Without
+    // this line a published profile with an uploaded picture 500s with "The
+    // default Firebase app does not exist". Idempotent; see lib/firebase-app.
+    await ensureFirebaseApp({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      serviceAccount: process.env.FIREBASE_SERVICE_ACCOUNT,
+    });
     const { getStorage } = await import("firebase-admin/storage");
     return getStorage().bucket(bucketName);
   }
