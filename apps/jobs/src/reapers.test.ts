@@ -593,6 +593,55 @@ describe("reapUnclaimedStubs", () => {
     expect(profiles).toHaveLength(1);
   });
 
+  it("NEVER erases a real account, even though its claimed_at is null", async () => {
+    // THE BUG THIS EXISTS TO STOP, measured against production on 2026-09-01.
+    //
+    // `POST /profiles` has never written `claimed_at` — it is stamped only by the
+    // two CLAIM paths — so every genuine profile carries a null there. All six
+    // profiles in production did, including both of Ran's. The first version of
+    // this reaper treated `claimed_at IS NULL` as "unclaimed stub" and would have
+    // hard-deleted every account on the platform as it turned ninety days old.
+    //
+    // The unit tests passed the whole time, because they seeded stubs the way the
+    // query imagined them. This one seeds the shape production actually has.
+    const slug = `real-${randomUUID().slice(0, 8)}`;
+    const userId = `user-${randomUUID()}`;
+    await harness.db
+      .insert(schema.users)
+      .values({ id: userId, email: `${slug}@example.com`, kind: "operator" });
+    const [profile] = await harness.db
+      .insert(schema.profiles)
+      .values({
+        kind: "operator",
+        ownerUserId: userId,
+        name: `${slug} venue`,
+        slug,
+        // Exactly as `POST /profiles` leaves it: never written.
+        claimedAt: null,
+        createdAt: daysAgo(400),
+        createdBy: userId,
+      })
+      .returning({ id: schema.profiles.id });
+    if (!profile) throw new Error("failed to seed profile");
+    // The one thing that distinguishes it from a stub: a member with a real user.
+    await harness.db.insert(schema.profileMembers).values({
+      profileId: profile.id,
+      userId,
+      role: "owner",
+      status: "active",
+      addedBy: userId,
+    });
+
+    const result = await reapUnclaimedStubs(harness.db, NOW);
+
+    expect(result.skipped.find((entry) => entry.profileId === profile.id)).toBeUndefined();
+    const survivors = await harness.db
+      .select()
+      .from(schema.profiles)
+      .where(eq(schema.profiles.id, profile.id));
+    expect(survivors).toHaveLength(1);
+  });
+
   it("is idempotent — a second sweep finds nothing left to erase", async () => {
     const slug = `twice-${randomUUID().slice(0, 8)}`;
     await seedStub(slug, daysAgo(200));

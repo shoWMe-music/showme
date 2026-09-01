@@ -73,25 +73,55 @@ interface StubCandidate {
 }
 
 /**
- * The stubs old enough to go: unclaimed, and created more than 90 days ago.
+ * The stubs old enough to go: NOBODY BEHIND THEM, and created more than 90 days ago.
+ *
+ * ── `claimed_at IS NULL` IS NOT THE TEST, AND ASSUMING IT WAS NEARLY DELETED
+ * ── EVERY ACCOUNT IN PRODUCTION. ────────────────────────────────────────────
+ * `POST /profiles` — the ordinary path, where a signed-in person creates their
+ * own profile — has never written `claimed_at`. It is stamped only by the two
+ * CLAIM paths (`routes/invitations.ts`, `lib/off-platform.ts`), because those are
+ * the only places that had a reason to. So a null there does not mean "unclaimed
+ * stub"; it means "nobody has ever had cause to set this", which is true of every
+ * real account ever created.
+ *
+ * Measured against production on 2026-09-01, before this ran anywhere: all six
+ * profiles, including both of Ran's, had `claimed_at IS NULL`. On the first
+ * version of this query every one of them was a deletion candidate the day it
+ * turned ninety days old. The unit tests passed throughout, because they seeded
+ * stubs the way the query imagined them.
+ *
+ * THE HONEST TEST IS WHETHER A USER IS LINKED. `createPerformerStub` writes its
+ * membership with `user_id: null` and the invitee's email — that null IS the
+ * stub, and it is what `claimStubsForEmail` fills in on claim. A real profile
+ * gets an owner membership pointing at its creator in the same transaction that
+ * creates it. So: no `profile_members` row with a `user_id` means no person is
+ * behind this profile, whatever `claimed_at` says.
+ *
+ * Both conditions are kept. `claimed_at` still rules out anything that has been
+ * through a claim, and the membership check is what makes the rule true.
  *
  * The age is measured from `profiles.created_at` rather than from the invitation,
  * because a stub can outlive every invitation that ever pointed at it (they are
  * `ON DELETE CASCADE` from the profile, and a handoff can be re-sent). The
  * profile's own age is the one clock that always exists and only moves forward.
- *
- * Deliberately NOT filtered by invitation status. Ran's spec framed it as "no
- * acceptance within 90 days"; Daniel's rule is "every unclaimed stub over 90
- * days", which is the wider set and the one implemented — an invitation still
- * marked `pending` after three months is not a live conversation, it is a row
- * nobody ever answered.
  */
 export async function dueStubProfiles(db: Database, now: Date): Promise<StubCandidate[]> {
   const cutoff = new Date(now.getTime() - STUB_PURGE_DAYS * DAY_MS);
   return db
     .select({ id: schema.profiles.id, name: schema.profiles.name })
     .from(schema.profiles)
-    .where(and(isNull(schema.profiles.claimedAt), lt(schema.profiles.createdAt, cutoff)));
+    .where(
+      and(
+        isNull(schema.profiles.claimedAt),
+        lt(schema.profiles.createdAt, cutoff),
+        // NOT EXISTS (a membership with a real user behind it).
+        sql`not exists (
+          select 1 from ${schema.profileMembers}
+          where ${schema.profileMembers.profileId} = ${schema.profiles.id}
+            and ${schema.profileMembers.userId} is not null
+        )`,
+      ),
+    );
 }
 
 /**
