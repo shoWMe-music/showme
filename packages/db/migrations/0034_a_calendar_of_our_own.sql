@@ -1,0 +1,27 @@
+-- shoWMe gets a calendar of its own inside the user's Google account.
+--
+-- Daniel, 2026-09-01: "Customers should connect their own google cal to their own
+-- calendar" and "they should also be able to sync showme with their own calendar."
+-- The second half is the outbound direction, and this column is where the push
+-- remembers what it created.
+--
+-- WHY NOT THE PRIMARY CALENDAR. Writing shoWMe's shows into someone's primary
+-- calendar puts our rows inside the calendar they share with family and
+-- colleagues, and leaves them there after they disconnect. A calendar we made is
+-- one they can hide, unshare, or delete in a single action — which is the whole
+-- revocation story, and it is why the outbound scope is `calendar.app.created`
+-- (it grants the calendars this app created and nothing else) rather than the
+-- broad `calendar` scope.
+--
+-- WHY IT IS STORED RATHER THAN LOOKED UP. Google's calendar id is Google's — it
+-- cannot be derived from the summary we asked for. Re-finding it means a
+-- `calendarList` round trip on every push, and that listing is a 403 without the
+-- app-calendar scope, so the lookup would also be the thing that fails first on a
+-- connection that never granted it.
+--
+-- NULL IS THE NORMAL STATE at the moment this ships: no connection has the scope
+-- yet (the consent screen is still Internal, and `GOOGLE_APP_CALENDAR_ENABLED` is
+-- off), so every existing row keeps a null here and the push does nothing. The
+-- column is safe to add ahead of the switch precisely because nothing reads it
+-- until `hasAppCalendarScope` says the connection has the grant.
+ALTER TABLE "calendar_connections" ADD COLUMN IF NOT EXISTS "app_calendar_id" text;

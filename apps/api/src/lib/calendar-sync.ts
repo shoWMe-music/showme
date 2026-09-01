@@ -14,6 +14,7 @@ import {
   stopWatchChannel,
   watchCalendarEvents,
 } from "./google-calendar";
+import { pushMirroredEventsBestEffort } from "./google-mirror-push";
 import { equalsConstantTime } from "./token-encryption";
 
 /**
@@ -72,6 +73,10 @@ export interface CalendarConnectionRow {
   refreshTokenAuthTag: string;
   syncToken: string | null;
   lastFullSyncAt: Date | null;
+  /** The scope string Google GRANTED — what the outbound push checks. */
+  scope?: string | null;
+  /** The calendar this app made in the user's account, once it has. */
+  appCalendarId?: string | null;
 }
 
 export interface CalendarSyncResult {
@@ -81,6 +86,8 @@ export interface CalendarSyncResult {
   deleted: number;
   keptBecausePromoted: number;
   echoesSkipped: number;
+  /** Shows pushed onto the user's own shoWMe calendar this run. */
+  mirrored: { created: number; updated: number; removed: number; skippedStale: number };
   /** Entries Google returned that shoWMe has no use for (working locations, …). */
   ignored: number;
   calendarTimeZone: string;
@@ -256,6 +263,25 @@ export async function syncCalendarConnection(
     })
     .where(eq(schema.calendarConnections.id, connection.id));
 
+  // OUTBOUND, after the import and never before it: the echo filter reads
+  // `external_calendar_mirrors`, so pushing first would race its own guard within
+  // a single run. Best-effort — a Google hiccup writing our copy must not cost
+  // the user the import they actually depend on — but a revoked grant still
+  // propagates, because this function is what marks the connection for reconnect.
+  const mirrored = await pushMirroredEventsBestEffort(
+    database,
+    integration,
+    {
+      id: connection.id,
+      profileId: connection.profileId,
+      provider: connection.provider,
+      scope: connection.scope ?? null,
+      appCalendarId: connection.appCalendarId ?? null,
+    },
+    accessToken,
+    now,
+  );
+
   return {
     full,
     imported: upserted.upserted,
@@ -265,6 +291,7 @@ export async function syncCalendarConnection(
     ignored: batch.ignored,
     calendarTimeZone,
     providerAccountId,
+    mirrored,
   };
 }
 

@@ -341,6 +341,21 @@ export const calendarConnections = pgTable(
      * next sync is incremental and will be told about deletions; null means the
      * next sync is a full listing (first connect, or after a 410 GONE).
      */
+    /**
+     * The calendar WE made in the user's account, for shoWMe's own events.
+     *
+     * Null until the outbound push first runs, and null forever on a connection
+     * that never got `calendar.app.created` — which is every connection made
+     * before that scope existed. It is stored rather than re-derived because
+     * finding it costs a `calendarList` round trip, and because the id is
+     * Google's, not something we can compute from the summary.
+     *
+     * Deliberately NOT the user's primary calendar: shoWMe's rows stay in a
+     * calendar the user can hide, unshare or delete wholesale, and disconnecting
+     * does not leave our events scattered through a calendar they share with
+     * other people.
+     */
+    appCalendarId: text("app_calendar_id"),
     syncToken: text("sync_token"),
     /** When a listing last completed, incremental or full. Null until the first. */
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
