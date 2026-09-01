@@ -19,7 +19,7 @@ import { requireProfileRole } from "../lib/authorize";
 import { canUseFeature } from "../lib/entitlements";
 import { resolveEventTimezone } from "../lib/event-timezone";
 import { upsertExternalCalendarEvents } from "../lib/external-calendar";
-import { serializeCalendarItem } from "../serialize/calendar";
+import { type SerializedCalendarItem, serializeCalendarItem } from "../serialize/calendar";
 
 const CalendarParams = z.object({ id: z.string().uuid() });
 
@@ -102,6 +102,17 @@ const CalendarResponse = z.object({
   externalId: z.string().nullable(),
   blocksAvailability: z.boolean(),
   promotedEventId: z.string().nullable(),
+  /**
+   * Set when this entry IS a task from the `tasks` table rather than a
+   * `calendar_items` row — the id to open, mark done, or reassign.
+   *
+   * Null on every stored calendar item, which is most of them. It exists because
+   * a task on the grid has to be clickable through to the task flow; without it
+   * the calendar would show a deadline the reader cannot act on.
+   */
+  taskId: z.string().nullable(),
+  /** A task's done state, so the grid can strike it through. Null for items. */
+  completed: z.boolean().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -493,6 +504,88 @@ async function findOwnExportedEntries(
   return found;
 }
 
+/**
+ * The caller's TASKS, projected onto the calendar grid on their due date.
+ *
+ * Ran asked for the calendar and the Tasks screen to be one thing; this is the
+ * reading half of it. A task with a due date of the 14th was invisible on the
+ * 14th, because `GET /calendar` only ever read `calendar_items`.
+ *
+ * A PROJECTION, NOT A MIRROR. The obvious alternative is to write a
+ * `calendar_items` row beside every task — faster to read, and a standing
+ * obligation to keep two rows saying the same thing through every edit, every
+ * completion and every delete. That is the denormalization this rebuild exists to
+ * delete (CLAUDE.md: "relational joins replace document denormalization"), so the
+ * join happens at read time and there is exactly one row per task, forever.
+ *
+ * AND IT CANNOT REACH AVAILABILITY, by construction rather than by care. The
+ * availability union reads `calendar_items` straight from the database
+ * (`lib/availability.ts`, and the public page beyond it); these rows exist only in
+ * this response and are never written anywhere. So a deadline can never make
+ * somebody unbookable — which is the one way this feature could have done real
+ * damage, and the reason it is built this way round.
+ *
+ * Scoped exactly like the items above: the caller's own tasks plus those of every
+ * profile they belong to.
+ */
+async function taskCalendarEntries(
+  request: FastifyRequest,
+  range: { from?: string; to?: string },
+): Promise<SerializedCalendarItem[]> {
+  const { database } = request.server;
+  const principal = request.principal;
+  if (!principal) throw new Error("principal missing after authentication");
+
+  const profileIds = principal.memberships.map((membership) => membership.profileId);
+  const ownerConditions = [eq(schema.tasks.ownerUserId, principal.userId)];
+  if (profileIds.length > 0) {
+    ownerConditions.push(inArray(schema.tasks.ownerProfileId, profileIds));
+  }
+
+  const rows = await database
+    .select()
+    .from(schema.tasks)
+    .where(
+      and(
+        or(...ownerConditions),
+        isNotNull(schema.tasks.dueDate),
+        range.from ? gte(schema.tasks.dueDate, range.from) : undefined,
+        range.to ? lte(schema.tasks.dueDate, range.to) : undefined,
+      ),
+    );
+
+  return rows.map((task) => ({
+    // Prefixed so it can never collide with a `calendar_items` id, and so a
+    // client that keys by `id` cannot mistake one for the other.
+    id: `task:${task.id}`,
+    ownerProfileId: task.ownerProfileId,
+    ownerUserId: task.ownerUserId,
+    type: "task",
+    title: task.title,
+    titleWithheld: false,
+    // Non-null by the `isNotNull` filter above; the fallback is for the types.
+    date: task.dueDate ?? "",
+    endDate: null,
+    // A deadline is a day, not a window. Giving it hours would make it look like
+    // an appointment and, worse, like something that occupies the evening.
+    startTime: null,
+    endTime: null,
+    entity: null,
+    assigneeUserId: null,
+    assigneeName: null,
+    externalSource: null,
+    externalId: null,
+    // Stated explicitly even though nothing reads it here: a task is a reminder,
+    // never an occupied window.
+    blocksAvailability: false,
+    promotedEventId: null,
+    taskId: task.id,
+    completed: task.completed,
+    createdAt: task.createdAt.toISOString(),
+    updatedAt: task.updatedAt.toISOString(),
+  }));
+}
+
 export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -525,7 +618,17 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
         )
         .orderBy(asc(schema.calendarItems.date), asc(schema.calendarItems.id));
 
-      return rows.map((row) => forViewer(row, request));
+      // Tasks join the grid here, at read time — see `taskCalendarEntries` for
+      // why they are a projection rather than mirrored rows, and why that is what
+      // keeps a deadline out of the availability union.
+      const tasks = await taskCalendarEntries(request, { from, to });
+      const entries = [...rows.map((row) => forViewer(row, request)), ...tasks];
+      entries.sort((left, right) =>
+        left.date === right.date
+          ? left.id.localeCompare(right.id)
+          : left.date.localeCompare(right.date),
+      );
+      return entries;
     },
   );
 

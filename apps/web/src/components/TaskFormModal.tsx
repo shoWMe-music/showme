@@ -29,6 +29,8 @@ export interface TaskFormModalProps {
   groups: Group[];
   /** Attach a newly created task to this event. Ignored when editing. */
   eventId?: string;
+  /** Pre-fill a NEW task's due date, "yyyy-mm-dd". Ignored when editing. */
+  initialDueDate?: string;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -38,10 +40,11 @@ export function TaskFormModal({
   task,
   groups,
   eventId,
+  initialDueDate,
   onClose,
   onSaved,
 }: TaskFormModalProps) {
-  const form = useTaskForm({ open, task, eventId, onSaved });
+  const form = useTaskForm({ open, task, eventId, initialDueDate, onSaved });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();

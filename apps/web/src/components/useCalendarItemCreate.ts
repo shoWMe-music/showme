@@ -19,8 +19,15 @@ import { errorMessage } from "../lib/errors";
  *
  * TASK is deliberately NOT handled here even though `calendar_items` has a
  * `task` kind: real tasks live in the `tasks` table with assignees, due dates
- * and a board, and the Tasks screen is where they are made. Two different
- * "tasks" reachable from one menu would be a trap.
+ * and a board. Two different "tasks" reachable from one menu would be a trap.
+ *
+ * 2026-09-01: the day popover DOES offer "Task" now — Ran asked for it — and it
+ * opens `TaskFormModal`, the Tasks screen's own dialog, writing a real `tasks`
+ * row with the clicked day pre-filled as its due date. The rule above survives
+ * intact, which is the point: the affordance was added WITHOUT adding a second
+ * kind of task. Nothing writes `calendar_items.type = 'task'`; that value now
+ * exists only for rows imported before this, and the grid's task entries are
+ * projected from `tasks` at read time (`routes/calendar.ts`).
  */
 
 /** What the day popover can create through this modal. The generated request

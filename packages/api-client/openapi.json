@@ -13060,6 +13060,14 @@
                         "type": "string",
                         "nullable": true
                       },
+                      "taskId": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "completed": {
+                        "type": "boolean",
+                        "nullable": true
+                      },
                       "createdAt": {
                         "type": "string"
                       },
@@ -13085,6 +13093,8 @@
                       "externalId",
                       "blocksAvailability",
                       "promotedEventId",
+                      "taskId",
+                      "completed",
                       "createdAt",
                       "updatedAt"
                     ],
@@ -13221,6 +13231,14 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "taskId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "completed": {
+                      "type": "boolean",
+                      "nullable": true
+                    },
                     "createdAt": {
                       "type": "string"
                     },
@@ -13246,6 +13264,8 @@
                     "externalId",
                     "blocksAvailability",
                     "promotedEventId",
+                    "taskId",
+                    "completed",
                     "createdAt",
                     "updatedAt"
                   ],
@@ -13392,6 +13412,14 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "taskId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "completed": {
+                      "type": "boolean",
+                      "nullable": true
+                    },
                     "createdAt": {
                       "type": "string"
                     },
@@ -13417,6 +13445,8 @@
                     "externalId",
                     "blocksAvailability",
                     "promotedEventId",
+                    "taskId",
+                    "completed",
                     "createdAt",
                     "updatedAt"
                   ],
@@ -13563,6 +13593,14 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "taskId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "completed": {
+                      "type": "boolean",
+                      "nullable": true
+                    },
                     "createdAt": {
                       "type": "string"
                     },
@@ -13588,6 +13626,8 @@
                     "externalId",
                     "blocksAvailability",
                     "promotedEventId",
+                    "taskId",
+                    "completed",
                     "createdAt",
                     "updatedAt"
                   ],

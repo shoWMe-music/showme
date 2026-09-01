@@ -1,5 +1,10 @@
-import { type getApiV1Calendar, useGetApiV1Calendar } from "@showme/api-client";
+import {
+  type getApiV1Calendar,
+  getGetApiV1CalendarQueryKey,
+  useGetApiV1Calendar,
+} from "@showme/api-client";
 import { Card, Icon, Select, type Status, useToast } from "@showme/design-system";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type CalendarEvent, type CalendarLabelMode, CalendarMonthGrid } from "../components";
@@ -14,6 +19,7 @@ import { CalendarWeekGrid } from "../components/CalendarWeekGrid";
 import { ExternalCalendarCard } from "../components/ExternalCalendarCard";
 import { MarkUnavailableModal } from "../components/MarkUnavailableModal";
 import { MyCalendarsCard } from "../components/MyCalendarsCard";
+import { TaskFormModal } from "../components/TaskFormModal";
 import {
   type CalendarView,
   dayKey,
@@ -441,6 +447,12 @@ export function Calendar() {
   const [createAt, setCreateAt] = useState<{ dayKey: string; anchor: DOMRect } | null>(null);
   // The appointment/note composer the day popover opens, and the day it is for.
   const [newItem, setNewItem] = useState<{ kind: CalendarItemKind; dayKey: string } | null>(null);
+  // The TASK composer, and the day it is for. A real task in the `tasks` table —
+  // the same dialog the Tasks screen uses, not a `calendar_items` row of kind
+  // `task`. Ran, 2026-08-16: "Pressing add tasks in calendar creates an actual
+  // task with a task flow."
+  const [newTaskDay, setNewTaskDay] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   /** Status LABELS the reader has switched off. Hidden rather than shown, so a
    * kind that gains a label later starts visible instead of silently missing. */
   const [hiddenStatuses, setHiddenStatuses] = useState<string[]>([]);
@@ -1095,6 +1107,23 @@ export function Calendar() {
         view={newItemCreate}
       />
 
+      {/* The Tasks screen's own dialog, reused whole. Groups are not offered from
+          here — the calendar has no group context to fetch — and "No group" is a
+          legitimate answer, so the task lands ungrouped and can be filed later. */}
+      <TaskFormModal
+        open={newTaskDay !== null}
+        task={null}
+        groups={[]}
+        initialDueDate={newTaskDay ?? undefined}
+        onClose={() => setNewTaskDay(null)}
+        onSaved={() => {
+          setNewTaskDay(null);
+          // Tasks are projected into `GET /calendar` at read time, so the grid
+          // only shows the new one once that query is refetched.
+          void queryClient.invalidateQueries({ queryKey: getGetApiV1CalendarQueryKey() });
+        }}
+      />
+
       {createAt && (
         <CalendarCreatePopover
           anchor={createAt.anchor}
@@ -1136,7 +1165,10 @@ export function Calendar() {
               key: "task",
               label: "Task",
               icon: "check",
-              onSelect: () => navigate({ to: "/tasks" }),
+              // Used to navigate to /tasks, which threw away the day that was
+              // clicked and made the reader start again. It now opens the real
+              // task dialog with that day already in the due-date field.
+              onSelect: () => setNewTaskDay(createAt.dayKey),
             },
             {
               key: "appointment",

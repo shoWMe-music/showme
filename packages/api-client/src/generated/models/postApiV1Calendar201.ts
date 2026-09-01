@@ -34,6 +34,10 @@ export type PostApiV1Calendar201 = {
   blocksAvailability: boolean;
   /** @nullable */
   promotedEventId: string | null;
+  /** @nullable */
+  taskId: string | null;
+  /** @nullable */
+  completed: boolean | null;
   createdAt: string;
   updatedAt: string;
 };
