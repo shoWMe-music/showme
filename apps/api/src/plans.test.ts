@@ -139,6 +139,9 @@ describe("GET /profiles/:id/cap-status", () => {
     const body = response.json();
     expect(body.createEvent).toMatchObject({ allowed: true, used: 0, limit: 3 });
     expect(body.sendOffer.allowed).toBe(true);
+    // Seats, so the roster screen can show the ceiling instead of letting
+    // somebody hit it: a fresh free profile has one seat and the owner in it.
+    expect(body.seats).toMatchObject({ limit: 1 });
     expect(body.spamSuspended).toBe(false);
     // A profile that has never sent an invitation is at its full allowance.
     expect(body.credits).toBe(COLLABORATION_INVITE_CREDITS);

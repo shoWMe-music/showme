@@ -18843,6 +18843,25 @@
                       "required": ["allowed"],
                       "additionalProperties": false
                     },
+                    "seats": {
+                      "type": "object",
+                      "properties": {
+                        "allowed": {
+                          "type": "boolean"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "used": {
+                          "type": "number"
+                        },
+                        "limit": {
+                          "type": "number"
+                        }
+                      },
+                      "required": ["allowed"],
+                      "additionalProperties": false
+                    },
                     "spamSuspended": {
                       "type": "boolean"
                     },
@@ -18850,7 +18869,7 @@
                       "type": "number"
                     }
                   },
-                  "required": ["createEvent", "sendOffer", "spamSuspended", "credits"],
+                  "required": ["createEvent", "sendOffer", "seats", "spamSuspended", "credits"],
                   "additionalProperties": false
                 }
               }

@@ -34,6 +34,14 @@ const FeatureCheckResponse = z.object({
 const CapStatusResponse = z.object({
   createEvent: FeatureCheckResponse,
   sendOffer: FeatureCheckResponse,
+  /**
+   * Administrator seats: `used` of `limit`, and whether another is free.
+   *
+   * Reported for the same reason the two above are — so a screen can say "2 of 2
+   * seats used" while the roster is being edited, instead of letting somebody
+   * pick Admin from a dropdown and discover the ceiling as a 403.
+   */
+  seats: FeatureCheckResponse,
   spamSuspended: z.boolean(),
   credits: z.number(),
 });
@@ -136,9 +144,10 @@ export async function planRoutes(fastify: FastifyInstance): Promise<void> {
 
       requireProfileRole(request, id, [...ANY_ROLE]);
 
-      const [createEvent, sendOffer, notSpam, credits] = await Promise.all([
+      const [createEvent, sendOffer, seats, notSpam, credits] = await Promise.all([
         canUseFeature(database, id, "create_event"),
         canUseFeature(database, id, "send_offer"),
+        canUseFeature(database, id, "seat_available"),
         canUseFeature(database, id, "not_spam_suspended"),
         collaborationCreditBalance(database, id),
       ]);
@@ -146,6 +155,7 @@ export async function planRoutes(fastify: FastifyInstance): Promise<void> {
       return {
         createEvent,
         sendOffer,
+        seats,
         spamSuspended: !notSpam.allowed,
         credits,
       };

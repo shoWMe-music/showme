@@ -194,6 +194,7 @@ export * from './getApiV1ProfilesIdAvailability200UnavailabilityItem';
 export * from './getApiV1ProfilesIdAvailabilityParams';
 export * from './getApiV1ProfilesIdCapStatus200';
 export * from './getApiV1ProfilesIdCapStatus200CreateEvent';
+export * from './getApiV1ProfilesIdCapStatus200Seats';
 export * from './getApiV1ProfilesIdCapStatus200SendOffer';
 export * from './getApiV1ProfilesIdContacts200Item';
 export * from './getApiV1ProfilesIdContacts200ItemPersons';

@@ -6,10 +6,12 @@
  */
 import type { GetApiV1ProfilesIdCapStatus200CreateEvent } from './getApiV1ProfilesIdCapStatus200CreateEvent';
 import type { GetApiV1ProfilesIdCapStatus200SendOffer } from './getApiV1ProfilesIdCapStatus200SendOffer';
+import type { GetApiV1ProfilesIdCapStatus200Seats } from './getApiV1ProfilesIdCapStatus200Seats';
 
 export type GetApiV1ProfilesIdCapStatus200 = {
   createEvent: GetApiV1ProfilesIdCapStatus200CreateEvent;
   sendOffer: GetApiV1ProfilesIdCapStatus200SendOffer;
+  seats: GetApiV1ProfilesIdCapStatus200Seats;
   spamSuspended: boolean;
   credits: number;
 };
