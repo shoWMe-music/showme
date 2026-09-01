@@ -1,3 +1,11 @@
+# State of play — through 2026-09-01
+
+> **PRODUCTION IS LIVE AND CURRENT as of 2026-09-01.** Migrations 32/32, API
+> revision `showme-api-00021-9h4`, web app on `showme-app.web.app`. Everything
+> in this file that reads as "blocked" or "not deployed" describes a moment that
+> has passed — see the DEPLOYED section near the end before acting on any of it.
+> A handoff doc is a snapshot, not a statement about the present.
+
 # State of play — Ran's list, end of 2026-08-27
 
 **Read this first if you are picking the work up cold.** It is the single
@@ -727,90 +735,76 @@ tracks (Events `297.719 / 186.078 / 124.047 / 99.2422 / 148.859 / 124.047 /
    the suite.
 3. Tap-target counts (20–39 per screen) are a work list, not a failure.
 
-### THE DEPLOY IS BLOCKED — and mobile cannot ship alone
-The web app calls ~51 API routes production does not have, so shipping the
-mobile CSS by itself would 404 them. The first deploy must be **migrations
-0027–0029 + API + web**; only then are later mobile waves web-only.
+### DEPLOYED — 2026-09-01. This section used to say the deploy was blocked.
 
-**STEP ZERO, as of 2026-08-28: the gcloud token has EXPIRED.** Every `gcloud`
-call fails with `Reauthentication failed. cannot prompt during non-interactive
-execution`, so nothing below can even be attempted until someone runs:
+Production is live and healthy: migrations **27 → 32**, API revision
+**`showme-api-00021-9h4`**, web app on `showme-app.web.app`, marketing
+deliberately untouched. Kept because the diagnosis was wrong twice.
 
-```
-gcloud auth login          # daniel@showme.music ONLY
-```
+**THE PASSWORD WAS NEVER BROKEN.** It connected first try once the ADC was
+fresh. Both earlier theories in this file were wrong:
+- The *secret-version* theory (refuted 2026-08-29 — one version, pinned `latest`).
+- **The `$`-in-the-shell theory was ALSO wrong.** The password does contain a
+  `$`, and shell interpolation would eat it — but that was never what happened.
+- **The real cause was the stale ADC, the whole time.** `cloud-sql-proxy`
+  authenticates with Application Default Credentials, which `gcloud auth login`
+  does NOT refresh. The proxy could not reach Cloud SQL, and that surfaced as
+  `password authentication failed` — an error that reads like Postgres rejecting
+  a credential when it is really the tunnel failing to open.
 
-Plain `auth login` is the right one — `gcloud auth application-default login`
-**overwrites the Firebase-impersonation ADC** and is not what this needs. For a
-headless session, `gcloud auth login --no-launch-browser` prints a URL and waits
-on stdin for the code; the code is bound to THAT process, so it must stay alive
-(run it `nohup`'d with its stdin on a FIFO that a holder process keeps open — a
-harness-tracked background task got killed and invalidated the first URL).
+> **An auth error at the end of a tunnel may belong to the tunnel.** This nearly
+> cost a rotation of a working production password, and the outage that would
+> have caused.
 
-**THE SECRET-VERSION LEAD IS REFUTED — 2026-08-29.** Checked directly:
-`DATABASE_URL` has exactly **one** version (v1, created 2026-08-18) and the
-running revision `showme-api-00018-wp6` pins `latest`. There is no older version
-to be stuck on, so that hypothesis is dead. Do not spend time on it again.
+**FOUR credentials expire independently**, and all four were dead:
+`gcloud auth login` · `gcloud auth application-default login` (ADC — the proxy)
+· `firebase login` for `daniel@showme.music` · and again for
+`daniel.islandman@gmail.com`.
 
-**WHAT ACTUALLY BLOCKS THE PROXY: the ADC, not the password.** With gcloud CLI
-freshly logged in, `cloud-sql-proxy` still fails:
-```
-auth: "invalid_grant" "reauth related error (invalid_rapt)"
-```
-The proxy authenticates with **Application Default Credentials**, which
-`gcloud auth login` does NOT refresh — `docs/deployment-status.md` records the
-same failure happening before. It needs `gcloud auth application-default login`
-(a SECOND browser login; Firebase is a third).
+**`firebase login --reauth` REPLACES the primary account.** Using it for the
+second account evicted the first, and `login:list` then said *"No authorized
+accounts"* because `activeAccounts` still pinned this directory to a name whose
+credentials were gone. **Use `firebase login:add` for a second account.**
 
-Two things measured before running it, so nobody re-inherits the old warning:
-the active ADC is a plain `authorized_user` with quota project `prod-showme` and
-**no impersonation**, and the Firebase impersonation ADC is already safely backed
-up at `~/.config/gcloud/application_default_credentials.firebase-impersonation.bak.json`
-(verified: `impersonated_service_account` →
-`firebase-adminsdk-fbsvc@music-showme.iam.gserviceaccount.com`). So refreshing
-ADC costs nothing irreversible here. **It was started but never completed** —
-the ADC on disk is still the Aug 26 one.
+**Migration 0031's guard fired, as designed.** Two dateless `booking_requests`
+in production — both Ran's own tests, both terminal, the only two rows in the
+table. Deleted in a transaction scoped to `dateless AND terminal AND
+public_form`, which would have rolled back had any been live. Zero inbound FKs,
+so nothing cascaded. Backup `1788244448191` verified SUCCESSFUL first.
 
-**A LIVE SUSPICION ABOUT THE PASSWORD, still untested.** The password is 16
-chars and contains **`$` and `+`**. A `$` passed through double-quoted shell
-interpolation silently expands to nothing, which would make a perfectly valid
-password fail authentication — and that is a very plausible cause of the
-original "password authentication failed". Test it by piping the value on
-**stdin** so no shell can touch it, never by interpolating it into a command:
-```
-gcloud secrets versions access latest --secret=DATABASE_URL --project prod-showme \
-  | python3 -c 'import sys,urllib.parse as up; print(up.urlparse(sys.stdin.read().strip()).password, end="")' \
-  | <consumer reading stdin>
-```
-There is no `psql` on this machine and Docker was down; the repo's own `pg`
-driver (`node_modules/.pnpm/pg@8.23.0`) works, imported as a CommonJS default.
+### A PUBLIC ROUTE COULD NOT SIGN AN IMAGE — found in production, fixed same day
+`GET /public/profiles/:slug` returned 500: *"The default Firebase app does not
+exist."* `initializeApp()` ran as a **side effect of verifying a token**, so
+Firebase existed only on authenticated requests; a public route carries none, so
+the storage signer's `getStorage()` threw. Now in `lib/firebase-app.ts`,
+idempotent, called by both the verifier and the signer.
 
-**THE OLD LEAD, kept for context — try this before rotating anything.**
-The symptom is that the password in the `DATABASE_URL` secret does not
-authenticate for `postgres`, the only user, over a proxy that connects fine.
-What was never checked is **whether the secret has multiple versions and the
-running API revision pins an older one than `latest`**:
+It hid because `signProfileImageUrls` short-circuits on an empty file list — the
+public page was fine until somebody **uploaded** a picture rather than pasting a
+URL.
 
-```
-gcloud secrets versions list DATABASE_URL --project prod-showme
-gcloud run services describe showme-api --region europe-north2 \
-  --project prod-showme --format=json   # look at the secretKeyRef version
-```
+> **A CHECK MADE SECONDS AFTER A DEPLOY CAN ANSWER FROM THE CODE YOU REPLACED.**
+> Right after deploying revision 00019 that route returned **200** — served by a
+> warm instance of the PREVIOUS revision mid-rollout. Rolling back to 00019
+> reproduced the 500 and proved the 200 meaningless.
 
-If the revision pins an older version, then the tests were run with a NEWER
-secret value against a database still holding the earlier password — which
-explains the symptom completely and means the fix is *reading the right
-version*, with **no rotation and no outage**. Rule this out first.
+**Also:** `update-traffic --to-revisions` PINS traffic; every later deploy lands
+at 0% until `--to-latest` releases the pin.
 
-**Do NOT just reset the password.** The running API revision holds the old value
-in its environment, so rotating it is a production outage unless the API is
-redeployed in the same breath. That is Daniel's call, not an agent's.
+### The Mapbox secret is wired — 2026-09-01
+Created, and `secretAccessor` granted to
+`680839076083-compute@developer.gserviceaccount.com`. **Access is granted
+PER-SECRET in this project, not project-wide** — a new secret without its own
+binding fails at startup. Wired with `--update-secrets` (never `--set-secrets`,
+which replaces the whole set); all six verified present afterwards.
+`/api/v1/geocode` returning **401 rather than 503** is the proof the token
+reached the process.
 
-Backup `1787867171757` is taken and **verified SUCCESSFUL**. `cloud-sql-proxy`
-connects. But the password in the `DATABASE_URL` secret **fails to
-authenticate** for `postgres`, the only user — parsed correctly (16 chars, no
-percent-encoding). Three attempts, then stopped.
-
-**Do not just reset the password.** The running API revision holds the old
-value in its environment, so rotating it is a production outage unless the API
-is redeployed in the same breath. This is Daniel's call, and it was put to him.
+### What is left
+- **ClickUp** — ~16 commits unrecorded; the board is what Ran sees.
+- **Docker VM** holds ~16 GB the host cannot see (Troubleshoot → Purge data).
+  Root cause recurs: Testcontainers abandons a volume whenever the port-bind
+  flake kills a suite. Safe sweep:
+  `docker volume ls -q | grep -E '^[0-9a-f]{64}$' | xargs docker volume rm`
+  — never plain `prune`, which also takes the named dev database.
+- The open product calls listed earlier in this file still stand.
