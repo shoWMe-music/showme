@@ -137,7 +137,7 @@ describe("GET /profiles/:id/cap-status", () => {
     });
     expect(response.statusCode).toBe(200);
     const body = response.json();
-    expect(body.createEvent).toMatchObject({ allowed: true, used: 0, limit: 3 });
+    expect(body.createEvent).toMatchObject({ allowed: true });
     expect(body.sendOffer.allowed).toBe(true);
     // Seats, so the roster screen can show the ceiling instead of letting
     // somebody hit it: a fresh free profile has one seat and the owner in it.

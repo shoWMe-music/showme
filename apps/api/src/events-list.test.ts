@@ -629,7 +629,7 @@ describe("PATCH /events/:id — the free-tier event cap (entitlement layer)", ()
     return host;
   }
 
-  it("403s a fourth event going straight to `concluded`, not just to `confirmed`", async () => {
+  it("lets a fourth event reach `confirmed` and `concluded` — events are uncapped", async () => {
     const host = await seedHostAtCap("cap-conc");
     const fourth = await seedHostedEvent("Fourth", host, "cap-conc-op", { status: "draft" });
 
@@ -639,7 +639,7 @@ describe("PATCH /events/:id — the free-tier event cap (entitlement layer)", ()
       headers: auth("cap-conc-op"),
       payload: { status: "confirmed" },
     });
-    expect(confirmed.statusCode).toBe(403);
+    expect(confirmed.statusCode).toBe(200);
 
     // The A-20 hole: the SAME event walked into the counted set through `concluded`.
     const concluded = await app.inject({
@@ -648,13 +648,16 @@ describe("PATCH /events/:id — the free-tier event cap (entitlement layer)", ()
       headers: auth("cap-conc-op"),
       payload: { status: "concluded" },
     });
-    expect(concluded.statusCode).toBe(403);
+    expect(concluded.statusCode).toBe(200);
 
+    // The state, not only the response: it really is concluded now. This used to
+    // assert `draft` — the cap refusing to let it move — which contradicted the
+    // "Unlimited events" the Basic plan is sold on.
     const [after] = await harness.db
       .select()
       .from(schema.events)
       .where(eq(schema.events.id, fourth.id));
-    expect(after?.status).toBe("draft");
+    expect(after?.status).toBe("concluded");
   });
 
   it("still lets an event already inside the counted set conclude, and lets a cancel through", async () => {

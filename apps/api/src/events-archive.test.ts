@@ -538,8 +538,11 @@ describe("archiving never moves a plan slot", () => {
     await seedHostedEvent("Live two", operator, { status: "confirmed" });
     const third = await seedHostedEvent("Live three", operator, { status: "confirmed" });
 
+    // Events are uncapped now (Basic advertises "Unlimited events"), so the cap
+    // is no longer the observable. What this test is really about survives:
+    // archiving is FILING, not cancelling.
     const before = await canUseFeature(harness.db, operator.profileId, "create_event");
-    expect(before).toMatchObject({ allowed: false, used: 3, limit: 3 });
+    expect(before.allowed).toBe(true);
 
     const archive = await app.inject({
       method: "POST",
@@ -548,12 +551,16 @@ describe("archiving never moves a plan slot", () => {
     });
     expect(archive.statusCode).toBe(200);
 
-    // Still three. Filing a show away does not un-book it.
-    const after = await canUseFeature(harness.db, operator.profileId, "create_event");
-    expect(after).toMatchObject({ allowed: false, used: 3, limit: 3 });
+    // Filing a show away does not un-book it: the event is still CONFIRMED, which
+    // is the fact the cap used to prove indirectly and is now asserted directly.
+    const [stillBooked] = await harness.db
+      .select({ status: schema.events.status })
+      .from(schema.events)
+      .where(eq(schema.events.id, third.id));
+    expect(stillBooked?.status).toBe("confirmed");
   });
 
-  it("still refuses to confirm a fourth event after three are archived", async () => {
+  it("lets a fourth event be confirmed after three are archived", async () => {
     const operator = await seedMemberWithSet(
       "arc-cap-route",
       "operator",
@@ -583,18 +590,19 @@ describe("archiving never moves a plan slot", () => {
       headers: actingAs(operator.userId, operator.profileId),
       payload: { status: "confirmed" },
     });
-    expect(confirm.statusCode).toBe(403);
-    // Assert the REASON, never the bare status — a 403 for some other missing
-    // capability would look identical and prove nothing.
-    expect(confirm.json().error.message).toBe("Free plan event limit reached");
-    expect(confirm.json().error.code).toBe("entitlement_required");
+    // Confirming a fourth show is allowed now: Basic advertises "Unlimited
+    // events", so there is no slot to run out of. This test used to assert the
+    // opposite — a 403 with "Free plan event limit reached" — which was the
+    // product contradicting its own pricing page.
+    expect(confirm.statusCode).toBe(200);
 
-    // And the event really did not move.
+    // And the confirmation really landed, in the database rather than only in
+    // the response.
     const [row] = await harness.db
       .select({ status: schema.events.status })
       .from(schema.events)
       .where(eq(schema.events.id, fourth.id));
-    expect(row?.status).toBe("draft");
+    expect(row?.status).toBe("confirmed");
   });
 });
 

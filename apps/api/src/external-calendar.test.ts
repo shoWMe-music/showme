@@ -576,7 +576,10 @@ describe("promoting an imported entry into a show", () => {
       eventDate: "2026-11-14",
       baseCurrency: "SEK",
       status: "draft",
-      eventCap: { allowed: true, used: 0, limit: 3, chargedAtConfirm: true },
+      // No limit any more — Basic advertises "Unlimited events". The flag stays,
+      // because WHEN a cap would be charged is still a true and useful thing to
+      // say: at confirm, never at draft.
+      eventCap: { allowed: true, chargedAtConfirm: true },
     });
 
     // The state, not just the response.

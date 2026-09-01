@@ -1162,10 +1162,10 @@ describe("inbound — Create Draft turns a request into a draft event", () => {
     });
     expect(response.statusCode).toBe(201);
     const cap = response.json().eventCap;
-    // A draft is outside CAP_COUNTING_EVENT_STATUSES, so the used counter has not
-    // moved — the cost lands at `confirmed`, which is what `chargedAtConfirm` says.
-    expect(cap.used).toBe(0);
-    expect(cap.limit).toBeGreaterThan(0);
+    // Events are uncapped now (Basic advertises "Unlimited events"), so there is
+    // no `used`/`limit` to report. What survives is the fact that still matters
+    // and is still true: a draft costs nothing, and WHEN a cost would land is at
+    // confirm — never at draft.
     expect(cap.allowed).toBe(true);
     expect(cap.chargedAtConfirm).toBe(true);
   });

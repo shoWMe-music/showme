@@ -136,8 +136,25 @@ export function confersAdminAuthority(capabilities: readonly string[] | null | u
   );
 }
 
-/** free_operator may host at most this many live events in a rolling 365 days. */
-const FREE_OPERATOR_EVENT_LIMIT = 3;
+/**
+ * Events on the free operator plan are UNLIMITED — because that is what we sell.
+ *
+ * The live pricing page's Basic card lists "**Unlimited events**" with a tick, and
+ * has done throughout. The code enforced a cap of THREE confirmed-or-concluded
+ * events per rolling year, so a free operator confirming their fourth booking met
+ * a 403 upgrade prompt contradicting the page they signed up from.
+ *
+ * `null` rather than a big number: a limit nobody may reach is still a limit, and
+ * it would eventually be discovered by whoever hosts more shows than we guessed.
+ * PLAN.md:613 specifies that a cap EXISTS and never fixes its value; the pricing
+ * page does, and the pricing page is the promise.
+ *
+ * Pro is sold on what the tagline actually says — budget planner, team
+ * management, CRM, API access, unlimited templates, "for operators with high
+ * event volume (60+ a year), intensive admin and/or teams of 3 or more" — not on
+ * rationing the third booking of somebody's year.
+ */
+const FREE_OPERATOR_EVENT_LIMIT: number | null = null;
 /** free_artist may send at most this many offers per calendar month. */
 const FREE_ARTIST_OFFER_LIMIT = 50;
 /** A profile is spam-suspended once this many DISTINCT reporters flag it in 90 days. */
@@ -207,8 +224,14 @@ export async function canUseFeature(
 
   switch (feature) {
     case "create_event": {
-      // Only free_operator is metered; every other tier hosts without limit.
-      if (tier !== "free_operator") return { allowed: true };
+      // Only free_operator is metered; every other tier hosts without limit —
+      // and since the pricing page says "Unlimited events" on Basic too, the
+      // limit is currently null and nobody is metered at all. The COUNT below is
+      // kept because it is what a cap would use the day one is reintroduced, and
+      // because `used` is worth reporting even when nothing is enforced.
+      if (tier !== "free_operator" || FREE_OPERATOR_EVENT_LIMIT === null) {
+        return { allowed: true };
+      }
       const cutoff = new Date(now.getTime() - 365 * DAY_MS);
       const [row] = await db
         .select({ used: count() })

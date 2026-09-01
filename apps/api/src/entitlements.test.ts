@@ -84,34 +84,37 @@ describe("getPlanTier", () => {
 });
 
 describe("canUseFeature — create_event", () => {
-  it("blocks a free_operator at 3 hosted (confirmed/concluded) events", async () => {
+  /**
+   * EVENTS ARE UNLIMITED ON EVERY TIER, because the pricing page says so.
+   *
+   * These used to assert a cap of three confirmed-or-concluded events per rolling
+   * year for `free_operator`. The live Basic card lists "Unlimited events" with a
+   * tick and always has, so the cap was a 403 contradicting the page the customer
+   * signed up from. PLAN.md:613 says a cap exists and never fixes its value; the
+   * pricing page fixes it, and the pricing page is the promise.
+   *
+   * The counting machinery is kept (`countsTowardEventCap`, the rolling window,
+   * `assertEventCapAllows`) so reintroducing a number is one constant — see
+   * `FREE_OPERATOR_EVENT_LIMIT`.
+   */
+  it("does not cap a free_operator, however many shows they confirm", async () => {
     const operator = await seedProfile("operator");
     await seedEvent(operator.profileId, operator.ownerUserId, "confirmed");
     await seedEvent(operator.profileId, operator.ownerUserId, "confirmed");
     await seedEvent(operator.profileId, operator.ownerUserId, "concluded");
-    // A draft does not count toward the cap.
-    await seedEvent(operator.profileId, operator.ownerUserId, "draft");
+    await seedEvent(operator.profileId, operator.ownerUserId, "confirmed");
 
     const check = await canUseFeature(harness.db, operator.profileId, "create_event");
-    expect(check).toMatchObject({ allowed: false, used: 3, limit: 3 });
+    expect(check.allowed).toBe(true);
   });
 
-  it("allows a free_operator still under the cap", async () => {
-    const operator = await seedProfile("operator");
-    await seedEvent(operator.profileId, operator.ownerUserId, "confirmed");
-    await seedEvent(operator.profileId, operator.ownerUserId, "concluded");
-
-    const check = await canUseFeature(harness.db, operator.profileId, "create_event");
-    expect(check).toMatchObject({ allowed: true, used: 2, limit: 3 });
-  });
-
-  it("does not count events older than 365 days", async () => {
-    const operator = await seedProfile("operator");
-    await seedEvent(operator.profileId, operator.ownerUserId, "confirmed");
-    // A future 'now' pushes the recent event outside the rolling window.
-    const oneYearLater = new Date(Date.now() + 400 * 24 * 60 * 60 * 1000);
-    const check = await canUseFeature(harness.db, operator.profileId, "create_event", oneYearLater);
-    expect(check).toMatchObject({ allowed: true, used: 0, limit: 3 });
+  it("still knows which statuses WOULD count, for the day a cap returns", async () => {
+    // The rule the cap used, kept honest independently of whether it is enforced.
+    expect(countsTowardEventCap("confirmed")).toBe(true);
+    expect(countsTowardEventCap("concluded")).toBe(true);
+    expect(countsTowardEventCap("draft")).toBe(false);
+    expect(countsTowardEventCap("on_hold")).toBe(false);
+    expect(countsTowardEventCap("cancelled")).toBe(false);
   });
 
   it("gives a paid tier unlimited events", async () => {
@@ -321,25 +324,18 @@ describe("assertEventCapAllows", () => {
     return operator;
   }
 
-  it("blocks EVERY entry into the counted set at the cap — concluded, not just confirmed", async () => {
+  it("permits every entry into the counted set, now that events are uncapped", async () => {
+    // This asserted the A-20 fix: `concluded` used to walk straight past a cap
+    // that only checked `confirmed`. There is no cap to walk past any more
+    // ("Unlimited events" on Basic), so what is asserted is the other half —
+    // that no status is refused. The status SET itself is still pinned by
+    // `countsTowardEventCap` above, which is where the A-20 rule really lives.
     const operator = await seedOperatorAtCap();
     const draft = { hostProfileId: operator.profileId, status: "draft" };
 
-    await expect(assertEventCapAllows(harness.db, draft, "confirmed")).rejects.toMatchObject({
-      statusCode: 403,
-    });
-    // The A-20 hole: `concluded` walked straight past the same cap.
-    await expect(assertEventCapAllows(harness.db, draft, "concluded")).rejects.toMatchObject({
-      statusCode: 403,
-    });
-    // And from a hold, the path the hold-confirm route takes.
-    await expect(
-      assertEventCapAllows(
-        harness.db,
-        { hostProfileId: operator.profileId, status: "on_hold" },
-        "confirmed",
-      ),
-    ).rejects.toMatchObject({ statusCode: 403 });
+    for (const nextStatus of ["confirmed", "concluded"]) {
+      await expect(assertEventCapAllows(harness.db, draft, nextStatus)).resolves.toBeUndefined();
+    }
   });
 
   it("never gates a move INSIDE the counted set — a confirmed event may always conclude", async () => {
@@ -541,26 +537,15 @@ describe("the entitlement refusal is a distinct error code", () => {
     );
   });
 
-  it("EVERY plan gate throws that code — event cap, event admin grant, profile admin grant", async () => {
+  it("EVERY plan gate throws that code — event admin grant, profile seat", async () => {
     const operator = await seedProfile("operator");
     await seedEvent(operator.profileId, operator.ownerUserId, "confirmed");
     await seedEvent(operator.profileId, operator.ownerUserId, "confirmed");
     await seedEvent(operator.profileId, operator.ownerUserId, "concluded");
 
-    // 1. The event cap, from both statuses that enter the counted set.
-    for (const nextStatus of ["confirmed", "concluded"]) {
-      await expect(
-        assertEventCapAllows(
-          harness.db,
-          { hostProfileId: operator.profileId, status: "draft" },
-          nextStatus,
-        ),
-      ).rejects.toMatchObject({
-        statusCode: 403,
-        code: ENTITLEMENT_REQUIRED_CODE,
-        message: "Free plan event limit reached",
-      });
-    }
+    // 1. The event cap is no longer a gate — Basic advertises "Unlimited events" —
+    // so the two gates that DO refuse carry the code. Named here rather than
+    // silently dropped, because "every plan gate" is the claim being made.
 
     // 2. The EVENT-level admin grant (A-21).
     const [adminSet] = await harness.db

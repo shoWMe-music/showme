@@ -612,7 +612,7 @@ describe("holds — the free-tier event cap (entitlement layer)", () => {
     }
   }
 
-  it("403s a hold confirm that would take a free host past the cap, leaving the pool intact", async () => {
+  it("lets a hold confirm through on a free host — events are uncapped, and the pool still resolves", async () => {
     const operator = await seedMemberWithSet(
       "cap-h-op",
       "operator",
@@ -632,11 +632,12 @@ describe("holds — the free-tier event cap (entitlement layer)", () => {
       url: `/api/v1/events/${first}/hold/confirm`,
       headers: auth("cap-h-perf"),
     });
-    expect(response.statusCode).toBe(403);
-
-    // Nothing moved: the target is still held, and the sibling was NOT cancelled.
-    expect((await readEvent(first)).status).toBe("on_hold");
-    expect((await readEvent(second)).status).toBe("on_hold");
+    // Was a 403 at the free-tier cap. Basic advertises "Unlimited events", so the
+    // confirm goes through — and the hold pool resolves the way it always does
+    // for a successful confirm: the winner is booked, the sibling is released.
+    expect(response.statusCode).toBe(200);
+    expect((await readEvent(first)).status).toBe("confirmed");
+    expect((await readEvent(second)).status).toBe("cancelled");
   });
 
   it("lets the same confirm through once the host's plan is paid", async () => {
