@@ -228,7 +228,6 @@ export * from './getApiV1PublicProfilesSlug200UpcomingShowsItem';
 export * from './getApiV1PublicProfilesSlug200UpcomingShowsItemLineupItem';
 export * from './getApiV1PublicProfilesSlug200VenueDetails';
 export * from './getApiV1PublicProfilesSlugAvailability200';
-export * from './getApiV1PublicProfilesSlugAvailability200BusyTimesItem';
 export * from './getApiV1PublicProfilesSlugAvailability200UnavailabilityItem';
 export * from './getApiV1Representations200Item';
 export * from './getApiV1RepresentationsIdDelegatableEvents200';

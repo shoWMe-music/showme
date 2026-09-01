@@ -5,9 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { GetApiV1PublicProfilesSlugAvailability200UnavailabilityItem } from './getApiV1PublicProfilesSlugAvailability200UnavailabilityItem';
-import type { GetApiV1PublicProfilesSlugAvailability200BusyTimesItem } from './getApiV1PublicProfilesSlugAvailability200BusyTimesItem';
 
 export type GetApiV1PublicProfilesSlugAvailability200 = {
   unavailability: GetApiV1PublicProfilesSlugAvailability200UnavailabilityItem[];
-  busyTimes: GetApiV1PublicProfilesSlugAvailability200BusyTimesItem[];
 };

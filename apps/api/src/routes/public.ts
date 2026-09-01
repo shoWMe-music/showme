@@ -87,41 +87,48 @@ const PublicEventResponse = z.object({
 });
 
 /**
- * WHAT A STRANGER LEARNS FROM A PUBLIC AVAILABILITY PAGE, and what they do not.
+ * WHAT A STRANGER LEARNS FROM A PUBLIC AVAILABILITY PAGE: WHICH DAYS ARE OPEN.
+ * Nothing else, and deliberately not the shape of anybody's day.
  *
  * `unavailability` — whole days this profile is not bookable. Two sources, one
  * shape: the blocks the profile made by hand (`profile_unavailability`) and the
- * ALL-DAY entries imported from a connected calendar. It keeps the exact shape it
- * has always had, so the public page that reads it (`apps/marketing/src/availability.ts`)
- * keeps working unchanged and simply strikes out more days than before.
+ * ALL-DAY entries imported from a connected calendar. The page renders the
+ * complement of it: the dates you CAN ask for.
  *
- * `busyTimes` — HOURS taken on a day that is otherwise still bookable. This is
- * new, and it is the whole point of the imported half: a 09:00–09:30 coffee must
- * not blank out a night that can still host a show, while an all-day offsite
- * should. A day appears here only when it is NOT already in `unavailability`
- * for that reason.
+ * ── `busyTimes` WAS HERE AND HAS BEEN REMOVED (2026-09-01) ───────────────────
+ * This response used to carry the exact HOURS taken on a day that was otherwise
+ * still bookable — `{date, startTime, endTime}`, so a 09:00–09:30 coffee
+ * appeared, to anyone on the internet, as a 09:00–09:30 hole in a stranger's
+ * morning. The reasoning for it was sound as far as it went: a short meeting
+ * should not blank out a night that can still host a show.
  *
- * WHAT IS WITHHELD, on both: the title, the location, the provider, the remote
- * id, the reason, and any id at all. A stranger may learn that this profile is
- * busy on Tuesday from 09:00 to 09:30 — that is the fact they need in order to
- * not ask. They may not learn that it is called "Founder Lunch", that it is at a
- * competitor's address, or that it came from Google. The in-app read is narrower
- * still by one degree: it shows the title to the person whose calendar it came
- * from and "Busy" to everyone else (`serialize/calendar.ts`). This endpoint is
- * the outer bound and shows a title to nobody.
+ * But that argument is about what BLOCKS a booking, and it was answered by
+ * publishing the block itself. Daniel, 2026-09-01: *"external people should not
+ * see your calendar items. For example in the availability part. But availability
+ * should only show when you're free."* Exact windows are calendar items —
+ * stripped of their titles, but still the count, the boundaries and the rhythm of
+ * somebody's day, which is enough to infer a school run or a standing therapy
+ * appointment.
+ *
+ * **Nothing consumed it.** `apps/marketing/src/availability.ts` reads only
+ * `unavailability`; no web screen referenced it either. It was hidden in the UI
+ * and present in the JSON, which is exactly the gap `serialize/calendar.ts` was
+ * written to close — and the reason that file exists is that hiding in the client
+ * is not withholding.
+ *
+ * The authenticated read (`routes/profiles.ts`) still returns the windows: that
+ * is the profile's own members looking at their own calendar, and the
+ * title-withholding rule already governs what they see of each other's imports.
+ *
+ * If a finer public answer is ever needed, it must be computed as FREE capacity
+ * inside a defined bookable window — not as the complement of the busy list,
+ * which would republish the same information wearing a different name.
  */
 const AvailabilityResponse = z.object({
   unavailability: z.array(
     z.object({
       startDate: z.string(),
       endDate: z.string(),
-    }),
-  ),
-  busyTimes: z.array(
-    z.object({
-      date: z.string(),
-      startTime: z.string(),
-      endTime: z.string(),
     }),
   ),
 });
@@ -519,7 +526,11 @@ export async function publicRoutes(fastify: FastifyInstance): Promise<void> {
       // (`GET /profiles/:id/availability`) so the two can never disagree about
       // when somebody is free.
       const busy = await readProfileBusyTime(database, profile.id);
-      return { unavailability: busy.dateRanges, busyTimes: busy.timeWindows };
+      // `busy.timeWindows` is deliberately NOT returned here — see the response
+      // schema above. Fastify strips what the schema does not declare, but the
+      // omission is stated rather than left to the framework: an undeclared field
+      // that someone later adds to the schema would start publishing hours again.
+      return { unavailability: busy.dateRanges };
     },
   );
 

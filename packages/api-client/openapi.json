@@ -19205,28 +19205,9 @@
                         "required": ["startDate", "endDate"],
                         "additionalProperties": false
                       }
-                    },
-                    "busyTimes": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "date": {
-                            "type": "string"
-                          },
-                          "startTime": {
-                            "type": "string"
-                          },
-                          "endTime": {
-                            "type": "string"
-                          }
-                        },
-                        "required": ["date", "startTime", "endTime"],
-                        "additionalProperties": false
-                      }
                     }
                   },
-                  "required": ["unavailability", "busyTimes"],
+                  "required": ["unavailability"],
                   "additionalProperties": false
                 }
               }

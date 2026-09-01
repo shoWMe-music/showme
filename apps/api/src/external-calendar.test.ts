@@ -398,15 +398,23 @@ describe("the public availability page", () => {
       url: `/api/v1/public/profiles/${owner.slug}/availability`,
     });
     expect(response.statusCode).toBe(200);
+    // WHOLE DAYS ONLY. The 09:00–09:30 lunch blocks nothing publicly and, since
+    // 2026-09-01, is not reported publicly either: exact windows are calendar
+    // items stripped of their titles, and the count, boundaries and rhythm of a
+    // stranger's day are what Daniel asked not to publish.
     expect(response.json()).toEqual({
       unavailability: [{ startDate: "2026-10-08", endDate: "2026-10-08" }],
-      busyTimes: [{ date: "2026-10-20", startTime: "09:00:00", endTime: "09:30:00" }],
     });
     // Nothing about WHAT the commitment is may appear anywhere in the payload.
     expect(response.payload).not.toContain("Founder Lunch");
     expect(response.payload).not.toContain("Company offsite");
     expect(response.payload).not.toContain("Nordic Oncology");
     expect(response.payload).not.toContain("google");
+    // Nor WHEN, within a day. Asserted on the raw payload rather than on a parsed
+    // field, so re-adding the key under any name fails this.
+    expect(response.payload).not.toContain("09:00");
+    expect(response.payload).not.toContain("09:30");
+    expect(response.payload).not.toContain("busyTimes");
   });
 
   it("lifts the block when the user marks it available anyway", async () => {
@@ -433,7 +441,7 @@ describe("the public availability page", () => {
       method: "GET",
       url: `/api/v1/public/profiles/${owner.slug}/availability`,
     });
-    expect(after.json()).toEqual({ unavailability: [], busyTimes: [] });
+    expect(after.json()).toEqual({ unavailability: [] });
   });
 
   it("serves the same union to members through the in-app route", async () => {
