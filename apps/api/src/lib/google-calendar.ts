@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { NormalizedExternalEvent } from "./external-calendar";
 
 /**
@@ -111,6 +112,63 @@ export const GOOGLE_CALENDAR_API = "https://www.googleapis.com/calendar/v3";
 export const GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 
 /**
+ * The scope that lets us CREATE and own a calendar of our own — needed because
+ * shoWMe writes appointments to a dedicated "shoWMe" calendar rather than into
+ * the primary one (Daniel, 2026-09-01).
+ *
+ * ── A CORRECTION TO THE COMMENT ABOVE ────────────────────────────────────────
+ * "asking for write once is better than a second consent screen" was true about
+ * EVENTS and does not stretch to this. `calendar.events` cannot create a
+ * calendar, and cannot even read one's metadata — `calendars.get` and
+ * `calendarList.get` both answer 403 under it, verified against the live API and
+ * recorded on `calendar_connections.provider_account`. So the dedicated calendar
+ * does need a second consent, and pretending otherwise would have shipped a push
+ * that 403s on its first call.
+ *
+ * `calendar.app.created` rather than the full `calendar` scope: it grants exactly
+ * the calendars this application made and nothing else, so a user handing it over
+ * is not handing over the calendar they share with their family. It is also the
+ * scope Google's own verification treats as narrow rather than sensitive.
+ *
+ * ASKING FOR IT IS NOT THE SAME AS HAVING IT. Connections made before this exists
+ * carry only `calendar.events`, and Google refuses a scope the consent screen has
+ * not been configured for — so both the request and the use are gated on
+ * `GOOGLE_APP_CALENDAR_ENABLED`, and `hasAppCalendarScope` is what every write
+ * path asks before assuming it may write anywhere.
+ */
+export const GOOGLE_APP_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.app.created";
+
+/**
+ * Whether this deployment may ask for (and use) the app-calendar scope.
+ *
+ * OFF unless the environment says otherwise, and deliberately so: the scope has
+ * to be registered on the OAuth consent screen in the Google Cloud console first,
+ * and sending an unregistered scope makes Google reject the whole authorization
+ * with `invalid_scope` — which would break the working Google connect flow for
+ * everybody, not just the new feature. Flip it on after the console is updated.
+ */
+export function appCalendarEnabled(environment: NodeJS.ProcessEnv = process.env): boolean {
+  return environment.GOOGLE_APP_CALENDAR_ENABLED === "true";
+}
+
+/** The scopes to request, given what this deployment is configured for. */
+export function requestedScopes(environment: NodeJS.ProcessEnv = process.env): string {
+  return appCalendarEnabled(environment)
+    ? `${GOOGLE_CALENDAR_SCOPE} ${GOOGLE_APP_CALENDAR_SCOPE}`
+    : GOOGLE_CALENDAR_SCOPE;
+}
+
+/**
+ * Did this connection actually get the app-calendar scope? Read from the granted
+ * scope string Google returned, never assumed from configuration — a user can
+ * decline one scope of several, and incremental authorization means an older
+ * connection simply never asked.
+ */
+export function hasAppCalendarScope(grantedScope: string | null | undefined): boolean {
+  return (grantedScope ?? "").split(/\s+/).includes(GOOGLE_APP_CALENDAR_SCOPE);
+}
+
+/**
  * Where Google is allowed to send the user back. An ALLOW-LIST, not a parameter,
  * even though the value also has to be registered in the Google Cloud console: a
  * redirect the caller may choose freely is how an authorization code ends up
@@ -144,7 +202,7 @@ export function buildGoogleAuthorizationUrl(input: {
   url.searchParams.set("client_id", input.clientId);
   url.searchParams.set("redirect_uri", input.redirectUri);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", input.scope ?? GOOGLE_CALENDAR_SCOPE);
+  url.searchParams.set("scope", input.scope ?? requestedScopes());
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", "consent");
   url.searchParams.set("include_granted_scopes", "true");
@@ -732,4 +790,267 @@ export function normalizeGoogleEvents(
     else batch.ignored += 1;
   }
   return batch;
+}
+
+/**
+ * ── THE WRITE HALF ───────────────────────────────────────────────────────────
+ *
+ * Everything above this line reads Google. Nothing did until now: the only three
+ * calls this file made were the OAuth token exchange and `events.watch` /
+ * `channels/stop`. Pushing a shoWMe appointment out is what Ran asked for
+ * ("connect this to google meets and allow inviting via email"), and both halves
+ * of that ask — attendee invitations and a Meet link — are properties of a Google
+ * EVENT, so they cannot exist until the appointment is one.
+ *
+ * The seam this file keeps is unchanged: it knows Google and nothing about
+ * Postgres. Callers hand it plain values and get plain values back.
+ */
+
+/** A shoWMe appointment, in the shape Google wants it. */
+export interface GoogleEventWrite {
+  summary: string;
+  description?: string | null;
+  /** `YYYY-MM-DD`; with no times this becomes an all-day event. */
+  date: string;
+  endDate?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  /** IANA zone the wall-clock times are read in. */
+  timeZone?: string | null;
+  location?: string | null;
+  attendeeEmails?: readonly string[];
+  /** Ask Google to mint a Meet link. Opt-in per appointment — not every one is a call. */
+  withConference?: boolean;
+}
+
+/**
+ * Google's event body. All-day events use `date`; timed ones use `dateTime` plus
+ * a zone, and an appointment with a start but no end is given a one-hour end
+ * because Google refuses an event without one.
+ */
+function eventBody(input: GoogleEventWrite): Record<string, unknown> {
+  const body: Record<string, unknown> = { summary: input.summary };
+  if (input.description) body.description = input.description;
+  if (input.location) body.location = input.location;
+
+  if (input.startTime) {
+    const zone = input.timeZone ?? "UTC";
+    const endTime = input.endTime ?? addOneHour(input.startTime);
+    body.start = { dateTime: `${input.date}T${input.startTime}`, timeZone: zone };
+    body.end = { dateTime: `${input.endDate ?? input.date}T${endTime}`, timeZone: zone };
+  } else {
+    // Google's all-day `end.date` is EXCLUSIVE — a one-day event ends the next
+    // morning. Getting this wrong is how an appointment silently loses its last
+    // day, so the arithmetic is here rather than at each call site.
+    body.start = { date: input.date };
+    body.end = { date: nextDay(input.endDate ?? input.date) };
+  }
+
+  if (input.attendeeEmails?.length) {
+    body.attendees = input.attendeeEmails.map((email) => ({ email }));
+  }
+  if (input.withConference) {
+    // `requestId` is the idempotency key for conference creation. It must be
+    // stable per request and unique per event, which is exactly a random id.
+    body.conferenceData = {
+      createRequest: {
+        requestId: randomUUID(),
+        conferenceSolutionKey: { type: "hangoutsMeet" },
+      },
+    };
+  }
+  return body;
+}
+
+function addOneHour(time: string): string {
+  const [hours = "0", minutes = "00"] = time.split(":");
+  const next = (Number(hours) + 1) % 24;
+  return `${String(next).padStart(2, "0")}:${minutes}`;
+}
+
+function nextDay(date: string): string {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  parsed.setUTCDate(parsed.getUTCDate() + 1);
+  return parsed.toISOString().slice(0, 10);
+}
+
+/** What a write gives back: the id to store, and the Meet link if one was made. */
+export interface GoogleEventWriteResult {
+  eventId: string;
+  hangoutLink: string | null;
+}
+
+function readWriteResult(payload: unknown): GoogleEventWriteResult {
+  const event = payload as {
+    id?: string;
+    hangoutLink?: string;
+    conferenceData?: { entryPoints?: { entryPointType?: string; uri?: string }[] };
+  };
+  if (!event.id) throw new GoogleApiError(502, "Google returned an event with no id");
+  const entry = event.conferenceData?.entryPoints?.find(
+    (point) => point.entryPointType === "video",
+  );
+  return { eventId: event.id, hangoutLink: event.hangoutLink ?? entry?.uri ?? null };
+}
+
+/**
+ * The query string every write shares.
+ *
+ * `conferenceDataVersion=1` is REQUIRED for a Meet link, and its absence is
+ * silent: Google accepts the request, ignores the whole `conferenceData` block
+ * and returns an event with no conference on it. That is the usual way this
+ * feature gets reported as "not working", so it is set on every write rather
+ * than only when a conference is asked for.
+ *
+ * `sendUpdates=all` is what actually mails the attendees — from the connected
+ * user's own account, which is the point of routing through Google rather than
+ * through our own transactional mail.
+ */
+function writeQuery(input: { notifyAttendees: boolean }): string {
+  const params = new URLSearchParams({ conferenceDataVersion: "1" });
+  params.set("sendUpdates", input.notifyAttendees ? "all" : "none");
+  return params.toString();
+}
+
+async function googleWrite(input: {
+  accessToken: string;
+  url: string;
+  method: "POST" | "PATCH" | "DELETE";
+  body?: Record<string, unknown>;
+  fetchImplementation?: typeof fetch;
+}): Promise<unknown> {
+  const doFetch = input.fetchImplementation ?? fetch;
+  const response = await doFetch(input.url, {
+    method: input.method,
+    headers: {
+      authorization: `Bearer ${input.accessToken}`,
+      "content-type": "application/json",
+    },
+    body: input.body ? JSON.stringify(input.body) : undefined,
+  });
+  if (response.status === 401 || response.status === 403) {
+    // The same class the read path already raises, so a revoked or narrowed grant
+    // is handled by the code that already knows what to do about it.
+    throw new GoogleAuthorizationRevokedError(
+      `Google refused the write (${response.status}) — the grant may have been revoked or narrowed`,
+    );
+  }
+  if (!response.ok) {
+    throw new GoogleApiError(response.status, `Google write failed (${response.status})`);
+  }
+  if (response.status === 204) return {};
+  return response.json();
+}
+
+/**
+ * Find the calendar this application made for the user, or make it.
+ *
+ * Requires `calendar.app.created` — under `calendar.events` the listing is a 403,
+ * which is why every caller checks `hasAppCalendarScope` first rather than
+ * discovering it here.
+ *
+ * Matched by summary because that is the only stable handle we have: the id is
+ * generated by Google, and storing it is the caller's job (on the connection),
+ * not something to re-derive on every push.
+ */
+export async function findOrCreateAppCalendar(input: {
+  accessToken: string;
+  summary: string;
+  timeZone?: string | null;
+  fetchImplementation?: typeof fetch;
+}): Promise<string> {
+  const doFetch = input.fetchImplementation ?? fetch;
+  const listed = await doFetch(`${GOOGLE_CALENDAR_API}/users/me/calendarList`, {
+    headers: { authorization: `Bearer ${input.accessToken}` },
+  });
+  if (listed.status === 401 || listed.status === 403) {
+    throw new GoogleAuthorizationRevokedError(
+      "Google refused the calendar list — the app-calendar scope is missing",
+    );
+  }
+  if (listed.ok) {
+    const payload = (await listed.json()) as { items?: { id?: string; summary?: string }[] };
+    const existing = payload.items?.find((entry) => entry.summary === input.summary);
+    if (existing?.id) return existing.id;
+  }
+
+  const created = (await googleWrite({
+    accessToken: input.accessToken,
+    url: `${GOOGLE_CALENDAR_API}/calendars`,
+    method: "POST",
+    body: { summary: input.summary, timeZone: input.timeZone ?? undefined },
+    fetchImplementation: input.fetchImplementation,
+  })) as { id?: string };
+  if (!created.id) throw new GoogleApiError(502, "Google created a calendar with no id");
+  return created.id;
+}
+
+/** Create the Google event for a shoWMe appointment. */
+export async function insertCalendarEvent(input: {
+  accessToken: string;
+  calendarId: string;
+  event: GoogleEventWrite;
+  notifyAttendees?: boolean;
+  fetchImplementation?: typeof fetch;
+}): Promise<GoogleEventWriteResult> {
+  const query = writeQuery({ notifyAttendees: input.notifyAttendees ?? true });
+  const payload = await googleWrite({
+    accessToken: input.accessToken,
+    url: `${GOOGLE_CALENDAR_API}/calendars/${encodeURIComponent(input.calendarId)}/events?${query}`,
+    method: "POST",
+    body: eventBody(input.event),
+    fetchImplementation: input.fetchImplementation,
+  });
+  return readWriteResult(payload);
+}
+
+/**
+ * Update one we already pushed.
+ *
+ * PATCH rather than PUT so fields Google owns — the conference it minted, the
+ * RSVPs attendees have given — survive an edit to the title. A full replace would
+ * quietly cancel the Meet link every time somebody renamed the appointment.
+ */
+export async function patchCalendarEvent(input: {
+  accessToken: string;
+  calendarId: string;
+  eventId: string;
+  event: GoogleEventWrite;
+  notifyAttendees?: boolean;
+  fetchImplementation?: typeof fetch;
+}): Promise<GoogleEventWriteResult> {
+  const query = writeQuery({ notifyAttendees: input.notifyAttendees ?? true });
+  const payload = await googleWrite({
+    accessToken: input.accessToken,
+    url: `${GOOGLE_CALENDAR_API}/calendars/${encodeURIComponent(
+      input.calendarId,
+    )}/events/${encodeURIComponent(input.eventId)}?${query}`,
+    method: "PATCH",
+    body: eventBody(input.event),
+    fetchImplementation: input.fetchImplementation,
+  });
+  return readWriteResult(payload);
+}
+
+/**
+ * Cancel one. `sendUpdates=all` matters most here: an attendee who is never told
+ * the meeting is off still has it in their calendar, which is worse than never
+ * having been invited.
+ */
+export async function deleteCalendarEvent(input: {
+  accessToken: string;
+  calendarId: string;
+  eventId: string;
+  notifyAttendees?: boolean;
+  fetchImplementation?: typeof fetch;
+}): Promise<void> {
+  const query = writeQuery({ notifyAttendees: input.notifyAttendees ?? true });
+  await googleWrite({
+    accessToken: input.accessToken,
+    url: `${GOOGLE_CALENDAR_API}/calendars/${encodeURIComponent(
+      input.calendarId,
+    )}/events/${encodeURIComponent(input.eventId)}?${query}`,
+    method: "DELETE",
+    fetchImplementation: input.fetchImplementation,
+  });
 }
