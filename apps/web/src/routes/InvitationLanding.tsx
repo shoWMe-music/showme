@@ -155,10 +155,17 @@ function AnswerCard({
   onSignOut: () => void;
 }) {
   const eventLink = offer?.targetEventId ? `/events/${offer.targetEventId}` : "/";
+  const [claimCode, setClaimCode] = useState("");
   const busy =
-    invitation.accept.isPending || invitation.decline.isPending || invitation.claim.isPending;
+    invitation.accept.isPending ||
+    invitation.decline.isPending ||
+    invitation.claim.isPending ||
+    invitation.requestClaimCode.isPending;
   const answerFailed =
-    invitation.accept.error ?? invitation.decline.error ?? invitation.claim.error;
+    invitation.accept.error ??
+    invitation.decline.error ??
+    invitation.claim.error ??
+    invitation.requestClaimCode.error;
 
   switch (stage) {
     case "unreadable":
@@ -290,23 +297,80 @@ function AnswerCard({
         </Panel>
       );
 
+    // A CLAIM asks for a code first (decisions #18). The reader may be signed in
+    // as somebody else entirely — that is the case this was built for — so the
+    // code sent to the invited address is the only thing tying them to the
+    // account they are taking over. Accept and decline are unchanged.
     case "ready":
+      if (offer?.claimable) {
+        return (
+          <Panel title="Take this account over?">
+            <p style={bodyStyle}>
+              Claiming makes that account yours, with everything already booked on it. We will send
+              a code to the address this invitation was sent to, so we know it reached you. You can
+              stay signed in as you are.
+            </p>
+            {!invitation.claimCodeSent ? (
+              <>
+                {answerFailed && <p style={errorStyle}>{errorMessage(answerFailed)}</p>}
+                <div style={actionsStyle}>
+                  <Button onClick={() => invitation.requestClaimCode.mutate()} disabled={busy}>
+                    {busy ? "One moment…" : "Send me the code"}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => invitation.decline.mutate()}
+                    disabled={busy}
+                  >
+                    Decline
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <label htmlFor="claim-code" style={bodyStyle}>
+                  Enter the six-digit code we just sent.
+                </label>
+                <input
+                  id="claim-code"
+                  value={claimCode}
+                  onChange={(event) => setClaimCode(event.target.value.trim())}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  style={codeInputStyle}
+                />
+                {answerFailed && <p style={errorStyle}>{errorMessage(answerFailed)}</p>}
+                <div style={actionsStyle}>
+                  <Button
+                    onClick={() => invitation.claim.mutate(claimCode)}
+                    disabled={busy || claimCode.length < 6}
+                  >
+                    {busy ? "One moment…" : "Claim it"}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => invitation.requestClaimCode.mutate()}
+                    disabled={busy}
+                  >
+                    Send another
+                  </Button>
+                </div>
+              </>
+            )}
+          </Panel>
+        );
+      }
       return (
-        <Panel title={offer?.claimable ? "Take this account over?" : "Do you accept?"}>
+        <Panel title="Do you accept?">
           <p style={bodyStyle}>
-            {offer?.claimable
-              ? "Claiming makes that account yours, with everything already booked on it. Declining leaves it exactly as it is."
-              : "Accepting adds you to it straight away. Declining is a real answer too, and closes the invitation."}
+            Accepting adds you to it straight away. Declining is a real answer too, and closes the
+            invitation.
           </p>
           {answerFailed && <p style={errorStyle}>{errorMessage(answerFailed)}</p>}
           <div style={actionsStyle}>
-            <Button
-              onClick={() =>
-                offer?.claimable ? invitation.claim.mutate() : invitation.accept.mutate()
-              }
-              disabled={busy}
-            >
-              {busy ? "One moment…" : offer?.claimable ? "Claim it" : "Accept"}
+            <Button onClick={() => invitation.accept.mutate()} disabled={busy}>
+              {busy ? "One moment…" : "Accept"}
             </Button>
             <Button variant="secondary" onClick={() => invitation.decline.mutate()} disabled={busy}>
               Decline
@@ -416,3 +480,18 @@ const noteStyle = { ...bodyStyle, fontSize: 12.5 } as const;
 const errorStyle = { ...bodyStyle, color: "var(--brand-red)" } as const;
 
 const actionsStyle = { display: "flex", flexWrap: "wrap", gap: 10 } as const;
+
+/** The claim code field. Wide-tracked and monospaced, because six digits typed
+ *  from an email are read back character by character. */
+const codeInputStyle = {
+  font: "var(--font-mono, monospace)",
+  fontSize: 22,
+  letterSpacing: "0.3em",
+  padding: "10px 12px",
+  width: "100%",
+  maxWidth: 220,
+  borderRadius: 8,
+  border: "1px solid var(--border)",
+  background: "var(--surface)",
+  color: "var(--text)",
+} as const;
