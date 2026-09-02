@@ -4,7 +4,7 @@ The standing answer to "what's deployed where". Update it when that changes.
 Account/project map and the domain history live in
 [handoff-2026-08-23-marketing-and-hosting.md](./handoff-2026-08-23-marketing-and-hosting.md).
 
-## 2026-09-01/02 — migration 0034, API 00028, both sites. THIS IS CURRENT.
+## 2026-09-01/02 — migration 0034, API 00029, both sites. THIS IS CURRENT.
 
 Six API revisions went out in one session. Each is listed because the *reason*
 matters more than the number when something later looks wrong.
@@ -18,6 +18,7 @@ matters more than the number when something later looks wrong.
 | `00026-qbw` | seats are counted, and `editor` costs one |
 | `00027-gsv` | seats reported on `cap-status`, so the ceiling is visible before it is hit |
 | `00028-7pj` | **free operators get unlimited events** — the code enforced a cap of 3 while the live pricing page advertised "Unlimited events" |
+| `00029-4vd` | the last two pricing promises enforced: **2 templates** on free, **one profile per free account** |
 
 **Database: 35 rows** in `drizzle.__drizzle_migrations` (through 0034). Backups
 `1788252441485` and `1788256506985` taken before 0032–0033 and 0034 respectively.
@@ -55,11 +56,12 @@ is now `null`, with the counting machinery intact so a number is one line.
 **Matching, checked:** Basic's one seat, Pro's two seats plus purchased extras,
 Performer's 50 offers a month, Agent's unlimited offers.
 
-**Still divergent, deliberately unfixed** (ClickUp `86cbcy6j7`): "2 templates"
-and "One profile per account" are advertised and enforced nowhere. Both ADD a
-restriction, so they can break accounts already over the line — including Ran's,
-who holds two profiles. The page currently offers more than the code enforces,
-which is the harmless direction; decide the migration before building.
+**Now also enforced (00029):** "2 templates" on free / unlimited on Pro, and
+"One profile per account" on a free plan. These ADD restrictions, which was safe
+only because production has no real users — six profiles, all internal. Note that
+PLAN.md:564 and the pricing page agree rather than conflict: PLAN removed the old
+16-profile limit as a JWT artifact and said any real cap "would be a deliberate
+plan/entitlement rule", which is exactly what the page supplies.
 
 ### Google Calendar is still Internal
 `orgInternalOnly: true` on the `prod-showme` consent screen, so only
