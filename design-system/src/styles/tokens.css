@@ -25,6 +25,18 @@
   --ink-100: #F5EDE2;
   --ink-200: #E6D9CB;
   --ink-300: #B8A99B;
+  /* The DARK theme's muted text, and the only reason this step exists.
+     --ink-400 on --ink-800 (the ground every input, select and popover sits on)
+     measures 4.24:1 — under the 4.5:1 that 13.5px body text needs, so a Select's
+     placeholder was legibly worse than the value that replaces it. Reported as
+     "dropdown text unreadable" (ClickUp 86cbcn1ue); measured in the running app
+     rather than judged by eye, because the LIGHT theme renders the same token at
+     8.65:1 and looks perfectly fine.
+     This is 4.92:1 on the same ground — deliberately past the line rather than
+     on it, since a check that passes with no headroom is pending, not passing.
+     --ink-400 itself must NOT be lightened to fix this: the light theme uses it
+     for --dim, where lighter means LESS contrast on white. */
+  --ink-350: #978578;
   --ink-400: #8C7A6C;
   --ink-500: #5A483C;
   --ink-700: #2E2118;
@@ -116,7 +128,7 @@
   --surface: var(--ink-900);
   --elevated: var(--ink-800);
   --text: var(--ink-100);
-  --muted: var(--ink-400);
+  --muted: var(--ink-350);
   --dim: var(--ink-500);
   --border: rgba(255, 233, 184, .09);
   --border-strong: rgba(255, 233, 184, .16);

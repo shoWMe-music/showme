@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { PostApiV1EventsIdSettlementLines201CostSplit } from './postApiV1EventsIdSettlementLines201CostSplit';
+import type { PostApiV1EventsIdSettlementLines201Details } from './postApiV1EventsIdSettlementLines201Details';
 
 export type PostApiV1EventsIdSettlementLines201 = {
   id: string;
@@ -27,5 +28,7 @@ export type PostApiV1EventsIdSettlementLines201 = {
   attributedDealId: string | null;
   /** @nullable */
   originBudgetLineId: string | null;
+  /** @nullable */
+  details: PostApiV1EventsIdSettlementLines201Details;
   version: number;
 };

@@ -6,6 +6,7 @@
  */
 import type { PostApiV1EventsIdSettlementLinesBodyKind } from './postApiV1EventsIdSettlementLinesBodyKind';
 import type { PostApiV1EventsIdSettlementLinesBodyCostSplit } from './postApiV1EventsIdSettlementLinesBodyCostSplit';
+import type { PostApiV1EventsIdSettlementLinesBodyDetails } from './postApiV1EventsIdSettlementLinesBodyDetails';
 
 export type PostApiV1EventsIdSettlementLinesBody = {
   kind: PostApiV1EventsIdSettlementLinesBodyKind;
@@ -24,4 +25,6 @@ export type PostApiV1EventsIdSettlementLinesBody = {
   /** @nullable */
   costSplit?: PostApiV1EventsIdSettlementLinesBodyCostSplit;
   attributedDealId?: string;
+  /** @nullable */
+  details?: PostApiV1EventsIdSettlementLinesBodyDetails;
 };

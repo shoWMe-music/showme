@@ -85,7 +85,11 @@ export function reconcile(input: SettlementInput): SettlementResult {
     deal.payeeParticipantIds.forEach((payee, index) => {
       // Commissions are charged per ENTITLED LINE (`commissions.ts`), so each
       // payee on a split deal carries only the commission on its own portion.
-      const { payeeAmount, charges } = applyCommissions(portions[index] ?? 0n, deal.commissions);
+      const { payeeAmount, charges } = applyCommissions(
+        portions[index] ?? 0n,
+        deal.commissions,
+        deal.commissionMode,
+      );
       credit(payee, payeeAmount);
       const charged = (portions[index] ?? 0n) - payeeAmount;
       lines.get(payee)?.push({

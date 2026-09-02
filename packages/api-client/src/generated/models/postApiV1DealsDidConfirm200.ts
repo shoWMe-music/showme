@@ -22,6 +22,7 @@ export type PostApiV1DealsDidConfirm200 = {
   /** @nullable */
   splitBasisPoints: number | null;
   paymentTiming: string;
+  commissionMode: string;
   priority: number;
   status: string;
   agreementStatus: string;

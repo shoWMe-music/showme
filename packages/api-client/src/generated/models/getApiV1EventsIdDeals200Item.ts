@@ -22,6 +22,7 @@ export type GetApiV1EventsIdDeals200Item = {
   /** @nullable */
   splitBasisPoints: number | null;
   paymentTiming: string;
+  commissionMode: string;
   priority: number;
   status: string;
   agreementStatus: string;

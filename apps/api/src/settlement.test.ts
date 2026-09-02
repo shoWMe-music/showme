@@ -565,6 +565,67 @@ describe("settlement — representation commission (decisions #14)", () => {
     expect(commissionTransfers[0]?.state).toBe("owed");
   });
 
+  /**
+   * A REIMBURSED COST DOES NOT SHRINK THE AGENT'S COMMISSION (ClickUp `86cba8wtb`).
+   *
+   * `.claude/skills/settlement/SKILL.md` has always said reimbursements are not
+   * commissionable, and `commission-settlement.ts` has always CLAIMED in its own
+   * header that it works from "the performer's gross entitlement". Neither was
+   * true: it read `breakdown.entitlement`, which `reconcile()` step 3 lowers by
+   * every cost the party bore. So a venue fronting a hotel quietly cut the fee of
+   * an agent who never saw the hotel.
+   *
+   * The band is entitled to 300 000 and the agent takes 20%. Adding a 100 000 cost
+   * BORNE by the band (`payeeParticipantId`) must not move the commission:
+   *
+   *   wrong — 20% of 200 000 = 40 000
+   *   right — 20% of 300 000 = 60 000
+   *
+   * This test is the whole reason the fix is safe to ship: it fails on the old
+   * code with exactly 40 000, so it cannot pass by accident.
+   */
+  it("commissions the GROSS entitlement, so a cost the performer bore does not cut the agent's fee", async () => {
+    const seed = await seedWorkedExample("comm-gross");
+    const rep = await seedAgentRepresentation("comm-gross", seed);
+
+    // A cost the VENUE fronted, deducted from the band's own cut — the hotel case.
+    const [budget] = await harness.db
+      .select()
+      .from(schema.budgets)
+      .where(eq(schema.budgets.eventId, seed.event.id));
+    if (!budget) throw new Error("budget missing");
+    await harness.db.insert(schema.budgetLines).values({
+      budgetId: budget.id,
+      kind: "cost",
+      label: "Hotel, fronted by the venue",
+      amount: 100000n,
+      paidBy: seed.vPart,
+      payeeParticipantId: seed.bPart, // borne by the band → a deductible
+    });
+
+    const compute = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(compute.statusCode).toBe(200);
+
+    // The deduction really did happen — otherwise this test would prove nothing.
+    const band = compute
+      .json()
+      .breakdowns.find((row: { participantId: string }) => row.participantId === seed.bPart);
+    expect(band.deductibles).toBe("100000");
+    expect(band.entitlement).toBe("200000"); // 300 000 gross − the 100 000 borne
+
+    // ...and the commission is on the 300 000 regardless.
+    const [commissionSettlement] = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.representationId, rep.representation.id));
+    const computed = commissionSettlement?.computed as { commission: string };
+    expect(computed.commission).toBe("60000");
+  });
+
   it("hides the commission from the operator but shows it to the performer and agent", async () => {
     const seed = await seedWorkedExample("commvis");
     const rep = await seedAgentRepresentation("commvis", seed);
@@ -3398,6 +3459,140 @@ describe("settlement lines — the settlement's own copy of the budget", () => {
     ]) {
       expect((await attempt).statusCode).toBe(409);
     }
+  });
+
+  /**
+   * THE BREAKDOWN BEHIND A FIGURE — 200 tickets at 250, not just 50 000.
+   *
+   * `budget_lines.details` has carried unit × quantity since the planner learned
+   * to multiply, and `ensureSettlementLines` has always copied the column across.
+   * What did not exist was any way to READ or WRITE it on the settlement side:
+   * the route neither serialized nor accepted `details`, so the settlement could
+   * only show the count where the planner had baked it into a LABEL, and the
+   * operator restating a night that sold 168 had to multiply it out by hand.
+   *
+   * Reported as *"tickets info (name, quantity, price) missing from settlements"*
+   * (ClickUp 86cbcn1ue). These are the three halves of the fix: it survives the
+   * copy, it can be restated, and restating it leaves the forecast alone.
+   */
+  it("carries a counted line's breakdown through the copy", async () => {
+    const seed = await seedWorkedExample("copy-details");
+    const budget = await budgetFor(seed.event.id);
+    await harness.db.insert(schema.budgetLines).values({
+      budgetId: budget.id,
+      kind: "revenue",
+      label: "Advance tickets",
+      amount: 5000000n,
+      collectedBy: seed.pPart,
+      details: { basis: "ticket_tier", unitAmount: "25000", quantity: 200 },
+    });
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlement/lines`,
+      headers: auth(seed.operator.userId),
+    });
+    const advance = read.json().find((line: { label: string }) => line.label === "Advance tickets");
+    expect(advance.details).toEqual({
+      basis: "ticket_tier",
+      unitAmount: "25000",
+      quantity: 200,
+    });
+    // A line nobody counted keeps a null — most costs are a lump sum, and
+    // inventing a unit price for one would be worse than the single field.
+    const lump = read.json().find((line: { label: string }) => line.label === "Sound");
+    expect(lump?.details ?? null).toBeNull();
+  });
+
+  it("restates the count without touching the forecast", async () => {
+    const seed = await seedWorkedExample("restate-count");
+    const budget = await budgetFor(seed.event.id);
+    await harness.db.insert(schema.budgetLines).values({
+      budgetId: budget.id,
+      kind: "revenue",
+      label: "Advance tickets",
+      amount: 5000000n,
+      collectedBy: seed.pPart,
+      details: { basis: "ticket_tier", unitAmount: "25000", quantity: 200 },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const [copied] = (await linesOf(seed.event.id)).filter(
+      (line) => line.label === "Advance tickets",
+    );
+    if (!copied) throw new Error("counted copy missing");
+
+    // 168 sold, not the 200 forecast. The amount is unit × quantity — sent
+    // together, so a row can never say "168 @ 250" beside a total that is not
+    // 42 000.
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.event.id}/settlement/lines/${copied.id}`,
+      headers: auth(seed.operator.userId),
+      payload: {
+        amount: "4200000",
+        details: { basis: "ticket_tier", unitAmount: "25000", quantity: 168 },
+        expectedVersion: copied.version,
+      },
+    });
+    expect(patched.statusCode).toBe(200);
+    expect(patched.json().details.quantity).toBe(168);
+    expect(patched.json().amount).toBe("4200000");
+
+    // THE RULE, again: the plan still says 200. This is the whole reason the
+    // settlement keeps its own copy (decisions.md #16.8) — a planned-vs-actual
+    // comparison whose "planned" side moves when you correct the actual compares
+    // a figure with itself.
+    const [forecast] = await harness.db
+      .select()
+      .from(schema.budgetLines)
+      .where(
+        and(
+          eq(schema.budgetLines.budgetId, budget.id),
+          eq(schema.budgetLines.label, "Advance tickets"),
+        ),
+      );
+    expect(forecast?.amount).toBe(5000000n);
+    expect(forecast?.details).toEqual({ basis: "ticket_tier", unitAmount: "25000", quantity: 200 });
+  });
+
+  it("accepts a ticket type opened on the night, counted from the start", async () => {
+    const seed = await seedWorkedExample("night-tier");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/lines`,
+      headers: auth(seed.operator.userId),
+      payload: {
+        kind: "revenue",
+        label: "Walk-up",
+        amount: "3000000",
+        collectedBy: seed.pPart,
+        details: { basis: "ticket_tier", unitAmount: "30000", quantity: 100 },
+      },
+    });
+    expect(added.statusCode).toBe(201);
+    expect(added.json().details).toEqual({
+      basis: "ticket_tier",
+      unitAmount: "30000",
+      quantity: 100,
+    });
+    // Never budgeted — so it has a breakdown but no forecast to pair with.
+    expect(added.json().originBudgetLineId).toBeNull();
   });
 
   it("refuses a party who may read the settlement but not restate it", async () => {

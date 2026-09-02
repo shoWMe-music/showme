@@ -47,7 +47,9 @@ body {
      DS SidebarItem labels/toggle/user-menu render dark-on-dark. Identical in
      both themes, as intended. */
   --text: var(--ink-100);
-  --muted: var(--ink-400);
+  /* --ink-350, not --ink-400: this panel is always dark, so it wants the dark
+     theme's muted value, and that is the contrast-corrected step (see tokens.css). */
+  --muted: var(--ink-350);
   --dim: var(--ink-500);
   --surface: var(--ink-900);
   --elevated: var(--ink-800);

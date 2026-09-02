@@ -2694,6 +2694,9 @@
                       "paymentTiming": {
                         "type": "string"
                       },
+                      "commissionMode": {
+                        "type": "string"
+                      },
                       "priority": {
                         "type": "number"
                       },
@@ -2761,6 +2764,7 @@
                       "advanceAmount",
                       "splitBasisPoints",
                       "paymentTiming",
+                      "commissionMode",
                       "priority",
                       "status",
                       "agreementStatus",
@@ -2814,6 +2818,10 @@
                   "paymentTiming": {
                     "type": "string",
                     "enum": ["before_event", "at_settlement", "due_date"]
+                  },
+                  "commissionMode": {
+                    "type": "string",
+                    "enum": ["parallel", "cascading"]
                   },
                   "priority": {
                     "type": "integer"
@@ -2923,6 +2931,9 @@
                     "paymentTiming": {
                       "type": "string"
                     },
+                    "commissionMode": {
+                      "type": "string"
+                    },
                     "priority": {
                       "type": "number"
                     },
@@ -2990,6 +3001,7 @@
                     "advanceAmount",
                     "splitBasisPoints",
                     "paymentTiming",
+                    "commissionMode",
                     "priority",
                     "status",
                     "agreementStatus",
@@ -3061,6 +3073,9 @@
                     "paymentTiming": {
                       "type": "string"
                     },
+                    "commissionMode": {
+                      "type": "string"
+                    },
                     "priority": {
                       "type": "number"
                     },
@@ -3128,6 +3143,7 @@
                     "advanceAmount",
                     "splitBasisPoints",
                     "paymentTiming",
+                    "commissionMode",
                     "priority",
                     "status",
                     "agreementStatus",
@@ -3181,6 +3197,10 @@
                   "paymentTiming": {
                     "type": "string",
                     "enum": ["before_event", "at_settlement", "due_date"]
+                  },
+                  "commissionMode": {
+                    "type": "string",
+                    "enum": ["parallel", "cascading"]
                   },
                   "priority": {
                     "type": "integer"
@@ -3252,6 +3272,9 @@
                     "paymentTiming": {
                       "type": "string"
                     },
+                    "commissionMode": {
+                      "type": "string"
+                    },
                     "priority": {
                       "type": "number"
                     },
@@ -3319,6 +3342,7 @@
                     "advanceAmount",
                     "splitBasisPoints",
                     "paymentTiming",
+                    "commissionMode",
                     "priority",
                     "status",
                     "agreementStatus",
@@ -3424,6 +3448,9 @@
                     "paymentTiming": {
                       "type": "string"
                     },
+                    "commissionMode": {
+                      "type": "string"
+                    },
                     "priority": {
                       "type": "number"
                     },
@@ -3491,6 +3518,7 @@
                     "advanceAmount",
                     "splitBasisPoints",
                     "paymentTiming",
+                    "commissionMode",
                     "priority",
                     "status",
                     "agreementStatus",
@@ -3562,6 +3590,9 @@
                     "paymentTiming": {
                       "type": "string"
                     },
+                    "commissionMode": {
+                      "type": "string"
+                    },
                     "priority": {
                       "type": "number"
                     },
@@ -3629,6 +3660,7 @@
                     "advanceAmount",
                     "splitBasisPoints",
                     "paymentTiming",
+                    "commissionMode",
                     "priority",
                     "status",
                     "agreementStatus",
@@ -3720,6 +3752,9 @@
                     "paymentTiming": {
                       "type": "string"
                     },
+                    "commissionMode": {
+                      "type": "string"
+                    },
                     "priority": {
                       "type": "number"
                     },
@@ -3787,6 +3822,7 @@
                     "advanceAmount",
                     "splitBasisPoints",
                     "paymentTiming",
+                    "commissionMode",
                     "priority",
                     "status",
                     "agreementStatus",
@@ -7300,6 +7336,33 @@
                         "type": "string",
                         "nullable": true
                       },
+                      "details": {
+                        "type": "object",
+                        "properties": {
+                          "basis": {
+                            "type": "string",
+                            "enum": [
+                              "ticket_tier",
+                              "bar_spend",
+                              "other_revenue",
+                              "custom_revenue",
+                              "custom_cost"
+                            ],
+                            "default": "ticket_tier"
+                          },
+                          "unitAmount": {
+                            "type": "string",
+                            "pattern": "^-?\\d+$"
+                          },
+                          "quantity": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "required": ["unitAmount", "quantity"],
+                        "additionalProperties": false,
+                        "nullable": true
+                      },
                       "version": {
                         "type": "number"
                       }
@@ -7317,6 +7380,7 @@
                       "dealId",
                       "attributedDealId",
                       "originBudgetLineId",
+                      "details",
                       "version"
                     ],
                     "additionalProperties": false
@@ -7376,6 +7440,33 @@
                   "attributedDealId": {
                     "type": "string",
                     "format": "uuid"
+                  },
+                  "details": {
+                    "type": "object",
+                    "properties": {
+                      "basis": {
+                        "type": "string",
+                        "enum": [
+                          "ticket_tier",
+                          "bar_spend",
+                          "other_revenue",
+                          "custom_revenue",
+                          "custom_cost"
+                        ],
+                        "default": "ticket_tier"
+                      },
+                      "unitAmount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+$"
+                      },
+                      "quantity": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "required": ["unitAmount", "quantity"],
+                    "additionalProperties": false,
+                    "nullable": true
                   }
                 },
                 "required": ["kind", "label", "amount"],
@@ -7450,6 +7541,33 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "details": {
+                      "type": "object",
+                      "properties": {
+                        "basis": {
+                          "type": "string",
+                          "enum": [
+                            "ticket_tier",
+                            "bar_spend",
+                            "other_revenue",
+                            "custom_revenue",
+                            "custom_cost"
+                          ],
+                          "default": "ticket_tier"
+                        },
+                        "unitAmount": {
+                          "type": "string",
+                          "pattern": "^-?\\d+$"
+                        },
+                        "quantity": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": ["unitAmount", "quantity"],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
                     "version": {
                       "type": "number"
                     }
@@ -7467,6 +7585,7 @@
                     "dealId",
                     "attributedDealId",
                     "originBudgetLineId",
+                    "details",
                     "version"
                   ],
                   "additionalProperties": false
@@ -7527,6 +7646,33 @@
                   "attributedDealId": {
                     "type": "string",
                     "format": "uuid",
+                    "nullable": true
+                  },
+                  "details": {
+                    "type": "object",
+                    "properties": {
+                      "basis": {
+                        "type": "string",
+                        "enum": [
+                          "ticket_tier",
+                          "bar_spend",
+                          "other_revenue",
+                          "custom_revenue",
+                          "custom_cost"
+                        ],
+                        "default": "ticket_tier"
+                      },
+                      "unitAmount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+$"
+                      },
+                      "quantity": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "required": ["unitAmount", "quantity"],
+                    "additionalProperties": false,
                     "nullable": true
                   },
                   "expectedVersion": {
@@ -7613,6 +7759,33 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "details": {
+                      "type": "object",
+                      "properties": {
+                        "basis": {
+                          "type": "string",
+                          "enum": [
+                            "ticket_tier",
+                            "bar_spend",
+                            "other_revenue",
+                            "custom_revenue",
+                            "custom_cost"
+                          ],
+                          "default": "ticket_tier"
+                        },
+                        "unitAmount": {
+                          "type": "string",
+                          "pattern": "^-?\\d+$"
+                        },
+                        "quantity": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": ["unitAmount", "quantity"],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
                     "version": {
                       "type": "number"
                     }
@@ -7630,6 +7803,7 @@
                     "dealId",
                     "attributedDealId",
                     "originBudgetLineId",
+                    "details",
                     "version"
                   ],
                   "additionalProperties": false

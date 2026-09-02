@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { GetApiV1EventsIdSettlementLines200ItemCostSplit } from './getApiV1EventsIdSettlementLines200ItemCostSplit';
+import type { GetApiV1EventsIdSettlementLines200ItemDetails } from './getApiV1EventsIdSettlementLines200ItemDetails';
 
 export type GetApiV1EventsIdSettlementLines200Item = {
   id: string;
@@ -27,5 +28,7 @@ export type GetApiV1EventsIdSettlementLines200Item = {
   attributedDealId: string | null;
   /** @nullable */
   originBudgetLineId: string | null;
+  /** @nullable */
+  details: GetApiV1EventsIdSettlementLines200ItemDetails;
   version: number;
 };

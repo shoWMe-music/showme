@@ -106,3 +106,6 @@ export type {
 export { LoadingState, ErrorState } from "./states";
 export { ProfileFace } from "./ProfileFace";
 export type { ProfileFaceProps } from "./ProfileFace";
+
+export { UnsignedAgreementsNotice } from "./UnsignedAgreementsNotice";
+export type { UnsignedAgreementsNoticeProps } from "./UnsignedAgreementsNotice";

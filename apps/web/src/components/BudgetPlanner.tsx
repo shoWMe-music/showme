@@ -280,6 +280,20 @@ export function BudgetPlanner({
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
           gap: 14,
+          /*
+           * EACH COLUMN IS AS TALL AS ITS OWN CONTENT.
+           *
+           * A grid item stretches to the row's height by default, so the shorter
+           * card — Revenue, which has four headings to Costs' six plus three
+           * selects apiece — was padded out to match. Measured on the seeded
+           * event: ~400px of empty card under "Add field", which is most of
+           * *"budget planner: too big / too much whitespace"* (ClickUp
+           * 86cbcn1ue) on its own.
+           *
+           * The Results grid below already does this (`alignItems: "start"`);
+           * this one was the outlier, not the precedent.
+           */
+          alignItems: "start",
         }}
       >
         <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 10 }}>

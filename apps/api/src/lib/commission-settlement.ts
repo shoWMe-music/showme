@@ -5,10 +5,54 @@ import type { Transaction } from "./audit";
 import { isRepresentationActiveAt } from "./representation-rules";
 import { type DesiredTransfer, reconcileTransfers } from "./settlement-transfers";
 
-/** The per-participant entitlement the event settlement produced (gross, minor units). */
+/**
+ * The per-participant figures the event settlement produced (minor units).
+ *
+ * BOTH are needed, because the commissionable base is the entitlement BEFORE
+ * deductibles and `entitlement` is the figure after them — see
+ * `commissionableIncomeOf` below for why that is not the same number.
+ */
 interface Breakdown {
   participantId: string;
   entitlement: bigint;
+  deductibles: bigint;
+}
+
+/**
+ * WHAT AN AGENT'S COMMISSION IS A PERCENTAGE OF — the GROSS deal income, before
+ * any cost the performer bore.
+ *
+ * `.claude/skills/settlement/SKILL.md` has always said reimbursements are **not**
+ * commissionable, and this file's own header has always claimed it settles "the
+ * performer's gross entitlement". Neither was true: it read `breakdown.entitlement`,
+ * which `reconcile()` step 3 has already LOWERED by every cost borne by that party.
+ * So a venue fronting a hotel quietly cut the agent's fee.
+ *
+ * The worked example from ClickUp `86cba8wtb`: performer entitled to 10 000, venue
+ * paid a 1 000 hotel deducted from their cut, agent on 15%.
+ *
+ *   before — 15% of 9 000 = 1 350
+ *   after  — 15% of 10 000 = 1 500
+ *
+ * 150 to the agent, on one hotel room, and it compounds across a roster. The
+ * reason it goes this way round is not arithmetic: **the agent did not consume the
+ * hotel.** An agent's commission is a share of what they booked the artist for,
+ * not of what the artist happened to take home after the venue bought them a bed.
+ * Industry practice commissions the gross fee, and our own documentation already
+ * said so — this was code contradicting docs, not an open question.
+ *
+ * `entitlement + deductibles` reconstructs the gross exactly, because the
+ * breakdown's own identity is
+ *
+ *   entitlement = Σ lines.amount + commissionEarned + residual − deductibles
+ *
+ * and an agented PERFORMER carries neither `commissionEarned` (a commission party
+ * is never an agent — `assertPartiesAreEntitled` refuses it) nor `residual` (that
+ * is the operator's alone). So for exactly the parties this runs for, the sum is
+ * `Σ lines.amount`: the deal income, and nothing else.
+ */
+function commissionableIncomeOf(breakdown: Breakdown): bigint {
+  return breakdown.entitlement + breakdown.deductibles;
 }
 
 /**
@@ -41,7 +85,9 @@ export async function syncCommissionSettlements(
       and(eq(schema.settlements.eventId, eventId), isNotNull(schema.settlements.representationId)),
     );
 
-  const entitlementByParticipant = new Map(breakdowns.map((b) => [b.participantId, b.entitlement]));
+  const commissionableByParticipant = new Map(
+    breakdowns.map((breakdown) => [breakdown.participantId, commissionableIncomeOf(breakdown)]),
+  );
   const desiredTransfers: DesiredTransfer[] = [];
 
   const participants = await tx
@@ -83,7 +129,7 @@ export async function syncCommissionSettlements(
     if (!representation || !isRepresentationActiveAt(representation, new Date())) continue;
     if (representation.commissionRate == null) continue;
 
-    const performerEntitlement = entitlementByParticipant.get(performer.id) ?? 0n;
+    const performerEntitlement = commissionableByParticipant.get(performer.id) ?? 0n;
     const { commission, transfer } = settleRepresentation({
       performerEntitlement,
       commissionBasisPoints: representation.commissionRate,

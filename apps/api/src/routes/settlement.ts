@@ -782,6 +782,10 @@ async function reconcileEvent(
       splitBasisPoints: deal.splitBasisPoints ?? undefined,
       partyShares: hasShares ? partyShares : undefined,
       commissions: commissions.length > 0 ? commissions : undefined,
+      // How those commissions stack, from the AGREEMENT rather than a global rule
+      // (ClickUp 86cba8wmb). Moot when there is one commission or none, which is
+      // every deal today — `parallel` and `cascading` agree on a single cut.
+      commissionMode: deal.commissionMode,
       prepaidAmount: prepaidAmount > 0n ? prepaidAmount : undefined,
       payerParticipantId,
     };
@@ -2105,6 +2109,37 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
    * contradict the legal record. Correcting a finalized settlement is a credit
    * note, not an UPDATE.
    */
+  const LineAmount = z
+    .string()
+    .regex(/^-?\d+$/, 'amount must be a whole number of minor units as a string, e.g. "150000"');
+  const LineCostSplit = z.record(z.string().uuid(), z.number().int().min(1).max(10_000));
+
+  /**
+   * HOW THE OPERATOR ARRIVED AT A FIGURE — 260 tickets at 250, not just 65 000.
+   *
+   * The same shape the Budget Planner writes into `budget_lines.details`, and
+   * `ensureSettlementLines` has always copied it across onto the settlement's own
+   * line. Until now nothing on this surface would say so: the route neither
+   * returned it nor accepted it, so the settlement could show the LABEL the
+   * planner had baked the breakdown into ("Advance ticket sales (260 @ 250 SEK)")
+   * while being unable to restate it.
+   *
+   * That is the defect behind *"tickets info (name, quantity, price) missing from
+   * settlements"* (ClickUp 86cbcn1ue). After the show you know 168 sold, not 260,
+   * and the honest edit is to change the COUNT and let the amount follow — not to
+   * multiply it out by hand and leave the label lying about the arithmetic.
+   *
+   * `amount` stays authoritative and is what `reconcile` reads, exactly as on the
+   * budget side. This only remembers how it was reached.
+   */
+  const SettlementLineDetails = z.object({
+    basis: z
+      .enum(["ticket_tier", "bar_spend", "other_revenue", "custom_revenue", "custom_cost"])
+      .default("ticket_tier"),
+    unitAmount: LineAmount,
+    quantity: z.number().int().min(0),
+  });
+
   const SettlementLineResponse = z.object({
     id: z.string(),
     kind: z.string(),
@@ -2119,13 +2154,9 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
     attributedDealId: z.string().nullable(),
     /** The forecast line this came from. Null = added here, never budgeted. */
     originBudgetLineId: z.string().nullable(),
+    details: SettlementLineDetails.nullable(),
     version: z.number(),
   });
-
-  const LineAmount = z
-    .string()
-    .regex(/^-?\d+$/, 'amount must be a whole number of minor units as a string, e.g. "150000"');
-  const LineCostSplit = z.record(z.string().uuid(), z.number().int().min(1).max(10_000));
 
   const serializeLine = (row: typeof schema.settlementLines.$inferSelect) => ({
     id: row.id,
@@ -2140,6 +2171,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
     dealId: row.dealId,
     attributedDealId: row.attributedDealId,
     originBudgetLineId: row.originBudgetLineId,
+    details: (row.details as z.infer<typeof SettlementLineDetails> | null) ?? null,
     version: row.version,
   });
 
@@ -2179,6 +2211,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           payeeParticipantId: z.string().uuid().optional(),
           costSplit: LineCostSplit.nullable().optional(),
           attributedDealId: z.string().uuid().optional(),
+          details: SettlementLineDetails.nullable().optional(),
         }),
         response: { 201: SettlementLineResponse },
       },
@@ -2205,6 +2238,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
             payeeParticipantId: request.body.payeeParticipantId,
             costSplit: request.body.costSplit ?? null,
             attributedDealId: request.body.attributedDealId,
+            details: request.body.details ?? null,
           })
           .returning();
         if (!row) throw new Error("settlement line insert failed");
@@ -2236,6 +2270,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           payeeParticipantId: z.string().uuid().nullable().optional(),
           costSplit: LineCostSplit.nullable().optional(),
           attributedDealId: z.string().uuid().nullable().optional(),
+          details: SettlementLineDetails.nullable().optional(),
           /** Optimistic lock (decisions #8); mismatch → 409. */
           expectedVersion: z.number().int().optional(),
         }),
