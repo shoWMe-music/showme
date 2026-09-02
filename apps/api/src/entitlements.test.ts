@@ -7,6 +7,7 @@ import {
   ENTITLEMENT_REQUIRED_CODE,
   assertEventCapAllows,
   assertGrantAdminAllows,
+  assertProfileAllowanceForUser,
   assertSeatAvailableForRole,
   canUseFeature,
   collaborationCreditBalance,
@@ -733,5 +734,90 @@ describe("seats", () => {
     await expect(
       assertSeatAvailableForRole(harness.db, { profileId: operator.profileId, nextRole: "admin" }),
     ).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * THE TWO PRICING PROMISES THAT WERE ADVERTISED AND ENFORCED NOWHERE
+ * (reconciled against the live pricing page, 2026-09-02).
+ */
+describe("canUseFeature — create_template", () => {
+  async function seedTemplates(profileId: string, howMany: number) {
+    for (let index = 0; index < howMany; index += 1) {
+      await harness.db.insert(schema.templates).values({
+        profileId,
+        category: "budget",
+        name: `tpl-${index}-${seq++}`,
+        payload: {},
+      });
+    }
+  }
+
+  it("gives a free plan the two templates the Basic card promises, and no third", async () => {
+    const operator = await seedProfile("operator");
+    await expect(
+      canUseFeature(harness.db, operator.profileId, "create_template"),
+    ).resolves.toMatchObject({ allowed: true, used: 0, limit: 2 });
+
+    await seedTemplates(operator.profileId, 2);
+    await expect(
+      canUseFeature(harness.db, operator.profileId, "create_template"),
+    ).resolves.toMatchObject({ allowed: false, used: 2, limit: 2 });
+  });
+
+  it("gives a paid plan the 'Unlimited templates' its card is sold on", async () => {
+    const operator = await seedProfile("operator");
+    await setTier(operator.profileId, "operator_pro");
+    await seedTemplates(operator.profileId, 5);
+
+    const check = await canUseFeature(harness.db, operator.profileId, "create_template");
+    expect(check.allowed).toBe(true);
+  });
+});
+
+describe("assertProfileAllowanceForUser", () => {
+  it("lets a brand-new account create its first profile", async () => {
+    const userId = `prof-first-${seq++}`;
+    await harness.db
+      .insert(schema.users)
+      .values({ id: userId, email: `${userId}@example.showme.test`, kind: "operator" });
+
+    await expect(assertProfileAllowanceForUser(harness.db, userId)).resolves.toBeUndefined();
+  });
+
+  it("refuses a SECOND profile while every profile the account owns is free", async () => {
+    const operator = await seedProfile("operator");
+    await expect(
+      assertProfileAllowanceForUser(harness.db, operator.ownerUserId),
+    ).rejects.toMatchObject({ statusCode: 403, code: ENTITLEMENT_REQUIRED_CODE });
+  });
+
+  it("allows more once ANY profile the account owns is paid", async () => {
+    const operator = await seedProfile("operator");
+    await setTier(operator.profileId, "operator_pro");
+
+    // The account is paid, so the account may hold more profiles — the plan is
+    // stored per profile but the allowance belongs to the person.
+    await expect(
+      assertProfileAllowanceForUser(harness.db, operator.ownerUserId),
+    ).resolves.toBeUndefined();
+  });
+
+  it("counts only what the account OWNS, not what it was invited onto", async () => {
+    const owner = await seedProfile("operator");
+    const guestId = `prof-guest-${seq++}`;
+    await harness.db
+      .insert(schema.users)
+      .values({ id: guestId, email: `${guestId}@example.showme.test`, kind: "operator" });
+    // Added to somebody else's venue as a viewer. That is not "having a profile",
+    // and counting it would make an account's allowance depend on who added them.
+    await harness.db.insert(schema.profileMembers).values({
+      profileId: owner.profileId,
+      userId: guestId,
+      role: "viewer",
+      status: "active",
+    });
+
+    await expect(assertProfileAllowanceForUser(harness.db, guestId)).resolves.toBeUndefined();
   });
 });

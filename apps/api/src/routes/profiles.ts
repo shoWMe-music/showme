@@ -16,7 +16,13 @@ import { type Transaction, writeAudit } from "../lib/audit";
 import { requireProfileRole } from "../lib/authorize";
 import { readProfileBusyTime } from "../lib/availability";
 import { validateTemplatePayload } from "../lib/budget-template-payload";
-import { assertSeatAvailableForRole, roleConsumesSeat } from "../lib/entitlements";
+import {
+  assertProfileAllowanceForUser,
+  assertSeatAvailableForRole,
+  canUseFeature,
+  entitlementRequired,
+  roleConsumesSeat,
+} from "../lib/entitlements";
 import { assertProfileImageFiles, signProfileImageUrls } from "../lib/profile-media";
 import type { StorageSigner } from "../lib/storage";
 import { withIdempotency } from "../plugins/idempotency";
@@ -905,6 +911,11 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
       assertProfileTypeAllowed(kind, request.body.type);
 
       const { statusCode, body } = await withIdempotency(request, "POST /profiles", async () => {
+        // "One profile per account" (Basic). Keyed by the USER, because an account
+        // is a person and a plan is stored per profile — see
+        // `assertProfileAllowanceForUser` for how the two are reconciled.
+        await assertProfileAllowanceForUser(database, principal.userId);
+
         let created: z.infer<typeof ProfileResponse>;
         try {
           created = await database.transaction(async (tx) => {
@@ -1877,6 +1888,11 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
       const { id } = request.params;
 
       requireProfileRole(request, id, [...WRITE_ROLES]);
+
+      // "2 templates" on Basic and Performer, "Unlimited templates" on Pro — the
+      // pricing page's line, enforced. Composed AFTER authorization, fresh read.
+      const templateGate = await canUseFeature(database, id, "create_template");
+      if (!templateGate.allowed) throw entitlementRequired("create_template", templateGate);
 
       // PLAN.md §K — the payload is validated per-category, so a template can
       // never be stored in a shape the screen that loads it cannot read.

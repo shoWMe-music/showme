@@ -23,7 +23,8 @@ export type Feature =
   | "grant_admin"
   | "not_spam_suspended"
   | "send_external_invite"
-  | "seat_available";
+  | "seat_available"
+  | "create_template";
 
 /** The verdict for one feature: allowed, plus the counts behind it when metered. */
 export interface FeatureCheck {
@@ -60,6 +61,9 @@ const PLAN_GATED_FEATURES: readonly Feature[] = [
   // A seat IS a thing we sell, so running out of them is genuinely an upgrade
   // prompt — unlike the invitation credits below.
   "seat_available",
+  // "2 templates" on Basic and Performer, "Unlimited templates" on Pro — a
+  // difference the Pro card is sold on, so running out is genuinely an upgrade.
+  "create_template",
 ];
 // `send_external_invite` is deliberately absent, for the same reason
 // `not_spam_suspended` is: running out of invitation credits is not a purchase
@@ -157,6 +161,13 @@ export function confersAdminAuthority(capabilities: readonly string[] | null | u
 const FREE_OPERATOR_EVENT_LIMIT: number | null = null;
 /** free_artist may send at most this many offers per calendar month. */
 const FREE_ARTIST_OFFER_LIMIT = 50;
+/**
+ * "2 templates" — the free allowance on both Basic and Performer. Pro's card says
+ * "Unlimited templates", which Ran's feedback #10 added deliberately, so the free
+ * ceiling is the thing that makes that line mean anything.
+ */
+const FREE_TIER_TEMPLATE_LIMIT = 2;
+
 /** A profile is spam-suspended once this many DISTINCT reporters flag it in 90 days. */
 const SPAM_DISTINCT_REPORTER_LIMIT = 3;
 /**
@@ -316,6 +327,22 @@ export async function canUseFeature(
           balance > 0
             ? undefined
             : "All 20 invitations are waiting for a reply. You get one back each time somebody answers.",
+      };
+    }
+
+    case "create_template": {
+      if (isPaidTier(tier)) return { allowed: true };
+      const [row] = await db
+        .select({ used: count() })
+        .from(schema.templates)
+        .where(eq(schema.templates.profileId, profileId));
+      const used = row?.used ?? 0;
+      const limit = FREE_TIER_TEMPLATE_LIMIT;
+      return {
+        allowed: used < limit,
+        used,
+        limit,
+        reason: used < limit ? undefined : "Your plan includes two templates",
       };
     }
 
@@ -659,4 +686,42 @@ export async function refillCollaborationCredit(
     delta: 1,
     reason: refillReason(input.invitationId),
   });
+}
+
+/**
+ * ONE PROFILE PER ACCOUNT, on a free plan — the Basic card's line, and the rule
+ * PLAN.md left room for.
+ *
+ * PLAN.md:564 removed the old app's 16-profile limit as a JWT-claim-size artifact
+ * and is explicit that "any real cap would be a deliberate plan/entitlement rule,
+ * never a mechanism constraint". This is that rule arriving from the pricing page
+ * rather than from the token format, so the two agree rather than conflict.
+ *
+ * THE ACCOUNT IS THE USER, not the profile — which is the whole difficulty, since
+ * a plan is stored per PROFILE. Somebody creating their second profile is asked:
+ * does any profile you already own sit on a paid plan? If so the account is paid
+ * and may hold more; if every one is free, this is a free account and it already
+ * has its profile.
+ *
+ * Ownership is `profiles.owner_user_id` rather than membership: being invited
+ * onto somebody else's venue as a viewer is not "having a profile", and counting
+ * it would make an account's own allowance depend on who had added them to what.
+ */
+export async function assertProfileAllowanceForUser(db: Database, userId: string): Promise<void> {
+  const owned = await db
+    .select({ id: schema.profiles.id })
+    .from(schema.profiles)
+    .where(eq(schema.profiles.ownerUserId, userId));
+  if (owned.length === 0) return;
+
+  for (const profile of owned) {
+    const tier = await getPlanTier(db, profile.id);
+    if (isPaidTier(tier)) return;
+  }
+
+  // Built directly rather than through `entitlementRequired`, because this gate
+  // is keyed by USER and `Feature` is the set of things `canUseFeature` can
+  // answer about a PROFILE. Adding it there would need a switch case that lies.
+  // The CODE is the same, so the UI's one upgrade component still answers it.
+  throw new HttpError(403, "Your plan includes one profile", ENTITLEMENT_REQUIRED_CODE);
 }
