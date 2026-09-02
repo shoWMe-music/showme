@@ -930,6 +930,59 @@ Daniel: *"It's a cap based on response. So when they get a response they get 1 b
 Consequence worth stating: because a refill only ever follows a spend, the balance can never exceed the
 allowance, so "20 credits" means **20 unanswered invitations at a time**, not 20 for all time.
 
+## 21. Seats: what costs one, and how many you get (2026-09-01)
+
+**Decided by Daniel**, after spotting that the paid seat was being bypassed: *"Freemium gets one admin
+seat the rest are all view roles (team/crew). Paid gets two account Admins which means two admin/Editor
+roles, the rest are view only. Otherwise giving freemium team members an admin or edit role means the
+paying for seat is canibalized."*
+
+He was right, and three separate things were wrong:
+- `seat_consumed` was written in three places and **read in none**. `plans.seats` was reported by two
+  routes and never compared against anything. No seat limit was enforced anywhere.
+- **`editor` was ungated on every tier** — the gate returned early unless the role was exactly `admin`,
+  so unlimited edit access was one dropdown notch below the paywall.
+- A **paid** account could mint unlimited admins, for the same reason as the first.
+
+**The rule.** Seat-consuming roles are `owner`, `admin`, `editor`; `viewer` and `crew` are free and
+unlimited. Free = 1 seat, paid = 2. The owner holds the free plan's only seat, which is "freemium gets
+one admin seat" read literally — a free account can add **no** editors, only viewers and crew. A stored
+`plans.seats` **larger** than the tier default wins (that is how "extra seats €15/mo" is expressed); one
+**smaller** is ignored, because every pre-existing row carries the column default of 1 and obeying it
+would downgrade every paid account on deploy.
+
+Moving between seat-consuming roles is free — admin → editor is sideways, and charging it would refuse a
+demotion. A refusal **is** an upgrade prompt (`entitlement_required`), unlike the invitation-credit gate
+in #20: a seat is a thing we sell.
+
+## 22. The pricing page is the authority on plan limits (2026-09-02)
+
+**Daniel:** *"Do whatever the marketing page says and the plan / decisions and ran."* Reconciling the
+entitlement layer against the live pricing page found three promises the code did not keep, and settled
+where the numbers come from when sources disagree.
+
+**PLAN.md specifies that limits EXIST; the pricing page fixes their VALUES.** PLAN.md:613 says a free
+operator is capped and never says at what. The page says "Unlimited events". The page is what a customer
+reads before paying, so the page wins.
+
+Three divergences, all now closed:
+- **"Unlimited events" (Basic)** vs a hard cap of **three** confirmed-or-concluded shows per rolling
+  year. A free operator confirming their fourth booking met a 403 contradicting the page they signed up
+  from. `FREE_OPERATOR_EVENT_LIMIT` is now `null`; the counting machinery is intact so a number is one
+  line if the plan changes.
+- **"2 templates" / "Unlimited templates" (Pro)** — no template cap existed at all, which made Pro's
+  line (added by Ran's feedback #10) meaningless. Now free 2, paid unlimited.
+- **"One profile per account" (Basic)** — not enforced. Now: an account whose every owned profile is on
+  a free plan may hold one. **This does not contradict PLAN.md:564**, which removed the old 16-profile
+  limit as a JWT-claim-size artifact and said in the same paragraph that "any real cap would be a
+  deliberate plan/entitlement rule, never a mechanism constraint". This is that rule.
+
+Adding the last two was only safe because production has no real users (six profiles, all internal).
+Removing the event cap was safe regardless — it takes a restriction away.
+
+**Verified matching, no change needed:** Basic's one seat, Pro's two plus purchased extras, Performer's
+50 offers a month, Agent's unlimited offers.
+
 ## Still-open product calls (not yet decided)
 
 - ~~**Event start/end mechanism (#16.4)**~~ **RESOLVED 2026-08-02 (see #16.4):** explicit required
