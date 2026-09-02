@@ -575,7 +575,10 @@ describe("reconcile — a percentage entitlement never goes negative (analysis c
 
 describe("reconcile — disclosed commissions (analysis case 8)", () => {
   /** A 1 000 guarantee with a 20% and a 10% commission — the case the analysis ran. */
-  const withCommissions = (commissions: { participantId: string; basisPoints: number }[]) =>
+  const withCommissions = (
+    commissions: { participantId: string; basisPoints: number }[],
+    commissionMode?: "parallel" | "cascading",
+  ) =>
     reconcile({
       baseCurrency: "EUR",
       participants: [
@@ -591,6 +594,7 @@ describe("reconcile — disclosed commissions (analysis case 8)", () => {
           payeeParticipantIds: ["B"],
           guaranteeAmount: eur(1000),
           commissions,
+          commissionMode,
         },
       ],
       budgetLines: [{ kind: "revenue", amount: eur(5000), collectedBy: "P" }],
@@ -609,6 +613,55 @@ describe("reconcile — disclosed commissions (analysis case 8)", () => {
     // The operator's residual is untouched: a commission moves money WITHIN the deal.
     expect(entitlementOf("P")).toBe(eur(4000));
     assertBalanced(result);
+  });
+
+  /**
+   * BOTH RULES WORK, AND THE DEAL PICKS (ClickUp `86cba8wmb`).
+   *
+   * The product owner's answer was that it depends on the shape of the deal, so
+   * neither rule is "the" rule. `deals.commission_mode` carries it; these pin the
+   * two answers against the same 1 000 line so the difference is visible in one
+   * place rather than inferred from an enum name.
+   */
+  it("CASCADES when the deal says so — the second cut comes off what the first left", () => {
+    const result = withCommissions(
+      [
+        { participantId: "AGENCY", basisPoints: 2000 },
+        { participantId: "MGMT", basisPoints: 1000 },
+      ],
+      "cascading",
+    );
+    const entitlementOf = (id: string) =>
+      result.breakdowns.find((party) => party.participantId === id)?.entitlement;
+    expect(entitlementOf("AGENCY")).toBe(eur(200)); // 20% of 1 000, same either way
+    expect(entitlementOf("MGMT")).toBe(eur(80)); // 10% of the 800 that was left
+    expect(entitlementOf("B")).toBe(eur(720)); // 20 more than parallel leaves
+    expect(entitlementOf("P")).toBe(eur(4000)); // the operator is untouched by the choice
+    assertBalanced(result);
+  });
+
+  it("settles identically under both rules when there is only one commission", () => {
+    const one = [{ participantId: "AGENCY", basisPoints: 2000 }];
+    const entitlementOf = (result: ReturnType<typeof reconcile>, id: string) =>
+      result.breakdowns.find((party) => party.participantId === id)?.entitlement;
+    const parallel = withCommissions(one, "parallel");
+    const cascading = withCommissions(one, "cascading");
+    // Which matters, because it is why the column default is safe: every deal
+    // that exists today has one commission or none, so nothing was restated.
+    expect(entitlementOf(cascading, "AGENCY")).toBe(entitlementOf(parallel, "AGENCY"));
+    expect(entitlementOf(cascading, "B")).toBe(entitlementOf(parallel, "B"));
+  });
+
+  it("treats an unset mode as parallel, so a deal written before the column is unchanged", () => {
+    const commissions = [
+      { participantId: "AGENCY", basisPoints: 2000 },
+      { participantId: "MGMT", basisPoints: 1000 },
+    ];
+    const entitlementOf = (result: ReturnType<typeof reconcile>, id: string) =>
+      result.breakdowns.find((party) => party.participantId === id)?.entitlement;
+    expect(entitlementOf(withCommissions(commissions), "MGMT")).toBe(
+      entitlementOf(withCommissions(commissions, "parallel"), "MGMT"),
+    );
   });
 
   it("commissions each split line separately, and loses no minor unit", () => {

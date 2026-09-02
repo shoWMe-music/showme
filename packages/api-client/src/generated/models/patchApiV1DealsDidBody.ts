@@ -6,6 +6,7 @@
  */
 import type { PatchApiV1DealsDidBodyStructure } from './patchApiV1DealsDidBodyStructure';
 import type { PatchApiV1DealsDidBodyPaymentTiming } from './patchApiV1DealsDidBodyPaymentTiming';
+import type { PatchApiV1DealsDidBodyCommissionMode } from './patchApiV1DealsDidBodyCommissionMode';
 import type { PatchApiV1DealsDidBodyStatus } from './patchApiV1DealsDidBodyStatus';
 
 export type PatchApiV1DealsDidBody = {
@@ -25,6 +26,7 @@ export type PatchApiV1DealsDidBody = {
   advanceAmount?: string | null;
   splitBasisPoints?: number;
   paymentTiming?: PatchApiV1DealsDidBodyPaymentTiming;
+  commissionMode?: PatchApiV1DealsDidBodyCommissionMode;
   priority?: number;
   status?: PatchApiV1DealsDidBodyStatus;
   expectedVersion?: number;

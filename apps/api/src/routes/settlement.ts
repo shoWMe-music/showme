@@ -782,6 +782,10 @@ async function reconcileEvent(
       splitBasisPoints: deal.splitBasisPoints ?? undefined,
       partyShares: hasShares ? partyShares : undefined,
       commissions: commissions.length > 0 ? commissions : undefined,
+      // How those commissions stack, from the AGREEMENT rather than a global rule
+      // (ClickUp 86cba8wmb). Moot when there is one commission or none, which is
+      // every deal today — `parallel` and `cascading` agree on a single cut.
+      commissionMode: deal.commissionMode,
       prepaidAmount: prepaidAmount > 0n ? prepaidAmount : undefined,
       payerParticipantId,
     };

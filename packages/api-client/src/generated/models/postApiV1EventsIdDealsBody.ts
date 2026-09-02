@@ -7,6 +7,7 @@
 import type { PostApiV1EventsIdDealsBodyType } from './postApiV1EventsIdDealsBodyType';
 import type { PostApiV1EventsIdDealsBodyStructure } from './postApiV1EventsIdDealsBodyStructure';
 import type { PostApiV1EventsIdDealsBodyPaymentTiming } from './postApiV1EventsIdDealsBodyPaymentTiming';
+import type { PostApiV1EventsIdDealsBodyCommissionMode } from './postApiV1EventsIdDealsBodyCommissionMode';
 import type { PostApiV1EventsIdDealsBodyPartiesItem } from './postApiV1EventsIdDealsBodyPartiesItem';
 
 export type PostApiV1EventsIdDealsBody = {
@@ -22,6 +23,7 @@ export type PostApiV1EventsIdDealsBody = {
   advanceAmount?: string;
   splitBasisPoints?: number;
   paymentTiming?: PostApiV1EventsIdDealsBodyPaymentTiming;
+  commissionMode?: PostApiV1EventsIdDealsBodyCommissionMode;
   priority?: number;
   /** @minItems 1 */
   parties: PostApiV1EventsIdDealsBodyPartiesItem[];

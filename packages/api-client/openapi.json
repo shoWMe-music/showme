@@ -2694,6 +2694,9 @@
                       "paymentTiming": {
                         "type": "string"
                       },
+                      "commissionMode": {
+                        "type": "string"
+                      },
                       "priority": {
                         "type": "number"
                       },
@@ -2761,6 +2764,7 @@
                       "advanceAmount",
                       "splitBasisPoints",
                       "paymentTiming",
+                      "commissionMode",
                       "priority",
                       "status",
                       "agreementStatus",
@@ -2814,6 +2818,10 @@
                   "paymentTiming": {
                     "type": "string",
                     "enum": ["before_event", "at_settlement", "due_date"]
+                  },
+                  "commissionMode": {
+                    "type": "string",
+                    "enum": ["parallel", "cascading"]
                   },
                   "priority": {
                     "type": "integer"
@@ -2923,6 +2931,9 @@
                     "paymentTiming": {
                       "type": "string"
                     },
+                    "commissionMode": {
+                      "type": "string"
+                    },
                     "priority": {
                       "type": "number"
                     },
@@ -2990,6 +3001,7 @@
                     "advanceAmount",
                     "splitBasisPoints",
                     "paymentTiming",
+                    "commissionMode",
                     "priority",
                     "status",
                     "agreementStatus",
@@ -3061,6 +3073,9 @@
                     "paymentTiming": {
                       "type": "string"
                     },
+                    "commissionMode": {
+                      "type": "string"
+                    },
                     "priority": {
                       "type": "number"
                     },
@@ -3128,6 +3143,7 @@
                     "advanceAmount",
                     "splitBasisPoints",
                     "paymentTiming",
+                    "commissionMode",
                     "priority",
                     "status",
                     "agreementStatus",
@@ -3181,6 +3197,10 @@
                   "paymentTiming": {
                     "type": "string",
                     "enum": ["before_event", "at_settlement", "due_date"]
+                  },
+                  "commissionMode": {
+                    "type": "string",
+                    "enum": ["parallel", "cascading"]
                   },
                   "priority": {
                     "type": "integer"
@@ -3252,6 +3272,9 @@
                     "paymentTiming": {
                       "type": "string"
                     },
+                    "commissionMode": {
+                      "type": "string"
+                    },
                     "priority": {
                       "type": "number"
                     },
@@ -3319,6 +3342,7 @@
                     "advanceAmount",
                     "splitBasisPoints",
                     "paymentTiming",
+                    "commissionMode",
                     "priority",
                     "status",
                     "agreementStatus",
@@ -3424,6 +3448,9 @@
                     "paymentTiming": {
                       "type": "string"
                     },
+                    "commissionMode": {
+                      "type": "string"
+                    },
                     "priority": {
                       "type": "number"
                     },
@@ -3491,6 +3518,7 @@
                     "advanceAmount",
                     "splitBasisPoints",
                     "paymentTiming",
+                    "commissionMode",
                     "priority",
                     "status",
                     "agreementStatus",
@@ -3562,6 +3590,9 @@
                     "paymentTiming": {
                       "type": "string"
                     },
+                    "commissionMode": {
+                      "type": "string"
+                    },
                     "priority": {
                       "type": "number"
                     },
@@ -3629,6 +3660,7 @@
                     "advanceAmount",
                     "splitBasisPoints",
                     "paymentTiming",
+                    "commissionMode",
                     "priority",
                     "status",
                     "agreementStatus",
@@ -3720,6 +3752,9 @@
                     "paymentTiming": {
                       "type": "string"
                     },
+                    "commissionMode": {
+                      "type": "string"
+                    },
                     "priority": {
                       "type": "number"
                     },
@@ -3787,6 +3822,7 @@
                     "advanceAmount",
                     "splitBasisPoints",
                     "paymentTiming",
+                    "commissionMode",
                     "priority",
                     "status",
                     "agreementStatus",

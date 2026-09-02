@@ -565,6 +565,67 @@ describe("settlement — representation commission (decisions #14)", () => {
     expect(commissionTransfers[0]?.state).toBe("owed");
   });
 
+  /**
+   * A REIMBURSED COST DOES NOT SHRINK THE AGENT'S COMMISSION (ClickUp `86cba8wtb`).
+   *
+   * `.claude/skills/settlement/SKILL.md` has always said reimbursements are not
+   * commissionable, and `commission-settlement.ts` has always CLAIMED in its own
+   * header that it works from "the performer's gross entitlement". Neither was
+   * true: it read `breakdown.entitlement`, which `reconcile()` step 3 lowers by
+   * every cost the party bore. So a venue fronting a hotel quietly cut the fee of
+   * an agent who never saw the hotel.
+   *
+   * The band is entitled to 300 000 and the agent takes 20%. Adding a 100 000 cost
+   * BORNE by the band (`payeeParticipantId`) must not move the commission:
+   *
+   *   wrong — 20% of 200 000 = 40 000
+   *   right — 20% of 300 000 = 60 000
+   *
+   * This test is the whole reason the fix is safe to ship: it fails on the old
+   * code with exactly 40 000, so it cannot pass by accident.
+   */
+  it("commissions the GROSS entitlement, so a cost the performer bore does not cut the agent's fee", async () => {
+    const seed = await seedWorkedExample("comm-gross");
+    const rep = await seedAgentRepresentation("comm-gross", seed);
+
+    // A cost the VENUE fronted, deducted from the band's own cut — the hotel case.
+    const [budget] = await harness.db
+      .select()
+      .from(schema.budgets)
+      .where(eq(schema.budgets.eventId, seed.event.id));
+    if (!budget) throw new Error("budget missing");
+    await harness.db.insert(schema.budgetLines).values({
+      budgetId: budget.id,
+      kind: "cost",
+      label: "Hotel, fronted by the venue",
+      amount: 100000n,
+      paidBy: seed.vPart,
+      payeeParticipantId: seed.bPart, // borne by the band → a deductible
+    });
+
+    const compute = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(compute.statusCode).toBe(200);
+
+    // The deduction really did happen — otherwise this test would prove nothing.
+    const band = compute
+      .json()
+      .breakdowns.find((row: { participantId: string }) => row.participantId === seed.bPart);
+    expect(band.deductibles).toBe("100000");
+    expect(band.entitlement).toBe("200000"); // 300 000 gross − the 100 000 borne
+
+    // ...and the commission is on the 300 000 regardless.
+    const [commissionSettlement] = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.representationId, rep.representation.id));
+    const computed = commissionSettlement?.computed as { commission: string };
+    expect(computed.commission).toBe("60000");
+  });
+
   it("hides the commission from the operator but shows it to the performer and agent", async () => {
     const seed = await seedWorkedExample("commvis");
     const rep = await seedAgentRepresentation("commvis", seed);

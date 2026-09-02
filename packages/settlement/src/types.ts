@@ -25,6 +25,14 @@ export interface EscalatorTier {
  * question) lives in `commissions.ts`. A booking **agent**'s private
  * representation commission is never one of these — see `representation.ts`.
  */
+/**
+ * Which stacking rule a deal's disclosed commissions follow — `parallel` (each
+ * cut off the same base) or `cascading` (each cut off what the previous left).
+ * Mirrors the `commission_mode` DB enum; see `commissions.ts` for the worked
+ * example and why `parallel` is the default.
+ */
+export type CommissionMode = "parallel" | "cascading";
+
 export interface DisclosedCommission {
   participantId: string;
   basisPoints: number;
@@ -51,6 +59,11 @@ export interface SettlementDeal {
   /** Basis points per payee for a split deal (keys are participantIds, values sum to 10000). */
   partyShares?: Record<string, number>;
   commissions?: DisclosedCommission[];
+  /**
+   * How several disclosed commissions on this deal compose (ClickUp `86cba8wmb`).
+   * Omitted = `parallel`, which is what the engine did before the choice existed.
+   */
+  commissionMode?: CommissionMode;
   /**
    * Money this deal ALREADY MOVED, before the night — a rental paid to hold the
    * room, a guarantee paid to secure the booking. See `prepaid.ts` for how it is

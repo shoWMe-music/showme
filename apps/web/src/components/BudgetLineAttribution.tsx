@@ -35,8 +35,14 @@ import { NO_DEAL_LINK } from "./useBudgetEditor";
  *
  * So the fix is legibility, not merging. Three things carry it, in order of how
  * little space they cost:
- *   1. **Captions that ask a question** — "Pays it" / "Carries it" rather than
- *      two past participles that sound like synonyms.
+ *   1. **The product owner's own words — "Paid by" / "Borne by"** (2026-09-02,
+ *      ClickUp `86cbcn1ue`). An earlier pass replaced these with the questions
+ *      "Pays it" / "Carries it", reasoning that two past participles sound like
+ *      synonyms. He asked for his own vocabulary back, and his vocabulary wins:
+ *      these are the terms the industry writes on a settlement, and a label the
+ *      reader already knows beats a clearer label they have to learn.
+ *      ("Born by" in the ticket is the same word — corrected to the spelling that
+ *      means *carried*, not *given birth to*.)
  *   2. **A description under every option, in the menu**, where the reader is
  *      actually deciding — free vertically, because the menu is a popover.
  *   3. **A sentence on the row, but only when the two answers DIFFER.** When the
@@ -91,7 +97,7 @@ const captionStyle = {
    * --muted, NOT --dim. Measured in the running app: --dim on the dark card is
    * **2.33:1** at this size, which is not de-emphasised text, it is text you
    * cannot read — and this caption is what names the control beside it
-   * ("COLLECTED BY", "PAYS IT"). It is most of what *"dropdown text unreadable"*
+   * ("COLLECTED BY", "PAID BY"). It is most of what *"dropdown text unreadable"*
    * (ClickUp 86cbcn1ue) is pointing at, and it only shows up in DARK: the same
    * token measures fine on the light theme's white card, which is why looking at
    * one theme and judging by eye missed it twice.
@@ -287,7 +293,7 @@ export function CostAttribution({
     <>
       <div style={stripStyle}>
         {!isDealFigure && (
-          <Field caption="Pays it" basis={190}>
+          <Field caption="Paid by" basis={190}>
             <Select
               value={paidBy}
               placeholder={defaultsToPlaceholder(participants, fallbackParticipantId)}
@@ -295,12 +301,12 @@ export function CostAttribution({
               onChange={onPaidByChange}
               options={participantOptions(participants)}
               searchable={participants.length > 6}
-              aria-label={`Pays it — who the invoice goes out from, for ${rowLabel}`}
+              aria-label={`Paid by — who the invoice goes out from, for ${rowLabel}`}
             />
           </Field>
         )}
         {!isDealFigure && (
-          <Field caption="Carries it" basis={200}>
+          <Field caption="Borne by" basis={200}>
             <Select
               value={bearingValue}
               menuWidth={MENU_WIDTH}
@@ -323,7 +329,7 @@ export function CostAttribution({
                 },
               ]}
               searchable={participants.length > 6}
-              aria-label={`Carries it — whose money it finally comes out of, for ${rowLabel}`}
+              aria-label={`Borne by — whose money it finally comes out of, for ${rowLabel}`}
             />
           </Field>
         )}
@@ -375,7 +381,7 @@ export function CostAttribution({
 }
 
 /**
- * PAYS IT AND CARRIES IT, STATED ONCE.
+ * PAID BY AND BORNE BY, STATED ONCE.
  *
  * A definition repeated under every row is noise; a definition available nowhere
  * is the report this session is answering. So it sits at the head of the Costs
@@ -385,9 +391,9 @@ export function CostAttributionLegend() {
   return (
     <div style={legendStyle}>
       <span>
-        <strong>Pays it</strong> is who the invoice actually goes out from.{" "}
-        <strong>Carries it</strong> is whose money it comes out of in the end. Usually the same
-        party — a contract is what makes them different.
+        <strong>Paid by</strong> is who the invoice actually goes out from.{" "}
+        <strong>Borne by</strong> is whose money it comes out of in the end. Usually the same party
+        — a contract is what makes them different.
       </span>
     </div>
   );

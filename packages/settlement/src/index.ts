@@ -39,6 +39,7 @@ export type {
   EntitlementBasis,
   EntitlementLine,
   EscalatorTier,
+  CommissionMode,
   DisclosedCommission,
   SettlementParticipant,
   SettlementDeal,

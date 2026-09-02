@@ -100,6 +100,36 @@ export const dealStructure = pgEnum("deal_structure", [
 ]);
 
 /** When a deal settles — drives pre-settlement vs at-settlement transfer timing. */
+/**
+ * HOW SEVERAL DISCLOSED COMMISSIONS ON ONE DEAL COMPOSE.
+ *
+ * Two commissions of 20% and 10% on a 1 000 line have two defensible answers, and
+ * the product owner's is that **it depends on the shape of the deal** (2026-08-26,
+ * ClickUp `86cba8wmb`) — so the deal carries the answer rather than the engine
+ * hardcoding one:
+ *
+ * | | first | second | payee keeps |
+ * |---|---|---|---|
+ * | `parallel`  — each takes its cut of the same base | 200 | 100 | 700 |
+ * | `cascading` — the second takes its cut of what is left | 200 |  80 | 720 |
+ *
+ * **`parallel` is the default, and that is not arbitrary.** It is what the engine
+ * has always done, so every existing deal keeps settling to the identical figure;
+ * and it is ORDER-INDEPENDENT, where cascading makes the payout depend on the
+ * sequence the commission parties happen to sit in. Nobody signs a contract whose
+ * result changes if you enter the two agents the other way round, so the
+ * order-sensitive rule is the one that has to be chosen deliberately.
+ *
+ * Cascading orders by `deal_parties.participant_id`, the same total order the
+ * engine already sorts commissions by, so it is at least stable and reproducible
+ * across recomputes.
+ *
+ * Scope: DISCLOSED commissions only — an entitled `deal_parties` row every party
+ * to the deal can see. A booking agent's private representation commission is a
+ * separate settlement entirely (decisions.md #14) and is never affected by this.
+ */
+export const commissionMode = pgEnum("commission_mode", ["parallel", "cascading"]);
+
 export const paymentTiming = pgEnum("payment_timing", [
   "before_event",
   "at_settlement",

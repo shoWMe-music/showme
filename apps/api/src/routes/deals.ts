@@ -39,6 +39,12 @@ const DealParams = z.object({ did: z.string().uuid() });
 const dealTypeEnum = z.enum(schema.dealType.enumValues);
 const dealStructureEnum = z.enum(["guarantee", "door_split", "guarantee_vs_door", "rental"]);
 const paymentTimingEnum = z.enum(["before_event", "at_settlement", "due_date"]);
+/**
+ * How several DISCLOSED commissions on this deal stack (ClickUp `86cba8wmb`).
+ * Absent on create = `parallel`, the column default and what the engine has
+ * always done — so an existing integration that never sends it is unaffected.
+ */
+const commissionModeEnum = z.enum(["parallel", "cascading"]);
 const dealStatusEnum = z.enum(["draft", "confirmed", "cancelled"]);
 const dealPartyRoleEnum = z.enum(["payer", "payee", "split_member", "commission", "observer"]);
 
@@ -117,6 +123,7 @@ const CreateDealBody = z.object({
     .optional(),
   splitBasisPoints: z.number().int().optional(),
   paymentTiming: paymentTimingEnum.optional(),
+  commissionMode: commissionModeEnum.optional(),
   priority: z.number().int().optional(),
   parties: z.array(DealPartyInput).min(1),
 });
@@ -157,6 +164,7 @@ const UpdateDealBody = z.object({
     .optional(),
   splitBasisPoints: z.number().int().optional(),
   paymentTiming: paymentTimingEnum.optional(),
+  commissionMode: commissionModeEnum.optional(),
   priority: z.number().int().optional(),
   /**
    * `draft` or `cancelled` only — see the guard in the handler. `confirmed` is
@@ -189,6 +197,7 @@ const DealResponse = z.object({
   advanceAmount: z.string().nullable(),
   splitBasisPoints: z.number().nullable(),
   paymentTiming: z.string(),
+  commissionMode: z.string(),
   priority: z.number(),
   status: z.string(),
   agreementStatus: z.string(),
@@ -386,6 +395,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
                 advanceAmount: body.advanceAmount != null ? BigInt(body.advanceAmount) : undefined,
                 splitBasisPoints: body.splitBasisPoints,
                 paymentTiming: body.paymentTiming,
+                commissionMode: body.commissionMode,
                 priority: body.priority,
                 createdBy: principal.userId,
               })

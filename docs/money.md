@@ -33,14 +33,28 @@ questions were deliberately left open, and the code is shaped so answering them 
   2 000 rental, a 50% door performer takes **4 000**, not 5 000. Fixed amounts that are not rentals keep
   dividing the same pool as everyone else. `packages/settlement/src/deal-order.ts` holds the predicate, and
   it is the only thing that changes if the rule widens.
-  **OPEN — ClickUp `86cba8wfk`:** whether `deals.priority > 0` should also settle off the top. Nothing reads
-  `priority` today and `SettlementDeal` carries no `priority` member, so it cannot be half-wired by accident.
+  **RESOLVED 2026-09-02 — ClickUp `86cba8wfk`: `deals.priority` stays unwired, and rental is the only rule.**
+  The column's comment named two criteria, "rental / before-event", and both are already answered by mechanisms
+  more specific than a priority integer: rental by `deal-order.ts` (reduces the pool), before-event by
+  `advance_amount` / `payment_timing` via `prepaid.ts` — where an advance leaves the ENTITLEMENT untouched and
+  settles as cash already held, which is the only reading under which the payer does not pay twice. Those are
+  two different operations on the money and neither of them is "priority"; a third route to off-the-top would
+  let the product say one thing two ways and the other thing wrongly. `SettlementDeal` still carries no
+  `priority` member, so it cannot be half-wired by accident.
 - **A percentage-of-pool entitlement is floored at zero.** A loss-making night pays a 50% door performer
   **0**, never −1 500; the operator absorbs the loss through the residual (`pool − Σ others`), so the floor
   costs the conservation law nothing. **Scope:** the floor is on the *share of the pool*. A guarantee is
   untouched, and a party's **net may still go negative** — a deductible or an advance is money genuinely owed
   back, and flooring that would invent money.
-- **Disclosed commissions are paid, and apply in PARALLEL.** A `deal_parties` row with
+- **Disclosed commissions are paid, and the DEAL chooses how they stack** (`deals.commission_mode`, resolved
+  2026-09-02, ClickUp `86cba8wmb`). Two cuts of 20% and 10% on a 1 000 line: `parallel` → 200 + 100, payee keeps
+  700; `cascading` → 200 + 80, payee keeps 720. The product owner's answer was that it depends on the shape of
+  the deal, so neither is the rule and the agreement carries it. **`parallel` is the default** because it is
+  what the engine always did (no existing deal is restated) and because it is order-independent — cascading
+  makes the payout depend on the sequence the commission parties sit in, so it is the one that must be asked
+  for. This resolves the contradiction where this document said cascading and the settlement skill read as
+  parallel: both are now true, per deal.
+- **Historical note — commissions used to apply in PARALLEL unconditionally.** A `deal_parties` row with
   `role_in_deal = 'commission'` now settles: its rate is `share.splitBasisPoints`, read as basis points **of
   each payee's line**, charged per entitled line so a shared split commissions each performer's own portion.
   Two commissions of 20% and 10% on a 1 000 line pay 200 and 100, and the payee keeps 700.

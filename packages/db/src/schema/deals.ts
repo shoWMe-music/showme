@@ -1,6 +1,7 @@
 import { bigint, index, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import {
   agreementStatus,
+  commissionMode,
   dealPartyRole,
   dealStatus,
   dealStructure,
@@ -28,7 +29,31 @@ export const deals = pgTable("deals", {
   name: text("name").notNull(),
   payerParticipantId: uuid("payer_participant_id").references(() => eventParticipants.id),
   paymentTiming: paymentTiming("payment_timing").notNull().default("at_settlement"),
-  priority: integer("priority").notNull().default(0), // rental / before-event settle first
+  /**
+   * RESERVED, AND DELIBERATELY READ BY NOTHING (ClickUp `86cba8wfk`, resolved
+   * 2026-09-02).
+   *
+   * This comment used to read "rental / before-event settle first", naming two
+   * criteria in one line, and that ambiguity is what the ticket was about. Both
+   * turned out to be answered already, by mechanisms that are more specific than a
+   * priority integer would be:
+   *
+   *  - **rental** → `packages/settlement/src/deal-order.ts`. A rental settles OFF
+   *    THE TOP and reduces the pool the percentage deals divide, because "net
+   *    door" means after the rental.
+   *  - **before-event** → `advance_amount` / `payment_timing`, via
+   *    `packages/settlement/src/prepaid.ts`. An advance is NOT an off-the-top
+   *    deal: the entitlement is untouched and the money settles as CASH ALREADY
+   *    HELD, which is the only reading under which a payer does not pay twice.
+   *
+   * Those two are different operations on the money and neither is "priority".
+   * Wiring this column as a third route to off-the-top would give the product two
+   * ways to express one thing and a way to express the other one wrongly — so it
+   * stays unread, and `SettlementDeal` carries no `priority` member so it cannot
+   * be half-wired by accident. Dropping the column is a separate, riskier change
+   * with nothing to gain.
+   */
+  priority: integer("priority").notNull().default(0),
   guaranteeAmount: bigint("guarantee_amount", { mode: "bigint" }), // minor units (money.md)
   // The portion of this deal paid IN ADVANCE, before the event (money.md, #1). An
   // agnostic marker: set it to the guarantee to make the guarantee the advance and
@@ -36,6 +61,11 @@ export const deals = pgTable("deals", {
   // phase (reserved via `payment_timing`) reads this — no engine wiring yet.
   advanceAmount: bigint("advance_amount", { mode: "bigint" }), // minor units (money.md)
   splitBasisPoints: integer("split_basis_points"), // 4000 = 40.00%
+  // How SEVERAL disclosed commissions on this deal compose — see the enum. Per
+  // deal because the answer is a property of the agreement, not of the product
+  // (ClickUp 86cba8wmb). `parallel` reproduces every figure the engine settled
+  // before this column existed.
+  commissionMode: commissionMode("commission_mode").notNull().default("parallel"),
   terms: jsonb("terms"), // escalator tiers, bonus, commissions — read with the deal
   agreementBodyText: text("agreement_body_text"),
   agreementStatus: agreementStatus("agreement_status").notNull().default("draft"),

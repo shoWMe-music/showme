@@ -43,6 +43,8 @@ export interface SerializedDeal {
   advanceAmount: string | null;
   splitBasisPoints: number | null;
   paymentTiming: string;
+  /** How several disclosed commissions stack — `parallel` | `cascading` (86cba8wmb). */
+  commissionMode: string;
   priority: number;
   status: string;
   /** Agreement lifecycle (draft|sent|confirmed|signed) — the per-party rollup (#1). */
@@ -138,6 +140,7 @@ function build(deal: DealRow): Omit<SerializedDeal, "parties"> {
     advanceAmount: deal.advanceAmount != null ? deal.advanceAmount.toString() : null,
     splitBasisPoints: deal.splitBasisPoints ?? null,
     paymentTiming: deal.paymentTiming,
+    commissionMode: deal.commissionMode,
     priority: deal.priority,
     status: deal.status,
     agreementStatus: deal.agreementStatus,

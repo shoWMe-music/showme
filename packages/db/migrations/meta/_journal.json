@@ -246,6 +246,13 @@
       "when": 1788912245003,
       "tag": "0034_a_calendar_of_our_own",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1788912245004,
+      "tag": "0035_two_ways_to_stack_a_commission",
+      "breakpoints": true
     }
   ]
 }
