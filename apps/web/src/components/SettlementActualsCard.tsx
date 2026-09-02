@@ -1,5 +1,7 @@
 import { Badge, Button, Card, Icon, Input, Select } from "@showme/design-system";
+import { majorToMinor } from "@showme/shared";
 import { useState } from "react";
+import { formatMoney } from "../lib/format";
 import { CardTitle } from "./primitives";
 import { ErrorState, LoadingState } from "./states";
 import type { SettlementLineRow, SettlementLinesEditor } from "./useSettlementLines";
@@ -34,17 +36,16 @@ export interface SettlementActualsCardProps {
   /** Has anything moved since the last compute? Drives the nudge. */
   onRecalculate?: () => void;
   /**
-   * Why recalculating is unavailable right now, or null when it is available.
+   * Whether recalculating is refused right now — today only ever because an
+   * agreement is unsigned (decisions.md #21), which the API answers with a 409.
    *
-   * Today this is only ever an unsigned agreement (decisions.md #21) — the API
-   * refuses the compute with a 409, so the button would fail every time it was
-   * pressed. It is a REASON rather than a boolean because a control that is
-   * greyed out without saying why leaves the operator with no next move, and the
-   * next move here is to go and get a particular signature. It replaces the
-   * ordinary nudge rather than sitting beside it: only one of the two can be
-   * true at a time.
+   * A BOOLEAN, not the reason. This card used to take the sentence and print it,
+   * and so did `SettlingHappensHereCard` directly above it on the same tab — the
+   * identical paragraph twice on one screen. The reason is drawn once, at the top
+   * of the tab, by `UnsignedAgreementsNotice`, which also carries the way out of
+   * it; all this card needs to know is that the button would fail.
    */
-  recalculateBlockedReason?: string | null;
+  recalculateBlocked?: boolean;
 }
 
 export function SettlementActualsCard({
@@ -52,7 +53,7 @@ export function SettlementActualsCard({
   currency,
   isFinalized,
   onRecalculate,
-  recalculateBlockedReason = null,
+  recalculateBlocked = false,
 }: SettlementActualsCardProps) {
   if (editor.isPending) return <LoadingState label="Loading the settlement's lines" />;
   if (editor.isError) {
@@ -99,12 +100,13 @@ export function SettlementActualsCard({
           }}
         >
           <span style={{ color: "var(--muted)", fontSize: 12.5, flex: 1 }}>
-            {recalculateBlockedReason ??
-              "Changes here are not settled until you recalculate — the parties keep seeing the last figures you sent them until then."}
+            {recalculateBlocked
+              ? "Recalculating is on hold until every agreement is signed — the notice at the top of this tab says which, and takes you there."
+              : "Changes here are not settled until you recalculate — the parties keep seeing the last figures you sent them until then."}
           </span>
           <Button
             variant="primary"
-            disabled={editor.isBusy || recalculateBlockedReason != null}
+            disabled={editor.isBusy || recalculateBlocked}
             leftIcon={<Icon name="receipt" size={14} />}
             onClick={onRecalculate}
           >
@@ -157,7 +159,109 @@ function LineGroup({
           isFinalized={isFinalized}
         />
       ))}
-      {!isFinalized && <AddLine kind={kind} editor={editor} currency={currency} />}
+      {!isFinalized && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <AddLine kind={kind} editor={editor} currency={currency} />
+          {/* Only revenue is counted. A tier the plan never had is the ordinary
+              case on the night — a walk-up price opened at the door — and it has
+              to arrive counted, or it is the one row nobody can restate. */}
+          {kind === "revenue" && <AddTicketTier editor={editor} currency={currency} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** "+ Add ticket type" — a counted revenue row: name, how many, at what price. */
+function AddTicketTier({
+  editor,
+  currency,
+}: {
+  editor: SettlementLinesEditor;
+  currency: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [price, setPrice] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [party, setParty] = useState("");
+
+  if (!open) {
+    return (
+      <Button
+        variant="secondary"
+        leftIcon={<Icon name="plus" size={14} />}
+        onClick={() => setOpen(true)}
+      >
+        Add ticket type
+      </Button>
+    );
+  }
+
+  const count = Number.parseInt(quantity, 10);
+  const canAdd =
+    name.trim() !== "" &&
+    price.trim() !== "" &&
+    Number.isFinite(count) &&
+    count >= 0 &&
+    party !== "" &&
+    !editor.isBusy;
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", width: "100%" }}>
+      <div style={{ flex: "2 1 160px" }}>
+        <Input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Walk-up"
+          aria-label="Ticket type name"
+        />
+      </div>
+      <div style={{ flex: "0 0 96px" }}>
+        <Input
+          value={quantity}
+          onChange={(event) => setQuantity(event.target.value)}
+          placeholder="Sold"
+          aria-label="Tickets sold"
+        />
+      </div>
+      <span style={{ color: "var(--dim)", fontSize: 12.5 }}>×</span>
+      <div style={{ flex: "0 0 110px" }}>
+        <Input
+          value={price}
+          onChange={(event) => setPrice(event.target.value)}
+          placeholder={currency}
+          aria-label={`Ticket price in ${currency}`}
+        />
+      </div>
+      <div style={{ flex: "1 1 150px" }}>
+        <Select
+          value={party}
+          onChange={setParty}
+          options={[
+            { value: "", label: "Collected by…" },
+            ...editor.participants.map((entry) => ({ value: entry.id, label: entry.name })),
+          ]}
+          aria-label="Collected by"
+        />
+      </div>
+      <Button
+        variant="primary"
+        disabled={!canAdd}
+        onClick={() => {
+          editor.addTicketTier(name.trim(), price.trim(), count, party);
+          setName("");
+          setPrice("");
+          setQuantity("");
+          setParty("");
+          setOpen(false);
+        }}
+      >
+        Add
+      </Button>
+      <Button variant="ghost" onClick={() => setOpen(false)}>
+        Cancel
+      </Button>
     </div>
   );
 }
@@ -176,8 +280,25 @@ function LineRow({
   // Local while typing, committed on blur — a keystroke is not a decision, and a
   // PATCH per character would race its own responses.
   const [amount, setAmount] = useState(row.amount);
+  const [unitAmount, setUnitAmount] = useState(row.details?.unitAmount ?? "");
+  const [quantity, setQuantity] = useState(row.details?.quantity?.toString() ?? "");
   const partyField = row.kind === "revenue" ? "collectedBy" : "paidBy";
   const partyId = row.kind === "revenue" ? row.collectedBy : row.paidBy;
+  /*
+   * A COUNTED ROW IS RESTATED BY ITS COUNT, not by its total.
+   *
+   * "Tickets info (name, quantity, price) missing from settlements" (ClickUp
+   * 86cbcn1ue). The planner had already baked the breakdown into the LABEL —
+   * "Advance ticket sales (260 @ 250 SEK)" — so the settlement displayed an
+   * arithmetic it gave the operator no way to correct. The honest edit after a
+   * show that sold 168 is to change the 260; the total follows, and the label
+   * stops contradicting the figure beside it.
+   *
+   * A row with no `details` keeps the plain amount box. Most costs are a lump
+   * sum and inventing a unit price for a broken window would be worse than the
+   * single field it replaced.
+   */
+  const isCounted = row.details !== null;
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -189,17 +310,64 @@ function LineRow({
           <span style={{ color: "var(--dim)", fontSize: 11.5 }}>· unplanned</span>
         )}
       </span>
-      <div style={{ flex: "0 0 130px" }}>
-        <Input
-          value={amount}
-          disabled={isFinalized || editor.isBusy}
-          onChange={(event) => setAmount(event.target.value)}
-          onBlur={() => {
-            if (amount !== row.amount) editor.updateLine(row, { amount });
-          }}
-          aria-label={`${row.label} amount in ${currency}`}
-        />
-      </div>
+      {isCounted ? (
+        <>
+          <div style={{ flex: "0 0 96px" }}>
+            <Input
+              value={quantity}
+              disabled={isFinalized || editor.isBusy}
+              onChange={(event) => setQuantity(event.target.value)}
+              onBlur={() => {
+                const next = Number.parseInt(quantity, 10);
+                // A blank or unparseable count is a slip, not an instruction to
+                // settle nothing — put the stored one back rather than writing 0.
+                if (!Number.isFinite(next) || next < 0) {
+                  setQuantity(row.details?.quantity?.toString() ?? "");
+                  return;
+                }
+                if (next !== row.details?.quantity) editor.updateBreakdown(row, { quantity: next });
+              }}
+              aria-label={`${row.label} quantity`}
+            />
+          </div>
+          <span style={{ color: "var(--dim)", fontSize: 12.5 }}>×</span>
+          <div style={{ flex: "0 0 110px" }}>
+            <Input
+              value={unitAmount}
+              disabled={isFinalized || editor.isBusy}
+              onChange={(event) => setUnitAmount(event.target.value)}
+              onBlur={() => {
+                if (unitAmount !== row.details?.unitAmount) {
+                  editor.updateBreakdown(row, { unitAmount });
+                }
+              }}
+              aria-label={`${row.label} unit price in ${currency}`}
+            />
+          </div>
+          {/* The product, shown not typed. It is `amount` — the figure the engine
+              settles — and letting it be edited beside the two operands is how a
+              row ends up saying 168 × 250 = 65 000.
+              Through `formatMoney` like every other figure on the screen: the two
+              boxes beside it are raw because they are being TYPED INTO, but this
+              is a read-only total and a second money format here would be the one
+              number on the card that looked like a database value. */}
+          <span style={{ flex: "0 0 110px", fontSize: 13.5, fontWeight: 600 }}>
+            {formatMoney(majorToMinor(row.amount, currency).toString(), currency)}
+          </span>
+        </>
+      ) : (
+        <div style={{ flex: "0 0 130px" }}>
+          <Input
+            value={amount}
+            disabled={isFinalized || editor.isBusy}
+            onChange={(event) => setAmount(event.target.value)}
+            onBlur={() => {
+              if (amount !== row.amount) editor.updateLine(row, { amount });
+            }}
+            aria-label={`${row.label} amount in ${currency}`}
+          />
+        </div>
+      )}
       <div style={{ flex: "1 1 150px" }}>
         <Select
           value={partyId ?? ""}

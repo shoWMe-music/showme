@@ -28,6 +28,7 @@ import {
 import { SettlementDeliveryCard } from "../components/SettlementDeliveryCard";
 import { SettlementPartyCard } from "../components/SettlementPartyCard";
 import { SettlementStepper } from "../components/SettlementStepper";
+import { UnsignedAgreementsNotice } from "../components/UnsignedAgreementsNotice";
 import { type SettlementLine, WhoOwesWhomBoard } from "../components/WhoOwesWhomBoard";
 import { describeActivity } from "../components/eventHistory";
 import { CardTitle, Eyebrow } from "../components/primitives";
@@ -479,14 +480,18 @@ function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
          * they are told which agreement is waiting.
          *
          * Named, never counted: "1 agreement outstanding" sends somebody hunting
-         * through the Deals tab for it.
+         * through the Deals tab for it. And since the Deals tab is where they are
+         * going, the notice takes them (`UnsignedAgreementsNotice`) — naming the
+         * cause without offering the cure is what got this read as a broken
+         * screen on 2026-09-01.
          */}
         {settlement.authority.canCompute &&
           !settlement.isFinalized &&
           settlement.unsignedAgreementsNotice && (
-            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-              {settlement.unsignedAgreementsNotice}
-            </p>
+            <UnsignedAgreementsNotice
+              eventId={settlement.eventId}
+              notice={settlement.unsignedAgreementsNotice}
+            />
           )}
       </Card>
 
@@ -1003,7 +1008,7 @@ function FinancialsTab({
           currency={currency}
           isFinalized={settlement.isFinalized}
           onRecalculate={settlement.compute}
-          recalculateBlockedReason={settlement.unsignedAgreementsNotice}
+          recalculateBlocked={settlement.unsignedAgreementsNotice != null}
         />
       )}
       <Card padding="lg" style={CARD_COLUMN}>
@@ -1127,16 +1132,30 @@ function SettlingHappensHereCard({
         >
           Open the Settlement tab
         </Button>
+        {/* NAMED FOR WHERE IT GOES, not for what it does to the money here.
+            "Edit the budget" on a settlement screen reads as an offer to change
+            the settlement — which is the objection raised on 2026-09-01: *"for
+            some reason Settlement has an 'Edit the budget' button… the point was
+            that budget is the plan and Settlement is the actual"*. It never did
+            that; it is a link to the planner, where the FORECAST is owned. So it
+            says the planner's own name, and the paragraph below says which half
+            of the comparison lives where. */}
         <Link to="/events/$eventId" params={{ eventId }} search={{ tab: "budget" }}>
           <Button variant="ghost" leftIcon={<Icon name="pencil" size={14} />}>
-            Edit the budget
+            Open the Budget Planner
           </Button>
         </Link>
       </div>
-      <p className="muted" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55 }}>
-        {blocked ??
-          "Running it recomputes every party's entitlement and the transfers between them; the Settlement tab is where those figures, the approvals and the review conversation live. What each line was BUDGETED to be is owned by the Budget Planner and changed there — what it actually came to is entered below."}
-      </p>
+      {blocked ? (
+        <UnsignedAgreementsNotice eventId={eventId} notice={blocked} />
+      ) : (
+        <p className="muted" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55 }}>
+          Running it recomputes every party's entitlement and the transfers between them; the
+          Settlement tab is where those figures, the approvals and the review conversation live.
+          What each line was BUDGETED to be is owned by the Budget Planner and changed there — what
+          it actually came to is entered below.
+        </p>
+      )}
     </Card>
   );
 }

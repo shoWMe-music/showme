@@ -242,9 +242,12 @@ export interface EventSettlement {
    * null when nothing is blocking it. Non-null means compute and finalize will
    * both be refused (decisions.md #21; the API answers 409 naming the same deals).
    *
-   * A sentence rather than a list, because all three places that need it need the
-   * same sentence, and three hand-assembled variants of one rule is the kind of
-   * divergence that drifts. The component takes it and renders it.
+   * A sentence rather than a list, because every place that needs it needs the
+   * same sentence, and hand-assembled variants of one rule are the kind of
+   * divergence that drifts. `UnsignedAgreementsNotice` takes it and renders it —
+   * and it is the ONLY thing that draws it. Three components used to print this
+   * string, two of them on the same tab, so the Financials screen carried the
+   * identical paragraph twice.
    *
    * Party-scoped, like the deals list it comes from, so it is a lower bound: a
    * reader who is not a party to some deal will not see that deal here. Which is
@@ -253,6 +256,12 @@ export interface EventSettlement {
    * has the last word.
    */
   unsignedAgreementsNotice: string | null;
+  /**
+   * The event this settlement is for. Carried on the return so a component that
+   * takes only `settlement` can still link back into the event workspace — the
+   * unsigned-agreement notice sends the operator to its Deals tab.
+   */
+  eventId: string;
   /** True once the reconciliation has been run at least once on this event. */
   isComputed: boolean;
   /** True once the figures are frozen — no recompute, no second finalize. */
@@ -671,6 +680,7 @@ export function useEventSettlement(
     error: settlements.error,
     authority: settlementAuthorityOf(capabilities),
     unsignedAgreementsNotice,
+    eventId,
     isComputed: partyRows.some((row) => row.computed != null),
     isFinalized: partyRows.some((row) => FROZEN_STATUSES.has(row.status)),
     status: partyRows[0]?.status ?? "open",

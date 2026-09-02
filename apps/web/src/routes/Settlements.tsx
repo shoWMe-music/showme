@@ -9,7 +9,7 @@ import {
   type Status,
   StatusDot,
 } from "@showme/design-system";
-import { useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { type ReactNode, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { KpiRow } from "../components";
@@ -59,12 +59,41 @@ function buildColumns(isSingleProfile: boolean): DataTableColumn<SettlementItem>
     {
       header: isSingleProfile ? "Event" : "Artist / Event",
       width: "2.4fr",
-      render: (row) => <b>{row.event.title}</b>,
+      // The money document — the same workspace the event's Settlement tab opens.
+      render: (row) => (
+        <Link
+          to="/events/$eventId/settlement"
+          params={{ eventId: row.event.id }}
+          style={{ fontWeight: 700, color: "inherit" }}
+        >
+          {row.event.title}
+        </Link>
+      ),
     },
     {
       header: "Date",
       width: "1fr",
-      render: (row) => formatDay(row.event.eventDate),
+      /*
+       * THE DATE GOES TO THE SHOW, NOT TO ITS MONEY.
+       *
+       * Asked for by name (ClickUp 86cbcn1ue): *"Clicking a date in Settlements
+       * should open the event manager."* It is the same instinct the calendar
+       * work already answered — a date is the show, and the reader looking at a
+       * settlement row who clicks the date wants the night behind the figures,
+       * not a second route into the figures they are already reading.
+       *
+       * This is why the row is no longer one big `onRowClick` button. Two
+       * destinations cannot live in one control, and a link nested inside a
+       * button is invalid HTML — the row would have had to stop being a button
+       * either way. Linking the cells instead keeps every target keyboard
+       * reachable (an anchor is, a `div` with an onClick is not) and makes each
+       * one say where it goes.
+       */
+      render: (row) => (
+        <Link to="/events/$eventId" params={{ eventId: row.event.id }} style={{ color: "inherit" }}>
+          {formatDay(row.event.eventDate)}
+        </Link>
+      ),
     },
     {
       header: "Event status",
@@ -114,7 +143,6 @@ export function Settlements() {
   const { data, isPending, isError, error } = useGetApiV1Settlements();
   const [filter, setFilter] = useState<FilterKey>("all");
   const { session } = useAuth();
-  const navigate = useNavigate();
 
   // One profile → the viewer is unambiguously the artist on every row.
   const isSingleProfile = (session?.memberships.length ?? 0) === 1;
@@ -188,23 +216,19 @@ export function Settlements() {
               }
             />
           ) : (
-            // `onRowClick` renders each row as a real `<button>`, which is what makes
-            // the row keyboard-reachable for free. That is only available here
-            // because a settlement row holds no control of its own — the invoice
-            // ledger had to be hand-rolled precisely because its row carries an
-            // "Issue" button and a button inside a button is invalid HTML.
-            <DataTable
-              columns={columns}
-              rows={rows}
-              getRowKey={(row) => row.id}
-              // Into the full settlement workspace, the same document the event
-              // workspace's Settlement tab opens. One settlement surface, reached
-              // from either entry point — "what am I owed" or "how did that show
-              // go" — rather than a second, thinner copy living in an overlay.
-              onRowClick={(row) =>
-                navigate({ to: "/events/$eventId/settlement", params: { eventId: row.event.id } })
-              }
-            />
+            /*
+             * NO `onRowClick`. It renders the row as one `<button>`, and this row
+             * now has two destinations: the title opens the settlement workspace,
+             * the date opens the event manager (86cbcn1ue). One control cannot go
+             * to two places, and a link inside a button is invalid HTML — the same
+             * constraint that forced the invoice ledger to hand-roll its rows,
+             * arriving here for the same reason.
+             *
+             * Keyboard reach is not lost by dropping it: the anchors in the cells
+             * are focusable on their own, which is what the row-as-button was
+             * buying in the first place.
+             */
+            <DataTable columns={columns} rows={rows} getRowKey={(row) => row.id} />
           )}
         </div>
       )}

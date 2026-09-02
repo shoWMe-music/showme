@@ -87,7 +87,19 @@ const captionStyle = {
   fontSize: 9.5,
   letterSpacing: ".08em",
   textTransform: "uppercase",
-  color: "var(--dim)",
+  /*
+   * --muted, NOT --dim. Measured in the running app: --dim on the dark card is
+   * **2.33:1** at this size, which is not de-emphasised text, it is text you
+   * cannot read — and this caption is what names the control beside it
+   * ("COLLECTED BY", "PAYS IT"). It is most of what *"dropdown text unreadable"*
+   * (ClickUp 86cbcn1ue) is pointing at, and it only shows up in DARK: the same
+   * token measures fine on the light theme's white card, which is why looking at
+   * one theme and judging by eye missed it twice.
+   *
+   * --muted lands at ~5.3:1 on the same ground. --dim stays what it is for
+   * genuine decoration; a label for a control was never that.
+   */
+  color: "var(--muted)",
   whiteSpace: "nowrap",
 } as const;
 

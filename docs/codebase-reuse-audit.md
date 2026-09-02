@@ -526,3 +526,43 @@ They were NOT folded into one helper:
 the invitation shape itself changing (an expiry rule, a new `source`). At that
 point extract `inviteStubToEvent(tx, …)` next to `createPerformerStub`, which is
 already the home of this mechanic, and move all three onto it.
+
+---
+
+## 2026-09-02 — the settlements pass (ClickUp 86cbcn1ue)
+
+**`--dim` is unreadable on the dark theme, everywhere, and only the budget
+planner was fixed.** Measured in the running app: `--dim` resolves to `--ink-500`
+(#5A483C) in dark, which on the `--ink-900` card is **2.33:1** — not
+de-emphasised text, text you cannot read. The AA floor for the sizes it is used
+at is 4.5:1.
+
+This pass changed exactly one caller — `captionStyle` in
+`BudgetLineAttribution.tsx`, the "COLLECTED BY / PAYS IT / CARRIES IT" labels,
+because that is what the report was pointing at — and moved it to `--muted`
+(5.71:1). **The token itself was left alone**, deliberately:
+
+- `--dim` has callers across the design system (`Select`, `DataTable`, `Tag`,
+  `TagInput`, `Stepper`, `TodoItem`, `SidebarItem`, `StatCard`, `ContactCard`)
+  and the web app. Changing the dark value moves all of them at once, and the
+  right value differs by ground: `--ink-400` clears 4.5:1 on the `--ink-900` card
+  (4.57) but **not** inside a control on `--ink-800` (4.24), and `Select` uses
+  `--dim` in both places.
+- So a correct fix is not one token edit. It is either a second token for
+  "de-emphasised text on a control ground", or a sweep that decides per caller
+  whether `--dim` means decoration (fine as it is) or a label (must be `--muted`).
+  Neither belongs inside a settlements ticket.
+
+**The trigger for doing it properly:** any further "can't read that" report on a
+dark screen, or the first time somebody reaches for `--dim` on new text. At that
+point sweep every `--dim` caller, split decoration from labels, and give the
+label case its own token — and measure on BOTH grounds (`--ink-900` card and
+`--ink-800` control), because they give different answers.
+
+**Also worth knowing, and not a code smell: the design system is consumed from a
+BUILT file.** `@showme/design-system/styles.css` maps to
+`design-system/dist/design-system.css`, not to `src/styles/tokens.css`. A token
+edit does nothing until `pnpm --filter @showme/design-system build` runs, and the
+app keeps rendering the old value with no error anywhere. That cost a
+false-negative measurement in this session: the contrast fix read as "didn't
+work" when it had simply never been built.

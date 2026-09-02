@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { PatchApiV1EventsIdSettlementLinesLidBodyCostSplit } from './patchApiV1EventsIdSettlementLinesLidBodyCostSplit';
+import type { PatchApiV1EventsIdSettlementLinesLidBodyDetails } from './patchApiV1EventsIdSettlementLinesLidBodyDetails';
 
 export type PatchApiV1EventsIdSettlementLinesLidBody = {
   /**
@@ -29,5 +30,7 @@ export type PatchApiV1EventsIdSettlementLinesLidBody = {
   costSplit?: PatchApiV1EventsIdSettlementLinesLidBodyCostSplit;
   /** @nullable */
   attributedDealId?: string | null;
+  /** @nullable */
+  details?: PatchApiV1EventsIdSettlementLinesLidBodyDetails;
   expectedVersion?: number;
 };
