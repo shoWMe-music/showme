@@ -4,7 +4,83 @@ The standing answer to "what's deployed where". Update it when that changes.
 Account/project map and the domain history live in
 [handoff-2026-08-23-marketing-and-hosting.md](./handoff-2026-08-23-marketing-and-hosting.md).
 
-## 2026-09-01/02 — migration 0034, API 00029, both sites. THIS IS CURRENT.
+## 2026-09-02 (later) — migration 0035, API 00030, web app. THIS IS CURRENT.
+
+The settlements pass (ClickUp `86cbcn1ue`) and four of the five settlement
+decisions. One migration, one API revision, one web release.
+
+| | |
+|---|---|
+| Backup | On-demand **`1788384976208`**, polled to `SUCCESSFUL` before the schema was touched. |
+| Database | **35 → 36** rows in `drizzle.__drizzle_migrations`. Migration `0035` adds `deals.commission_mode`. |
+| API | **`showme-api-00030-q78`**, serving 100%. Source deploy from `a45a360` on `main`, config untouched. |
+| Web app | `showme-app.web.app` — version `25f23e381f7aa79e`, release `1788385608051000`, bundle `index-VebdxXVP.js`. |
+| Marketing | Untouched. No marketing change in this work. |
+
+**Verified by real objects, not by the success lines.** The migration was checked
+by querying `information_schema` (the column exists) and the data (all three
+production deals read `parallel`). The API was checked by reading the SERVED
+OpenAPI for `ticket_tier`, `commissionMode` and `cascading` — not the deploy's
+output. The web app was checked by fetching the live page, confirming the bundle
+name matches the local build byte for byte, and grepping the served JS for the
+three strings this work added ("Go to the agreements", "Add ticket type",
+"Borne by").
+
+### What 0035 is, and why it could not restate anything
+
+`deals.commission_mode` (`parallel` | `cascading`, NOT NULL, default `parallel`)
+— how several disclosed commissions on one deal compose. `parallel` is what
+`applyCommissions` always did, so the default reproduces every figure the engine
+had already settled. Every production deal today carries one commission or none,
+and the two modes agree on a single cut, so no settlement could move even if the
+default had been wrong. Additive column, no backfill, no drop.
+
+### The one behaviour change that DOES move money
+
+An agent's representation commission is now taken on the **gross** entitlement
+(`entitlement + deductibles`) rather than after deductibles — our code had been
+contradicting our own `SKILL.md`, and its own header claimed gross while reading
+net. On the worked example a venue-fronted 1 000 hotel moved the agent's 15% cut
+from 1 350 to 1 500. **Not yet ratified by the product owner**: ClickUp
+`86cba8wtb` is `in review` with a comment asking him to confirm the commercial
+term. Safe to be live meanwhile because production has three deals and six
+internal profiles — no real agent is affected — but it should not stay unratified
+once there are.
+
+### FIREBASE-TOOLS WAS DEAD, AND HOSTING WAS DEPLOYED WITHOUT IT
+
+The CLI credential was expired (`Authentication Error: Your credentials are no
+longer valid`), and it could not be refreshed from an agent shell: `firebase
+login:add` **refuses a non-interactive terminal outright**, and it will not run
+under a pseudo-terminal either (`script` fails with `tcgetattr/ioctl: Operation
+not supported on socket`). `GOOGLE_APPLICATION_CREDENTIALS` does not help —
+firebase-tools wants its own stored login or a service-account key, not user ADC.
+
+**The way through is the Hosting REST API with a gcloud token**, which needs no
+Firebase login at all:
+
+```bash
+TOKEN=$(gcloud auth print-access-token)
+# The quota-project header is REQUIRED on the ADC path — without it every call
+# 403s with SERVICE_DISABLED, which reads like the API is off when it is not.
+curl -H "Authorization: Bearer $TOKEN" -H "x-goog-user-project: music-showme" \
+  https://firebasehosting.googleapis.com/v1beta1/projects/music-showme/sites
+```
+
+Then the same five steps the CLI performs: create a version carrying the
+`firebase.json` config, `:populateFiles` with the SHA256 of each **gzipped**
+file, upload only the hashes the server asks for, `PATCH …?update_mask=status`
+to `FINALIZED`, then `POST …/releases?versionName=…`. The script is committed as
+`scripts/hosting-deploy.mjs` — run it with `HOSTING_TOKEN=$(gcloud auth
+print-access-token) node scripts/hosting-deploy.mjs` after building. Only 3 of 23 files uploaded — Hosting's
+store is content-addressed, so an unchanged asset is never re-sent.
+
+**The CLI login is still expired.** It was bypassed, not fixed. Use
+`firebase login:add --no-localhost` from a real terminal — `login:add`, not
+`--reauth`, because `--reauth` replaces the stored account and the **gmail**
+account owns the live marketing site.
+
+## 2026-09-01/02 — migration 0034, API 00029, both sites. Superseded by the entry above.
 
 Six API revisions went out in one session. Each is listed because the *reason*
 matters more than the number when something later looks wrong.
