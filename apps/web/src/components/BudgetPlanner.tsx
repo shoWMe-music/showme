@@ -4,6 +4,7 @@ import { BudgetBreakdownCard } from "./BudgetBreakdownCard";
 import {
   CostAttribution,
   CostAttributionLegend,
+  CostBearingBadge,
   DealAssignmentNote,
   RevenueAttribution,
 } from "./BudgetLineAttribution";
@@ -492,6 +493,15 @@ export function BudgetPlanner({
                 <span style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 14 }}>
                   {cost.label}
                 </span>
+                {/* The one-glance cost-vs-deduction answer. Sits with the LABEL
+                    rather than under the selectors, because the complaint was
+                    about scanning the column, and the column is the labels. */}
+                {!cost.readFromDeal && (
+                  <CostBearingBadge
+                    bearing={cost.bearing ?? { kind: "shared" }}
+                    participants={participants}
+                  />
+                )}
                 {cost.readFromDeal
                   ? readOnlyMoney(cost.value, currencySymbol)
                   : money(
