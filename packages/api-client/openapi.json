@@ -6057,6 +6057,12 @@
                           },
                           "prepaid": {
                             "type": "string"
+                          },
+                          "prepaidCounterpartyIds": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
                           }
                         },
                         "required": [
@@ -6681,6 +6687,12 @@
                               },
                               "prepaid": {
                                 "type": "string"
+                              },
+                              "prepaidCounterpartyIds": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
                               }
                             },
                             "required": [
@@ -7101,6 +7113,12 @@
                         },
                         "prepaid": {
                           "type": "string"
+                        },
+                        "prepaidCounterpartyIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
                         }
                       },
                       "required": [
@@ -18180,6 +18198,14 @@
                           "type": "string",
                           "nullable": true
                         },
+                        "prepaid": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "prepaidWith": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "transfers": {
                           "type": "array",
                           "items": {
@@ -18221,6 +18247,8 @@
                         "paid",
                         "held",
                         "net",
+                        "prepaid",
+                        "prepaidWith",
                         "transfers",
                         "approvedAt"
                       ],

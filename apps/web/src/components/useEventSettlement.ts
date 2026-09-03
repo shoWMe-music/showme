@@ -103,6 +103,16 @@ export interface SettlementParty {
    * to wonder what it means.
    */
   prepaid: string | null;
+  /**
+   * "Paid in advance TO the venue", "…BY the promoter" — the sentence the product
+   * owner asked for (ClickUp `86cbcn1ue`: *"marked 'paid in advance' by X to Y"*).
+   *
+   * Direction comes from the SIGN of `prepaid`, which is the part the old label
+   * got wrong: a payee's advance is positive, and the board called it "Paid before
+   * the event", so a performer holding a 10 000 advance read as having paid it.
+   * Null when nothing moved early.
+   */
+  prepaidLabel: string | null;
   net: string | null;
   /** Raw minor units — for summing only. Never rendered. */
   netMinor: string | null;
@@ -725,6 +735,41 @@ export function useEventSettlement(
   };
 }
 
+/**
+ * "Paid in advance to The Lantern Hall" / "…by Marlo Vance and Neon Tide".
+ *
+ * THE DIRECTION IS THE POINT, and the old board had it backwards. `prepaid` is
+ * POSITIVE for a party that RECEIVED an advance and negative for the one that
+ * paid it out (`reconcile()` step 4b), while the row was labelled "Paid before
+ * the event" for both — so a performer holding a 10 000 guarantee read as having
+ * paid 10 000 out, which is the opposite of the truth and the wrong sign on the
+ * one figure a settlement conversation starts from.
+ *
+ * Falls back to a direction with no names when the counterparties are absent —
+ * every settlement finalized before the engine recorded them, which are legal
+ * records and are never rewritten. Saying less is fine; saying it backwards is
+ * not.
+ */
+function prepaidLabelOf(
+  computed:
+    | { prepaid?: string | null; prepaidCounterpartyIds?: string[] | null }
+    | null
+    | undefined,
+  nameOf: (participantId: string | null | undefined) => string,
+): string | null {
+  const raw = computed?.prepaid;
+  if (raw == null || raw === "0") return null;
+  const received = !raw.startsWith("-");
+  const others = (computed?.prepaidCounterpartyIds ?? []).map(nameOf).filter(Boolean);
+  const direction = received ? "Paid in advance by" : "Paid in advance to";
+  if (others.length === 0) return received ? "Paid in advance to you" : "Paid in advance by you";
+  const named =
+    others.length > 1
+      ? `${others.slice(0, -1).join(", ")} and ${others[others.length - 1]}`
+      : others[0];
+  return `${direction} ${named}`;
+}
+
 function toParty(
   row: Settlements["settlements"][number],
   currency: string,
@@ -750,6 +795,7 @@ function toParty(
     // zero on a night where nothing moved early — both mean "no row to show".
     prepaid:
       computed?.prepaid != null && computed.prepaid !== "0" ? formatAmount(computed.prepaid) : null,
+    prepaidLabel: prepaidLabelOf(computed, nameOf),
     net: computed ? formatAmount(computed.net) : null,
     // The raw minor units alongside the formatted figure, ONLY so totals can be
     // summed as integers. Nothing renders this — `docs/money.md`: never do money

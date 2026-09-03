@@ -134,6 +134,8 @@ const BreakdownResponse = z.object({
   residual: z.string().optional(),
   /** Money moved before the night under a deal. Optional for the same reason. */
   prepaid: z.string().optional(),
+  /** Who that early money was with, so the screen can name both ends of it. */
+  prepaidCounterpartyIds: z.array(z.string()).optional(),
 });
 
 /** One party's sign-off, as the roster shows it. */

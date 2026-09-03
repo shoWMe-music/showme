@@ -21,4 +21,5 @@ export type GetApiV1EventsIdSettlements200SettlementsItemComputed = {
   deductibles?: string;
   residual?: string;
   prepaid?: string;
+  prepaidCounterpartyIds?: string[];
 } | null;

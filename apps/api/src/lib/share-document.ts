@@ -105,6 +105,22 @@ const DocumentSettlement = z.object({
   paid: z.string().nullable(),
   held: z.string().nullable(),
   net: z.string().nullable(),
+  /**
+   * Money that moved BEFORE the night, and who it was with.
+   *
+   * `held` already contains it (`held = collected − paid + prepaid`), which is
+   * exactly why it has to be stated: a performer opening their settlement saw
+   * "Held by you 10,000" with nothing to say that the 10,000 was the advance they
+   * were paid in March. The product owner asked for it in those terms — *"even if
+   * paid in advance it should be included in the final settlement and marked
+   * 'paid in advance' by X to Y"* (ClickUp `86cbcn1ue`).
+   *
+   * `prepaidWith` is resolved to NAMES here rather than shipped as participant
+   * ids: a share recipient is off-platform by definition and has nothing to
+   * resolve an id against.
+   */
+  prepaid: z.string().nullable(),
+  prepaidWith: z.string().nullable(),
   /** Owed money moving to or from the recipient — never another pair's transfer. */
   transfers: z.array(
     z.object({
@@ -465,6 +481,55 @@ async function loadSettlement(
       ),
     )) as (typeof schema.settlementTransfers.$inferSelect)[];
 
+  /**
+   * The other end of any early money, as NAMES.
+   *
+   * Read straight off the stored snapshot's `prepaidCounterpartyIds` — the engine
+   * recorded both ends when it booked the advance, so nothing is re-derived here.
+   * A settlement finalized before that field existed carries none and simply says
+   * "Paid in advance" without a counterparty, which is the honest reading of a
+   * legal record that never held the information.
+   */
+  const counterpartyIds = Array.isArray(
+    (computed as unknown as { prepaidCounterpartyIds?: unknown })?.prepaidCounterpartyIds,
+  )
+    ? ((computed as unknown as { prepaidCounterpartyIds: string[] }).prepaidCounterpartyIds ?? [])
+    : [];
+  const counterparties =
+    counterpartyIds.length > 0
+      ? ((await database
+          .select({
+            id: schema.eventParticipants.id,
+            /*
+             * BOTH names, and the profile's is the one that usually exists.
+             *
+             * `event_participants.display_name` is the OVERRIDE, carried by an
+             * off-platform party who has no profile to borrow a name from. Every
+             * participant who is on the platform leaves it null and is known by
+             * `profiles.name`. Reading only the override therefore resolved to
+             * nothing for the ordinary case — caught by fetching a real share
+             * document and finding `prepaidWith: null` on a settlement that
+             * plainly had a counterparty, which is the sort of thing no test
+             * asserting "the field exists" would ever have noticed.
+             */
+            displayName: schema.eventParticipants.displayName,
+            profileName: schema.profiles.name,
+          })
+          .from(schema.eventParticipants)
+          .leftJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
+          .where(inArray(schema.eventParticipants.id, counterpartyIds))) as {
+          id: string;
+          displayName: string | null;
+          profileName: string | null;
+        }[])
+      : [];
+  const prepaidWith = counterpartyIds
+    .map((id) => {
+      const row = counterparties.find((candidate) => candidate.id === id);
+      return row?.displayName || row?.profileName;
+    })
+    .filter((name): name is string => typeof name === "string" && name !== "");
+
   const [approval] = (await database
     .select()
     .from(schema.settlementApprovals)
@@ -484,6 +549,12 @@ async function loadSettlement(
     paid: computed?.paid ?? null,
     held: computed?.held ?? null,
     net: computed?.net ?? null,
+    // Absent on a settlement finalized before advances were recorded, and "0" on a
+    // night where nothing moved early. Both are "no row to show", and neither is a
+    // reason to print a zero at somebody who is reading this to find out what they
+    // are owed.
+    prepaid: computed?.prepaid != null && computed.prepaid !== "0" ? computed.prepaid : null,
+    prepaidWith: prepaidWith.length > 0 ? prepaidWith.join(", ") : null,
     transfers: transfers
       // A commission transfer is private to the agent and the performer it is
       // about; it never rides a share, even one addressed to one of them.

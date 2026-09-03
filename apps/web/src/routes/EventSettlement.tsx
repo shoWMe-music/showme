@@ -379,6 +379,7 @@ function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
       collected: party.collected as string,
       paid: party.paid as string,
       prepaid: party.prepaid,
+      prepaidLabel: party.prepaidLabel,
       net: party.net as string,
       netTone: party.netTone,
     }));

@@ -36,6 +36,16 @@ export interface SerializedBreakdown {
    * and means zero.
    */
   prepaid?: string;
+  /**
+   * The parties on the other end of that early money, so a settlement can be read
+   * as *"paid in advance by X"* rather than as an unattributed figure — which is
+   * how the product owner asked for it (ClickUp `86cbcn1ue`).
+   *
+   * Optional and absent-means-none, for the same reason as `prepaid` itself: a
+   * settlement finalized before this existed is a legal record and is never
+   * rewritten to add a field.
+   */
+  prepaidCounterpartyIds?: string[];
 }
 
 /** One deal's contribution to a party's entitlement, money as STRING. */
@@ -142,6 +152,12 @@ export function serializeBreakdown(breakdown: PartyBreakdown): SerializedBreakdo
     collected: breakdown.collected.toString(),
     paid: breakdown.paid.toString(),
     prepaid: breakdown.prepaid.toString(),
+    // Omitted rather than written empty when nothing moved early — a stored `[]`
+    // on every settlement in the product is noise in a `jsonb` column that is read
+    // back as a legal record.
+    ...(breakdown.prepaidCounterpartyIds.length > 0
+      ? { prepaidCounterpartyIds: breakdown.prepaidCounterpartyIds }
+      : {}),
     held: breakdown.held.toString(),
     net: breakdown.net.toString(),
     lines: breakdown.lines.map(serializeLine),

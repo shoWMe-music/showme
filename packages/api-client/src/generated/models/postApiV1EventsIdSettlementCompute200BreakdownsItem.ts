@@ -18,4 +18,5 @@ export type PostApiV1EventsIdSettlementCompute200BreakdownsItem = {
   deductibles?: string;
   residual?: string;
   prepaid?: string;
+  prepaidCounterpartyIds?: string[];
 };

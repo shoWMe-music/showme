@@ -121,6 +121,13 @@ export interface PartyBreakdown {
    * the board say the performer took money off the bar.
    */
   prepaid: bigint;
+  /**
+   * The parties on the OTHER end of that early money, so the settlement can say
+   * "paid in advance by X" rather than printing a figure with no counterparty.
+   * Empty whenever `prepaid` is 0. Sorted, so the same night renders the same way
+   * twice.
+   */
+  prepaidCounterpartyIds: string[];
   held: bigint; // collected − paid + prepaid
   net: bigint; // entitlement − held (+ owed to them, − holding too much)
   /**

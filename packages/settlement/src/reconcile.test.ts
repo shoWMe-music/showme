@@ -907,6 +907,39 @@ describe("reconcile — money paid BEFORE the event", () => {
     assertBalanced(result);
   });
 
+  /**
+   * WHO THE ADVANCE WAS WITH, recorded on both breakdowns.
+   *
+   * The screen has to be able to say *"paid in advance by X"* rather than print a
+   * figure with no counterparty (ClickUp `86cbcn1ue`: *"marked 'paid in advance'
+   * by X to Y"*). Recorded by the engine because this is the only place that knows
+   * both ends of every advance; a screen re-deriving it would have to re-implement
+   * `allocate` and the payer fallback, and would then be a second opinion about
+   * who was paid.
+   *
+   * Asserted on BOTH parties. Recording only the payee's side would leave the
+   * operator's negative figure unattributed, which is the half a reader is most
+   * likely to query — money leaving is what people ask about.
+   */
+  it("names the other end of the advance, on both sides of it", () => {
+    const result = reconcile(base);
+    const band = result.breakdowns.find((party) => party.participantId === "B");
+    const operator = result.breakdowns.find((party) => party.participantId === "P");
+
+    expect(band?.prepaidCounterpartyIds).toEqual(["P"]);
+    expect(operator?.prepaidCounterpartyIds).toEqual(["B"]);
+  });
+
+  it("leaves the counterparties empty when nothing moved early", () => {
+    const result = reconcile({
+      ...base,
+      deals: [{ ...base.deals[0], prepaidAmount: undefined } as (typeof base.deals)[number]],
+    });
+    for (const party of result.breakdowns) {
+      expect(party.prepaidCounterpartyIds).toEqual([]);
+    }
+  });
+
   it("books the payer's side too, so the operator is not out of pocket twice", () => {
     const result = reconcile(base);
     const operator = result.breakdowns.find((party) => party.participantId === "P");
