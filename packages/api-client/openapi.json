@@ -3970,9 +3970,11 @@
                                   "enum": [
                                     "ticket_tier",
                                     "bar_spend",
+                                    "merch_spend",
                                     "other_revenue",
                                     "custom_revenue",
-                                    "custom_cost"
+                                    "custom_cost",
+                                    "percentage_of"
                                   ],
                                   "default": "ticket_tier"
                                 },
@@ -3983,6 +3985,19 @@
                                 "quantity": {
                                   "type": "integer",
                                   "minimum": 0
+                                },
+                                "ofKey": {
+                                  "type": "string",
+                                  "maxLength": 200
+                                },
+                                "ofLabel": {
+                                  "type": "string",
+                                  "maxLength": 200
+                                },
+                                "basisPoints": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 10000
                                 }
                               },
                               "required": ["unitAmount", "quantity"],
@@ -4183,9 +4198,11 @@
                                 "enum": [
                                   "ticket_tier",
                                   "bar_spend",
+                                  "merch_spend",
                                   "other_revenue",
                                   "custom_revenue",
-                                  "custom_cost"
+                                  "custom_cost",
+                                  "percentage_of"
                                 ],
                                 "default": "ticket_tier"
                               },
@@ -4196,6 +4213,19 @@
                               "quantity": {
                                 "type": "integer",
                                 "minimum": 0
+                              },
+                              "ofKey": {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              "ofLabel": {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              "basisPoints": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000
                               }
                             },
                             "required": ["unitAmount", "quantity"],
@@ -4426,9 +4456,11 @@
                                 "enum": [
                                   "ticket_tier",
                                   "bar_spend",
+                                  "merch_spend",
                                   "other_revenue",
                                   "custom_revenue",
-                                  "custom_cost"
+                                  "custom_cost",
+                                  "percentage_of"
                                 ],
                                 "default": "ticket_tier"
                               },
@@ -4439,6 +4471,19 @@
                               "quantity": {
                                 "type": "integer",
                                 "minimum": 0
+                              },
+                              "ofKey": {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              "ofLabel": {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              "basisPoints": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000
                               }
                             },
                             "required": ["unitAmount", "quantity"],
@@ -4583,9 +4628,11 @@
                             "enum": [
                               "ticket_tier",
                               "bar_spend",
+                              "merch_spend",
                               "other_revenue",
                               "custom_revenue",
-                              "custom_cost"
+                              "custom_cost",
+                              "percentage_of"
                             ],
                             "default": "ticket_tier"
                           },
@@ -4596,6 +4643,19 @@
                           "quantity": {
                             "type": "integer",
                             "minimum": 0
+                          },
+                          "ofKey": {
+                            "type": "string",
+                            "maxLength": 200
+                          },
+                          "ofLabel": {
+                            "type": "string",
+                            "maxLength": 200
+                          },
+                          "basisPoints": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 10000
                           }
                         },
                         "required": ["unitAmount", "quantity"],
@@ -4701,9 +4761,11 @@
                         "enum": [
                           "ticket_tier",
                           "bar_spend",
+                          "merch_spend",
                           "other_revenue",
                           "custom_revenue",
-                          "custom_cost"
+                          "custom_cost",
+                          "percentage_of"
                         ],
                         "default": "ticket_tier"
                       },
@@ -4714,6 +4776,19 @@
                       "quantity": {
                         "type": "integer",
                         "minimum": 0
+                      },
+                      "ofKey": {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      "ofLabel": {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      "basisPoints": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 10000
                       }
                     },
                     "required": ["unitAmount", "quantity"],
@@ -4818,9 +4893,11 @@
                           "enum": [
                             "ticket_tier",
                             "bar_spend",
+                            "merch_spend",
                             "other_revenue",
                             "custom_revenue",
-                            "custom_cost"
+                            "custom_cost",
+                            "percentage_of"
                           ],
                           "default": "ticket_tier"
                         },
@@ -4831,6 +4908,19 @@
                         "quantity": {
                           "type": "integer",
                           "minimum": 0
+                        },
+                        "ofKey": {
+                          "type": "string",
+                          "maxLength": 200
+                        },
+                        "ofLabel": {
+                          "type": "string",
+                          "maxLength": 200
+                        },
+                        "basisPoints": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 10000
                         }
                       },
                       "required": ["unitAmount", "quantity"],
@@ -4935,9 +5025,11 @@
                         "enum": [
                           "ticket_tier",
                           "bar_spend",
+                          "merch_spend",
                           "other_revenue",
                           "custom_revenue",
-                          "custom_cost"
+                          "custom_cost",
+                          "percentage_of"
                         ],
                         "default": "ticket_tier"
                       },
@@ -4948,6 +5040,19 @@
                       "quantity": {
                         "type": "integer",
                         "minimum": 0
+                      },
+                      "ofKey": {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      "ofLabel": {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      "basisPoints": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 10000
                       }
                     },
                     "required": ["unitAmount", "quantity"],
@@ -5063,9 +5168,11 @@
                           "enum": [
                             "ticket_tier",
                             "bar_spend",
+                            "merch_spend",
                             "other_revenue",
                             "custom_revenue",
-                            "custom_cost"
+                            "custom_cost",
+                            "percentage_of"
                           ],
                           "default": "ticket_tier"
                         },
@@ -5076,6 +5183,19 @@
                         "quantity": {
                           "type": "integer",
                           "minimum": 0
+                        },
+                        "ofKey": {
+                          "type": "string",
+                          "maxLength": 200
+                        },
+                        "ofLabel": {
+                          "type": "string",
+                          "maxLength": 200
+                        },
+                        "basisPoints": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 10000
                         }
                       },
                       "required": ["unitAmount", "quantity"],
@@ -5937,6 +6057,12 @@
                           },
                           "prepaid": {
                             "type": "string"
+                          },
+                          "prepaidCounterpartyIds": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
                           }
                         },
                         "required": [
@@ -6561,6 +6687,12 @@
                               },
                               "prepaid": {
                                 "type": "string"
+                              },
+                              "prepaidCounterpartyIds": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
                               }
                             },
                             "required": [
@@ -6981,6 +7113,12 @@
                         },
                         "prepaid": {
                           "type": "string"
+                        },
+                        "prepaidCounterpartyIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
                         }
                       },
                       "required": [
@@ -7344,9 +7482,11 @@
                             "enum": [
                               "ticket_tier",
                               "bar_spend",
+                              "merch_spend",
                               "other_revenue",
                               "custom_revenue",
-                              "custom_cost"
+                              "custom_cost",
+                              "percentage_of"
                             ],
                             "default": "ticket_tier"
                           },
@@ -7357,6 +7497,19 @@
                           "quantity": {
                             "type": "integer",
                             "minimum": 0
+                          },
+                          "ofKey": {
+                            "type": "string",
+                            "maxLength": 200
+                          },
+                          "ofLabel": {
+                            "type": "string",
+                            "maxLength": 200
+                          },
+                          "basisPoints": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 10000
                           }
                         },
                         "required": ["unitAmount", "quantity"],
@@ -7449,9 +7602,11 @@
                         "enum": [
                           "ticket_tier",
                           "bar_spend",
+                          "merch_spend",
                           "other_revenue",
                           "custom_revenue",
-                          "custom_cost"
+                          "custom_cost",
+                          "percentage_of"
                         ],
                         "default": "ticket_tier"
                       },
@@ -7462,6 +7617,19 @@
                       "quantity": {
                         "type": "integer",
                         "minimum": 0
+                      },
+                      "ofKey": {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      "ofLabel": {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      "basisPoints": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 10000
                       }
                     },
                     "required": ["unitAmount", "quantity"],
@@ -7549,9 +7717,11 @@
                           "enum": [
                             "ticket_tier",
                             "bar_spend",
+                            "merch_spend",
                             "other_revenue",
                             "custom_revenue",
-                            "custom_cost"
+                            "custom_cost",
+                            "percentage_of"
                           ],
                           "default": "ticket_tier"
                         },
@@ -7562,6 +7732,19 @@
                         "quantity": {
                           "type": "integer",
                           "minimum": 0
+                        },
+                        "ofKey": {
+                          "type": "string",
+                          "maxLength": 200
+                        },
+                        "ofLabel": {
+                          "type": "string",
+                          "maxLength": 200
+                        },
+                        "basisPoints": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 10000
                         }
                       },
                       "required": ["unitAmount", "quantity"],
@@ -7656,9 +7839,11 @@
                         "enum": [
                           "ticket_tier",
                           "bar_spend",
+                          "merch_spend",
                           "other_revenue",
                           "custom_revenue",
-                          "custom_cost"
+                          "custom_cost",
+                          "percentage_of"
                         ],
                         "default": "ticket_tier"
                       },
@@ -7669,6 +7854,19 @@
                       "quantity": {
                         "type": "integer",
                         "minimum": 0
+                      },
+                      "ofKey": {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      "ofLabel": {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      "basisPoints": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 10000
                       }
                     },
                     "required": ["unitAmount", "quantity"],
@@ -7767,9 +7965,11 @@
                           "enum": [
                             "ticket_tier",
                             "bar_spend",
+                            "merch_spend",
                             "other_revenue",
                             "custom_revenue",
-                            "custom_cost"
+                            "custom_cost",
+                            "percentage_of"
                           ],
                           "default": "ticket_tier"
                         },
@@ -7780,6 +7980,19 @@
                         "quantity": {
                           "type": "integer",
                           "minimum": 0
+                        },
+                        "ofKey": {
+                          "type": "string",
+                          "maxLength": 200
+                        },
+                        "ofLabel": {
+                          "type": "string",
+                          "maxLength": 200
+                        },
+                        "basisPoints": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 10000
                         }
                       },
                       "required": ["unitAmount", "quantity"],
@@ -17985,6 +18198,14 @@
                           "type": "string",
                           "nullable": true
                         },
+                        "prepaid": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "prepaidWith": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "transfers": {
                           "type": "array",
                           "items": {
@@ -18026,6 +18247,8 @@
                         "paid",
                         "held",
                         "net",
+                        "prepaid",
+                        "prepaidWith",
                         "transfers",
                         "approvedAt"
                       ],

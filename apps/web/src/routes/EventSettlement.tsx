@@ -42,11 +42,12 @@ import {
   // Aliased: the page component below is also called `EventSettlement`, and the
   // route file is named for the screen rather than for the hook's return type.
   type EventSettlement as EventSettlementData,
-  type SettlementParty,
+  type SettlementAgreementRow,
   useEventSettlement,
 } from "../components/useEventSettlement";
-import { useSettlementLines } from "../components/useSettlementLines";
+import { type SettlementLineRow, useSettlementLines } from "../components/useSettlementLines";
 import { formatDay, formatMoney } from "../lib/format";
+import { toMinorUnits } from "../lib/moneyUnits";
 import { PRO_FILING_AVAILABLE } from "../lib/proFilingAvailability";
 import { apiStatusToDisplay } from "../lib/status";
 
@@ -235,6 +236,15 @@ const TWO_COLUMN = {
 
 function OverviewTab({ event, settlement }: { event: EventData; settlement: EventSettlementData }) {
   const eventStatus = apiStatusToDisplay(event.status);
+  /*
+   * Its own call, not a prop threaded down from the Financials tab.
+   *
+   * `useSettlementLines` IS the data source, and TanStack Query dedupes the two
+   * subscriptions into one request — so asking it here costs a cache read, while
+   * lifting it into the route and passing it through two components would make
+   * every tab depend on a query only one of them uses.
+   */
+  const lines = useSettlementLines(event.id, event.baseCurrency);
   return (
     <div style={CARD_COLUMN}>
       <div style={TWO_COLUMN}>
@@ -271,27 +281,44 @@ function OverviewTab({ event, settlement }: { event: EventData; settlement: Even
         </Card>
       </div>
 
+      {/*
+       * WHAT WAS AGREED, and WHAT THE TICKETS DID — the two questions the Overview
+       * could not answer (ClickUp `86cbcn1ue`: *"Deal type and Fee must appear in
+       * the Overview section"*, *"Ticketing info must appear in the Overview
+       * section"*).
+       *
+       * Both sit ABOVE the party cards, because both are the context those figures
+       * are read against: a reader checks what the deal says, then what the night
+       * took, then who ends up with what. The old order started at the answer.
+       */}
+      <AgreementTermsCard agreements={settlement.agreements} />
+      <TicketingSummaryCard
+        revenue={lines.revenue}
+        visible={settlement.ladder != null}
+        currency={event.baseCurrency}
+      />
+
       {settlement.parties.length === 0 ? (
         <NothingSettledYet settlement={settlement} />
       ) : (
+        /*
+         * THE SAME PARTY CARD THE SETTLEMENT TAB USES, and not a second one.
+         *
+         * ClickUp `86cbcn1ue`: *"Performer/Promoter or any other collaborator
+         * details must appear in the Overview section of the settlement."* The
+         * details he is asking for were already built — `SettlementPartyCard`
+         * draws the party, their role, their entitlement AND the rule sentence
+         * behind every figure in it ("100% of the adjusted net — your share of
+         * SEK 50 000").
+         *
+         * The Overview was drawing a hand-rolled card next to it: a name, a role
+         * and a bare number, with the explanation dropped. So this is a deletion
+         * as much as an addition — one card, one place it is defined, and the
+         * Overview stops being the tab that tells you less.
+         */
         <div style={CARD_COLUMN}>
           {settlement.parties.map((party) => (
-            <Card
-              key={party.settlementId}
-              padding="lg"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-                flexWrap: "wrap",
-              }}
-            >
-              <PartyIdentity party={party} />
-              <span style={{ fontSize: 22, fontWeight: 500, color: "var(--brand-gold)" }}>
-                {party.entitlement ?? "Not reconciled yet"}
-              </span>
-            </Card>
+            <SettlementPartyCard key={party.settlementId} party={party} />
           ))}
         </div>
       )}
@@ -379,6 +406,7 @@ function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
       collected: party.collected as string,
       paid: party.paid as string,
       prepaid: party.prepaid,
+      prepaidLabel: party.prepaidLabel,
       net: party.net as string,
       netTone: party.netTone,
     }));
@@ -712,12 +740,97 @@ function PoolLadderRows({ settlement }: { settlement: EventSettlementData }) {
   );
 }
 
-function PartyIdentity({ party }: { party: SettlementParty }) {
+/**
+ * WHAT WAS AGREED — kind and fee, per agreement.
+ *
+ * ClickUp `86cbcn1ue`: *"Deal type and Fee must appear in the Overview section of
+ * the settlement."*
+ *
+ * Read off the DEALS, so it is there the moment an agreement is written rather
+ * than only after the night is reconciled. That is the difference from
+ * `SettledAgreements` further down the Settlement tab, which reports what each
+ * deal actually PAID and is correctly empty until there is an answer. Both exist
+ * because they answer different questions, and an operator opening the Overview
+ * before computing was previously shown neither.
+ *
+ * Renders nothing on an event with no agreements: an empty "Agreements" card is a
+ * heading explaining that there is nothing under it.
+ */
+function AgreementTermsCard({ agreements }: { agreements: SettlementAgreementRow[] }) {
+  if (agreements.length === 0) return null;
   return (
-    <div>
-      <span style={{ fontWeight: 600 }}>{party.isYours ? `${party.name} (you)` : party.name}</span>
-      <div style={{ color: "var(--muted)", fontSize: 12 }}>{party.role}</div>
-    </div>
+    <Card padding="lg" style={CARD_COLUMN}>
+      <CardTitle subtitle="What each agreement says it pays, before anything is reconciled.">
+        Agreements
+      </CardTitle>
+      {agreements.map((agreement) => (
+        <div key={agreement.dealId} style={CARD_COLUMN}>
+          <span style={{ fontWeight: 600 }}>{agreement.name}</span>
+          <KeyValueRow label="Kind of deal" value={agreement.kind} />
+          {/* Each row only when the terms actually state it. A guarantee-less door
+              split has no fee, and printing "Fee —" would invite the reader to
+              wonder which of the two it is. */}
+          {agreement.fee && <KeyValueRow label="Fee" value={agreement.fee} mono />}
+          {agreement.share && <KeyValueRow label="Share" value={agreement.share} mono />}
+          {agreement.paidInAdvance && (
+            <KeyValueRow label="Paid in advance" value={agreement.paidInAdvance} mono />
+          )}
+        </div>
+      ))}
+    </Card>
+  );
+}
+
+/**
+ * WHAT THE TICKETS DID — name, count, price, and what that came to.
+ *
+ * ClickUp `86cbcn1ue`: *"Ticketing info must appear in the Overview section of the
+ * settlement."* The figures already existed and were already editable one tab
+ * over, in "The real numbers"; what was missing is that the Overview — the tab
+ * somebody opens to find out how the night went — did not mention tickets at all.
+ *
+ * `quantity x unitAmount` is drawn from the line's OWN breakdown rather than
+ * recomputed here, so this cannot disagree with the card that edits it. A line
+ * somebody typed a lump sum into has no breakdown, and shows its amount alone —
+ * which is the honest rendering of "we took 4 000 on the door" with no count
+ * behind it.
+ *
+ * GATED on the reader being allowed to see the night's takings. `ladder` is null
+ * for anyone without `budget.view` (story.md:44), and that null is the ceiling
+ * itself, not a loading state — a performer must not learn the whole gate off
+ * their own settlement page.
+ */
+function TicketingSummaryCard({
+  revenue,
+  visible,
+  currency,
+}: { revenue: SettlementLineRow[]; visible: boolean; currency: string }) {
+  if (!visible) return null;
+  const tickets = revenue.filter((line) => line.details?.basis === "ticket_tier");
+  if (tickets.length === 0) return null;
+  const sold = tickets.reduce((total, line) => total + (line.details?.quantity ?? 0), 0);
+  return (
+    <Card padding="lg" style={CARD_COLUMN}>
+      <CardTitle subtitle="What sold, at what price, and what it came to.">Ticketing</CardTitle>
+      {/* MONEY IS FORMATTED, both halves of it.
+          `SettlementLineRow` carries MAJOR units as plain strings because it feeds
+          the editor's inputs one tab over — rendering those raw put "65000.00"
+          beside "SEK 83,000" in the card above and made the same night look like
+          two different ledgers. */}
+      {tickets.map((line) => (
+        <KeyValueRow
+          key={line.id}
+          label={
+            line.details
+              ? `${line.label} — ${line.details.quantity} x ${formatMoney(toMinorUnits(line.details.unitAmount), currency)}`
+              : line.label
+          }
+          value={formatMoney(toMinorUnits(line.amount), currency)}
+          mono
+        />
+      ))}
+      <KeyValueRow label="Tickets sold" value={String(sold)} mono total />
+    </Card>
   );
 }
 
@@ -1029,8 +1142,10 @@ function FinancialsTab({
           variance={data.variance?.costs ?? null}
           currency={data.baseCurrency}
         />
+        {/* Named as it is on the ladder — see `ladderRows` for why the word is
+            kept and paired rather than replaced. */}
         <PlannedActualRow
-          label="Pool"
+          label="Left to divide (the pool)"
           planned={data.plan.pool}
           actual={data.actual.pool}
           variance={data.variance?.pool ?? null}

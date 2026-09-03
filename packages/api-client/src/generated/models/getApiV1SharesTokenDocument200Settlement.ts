@@ -23,6 +23,10 @@ export type GetApiV1SharesTokenDocument200Settlement = {
   held: string | null;
   /** @nullable */
   net: string | null;
+  /** @nullable */
+  prepaid: string | null;
+  /** @nullable */
+  prepaidWith: string | null;
   transfers: GetApiV1SharesTokenDocument200SettlementTransfersItem[];
   /** @nullable */
   approvedAt: string | null;

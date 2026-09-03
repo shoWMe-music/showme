@@ -26,7 +26,12 @@ import { type BudgetEditor, budgetInputsFrom, minorUnitsOf } from "./useBudgetEd
  */
 
 /** The palette the design prototype uses for the two breakdown lists. */
-const REVENUE_COLORS = { tickets: "#EE5746", bar: "#F4A046", other: "#6FA8E0" } as const;
+const REVENUE_COLORS = {
+  tickets: "#EE5746",
+  bar: "#F4A046",
+  merch: "#B58BE0",
+  other: "#6FA8E0",
+} as const;
 const COST_COLORS = ["#EE5746", "#F4A046", "#6FA8E0", "#B58BE0", "#6FC97A", "#8C7A6C"] as const;
 /** Custom revenue rows cycle their own colours, so a budget with several of them
  * keeps getting distinguishable bars rather than three identical blues. */
@@ -88,6 +93,7 @@ export interface BudgetPlannerView {
   results: KpiItem[];
   ticketRevenueTotal: string;
   barRevenue: string;
+  merchRevenue: string;
   breakEven: BreakEvenDisplay;
   revenueSources: BreakdownDisplayRow[];
   costBreakdown: BreakdownDisplayRow[];
@@ -189,6 +195,9 @@ export function budgetPlannerViewFrom(
     [
       { label: "Ticket sales", amount: projection.ticketRevenue, color: REVENUE_COLORS.tickets },
       { label: "Bar / F&B", amount: projection.barRevenue, color: REVENUE_COLORS.bar },
+      // Its own bar in the breakdown, not folded into the bar's. Seeing which of
+      // the two a night's margin came from is the entire reason they were split.
+      { label: "Merchandise", amount: projection.merchRevenue, color: REVENUE_COLORS.merch },
       { label: "Other", amount: otherRevenue, color: REVENUE_COLORS.other },
       // Each custom row under ITS OWN NAME, not folded into "Other". The whole
       // point of naming a field "Sponsorship" is to see the sponsorship in the
@@ -276,6 +285,7 @@ export function budgetPlannerViewFrom(
     ],
     ticketRevenueTotal: money(projection.ticketRevenue),
     barRevenue: money(projection.barRevenue),
+    merchRevenue: money(projection.merchRevenue),
     breakEven: {
       chart,
       breakEvenLabel: `${chart.breakEvenTickets.toLocaleString()} tickets`,
@@ -304,7 +314,7 @@ function performingRightsDisplay(
 ): PerformingRightsDisplay {
   const ratePercent = estimate.rateBasisPoints / 100;
   const shared = [
-    "Charged on ticket revenue only; bar and other revenue are outside it.",
+    "Charged on ticket revenue only; bar, merch and other revenue are outside it.",
     "Applies the rate to PROJECTED ticket revenue — the fee moves with what actually sells.",
   ];
 

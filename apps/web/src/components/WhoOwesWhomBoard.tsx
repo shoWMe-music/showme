@@ -33,6 +33,8 @@ export interface SettlementLine {
   paid: string;
   /** Money moved before the night. Null when none did — the row is then omitted. */
   prepaid?: string | null;
+  /** "Paid in advance by X" — direction and counterparty, not a bare figure. */
+  prepaidLabel?: string | null;
   net: string;
   /** Colour hint for the net figure. */
   netTone?: "positive" | "negative" | "neutral";
@@ -73,10 +75,16 @@ function ParticipantLine({ line }: { line: SettlementLine }) {
       <KeyValueRow label="Owed" value={line.owed} mono />
       <KeyValueRow label="Collected" value={line.collected} mono />
       <KeyValueRow label="Paid" value={line.paid} mono />
-      {/* Only when something actually moved early. A permanent "Paid before the
-          event — 0" on every settlement would be noise on the many nights where
-          nothing did, and the figure means too much to be skimmed past. */}
-      {line.prepaid && <KeyValueRow label="Paid before the event" value={line.prepaid} mono />}
+      {/* Only when something actually moved early. A permanent "Paid in advance
+          — 0" on every settlement would be noise on the many nights where nothing
+          did, and the figure means too much to be skimmed past.
+          The LABEL carries the direction and the counterparty, because "Paid
+          before the event" said neither and read as the wrong one: a payee's
+          advance is a positive number, so the party holding the money was
+          described as having paid it out. */}
+      {line.prepaid && (
+        <KeyValueRow label={line.prepaidLabel ?? "Paid in advance"} value={line.prepaid} mono />
+      )}
       <KeyValueRow label="Net" value={line.net} mono total valueColor={netColor(line.netTone)} />
     </div>
   );

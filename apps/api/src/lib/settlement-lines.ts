@@ -1,5 +1,5 @@
 import { type Database, schema } from "@showme/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 /**
  * TAKING THE SETTLEMENT'S COPY OF THE BUDGET — once, and once only.
@@ -19,12 +19,45 @@ import { and, eq } from "drizzle-orm";
  *
  * An event with no budget at all copies nothing and settles on its deals alone,
  * which is a legitimate night — a guarantee with no costs recorded anywhere.
+ *
+ * **SERIALIZED PER EVENT, and it has to be.** "Have we copied yet?" followed by
+ * "then copy" is two statements, and between them another compute can run the
+ * same pair — so two callers both saw no lines and both copied the whole budget.
+ * Every revenue and cost line then existed twice, which doubles the pool and
+ * changes what every party is paid, silently, with no error anywhere.
+ *
+ * Found by three Playwright tests hitting "Run the settlement" in parallel
+ * against one event: the Overview reported **960 tickets sold** on a night that
+ * sold 320, and the ledger balanced perfectly around the wrong number — Σ net = 0
+ * validates the distribution, never the total. In production the same shape is
+ * two co-operators clicking at once, or one impatient double-click.
+ *
+ * A transaction-scoped advisory lock rather than a unique index: the constraint
+ * that would express this (one settlement line per origin budget line) cannot be
+ * written without a migration, and lines added later carry no origin at all. The
+ * lock is keyed on the event, so two different events still settle concurrently.
  */
 export async function ensureSettlementLines(
   // biome-ignore lint/suspicious/noExplicitAny: Drizzle db/tx handle.
   database: Database | any,
   eventId: string,
 ): Promise<{ copied: number; alreadyHad: boolean }> {
+  return await database.transaction(
+    // biome-ignore lint/suspicious/noExplicitAny: Drizzle tx handle.
+    (tx: any) => copyBudgetOnce(tx, eventId),
+  );
+}
+
+async function copyBudgetOnce(
+  // biome-ignore lint/suspicious/noExplicitAny: Drizzle tx handle.
+  database: any,
+  eventId: string,
+): Promise<{ copied: number; alreadyHad: boolean }> {
+  // Held until this transaction ends, so the check and the copy below cannot be
+  // interleaved with another compute of the SAME event. `hashtextextended` gives
+  // the bigint the lock function wants from a uuid.
+  await database.execute(sql`select pg_advisory_xact_lock(hashtextextended(${eventId}::text, 0))`);
+
   const existing = await database
     .select({ id: schema.settlementLines.id })
     .from(schema.settlementLines)

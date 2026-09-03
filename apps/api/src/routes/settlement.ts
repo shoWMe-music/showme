@@ -134,6 +134,8 @@ const BreakdownResponse = z.object({
   residual: z.string().optional(),
   /** Money moved before the night under a deal. Optional for the same reason. */
   prepaid: z.string().optional(),
+  /** Who that early money was with, so the screen can name both ends of it. */
+  prepaidCounterpartyIds: z.array(z.string()).optional(),
 });
 
 /** One party's sign-off, as the roster shows it. */
@@ -2134,10 +2136,22 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
    */
   const SettlementLineDetails = z.object({
     basis: z
-      .enum(["ticket_tier", "bar_spend", "other_revenue", "custom_revenue", "custom_cost"])
+      .enum([
+        "ticket_tier",
+        "bar_spend",
+        "merch_spend",
+        "other_revenue",
+        "custom_revenue",
+        "custom_cost",
+        "percentage_of",
+      ])
       .default("ticket_tier"),
     unitAmount: LineAmount,
     quantity: z.number().int().min(0),
+    /** Carried through from the budget copy — see `budget.ts`'s `LineDetails`. */
+    ofKey: z.string().max(200).optional(),
+    ofLabel: z.string().max(200).optional(),
+    basisPoints: z.number().int().min(0).max(10_000).optional(),
   });
 
   const SettlementLineResponse = z.object({

@@ -21,4 +21,5 @@ export type PatchApiV1EventsIdSettlementsSid200Computed = {
   deductibles?: string;
   residual?: string;
   prepaid?: string;
+  prepaidCounterpartyIds?: string[];
 } | null;

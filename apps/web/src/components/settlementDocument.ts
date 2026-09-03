@@ -318,7 +318,33 @@ export function ladderRows(
       value: formatAmount(ladder.costs),
       negative: true,
     },
-    { key: "pool", label: "Pool", value: formatAmount(ladder.pool) },
+    /*
+     * "POOL" WAS THE ONE RUNG THAT DID NOT EXPLAIN ITSELF.
+     *
+     * Ran asked outright on ClickUp `86cbcn1ue`: *"what does 'Pool' mean?"* — and
+     * read down the ladder, the question answers why. Every other rung is already
+     * a plain-English description of what it is ("Costs nobody was charged for",
+     * "Rentals settled off the top", "Adjusted net"). One bare noun sat among them
+     * naming a concept the reader was expected to already hold.
+     *
+     * The word is KEPT, not replaced. It is what the deal screens say ("Share of
+     * the pool"), what the engine calls it, and what a settlement in this industry
+     * is discussed in — deleting it here would just move the confusion one screen
+     * along and leave the two disagreeing. Pairing it with its meaning makes it
+     * learnable instead: read once, and "share of the pool" next door is suddenly
+     * a sentence about a number you have seen.
+     *
+     * NOT a definition paragraph under the row, deliberately — the same ticket
+     * objects to *"many unneeded text (so called notes to explain the features)"*.
+     * A label that says what it is costs no lines at all.
+     *
+     * The other "pool" strings (`DealComposerModal`, `EventAgreementTab`,
+     * `NewEventWizard`) are left exactly as they are. Renaming the vocabulary
+     * across the deal screens is the terminology session's call, not a guess to
+     * make on the way past — this file has a four-round rename history one screen
+     * over that says what guessing costs.
+     */
+    { key: "pool", label: "Left to divide (the pool)", value: formatAmount(ladder.pool) },
     {
       key: "off-the-top",
       label: "Rentals settled off the top",

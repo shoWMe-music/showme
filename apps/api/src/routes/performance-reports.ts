@@ -294,7 +294,7 @@ async function ticketRevenueForEvent(
       ),
     );
 
-  const NON_TICKET_BASES = new Set(["bar_spend", "other_revenue", "custom_revenue"]);
+  const NON_TICKET_BASES = new Set(["bar_spend", "merch_spend", "other_revenue", "custom_revenue"]);
 
   return lines.reduce((total, line) => {
     const basis = (line.details as { basis?: string } | null)?.basis;

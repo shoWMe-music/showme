@@ -18,7 +18,7 @@ import {
   usePostApiV1EventsIdSettlementsSidConfirm,
 } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
-import { eventParticipantRoleLabel } from "@showme/shared";
+import { dealKindLabel, eventParticipantRoleLabel } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import { errorMessage } from "../lib/errors";
@@ -103,6 +103,16 @@ export interface SettlementParty {
    * to wonder what it means.
    */
   prepaid: string | null;
+  /**
+   * "Paid in advance TO the venue", "…BY the promoter" — the sentence the product
+   * owner asked for (ClickUp `86cbcn1ue`: *"marked 'paid in advance' by X to Y"*).
+   *
+   * Direction comes from the SIGN of `prepaid`, which is the part the old label
+   * got wrong: a payee's advance is positive, and the board called it "Paid before
+   * the event", so a performer holding a 10 000 advance read as having paid it.
+   * Null when nothing moved early.
+   */
+  prepaidLabel: string | null;
   net: string | null;
   /** Raw minor units — for summing only. Never rendered. */
   netMinor: string | null;
@@ -194,8 +204,36 @@ export interface SettlementDealRow {
   shares: { key: string; name: string; rule: string; amount: string }[];
 }
 
+/**
+ * A DEAL'S TERMS, for the Overview — what kind it is and what it pays.
+ *
+ * ClickUp `86cbcn1ue`: *"Deal type and Fee must appear in the Overview section of
+ * the settlement."*
+ *
+ * Built from the DEALS themselves, not from `settlements.computed.lines` the way
+ * `SettlementDealRow` is. That difference is the whole point: the agreement's
+ * terms are readable the moment it is written, while what it PAID does not exist
+ * until the night has been reconciled. An operator opening the Overview before
+ * computing was shown a page with no mention of the deal at all — and "what did we
+ * agree" is the question the Overview is for.
+ */
+export interface SettlementAgreementRow {
+  dealId: string;
+  name: string;
+  /** "Guarantee vs door", "Door split" — the composer's own words. */
+  kind: string;
+  /** The headline figure, already formatted. Null for terms that state no amount. */
+  fee: string | null;
+  /** "70% of the pool", when that is what it pays. Null otherwise. */
+  share: string | null;
+  /** Set only when part of it moved before the night. */
+  paidInAdvance: string | null;
+}
+
 export interface EventSettlement {
   parties: SettlementParty[];
+  /** The agreements' TERMS, readable before anything is reconciled. */
+  agreements: SettlementAgreementRow[];
   transfers: Transfer[];
   /** Private agent↔performer commissions — only ever the two parties' own (#14). */
   commissions: SettlementCommissionRow[];
@@ -622,6 +660,11 @@ export function useEventSettlement(
     [rows, deals.data, currency, nameOf, formatAmount],
   );
 
+  const agreementRows = useMemo(
+    () => toAgreementRows(deals.data ?? [], currency),
+    [deals.data, currency],
+  );
+
   /**
    * The same three questions the server's `assertEveryAgreementSigned` asks, in
    * the same order: is it withdrawn (nothing to wait for), has anybody actually
@@ -670,6 +713,7 @@ export function useEventSettlement(
     sendInvitation,
     isInviting: inviteToSettlement.isPending,
     deals: dealRows,
+    agreements: agreementRows,
     ownParty: parties.find((party) => party.isYours) ?? null,
     isWholeBoard: isWholeBoard(
       rows.filter((row) => row.computed != null).map((row) => row.computed?.net ?? "0"),
@@ -725,6 +769,41 @@ export function useEventSettlement(
   };
 }
 
+/**
+ * "Paid in advance to The Lantern Hall" / "…by Marlo Vance and Neon Tide".
+ *
+ * THE DIRECTION IS THE POINT, and the old board had it backwards. `prepaid` is
+ * POSITIVE for a party that RECEIVED an advance and negative for the one that
+ * paid it out (`reconcile()` step 4b), while the row was labelled "Paid before
+ * the event" for both — so a performer holding a 10 000 guarantee read as having
+ * paid 10 000 out, which is the opposite of the truth and the wrong sign on the
+ * one figure a settlement conversation starts from.
+ *
+ * Falls back to a direction with no names when the counterparties are absent —
+ * every settlement finalized before the engine recorded them, which are legal
+ * records and are never rewritten. Saying less is fine; saying it backwards is
+ * not.
+ */
+function prepaidLabelOf(
+  computed:
+    | { prepaid?: string | null; prepaidCounterpartyIds?: string[] | null }
+    | null
+    | undefined,
+  nameOf: (participantId: string | null | undefined) => string,
+): string | null {
+  const raw = computed?.prepaid;
+  if (raw == null || raw === "0") return null;
+  const received = !raw.startsWith("-");
+  const others = (computed?.prepaidCounterpartyIds ?? []).map(nameOf).filter(Boolean);
+  const direction = received ? "Paid in advance by" : "Paid in advance to";
+  if (others.length === 0) return received ? "Paid in advance to you" : "Paid in advance by you";
+  const named =
+    others.length > 1
+      ? `${others.slice(0, -1).join(", ")} and ${others[others.length - 1]}`
+      : others[0];
+  return `${direction} ${named}`;
+}
+
 function toParty(
   row: Settlements["settlements"][number],
   currency: string,
@@ -750,6 +829,7 @@ function toParty(
     // zero on a night where nothing moved early — both mean "no row to show".
     prepaid:
       computed?.prepaid != null && computed.prepaid !== "0" ? formatAmount(computed.prepaid) : null,
+    prepaidLabel: prepaidLabelOf(computed, nameOf),
     net: computed ? formatAmount(computed.net) : null,
     // The raw minor units alongside the formatted figure, ONLY so totals can be
     // summed as integers. Nothing renders this — `docs/money.md`: never do money
@@ -768,6 +848,39 @@ function toParty(
  * which paid nobody visible produces no row, and a deal whose name the caller
  * cannot read falls back to its short id rather than to an invented label.
  */
+/**
+ * The agreements' TERMS, in the composer's own vocabulary.
+ *
+ * `dealKindLabel` rather than a second mapping: a deal written as "Guarantee vs
+ * door" must not read back as "guarantee_vs_door", and the one place that decides
+ * how a kind is spelled is `@showme/shared`. A local map here would drift from the
+ * composer the first time either changed.
+ *
+ * Each deal's OWN currency where it has one — a fee agreed in EUR on a SEK night
+ * is a EUR fee, and restating it in the base currency here would be inventing a
+ * conversion that the settlement does not make until it locks a rate at finalize
+ * (`docs/money.md`).
+ */
+function toAgreementRows(
+  deals: Awaited<ReturnType<typeof getApiV1EventsIdDeals>>,
+  displayCurrency: string,
+): SettlementAgreementRow[] {
+  return deals.map((deal) => {
+    const currency = deal.currency ?? displayCurrency;
+    return {
+      dealId: deal.id,
+      name: deal.name,
+      kind: dealKindLabel(deal.type, deal.structure ?? null),
+      fee: deal.guaranteeAmount ? formatMoney(deal.guaranteeAmount, currency) : null,
+      share:
+        deal.splitBasisPoints != null
+          ? `${(deal.splitBasisPoints / 100).toFixed(0)}% of the pool`
+          : null,
+      paidInAdvance: deal.advanceAmount ? formatMoney(deal.advanceAmount, currency) : null,
+    };
+  });
+}
+
 function toDealRows(
   rows: Settlements["settlements"],
   deals: Awaited<ReturnType<typeof getApiV1EventsIdDeals>>,

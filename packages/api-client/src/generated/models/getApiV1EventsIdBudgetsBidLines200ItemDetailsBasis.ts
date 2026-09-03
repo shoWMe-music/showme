@@ -12,7 +12,9 @@ export type GetApiV1EventsIdBudgetsBidLines200ItemDetailsBasis = typeof GetApiV1
 export const GetApiV1EventsIdBudgetsBidLines200ItemDetailsBasis = {
   ticket_tier: 'ticket_tier',
   bar_spend: 'bar_spend',
+  merch_spend: 'merch_spend',
   other_revenue: 'other_revenue',
   custom_revenue: 'custom_revenue',
   custom_cost: 'custom_cost',
+  percentage_of: 'percentage_of',
 } as const;

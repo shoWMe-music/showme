@@ -12,7 +12,9 @@ export type PostApiV1EventsIdSettlementLines201DetailsBasis = typeof PostApiV1Ev
 export const PostApiV1EventsIdSettlementLines201DetailsBasis = {
   ticket_tier: 'ticket_tier',
   bar_spend: 'bar_spend',
+  merch_spend: 'merch_spend',
   other_revenue: 'other_revenue',
   custom_revenue: 'custom_revenue',
   custom_cost: 'custom_cost',
+  percentage_of: 'percentage_of',
 } as const;

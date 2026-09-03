@@ -309,6 +309,23 @@ function ShareDocumentBody({
               value={formatMoney(document.settlement.held, document.settlement.currency)}
               mono
             />
+            {/* NAMED, not folded into "Held by you".
+                `held = collected − paid + prepaid`, so an advance is already
+                inside the figure above — which is precisely why it has to be said
+                out loud. A performer opening this saw "Held by you 10 000" and no
+                hint that the 10 000 was the guarantee they were paid in March.
+                Shown only when something actually moved early. */}
+            {document.settlement.prepaid && (
+              <KeyValueRow
+                label={
+                  document.settlement.prepaidWith
+                    ? `Paid in advance, with ${document.settlement.prepaidWith}`
+                    : "Paid in advance"
+                }
+                value={formatMoney(document.settlement.prepaid, document.settlement.currency)}
+                mono
+              />
+            )}
             <KeyValueRow
               label="Net"
               value={formatMoney(document.settlement.net, document.settlement.currency)}

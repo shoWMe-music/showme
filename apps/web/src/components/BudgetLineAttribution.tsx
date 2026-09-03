@@ -1,4 +1,4 @@
-import { Icon, type IconName, Select } from "@showme/design-system";
+import { Badge, Icon, type IconName, Select } from "@showme/design-system";
 import type {
   BudgetAttributionOption,
   BudgetDealOption,
@@ -35,14 +35,29 @@ import { NO_DEAL_LINK } from "./useBudgetEditor";
  *
  * So the fix is legibility, not merging. Three things carry it, in order of how
  * little space they cost:
- *   1. **The product owner's own words — "Paid by" / "Borne by"** (2026-09-02,
- *      ClickUp `86cbcn1ue`). An earlier pass replaced these with the questions
- *      "Pays it" / "Carries it", reasoning that two past participles sound like
- *      synonyms. He asked for his own vocabulary back, and his vocabulary wins:
- *      these are the terms the industry writes on a settlement, and a label the
- *      reader already knows beats a clearer label they have to learn.
- *      ("Born by" in the ticket is the same word — corrected to the spelling that
- *      means *carried*, not *given birth to*.)
+ *   1. **The product owner's own words — "Paid by" / "To be deducted from"**
+ *      (2026-09-03, ClickUp `86cbcn1ue`). This caption has now been renamed four
+ *      times, and the history is kept because it is what stops a fifth guess:
+ *
+ *        - "Born by"            — his original ticket wording
+ *        - "Carries it"         — an attempt at a plainer question, since two past
+ *                                 participles ("paid"/"borne") sound like synonyms
+ *        - "Borne by"           — his vocabulary restored, spelled as the word that
+ *                                 means *carried* rather than *given birth to*
+ *        - "To be deducted from" — 2026-09-03: *"I dont like borne by, I want it
+ *                                 more clear — Paid by + to be deducted from"*
+ *
+ *      Every round before this one was a reading of a written note. This one is
+ *      his literal sentence, so it is taken literally, verbatim, including the
+ *      length. **Do not shorten it to "Deducted from" for layout.** The row was
+ *      widened to fit the words instead (`basis={300}`), which is the correct
+ *      direction: the label is the fix, the layout is negotiable.
+ *
+ *      What the phrasing buys beyond familiarity: "borne by" reads as a property
+ *      of the cost, so every row looked like it had a bearer. "To be deducted
+ *      from" reads as an ACTION on somebody's share, so "The event" — the default
+ *      — now reads as the absence of one. That is the actual complaint underneath
+ *      the naming: *"it's treating everything as deductible"*.
  *   2. **A description under every option, in the menu**, where the reader is
  *      actually deciding — free vertically, because the menu is a popover.
  *   3. **A sentence on the row, but only when the two answers DIFFER.** When the
@@ -107,6 +122,20 @@ const captionStyle = {
    */
   color: "var(--muted)",
   whiteSpace: "nowrap",
+  /*
+   * The CAPTION never shrinks; the control beside it does.
+   *
+   * "To be deducted from" is 123px of nowrap mono at 1440 and the same 123px at
+   * 390 — but a flex item with no `flex-shrink: 0` is squeezable, and CI renders
+   * text ~10% wider than macOS does (CLAUDE.md). A caption that merely happens to
+   * fit locally is not passing, it is pending. Pinning it moves any squeeze onto
+   * the `<Select>`, which already has `minWidth: 0`, already ellipsizes, and
+   * already hangs a `MENU_WIDTH`-floored popover that shows the full text anyway.
+   *
+   * The label losing letters is unreadable; the value losing letters is merely
+   * abbreviated. So the label is the thing that gets the floor.
+   */
+  flexShrink: 0,
 } as const;
 
 /**
@@ -306,7 +335,7 @@ export function CostAttribution({
           </Field>
         )}
         {!isDealFigure && (
-          <Field caption="Borne by" basis={200}>
+          <Field caption="To be deducted from" basis={300}>
             <Select
               value={bearingValue}
               menuWidth={MENU_WIDTH}
@@ -329,7 +358,7 @@ export function CostAttribution({
                 },
               ]}
               searchable={participants.length > 6}
-              aria-label={`Borne by — whose money it finally comes out of, for ${rowLabel}`}
+              aria-label={`To be deducted from — whose money it finally comes out of, for ${rowLabel}`}
             />
           </Field>
         )}
@@ -381,7 +410,52 @@ export function CostAttribution({
 }
 
 /**
- * PAID BY AND BORNE BY, STATED ONCE.
+ * IS THIS ROW A COST, OR A DEDUCTION? — answered on the row, at a glance.
+ *
+ * The complaint this exists for (ClickUp `86cbcn1ue`, 2026-09-02): *"The problem
+ * is that it's treating everything as deductible. Some fields are just costs and
+ * some are deductible. Performer fee is a cost of the operator. The current UI
+ * doesn't make a clear distinction between a cost and a deduction."*
+ *
+ * He is describing something real, and it was never a maths bug. The engine has
+ * always kept the three cases apart — `cost-bearing.ts` partitions every line
+ * into a pool share and named bearers — but the SHEET drew all three identically:
+ * six cost rows, each with the same three selectors, so a reader scanning the
+ * column could not tell which lines came off somebody's share without opening
+ * every menu in turn.
+ *
+ * **Silence is the default, and that is the point.** A cost the event carries
+ * gets no badge, because "the event pays for the things the event needs" is the
+ * unremarkable case and a marker on all six rows would mark nothing. The badge
+ * appears only where a share is about to shrink — which is exactly the case a
+ * reader gets wrong, and exactly what "some fields are just costs" is asking to
+ * be able to see.
+ *
+ * The design system's neutral `Badge`, not a local pill: the SIGNAL here is the
+ * badge existing at all, not its colour, so borrowing a status hue would imply a
+ * severity that a perfectly ordinary contractual deduction does not have.
+ *
+ * Which party it comes off is named in full by `CostBearingNote` under the row.
+ * This is the scannable flag; that is the sentence.
+ */
+export function CostBearingBadge({
+  bearing,
+  participants,
+}: {
+  bearing: CostBearing;
+  participants: BudgetAttributionOption[];
+}) {
+  if (bearing.kind === "shared") return null;
+  const who =
+    bearing.kind === "split"
+      ? splitSummary(bearing.shares, participants)
+      : participants.find((party) => party.id === bearing.participantId)?.label;
+  if (!who) return null;
+  return <Badge title={`Deducted from ${who}`}>Deduction</Badge>;
+}
+
+/**
+ * PAID BY AND TO BE DEDUCTED FROM, STATED ONCE.
  *
  * A definition repeated under every row is noise; a definition available nowhere
  * is the report this session is answering. So it sits at the head of the Costs
@@ -392,8 +466,8 @@ export function CostAttributionLegend() {
     <div style={legendStyle}>
       <span>
         <strong>Paid by</strong> is who the invoice actually goes out from.{" "}
-        <strong>Borne by</strong> is whose money it comes out of in the end. Usually the same party
-        — a contract is what makes them different.
+        <strong>To be deducted from</strong> is whose share it finally comes off. Usually nobody —
+        the event carries its own costs, and a contract is what makes it otherwise.
       </span>
     </div>
   );

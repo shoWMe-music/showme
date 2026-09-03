@@ -180,6 +180,26 @@ export function reconcile(input: SettlementInput): SettlementResult {
   //     by the same amount, so the conservation law is untouched: one party holds
   //     more of what it is owed and the other has already parted with it.
   const prepaid = new Map<string, bigint>();
+  /**
+   * WHO THE EARLY MONEY WAS WITH — the other end, per party.
+   *
+   * `prepaid` is a net figure and a party can be on both sides of the night, so
+   * the amount alone cannot say *"paid in advance BY X TO Y"* — which is exactly
+   * how the product owner asked for it to read (ClickUp `86cbcn1ue`): *"even if
+   * paid in advance it should be included in the final settlement and marked
+   * 'paid in advance' by X to Y."*
+   *
+   * Recorded here rather than re-derived by a caller, because this loop is the
+   * only place that already knows both ends of every advance. A screen that had
+   * to work it out again would have to re-implement `allocate` and the payer
+   * fallback to do it, and would then be a second opinion about who was paid.
+   */
+  const prepaidCounterparties = new Map<string, Set<string>>();
+  const noteCounterparty = (party: string, other: string) => {
+    const existing = prepaidCounterparties.get(party) ?? new Set<string>();
+    existing.add(other);
+    prepaidCounterparties.set(party, existing);
+  };
   for (const deal of deals) {
     const amount = deal.prepaidAmount ?? 0n;
     if (amount === 0n) continue;
@@ -198,7 +218,11 @@ export function reconcile(input: SettlementInput): SettlementResult {
     // keeps it exact — the remainder is distributed, never dropped.
     const weights = payees.map((payee) => BigInt(deal.partyShares?.[payee] ?? 1));
     const parts = allocate(amount, weights);
-    payees.forEach((payee, index) => addTo(prepaid, payee, parts[index] ?? 0n));
+    payees.forEach((payee, index) => {
+      addTo(prepaid, payee, parts[index] ?? 0n);
+      noteCounterparty(payee, deal.payerParticipantId as string);
+      noteCounterparty(deal.payerParticipantId as string, payee);
+    });
     addTo(prepaid, deal.payerParticipantId, -amount);
   }
 
@@ -215,6 +239,7 @@ export function reconcile(input: SettlementInput): SettlementResult {
       collected: received,
       paid: fronted,
       prepaid: early,
+      prepaidCounterpartyIds: [...(prepaidCounterparties.get(party.participantId) ?? [])].sort(),
       held,
       net: owed - held,
       lines: lines.get(party.participantId) ?? [],

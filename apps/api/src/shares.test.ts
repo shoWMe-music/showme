@@ -1078,6 +1078,113 @@ describe("shares — the document", () => {
     expect(JSON.stringify(document)).not.toContain("2070000");
     expect(document.actions.canConfirmSettlement).toBe(true);
   });
+
+  /**
+   * AN ADVANCE, NAMED — ClickUp `86cbcn1ue`: *"even if paid in advance it should
+   * be included in the final settlement and marked 'paid in advance' by X to Y."*
+   *
+   * The share is the settlement as the OTHER party receives it, and it is where
+   * the omission actually bit: `held = collected − paid + prepaid`, so a performer
+   * opening their link saw "Held by you 1 200" with nothing anywhere to say that
+   * the 1 200 was the guarantee they were paid in March.
+   *
+   * The name is asserted, not just the amount. `prepaidWith` resolves through
+   * `event_participants.display_name` — which is the OVERRIDE, carried only by
+   * off-platform parties — falling back to `profiles.name`, which is what every
+   * on-platform participant is actually known by. Reading only the override
+   * returned null for the ordinary case, and a test asserting merely that the
+   * field exists would have shipped it.
+   */
+  it("names who an advance was with, for the party reading their own share", async () => {
+    const seed = await seedEvent("advance");
+    const performer = await seedPerformer(
+      "advance-perf",
+      seed.event.id,
+      "advance@band.showme.test",
+      "Advanced Act",
+    );
+    await harness.db.insert(schema.settlements).values({
+      eventId: seed.event.id,
+      participantId: performer.participantId,
+      status: "finalized",
+      computed: {
+        participantId: performer.participantId,
+        entitlement: "3000000",
+        collected: "0",
+        paid: "0",
+        prepaid: "120000",
+        prepaidCounterpartyIds: [seed.participant.id],
+        held: "120000",
+        net: "2880000",
+      },
+    });
+
+    const create = await createShare(seed, {
+      targetKind: "settlement",
+      capabilities: ["event.view", "settlement.view.own"],
+      recipients: [{ email: performer.email, name: performer.name }],
+    });
+    const token = create.json().token as string;
+    const jwt = await redeem(token, performer.email);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/shares/${token}/document`,
+      headers: share(jwt),
+    });
+    const document = response.json();
+
+    expect(document.settlement.prepaid).toBe("120000");
+    // The OPERATOR'S PROFILE NAME — `seedMemberWithSet` names the profile after
+    // the member id, and the participant row carries no `display_name` override,
+    // which is exactly the ordinary on-platform shape that the first cut of this
+    // resolved to null for.
+    expect(document.settlement.prepaidWith).toBe(`${"advance"}-op`);
+  });
+
+  it("says nothing about an advance on a night where none moved", async () => {
+    const seed = await seedEvent("no-advance");
+    const performer = await seedPerformer(
+      "no-advance-perf",
+      seed.event.id,
+      "plain@band.showme.test",
+      "Plain Act",
+    );
+    await harness.db.insert(schema.settlements).values({
+      eventId: seed.event.id,
+      participantId: performer.participantId,
+      status: "finalized",
+      computed: {
+        participantId: performer.participantId,
+        entitlement: "3000000",
+        collected: "0",
+        paid: "0",
+        prepaid: "0",
+        held: "0",
+        net: "3000000",
+      },
+    });
+
+    const create = await createShare(seed, {
+      targetKind: "settlement",
+      capabilities: ["event.view", "settlement.view.own"],
+      recipients: [{ email: performer.email, name: performer.name }],
+    });
+    const token = create.json().token as string;
+    const jwt = await redeem(token, performer.email);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/shares/${token}/document`,
+      headers: share(jwt),
+    });
+    const document = response.json();
+
+    // Null, not "0" — the screen leaves the row out entirely rather than printing
+    // a zero at somebody reading this to find out what they are owed.
+    expect(document.settlement.prepaid).toBeNull();
+    expect(document.settlement.prepaidWith).toBeNull();
+  });
 });
 
 describe("shares — off-platform approval (A-33)", () => {
