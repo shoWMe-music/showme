@@ -48,6 +48,8 @@ export interface BudgetTemplatePayload {
   readonly ticketTiers: readonly BudgetTemplateTicketTier[];
   /** Minor units as a decimal string. */
   readonly averageBarSpend: string;
+  /** Minor units as a decimal string. Absent in templates saved before the split. */
+  readonly averageMerchSpend?: string;
   readonly capacity: number;
   /** Minor units as a decimal string. */
   readonly otherRevenue: string;
@@ -136,6 +138,7 @@ export function readBudgetTemplatePayload(value: unknown): BudgetTemplatePayload
       };
     }),
     averageBarSpend: minorUnits(source.averageBarSpend),
+    averageMerchSpend: minorUnits(source.averageMerchSpend),
     capacity,
     otherRevenue: minorUnits(source.otherRevenue),
     customRevenue: namedAmounts(source.customRevenue, capacity),

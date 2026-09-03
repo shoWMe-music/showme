@@ -122,6 +122,7 @@ export function useBudgetToolbar(
         quantity: Math.trunc(Number(tier.quantity)) || 0,
       })),
       averageBarSpend: inputs.averageBarSpend,
+      averageMerchSpend: inputs.averageMerchSpend,
       capacity: inputs.capacity,
       otherRevenue: inputs.otherRevenue,
       customRevenue: editor.customRevenue.map((row) => ({

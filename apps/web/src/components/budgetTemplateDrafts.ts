@@ -30,6 +30,7 @@ export function templateFrom(editor: BudgetEditor): BudgetTemplatePayload {
       quantity: Math.trunc(Number(tier.quantity)) || 0,
     })),
     averageBarSpend: toMinorUnits(editor.averageBarSpend),
+    averageMerchSpend: toMinorUnits(editor.averageMerchSpend),
     capacity: Math.trunc(Number(editor.capacity)) || 0,
     otherRevenue: toMinorUnits(editor.otherRevenue),
     customRevenue: editor.customRevenue
@@ -60,6 +61,7 @@ export interface TemplateDrafts {
   customRevenue: CustomRevenueDraft[];
   capacity: string;
   averageBarSpend: string;
+  averageMerchSpend: string;
   otherRevenue: string;
   processingPercent: string;
   processingFlatPerTicket: string;
@@ -150,6 +152,10 @@ export function draftsFromTemplate(
     customRevenue,
     capacity: payload.capacity ? payload.capacity.toString() : "",
     averageBarSpend: toMajorUnits(payload.averageBarSpend),
+    // `?? "0"` — a template saved before bar and merch were split states no merch
+    // figure at all, and reading `undefined` back as an empty string would make
+    // the field look cleared rather than never set.
+    averageMerchSpend: toMajorUnits(payload.averageMerchSpend ?? "0"),
     otherRevenue: toMajorUnits(payload.otherRevenue),
     processingPercent: payload.paymentProcessing
       ? toPercentText(payload.paymentProcessing.percentBasisPoints)

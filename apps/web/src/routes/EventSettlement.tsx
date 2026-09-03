@@ -1029,8 +1029,10 @@ function FinancialsTab({
           variance={data.variance?.costs ?? null}
           currency={data.baseCurrency}
         />
+        {/* Named as it is on the ladder — see `ladderRows` for why the word is
+            kept and paired rather than replaced. */}
         <PlannedActualRow
-          label="Pool"
+          label="Left to divide (the pool)"
           planned={data.plan.pool}
           actual={data.actual.pool}
           variance={data.variance?.pool ?? null}

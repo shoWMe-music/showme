@@ -239,8 +239,24 @@ function costHeadingOf(label: string): string {
 /** The one revenue line that is neither a ticket tier nor the bar estimate. */
 const OTHER_REVENUE_LABEL = "Other revenue";
 
-/** The bar estimate's stored label — the row is found by `basis`, never by this. */
-const BAR_LABEL = "Bar and merchandise";
+/**
+ * The bar and merch estimates' stored labels — each row is found by `basis`,
+ * never by these, which is what makes renaming one safe.
+ *
+ * They used to be ONE row called "Bar and merchandise". ClickUp `86cbcn1ue`,
+ * 2026-09-03: *"Bar and merchandise can not be together."* The objection is not
+ * about wording. A revenue line carries exactly one `collected_by`, and the bar
+ * take is almost always the venue's while merch is almost always the performer's
+ * — so the combined row had to hand both to whoever the bar belonged to, and the
+ * settlement then moved the performer's merch money to the venue in silence.
+ *
+ * Rows written before the split keep the old label until the operator next edits
+ * them; they are still found by `basis: "bar_spend"`, so they keep working and
+ * simply carry no merch figure — which is honest, because none was ever recorded
+ * separately.
+ */
+const BAR_LABEL = "Bar";
+const MERCH_LABEL = "Merchandise";
 
 export const NEW_ROW_PREFIX = "new:";
 const SAVE_DEBOUNCE_MILLISECONDS = 700;
@@ -251,6 +267,7 @@ const SAVE_DEBOUNCE_MILLISECONDS = 700;
  * The `:` keeps them out of the uuid space a real line id occupies.
  */
 const BAR_ROW = "row:bar";
+const MERCH_ROW = "row:merch";
 const OTHER_REVENUE_ROW = "row:other-revenue";
 const ASSUMPTIONS_ROW = "row:assumptions";
 
@@ -359,6 +376,8 @@ export interface BudgetEditor {
   costs: CostDraft[];
   capacity: string;
   averageBarSpend: string;
+  /** Average merch spend per head. Its own row — see `BAR_LABEL`. */
+  averageMerchSpend: string;
   otherRevenue: string;
   /** What the operator expects their provider to keep — a percentage, as typed. */
   processingPercent: string;
@@ -375,10 +394,12 @@ export interface BudgetEditor {
   ) => void;
   addTier: () => void;
   removeTier: (id: string) => void;
-  /** Who receives the bar take and who receives "Other revenue". */
+  /** Who receives the bar take, the merch take, and "Other revenue". */
   barCollectedBy: string;
+  merchCollectedBy: string;
   otherRevenueCollectedBy: string;
   changeBarCollectedBy: (participantId: string) => void;
+  changeMerchCollectedBy: (participantId: string) => void;
   changeOtherRevenueCollectedBy: (participantId: string) => void;
   changeCustomRevenueCollectedBy: (id: string, participantId: string) => void;
   changeCost: (key: string, value: string) => void;
@@ -406,6 +427,7 @@ export interface BudgetEditor {
   applyTemplate: (drafts: TemplateDrafts) => void;
   changeCapacity: (value: string) => void;
   changeAverageBarSpend: (value: string) => void;
+  changeAverageMerchSpend: (value: string) => void;
   changeOtherRevenue: (value: string) => void;
   changeProcessingPercent: (value: string) => void;
   changeProcessingFlatPerTicket: (value: string) => void;
@@ -545,6 +567,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
           (line) =>
             line.kind === "revenue" &&
             line.details?.basis !== "bar_spend" &&
+            line.details?.basis !== "merch_spend" &&
             line.details?.basis !== "other_revenue" &&
             // Without this a sponsorship would come back as a ticket tier priced
             // at its full amount — one ticket at 5 000, sitting in the tier list.
@@ -564,6 +587,11 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
 
   const barLine = useMemo(
     () => lines.find((line) => line.details?.basis === "bar_spend") ?? null,
+    [lines],
+  );
+
+  const merchLine = useMemo(
+    () => lines.find((line) => line.details?.basis === "merch_spend") ?? null,
     [lines],
   );
 
@@ -700,6 +728,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       customRevenue: serverCustomRevenue,
       capacity,
       averageBarSpend: barLine?.details ? toMajorUnits(barLine.details.unitAmount) : "",
+      averageMerchSpend: merchLine?.details ? toMajorUnits(merchLine.details.unitAmount) : "",
       otherRevenue: otherRevenueLine ? toMajorUnits(otherRevenueLine.amount) : "",
       // Every budget assumes a provider takes something until the operator says
       // otherwise. An explicit 0 is stored and read back as 0, so this fills a
@@ -709,6 +738,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
         : DEFAULT_PROCESSING_PERCENT,
       processingFlatPerTicket: processing ? toMajorUnits(processing.flatPerTicket) : "",
       barCollectedBy: barLine?.collectedBy ?? "",
+      merchCollectedBy: merchLine?.collectedBy ?? "",
       otherRevenueCollectedBy: otherRevenueLine?.collectedBy ?? "",
     };
   }, [
@@ -717,6 +747,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     serverCosts,
     serverCustomRevenue,
     barLine,
+    merchLine,
     otherRevenueLine,
     processing,
     seedSource,
@@ -727,12 +758,14 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   const [customRevenue, setCustomRevenue] = useState<CustomRevenueDraft[]>(seed.customRevenue);
   const [capacity, setCapacity] = useState(seed.capacity);
   const [averageBarSpend, setAverageBarSpend] = useState(seed.averageBarSpend);
+  const [averageMerchSpend, setAverageMerchSpend] = useState(seed.averageMerchSpend);
   const [otherRevenue, setOtherRevenue] = useState(seed.otherRevenue);
   const [processingPercent, setProcessingPercent] = useState(seed.processingPercent);
   const [processingFlatPerTicket, setProcessingFlatPerTicket] = useState(
     seed.processingFlatPerTicket,
   );
   const [barCollectedBy, setBarCollectedBy] = useState(seed.barCollectedBy);
+  const [merchCollectedBy, setMerchCollectedBy] = useState(seed.merchCollectedBy);
   const [otherRevenueCollectedBy, setOtherRevenueCollectedBy] = useState(
     seed.otherRevenueCollectedBy,
   );
@@ -748,10 +781,12 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     setCustomRevenue(seed.customRevenue);
     setCapacity(seed.capacity);
     setAverageBarSpend(seed.averageBarSpend);
+    setAverageMerchSpend(seed.averageMerchSpend);
     setOtherRevenue(seed.otherRevenue);
     setProcessingPercent(seed.processingPercent);
     setProcessingFlatPerTicket(seed.processingFlatPerTicket);
     setBarCollectedBy(seed.barCollectedBy);
+    setMerchCollectedBy(seed.merchCollectedBy);
     setOtherRevenueCollectedBy(seed.otherRevenueCollectedBy);
   }, [seed]);
 
@@ -1124,6 +1159,38 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       }
     }
 
+    // Merch mirrors the bar exactly — same heads, its own per-head figure and
+    // its own collector. Written only when one of ITS fields was touched, for the
+    // same reason the bar row is: the capacity arrives pre-filled from the event,
+    // so a shared trigger would create a Merchandise line worth 0 on any budget
+    // whose capacity was merely looked at.
+    if (wasEdited(MERCH_ROW)) {
+      const heads = Math.trunc(numeric(capacity));
+      const perHead = toMinorUnits(averageMerchSpend);
+      const amount = (BigInt(perHead) * BigInt(heads)).toString();
+      const details = { basis: "merch_spend" as const, unitAmount: perHead, quantity: heads };
+      const attempted = `${averageMerchSpend || "0"} a head across ${heads}`;
+      if (!merchLine) {
+        write(() =>
+          createRow(budgetId, MERCH_LABEL, attempted, {
+            kind: "revenue",
+            label: MERCH_LABEL,
+            amount,
+            collectedBy: collector(merchCollectedBy),
+            details,
+          }),
+        );
+      } else {
+        write(() =>
+          updateRow(budgetId, merchLine.id, MERCH_LABEL, attempted, {
+            amount,
+            collectedBy: collector(merchCollectedBy),
+            details,
+          }),
+        );
+      }
+    }
+
     // Other revenue is a single amount, so its breakdown is that amount taken
     // once — `quantity: 1`. The `basis` is what makes it findable on the way back
     // in, which is the whole reason it carries details at all.
@@ -1318,6 +1385,14 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     [scheduleFlush],
   );
 
+  const changeMerchCollectedBy = useCallback(
+    (participantId: string) => {
+      setMerchCollectedBy(participantId);
+      scheduleFlush(MERCH_ROW);
+    },
+    [scheduleFlush],
+  );
+
   const changeOtherRevenueCollectedBy = useCallback(
     (participantId: string) => {
       setOtherRevenueCollectedBy(participantId);
@@ -1430,6 +1505,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       setCustomRevenue(drafts.customRevenue);
       setCapacity(drafts.capacity);
       setAverageBarSpend(drafts.averageBarSpend);
+      setAverageMerchSpend(drafts.averageMerchSpend);
       setOtherRevenue(drafts.otherRevenue);
       setProcessingPercent(drafts.processingPercent);
       setProcessingFlatPerTicket(drafts.processingFlatPerTicket);
@@ -1442,14 +1518,32 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     (value: string) => {
       setCapacity(value);
       scheduleFlush(BAR_ROW);
+      // Capacity is the head count BOTH per-head rows multiply by, so a merch row
+      // that already exists has to be rewritten too — otherwise its amount quietly
+      // stops matching the heads its own `details` claim.
+      //
+      // Guarded, and not scheduled unconditionally like the bar's: capacity
+      // arrives PRE-FILLED from the event, so an unguarded schedule would write a
+      // Merchandise line worth 0 on every budget whose capacity was merely looked
+      // at. That is the exact bug the bar row above already carries a comment
+      // about, and it is not worth re-introducing next door.
+      if (merchLine || averageMerchSpend) scheduleFlush(MERCH_ROW);
     },
-    [scheduleFlush],
+    [scheduleFlush, merchLine, averageMerchSpend],
   );
 
   const changeAverageBarSpend = useCallback(
     (value: string) => {
       setAverageBarSpend(value);
       scheduleFlush(BAR_ROW);
+    },
+    [scheduleFlush],
+  );
+
+  const changeAverageMerchSpend = useCallback(
+    (value: string) => {
+      setAverageMerchSpend(value);
+      scheduleFlush(MERCH_ROW);
     },
     [scheduleFlush],
   );
@@ -1492,6 +1586,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     costs,
     capacity,
     averageBarSpend,
+    averageMerchSpend,
     otherRevenue,
     processingPercent,
     processingFlatPerTicket,
@@ -1503,8 +1598,10 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     addTier,
     removeTier,
     barCollectedBy,
+    merchCollectedBy,
     otherRevenueCollectedBy,
     changeBarCollectedBy,
+    changeMerchCollectedBy,
     changeOtherRevenueCollectedBy,
     changeCustomRevenueCollectedBy,
     changeCost,
@@ -1520,6 +1617,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     applyTemplate,
     changeCapacity,
     changeAverageBarSpend,
+    changeAverageMerchSpend,
     changeOtherRevenue,
     changeProcessingPercent,
     changeProcessingFlatPerTicket,
@@ -1561,6 +1659,7 @@ export function budgetInputsFrom(editor: BudgetEditor): BudgetInputs {
       quantity: wholeNumber(tier.quantity),
     })),
     averageBarSpend: BigInt(toMinorUnits(editor.averageBarSpend)),
+    averageMerchSpend: BigInt(toMinorUnits(editor.averageMerchSpend)),
     capacity: wholeNumber(editor.capacity),
     otherRevenue: BigInt(toMinorUnits(editor.otherRevenue)),
     customRevenue: editor.customRevenue.map((row) => minorUnitsOf(row.value)),

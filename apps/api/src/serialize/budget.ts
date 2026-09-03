@@ -11,6 +11,7 @@ type BudgetLineRow = typeof schema.budgetLines.$inferSelect;
 export type BudgetLineBasis =
   | "ticket_tier"
   | "bar_spend"
+  | "merch_spend"
   | "other_revenue"
   | "custom_revenue"
   | "custom_cost";
@@ -18,6 +19,7 @@ export type BudgetLineBasis =
 const LINE_BASES: BudgetLineBasis[] = [
   "ticket_tier",
   "bar_spend",
+  "merch_spend",
   "other_revenue",
   "custom_revenue",
   "custom_cost",

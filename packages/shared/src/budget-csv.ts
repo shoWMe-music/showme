@@ -42,6 +42,7 @@ export interface BudgetCsvInputs {
   readonly currency: string;
   readonly ticketTiers: readonly BudgetCsvTicketTier[];
   readonly averageBarSpend: bigint;
+  readonly averageMerchSpend?: bigint;
   readonly capacity: number;
   readonly otherRevenue: bigint;
   readonly customRevenue: readonly BudgetCsvNamedAmount[];
@@ -101,9 +102,20 @@ export function budgetCsvRows(inputs: BudgetCsvInputs): BudgetCsvRow[] {
   rows.push(
     moneyRow(
       "Revenue",
-      "Bar and merchandise",
+      "Bar",
       projection.barRevenue,
       inputs.averageBarSpend,
+      Math.trunc(inputs.capacity),
+    ),
+  );
+  // Its own row, never folded back into the bar's — the export is what an
+  // accountant reconciles against, and the two takes belong to different people.
+  rows.push(
+    moneyRow(
+      "Revenue",
+      "Merchandise",
+      projection.merchRevenue,
+      inputs.averageMerchSpend ?? 0n,
       Math.trunc(inputs.capacity),
     ),
   );

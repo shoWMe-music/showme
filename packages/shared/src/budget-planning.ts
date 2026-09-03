@@ -52,8 +52,25 @@ export interface BudgetInputs {
   readonly ticketTiers: readonly TicketTier[];
   /** Average spend per head at the bar, times the heads below. */
   readonly averageBarSpend: bigint;
+  /**
+   * Average spend per head on MERCH, times the same heads.
+   *
+   * A field of its own, and not a share of `averageBarSpend`, because the two
+   * takes belong to different people. ClickUp `86cbcn1ue`, 2026-09-03: *"Bar and
+   * merchandise can not be together."* He is right at the level that matters
+   * here — the bar is almost always the venue's income and merch is almost
+   * always the performer's, frequently with a percentage back to the venue. One
+   * line cannot carry two collectors, so a single "Bar and merchandise" row had
+   * to attribute both takes to whoever the bar belonged to, and the settlement
+   * then moved the performer's merch money to the venue without anybody saying
+   * so.
+   *
+   * Optional so that every existing caller — and every budget written before the
+   * split — keeps computing exactly the number it did before.
+   */
+  readonly averageMerchSpend?: bigint;
   readonly capacity: number;
-  /** Revenue that is neither ticketing nor bar (sponsorship, a fee, a grant). */
+  /** Revenue that is neither ticketing, bar nor merch (sponsorship, a fee, a grant). */
   readonly otherRevenue: bigint;
   /**
    * Free-form revenue rows the operator named themselves ("+ Add Field" on the
@@ -79,6 +96,8 @@ export interface BudgetInputs {
 export interface BudgetProjection {
   readonly ticketRevenue: bigint;
   readonly barRevenue: bigint;
+  /** Merch take — per head times capacity, like the bar and separate from it. */
+  readonly merchRevenue: bigint;
   /** The custom revenue rows summed, so the total stays decomposable. Zero without any. */
   readonly customRevenue: bigint;
   readonly totalRevenue: bigint;
@@ -133,14 +152,17 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
     (total, tier) => total + Math.trunc(tier.quantity),
     0,
   );
-  const barRevenue = inputs.averageBarSpend * BigInt(Math.trunc(inputs.capacity));
+  const heads = BigInt(Math.trunc(inputs.capacity));
+  const barRevenue = inputs.averageBarSpend * heads;
+  const merchRevenue = (inputs.averageMerchSpend ?? 0n) * heads;
   const customRevenue = sum(inputs.customRevenue ?? []);
-  const totalRevenue = ticketRevenue + barRevenue + inputs.otherRevenue + customRevenue;
+  const totalRevenue =
+    ticketRevenue + barRevenue + merchRevenue + inputs.otherRevenue + customRevenue;
   const enteredCosts = sum(inputs.costs);
   // The provider charges on the tickets it sells, so the percentage is taken on
-  // TICKET revenue only — not on the bar take or a sponsorship, which never pass
-  // through it. Charging the whole revenue would inflate the fee on exactly the
-  // shows whose margin comes from the bar.
+  // TICKET revenue only — not on the bar or merch take, nor a sponsorship, none
+  // of which pass through it. Charging the whole revenue would inflate the fee on
+  // exactly the shows whose margin comes from the bar.
   const paymentProcessingFees = inputs.paymentProcessing
     ? applyBasisPoints(ticketRevenue, inputs.paymentProcessing.percentBasisPoints) +
       inputs.paymentProcessing.flatPerTicket * BigInt(ticketsSold)
@@ -156,7 +178,7 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
   // custom row, all of which are money in hand before a ticket sells. Leaving
   // the custom rows out here would demand tickets for a sponsorship already
   // banked. Already covered → nothing left to break even on.
-  const uncovered = totalCosts - barRevenue - inputs.otherRevenue - customRevenue;
+  const uncovered = totalCosts - barRevenue - merchRevenue - inputs.otherRevenue - customRevenue;
   let breakEvenTickets = 0;
   if (averageTicketPrice > 0n && uncovered > 0n) {
     const whole = uncovered / averageTicketPrice;
@@ -170,6 +192,7 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
   return {
     ticketRevenue,
     barRevenue,
+    merchRevenue,
     customRevenue,
     totalRevenue,
     enteredCosts,

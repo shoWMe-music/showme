@@ -719,8 +719,10 @@ function BudgetTab({
         deals={editor.deals}
         defaultParticipantId={editor.defaultParticipantId}
         barCollectedBy={editor.barCollectedBy}
+        merchCollectedBy={editor.merchCollectedBy}
         otherRevenueCollectedBy={editor.otherRevenueCollectedBy}
         onBarCollectedByChange={editor.changeBarCollectedBy}
+        onMerchCollectedByChange={editor.changeMerchCollectedBy}
         onOtherRevenueCollectedByChange={editor.changeOtherRevenueCollectedBy}
         onCustomRevenueCollectedByChange={editor.changeCustomRevenueCollectedBy}
         onCostPaidByChange={editor.changeCostPaidBy}
@@ -738,6 +740,8 @@ function BudgetTab({
         capacity={editor.capacity}
         avgBarSpend={editor.averageBarSpend}
         barRevenue={view.barRevenue}
+        avgMerchSpend={editor.averageMerchSpend}
+        merchRevenue={view.merchRevenue}
         otherRevenue={editor.otherRevenue}
         costs={editor.costs}
         customRevenue={editor.customRevenue}
@@ -749,6 +753,7 @@ function BudgetTab({
         onRemoveTicketType={editor.removeTier}
         onCapacityChange={editor.changeCapacity}
         onAvgBarSpendChange={editor.changeAverageBarSpend}
+        onAvgMerchSpendChange={editor.changeAverageMerchSpend}
         onOtherRevenueChange={editor.changeOtherRevenue}
         onCostChange={editor.changeCost}
         onRemoveCost={removeCost}

@@ -3970,6 +3970,7 @@
                                   "enum": [
                                     "ticket_tier",
                                     "bar_spend",
+                                    "merch_spend",
                                     "other_revenue",
                                     "custom_revenue",
                                     "custom_cost"
@@ -4183,6 +4184,7 @@
                                 "enum": [
                                   "ticket_tier",
                                   "bar_spend",
+                                  "merch_spend",
                                   "other_revenue",
                                   "custom_revenue",
                                   "custom_cost"
@@ -4426,6 +4428,7 @@
                                 "enum": [
                                   "ticket_tier",
                                   "bar_spend",
+                                  "merch_spend",
                                   "other_revenue",
                                   "custom_revenue",
                                   "custom_cost"
@@ -4583,6 +4586,7 @@
                             "enum": [
                               "ticket_tier",
                               "bar_spend",
+                              "merch_spend",
                               "other_revenue",
                               "custom_revenue",
                               "custom_cost"
@@ -4701,6 +4705,7 @@
                         "enum": [
                           "ticket_tier",
                           "bar_spend",
+                          "merch_spend",
                           "other_revenue",
                           "custom_revenue",
                           "custom_cost"
@@ -4818,6 +4823,7 @@
                           "enum": [
                             "ticket_tier",
                             "bar_spend",
+                            "merch_spend",
                             "other_revenue",
                             "custom_revenue",
                             "custom_cost"
@@ -4935,6 +4941,7 @@
                         "enum": [
                           "ticket_tier",
                           "bar_spend",
+                          "merch_spend",
                           "other_revenue",
                           "custom_revenue",
                           "custom_cost"
@@ -5063,6 +5070,7 @@
                           "enum": [
                             "ticket_tier",
                             "bar_spend",
+                            "merch_spend",
                             "other_revenue",
                             "custom_revenue",
                             "custom_cost"
@@ -7344,6 +7352,7 @@
                             "enum": [
                               "ticket_tier",
                               "bar_spend",
+                              "merch_spend",
                               "other_revenue",
                               "custom_revenue",
                               "custom_cost"
@@ -7449,6 +7458,7 @@
                         "enum": [
                           "ticket_tier",
                           "bar_spend",
+                          "merch_spend",
                           "other_revenue",
                           "custom_revenue",
                           "custom_cost"
@@ -7549,6 +7559,7 @@
                           "enum": [
                             "ticket_tier",
                             "bar_spend",
+                            "merch_spend",
                             "other_revenue",
                             "custom_revenue",
                             "custom_cost"
@@ -7656,6 +7667,7 @@
                         "enum": [
                           "ticket_tier",
                           "bar_spend",
+                          "merch_spend",
                           "other_revenue",
                           "custom_revenue",
                           "custom_cost"
@@ -7767,6 +7779,7 @@
                           "enum": [
                             "ticket_tier",
                             "bar_spend",
+                            "merch_spend",
                             "other_revenue",
                             "custom_revenue",
                             "custom_cost"

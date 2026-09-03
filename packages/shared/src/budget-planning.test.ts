@@ -24,6 +24,71 @@ describe("budget projection", () => {
     expect(projection.averageTicketPrice).toBe(major(235));
   });
 
+  /**
+   * MERCH IS ITS OWN TAKE — ClickUp `86cbcn1ue`, 2026-09-03: *"Bar and
+   * merchandise can not be together."*
+   *
+   * Asserted at three points on purpose, because a merch figure that reached the
+   * total but not the break-even would be worse than one that reached neither:
+   * the sheet would show revenue arriving and still demand tickets to cover costs
+   * it had already covered. That is the exact shape of the bug the bar row was
+   * written to fix, one row along.
+   */
+  it("counts merch separately from the bar, in the total and in break-even", () => {
+    const withoutMerch = computeBudgetProjection({
+      ticketTiers: [{ unitAmount: major(200), quantity: 500 }],
+      averageBarSpend: major(50),
+      capacity: 400,
+      otherRevenue: 0n,
+      costs: [major(100000)],
+    });
+    const withMerch = computeBudgetProjection({
+      ticketTiers: [{ unitAmount: major(200), quantity: 500 }],
+      averageBarSpend: major(50),
+      averageMerchSpend: major(25), // 25 a head across 400 → 10 000
+      capacity: 400,
+      otherRevenue: 0n,
+      costs: [major(100000)],
+    });
+
+    // Its own field on the projection, never folded into the bar's.
+    expect(withoutMerch.merchRevenue).toBe(0n);
+    expect(withMerch.merchRevenue).toBe(major(10000));
+    expect(withMerch.barRevenue).toBe(withoutMerch.barRevenue);
+
+    // It reaches the total…
+    expect(withMerch.totalRevenue - withoutMerch.totalRevenue).toBe(major(10000));
+
+    // …and it offsets costs, so fewer tickets are needed. 100 000 of costs less
+    // 20 000 of bar leaves 80 000 → 400 tickets at 200; less 10 000 of merch as
+    // well leaves 70 000 → 350.
+    expect(withoutMerch.breakEvenTickets).toBe(400);
+    expect(withMerch.breakEvenTickets).toBe(350);
+  });
+
+  /**
+   * The payment provider charges on the tickets it sold, and it sold no merch.
+   * Stated as a test because the fee is a percentage and the obvious wrong
+   * implementation — taking it on `totalRevenue` — is invisible until a night
+   * whose margin comes from the merch table.
+   */
+  it("never charges payment processing on the merch take", () => {
+    const processing = { percentBasisPoints: 150, flatPerTicket: 0n };
+    const base = {
+      ticketTiers: [{ unitAmount: major(200), quantity: 500 }],
+      averageBarSpend: 0n,
+      capacity: 400,
+      otherRevenue: 0n,
+      costs: [],
+      paymentProcessing: processing,
+    };
+
+    const withoutMerch = computeBudgetProjection(base);
+    const withMerch = computeBudgetProjection({ ...base, averageMerchSpend: major(25) });
+
+    expect(withMerch.paymentProcessingFees).toBe(withoutMerch.paymentProcessingFees);
+  });
+
   // The bug this module exists to fix: the screen divided total costs by the
   // ticket price and ignored the bar entirely, so it asked for tickets that
   // were already paid for.

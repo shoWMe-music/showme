@@ -2134,7 +2134,14 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
    */
   const SettlementLineDetails = z.object({
     basis: z
-      .enum(["ticket_tier", "bar_spend", "other_revenue", "custom_revenue", "custom_cost"])
+      .enum([
+        "ticket_tier",
+        "bar_spend",
+        "merch_spend",
+        "other_revenue",
+        "custom_revenue",
+        "custom_cost",
+      ])
       .default("ticket_tier"),
     unitAmount: LineAmount,
     quantity: z.number().int().min(0),

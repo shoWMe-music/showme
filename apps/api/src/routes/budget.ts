@@ -56,7 +56,14 @@ const LineDetails = z.object({
    * silently turn it into the bar estimate (or the reverse).
    */
   basis: z
-    .enum(["ticket_tier", "bar_spend", "other_revenue", "custom_revenue", "custom_cost"])
+    .enum([
+      "ticket_tier",
+      "bar_spend",
+      "merch_spend",
+      "other_revenue",
+      "custom_revenue",
+      "custom_cost",
+    ])
     .default("ticket_tier"),
   unitAmount: MinorUnitsAmount,
   quantity: z.number().int().min(0),
