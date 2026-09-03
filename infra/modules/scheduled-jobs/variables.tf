@@ -33,9 +33,21 @@ variable "database_url_secret_name" {
   description = "Secret Manager secret holding DATABASE_URL (the unix-socket form)."
 }
 
+# OPTIONAL, and the module works without it.
+#
+# The exchange-rate refresh is the only job with an external dependency, and its
+# key buys DISPLAY-ONLY rates — money.md is explicit that a display currency never
+# touches a settled amount. Production has never held this secret, and requiring it
+# would have kept the reapers, the task reminders and the GDPR purge switched off
+# waiting for a cosmetic feature's API key.
+#
+# Empty string = no secret. `runScheduledJobs` then SKIPS that one job, reports the
+# skip by name, and still exits zero. Set this once the secret exists and the job
+# starts running with no other change.
 variable "exchange_rate_api_secret_name" {
   type        = string
-  description = "Secret Manager secret holding the ExchangeRate-API key (EXCHANGE_RATE_API)."
+  default     = ""
+  description = "Secret Manager secret holding the ExchangeRate-API key (EXCHANGE_RATE_API). Empty = the FX refresh is skipped."
 }
 
 # Every four hours, and the binding constraint is the exchange-rate refresh, not the

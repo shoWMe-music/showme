@@ -33,6 +33,19 @@ export interface JobRunResult {
   /** Tasks whose `remind_at` came due and were rung (`task-reminders.ts`). */
   taskReminders: number;
   exchangeRates: number;
+  /**
+   * Why a job did not run at all, as opposed to running and failing.
+   *
+   * `errors` means something broke and the run exits non-zero; this means a job
+   * was DECLINED for a stated reason and the run is still a success. The two must
+   * not be conflated: an unconfigured job that reports an error makes every
+   * execution red forever, which is indistinguishable from a real outage and is
+   * exactly how alerting becomes noise nobody reads.
+   *
+   * Reported rather than silent, per the "no silent caps" rule — work the sweep
+   * declined to do is stated, never left to be inferred from a zero.
+   */
+  skipped: string[];
   errors: string[];
 }
 
@@ -58,6 +71,7 @@ export async function runScheduledJobs(
     stubsSkipped: [],
     taskReminders: 0,
     exchangeRates: 0,
+    skipped: [],
     errors: [],
   };
 
@@ -99,10 +113,22 @@ export async function runScheduledJobs(
     result.errors.push(`taskReminders: ${describeError(error)}`);
   }
 
-  try {
-    result.exchangeRates = await runExchangeRateRefresh(db);
-  } catch (error) {
-    result.errors.push(`exchangeRates: ${describeError(error)}`);
+  // THE ONLY JOB WITH AN EXTERNAL DEPENDENCY, and the only one that can be
+  // legitimately unconfigured. Its key is display-only money (money.md: a display
+  // currency never touches a settled amount), so a missing one costs nothing but a
+  // stale cosmetic rate — whereas treating it as an error would fail the whole
+  // execution and take the GDPR purge, the reapers and the task reminders down
+  // with it in the eyes of anyone reading the run status.
+  if (process.env.EXCHANGE_RATE_API?.trim()) {
+    try {
+      result.exchangeRates = await runExchangeRateRefresh(db);
+    } catch (error) {
+      result.errors.push(`exchangeRates: ${describeError(error)}`);
+    }
+  } else {
+    result.skipped.push(
+      "exchangeRates: EXCHANGE_RATE_API is not set, so display-only rates were not refreshed",
+    );
   }
 
   return result;

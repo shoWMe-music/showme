@@ -1,0 +1,10 @@
+# Upload the built bundle and the Dockerfile, nothing else. The image carries the
+# artifact, never the toolchain that made it, so source and node_modules would only
+# make the build slower and the layer bigger.
+#
+# NOTE this file is why the build context is `apps/jobs`: the REPO ROOT
+# .gcloudignore excludes dist/, which would drop the bundle itself.
+*
+!Dockerfile
+!dist/
+!dist/index.mjs

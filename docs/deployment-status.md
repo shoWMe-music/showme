@@ -4,7 +4,78 @@ The standing answer to "what's deployed where". Update it when that changes.
 Account/project map and the domain history live in
 [handoff-2026-08-23-marketing-and-hosting.md](./handoff-2026-08-23-marketing-and-hosting.md).
 
-## 2026-09-02 (later) — migration 0035, API 00030, web app. THIS IS CURRENT.
+## 2026-09-03 — the scheduled jobs finally RUN. THIS IS CURRENT.
+
+`apps/jobs` had never executed in production. Seven sweeps were written, tested and
+inert: expired offers, expired venue handoffs, expired shares, due representation
+terminations, the 90-day GDPR purge of unclaimed stubs, task reminders, and the
+display-only FX refresh. The GDPR one is a compliance commitment that was not
+running.
+
+| | |
+|---|---|
+| Cloud Run Job | **`showme-jobs`**, `europe-north2`, image `…/showme-jobs:latest` |
+| Schedule | **`showme-jobs-schedule`**, `0 */4 * * *` UTC, ENABLED, `europe-west1` |
+| Identities | `showme-jobs-runner` (Cloud SQL + DATABASE_URL) and `showme-jobs-trigger` (may only start the job) |
+| Applied by | `terraform apply -target=module.scheduled_jobs` — the module already existed and had simply never been applied |
+
+**Proven by running it, not by the apply succeeding:**
+
+```json
+{"errors": [], "skipped": ["exchangeRates: EXCHANGE_RATE_API is not set, so
+display-only rates were not refreshed"], "offers": 0, "handoffs": 0, "shares": 0,
+"representationTerminations": 0, "stubsPurged": 0, "stubsSkipped": [],
+"taskReminders": 0}
+```
+
+Zero rows everywhere is the correct answer on a six-profile production with nothing
+yet due — and `exit(0)`, which is the point of the change below.
+
+### Three things this needed that were not obvious
+
+**1. Cloud Scheduler does not exist in EITHER Nordic region.** The module defaulted
+to `europe-north1` and the apply failed with `Location 'europe-north1' is not a
+valid location`. Everything else here is `europe-north2` (Stockholm). Confirmed
+with `gcloud scheduler locations list` — the nearest supported are `europe-west1`
+and friends. The schedule now lives in `europe-west1`; the WORK still runs in
+Stockholm next to the database, and the scheduler's whole job is one authenticated
+POST with no payload.
+
+**2. An unconfigured job must SKIP, not fail.** Production has no
+`EXCHANGE_RATE_API` secret and never has. Under the old contract the FX refresh
+threw, which pushed an error, which exited non-zero — so every execution would have
+been red forever and the reapers, the reminders and the GDPR purge would have
+looked broken alongside it. `JobRunResult` now separates `skipped` from `errors`:
+declined-for-a-stated-reason still exits zero. A key that EXISTS and fails is still
+an error, and there is a test for each half.
+
+**3. IAM propagation loses a race with the first apply.** The job creation failed
+once with `Permission denied on secret … DATABASE_URL` seconds after Terraform
+created that exact binding. Nothing was wrong; re-running the apply succeeded. If
+this is seen on a fresh environment, re-run before investigating.
+
+### ⚠️ A LANDMINE IN `infra/envs/prod`, LEFT DELIBERATELY UNTOUCHED
+
+A full `terraform apply` here will **replace the live TLS certificate on
+`api.showme.music`**. The module renames `showme-api-lb-cert` →
+`showme-api-lb-cert-v1`, which forces replacement:
+
+```
+# module.api_load_balancer.google_compute_managed_ssl_certificate.default must be replaced
+~ name = "showme-api-lb-cert" -> "showme-api-lb-cert-v1" # forces replacement
+```
+
+A Google-managed certificate takes 15–60 minutes to reach ACTIVE, and the HTTPS
+proxy is swapped to it immediately — so the API would serve TLS errors for the gap.
+**The current certificate is valid until 2026-11-21, so there is no reason to do
+this.** That is why the jobs went in with `-target=module.scheduled_jobs`.
+
+Whoever picks this up: decide whether the rename is wanted at all, and if it is, do
+it as create-then-swap (add the new cert to the proxy's `ssl_certificates` list,
+wait for ACTIVE, then remove the old) rather than a replacement. Do not run a bare
+`terraform apply` in this directory until then.
+
+## 2026-09-02 (later) — migration 0035, API 00030, web app. Superseded by the entry above.
 
 The settlements pass (ClickUp `86cbcn1ue`) and four of the five settlement
 decisions. One migration, one API revision, one web release.

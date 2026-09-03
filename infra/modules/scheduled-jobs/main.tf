@@ -1,11 +1,13 @@
 # The scheduled jobs (`apps/jobs`) as a Cloud Run Job plus the Cloud Scheduler
 # trigger that starts it.
 #
-# What runs: `apps/jobs/src/index.ts` — one process that executes all five jobs in
+# What runs: `apps/jobs/src/index.ts` — one process that executes all SEVEN jobs in
 # sequence (expired performer offers, expired venue handoffs, expired shares,
-# agreed-future representation terminations, and the display-only exchange-rate
-# refresh), each isolated in its own try/catch, printing a JSON summary and exiting
-# non-zero if any of them failed.
+# agreed-future representation terminations, the 90-day purge of unclaimed stub
+# accounts, due task reminders, and the display-only exchange-rate refresh), each
+# isolated in its own try/catch, printing a JSON summary and exiting non-zero if any
+# of them FAILED. A job that is merely unconfigured is reported as skipped and does
+# not fail the run.
 #
 # Why a Cloud Run *Job* and not a service: this is a batch process that runs to
 # completion and exits. It serves no traffic and listens on no port, so a Cloud Run
@@ -68,7 +70,10 @@ resource "google_secret_manager_secret_iam_member" "runner_database_url" {
   member    = "serviceAccount:${google_service_account.runner.email}"
 }
 
+# Granted only when the secret is configured. Binding IAM on a secret that does not
+# exist fails the whole apply, which is what kept this module unapplied.
 resource "google_secret_manager_secret_iam_member" "runner_exchange_rate_api" {
+  count     = var.exchange_rate_api_secret_name == "" ? 0 : 1
   project   = var.project_id
   secret_id = var.exchange_rate_api_secret_name
   role      = "roles/secretmanager.secretAccessor"
@@ -123,12 +128,18 @@ resource "google_cloud_run_v2_job" "scheduled_jobs" {
           }
         }
 
-        env {
-          name = "EXCHANGE_RATE_API"
-          value_source {
-            secret_key_ref {
-              secret  = var.exchange_rate_api_secret_name
-              version = "latest"
+        # Absent when unconfigured, which is a supported state rather than a
+        # degraded one: the orchestrator skips that single job by name and the
+        # execution still exits zero. See the variable's comment.
+        dynamic "env" {
+          for_each = var.exchange_rate_api_secret_name == "" ? [] : [1]
+          content {
+            name = "EXCHANGE_RATE_API"
+            value_source {
+              secret_key_ref {
+                secret  = var.exchange_rate_api_secret_name
+                version = "latest"
+              }
             }
           }
         }

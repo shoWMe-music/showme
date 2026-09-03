@@ -15,9 +15,9 @@ afterAll(async () => {
 });
 
 describe("runScheduledJobs", () => {
-  it("runs every job and isolates failures", async () => {
-    // EXCHANGE_RATE_API is blank in test, so the exchange-rate refresh must throw
-    // and be caught — proving one job's failure doesn't abort the reapers.
+  it("runs every job, and an UNCONFIGURED one is skipped rather than failed", async () => {
+    // No key in test. The exchange-rate refresh is the only job with an external
+    // dependency, and the only one that can legitimately be unconfigured.
     process.env.EXCHANGE_RATE_API = "";
 
     const result = await runScheduledJobs(harness.db, NOW);
@@ -36,10 +36,38 @@ describe("runScheduledJobs", () => {
     expect(result.shares).toBe(0);
     expect(result.representationTerminations).toBe(0);
     expect(result.taskReminders).toBe(0);
-
-    // The exchange-rate refresh failed and was caught in isolation.
     expect(result.exchangeRates).toBe(0);
-    expect(result.errors.length).toBeGreaterThan(0);
+
+    /*
+     * THE POINT OF THIS ASSERTION. Production has no `EXCHANGE_RATE_API` secret,
+     * and under the previous contract that made the run exit NON-ZERO every single
+     * time — which would have shown the reapers, the task reminders and the GDPR
+     * purge as a failing job forever, indistinguishable from a real outage.
+     *
+     * A missing key here costs a stale DISPLAY rate and nothing else: money.md is
+     * explicit that a display currency never touches a settled amount. So it is
+     * declined, said out loud, and the run still succeeds.
+     */
+    expect(result.errors).toEqual([]);
+    expect(result.skipped.some((message) => message.startsWith("exchangeRates:"))).toBe(true);
+  });
+
+  it("still reports a CONFIGURED job that fails as an error, not a skip", async () => {
+    // A key that exists but cannot work. This is the other half of the contract:
+    // "not configured" and "configured and broken" must stay distinguishable, or
+    // the skip above would just be a way of hiding real failures.
+    process.env.EXCHANGE_RATE_API = "definitely-not-a-valid-key";
+
+    const result = await runScheduledJobs(harness.db, NOW);
+
+    expect(result.exchangeRates).toBe(0);
     expect(result.errors.some((message) => message.startsWith("exchangeRates:"))).toBe(true);
+    expect(result.skipped.some((message) => message.startsWith("exchangeRates:"))).toBe(false);
+
+    // And the reapers still ran — one job's failure never aborts the others.
+    expect(result.offers).toBe(0);
+    expect(result.taskReminders).toBe(0);
+
+    process.env.EXCHANGE_RATE_API = "";
   });
 });
