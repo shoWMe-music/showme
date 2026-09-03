@@ -4,7 +4,51 @@ The standing answer to "what's deployed where". Update it when that changes.
 Account/project map and the domain history live in
 [handoff-2026-08-23-marketing-and-hosting.md](./handoff-2026-08-23-marketing-and-hosting.md).
 
-## 2026-09-03 — the scheduled jobs finally RUN. THIS IS CURRENT.
+## 2026-09-03 (later) — the settlement re-do, waves 1 to 3. THIS IS CURRENT.
+
+ClickUp `86cbcn1ue`'s re-do list: the cost vocabulary, bar/merch split, percentage
+deductions, the advance direction, and the settlement Overview. **No migration** —
+every new field is additive JSON inside `budget_lines.details`,
+`settlement_lines.details` and `settlements.computed`, all of which already exist.
+
+| | |
+|---|---|
+| API | **`showme-api-00031-cvs`**, serving 100%. Source deploy from `1418292` on `main`, configuration untouched. |
+| Web app | `showme-app.web.app` — version `62f2e23c0ed74a18`, release `1788428515867000`, bundle `index-F5vY0mPS.js`. 2 of 23 files uploaded (content-addressed store). |
+| Database | **Untouched.** 36 migrations on disk, 36 applied; nothing pending, nothing run. |
+| Marketing | Untouched. |
+| Terraform | Not run. The `api.showme.music` certificate landmine below is still there and still deliberately unarmed. |
+
+**Deployed API FIRST, then the web, and the order is load-bearing.** The new bundle
+sends `merch_spend` and `percentage_of` line bases; the old API would have answered
+400 to both. The reverse order would have broken the Budget Planner for as long as
+the gap lasted.
+
+**Verified from what is SERVED, not from the deploy output.** The live
+`/openapi.json` was read through both `api.showme.music` and the run.app origin and
+carries `merch_spend`, `percentage_of`, `ofLabel`, `basisPoints`,
+`prepaidCounterpartyIds` and `prepaidWith` — none of which existed in `00030`, so
+their presence is what proves the new revision is answering rather than a warm
+instance of the old one. The served bundle name was matched against the local build
+byte for byte, and the served JavaScript was grepped for the strings this work adds
+("To be deducted from", "Average merch spend per guest", "Paid in advance by",
+"Left to divide (the pool)") **and for the ones it retires** — "Borne by", "Bar and
+merchandise" and "Paid before the event" are all absent from the live file.
+
+`showme-app.web.app` was loaded in a browser and renders the sign-in screen with no
+console errors. **The signed-in screens were NOT driven in production** — that
+needs a production credential, which this session did not have. They were driven
+against the local stack as the seeded operator, with Postgres checked at each step.
+
+### One thing that is live and still unratified
+
+Nothing new. The agent-commission-on-gross change from 2026-09-02 is still live and
+still waiting on ClickUp `86cba8wtb`, and Ran's reply on `86cbcn1ue` ("Booking
+Agent comission comes out of the final performers share") reads as though it might
+contradict it — see ClickUp `123qy9rng5m`. Production has three deals and six
+internal profiles, so no real agent is affected yet.
+
+## 2026-09-03 — the scheduled jobs finally RUN. Superseded by the entry above.
 
 `apps/jobs` had never executed in production. Seven sweeps were written, tested and
 inert: expired offers, expired venue handoffs, expired shares, due representation
