@@ -46,6 +46,27 @@ export interface SettlementActualsCardProps {
    * it; all this card needs to know is that the button would fail.
    */
   recalculateBlocked?: boolean;
+  /**
+   * THE THREAD, PER FIGURE — ClickUp `86cbcn1ue`: *"The option for collaborators
+   * to comment on a specific field."*
+   *
+   * Passed in rather than fetched here, so the card stays what it is: a thing that
+   * renders lines and emits edits. The comments belong to `useEventSettlement`,
+   * which already owns the whole conversation and the status change that posting
+   * one triggers.
+   *
+   * Optional, because the event workspace's thin settlement tab renders this card
+   * without a conversation attached. Absent means no comment affordance at all,
+   * which is honest — there is nowhere for the remark to go.
+   */
+  thread?: LineThread;
+}
+
+/** What a row needs to show and add remarks about its own figure. */
+export interface LineThread {
+  /** Every comment already anchored to this line, oldest first. */
+  forLine: (settlementLineId: string) => { id: string; author: string; message: string }[];
+  post: (message: string, settlementLineId: string) => void;
 }
 
 export function SettlementActualsCard({
@@ -54,6 +75,7 @@ export function SettlementActualsCard({
   isFinalized,
   onRecalculate,
   recalculateBlocked = false,
+  thread,
 }: SettlementActualsCardProps) {
   if (editor.isPending) return <LoadingState label="Loading the settlement's lines" />;
   if (editor.isError) {
@@ -78,6 +100,7 @@ export function SettlementActualsCard({
         editor={editor}
         currency={currency}
         isFinalized={isFinalized}
+        thread={thread}
       />
       <LineGroup
         title="Costs"
@@ -86,6 +109,7 @@ export function SettlementActualsCard({
         editor={editor}
         currency={currency}
         isFinalized={isFinalized}
+        thread={thread}
       />
 
       {!isFinalized && onRecalculate && (
@@ -125,6 +149,7 @@ function LineGroup({
   editor,
   currency,
   isFinalized,
+  thread,
 }: {
   title: string;
   emptyNote: string;
@@ -132,6 +157,7 @@ function LineGroup({
   editor: SettlementLinesEditor;
   currency: string;
   isFinalized: boolean;
+  thread?: LineThread;
 }) {
   const kind = title === "Revenue" ? ("revenue" as const) : ("cost" as const);
   return (
@@ -157,6 +183,7 @@ function LineGroup({
           editor={editor}
           currency={currency}
           isFinalized={isFinalized}
+          thread={thread}
         />
       ))}
       {!isFinalized && (
@@ -271,11 +298,13 @@ function LineRow({
   editor,
   currency,
   isFinalized,
+  thread,
 }: {
   row: SettlementLineRow;
   editor: SettlementLinesEditor;
   currency: string;
   isFinalized: boolean;
+  thread?: LineThread;
 }) {
   // Local while typing, committed on blur — a keystroke is not a decision, and a
   // PATCH per character would race its own responses.
@@ -301,91 +330,174 @@ function LineRow({
   const isCounted = row.details !== null;
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-      <span style={{ flex: "2 1 160px", fontSize: 13.5, display: "flex", gap: 6 }}>
-        {row.label}
-        {/* Never budgeted — worth saying, because it is the answer to "why is
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ flex: "2 1 160px", fontSize: 13.5, display: "flex", gap: 6 }}>
+          {row.label}
+          {/* Never budgeted — worth saying, because it is the answer to "why is
             this not in my plan?" rather than an error. */}
-        {row.originBudgetLineId === null && (
-          <span style={{ color: "var(--dim)", fontSize: 11.5 }}>· unplanned</span>
-        )}
-      </span>
-      {isCounted ? (
-        <>
-          <div style={{ flex: "0 0 96px" }}>
-            <Input
-              value={quantity}
-              disabled={isFinalized || editor.isBusy}
-              onChange={(event) => setQuantity(event.target.value)}
-              onBlur={() => {
-                const next = Number.parseInt(quantity, 10);
-                // A blank or unparseable count is a slip, not an instruction to
-                // settle nothing — put the stored one back rather than writing 0.
-                if (!Number.isFinite(next) || next < 0) {
-                  setQuantity(row.details?.quantity?.toString() ?? "");
-                  return;
-                }
-                if (next !== row.details?.quantity) editor.updateBreakdown(row, { quantity: next });
-              }}
-              aria-label={`${row.label} quantity`}
-            />
-          </div>
-          <span style={{ color: "var(--dim)", fontSize: 12.5 }}>×</span>
-          <div style={{ flex: "0 0 110px" }}>
-            <Input
-              value={unitAmount}
-              disabled={isFinalized || editor.isBusy}
-              onChange={(event) => setUnitAmount(event.target.value)}
-              onBlur={() => {
-                if (unitAmount !== row.details?.unitAmount) {
-                  editor.updateBreakdown(row, { unitAmount });
-                }
-              }}
-              aria-label={`${row.label} unit price in ${currency}`}
-            />
-          </div>
-          {/* The product, shown not typed. It is `amount` — the figure the engine
+          {row.originBudgetLineId === null && (
+            <span style={{ color: "var(--dim)", fontSize: 11.5 }}>· unplanned</span>
+          )}
+        </span>
+        {isCounted ? (
+          <>
+            <div style={{ flex: "0 0 96px" }}>
+              <Input
+                value={quantity}
+                disabled={isFinalized || editor.isBusy}
+                onChange={(event) => setQuantity(event.target.value)}
+                onBlur={() => {
+                  const next = Number.parseInt(quantity, 10);
+                  // A blank or unparseable count is a slip, not an instruction to
+                  // settle nothing — put the stored one back rather than writing 0.
+                  if (!Number.isFinite(next) || next < 0) {
+                    setQuantity(row.details?.quantity?.toString() ?? "");
+                    return;
+                  }
+                  if (next !== row.details?.quantity)
+                    editor.updateBreakdown(row, { quantity: next });
+                }}
+                aria-label={`${row.label} quantity`}
+              />
+            </div>
+            <span style={{ color: "var(--dim)", fontSize: 12.5 }}>×</span>
+            <div style={{ flex: "0 0 110px" }}>
+              <Input
+                value={unitAmount}
+                disabled={isFinalized || editor.isBusy}
+                onChange={(event) => setUnitAmount(event.target.value)}
+                onBlur={() => {
+                  if (unitAmount !== row.details?.unitAmount) {
+                    editor.updateBreakdown(row, { unitAmount });
+                  }
+                }}
+                aria-label={`${row.label} unit price in ${currency}`}
+              />
+            </div>
+            {/* The product, shown not typed. It is `amount` — the figure the engine
               settles — and letting it be edited beside the two operands is how a
               row ends up saying 168 × 250 = 65 000.
               Through `formatMoney` like every other figure on the screen: the two
               boxes beside it are raw because they are being TYPED INTO, but this
               is a read-only total and a second money format here would be the one
               number on the card that looked like a database value. */}
-          <span style={{ flex: "0 0 110px", fontSize: 13.5, fontWeight: 600 }}>
-            {formatMoney(majorToMinor(row.amount, currency).toString(), currency)}
-          </span>
-        </>
-      ) : (
-        <div style={{ flex: "0 0 130px" }}>
-          <Input
-            value={amount}
+            <span style={{ flex: "0 0 110px", fontSize: 13.5, fontWeight: 600 }}>
+              {formatMoney(majorToMinor(row.amount, currency).toString(), currency)}
+            </span>
+          </>
+        ) : (
+          <div style={{ flex: "0 0 130px" }}>
+            <Input
+              value={amount}
+              disabled={isFinalized || editor.isBusy}
+              onChange={(event) => setAmount(event.target.value)}
+              onBlur={() => {
+                if (amount !== row.amount) editor.updateLine(row, { amount });
+              }}
+              aria-label={`${row.label} amount in ${currency}`}
+            />
+          </div>
+        )}
+        <div style={{ flex: "1 1 150px" }}>
+          <Select
+            value={partyId ?? ""}
             disabled={isFinalized || editor.isBusy}
-            onChange={(event) => setAmount(event.target.value)}
-            onBlur={() => {
-              if (amount !== row.amount) editor.updateLine(row, { amount });
-            }}
-            aria-label={`${row.label} amount in ${currency}`}
+            onChange={(value) => editor.updateLine(row, { [partyField]: value })}
+            options={editor.participants.map((party) => ({ value: party.id, label: party.name }))}
+            aria-label={row.kind === "revenue" ? "Collected by" : "Paid by"}
           />
         </div>
-      )}
-      <div style={{ flex: "1 1 150px" }}>
-        <Select
-          value={partyId ?? ""}
-          disabled={isFinalized || editor.isBusy}
-          onChange={(value) => editor.updateLine(row, { [partyField]: value })}
-          options={editor.participants.map((party) => ({ value: party.id, label: party.name }))}
-          aria-label={row.kind === "revenue" ? "Collected by" : "Paid by"}
-        />
+        {!isFinalized && (
+          <Button
+            variant="ghost"
+            disabled={editor.isBusy}
+            onClick={() => editor.removeLine(row)}
+            aria-label={`Remove ${row.label}`}
+          >
+            <Icon name="x" size={14} />
+          </Button>
+        )}
       </div>
-      {!isFinalized && (
-        <Button
-          variant="ghost"
-          disabled={editor.isBusy}
-          onClick={() => editor.removeLine(row)}
-          aria-label={`Remove ${row.label}`}
+      {thread && <LineComments row={row} thread={thread} />}
+    </div>
+  );
+}
+
+/**
+ * THE CONVERSATION ABOUT ONE FIGURE.
+ *
+ * ClickUp `86cbcn1ue`: *"The option for collaborators to comment on a specific
+ * field."* `EventSettlement`'s own note already records why this matters —
+ * answering a settlement comment MEANS changing a figure — and a remark in the
+ * general thread makes the reader hunt for which figure it disputes.
+ *
+ * Existing remarks are shown ALWAYS, and the composer only when asked for.
+ * Hiding a question behind a click is how a question goes unanswered; hiding an
+ * empty text box is just tidiness. So a line with something said about it looks
+ * different from a line without, before anybody clicks anything.
+ *
+ * Available even when the settlement is finalized. Frozen figures are exactly
+ * when somebody most needs to say the number is wrong, which is the same reason
+ * the API lets a party raise a dispute over locked figures.
+ */
+function LineComments({ row, thread }: { row: SettlementLineRow; thread: LineThread }) {
+  const existing = thread.forLine(row.id);
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  const send = () => {
+    const message = draft.trim();
+    if (message === "") return;
+    thread.post(message, row.id);
+    setDraft("");
+    setOpen(false);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingLeft: 2 }}>
+      {existing.map((comment) => (
+        <div key={comment.id} style={{ fontSize: 12, color: "var(--muted)" }}>
+          <span style={{ color: "var(--text)" }}>{comment.author}</span>: {comment.message}
+        </div>
+      ))}
+      {open ? (
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <div style={{ flex: "1 1 220px" }}>
+            <Input
+              value={draft}
+              autoFocus
+              placeholder={`About ${row.label}…`}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => event.key === "Enter" && send()}
+              aria-label={`Your comment on ${row.label}`}
+            />
+          </div>
+          <Button variant="secondary" disabled={draft.trim() === ""} onClick={send}>
+            Post
+          </Button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          /* NAMED FOR ITS ROW. "Comment on this figure" repeated down a column of
+             eight lines is one label eight times over to anyone not looking at
+             where the pointer is — and the row is the entire meaning of the
+             control. */
+          aria-label={`${existing.length > 0 ? "Reply about" : "Comment on"} ${row.label}`}
+          style={{
+            alignSelf: "flex-start",
+            background: "none",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            fontSize: 11.5,
+            color: "var(--dim)",
+          }}
         >
-          <Icon name="x" size={14} />
-        </Button>
+          {existing.length > 0 ? "Reply" : "Comment on this figure"}
+        </button>
       )}
     </div>
   );

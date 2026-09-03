@@ -1616,6 +1616,8 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
               partyParticipantId: z.string().nullable(),
               authorName: z.string().nullable(),
               section: z.string().nullable(),
+              /** The one figure this is about, when it is about one. */
+              settlementLineId: z.string().nullable(),
               message: z.string(),
               createdAt: z.string(),
               isYours: z.boolean(),
@@ -1651,6 +1653,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           partyParticipantId: row.partyParticipantId,
           authorName: row.authorName,
           section: row.section,
+          settlementLineId: row.settlementLineId,
           message: row.message,
           createdAt: row.createdAt.toISOString(),
           isYours: row.partyParticipantId != null && mine.has(row.partyParticipantId),
@@ -1681,6 +1684,13 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         body: z.object({
           message: z.string().min(1).max(4000),
           section: z.string().max(64).optional(),
+          /**
+           * The settlement line this remark is about (ClickUp `86cbcn1ue`: *"The
+           * option for collaborators to comment on a specific field"*). Omitted
+           * for a comment on the settlement as a whole, which stays the common
+           * case and is what every existing caller sends.
+           */
+          settlementLineId: z.string().uuid().optional(),
         }),
         response: { 201: z.object({ id: z.string(), status: z.string() }) },
       },
@@ -1716,6 +1726,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
             // renames a profile.
             authorName: null,
             section: request.body.section ?? null,
+            settlementLineId: request.body.settlementLineId ?? null,
             message: request.body.message,
           })
           .returning();
@@ -1736,7 +1747,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           targetKind: "settlement",
           targetId: comment.id,
           eventId: id,
-          after: { section: comment.section },
+          after: { section: comment.section, settlementLineId: comment.settlementLineId },
         });
         // The MESSAGE never travels into the feed — a remark is addressed to the
         // parties in the thread, and the timeline reaches a wider room than that.

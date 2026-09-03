@@ -253,6 +253,13 @@
       "when": 1788912245004,
       "tag": "0035_two_ways_to_stack_a_commission",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1788912245005,
+      "tag": "0036_a_comment_can_name_the_figure",
+      "breakpoints": true
     }
   ]
 }

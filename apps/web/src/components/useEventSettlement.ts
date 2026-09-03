@@ -133,6 +133,8 @@ export interface SettlementComment {
   message: string;
   createdAt: string;
   isYours: boolean;
+  /** The one figure this is about, or null for the settlement as a whole. */
+  settlementLineId: string | null;
 }
 
 /**
@@ -321,7 +323,12 @@ export interface EventSettlement {
   /** True while the figures can still be re-issued — i.e. not yet frozen. */
   canReview: boolean;
   comments: SettlementComment[];
-  postComment: (message: string) => void;
+  /**
+   * Add a remark. Naming a line anchors it to that figure — which is the whole
+   * point, since answering a settlement comment MEANS changing a figure and a
+   * remark in a general thread makes the reader hunt for which one.
+   */
+  postComment: (message: string, settlementLineId?: string) => void;
   compute: () => void;
   finalize: () => void;
   confirmOwn: (settlementId: string) => void;
@@ -516,9 +523,9 @@ export function useEventSettlement(
   );
 
   const postComment = useCallback(
-    (message: string) => {
+    (message: string, settlementLineId?: string) => {
       addComment.mutate(
-        { id: eventId, data: { message } },
+        { id: eventId, data: settlementLineId ? { message, settlementLineId } : { message } },
         {
           onSuccess: () => {
             void queryClient.invalidateQueries({
@@ -770,6 +777,7 @@ export function useEventSettlement(
       message: row.message,
       createdAt: row.createdAt,
       isYours: row.isYours,
+      settlementLineId: row.settlementLineId ?? null,
     })),
     postComment,
     isBusy:

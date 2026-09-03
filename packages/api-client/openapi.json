@@ -7231,6 +7231,10 @@
                         "type": "string",
                         "nullable": true
                       },
+                      "settlementLineId": {
+                        "type": "string",
+                        "nullable": true
+                      },
                       "message": {
                         "type": "string"
                       },
@@ -7246,6 +7250,7 @@
                       "partyParticipantId",
                       "authorName",
                       "section",
+                      "settlementLineId",
                       "message",
                       "createdAt",
                       "isYours"
@@ -7274,6 +7279,10 @@
                   "section": {
                     "type": "string",
                     "maxLength": 64
+                  },
+                  "settlementLineId": {
+                    "type": "string",
+                    "format": "uuid"
                   }
                 },
                 "required": ["message"],

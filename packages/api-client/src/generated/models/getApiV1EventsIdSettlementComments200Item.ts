@@ -13,6 +13,8 @@ export type GetApiV1EventsIdSettlementComments200Item = {
   authorName: string | null;
   /** @nullable */
   section: string | null;
+  /** @nullable */
+  settlementLineId: string | null;
   message: string;
   createdAt: string;
   isYours: boolean;

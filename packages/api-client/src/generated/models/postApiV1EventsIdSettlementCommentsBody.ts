@@ -13,4 +13,5 @@ export type PostApiV1EventsIdSettlementCommentsBody = {
   message: string;
   /** @maxLength 64 */
   section?: string;
+  settlementLineId?: string;
 };

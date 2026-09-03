@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   check,
@@ -209,6 +210,30 @@ export const settlementComments = pgTable("settlement_comments", {
    * "[Settlement] " themselves lands wherever the parser puts them.
    */
   section: text("section"),
+  /**
+   * The exact FIGURE this comment is about, when it is about one.
+   *
+   * `section` above narrows a comment to a part of the document; this narrows it
+   * to a row. ClickUp `86cbcn1ue`: *"The option for collaborators to comment on a
+   * specific field."* The gap it closes is not politeness — `EventSettlement`'s
+   * own note says that answering a comment MEANS changing a figure, and a remark
+   * floating in a general thread makes the reader hunt for which one.
+   *
+   * A COLUMN, for the same reason `section` is one rather than a `"[Budget] "`
+   * prefix on the message: the old app parsed that guess out of user-supplied
+   * text, and a recipient who types the prefix themselves lands wherever the
+   * parser puts them. Encoding a line id into `section` would be the same mistake
+   * with a longer string.
+   *
+   * Nullable, and NULL on every row written before this existed — a comment on
+   * the settlement as a whole, which stays a legitimate and common thing to say.
+   * `set null` on delete rather than cascade: deleting the line somebody
+   * questioned must not delete the question, which is usually the moment it
+   * becomes most worth reading.
+   */
+  settlementLineId: uuid("settlement_line_id").references((): AnyPgColumn => settlementLines.id, {
+    onDelete: "set null",
+  }),
   message: text("message").notNull(),
   attachments: jsonb("attachments"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

@@ -1122,6 +1122,16 @@ function FinancialsTab({
           isFinalized={settlement.isFinalized}
           onRecalculate={settlement.compute}
           recalculateBlocked={settlement.unsignedAgreementsNotice != null}
+          /* The line-scoped half of the same conversation the Comments tab shows.
+             One thread, two ways in: a remark about a figure is made where the
+             figure is, and still appears in the tab that lists everything said. */
+          thread={{
+            forLine: (settlementLineId) =>
+              settlement.comments.filter(
+                (comment) => comment.settlementLineId === settlementLineId,
+              ),
+            post: (message, settlementLineId) => settlement.postComment(message, settlementLineId),
+          }}
         />
       )}
       <Card padding="lg" style={CARD_COLUMN}>
