@@ -2,10 +2,11 @@ import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
 import { convertMinorUnits } from "@showme/shared";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
+import { ensureSettlementLines } from "./lib/settlement-lines";
 import { dealRoutes } from "./routes/deals";
 import { settlementRoutes } from "./routes/settlement";
 import { buildTestApp, signEveryAgreement } from "./testing";
@@ -192,6 +193,87 @@ async function seedWorkedExample(prefix: string) {
 }
 
 describe("settlement — compute", () => {
+  /**
+   * THE BUDGET COPY IS MUTUALLY EXCLUSIVE PER EVENT.
+   *
+   * `ensureSettlementLines` asks "have we copied yet?" and then copies — two
+   * statements with a gap between them. With nothing serializing that pair, two
+   * concurrent callers both saw an empty settlement and both copied the whole
+   * budget, so every revenue and cost line existed twice. That doubles the pool
+   * and changes what every party is paid, with no error anywhere: `Σ net = 0`
+   * still balances, because balancing validates the DISTRIBUTION and never the
+   * total.
+   *
+   * Found in the browser — three Playwright specs clicked "Run the settlement" in
+   * parallel against one event and the Overview reported 960 tickets sold on a
+   * night that sold 320. In production the same shape is two co-operators
+   * clicking at once, or one impatient double-click.
+   *
+   * WHAT THIS ASSERTS, AND WHY IT IS NOT THE OBVIOUS TEST. Two earlier attempts
+   * both passed with the lock REMOVED, and each was a false pass worth recording:
+   *
+   *   1. Two `app.inject` computes through `Promise.all`. `startTestDatabase`
+   *      opens a ONE-connection pool, so the requests queued rather than raced.
+   *   2. Two real connections calling the function directly. Better, but the
+   *      window between the check and the insert against local Postgres is so
+   *      small that `Promise.all` never landed inside it. Green, and proving
+   *      nothing.
+   *
+   * A race that cannot be scheduled deterministically cannot be asserted
+   * deterministically. So this asserts the MECHANISM instead, which can be: a
+   * second connection takes the same advisory lock and holds it, and the copy is
+   * required to block until it is released. Remove the lock and the copy finishes
+   * immediately, and this fails — which is what makes it evidence rather than
+   * decoration.
+   */
+  it("waits for another connection's copy of the same event before copying", async () => {
+    const seed = await seedWorkedExample("race");
+
+    const budgeted = await harness.db
+      .select()
+      .from(schema.budgetLines)
+      .innerJoin(schema.budgets, eq(schema.budgets.id, schema.budgetLines.budgetId))
+      .where(and(eq(schema.budgets.eventId, seed.event.id), eq(schema.budgets.scope, "shared")));
+    expect(budgeted.length).toBeGreaterThan(0); // otherwise "copied once" is vacuous
+
+    const second = harness.openSecondConnection();
+    let releaseLock: () => void = () => {};
+    const lockHeld = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+
+    // Hold the event's lock open on another connection, exactly as a compute that
+    // is midway through copying would.
+    const holding = second.db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${seed.event.id}::text, 0))`,
+      );
+      await lockHeld;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    let copyFinished = false;
+    const copying = ensureSettlementLines(harness.db, seed.event.id).then((result) => {
+      copyFinished = true;
+      return result;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(copyFinished).toBe(false); // blocked, because the lock is somebody else's
+
+    releaseLock();
+    await holding;
+    await copying;
+    await second.close();
+    expect(copyFinished).toBe(true);
+
+    const copied = await harness.db
+      .select()
+      .from(schema.settlementLines)
+      .where(eq(schema.settlementLines.eventId, seed.event.id));
+    expect(copied).toHaveLength(budgeted.length);
+  });
+
   it("reconciles the worked example into per-participant settlements and transfers", async () => {
     const seed = await seedWorkedExample("compute");
 

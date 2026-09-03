@@ -188,6 +188,21 @@ export interface ReferenceBudgetLine {
   paidBy?: string;
   payeeParticipantId?: string;
   dealId?: string;
+  /**
+   * HOW THE FIGURE WAS REACHED — 260 tickets at 250, not just 65 000.
+   *
+   * The two ticket lines below have always ANNOUNCED their breakdown in their
+   * label and never stored it, which made the seeded event unable to exercise the
+   * feature built on top of it: settlement ticket rows are edited as
+   * `quantity x price` (ClickUp `86cbcn1ue`), and the Overview's ticketing summary
+   * reads `details.basis === "ticket_tier"`. Against this seed both found nothing
+   * and correctly showed nothing, so the demo event was the one place the feature
+   * could not be seen working.
+   *
+   * Minor units, matching `amount`, and `unitAmount x quantity === amount` — the
+   * label was already asserting that arithmetic in prose.
+   */
+  details?: { basis: string; unitAmount: string; quantity: number };
 }
 
 /**
@@ -284,6 +299,7 @@ export function referenceAlbumReleaseBudgetLines(
       currency: REFERENCE_EVENT_CURRENCY,
       collectedBy: spine.hostParticipantId,
       dealId: spine.dealId,
+      details: { basis: "ticket_tier", unitAmount: "25000", quantity: 260 },
     },
     {
       kind: "revenue",
@@ -292,6 +308,7 @@ export function referenceAlbumReleaseBudgetLines(
       currency: REFERENCE_EVENT_CURRENCY,
       collectedBy: spine.hostParticipantId,
       dealId: spine.dealId,
+      details: { basis: "ticket_tier", unitAmount: "30000", quantity: 60 },
     },
     {
       kind: "cost",

@@ -18,7 +18,7 @@ import {
   usePostApiV1EventsIdSettlementsSidConfirm,
 } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
-import { eventParticipantRoleLabel } from "@showme/shared";
+import { dealKindLabel, eventParticipantRoleLabel } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import { errorMessage } from "../lib/errors";
@@ -204,8 +204,36 @@ export interface SettlementDealRow {
   shares: { key: string; name: string; rule: string; amount: string }[];
 }
 
+/**
+ * A DEAL'S TERMS, for the Overview — what kind it is and what it pays.
+ *
+ * ClickUp `86cbcn1ue`: *"Deal type and Fee must appear in the Overview section of
+ * the settlement."*
+ *
+ * Built from the DEALS themselves, not from `settlements.computed.lines` the way
+ * `SettlementDealRow` is. That difference is the whole point: the agreement's
+ * terms are readable the moment it is written, while what it PAID does not exist
+ * until the night has been reconciled. An operator opening the Overview before
+ * computing was shown a page with no mention of the deal at all — and "what did we
+ * agree" is the question the Overview is for.
+ */
+export interface SettlementAgreementRow {
+  dealId: string;
+  name: string;
+  /** "Guarantee vs door", "Door split" — the composer's own words. */
+  kind: string;
+  /** The headline figure, already formatted. Null for terms that state no amount. */
+  fee: string | null;
+  /** "70% of the pool", when that is what it pays. Null otherwise. */
+  share: string | null;
+  /** Set only when part of it moved before the night. */
+  paidInAdvance: string | null;
+}
+
 export interface EventSettlement {
   parties: SettlementParty[];
+  /** The agreements' TERMS, readable before anything is reconciled. */
+  agreements: SettlementAgreementRow[];
   transfers: Transfer[];
   /** Private agent↔performer commissions — only ever the two parties' own (#14). */
   commissions: SettlementCommissionRow[];
@@ -632,6 +660,11 @@ export function useEventSettlement(
     [rows, deals.data, currency, nameOf, formatAmount],
   );
 
+  const agreementRows = useMemo(
+    () => toAgreementRows(deals.data ?? [], currency),
+    [deals.data, currency],
+  );
+
   /**
    * The same three questions the server's `assertEveryAgreementSigned` asks, in
    * the same order: is it withdrawn (nothing to wait for), has anybody actually
@@ -680,6 +713,7 @@ export function useEventSettlement(
     sendInvitation,
     isInviting: inviteToSettlement.isPending,
     deals: dealRows,
+    agreements: agreementRows,
     ownParty: parties.find((party) => party.isYours) ?? null,
     isWholeBoard: isWholeBoard(
       rows.filter((row) => row.computed != null).map((row) => row.computed?.net ?? "0"),
@@ -814,6 +848,39 @@ function toParty(
  * which paid nobody visible produces no row, and a deal whose name the caller
  * cannot read falls back to its short id rather than to an invented label.
  */
+/**
+ * The agreements' TERMS, in the composer's own vocabulary.
+ *
+ * `dealKindLabel` rather than a second mapping: a deal written as "Guarantee vs
+ * door" must not read back as "guarantee_vs_door", and the one place that decides
+ * how a kind is spelled is `@showme/shared`. A local map here would drift from the
+ * composer the first time either changed.
+ *
+ * Each deal's OWN currency where it has one — a fee agreed in EUR on a SEK night
+ * is a EUR fee, and restating it in the base currency here would be inventing a
+ * conversion that the settlement does not make until it locks a rate at finalize
+ * (`docs/money.md`).
+ */
+function toAgreementRows(
+  deals: Awaited<ReturnType<typeof getApiV1EventsIdDeals>>,
+  displayCurrency: string,
+): SettlementAgreementRow[] {
+  return deals.map((deal) => {
+    const currency = deal.currency ?? displayCurrency;
+    return {
+      dealId: deal.id,
+      name: deal.name,
+      kind: dealKindLabel(deal.type, deal.structure ?? null),
+      fee: deal.guaranteeAmount ? formatMoney(deal.guaranteeAmount, currency) : null,
+      share:
+        deal.splitBasisPoints != null
+          ? `${(deal.splitBasisPoints / 100).toFixed(0)}% of the pool`
+          : null,
+      paidInAdvance: deal.advanceAmount ? formatMoney(deal.advanceAmount, currency) : null,
+    };
+  });
+}
+
 function toDealRows(
   rows: Settlements["settlements"],
   deals: Awaited<ReturnType<typeof getApiV1EventsIdDeals>>,
