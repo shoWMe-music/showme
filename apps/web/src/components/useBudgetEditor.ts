@@ -13,7 +13,7 @@ import {
   usePostApiV1EventsIdBudgetsBidLines,
 } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
-import { type BudgetInputs, eventParticipantRoleLabel } from "@showme/shared";
+import { type BudgetInputs, applyBasisPoints, eventParticipantRoleLabel } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getActiveProfileId } from "../lib/activeProfile";
@@ -135,6 +135,33 @@ export interface TicketTierDraft {
   collectedBy?: string;
 }
 
+/**
+ * WHAT A PERCENTAGE DEDUCTION IS A PERCENTAGE OF.
+ *
+ * `ofKey` names a row in the DRAFT, not a database id, because that is what makes
+ * the figure live: the planner recomputes against whatever the base currently
+ * says, so correcting the merch estimate corrects the venue's cut of it in the
+ * same keystroke. Standing rows carry stable synthetic keys (`row:merch`); tiers
+ * and custom rows carry their own ids.
+ *
+ * `ofLabel` travels with it so a rule whose base has been deleted can still say
+ * what it was a share of, instead of rendering as a percentage of nothing.
+ */
+export interface DerivedDeductionRule {
+  ofKey: string;
+  ofLabel: string;
+  /** Integer basis points (money.md). 1000 = 10%. */
+  basisPoints: number;
+}
+
+/** One row a percentage deduction may be taken from, as the planner sees it. */
+export interface DeductionBaseOption {
+  key: string;
+  label: string;
+  /** Minor units, as the draft currently stands. */
+  amount: bigint;
+}
+
 export interface CostDraft {
   key: string;
   label: string;
@@ -152,6 +179,15 @@ export interface CostDraft {
   bearing?: CostBearing;
   /** Which deal this cost names, and in which of the two senses. Absent = none. */
   dealLink?: CostDealLink;
+  /**
+   * A DEDUCTION STATED AS A SHARE OF ANOTHER ROW, rather than as a figure.
+   *
+   * ClickUp `86cbcn1ue` — *"10% of merch deducted from performer's share paid to
+   * venue"*. When this is set the row's `value` is COMPUTED from the named base
+   * and is not editable: typing into it would be typing over an answer, and the
+   * next recompute would throw the typing away. Clear the rule to type a figure.
+   */
+  derivedFrom?: DerivedDeductionRule;
   /**
    * Set on a row whose figure is READ FROM A DEAL and never stored — the
    * performer fee (`useBudgetSeed`). It counts in every total, is not editable
@@ -299,6 +335,33 @@ function customDraftFrom(
 }
 
 /**
+ * The percentage rule a stored line carries, read back. `null` for every ordinary
+ * row, which is nearly all of them — an absent rule means the figure is a figure.
+ *
+ * All three fields are required to reconstitute it. A half-written rule (a
+ * percentage with nothing to take it of) is not a rule the planner can recompute,
+ * so it degrades to a plain amount rather than to a row that renders "10% of
+ * undefined" — the stored `amount` is still the right number either way, because
+ * `amount` was always the authoritative one.
+ */
+function derivedFromLine(
+  details:
+    | {
+        basis?: string;
+        ofKey?: string;
+        ofLabel?: string;
+        basisPoints?: number;
+      }
+    | null
+    | undefined,
+): DerivedDeductionRule | undefined {
+  if (!details || details.basis !== "percentage_of") return undefined;
+  const { ofKey, ofLabel, basisPoints } = details;
+  if (typeof ofKey !== "string" || typeof basisPoints !== "number") return undefined;
+  return { ofKey, ofLabel: ofLabel ?? "another row", basisPoints };
+}
+
+/**
  * The bearing rule a stored line carries, read back for the planner's selector.
  * `cost_split` wins over `payee_participant_id` in the unlikely event a row has
  * both — it is the more specific statement, and the API refuses to write both
@@ -374,6 +437,8 @@ export interface BudgetEditor {
   selectBudget: (budgetId: string) => void;
   ticketTiers: TicketTierDraft[];
   costs: CostDraft[];
+  /** Every row a percentage deduction may be taken of, as the draft stands. */
+  deductionBases: DeductionBaseOption[];
   capacity: string;
   averageBarSpend: string;
   /** Average merch spend per head. Its own row — see `BAR_LABEL`. */
@@ -415,7 +480,13 @@ export interface BudgetEditor {
    * cost" (2026-08 meeting, 01:08:30) — a deduction arrives already naming the
    * party it comes out of.
    */
-  addCustomCost: (label: string, amount: string, bearing?: CostBearing) => void;
+  addCustomCost: (
+    label: string,
+    amount: string,
+    bearing?: CostBearing,
+    paidBy?: string,
+    derivedFrom?: DerivedDeductionRule,
+  ) => void;
   /** Remove a custom cost row. The six standing headings are never removable. */
   removeCost: (key: string) => void;
   /** The free-form revenue rows ("+ Add Field" on the Revenue card). */
@@ -683,6 +754,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
           paidBy: line.paidBy ?? undefined,
           bearing: bearingFrom(line),
           dealLink: dealLinkFrom(line),
+          derivedFrom: derivedFromLine(line.details),
         };
       });
     return [...standard, ...custom];
@@ -985,6 +1057,86 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     [readOnlyReason],
   );
 
+  /**
+   * EVERY ROW A PERCENTAGE DEDUCTION MAY BE TAKEN OF, as the draft currently
+   * stands — not as the server last saw it.
+   *
+   * Taken from the DRAFT on purpose. It is what makes "10% of merch" a live
+   * figure: correcting the merch estimate corrects the venue's cut of it in the
+   * same keystroke, with nothing to save and re-read in between. The alternative —
+   * resolving against the stored lines — would leave the sheet showing a
+   * percentage of a number that is no longer on screen.
+   *
+   * Revenue only. Ran's cases are all shares of income ("10% of merch", a bar
+   * minimum), and a deduction taken off a cost is a different idea that nobody has
+   * asked for; offering it would invite a rule whose meaning we would then have to
+   * invent.
+   */
+  const deductionBases = useMemo<DeductionBaseOption[]>(() => {
+    const heads = BigInt(Math.trunc(numeric(capacity)));
+    const bases: DeductionBaseOption[] = [];
+    for (const tier of tiers) {
+      bases.push({
+        key: tier.id,
+        label: tier.name.trim() || "Ticket tier",
+        amount: BigInt(toMinorUnits(tier.price)) * BigInt(Math.trunc(numeric(tier.quantity))),
+      });
+    }
+    bases.push({
+      key: BAR_ROW,
+      label: BAR_LABEL,
+      amount: BigInt(toMinorUnits(averageBarSpend)) * heads,
+    });
+    bases.push({
+      key: MERCH_ROW,
+      label: MERCH_LABEL,
+      amount: BigInt(toMinorUnits(averageMerchSpend)) * heads,
+    });
+    bases.push({
+      key: OTHER_REVENUE_ROW,
+      label: OTHER_REVENUE_LABEL,
+      amount: BigInt(toMinorUnits(otherRevenue)),
+    });
+    for (const row of customRevenue) {
+      bases.push({
+        key: row.id,
+        label: row.label,
+        amount: BigInt(toMinorUnits(row.value)),
+      });
+    }
+    return bases;
+  }, [tiers, capacity, averageBarSpend, averageMerchSpend, otherRevenue, customRevenue]);
+
+  /**
+   * The costs as the screen and the writer both see them: a derived row's figure
+   * REPLACED by what its rule currently works out to.
+   *
+   * One memo feeding both, deliberately. If the display computed the percentage
+   * and the flush wrote the stored draft value, the sheet would show one number
+   * and save another — and the one it saved would be whatever the amount happened
+   * to be when the rule was created.
+   *
+   * A rule whose base has vanished keeps the last figure it had rather than
+   * collapsing to zero. Deleting a merch row should not silently forgive the
+   * venue's cut of it; the row stays visible, still labelled as a share of
+   * something that is gone, for somebody to decide about.
+   */
+  const resolvedCosts = useMemo<CostDraft[]>(
+    () =>
+      costs.map((cost) => {
+        if (!cost.derivedFrom) return cost;
+        const base = deductionBases.find((option) => option.key === cost.derivedFrom?.ofKey);
+        if (!base) return cost;
+        return {
+          ...cost,
+          value: toMajorUnits(
+            applyBasisPoints(base.amount, cost.derivedFrom.basisPoints).toString(),
+          ),
+        };
+      }),
+    [costs, deductionBases],
+  );
+
   // Kept in a ref so the debounce timer always calls the CURRENT draft's writer
   // without the timer itself having to be rebuilt on every keystroke.
   flushRef.current = () => {
@@ -1050,22 +1202,58 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       );
     }
 
-    for (const cost of costs) {
+    for (const cost of resolvedCosts) {
       // A figure read from a deal is not this budget's to write. Skipped BEFORE
       // anything else, because the row does carry an amount and would otherwise
       // sail through the "a heading with a figure becomes a line" rule below —
       // storing the guarantee as external cash, which is precisely the wrong
       // transfer `useBudgetSeed`'s note describes.
       if (cost.readFromDeal) continue;
-      if (!wasEdited(cost.key)) continue;
+      /**
+       * A DERIVED ROW IS WRITTEN WHEN ITS BASE MOVES, THOUGH NOBODY TOUCHED IT.
+       *
+       * Caught by reading Postgres rather than the screen, which is the only way
+       * it could have been caught: raising the merch estimate updated "10% of
+       * Merchandise" on screen instantly — the value is computed — while the
+       * stored `amount` stayed at what it was when the rule was created. The
+       * planner looked right and re-read right (it recomputes on load), so the
+       * only symptom would have been the SETTLEMENT copying a stale figure,
+       * months later, in the one place the number is real money.
+       *
+       * `wasEdited` cannot cover this on its own: the row the operator edited was
+       * the BASE, and a derived row is never edited by anybody. Comparing the
+       * computed figure against the stored one is also self-correcting — a future
+       * base that forgets to schedule anything is still picked up by the next
+       * flush, instead of leaving one more place to remember.
+       */
+      const storedLine = lines.find((line) => line.id === cost.key);
+      const derivedHasDrifted =
+        cost.derivedFrom != null &&
+        storedLine != null &&
+        toMinorUnits(cost.value.trim() === "" ? "0" : cost.value.trim()) !==
+          String(storedLine.amount);
+      if (!wasEdited(cost.key) && !derivedHasDrifted) continue;
       const typed = cost.value.trim();
       // The figure as typed, taken ONCE — a custom row's value is the value. The
       // breakdown is stored anyway, and stored as `quantity: 1`, because `basis`
       // is what makes the row findable as a custom cost on the way back in.
       const amount = toMinorUnits(typed === "" ? "0" : typed);
-      const details = cost.isCustom
-        ? { basis: "custom_cost" as const, unitAmount: amount, quantity: 1 }
-        : undefined;
+      // A derived row stores its RULE, so the next session can recompute it
+      // rather than inheriting a figure that once was 10% of something. `amount`
+      // above is still the authoritative number the engine reads — this only
+      // remembers how it was reached, exactly as the ticket and bar breakdowns do.
+      const details = cost.derivedFrom
+        ? {
+            basis: "percentage_of" as const,
+            unitAmount: amount,
+            quantity: 1,
+            ofKey: cost.derivedFrom.ofKey,
+            ofLabel: cost.derivedFrom.ofLabel,
+            basisPoints: cost.derivedFrom.basisPoints,
+          }
+        : cost.isCustom
+          ? { basis: "custom_cost" as const, unitAmount: amount, quantity: 1 }
+          : undefined;
       // The cost rule, as the two columns the API stores it in. Derived once —
       // the create and the update paths must never disagree about what "shared"
       // writes, or a rule would clear on one path and persist on the other.
@@ -1421,7 +1609,13 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
    * LABEL, not the key), so the row index cannot collide with a heading's key.
    */
   const addCustomCost = useCallback(
-    (label: string, amount: string, bearing?: CostBearing) => {
+    (
+      label: string,
+      amount: string,
+      bearing?: CostBearing,
+      paidBy?: string,
+      derivedFrom?: DerivedDeductionRule,
+    ) => {
       const trimmed = label.trim();
       if (trimmed === "") return;
       // The key only has to be unique until the row is written — the create reads
@@ -1437,6 +1631,8 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
           value: amount,
           isCustom: true,
           bearing: bearing ?? SHARED_COST_BEARING,
+          ...(paidBy ? { paidBy } : {}),
+          ...(derivedFrom ? { derivedFrom } : {}),
         },
       ]);
       scheduleFlush(key);
@@ -1583,7 +1779,8 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     selectedBudgetId: budgetId,
     selectBudget: setSelectedBudgetId,
     ticketTiers: tiers,
-    costs,
+    costs: resolvedCosts,
+    deductionBases,
     capacity,
     averageBarSpend,
     averageMerchSpend,

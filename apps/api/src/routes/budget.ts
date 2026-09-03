@@ -63,10 +63,22 @@ const LineDetails = z.object({
       "other_revenue",
       "custom_revenue",
       "custom_cost",
+      "percentage_of",
     ])
     .default("ticket_tier"),
   unitAmount: MinorUnitsAmount,
   quantity: z.number().int().min(0),
+  /**
+   * A deduction stated as a percentage of another line (ClickUp `86cbcn1ue`).
+   * Optional and set together; `amount` stays the authoritative figure, and these
+   * only remember how it was reached so the planner can recompute it when the
+   * base moves. `basisPoints` is an integer per money.md — never a float, and
+   * capped at 100% because a deduction larger than the thing it is a share of is
+   * arithmetic nobody meant.
+   */
+  ofKey: z.string().max(200).optional(),
+  ofLabel: z.string().max(200).optional(),
+  basisPoints: z.number().int().min(0).max(10_000).optional(),
 });
 
 /**

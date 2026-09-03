@@ -15,4 +15,13 @@ export type PatchApiV1EventsIdSettlementLinesLidBodyDetails = {
   unitAmount: string;
   /** @minimum 0 */
   quantity: number;
+  /** @maxLength 200 */
+  ofKey?: string;
+  /** @maxLength 200 */
+  ofLabel?: string;
+  /**
+   * @minimum 0
+   * @maximum 10000
+   */
+  basisPoints?: number;
 } | null;

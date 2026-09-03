@@ -149,3 +149,119 @@ test("bar and merch are separate rows, each with its own collector", async ({ pa
   await expect(page.locator('[aria-label="Collected by, for bar revenue"]')).toBeVisible();
   await expect(page.locator('[aria-label="Collected by, for merch revenue"]')).toBeVisible();
 });
+
+/**
+ * A DEDUCTION STATED AS A SHARE OF ANOTHER ROW — ClickUp `86cbcn1ue`: *"there
+ * should be the option to create deductible with either fixed amount or a
+ * percentage from X. As it was in V2."*
+ *
+ * The interesting assertion is the last one, and it is the one that caught a real
+ * bug. Raising the base updates the derived figure on screen INSTANTLY, because
+ * the value is computed rather than stored — so the screen is a witness that
+ * cannot testify about whether anything was saved. The first version of this
+ * feature displayed the new figure while leaving the old one in Postgres, and the
+ * only place that would ever have surfaced is the settlement, which copies
+ * `amount` months later when it is real money.
+ *
+ * So the write itself is watched, on the wire. A screen assertion here would pass
+ * over exactly the defect this is for.
+ */
+test("a percentage deduction follows its base, on screen and in what gets saved", async ({
+  page,
+}) => {
+  const saved: string[] = [];
+  /** Writes the planner has actually COMPLETED, so the test can wait for them. */
+  let settledWrites = 0;
+  page.on("request", (request) => {
+    if (request.method() === "PATCH" && /\/budgets\/.+\/lines\//.test(request.url())) {
+      saved.push(request.postData() ?? "");
+    }
+  });
+  page.on("response", (response) => {
+    const isLineWrite =
+      /\/budgets\/.+\/lines/.test(response.url()) &&
+      ["POST", "PATCH"].includes(response.request().method());
+    if (isLineWrite && response.ok()) settledWrites += 1;
+  });
+
+  await openBudgetPlanner(page);
+
+  // A base worth taking a share of: 25 a head across the seeded 400 = 10 000.
+  const merch = page.locator('[aria-label="Average merch spend per guest"]');
+  await merch.fill("25");
+  await expect(page.getByText("Merch revenue").locator("..")).toContainText("10,000");
+
+  await page.getByRole("button", { name: "Add field" }).last().click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByText("A deduction").click();
+  await dialog.getByText("A percentage of…").click();
+
+  await dialog.locator("input").first().fill("Venue's cut of merch");
+  await dialog.locator('[aria-label="Percentage"]').fill("10");
+  await dialog.locator('[aria-label="The party this deduction comes out of"]').click();
+  await page.getByRole("option", { name: /Marlo Vance/ }).click();
+  await dialog.locator('[aria-label="The row this percentage is taken of"]').click();
+  await page.getByRole("option", { name: "Merchandise" }).click();
+  await dialog.getByRole("button", { name: "Add deduction" }).click();
+
+  const row = page
+    .locator("main div")
+    .filter({ hasText: /^Venue's cut of merch/ })
+    .first();
+  await expect(row).toContainText("1,000"); // 10% of 10 000
+  await expect(row).toContainText("Deduction");
+  // The rule is named on the row, so the figure is checkable rather than magic.
+  await expect(page.getByText("10% of Merchandise, kept in step with it.")).toBeVisible();
+
+  // Computed, therefore not typeable: an editable box over a derived figure would
+  // invite typing that the next recompute throws away.
+  await expect(row.locator("input")).toHaveCount(0);
+
+  /*
+   * RELOAD BEFORE MOVING THE BASE, and the reason is the bug's actual shape.
+   *
+   * A row that has only just been added is still a pending create — it has no
+   * server id yet, so "has the stored figure drifted?" has nothing to compare
+   * against, and the create writes the computed figure correctly anyway. The
+   * defect lives one step later: a row that IS saved, whose base then moves.
+   * Reloading puts the test in that state instead of the easy one.
+   *
+   * It also proves the rule itself survived the round trip: the figure below is
+   * recomputed from `details`, so a rule that failed to store would come back as
+   * a plain amount with no note under it.
+   */
+  /*
+   * The planner saves on a 700ms debounce, so a reload fired straight after the
+   * click races the write it is supposed to be checking — and loses, silently,
+   * as an empty page rather than as a failed assertion. Waiting on the RESPONSES
+   * rather than on a timeout means this stays correct if the debounce changes.
+   *
+   * Two writes are owed by this point: the merch figure, and the deduction.
+   */
+  await expect
+    .poll(() => settledWrites, { timeout: 10_000, message: "planner writes settled" })
+    .toBeGreaterThanOrEqual(2);
+
+  await page.reload();
+  await page.getByRole("tab", { name: /budget planner/i }).click();
+  const reloaded = page
+    .locator("main div")
+    .filter({ hasText: /^Venue's cut of merch/ })
+    .first();
+  await expect(reloaded).toContainText("1,000");
+  await expect(page.getByText("10% of Merchandise, kept in step with it.")).toBeVisible();
+
+  saved.length = 0;
+
+  // Move the base. 50 a head across 400 = 20 000, so the cut is 2 000.
+  await page.locator('[aria-label="Average merch spend per guest"]').fill("50");
+  await expect(reloaded).toContainText("2,000");
+
+  // AND it must reach the server. Without this the test passes on a stale write.
+  await expect
+    .poll(() => saved.some((body) => body.includes('"amount":"200000"')), {
+      timeout: 5_000,
+      message: "the derived deduction was re-saved after its base moved",
+    })
+    .toBe(true);
+});

@@ -23,6 +23,7 @@ import type {
   BudgetDealOption,
   CostBearing,
   CostDealLink,
+  DerivedDeductionRule,
 } from "./useBudgetEditor";
 import { NEW_ROW_PREFIX, linkedDealId } from "./useBudgetEditor";
 
@@ -58,6 +59,12 @@ export interface CostRow {
    * would otherwise be short by the largest cost of the night.
    */
   readFromDeal?: { dealNames: string[] };
+  /**
+   * Set on a DERIVED row — a deduction stated as a share of another row rather
+   * than as a figure. Read-only for the same reason `readFromDeal` is: the number
+   * is an answer, and the rule is where the question lives.
+   */
+  derivedFrom?: DerivedDeductionRule;
 }
 
 /** A free-form revenue row the operator named ("+ Add Field"). */
@@ -502,7 +509,12 @@ export function BudgetPlanner({
                     participants={participants}
                   />
                 )}
-                {cost.readFromDeal
+                {/* A derived figure is READ-ONLY for the same reason a deal's
+                    figure is: it is an answer, not an entry. An editable box over
+                    a computed number invites somebody to type into it and lose
+                    the typing at the next recompute. Clear the rule to type a
+                    figure — the × on the row does that by removing it. */}
+                {cost.readFromDeal || cost.derivedFrom
                   ? readOnlyMoney(cost.value, currencySymbol)
                   : money(
                       cost.value,
@@ -540,6 +552,7 @@ export function BudgetPlanner({
                   </button>
                 )}
               </div>
+              {cost.derivedFrom && <DerivedDeductionNote rule={cost.derivedFrom} />}
               {cost.readFromDeal ? (
                 <ReadFromDealNote dealNames={cost.readFromDeal.dealNames} />
               ) : (
@@ -805,6 +818,46 @@ function readOnlyMoney(value: string, currencySymbol: string) {
  * shows one "Performer fee" row, and the operator has to be able to see which
  * agreements it adds up.
  */
+/**
+ * WHAT A DERIVED ROW IS A SHARE OF — said on the row, in the rule's own terms.
+ *
+ * Without it the sheet shows a figure nobody typed, in a box nobody can edit, and
+ * the only way to find out where it came from is to delete it. Naming the rule is
+ * also what makes it checkable: *"10% of Merchandise"* beside SEK 1 000 is a
+ * statement a reader can disagree with.
+ *
+ * `ofLabel` is the rule's own stored copy of the name rather than a lookup, so a
+ * row whose base has since been deleted still says what it was a share of.
+ */
+function DerivedDeductionNote({ rule }: { rule: DerivedDeductionRule }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        fontSize: 11.5,
+        color: "var(--dim)",
+        paddingLeft: 2,
+      }}
+    >
+      {/* `link`, not a percent glyph — the design system has no percent icon, and
+          this note means the same thing `DealAssignmentNote` does with the same
+          icon: this row's figure is tied to something else on the page. Adding an
+          icon to the system to say "percent" when the sentence already says it
+          would be a token invented at a call site. */}
+      <Icon name="link" size={12} />
+      {formatBasisPoints(rule.basisPoints)} of {rule.ofLabel}, kept in step with it.
+    </div>
+  );
+}
+
+/** "10%", "12.5%" — trailing zeros trimmed, because 10.00% reads as a setting. */
+function formatBasisPoints(basisPoints: number): string {
+  const percent = basisPoints / 100;
+  return `${Number.isInteger(percent) ? percent : Number(percent.toFixed(2))}%`;
+}
+
 function ReadFromDealNote({ dealNames }: { dealNames: string[] }) {
   const quoted = dealNames.map((name) => `“${name}”`);
   const named =

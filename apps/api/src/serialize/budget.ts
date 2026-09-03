@@ -14,7 +14,8 @@ export type BudgetLineBasis =
   | "merch_spend"
   | "other_revenue"
   | "custom_revenue"
-  | "custom_cost";
+  | "custom_cost"
+  | "percentage_of";
 
 const LINE_BASES: BudgetLineBasis[] = [
   "ticket_tier",
@@ -23,6 +24,7 @@ const LINE_BASES: BudgetLineBasis[] = [
   "other_revenue",
   "custom_revenue",
   "custom_cost",
+  "percentage_of",
 ];
 
 /**
@@ -34,6 +36,29 @@ export interface BudgetLineDetails {
   basis: BudgetLineBasis;
   unitAmount: string;
   quantity: number;
+  /**
+   * A DEDUCTION STATED AS A PERCENTAGE OF ANOTHER LINE — the three fields below,
+   * set together, and only on `basis: "percentage_of"`.
+   *
+   * ClickUp `86cbcn1ue`, 2026-09-02: *"there should be the option to create
+   * deductible with either fixed amount or a percentage from X. As it was in V2."*
+   * His worked example is *"10% of merch deducted from performer's share paid to
+   * venue"* — an amount that is not a figure anybody typed but a share of a figure
+   * somewhere else on the sheet.
+   *
+   * `amount` STAYS AUTHORITATIVE, exactly as it does for every other breakdown
+   * here: the engine reads `amount` and never this. What these remember is how the
+   * amount was arrived at, so the planner can recompute it when the base moves
+   * instead of leaving a stale figure that once was 10% of something.
+   *
+   * `ofLabel` is stored alongside `ofKey` on purpose. The base can be deleted, and
+   * a rule that can only render as "10% of <missing row>" is worse than one that
+   * can still say what it was a share of.
+   */
+  ofKey?: string;
+  ofLabel?: string;
+  /** Integer basis points (money.md — never a float). 1000 = 10%. */
+  basisPoints?: number;
 }
 
 function budgetLineDetails(value: unknown): BudgetLineDetails | null {
@@ -45,7 +70,14 @@ function budgetLineDetails(value: unknown): BudgetLineDetails | null {
   // A row written before `basis` existed is a ticket tier — that was the only
   // breakdown the planner could produce at the time.
   const basis = LINE_BASES.find((known) => known === candidate.basis) ?? "ticket_tier";
-  return { basis, unitAmount: candidate.unitAmount, quantity: candidate.quantity };
+  return {
+    basis,
+    unitAmount: candidate.unitAmount,
+    quantity: candidate.quantity,
+    ...(typeof candidate.ofKey === "string" ? { ofKey: candidate.ofKey } : {}),
+    ...(typeof candidate.ofLabel === "string" ? { ofLabel: candidate.ofLabel } : {}),
+    ...(typeof candidate.basisPoints === "number" ? { basisPoints: candidate.basisPoints } : {}),
+  };
 }
 
 /**

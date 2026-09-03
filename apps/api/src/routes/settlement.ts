@@ -2141,10 +2141,15 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         "other_revenue",
         "custom_revenue",
         "custom_cost",
+        "percentage_of",
       ])
       .default("ticket_tier"),
     unitAmount: LineAmount,
     quantity: z.number().int().min(0),
+    /** Carried through from the budget copy — see `budget.ts`'s `LineDetails`. */
+    ofKey: z.string().max(200).optional(),
+    ofLabel: z.string().max(200).optional(),
+    basisPoints: z.number().int().min(0).max(10_000).optional(),
   });
 
   const SettlementLineResponse = z.object({

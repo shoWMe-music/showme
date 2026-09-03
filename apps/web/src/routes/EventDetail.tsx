@@ -769,10 +769,11 @@ function BudgetTab({
         kind={customFieldKind}
         currencySymbol={currencySymbol(currency)}
         participants={editor.participants}
+        deductionBases={editor.deductionBases}
         onClose={() => setCustomFieldKind(null)}
-        onSubmit={(kind, label, amount, bearing) =>
+        onSubmit={(kind, label, amount, bearing, paidBy, derivedFrom) =>
           kind === "cost"
-            ? editor.addCustomCost(label, amount, bearing)
+            ? editor.addCustomCost(label, amount, bearing, paidBy, derivedFrom)
             : editor.addCustomRevenue(label, amount)
         }
       />

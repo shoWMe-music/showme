@@ -16,4 +16,5 @@ export const PatchApiV1EventsIdBudgetsBidLinesLid200DetailsBasis = {
   other_revenue: 'other_revenue',
   custom_revenue: 'custom_revenue',
   custom_cost: 'custom_cost',
+  percentage_of: 'percentage_of',
 } as const;
