@@ -106,6 +106,96 @@ describe("reconcile — deductibles", () => {
     expect(netOf(result, "V")).toBe(eur(1500)); // venue recovers what it fronted
     assertBalanced(result);
   });
+
+  /**
+   * WHICH costs made up the deduction, not just how much — ClickUp `86cbcn1ue`:
+   * *"A detailed view of all items divided to each collaborator's share."*
+   *
+   * The total alone is the figure that starts a settlement argument: a performer
+   * sees "less costs somebody else fronted on your behalf — 3 500" and has no way
+   * to ask about it except by asking.
+   *
+   * The list must SUM to the total, which is the property that makes it checkable
+   * rather than decorative — asserted here rather than eyeballed, because an
+   * itemisation that disagrees with the figure above it is worse than none.
+   */
+  it("itemises each party's deductions, and they sum to the total", () => {
+    const result = reconcile({
+      baseCurrency: "EUR",
+      participants: [{ participantId: "P", isOperator: true }, { participantId: "B" }],
+      deals: [
+        {
+          dealId: "guar",
+          structure: "guarantee",
+          payeeParticipantIds: ["B"],
+          guaranteeAmount: eur(3000),
+        },
+      ],
+      budgetLines: [
+        { kind: "revenue", amount: eur(10000), collectedBy: "P" },
+        { kind: "cost", amount: eur(500), paidBy: "P", payeeParticipantId: "B", label: "Hotel" },
+        { kind: "cost", amount: eur(200), paidBy: "P", payeeParticipantId: "B", label: "Backline" },
+        // Nobody's in particular — the event carries it, so it must NOT appear.
+        { kind: "cost", amount: eur(900), paidBy: "P", label: "Marketing" },
+      ],
+    });
+
+    const band = result.breakdowns.find((party) => party.participantId === "B");
+    expect(band?.deductibleLines).toEqual([
+      { label: "Hotel", amount: eur(500) },
+      { label: "Backline", amount: eur(200) },
+    ]);
+    const summed = (band?.deductibleLines ?? []).reduce((total, line) => total + line.amount, 0n);
+    expect(summed).toBe(band?.deductibles);
+
+    // The operator bears nothing by name — its costs come off the pool instead.
+    const operator = result.breakdowns.find((party) => party.participantId === "P");
+    expect(operator?.deductibleLines).toEqual([]);
+    assertBalanced(result);
+  });
+
+  /**
+   * A SPLIT cost tells each bearer THEIR OWN portion.
+   *
+   * The line is one figure; what each party is owed an explanation for is their
+   * share of it. Showing the line total to both would have them reading 1 000 each
+   * against a 1 000 cost, which is the misunderstanding the split exists to avoid.
+   */
+  it("itemises a split cost as each bearer's own share of it", () => {
+    const result = reconcile({
+      baseCurrency: "EUR",
+      participants: [
+        { participantId: "P", isOperator: true },
+        { participantId: "A" },
+        { participantId: "B" },
+      ],
+      deals: [
+        {
+          dealId: "split",
+          structure: "guarantee",
+          payeeParticipantIds: ["A", "B"],
+          guaranteeAmount: eur(4000),
+          partyShares: { A: 5000, B: 5000 },
+        },
+      ],
+      budgetLines: [
+        { kind: "revenue", amount: eur(10000), collectedBy: "P" },
+        {
+          kind: "cost",
+          amount: eur(1000),
+          paidBy: "P",
+          costSplit: { A: 6000, B: 4000 },
+          label: "Shared PA",
+        },
+      ],
+    });
+
+    const a = result.breakdowns.find((party) => party.participantId === "A");
+    const b = result.breakdowns.find((party) => party.participantId === "B");
+    expect(a?.deductibleLines).toEqual([{ label: "Shared PA", amount: eur(600) }]);
+    expect(b?.deductibleLines).toEqual([{ label: "Shared PA", amount: eur(400) }]);
+    assertBalanced(result);
+  });
 });
 
 describe("reconcile — co-operators split the residual", () => {

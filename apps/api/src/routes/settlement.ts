@@ -136,6 +136,8 @@ const BreakdownResponse = z.object({
   prepaid: z.string().optional(),
   /** Who that early money was with, so the screen can name both ends of it. */
   prepaidCounterpartyIds: z.array(z.string()).optional(),
+  /** The costs behind `deductibles`, itemised — this party's own portion of each. */
+  deductibleLines: z.array(z.object({ label: z.string(), amount: z.string() })).optional(),
 });
 
 /** One party's sign-off, as the roster shows it. */
@@ -810,6 +812,9 @@ async function reconcileEvent(
     .map((line) => ({
       kind: line.kind,
       amount: toBase(line.amount, line.currency),
+      // Carried purely so a short entitlement can name the costs that shortened
+      // it. Nothing in the engine computes with it.
+      label: line.label,
       collectedBy: line.collectedBy ?? undefined,
       paidBy: line.paidBy ?? undefined,
       payeeParticipantId: line.payeeParticipantId ?? undefined,
@@ -1830,6 +1835,18 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           status: z.enum(REVIEW_STATUSES),
           /** Why — carried into the history so the timeline reads as a story. */
           note: z.string().max(500).optional(),
+          /**
+           * SEND IT TO THESE PARTIES ONLY — omit for everyone, which is what every
+           * existing caller does and what it has always meant.
+           *
+           * ClickUp `86cbcn1ue`: *"the option to send settlement per collaborator
+           * or to all."* The model already supported it and the route did not:
+           * `status` lives on each participant's own settlement row, so one party
+           * can be asked to review while another is still being worked on. A
+           * promoter who has agreed their half should not have to wait for the
+           * caterer's invoice to arrive before being asked to sign.
+           */
+          participantIds: z.array(z.string().uuid()).min(1).optional(),
         }),
         response: {
           200: z.object({
@@ -1849,9 +1866,25 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       await requireEventCapability(request, id, REVIEW_STATUS_CAPABILITY[status]);
 
       const rows = await settlementRowsOf(database, id);
-      const partyRows = rows.filter((row) => row.representationId == null);
-      if (partyRows.length === 0) {
+      const everyParty = rows.filter((row) => row.representationId == null);
+      if (everyParty.length === 0) {
         throw badRequest("Run the settlement before sending it for review");
+      }
+
+      /**
+       * The rows this call actually changes — everyone, or the named few.
+       *
+       * A name that is not a party to this event is refused rather than ignored.
+       * Silently sending to a subset of what was asked for is the worst of the
+       * three outcomes here: the operator is told it went out, and the person they
+       * meant to reach never hears about it.
+       */
+      const chosen = request.body.participantIds;
+      const partyRows = chosen
+        ? everyParty.filter((row) => chosen.includes(row.participantId ?? ""))
+        : everyParty;
+      if (chosen && partyRows.length !== chosen.length) {
+        throw badRequest("One of the parties named is not on this settlement, so nothing was sent");
       }
 
       // A DISPUTE may be raised over frozen figures — that is precisely when a
@@ -1935,7 +1968,13 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       if (status === "pending_review") {
         try {
           const actorUserId = request.principal?.userId ?? null;
-          const reach = await settlementPartyReach(database, id);
+          const everyReach = await settlementPartyReach(database, id);
+          // The same subset the status moved for. Telling somebody their figures
+          // are ready to review when their row is still `open` would be worse than
+          // not telling them at all.
+          const reach = chosen
+            ? new Map([...everyReach].filter(([participantId]) => chosen.includes(participantId)))
+            : everyReach;
           const userIds = [
             ...new Set(
               [...reach.values()]

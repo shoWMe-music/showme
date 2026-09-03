@@ -86,6 +86,17 @@ export interface SettlementDeal {
 export interface SettlementBudgetLine {
   kind: "revenue" | "cost";
   amount: bigint;
+  /**
+   * What the line is CALLED — "Green-room catering", "Venue's cut of merch".
+   *
+   * The engine does no arithmetic with it and never will. It exists so a party
+   * whose entitlement came up short can be told WHICH costs did it, instead of
+   * being handed one `deductibles` figure and left to ask (ClickUp `86cbcn1ue`:
+   * *"A detailed view of all items divided to each collaborator's share"*).
+   *
+   * Optional, so every existing caller and every stored snapshot is unaffected.
+   */
+  label?: string;
   collectedBy?: string; // participantId who received the revenue
   paidBy?: string; // participantId who fronted the cost
   payeeParticipantId?: string; // cost on behalf of this party; undefined = external supplier
@@ -128,6 +139,16 @@ export interface PartyBreakdown {
    * twice.
    */
   prepaidCounterpartyIds: string[];
+  /**
+   * WHICH costs made up `deductibles`, itemised — the answer to "why is my share
+   * short". Empty whenever `deductibles` is 0.
+   *
+   * Each entry is this party's OWN portion of the line, not the line's total: a
+   * cost split 60/40 shows each bearer their 60 and their 40. Summing them gives
+   * `deductibles` exactly, which is what makes the list checkable rather than
+   * decorative.
+   */
+  deductibleLines: { label: string; amount: bigint }[];
   held: bigint; // collected − paid + prepaid
   net: bigint; // entitlement − held (+ owed to them, − holding too much)
   /**

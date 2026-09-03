@@ -6063,6 +6063,22 @@
                             "items": {
                               "type": "string"
                             }
+                          },
+                          "deductibleLines": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "label": {
+                                  "type": "string"
+                                },
+                                "amount": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": ["label", "amount"],
+                              "additionalProperties": false
+                            }
                           }
                         },
                         "required": [
@@ -6693,6 +6709,22 @@
                                 "items": {
                                   "type": "string"
                                 }
+                              },
+                              "deductibleLines": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "label": {
+                                      "type": "string"
+                                    },
+                                    "amount": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": ["label", "amount"],
+                                  "additionalProperties": false
+                                }
                               }
                             },
                             "required": [
@@ -7119,6 +7151,22 @@
                           "items": {
                             "type": "string"
                           }
+                        },
+                        "deductibleLines": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string"
+                              },
+                              "amount": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["label", "amount"],
+                            "additionalProperties": false
+                          }
                         }
                       },
                       "required": [
@@ -7285,6 +7333,14 @@
                   "note": {
                     "type": "string",
                     "maxLength": 500
+                  },
+                  "participantIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "minItems": 1
                   }
                 },
                 "required": ["status"],

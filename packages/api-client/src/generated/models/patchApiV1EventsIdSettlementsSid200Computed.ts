@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { PatchApiV1EventsIdSettlementsSid200ComputedLinesItem } from './patchApiV1EventsIdSettlementsSid200ComputedLinesItem';
+import type { PatchApiV1EventsIdSettlementsSid200ComputedDeductibleLinesItem } from './patchApiV1EventsIdSettlementsSid200ComputedDeductibleLinesItem';
 
 /**
  * @nullable
@@ -22,4 +23,5 @@ export type PatchApiV1EventsIdSettlementsSid200Computed = {
   residual?: string;
   prepaid?: string;
   prepaidCounterpartyIds?: string[];
+  deductibleLines?: PatchApiV1EventsIdSettlementsSid200ComputedDeductibleLinesItem[];
 } | null;

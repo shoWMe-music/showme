@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { PostApiV1EventsIdSettlementCompute200BreakdownsItemLinesItem } from './postApiV1EventsIdSettlementCompute200BreakdownsItemLinesItem';
+import type { PostApiV1EventsIdSettlementCompute200BreakdownsItemDeductibleLinesItem } from './postApiV1EventsIdSettlementCompute200BreakdownsItemDeductibleLinesItem';
 
 export type PostApiV1EventsIdSettlementCompute200BreakdownsItem = {
   participantId: string;
@@ -19,4 +20,5 @@ export type PostApiV1EventsIdSettlementCompute200BreakdownsItem = {
   residual?: string;
   prepaid?: string;
   prepaidCounterpartyIds?: string[];
+  deductibleLines?: PostApiV1EventsIdSettlementCompute200BreakdownsItemDeductibleLinesItem[];
 };

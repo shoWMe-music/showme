@@ -10,4 +10,6 @@ export type PostApiV1EventsIdSettlementStatusBody = {
   status: PostApiV1EventsIdSettlementStatusBodyStatus;
   /** @maxLength 500 */
   note?: string;
+  /** @minItems 1 */
+  participantIds?: string[];
 };

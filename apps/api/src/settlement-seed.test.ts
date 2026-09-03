@@ -373,6 +373,11 @@ describe("the seeded reference settlement (A-13)", () => {
       ],
       commissionEarned: "0",
       deductibles: "180000",
+      // AND WHICH cost that was. The total alone is the figure that starts a
+      // settlement argument — "less costs somebody else fronted on your behalf,
+      // 1 800" with no way to ask about it except by asking (ClickUp `86cbcn1ue`).
+      // It is HER portion of the line, so it sums to `deductibles` above.
+      deductibleLines: [{ label: "Artist hotel", amount: "180000" }],
       residual: "0",
     });
     expect(body.transfers[0].amount).toBe(TRANSFER);

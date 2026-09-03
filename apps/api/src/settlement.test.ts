@@ -986,6 +986,89 @@ describe("settlement — the review conversation and derived payment", () => {
     expect(told.statusCode).toBe(400);
   });
 
+  /**
+   * SENDING IT TO ONE PARTY LEAVES THE REST WHERE THEY ARE.
+   *
+   * ClickUp `86cbcn1ue`: *"the option to send settlement per collaborator or to
+   * all."* The model always allowed it — `status` is a column on each
+   * participant's own settlement row — and only the route did not.
+   *
+   * The assertion that matters is the NEGATIVE half. "Marlo is pending_review" is
+   * true whether the filter works or not, because sending to everyone would also
+   * make it true; what proves the filter is that the others are still `open`.
+   */
+  it("sends the settlement to one party without moving anybody else", async () => {
+    const seed = await seedWorkedExample("one-party");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const statusOf = async (participantId: string) => {
+      const rows = await harness.db
+        .select()
+        .from(schema.settlements)
+        .where(
+          and(
+            eq(schema.settlements.eventId, seed.event.id),
+            eq(schema.settlements.participantId, participantId),
+          ),
+        );
+      return rows[0]?.status;
+    };
+
+    const sent = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/status`,
+      headers: auth(seed.operator.userId),
+      payload: { status: "pending_review", participantIds: [seed.bPart] },
+    });
+
+    expect(sent.statusCode).toBe(200);
+    expect(sent.json().updated).toBe(1);
+    expect(await statusOf(seed.bPart)).toBe("pending_review");
+    // The half that makes it a filter rather than a no-op.
+    expect(await statusOf(seed.vPart)).toBe("open");
+    expect(await statusOf(seed.pPart)).toBe("open");
+  });
+
+  /**
+   * A NAME THAT IS NOT A PARTY IS REFUSED, NOT QUIETLY DROPPED.
+   *
+   * Sending to a subset of what was asked for is the worst of the three outcomes:
+   * the operator is told it went out, and the person they meant to reach never
+   * hears about it. Better to refuse the whole call and say so.
+   */
+  it("refuses a send naming somebody who is not on the settlement", async () => {
+    const seed = await seedWorkedExample("stranger");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const refused = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/status`,
+      headers: auth(seed.operator.userId),
+      payload: {
+        status: "pending_review",
+        participantIds: [seed.bPart, "00000000-0000-4000-8000-000000000999"],
+      },
+    });
+
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error.message).toMatch(/not on this settlement/);
+    // AND NOTHING MOVED — a refusal that had already written the valid half would
+    // be the silent-partial-send this refuses in order to avoid.
+    const rows = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    expect(rows.every((row) => row.status === "open")).toBe(true);
+  });
+
   it("walks the review conversation, and lets a party dispute but not re-issue", async () => {
     const seed = await seedWorkedExample("review");
     await app.inject({

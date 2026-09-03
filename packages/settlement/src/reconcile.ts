@@ -67,6 +67,11 @@ export function reconcile(input: SettlementInput): SettlementResult {
   );
   const commissionEarned = new Map<string, bigint>();
   const deductibles = new Map<string, bigint>();
+  /**
+   * The same deductions, itemised per party — the total above answers "how much",
+   * this answers "which". Built in the same loop so the two can never disagree.
+   */
+  const deductibleLines = new Map<string, { label: string; amount: bigint }[]>();
   const residualOf = new Map<string, bigint>();
   const addTo = (map: Map<string, bigint>, participantId: string, amount: bigint) => {
     map.set(participantId, (map.get(participantId) ?? 0n) + amount);
@@ -147,12 +152,19 @@ export function reconcile(input: SettlementInput): SettlementResult {
   // 3. Deductibles — the borne half of each cost lowers those parties' entitlements.
   //    One party at the whole amount is the classic deductible (a venue paying for
   //    the band); several at stated percentages is the meeting's cost split.
-  for (const bearing of bearings) {
+  bearings.forEach((bearing, index) => {
     for (const [participantId, amount] of bearing.borne) {
       credit(participantId, -amount);
       addTo(deductibles, participantId, amount);
+      // THIS PARTY'S PORTION, not the line's total: a cost split 60/40 tells each
+      // bearer their own share, so the itemised list sums to `deductibles` exactly.
+      // A line with no label still gets an entry — "one of your deductions, 500"
+      // is a worse answer than a name, and a better one than silence.
+      const named = deductibleLines.get(participantId) ?? [];
+      named.push({ label: budgetLines[index]?.label ?? "Cost", amount });
+      deductibleLines.set(participantId, named);
     }
-  }
+  });
 
   // 4. Cash held per participant.
   const collected = new Map<string, bigint>();
@@ -240,6 +252,7 @@ export function reconcile(input: SettlementInput): SettlementResult {
       paid: fronted,
       prepaid: early,
       prepaidCounterpartyIds: [...(prepaidCounterparties.get(party.participantId) ?? [])].sort(),
+      deductibleLines: deductibleLines.get(party.participantId) ?? [],
       held,
       net: owed - held,
       lines: lines.get(party.participantId) ?? [],

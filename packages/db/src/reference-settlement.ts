@@ -460,6 +460,13 @@ export function referenceSettlementInput(spine: ReferenceEventSpine): Settlement
   const budgetLines: SettlementBudgetLine[] = referenceBudgetLines(spine).map((line) => ({
     kind: line.kind,
     amount: line.amount,
+    // The LABEL travels, because the compute route passes it and this fixture has
+    // to agree with the route to be worth anything. It is what lets a deduction be
+    // itemised as "Artist hotel" rather than as "Cost", and the moment the two
+    // mappings disagreed the seeded snapshot said one thing and a fresh compute of
+    // the same rows said another — which is the exact drift (A-01) this fixture
+    // exists to catch, caught this time by the fixture itself.
+    label: line.label,
     collectedBy: line.collectedBy,
     paidBy: line.paidBy,
     payeeParticipantId: line.payeeParticipantId,

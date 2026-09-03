@@ -308,6 +308,14 @@ export interface EventSettlement {
   isBusy: boolean;
   /** The review conversation the API can actually move it through. */
   sendForReview: () => void;
+  /**
+   * Ask ONE party to review, leaving the rest of the bill where it is.
+   *
+   * The same route as `sendForReview` with the party named — `status` is a column
+   * on each participant's own settlement row, so this is a narrower call rather
+   * than a different mechanism (ClickUp `86cbcn1ue`).
+   */
+  sendForReviewTo: (participantId: string, name: string) => void;
   reissue: () => void;
   flagDispute: () => void;
   /** True while the figures can still be re-issued — i.e. not yet frozen. */
@@ -487,9 +495,14 @@ export function useEventSettlement(
    * from the transfers — the API refuses to be told them, so there is no button.
    */
   const moveTo = useCallback(
-    (status: "pending_review" | "revised" | "dispute", done: string) => {
+    (
+      status: "pending_review" | "revised" | "dispute",
+      done: string,
+      /** Named parties only. Omitted means everyone, which is what the header does. */
+      participantIds?: string[],
+    ) => {
       setStatus.mutate(
-        { id: eventId, data: { status } },
+        { id: eventId, data: participantIds ? { status, participantIds } : { status } },
         {
           onSuccess: () => {
             refresh();
@@ -739,6 +752,8 @@ export function useEventSettlement(
     // only honest objection is a dispute, which stays available.
     canReview: partyRows.length > 0 && !partyRows.some((row) => FROZEN_STATUSES.has(row.status)),
     sendForReview: () => moveTo("pending_review", "Sent for review."),
+    sendForReviewTo: (participantId: string, name: string) =>
+      moveTo("pending_review", `Sent to ${name}.`, [participantId]),
     reissue: () => moveTo("revised", "Figures re-issued."),
     flagDispute: () => moveTo("dispute", "Flagged as disputed."),
     comments: (commentThread.data ?? []).map((row) => ({

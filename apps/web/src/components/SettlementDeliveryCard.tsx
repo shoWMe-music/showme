@@ -51,6 +51,7 @@ export function SettlementDeliveryCard({ settlement }: { settlement: EventSettle
           row={row}
           isBusy={settlement.isInviting}
           onSend={(email) => settlement.sendInvitation(row.participantId, email, row.name)}
+          onSendForReview={() => settlement.sendForReviewTo(row.participantId, row.name)}
         />
       ))}
     </Card>
@@ -61,10 +62,13 @@ function DeliveryRow({
   row,
   isBusy,
   onSend,
+  onSendForReview,
 }: {
   row: EventSettlement["delivery"][number];
   isBusy: boolean;
   onSend: (email: string) => void;
+  /** Ask THIS party to review, without waiting for the rest of the bill. */
+  onSendForReview: () => void;
 }) {
   // Pre-filled with whatever it was last sent to, so re-sending is one click and
   // correcting a typo does not mean retyping the address from memory.
@@ -88,13 +92,43 @@ function DeliveryRow({
       </div>
 
       {row.onPlatform ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "1 1 auto" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flex: "1 1 auto",
+            flexWrap: "wrap",
+          }}
+        >
           <Badge status="confirmed" dot>
             On shoWMe
           </Badge>
-          <span style={{ color: "var(--muted)", fontSize: 12 }}>
+          <span style={{ color: "var(--muted)", fontSize: 12, flex: "1 1 auto" }}>
             Reached in the app and by email when you send for review.
           </span>
+          {/*
+           * SEND TO THIS ONE PARTY — ClickUp `86cbcn1ue`: *"the option to send
+           * settlement per collaborator or to all."*
+           *
+           * The model always allowed it: `status` lives on each participant's own
+           * settlement row, so one party can be asked to review while another is
+           * still being worked on. Only the route did not, and the button above
+           * the card is still the "or to all" half.
+           *
+           * Worth having as its own action rather than a checkbox list: a promoter
+           * who has agreed their half should not wait for the caterer's invoice to
+           * arrive before being asked to sign, and that is a one-person decision
+           * taken one person at a time.
+           */}
+          <Button
+            variant="ghost"
+            disabled={isBusy}
+            leftIcon={<Icon name="mail" size={14} />}
+            onClick={onSendForReview}
+          >
+            Send to {row.name}
+          </Button>
         </div>
       ) : (
         <>

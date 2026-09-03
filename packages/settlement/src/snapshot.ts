@@ -46,6 +46,12 @@ export interface SerializedBreakdown {
    * rewritten to add a field.
    */
   prepaidCounterpartyIds?: string[];
+  /**
+   * The deductions behind `deductibles`, itemised. Money as STRING like every
+   * other figure here. Optional and absent-means-none: a settlement finalized
+   * before this existed is a legal record and is never rewritten to add a field.
+   */
+  deductibleLines?: { label: string; amount: string }[];
 }
 
 /** One deal's contribution to a party's entitlement, money as STRING. */
@@ -157,6 +163,17 @@ export function serializeBreakdown(breakdown: PartyBreakdown): SerializedBreakdo
     // back as a legal record.
     ...(breakdown.prepaidCounterpartyIds.length > 0
       ? { prepaidCounterpartyIds: breakdown.prepaidCounterpartyIds }
+      : {}),
+    // Omitted rather than written empty, for the same reason: most parties on most
+    // nights carry no deduction at all, and an `[]` on each of them is noise in a
+    // column that is read back as a legal record.
+    ...(breakdown.deductibleLines.length > 0
+      ? {
+          deductibleLines: breakdown.deductibleLines.map((line) => ({
+            label: line.label,
+            amount: line.amount.toString(),
+          })),
+        }
       : {}),
     held: breakdown.held.toString(),
     net: breakdown.net.toString(),

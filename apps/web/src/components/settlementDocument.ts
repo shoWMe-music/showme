@@ -276,6 +276,28 @@ export function entitlementRules(
       value: formatAmount(computed.deductibles),
       negative: true,
     });
+    /*
+     * AND WHICH COSTS THOSE WERE — ClickUp `86cbcn1ue`: *"A detailed view of all
+     * items divided to each collaborator's share."*
+     *
+     * The line above says how much came off; these say what it was. It is the
+     * question a performer asks first and the one the card could not answer: a
+     * single "Less costs somebody else fronted on your behalf — 3 500" is exactly
+     * the unexplained figure that starts a settlement argument.
+     *
+     * Each entry is this party's OWN portion of the line, so they sum to the total
+     * above — which is what makes the breakdown checkable rather than decorative.
+     * Absent on a settlement snapshotted before the engine recorded them, and the
+     * card then shows the total alone rather than inventing an itemisation.
+     */
+    for (const [index, line] of (computed.deductibleLines ?? []).entries()) {
+      rules.push({
+        key: `deductible-${index}`,
+        label: `— ${line.label}`,
+        value: formatAmount(line.amount),
+        negative: true,
+      });
+    }
   }
   return rules;
 }
