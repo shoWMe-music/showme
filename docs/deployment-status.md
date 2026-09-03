@@ -4,7 +4,34 @@ The standing answer to "what's deployed where". Update it when that changes.
 Account/project map and the domain history live in
 [handoff-2026-08-23-marketing-and-hosting.md](./handoff-2026-08-23-marketing-and-hosting.md).
 
-## 2026-09-03 (later) — the settlement re-do, waves 1 to 3. THIS IS CURRENT.
+## ⚠️ ON `main` AND **NOT DEPLOYED** — three commits, one migration
+
+`main` is AHEAD of production. Read this before assuming the live system matches
+the repo — that assumption is the thing this section exists to stop.
+
+| Commit | What | Needs |
+|---|---|---|
+| `847885a` | Budget Planner opens on the tiers the event already lists | nothing — no schema change |
+| `e6116ca` | Deductions itemised per party; settlement can be sent to ONE party | nothing — no schema change |
+| `b81ed93` | A comment can name the figure it is about | **migration `0036`** |
+
+**`0036_a_comment_can_name_the_figure` has NOT been run against production.**
+It adds a nullable `settlement_comments.settlement_line_id` with a partial index
+and an `ON DELETE SET NULL` foreign key. Additive: no backfill, no default,
+nothing recomputes, every finalized settlement untouched. 37 migration files on
+disk; production is still at 36.
+
+**To ship these, in this order:** take an on-demand Cloud SQL backup and poll it
+to `SUCCESSFUL`, run `0036`, then deploy the API, then build and deploy the web
+app. The API before the web, for the same reason as the deploy below — a bundle
+that posts `settlementLineId` to an API that does not know the field is a 400 on
+every comment.
+
+The API deploy is a plain source deploy with configuration untouched; see
+`deploy-api.md`. Do **not** run a bare `terraform apply` (the certificate landmine
+below is unchanged).
+
+## 2026-09-03 (later) — the settlement re-do, waves 1 to 3. LIVE.
 
 ClickUp `86cbcn1ue`'s re-do list: the cost vocabulary, bar/merch split, percentage
 deductions, the advance direction, and the settlement Overview. **No migration** —
