@@ -113,3 +113,44 @@ test("the Overview names each collaborator, their role and the rule behind their
   await expect(page.getByText("Performer").first()).toBeVisible();
   await expect(page.getByText(/your share of/).first()).toBeVisible();
 });
+
+/**
+ * THE FIRST HOP OF THE TICKETING CHAIN — event details → Budget Planner.
+ *
+ * ClickUp `86cbcn1ue`: *"Ticketing info still missing and does not migrate from
+ * the event ticketing details - it should first go to budget planner from event
+ * details and then to settlement."*
+ *
+ * The last hop always worked: the settlement takes its copy of the budget on the
+ * first compute, `details` and all. The FIRST hop did not exist. An event has had
+ * a Ticketing card since `extras.ticketTiers` was typed, and the planner ignored
+ * it and opened on one invented "General Admission" row at 80% of the room — so an
+ * operator who had already listed their tiers was asked to type them again, and
+ * the two lists then disagreed with nothing to say which was right.
+ *
+ * "Open Mic Wednesdays" is the seed's one event with NO budget, which is what
+ * makes it the only place this is visible: a stored budget line correctly wins
+ * over a suggestion, so on any other event the hop is invisible whether it works
+ * or not.
+ */
+test("the Budget Planner opens on the tiers the event already lists", async ({ page }) => {
+  const OPEN_MIC = "e2e00000-0000-4000-8000-0000000000e3";
+  await page.goto(`/events/${OPEN_MIC}`);
+  await page.getByRole("tab", { name: /budget planner/i }).click();
+
+  const types = page.locator('main input[placeholder="Ticket type"]');
+  await expect(types).toHaveCount(2);
+  await expect(types.nth(0)).toHaveValue("Door entry");
+  await expect(types.nth(1)).toHaveValue("Advance");
+
+  // Priced and counted from the event, not invented. `est` and not `max`: a budget
+  // forecasts what will SELL, and the cap is how many exist.
+  await expect(page.locator('main [aria-label="Door entry price"]')).toHaveValue("80");
+  const quantities = page.locator('main input[placeholder="Qty"]');
+  await expect(quantities.nth(0)).toHaveValue("60");
+  await expect(quantities.nth(1)).toHaveValue("25");
+
+  // And the invented row is gone — its presence would mean the seed won anyway.
+  await expect(page.locator('main input[value="General Admission"]')).toHaveCount(0);
+  await expect(types.filter({ hasText: "General Admission" })).toHaveCount(0);
+});

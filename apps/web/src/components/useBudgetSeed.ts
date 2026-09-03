@@ -102,6 +102,8 @@ export interface BudgetSeed {
   performerFees: BudgetSeedDealFigure[];
   /** The venue's rental fee, minor units — only when a rental deal exists. */
   venueCost: string | null;
+  /** The event's own ticket tiers, carried through untouched. */
+  ticketTiers: EventTicketTier[];
 }
 
 /** The share of capacity a seeded "General Admission" tier expects to sell. */
@@ -239,9 +241,37 @@ function sourceLabel(deal: Deal, lines: DealParty[]): string {
   return `${deal.name} · ${basisPointsToPercent(shareOfPool)}% of the adjusted net`;
 }
 
+/** One ticket tier as the EVENT states it (`events.extras.ticketTiers`). */
+export interface EventTicketTier {
+  id: string;
+  name: string;
+  /** Major units, as the Ticketing card on Event Details takes it. */
+  price: number;
+  /** Inventory cap for the tier. */
+  max: number;
+  /** What the operator expects to SELL — the forecast, which is what a budget wants. */
+  est: number;
+}
+
 export interface BudgetSeedSources {
   /** `events.capacity`. */
   capacity: number | null;
+  /**
+   * The tiers the operator already wrote on Event Details.
+   *
+   * ClickUp `86cbcn1ue`: *"Ticketing info still missing and does not migrate from
+   * the event ticketing details - it should first go to budget planner from event
+   * details and then to settlement."*
+   *
+   * The chain's last hop has always worked — the settlement takes its copy of the
+   * budget on the first compute. The FIRST hop did not exist: the event has had a
+   * Ticketing card since `extras.ticketTiers` was typed, and the planner ignored
+   * it and opened on one invented "General Admission" row at 80% of the room
+   * instead. So an operator who had already listed Advance and Walk-up tiers was
+   * asked to type them again, and the two lists then disagreed with nothing to say
+   * which was right.
+   */
+  ticketTiers: EventTicketTier[];
   /**
    * Every participant on the bill who could be a performance deal's payee.
    *
@@ -264,6 +294,7 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
 
     return {
       capacity: sources.capacity,
+      ticketTiers: sources.ticketTiers,
       // Every confirmed deal that pays somebody on the bill and states a figure,
       // whether it states it as a fee or as a share (`performerFeeOf`). The shape
       // test is what keeps the venue's room hire out of the artist's row — a

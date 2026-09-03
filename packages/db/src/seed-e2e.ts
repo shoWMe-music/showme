@@ -934,6 +934,23 @@ async function main() {
           capacity: 80,
           baseCurrency: SEK,
           published: false,
+          /*
+           * TICKET TIERS ON THE EVENT, and deliberately on the ONE seeded event
+           * with no budget of its own.
+           *
+           * They are what the Budget Planner now opens on (ClickUp `86cbcn1ue`:
+           * *"it should first go to budget planner from event details and then to
+           * settlement"*), and the seed could not demonstrate that anywhere: every
+           * other event already has budget lines, which correctly win over a
+           * suggestion. Put them on an event that has a budget and the hop is
+           * invisible; put them here and it is the first thing the tab shows.
+           */
+          extras: {
+            ticketTiers: [
+              { id: "openmic-door", name: "Door entry", price: 80, max: 80, est: 60 },
+              { id: "openmic-advance", name: "Advance", price: 60, max: 40, est: 25 },
+            ],
+          },
           createdBy: operatorUserId,
         },
         {

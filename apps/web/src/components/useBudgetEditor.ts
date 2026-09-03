@@ -554,7 +554,7 @@ export interface BudgetEditor {
  * prevent, so the first writer wins and the second is told.
  */
 /** Nothing known about the event — the planner then behaves exactly as before. */
-const NO_SEED: BudgetSeed = { capacity: null, performerFees: [], venueCost: null };
+const NO_SEED: BudgetSeed = { capacity: null, performerFees: [], venueCost: null, ticketTiers: [] };
 
 /**
  * Which standing heading each seeded AMOUNT fills in as an editable draft.
@@ -784,14 +784,39 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     const tiers =
       serverTiers.length > 0
         ? serverTiers
-        : [
-            {
-              id: `${NEW_ROW_PREFIX}seed`,
-              name: SEEDED_TICKET_NAME,
-              price: "",
-              quantity: expected > 0 ? expected.toString() : "",
-            },
-          ];
+        : seedSource.ticketTiers.length > 0
+          ? /*
+             * THE EVENT'S OWN TIERS, when it has any.
+             *
+             * ClickUp `86cbcn1ue`: *"it should first go to budget planner from
+             * event details and then to settlement."* This is that first hop. An
+             * operator who had already listed Advance and Walk-up on Event Details
+             * was previously asked to type them again here, and the two lists then
+             * disagreed with nothing on either screen to say which was right.
+             *
+             * `est`, not `max`: a budget forecasts what will SELL, and the cap is
+             * how many exist. Falling back to the cap when nothing is estimated is
+             * the more useful blank than zero — an operator who set a cap and no
+             * estimate is telling us the only number they have.
+             *
+             * A suggestion, never an overwrite: this branch is only reached when
+             * the budget has no tiers of its own, exactly like every other seeded
+             * figure on this sheet (`useBudgetSeed`).
+             */
+            seedSource.ticketTiers.map((tier) => ({
+              id: `${NEW_ROW_PREFIX}event-${tier.id}`,
+              name: tier.name,
+              price: tier.price > 0 ? tier.price.toString() : "",
+              quantity: (tier.est || tier.max || 0) > 0 ? String(tier.est || tier.max) : "",
+            }))
+          : [
+              {
+                id: `${NEW_ROW_PREFIX}seed`,
+                name: SEEDED_TICKET_NAME,
+                price: "",
+                quantity: expected > 0 ? expected.toString() : "",
+              },
+            ];
 
     return {
       budgetId,

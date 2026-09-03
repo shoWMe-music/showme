@@ -66,7 +66,7 @@ import {
 } from "../components/eventUi";
 import { ErrorState, LoadingState } from "../components/states";
 import { useBudgetEditor } from "../components/useBudgetEditor";
-import { useBudgetSeed } from "../components/useBudgetSeed";
+import { type EventTicketTier, useBudgetSeed } from "../components/useBudgetSeed";
 import { useBudgetToolbar } from "../components/useBudgetToolbar";
 import { usePerformingRightsTerritory } from "../components/usePerformingRightsTerritory";
 import { useEventCollaborators } from "../hooks/useEventCollaborators";
@@ -390,6 +390,10 @@ export function EventDetail() {
             currency={currency}
             eventTitle={event.title}
             capacity={event.capacity ?? null}
+            /* `extras` is operator-only and the serializer omits the KEY entirely
+               for anyone else, so this is [] for a reader who may not see it —
+               which is the same answer as "the event lists no tiers". */
+            eventTicketTiers={(event.extras?.ticketTiers ?? []) as EventTicketTier[]}
             performerIdsKey={performerIdsKey}
           />
         )}
@@ -640,12 +644,15 @@ function BudgetTab({
   currency,
   eventTitle,
   capacity,
+  eventTicketTiers,
   performerIdsKey,
 }: {
   eventId: string;
   currency: string;
   eventTitle: string;
   capacity: number | null;
+  /** `events.extras.ticketTiers` — what the operator wrote on Event Details. */
+  eventTicketTiers: EventTicketTier[];
   /** Comma-joined participant ids — see `performerIdsKey` above. */
   performerIdsKey: string;
 }) {
@@ -655,9 +662,10 @@ function BudgetTab({
   const seedSources = useMemo(
     () => ({
       capacity,
+      ticketTiers: eventTicketTiers,
       performerParticipantIds: performerIdsKey === "" ? [] : performerIdsKey.split(","),
     }),
-    [capacity, performerIdsKey],
+    [capacity, eventTicketTiers, performerIdsKey],
   );
   const seed = useBudgetSeed(eventId, seedSources);
   const editor = useBudgetEditor(eventId, seed);
