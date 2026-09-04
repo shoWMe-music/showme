@@ -18,6 +18,21 @@ variable "domain" {
   default = "api.showme.music"
 }
 
+# Suffix on the managed SSL certificate's name. MUST stay empty while the live
+# certificate is healthy: empty reproduces the name it actually carries
+# (`showme-api-lb-cert`), and any other value RENAMES it, which forces a replacement,
+# which drops TLS on api.showme.music for the 15-60 minutes the new certificate spends
+# provisioning. That is the whole product down.
+#
+# It was `"v1"` in the module for eleven days after the replacement it was written for
+# stopped being needed — a bare `terraform apply` in this directory would have taken the
+# API offline. Only set it when the certificate has ALREADY failed; the decision
+# procedure is in infra/README.md.
+variable "cert_version" {
+  type    = string
+  default = ""
+}
+
 # --- Scheduled jobs (apps/jobs) ---------------------------------------------------
 
 variable "cloud_sql_instance_connection_name" {

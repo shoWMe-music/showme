@@ -57,13 +57,53 @@ terraform apply
    Wait for `ACTIVE`.
 3. **Smoke test:** `curl -s https://api.showme.music/api/v1/health` → `{"status":"ok"}`.
 
-## If the certificate is stuck at FAILED_NOT_VISIBLE
+## The certificate: replacing one is an outage, so read this first
 
-A Google-managed certificate can only provision **after** the domain already resolves to
-the load balancer's IP. Create the cert first and it fails, reporting:
+**Renaming `google_compute_managed_ssl_certificate.default` replaces it, and replacing
+it takes `https://api.showme.music` down for 15-60 minutes.** Terraform points the HTTPS
+proxy at the new certificate as soon as it is created, but a managed certificate only
+starts validating once it is attached and serving. Nothing waits for `ACTIVE`. For that
+whole window every browser and every app client fails the TLS handshake — the product is
+down, not degraded.
+
+`create_before_destroy` does not save you. It guarantees the proxy always references
+*some* certificate; it says nothing about that certificate being valid.
+
+This bit prod: `cert_version` shipped with a default of `"v1"` on 2026-08-23 to force a
+replacement that was needed at the time, the certificate then went `ACTIVE` on Google's
+own retry, and the now-pointless rename sat in the code for eleven days. Any bare
+`terraform apply` in `envs/prod` would have taken the API offline. The default is now
+`""`, which reproduces the live name `showme-api-lb-cert`, and `terraform plan` is quiet.
+
+Check the live one before touching anything:
 
 ```bash
-gcloud compute ssl-certificates describe showme-api-lb-cert-v1 \
+gcloud compute ssl-certificates list --global --project prod-showme \
+  --format="table(name,managed.status,managed.domains,expireTime)"
+```
+
+### If it is ACTIVE — do not replace it
+
+There is nothing to fix. Renew is automatic. If you genuinely need a *healthy*
+certificate rotated (a domain added, say), it has to **overlap**, because a managed cert
+cannot validate before it is attached:
+
+1. Add the new certificate as a second resource in the module and put **both** ids in
+   `google_compute_target_https_proxy.default.ssl_certificates`. Apply. The old cert
+   keeps serving every handshake; the new one provisions behind it.
+2. Wait for the new one to report `ACTIVE` (15-60 min) — poll with the `describe`
+   command below. Do not proceed on a `PROVISIONING`.
+3. Remove the old certificate from the list, and then the old resource. Apply again.
+
+Two applies, in that order, with a wait between. There is no one-shot version of this.
+
+### If it is FAILED_NOT_VISIBLE or expired — replacing it is the fix
+
+A managed certificate can only provision **after** the domain already resolves to the
+load balancer's IP. Create the cert first and it fails:
+
+```bash
+gcloud compute ssl-certificates describe showme-api-lb-cert \
   --global --project prod-showme --format="value(managed.status,managed.domainStatus)"
 # PROVISIONING   api.showme.music=FAILED_NOT_VISIBLE
 ```
@@ -77,17 +117,18 @@ dig +short @8.8.8.8 api.showme.music A     # must equal the LB's static IP
 curl -sI http://api.showme.music/api/v1/health | head -1   # 301 → the LB is wired
 ```
 
-If it is still failing after that, the cert has to be **replaced** — a managed cert
-cannot be re-provisioned in place. Bump `cert_version` and apply:
+Still failing after that? Then there is no working TLS to lose, and a straight
+replacement is correct — a managed cert cannot be re-provisioned in place, and a fresh
+one needs a fresh name. Bump `cert_version`:
 
 ```bash
 cd infra/envs/prod
 terraform apply -var="cert_version=v2"
 ```
 
-`create_before_destroy` means the new cert is minted and attached before the old one is
-removed, so the proxy is never without a certificate. Without it the apply fails with
-"resource in use", since the HTTPS proxy references the cert.
+Then persist the value in `envs/prod/variables.tf` so the next plan is quiet, and leave
+it there — do not reset it to `""` afterwards, or the next apply renames the cert back
+and replaces it again.
 
 ## Cut the marketing form over to the custom domain
 
@@ -146,19 +187,11 @@ answer correctly on read.
 
 ### Before `terraform apply` — three things must exist
 
-1. **The container image.** There is **no `Dockerfile.jobs` and no `build` script in
-   `apps/jobs` yet**, and the API image cannot be reused with a different command — it
-   contains only the API's `dist/server.mjs`, not the jobs code. Both need adding
-   (outside `infra/`), mirroring `Dockerfile.stream` exactly:
-   - `apps/jobs/esbuild.mjs` — a copy of `apps/api/esbuild.mjs` with
-     `entryPoints: ["src/index.ts"]` and `outfile: "dist/index.mjs"`, plus
-     `"build": "node esbuild.mjs"` in `apps/jobs/package.json`.
-   - `Dockerfile.jobs` at the repo root — `pnpm install --filter @showme/jobs...`,
-     `pnpm --filter @showme/jobs build`, copy `dist/index.mjs`, `CMD ["node", "index.mjs"]`.
-     `index.ts`'s `import.meta.url === file://${process.argv[1]}` main-module guard still
-     matches after bundling, so the entrypoint stays as it is.
+1. **The container image.** `Dockerfile.jobs` (repo root) and `apps/jobs/esbuild.mjs`
+   now exist, so this is just a build — the API image still cannot be reused with a
+   different command, since it contains only the API's `dist/server.mjs`.
 
-   Then build and push to the tag `var.jobs_image` names (the same Artifact Registry
+   Build and push to the tag `var.jobs_image` names (the same Artifact Registry
    repository Cloud Build made for `gcloud run deploy showme-api --source .`):
 
    ```bash
@@ -179,11 +212,22 @@ answer correctly on read.
      --project prod-showme --replication-policy automatic --data-file=-
    ```
 
-3. **Cloud Scheduler in `europe-north1`.** `var.scheduler_region` defaults to Finland
-   because availability in `europe-north2` (Stockholm) is unconfirmed — the same region
-   thinness that forced the load balancer. The trigger is one HTTPS call per run, so the
-   cross-region hop costs nothing. If Scheduler *is* offered in Stockholm, set
-   `scheduler_region = "europe-north2"`; nothing else moves.
+3. **Cloud Scheduler in `europe-west1`.** Cloud Scheduler exists in **neither** Nordic
+   region. `var.scheduler_region` was `europe-north1` (Finland) on the assumption it was
+   only Stockholm that was thin, and that failed the apply outright with
+   `Location 'europe-north1' is not a valid location`. Confirmed against the project
+   rather than assumed:
+
+   ```bash
+   gcloud scheduler locations list --project prod-showme
+   # europe-central2, europe-west1..4, europe-west6, europe-west8, europe-west9 (+ non-EU)
+   ```
+
+   `europe-west1` (Belgium) is the pick: an EU region, so nothing crosses a border, and
+   Google's oldest and most broadly supported European one. The hop costs nothing that
+   matters — the scheduler's whole job is one authenticated POST to the Cloud Run Admin
+   API with no payload and a 60s deadline. The *work* still happens in Stockholm, next
+   to the database.
 
 ### Apply and verify
 
@@ -207,7 +251,7 @@ gcloud logging read \
 
 # 3. The SCHEDULE works — this exercises the trigger service account and run.invoker,
 #    which step 1 does not.
-gcloud scheduler jobs run showme-jobs-schedule --project prod-showme --location europe-north1
+gcloud scheduler jobs run showme-jobs-schedule --project prod-showme --location europe-west1
 gcloud run jobs executions list --job showme-jobs --project prod-showme --region europe-north2
 ```
 

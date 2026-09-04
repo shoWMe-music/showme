@@ -54,22 +54,49 @@ resource "google_compute_url_map" "default" {
 # Google-managed SSL certificate. Provisioning to ACTIVE requires the domain's A
 # record to already resolve to google_compute_global_address.default — so create the
 # LB, add the DNS record, then wait (typically 15-60 min) for the cert to go ACTIVE.
-# A managed cert can only provision once the domain already resolves to this LB's IP;
-# until then it reports FAILED_NOT_VISIBLE. Google retries on its own, but a cert that
-# has given up needs REPLACING, and a managed cert cannot be re-provisioned in place.
+# Until the domain resolves here the cert reports FAILED_NOT_VISIBLE. Google retries
+# on its own, but a cert that has given up needs REPLACING: a managed cert cannot be
+# re-provisioned in place, and a new one needs a new NAME, which is what
+# `cert_version` is for.
 #
-# Replacing it is why the name carries `cert_version` and why create_before_destroy is
-# set: the HTTPS proxy holds a reference, so destroying first fails with "resource in
-# use". Bump `cert_version` to mint a fresh cert, attach it, then drop the old one —
-# no window without a certificate.
+# ── Why the default version is empty ─────────────────────────────────────────────
+# The live certificate on prod is named `showme-api-lb-cert`, with no suffix: it was
+# created before `cert_version` existed and it went ACTIVE on Google's own retry.
+# `cert_version = "v1"` was written on 2026-08-23 to force the replacement that the
+# retry then made unnecessary — and never applied. It sat in the code for eleven days
+# as a trap: `name` forces replacement, so the next bare `terraform apply` in
+# envs/prod would have replaced a healthy certificate. See the "what replacement
+# costs" note below for why that is an outage and not a blip.
+#
+# So the default reproduces the name that is actually live, and the suffix is only
+# added when a version is asked for. Do not re-introduce a default suffix to "tidy"
+# the name — the tidying is a full TLS outage.
+#
+# ── What replacement costs, and when it is nonetheless right ─────────────────────
+# `create_before_destroy` guarantees the proxy always references SOME certificate,
+# which is NOT the same as always serving a VALID one. Terraform swaps the proxy onto
+# the new cert the moment it is created, and a managed cert only begins validating
+# once it is attached and serving — 15-60 minutes at PROVISIONING, during which every
+# TLS handshake on this domain fails. Nothing in Terraform waits for ACTIVE.
+#
+# That price is worth paying in exactly one situation: the current certificate is
+# ALREADY broken (FAILED_NOT_VISIBLE, or expired). Then there is no working TLS to
+# lose and a straight replacement is the fix — the case this variable was built for.
+#
+# Never bump `cert_version` to rotate a HEALTHY certificate. A healthy one needs an
+# overlap the single-resource shape here cannot express: attach the new cert
+# alongside the old, wait for ACTIVE, then remove the old in a second apply. The
+# procedure for that is in infra/README.md.
 resource "google_compute_managed_ssl_certificate" "default" {
   project = var.project_id
-  name    = "${local.name}-cert-${var.cert_version}"
+  name    = var.cert_version == "" ? "${local.name}-cert" : "${local.name}-cert-${var.cert_version}"
 
   managed {
     domains = [var.domain]
   }
 
+  # The HTTPS proxy holds a reference, so destroy-then-create fails with "resource in
+  # use". This makes a replacement possible at all; it does not make one safe.
   lifecycle {
     create_before_destroy = true
   }
