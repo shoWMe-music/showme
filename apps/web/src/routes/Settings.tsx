@@ -25,6 +25,7 @@ import {
 import { useRouterState } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
+import { TeamAccessPanel } from "../components/TeamAccessPanel";
 import { VatSettingsCard } from "../components/VatSettingsCard";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
@@ -33,6 +34,7 @@ import {
   type NotificationPreference,
   useNotificationPreferences,
 } from "../hooks/useNotificationPreferences";
+import { useTeamAccess } from "../hooks/useTeamAccess";
 import { errorMessage } from "../lib/errors";
 import { formatDay } from "../lib/format";
 import { usePageTransition } from "../shell/usePageTransition";
@@ -119,7 +121,7 @@ export function Settings() {
 
         <div ref={panelRef} className={styles.panel}>
           {section === "general" && <GeneralPanel profileId={profileId} />}
-          {section === "team" && <TeamPanel />}
+          {section === "team" && <TeamPanel profileId={profileId} />}
           {section === "notifications" && <NotificationsPanel />}
           {section === "security" && <SecurityPanel />}
           {section === "appearance" && <AppearancePanel />}
@@ -151,12 +153,23 @@ function GeneralPanel({ profileId }: { profileId: string }) {
   const [currency, setCurrency] = useState("");
   const [timezone, setTimezone] = useState("");
 
-  // GET /me carries identity refs, not org display fields — seed the name from
-  // the acting profile (falling back to the Firebase display name). Currency and
-  // timezone have no read value on /me, so they start unset (placeholder).
+  // The name comes from the acting profile (falling back to the Firebase display
+  // name); currency and timezone come from `GET /me`, which now returns them.
+  //
+  // It did not until 2026-09-04, and that was the whole of ClickUp 123qy9rnfz0:
+  // the write worked, the read did not exist, so these two came up blank on every
+  // visit and the screen read as "it didn't save". Seeding them is the fix — if
+  // this effect ever stops setting them, that bug is back.
   useEffect(() => {
     setOrgName(profile.data?.name ?? user?.displayName ?? "");
   }, [profile.data?.name, user?.displayName]);
+
+  useEffect(() => {
+    // `?? ""` keeps the placeholder for a user who has never chosen. Null means
+    // unchosen, and must not be shown as a value they did pick.
+    setCurrency(me.data?.currency ?? "");
+    setTimezone(me.data?.timezone ?? "");
+  }, [me.data?.currency, me.data?.timezone]);
 
   const patchMe = usePatchApiV1Me({
     mutation: {
@@ -278,23 +291,35 @@ function LegalCard({ profileId }: { profileId: string }) {
 }
 
 // ── Team Access ──────────────────────────────────────────────────────────────
-function TeamPanel() {
+/**
+ * Who is on the account, who has been asked, and the form for asking somebody
+ * new. It used to be the two read-only rows below plus a shipped empty state
+ * saying invitations "aren't available yet" — which, next to a working per-EVENT
+ * invite flow, read as a broken feature rather than an unbuilt one and was
+ * reported as exactly that (ClickUp 86cbaxvqk, "access giving non functional").
+ *
+ * The routes it drives are the ones that already existed: `POST /invitations`
+ * with `type: "profile_member"`, and the `profile_members` pair. `useTeamAccess`
+ * holds every decision; this component only picks the profile and the standing.
+ */
+function TeamPanel({ profileId }: { profileId: string }) {
   const { session } = useAuth();
-  const membership = session?.memberships[0];
+  const membership =
+    session?.memberships.find((one) => one.profileId === profileId) ?? session?.memberships[0];
+  // The routes behind every control here are gated on exactly this pair, so the
+  // panel offers nothing it cannot carry out.
+  const canManage = membership?.role === "owner" || membership?.role === "admin";
+  const team = useTeamAccess(profileId, canManage);
+
+  if (team.isPending) return <LoadingState label="Loading the team" />;
+  if (team.isError) return <ErrorState error={team.error} title="Couldn't load the team" />;
 
   return (
     <PanelCard>
-      <Eyebrow>Team Access</Eyebrow>
-      {membership && (
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          <KeyValueRow label="Your role" value={titleCase(membership.role)} />
-          <KeyValueRow label="Account kind" value={titleCase(membership.kind)} />
-        </div>
-      )}
-      <EmptyState
-        icon={<Icon name="users" />}
-        title="Inviting teammates isn't available yet"
-        description="Member invitations and per-role permission sets will live here."
+      <TeamAccessPanel
+        team={team}
+        yourRole={membership?.role ?? null}
+        accountKind={membership?.kind ?? null}
       />
     </PanelCard>
   );

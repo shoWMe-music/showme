@@ -2270,3 +2270,200 @@ describe("invitations — claiming under a different address", () => {
     expect(notice?.subject).toContain("Notice Hall");
   });
 });
+
+/**
+ * `GET /profiles/:id/invitations` — the account-level twin of the event list.
+ *
+ * Settings → Team Access was a shipped "coming soon" empty state (ClickUp
+ * 86cbaxvqk), and this route is the piece that made a real one impossible to
+ * build honestly: an invitation writes NO `profile_members` row until it is
+ * answered, so an owner who had just invited a teammate had nothing on screen to
+ * show for it and nothing to withdraw.
+ */
+describe("GET /profiles/:id/invitations — the account's open invitations", () => {
+  it("shows a member invitation the owner just sent, before anybody accepts it", async () => {
+    const owner = await seedOwnerWithProfile("team-list-owner");
+
+    const invite = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("team-list-owner"), "x-profile-id": owner.profileId },
+      payload: {
+        type: "profile_member",
+        source: "team",
+        recipientEmail: "ida@example.showme.test",
+        recipientName: "Ida Lund",
+        targetProfileId: owner.profileId,
+        // `viewer`, not `editor`: an editor consumes one of the plan's seats and
+        // the free tier has exactly one, already held by the owner. That refusal
+        // is a different rule with its own tests (the A-37 gate above); this one
+        // is about whether the invitation SHOWS UP.
+        role: "viewer",
+      },
+    });
+    expect(invite.statusCode).toBe(201);
+
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${owner.profileId}/invitations`,
+      headers: { ...auth("team-list-owner"), "x-profile-id": owner.profileId },
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json()).toHaveLength(1);
+    expect(listed.json()[0]).toMatchObject({
+      status: "pending",
+      recipientEmail: "ida@example.showme.test",
+      recipientName: "Ida Lund",
+      role: "viewer",
+    });
+  });
+
+  /**
+   * The redemption secrets stay off this shape. Handing `token`/`code` to every
+   * admin on the account would let any of them accept in the invitee's place.
+   */
+  it("withholds the token and the code from the list", async () => {
+    const owner = await seedOwnerWithProfile("team-list-secret");
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("team-list-secret"), "x-profile-id": owner.profileId },
+      payload: {
+        type: "profile_member",
+        source: "team",
+        recipientEmail: "secret@example.showme.test",
+        targetProfileId: owner.profileId,
+        role: "viewer",
+      },
+    });
+
+    const row = (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/profiles/${owner.profileId}/invitations`,
+        headers: { ...auth("team-list-secret"), "x-profile-id": owner.profileId },
+      })
+    ).json()[0];
+    expect(row.token).toBeUndefined();
+    expect(row.code).toBeUndefined();
+  });
+
+  /** A withdrawn invitation is no longer an outstanding ask, so it leaves the list. */
+  it("drops an invitation once it has been revoked", async () => {
+    const owner = await seedOwnerWithProfile("team-list-revoked");
+    const invite = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("team-list-revoked"), "x-profile-id": owner.profileId },
+      payload: {
+        type: "profile_member",
+        source: "team",
+        recipientEmail: "gone@example.showme.test",
+        targetProfileId: owner.profileId,
+        role: "viewer",
+      },
+    });
+
+    const revoked = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${invite.json().id}/revoke`,
+      headers: { ...auth("team-list-revoked"), "x-profile-id": owner.profileId },
+    });
+    expect(revoked.statusCode).toBe(200);
+
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${owner.profileId}/invitations`,
+      headers: { ...auth("team-list-revoked"), "x-profile-id": owner.profileId },
+    });
+    expect(listed.json()).toEqual([]);
+  });
+
+  /**
+   * EVENT invitations are a different list. One that happens to name this profile
+   * as its sender must not appear on the account's team screen, or withdrawing a
+   * teammate would withdraw a booking.
+   */
+  it("lists only profile_member invitations, never the event ones", async () => {
+    const { db } = harness;
+    const owner = await seedOwnerWithProfile("team-list-kind");
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: owner.profileId,
+        title: "Not a team invite",
+        baseCurrency: "SEK",
+        createdBy: "team-list-kind",
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: owner.profileId,
+      role: "host",
+      permissionSetId: owner.permissionSetId,
+      status: "confirmed",
+    });
+
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("team-list-kind"), "x-profile-id": owner.profileId },
+      payload: {
+        type: "event_participant",
+        source: "collaborator",
+        recipientEmail: "onthebill@example.showme.test",
+        targetEventId: event.id,
+        role: "performer",
+      },
+    });
+
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${owner.profileId}/invitations`,
+      headers: { ...auth("team-list-kind"), "x-profile-id": owner.profileId },
+    });
+    expect(listed.json()).toEqual([]);
+  });
+
+  /**
+   * Gated on owner/admin, the pair that may SEND one. The list carries every
+   * approached person's email address, and a viewer on the account has no claim
+   * to it.
+   */
+  it("403s a viewer on the account", async () => {
+    const { db } = harness;
+    const owner = await seedOwnerWithProfile("team-list-viewer");
+    await seedUser("team-list-viewer-eyes", "operator");
+    await db.insert(schema.profileMembers).values({
+      profileId: owner.profileId,
+      userId: "team-list-viewer-eyes",
+      role: "viewer",
+      status: "active",
+    });
+
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${owner.profileId}/invitations`,
+      headers: { ...auth("team-list-viewer-eyes"), "x-profile-id": owner.profileId },
+    });
+    expect(listed.statusCode).toBe(403);
+  });
+
+  /**
+   * 404, not 403, for somebody with no membership at all — `requireProfileRole`
+   * denies by default and does not confirm that the profile exists. A 403 would
+   * be an existence oracle for any uuid a stranger cared to try.
+   */
+  it("does not answer somebody with no membership of the account at all", async () => {
+    const owner = await seedOwnerWithProfile("team-list-stranger");
+    await seedUser("team-list-stranger-out", "operator");
+
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${owner.profileId}/invitations`,
+      headers: auth("team-list-stranger-out"),
+    });
+    expect(listed.statusCode).toBe(404);
+  });
+});

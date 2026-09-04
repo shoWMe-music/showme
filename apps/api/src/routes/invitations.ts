@@ -678,6 +678,71 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
     },
   );
 
+  /**
+   * The invitations OUT for a profile — the account-level twin of
+   * `GET /events/:id/invitations`, and the piece Settings → Team Access was
+   * missing (ClickUp 86cbaxvqk).
+   *
+   * The same gap it closes on an event exists on an account, and is worse there:
+   * `POST /invitations` writes NO `profile_members` row until the invitee answers
+   * — nothing is granted before they do — so an owner who invited a teammate saw
+   * a members list identical to the one before they asked, with no evidence the
+   * invitation existed and nothing to withdraw. Sending it twice is the obvious
+   * next move, and then two people hold a live grant to one seat.
+   *
+   * Gated on owner/admin, the same pair `POST /invitations` and the revoke below
+   * demand. It carries the recipient's EMAIL, which is contact detail the inviter
+   * holds — a `viewer` on the account has no claim to the address of everyone who
+   * was approached — and reading who is being let in is not less sensitive than
+   * letting them in.
+   *
+   * `EventInvitationResponse`'s shape, deliberately: it withholds `token` and
+   * `code`, the bearer secrets that redeem the grant. Handing those to every
+   * admin would let any of them accept in the invitee's place.
+   *
+   * Pending and unexpired only, for the same two reasons as the event list: an
+   * accepted invite is already a member row (two entries for one person reads as
+   * a duplicate), and a declined one lingering as a card looks like an
+   * outstanding ask.
+   */
+  app.get(
+    "/profiles/:id/invitations",
+    { schema: { params: IdParams, response: { 200: z.array(EventInvitationResponse) } } },
+    async (request) => {
+      const { database } = request.server;
+      const { id } = request.params;
+
+      requireProfileRole(request, id, ["owner", "admin"]);
+
+      const rows = await database
+        .select()
+        .from(schema.invitations)
+        .where(
+          and(
+            eq(schema.invitations.targetProfileId, id),
+            eq(schema.invitations.type, "profile_member"),
+            eq(schema.invitations.status, "pending"),
+            // An expired invite is gone everywhere else in this module
+            // (`loadInvitation` 404s on it), so it must not linger here either.
+            or(isNull(schema.invitations.expiresAt), gt(schema.invitations.expiresAt, new Date())),
+          ),
+        )
+        .orderBy(desc(schema.invitations.createdAt));
+
+      return rows.map((invitation) => ({
+        id: invitation.id,
+        status: invitation.status,
+        source: invitation.source,
+        recipientEmail: invitation.recipientEmail,
+        recipientName: invitation.recipientName,
+        role: invitation.role,
+        permissionSetId: invitation.permissionSetId,
+        createdAt: invitation.createdAt.toISOString(),
+        expiresAt: invitation.expiresAt ? invitation.expiresAt.toISOString() : null,
+      }));
+    },
+  );
+
   // Withdraw an invitation that has not been answered yet.
   //
   // By ID, not by token: the roster deliberately withholds the token from
