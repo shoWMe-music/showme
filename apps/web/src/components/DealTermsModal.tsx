@@ -20,6 +20,7 @@ import type { DealTermsEditor } from "./useDealTermsEditor";
 export function DealTermsModal({ editor }: { editor: DealTermsEditor }) {
   return (
     <Modal
+      dismissOnScrim={false}
       open={editor.subject !== null}
       onClose={editor.close}
       title={editor.subject ? `Terms — ${editor.subject.name}` : "Terms"}

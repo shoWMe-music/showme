@@ -1,6 +1,6 @@
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
-import type { Capability } from "@showme/shared";
+import { ADMIN_GRADE_CAPABILITIES, confersAdminAuthority } from "@showme/shared";
 import { and, count, countDistinct, eq, gte, inArray, sql } from "drizzle-orm";
 import { HttpError } from "../errors";
 import type { Transaction } from "./audit";
@@ -124,21 +124,15 @@ export function countsTowardEventCap(status: string | null | undefined): boolean
  * this — the direct writes (`routes/participants.ts`), the deferred one
  * (`routes/invitations.ts`) and the bulk one (`routes/groups.ts`) all funnel
  * through `assertGrantAdminAllows` below.
+ *
+ * THE LIST ITSELF now lives in `@showme/shared`, and is re-exported here so this
+ * module still reads as the home of the grant-admin rule. It moved because the
+ * WEB APP asks the same question: it describes a collaborator's access from what
+ * their permission set grants rather than from which row it is. Two copies would
+ * eventually disagree about who counts as an administrator, and the API would
+ * charge for a grant the UI had already described as ordinary.
  */
-export const ADMIN_GRADE_CAPABILITIES: readonly Capability[] = [
-  "participants.manage",
-  "permission.grant_admin",
-  "event.delete",
-  "members.manage",
-];
-
-/** Does this permission set hand its holder admin-grade authority over the event? */
-export function confersAdminAuthority(capabilities: readonly string[] | null | undefined): boolean {
-  if (!capabilities) return false;
-  return capabilities.some((capability) =>
-    (ADMIN_GRADE_CAPABILITIES as readonly string[]).includes(capability),
-  );
-}
+export { ADMIN_GRADE_CAPABILITIES, confersAdminAuthority };
 
 /**
  * Events on the free operator plan are UNLIMITED — because that is what we sell.

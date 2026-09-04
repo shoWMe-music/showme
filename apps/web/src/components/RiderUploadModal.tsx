@@ -45,6 +45,7 @@ export function RiderUploadModal({ open, onClose, view }: RiderUploadModalProps)
 
   return (
     <Modal
+      dismissOnScrim={false}
       open={open}
       onClose={close}
       width={520}

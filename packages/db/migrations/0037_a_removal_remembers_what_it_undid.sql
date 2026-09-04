@@ -1,0 +1,44 @@
+-- A REMOVAL REMEMBERS WHAT IT UNDID.
+--
+-- ClickUp `86cbazcc7`, item 3: *"Soft-remove discards the prior status, so there is
+-- no honest Restore."*
+--
+-- `DELETE /events/:id/participants/:pid` does not delete. It sets
+-- `status = 'removed'`, which is the right call — a settled show must keep every
+-- name that was on its bill. But it writes that value over the top of whatever the
+-- status was, and `invited`, `accepted` and `confirmed` are three different facts
+-- about a booking. Once flattened they cannot be told apart, so the UI cannot offer
+-- an undo: it has nothing to put back. What it offers instead is a confirm dialog
+-- with no way out of it, which makes a reversible act feel permanent and makes
+-- people hesitate over a button that was designed to be safe.
+--
+-- A COLUMN, not a lookup in the audit log. `writeAudit` does record the whole
+-- `before` row, so the value is technically recoverable — by reading the most
+-- recent `participant.remove` entry for this participant and parsing a jsonb blob
+-- out of it. That would make the audit trail load-bearing for an ordinary product
+-- affordance, which is exactly what an audit trail must not be: it is a record of
+-- what happened, and the moment a feature reads it, pruning or reshaping it becomes
+-- a breaking change.
+--
+-- Not `details` either. That bag is the operator's crew notes (call time, task, pay
+-- note) and the serializer treats every key in it as operator-only by default. The
+-- prior status is a fact about the ROW, in the same vocabulary as the column beside
+-- it — putting it in jsonb would hide a first-class status behind a different
+-- access rule than the status it restores.
+--
+-- NULLABLE, and null on every existing row. Null means "this row was never removed,
+-- or was removed before we started keeping track" — and the restore surface reads it
+-- as "no undo offered here", which is exactly the behaviour of every row today. No
+-- backfill: the rows already flattened cannot be recovered, and inventing a status
+-- for them would be worse than admitting it.
+--
+-- It is CLEARED on restore, not left behind. A row carrying a stale
+-- `status_before_removal` while sitting at `accepted` would be a second, older
+-- opinion about the same participant, and the next reader would have to work out
+-- which one counts.
+--
+-- Additive: no drop, no default, no backfill, nothing recomputes. The settlement
+-- cannot see it — `reconcile()` reads `budget_lines` and `deal_parties`, and a
+-- participant's status has never been an input to the money.
+ALTER TABLE "event_participants"
+  ADD COLUMN IF NOT EXISTS "status_before_removal" "event_participant_status";

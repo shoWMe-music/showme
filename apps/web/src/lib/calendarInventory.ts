@@ -80,6 +80,17 @@ export interface CalendarInventoryGroup {
   /** The venue's name, when its rooms are listed beneath it; null for a lone row. */
   heading: string | null;
   rows: CalendarInventoryRow[];
+  /**
+   * Is this profile a PLACE — somewhere with rooms that can be booked separately?
+   *
+   * Carried through from the source rather than inferred from `heading`, which
+   * is null both for a performer and for a venue that has not recorded a room
+   * yet. Those two look identical in this shape and must not: the card above it
+   * explains what rooms are and offers to manage them, and showing that to a
+   * performer is ClickUp 86cbcgw46 — a solo act told that "a venue's rooms are
+   * separate calendars", with a "Manage rooms" link to a thing they do not have.
+   */
+  isVenue: boolean;
 }
 
 /**
@@ -121,6 +132,7 @@ export function buildCalendarInventory(
       groups.push({
         profileId: source.profileId,
         heading: null,
+        isVenue: source.isVenue,
         rows: [
           {
             key: source.value,
@@ -147,7 +159,12 @@ export function buildCalendarInventory(
         count: unassigned,
       });
     }
-    groups.push({ profileId: source.profileId, heading: source.profileName, rows });
+    groups.push({
+      profileId: source.profileId,
+      heading: source.profileName,
+      isVenue: source.isVenue,
+      rows,
+    });
   }
 
   return groups;

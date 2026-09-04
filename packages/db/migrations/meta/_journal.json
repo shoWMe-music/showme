@@ -260,6 +260,13 @@
       "when": 1788912245005,
       "tag": "0036_a_comment_can_name_the_figure",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1788912245006,
+      "tag": "0037_a_removal_remembers_what_it_undid",
+      "breakpoints": true
     }
   ]
 }

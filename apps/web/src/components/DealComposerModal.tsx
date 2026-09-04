@@ -66,6 +66,7 @@ export function DealComposerModal({
 
   return (
     <Modal
+      dismissOnScrim={false}
       open={open}
       onClose={onClose}
       title="New deal"

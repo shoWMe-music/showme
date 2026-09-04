@@ -8,6 +8,7 @@
   },
   "scripts": {
     "test": "turbo run test",
+    "test:unit": "turbo run test:unit",
     "typecheck": "turbo run typecheck",
     "lint": "biome check .",
     "format": "biome format --write .",

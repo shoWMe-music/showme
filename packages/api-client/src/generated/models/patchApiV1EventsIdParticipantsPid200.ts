@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PatchApiV1EventsIdParticipantsPid200PermissionSet } from './patchApiV1EventsIdParticipantsPid200PermissionSet';
 
 export type PatchApiV1EventsIdParticipantsPid200 = {
   id: string;
@@ -21,5 +22,8 @@ export type PatchApiV1EventsIdParticipantsPid200 = {
   performerTag: string | null;
   /** @nullable */
   permissionSetId?: string | null;
+  permissionSet?: PatchApiV1EventsIdParticipantsPid200PermissionSet;
+  /** @nullable */
+  statusBeforeRemoval?: string | null;
   details?: unknown;
 };

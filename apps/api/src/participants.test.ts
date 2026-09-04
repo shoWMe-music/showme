@@ -632,3 +632,428 @@ describe("participants — the grant_admin entitlement gate (paid plans only)", 
     expect(addedAgent.statusCode).toBe(201);
   });
 });
+
+/**
+ * The three limits ClickUp 86cbazcc7 recorded, each of which forced the roster UI
+ * to STATE a restriction rather than offer a control:
+ *
+ *   1. `permissionSetId` was optional but not nullable, so access could only ever
+ *      go up — a collaborator promoted to full control could never be demoted.
+ *   2. Nothing listed the permission sets, and a participant serialized to a bare
+ *      id, so the UI could only guess at authority by comparing ids against the
+ *      host's — and got the seeded co-host wrong.
+ *   3. The soft remove wrote `removed` over the previous status, so there was
+ *      nothing to restore a row TO and the confirm could not offer an undo.
+ */
+describe("participants — permission sets can come back down", () => {
+  it("clears a participant's permission set when sent null", async () => {
+    const { db } = harness;
+    const { operator, performer, event } = await seedEventWithHost("lower");
+    const [participant] = await db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: performer.profileId,
+        role: "co_host",
+        permissionSetId: operator.permissionSetId,
+        status: "accepted",
+      })
+      .returning();
+    if (!participant) throw new Error("participant seed failed");
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}/participants/${participant.id}`,
+      headers: auth("lower-op"),
+      payload: { permissionSetId: null },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().permissionSetId).toBeNull();
+
+    // The row itself, not just the response — a serializer can lie about a write.
+    const [row] = await db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.id, participant.id));
+    expect(row?.permissionSetId).toBeNull();
+  });
+
+  /**
+   * Lowering must not be charged. `assertGrantAdminAllows` returns early on a null
+   * next-set, so a FREE host can always take admin authority away — which matters
+   * because the same host is 403'd for handing it out.
+   */
+  it("lets a FREE host demote a collaborator who holds an admin-grade set", async () => {
+    const { db } = harness;
+    const { operator, performer, event } = await seedEventWithHost("lower-free");
+    const [participant] = await db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: performer.profileId,
+        role: "co_host",
+        // operator_full — the set the free plan is 403'd for GRANTING.
+        permissionSetId: operator.permissionSetId,
+        status: "accepted",
+      })
+      .returning();
+    if (!participant) throw new Error("participant seed failed");
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}/participants/${participant.id}`,
+      headers: auth("lower-free-op"),
+      payload: { permissionSetId: null },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().permissionSetId).toBeNull();
+  });
+
+  /** Omitting the field still means "leave it alone" — the old behaviour intact. */
+  it("leaves the set untouched when the field is omitted entirely", async () => {
+    const { db } = harness;
+    const { operator, performer, event } = await seedEventWithHost("lower-omit");
+    const [participant] = await db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: performer.profileId,
+        role: "co_host",
+        permissionSetId: operator.permissionSetId,
+        status: "accepted",
+      })
+      .returning();
+    if (!participant) throw new Error("participant seed failed");
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}/participants/${participant.id}`,
+      headers: auth("lower-omit-op"),
+      payload: { performerTag: "headliner" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().permissionSetId).toBe(operator.permissionSetId);
+  });
+});
+
+describe("participants — the roster names the permission set, never guesses it", () => {
+  /**
+   * THE BUG THIS CLOSES. Two DIFFERENT permission-set rows can carry identical
+   * capabilities — the seeded co-host holds set `c6`, a separate row with the same
+   * `operator_full` list as the host's. Comparing ids, the UI called that
+   * "Standard for the role" while the holder had full control. Comparing
+   * CAPABILITIES, which is what the response now carries, it cannot.
+   */
+  it("serializes the set's name and capabilities, so two equal sets read as equal", async () => {
+    const { db } = harness;
+    const { performer, event } = await seedEventWithHost("named");
+
+    // A second row, different id, identical authority — the co-host's own set.
+    const [coHostSet] = await db
+      .insert(schema.permissionSets)
+      .values({
+        profileId: performer.profileId,
+        name: "Co-host full",
+        capabilities: [...PRESET_PERMISSION_SETS.operator_full],
+      })
+      .returning();
+    if (!coHostSet) throw new Error("permission set seed failed");
+
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: performer.profileId,
+      role: "co_host",
+      permissionSetId: coHostSet.id,
+      status: "accepted",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("named-op"),
+    });
+    expect(response.statusCode).toBe(200);
+
+    const rows = response.json();
+    const coHost = rows.find((row: { role: string }) => row.role === "co_host");
+    const host = rows.find((row: { role: string }) => row.role === "host");
+
+    expect(coHost.permissionSet.name).toBe("Co-host full");
+    expect(coHost.permissionSet.isPreset).toBe(false);
+    // Different ids, same authority — and the response says so.
+    expect(coHost.permissionSetId).not.toBe(host.permissionSetId);
+    expect([...coHost.permissionSet.capabilities].sort()).toEqual(
+      [...host.permissionSet.capabilities].sort(),
+    );
+    expect(coHost.permissionSet.capabilities).toContain("participants.manage");
+  });
+
+  it("omits the set entirely for a participant who holds none", async () => {
+    const { db } = harness;
+    const { performer, event } = await seedEventWithHost("named-none");
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: performer.profileId,
+      role: "performer",
+      status: "accepted",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("named-none-op"),
+    });
+    const row = response
+      .json()
+      .find((participant: { role: string }) => participant.role === "performer");
+    expect(row.permissionSetId).toBeNull();
+    expect(row.permissionSet).toBeUndefined();
+  });
+
+  /**
+   * The set is operator-tier. Naming it to an arm's-length party would tell them
+   * how the host's access is arranged — the same reason the bare id was already
+   * withheld from them.
+   */
+  it("tells a performer nothing about anyone's permission set", async () => {
+    const { db } = harness;
+    const { performer, event } = await seedEventWithHost("named-perf");
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: performer.profileId,
+      role: "performer",
+      status: "accepted",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("named-perf-perf"),
+    });
+    expect(response.statusCode).toBe(200);
+    for (const row of response.json()) {
+      expect(row.permissionSet).toBeUndefined();
+      expect(row.permissionSetId).toBeUndefined();
+    }
+  });
+});
+
+describe("participants — GET /events/:id/permission-sets", () => {
+  it("lists the system presets and the HOST's own sets, and nobody else's", async () => {
+    const { db } = harness;
+    const { operator, performer, event } = await seedEventWithHost("sets");
+
+    const [preset] = await db
+      .insert(schema.permissionSets)
+      .values({ profileId: null, name: "Schedule only", capabilities: ["event.view"] })
+      .returning();
+    if (!preset) throw new Error("preset seed failed");
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/permission-sets`,
+      headers: auth("sets-op"),
+    });
+    expect(response.statusCode).toBe(200);
+
+    const ids = response.json().map((row: { id: string }) => row.id);
+    expect(ids).toContain(preset.id);
+    expect(ids).toContain(operator.permissionSetId);
+    // The PERFORMER's own set belongs to their account, not to this event's host.
+    expect(ids).not.toContain(performer.permissionSetId);
+  });
+
+  it("marks a system preset as one and a host's own set as not", async () => {
+    const { db } = harness;
+    const { operator, event } = await seedEventWithHost("sets-flag");
+    const [preset] = await db
+      .insert(schema.permissionSets)
+      .values({ profileId: null, name: "Crew only", capabilities: ["event.view"] })
+      .returning();
+    if (!preset) throw new Error("preset seed failed");
+
+    const rows = (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/permission-sets`,
+        headers: auth("sets-flag-op"),
+      })
+    ).json();
+
+    expect(rows.find((row: { id: string }) => row.id === preset.id).isPreset).toBe(true);
+    expect(rows.find((row: { id: string }) => row.id === operator.permissionSetId).isPreset).toBe(
+      false,
+    );
+  });
+
+  /**
+   * Gated on `participants.manage` — the capability that lets a caller ASSIGN one.
+   * Reading the list is not less sensitive than assigning from it.
+   */
+  it("403s a performer on the bill", async () => {
+    const { db } = harness;
+    const { performer, event } = await seedEventWithHost("sets-403");
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: performer.profileId,
+      role: "performer",
+      status: "accepted",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/permission-sets`,
+      headers: auth("sets-403-perf"),
+    });
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("returns capabilities as a real list, so the UI can read authority off it", async () => {
+    const { event } = await seedEventWithHost("sets-caps");
+    const rows = (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/permission-sets`,
+        headers: auth("sets-caps-op"),
+      })
+    ).json();
+
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(Array.isArray(row.capabilities)).toBe(true);
+      expect(typeof row.name).toBe("string");
+    }
+  });
+});
+
+describe("participants — a removal remembers what it undid", () => {
+  /** Seed a participant at `status`, ready to be removed. */
+  async function seedRemovable(prefix: string, status: "invited" | "accepted" | "confirmed") {
+    const { db } = harness;
+    const { performer, event } = await seedEventWithHost(prefix);
+    const [participant] = await db
+      .insert(schema.eventParticipants)
+      .values({ eventId: event.id, profileId: performer.profileId, role: "performer", status })
+      .returning();
+    if (!participant) throw new Error("participant seed failed");
+    return { event, participant };
+  }
+
+  it("keeps the prior status on the row, and reports it as the restore target", async () => {
+    const { event, participant } = await seedRemovable("undo", "confirmed");
+
+    const removed = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}/participants/${participant.id}`,
+      headers: auth("undo-op"),
+    });
+    expect(removed.statusCode).toBe(200);
+    expect(removed.json().status).toBe("removed");
+    expect(removed.json().statusBeforeRemoval).toBe("confirmed");
+
+    const [row] = await harness.db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.id, participant.id));
+    expect(row?.statusBeforeRemoval).toBe("confirmed");
+  });
+
+  /**
+   * The three statuses a removal used to flatten into one. Each has to come back
+   * as itself, or the undo restores a booking to a state it was never in.
+   */
+  it("distinguishes the statuses a removal used to flatten", async () => {
+    for (const status of ["invited", "accepted", "confirmed"] as const) {
+      const { event, participant } = await seedRemovable(`undo-${status}`, status);
+      const removed = await app.inject({
+        method: "DELETE",
+        url: `/api/v1/events/${event.id}/participants/${participant.id}`,
+        headers: auth(`undo-${status}-op`),
+      });
+      expect(removed.json().statusBeforeRemoval).toBe(status);
+    }
+  });
+
+  it("restores the row and retires the memory of the removal", async () => {
+    const { event, participant } = await seedRemovable("undo-restore", "accepted");
+    await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}/participants/${participant.id}`,
+      headers: auth("undo-restore-op"),
+    });
+
+    const restored = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}/participants/${participant.id}`,
+      headers: auth("undo-restore-op"),
+      payload: { status: "accepted" },
+    });
+    expect(restored.statusCode).toBe(200);
+    expect(restored.json().status).toBe("accepted");
+    // Not "accepted" — a row that is no longer removed has no restore target, and
+    // a leftover value would be a second, older opinion about the same row.
+    expect(restored.json().statusBeforeRemoval).toBeNull();
+
+    const [row] = await harness.db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.id, participant.id));
+    expect(row?.statusBeforeRemoval).toBeNull();
+  });
+
+  /**
+   * Removing an already-removed row must not record `removed` as the thing to
+   * restore to — that would quietly turn the undo into a no-op.
+   */
+  it("does not overwrite the memory when a removed row is removed again", async () => {
+    const { event, participant } = await seedRemovable("undo-twice", "confirmed");
+    await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}/participants/${participant.id}`,
+      headers: auth("undo-twice-op"),
+    });
+    const second = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}/participants/${participant.id}`,
+      headers: auth("undo-twice-op"),
+    });
+    expect(second.json().statusBeforeRemoval).toBe("confirmed");
+  });
+
+  /**
+   * An edit that is not a restore leaves the undo intact — otherwise correcting a
+   * removed row's performer tag would silently destroy the only way back.
+   */
+  it("keeps the memory through an edit that does not change the status", async () => {
+    const { event, participant } = await seedRemovable("undo-edit", "confirmed");
+    await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}/participants/${participant.id}`,
+      headers: auth("undo-edit-op"),
+    });
+
+    const edited = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}/participants/${participant.id}`,
+      headers: auth("undo-edit-op"),
+      payload: { performerTag: "opener" },
+    });
+    expect(edited.json().status).toBe("removed");
+    expect(edited.json().statusBeforeRemoval).toBe("confirmed");
+  });
+
+  /** A row that was never removed offers no undo, and says so with null. */
+  it("reports no restore target for a row that is not removed", async () => {
+    const { event, participant } = await seedRemovable("undo-live", "accepted");
+    const rows = (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/participants`,
+        headers: auth("undo-live-op"),
+      })
+    ).json();
+    const row = rows.find((one: { id: string }) => one.id === participant.id);
+    expect(row.statusBeforeRemoval).toBeNull();
+  });
+});

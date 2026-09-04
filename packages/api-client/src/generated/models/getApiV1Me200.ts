@@ -12,4 +12,8 @@ export type GetApiV1Me200 = {
   /** @nullable */
   actingProfileId: string | null;
   memberships: GetApiV1Me200MembershipsItem[];
+  /** @nullable */
+  currency: string | null;
+  /** @nullable */
+  timezone: string | null;
 };

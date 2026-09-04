@@ -24,11 +24,17 @@ variable "name_prefix" {
   default     = "showme-api-lb"
 }
 
-# Bump to force a fresh managed certificate — the only way to retry provisioning after
-# a FAILED_NOT_VISIBLE (e.g. the DNS A record was added after the cert was created).
-# Paired with create_before_destroy so the swap never leaves the proxy without a cert.
+# Suffix on the managed certificate's name. Empty means no suffix, which is the name
+# the live prod certificate actually carries (`showme-api-lb-cert`) — so the default
+# leaves a healthy certificate alone and `terraform plan` stays quiet.
+#
+# Setting this REPLACES the certificate, and replacement means 15-60 minutes of failed
+# TLS on the domain while the new one provisions. That is the right trade only when the
+# current certificate is already broken (FAILED_NOT_VISIBLE or expired). To rotate a
+# healthy one you need an overlap instead — see the comment on the resource in main.tf
+# and the procedure in infra/README.md.
 variable "cert_version" {
   type        = string
-  description = "Suffix for the managed SSL certificate name; bump to re-provision."
-  default     = "v1"
+  description = "Suffix for the managed SSL certificate name. Empty = the live unsuffixed name. Setting it replaces the certificate and drops TLS for 15-60 min; only do that when the current one has already failed."
+  default     = ""
 }

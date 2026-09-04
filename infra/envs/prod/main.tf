@@ -8,6 +8,7 @@ module "api_load_balancer" {
   cloud_run_region  = var.cloud_run_region
   cloud_run_service = var.cloud_run_service
   domain            = var.domain
+  cert_version      = var.cert_version
 }
 
 output "load_balancer_ip" {

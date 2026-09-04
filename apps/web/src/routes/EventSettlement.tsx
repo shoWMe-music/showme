@@ -46,6 +46,7 @@ import {
   useEventSettlement,
 } from "../components/useEventSettlement";
 import { type SettlementLineRow, useSettlementLines } from "../components/useSettlementLines";
+import { useDisplayCurrency } from "../hooks/useDisplayCurrency";
 import { formatDay, formatMoney } from "../lib/format";
 import { toMinorUnits } from "../lib/moneyUnits";
 import { PRO_FILING_AVAILABLE } from "../lib/proFilingAvailability";
@@ -76,12 +77,21 @@ import { apiStatusToDisplay } from "../lib/status";
 export function EventSettlement() {
   const { eventId } = useParams({ from: "/events/$eventId/settlement" });
   const [tab, setTab] = useState("overview");
-  const [previewCurrency, setPreviewCurrency] = useState("");
+  // Seeded from the reader's account preference (`users.currency`), which until
+  // 2026-09-04 was stored and read by nothing — see `useDisplayCurrency`. An
+  // inherited default that has no exchange rate falls back to the settlement's
+  // own currency SILENTLY; only a currency the reader picks here warns.
+  const displayCurrency = useDisplayCurrency();
   const event = useGetApiV1EventsId(eventId);
   const baseCurrency = event.data?.baseCurrency ?? "";
   // Cosmetic only. The formatter converts for READING; nothing it touches is what
   // the settlement owes, records or pays (`docs/money.md`).
-  const preview = useCurrencyPreview(baseCurrency, previewCurrency, setPreviewCurrency);
+  const preview = useCurrencyPreview(
+    baseCurrency,
+    displayCurrency.previewCurrency,
+    displayCurrency.setPreviewCurrency,
+    displayCurrency.isExplicitChoice,
+  );
   const settlement = useEventSettlement(
     eventId,
     event.data?.capabilities ?? [],

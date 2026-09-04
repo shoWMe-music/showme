@@ -286,12 +286,37 @@ export function useMarkUnavailable(handlers: MarkUnavailableHandlers): MarkUnava
     setAnchorDay(days[days.length - 1] ?? null);
   };
 
+  const sortedSelection = useMemo(() => [...selectedDays].sort(), [selectedDays]);
+  const daysToBlock = sortedSelection.filter((day) => !blockedDays.has(day));
+  const daysToFree = sortedSelection.filter((day) => blockedDays.has(day));
+
+  /**
+   * "Done marking".
+   *
+   * THE REASON IS ONLY ASKED FOR WHEN SOMETHING IS BEING BLOCKED. A selection
+   * that only FREES nights writes immediately, with no dialog.
+   *
+   * This is ClickUp 86cbcgjhw — *"Unmarking unavailability has the same UI as
+   * marking them Unavailable"* — and the first bullet of 86cbcn189. The
+   * interaction was never the problem: a click toggles, so unmarking has always
+   * worked without a second control. The problem was this dialog. It asks *"why
+   * are these nights unavailable?"*, and freeing a night was answering that
+   * question about nights being made available — which is not a question, and
+   * made removal feel like it needed a justification.
+   *
+   * A mixed selection still asks, because it is still blocking something and
+   * that something wants a reason. Pure removal does not.
+   */
   const finishMarking = () => {
     if (selectedDays.size === 0) {
       cancelMarking();
       return;
     }
     setSaveError(null);
+    if (daysToBlock.length === 0) {
+      commit();
+      return;
+    }
     setIsConfirmOpen(true);
   };
 
@@ -307,9 +332,6 @@ export function useMarkUnavailable(handlers: MarkUnavailableHandlers): MarkUnava
     return () => window.removeEventListener("keydown", onKey);
   }, [isMarking, isConfirmOpen, cancelMarking]);
 
-  const sortedSelection = useMemo(() => [...selectedDays].sort(), [selectedDays]);
-  const daysToBlock = sortedSelection.filter((day) => !blockedDays.has(day));
-  const daysToFree = sortedSelection.filter((day) => blockedDays.has(day));
   const noReason = () => null;
 
   const commit = () => {

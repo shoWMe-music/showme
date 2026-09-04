@@ -34,11 +34,17 @@ export interface RidersDocumentsCardProps {
  * honesty, because to a performer it read as "riders cannot upload". It now does
  * the real thing (`useRiderUpload`: file → library rider → attached instance).
  *
- * It is still disabled for the OPERATOR, and that part was always right: a rider
- * is the act's own document (decisions #12), so the host has none of their own to
- * submit and `rider.submit` is deliberately absent from their preset. The
- * difference is that the button is now disabled for a reason about WHO IS LOOKING
- * rather than about what the app hasn't built.
+ * The OPERATOR still cannot submit one, and that part was always right: a rider is
+ * the act's own document (decisions #12), so the host has none of their own to
+ * send and `rider.submit` is deliberately absent from their preset.
+ *
+ * What changed is how that is SAID. It used to be a disabled Upload button whose
+ * only explanation lived in a `title` tooltip — which is no explanation at all on
+ * a touch device, where nothing can hover, and reads as a broken button on every
+ * other one. It was reported as exactly that (ClickUp 86cbaxw0w, "file uploads
+ * missing or non functional"). A rule the product is sure about should be stated
+ * in the card, not hidden behind a pointer, so the button is now ABSENT for
+ * someone who cannot use it and a plain line says who does the submitting.
  */
 export function RidersDocumentsCard({ eventId, riders }: RidersDocumentsCardProps) {
   const [open, setOpen] = useState(false);
@@ -52,28 +58,35 @@ export function RidersDocumentsCard({ eventId, riders }: RidersDocumentsCardProp
         iconColor="var(--brand-red)"
         title="Riders & Documents"
         action={
-          <Button
-            variant="ghost"
-            disabled={!upload.canSubmit}
-            title={
-              upload.canSubmit
-                ? "Attach a rider from a file"
-                : "Riders are attached by the act on the bill — a performer, their agent, or their crew. As the operator you receive them, you don't submit them."
-            }
-            leftIcon={<Icon name="upload" size={14} />}
-            onClick={() => setOpen(true)}
-          >
-            Upload
-          </Button>
+          upload.canSubmit ? (
+            <Button
+              variant="ghost"
+              title="Attach a rider from a file"
+              leftIcon={<Icon name="upload" size={14} />}
+              onClick={() => setOpen(true)}
+            >
+              Upload
+            </Button>
+          ) : null
         }
       />
       {riders.length === 0 ? (
-        <div style={{ color: "var(--dim)", fontSize: 13 }}>No riders or documents yet.</div>
+        <div style={riderNoteStyle}>
+          {upload.canSubmit
+            ? "No riders or documents yet."
+            : "Nothing has been submitted for this show yet."}
+        </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {riders.map((rider) => (
             <RiderListRow key={rider.id} rider={rider} onOpen={() => preview.open(rider.id)} />
           ))}
+        </div>
+      )}
+      {!upload.canSubmit && (
+        <div style={riderNoteStyle}>
+          Riders are submitted by the act on the bill — a performer, their agent, or their crew.
+          They arrive here for you to read.
         </div>
       )}
       <RiderUploadModal open={open} onClose={() => setOpen(false)} view={upload} />
@@ -88,6 +101,9 @@ export function RidersDocumentsCard({ eventId, riders }: RidersDocumentsCardProp
     </SectionCard>
   );
 }
+
+/** The card's quiet prose: the empty state and the who-submits-a-rider note. */
+const riderNoteStyle = { color: "var(--dim)", fontSize: 13 } as const;
 
 const riderRowStyle = {
   display: "flex",

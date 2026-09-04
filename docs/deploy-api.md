@@ -75,6 +75,26 @@ quietly rather than loudly if it goes missing:
   `profile_locations.lat`/`.lng` simply stay null, which is what every venue
   already has. Nothing else in the API notices.
 
+### Ask the deployment what it is missing
+
+That list of quiet failures is why the API now audits its own configuration
+(`apps/api/src/lib/config-audit.ts`). Two places give you the answer instead of
+making you infer it from a user's bug report:
+
+- **At boot.** Every start logs which subsystems are configured, and in production
+  logs one `ERROR` per *required* subsystem that is absent — naming the variables
+  and the symptom, e.g. "File storage is unavailable. Every upload fails: posters,
+  avatars, banners and rider documents." Search Cloud Logging for
+  `configuration INCOMPLETE` after a deploy.
+- **On demand**, as a platform admin: `GET /api/v1/admin/configuration` returns the
+  same report — every subsystem, the variables it needs, whether they are present,
+  and what breaks when they are not. It reports **presence only** and never a value.
+
+The right time to look is immediately after any deploy that named `--set-env-vars`
+or `--set-secrets`. Note the warning in [CLAUDE.md](../CLAUDE.md) about post-deploy
+checks: a warm instance can answer from the revision you just replaced, so confirm
+which revision served the log line.
+
 `MAPBOX_ACCESS_TOKEN` is a **public `pk.` token** — Mapbox designs these to be
 visible in a browser and expects them to be restricted by URL in the Mapbox
 dashboard. It lives in Secret Manager anyway, for two reasons that are not

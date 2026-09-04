@@ -99,6 +99,7 @@ export function EventCollaboratorInviteModal({
 
   return (
     <Modal
+      dismissOnScrim={false}
       open={open}
       onClose={onClose}
       title={invite.sentTo ? "Invitation sent" : "Invite collaborator"}
@@ -194,8 +195,9 @@ export function EventCollaboratorInviteModal({
               {invite.access === "full_control" && (
                 <span style={{ display: "block", marginTop: 4 }}>
                   Full control is the one grant that costs a plan — it makes them an administrator
-                  of this event. Standard access is included on every plan, and you can raise them
-                  later once the operator account is on a paid plan.
+                  of this event. Standard access is included on every plan; invite them at standard
+                  now and raise them from their card once the operator account is on a paid plan.
+                  Lowering it again is free and always available.
                 </span>
               )}
             </CollaboratorCallout>

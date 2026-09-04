@@ -49,6 +49,17 @@ export function useCurrencyPreview(
   baseCurrency: string,
   previewCurrency: string,
   setPreviewCurrency: (currency: string) => void,
+  /**
+   * Did the reader pick this currency on this screen, or did it come from their
+   * account preference? Only a CHOICE deserves a warning when no rate exists —
+   * an inherited default falling back to the authoritative currency is the right
+   * answer, not a failure. See `useDisplayCurrency` for the full argument.
+   *
+   * Defaults to `true` so an existing caller that passes nothing keeps the old
+   * behaviour: everything is treated as chosen, and nothing goes quiet by
+   * accident.
+   */
+  isExplicitChoice = true,
 ): CurrencyPreview {
   const wants = previewCurrency !== "" && previewCurrency !== baseCurrency;
   const currencyList = useGetApiV1ExchangeRateCurrencies();
@@ -59,7 +70,7 @@ export function useCurrencyPreview(
 
   const rate = wants ? (rateQuery.data?.rate ?? null) : null;
   const isPreviewing = wants && rate != null;
-  const unavailable = wants && !rateQuery.isPending && rate == null;
+  const unavailable = wants && !rateQuery.isPending && rate == null && isExplicitChoice;
 
   const format = (minorUnits: string): string => {
     if (!isPreviewing || rate == null) return formatMoney(minorUnits, baseCurrency);
@@ -126,8 +137,16 @@ export function CurrencyPreviewNotice({ preview }: { preview: CurrencyPreview })
   if (preview.unavailable) {
     return (
       <Notice tone="warn">
-        No live rate for {preview.baseCurrency} → {preview.previewCurrency}, so these figures are
-        still in {preview.baseCurrency}.
+        {/* Names the CAUSE, not just the effect. The old wording — "No live rate
+            for SEK → EUR, so these figures are still in SEK" — was accurate and
+            was read as a broken selector (ClickUp 86cbcn1ue: *"Currency selector
+            in the top right side doesn't change the settlement's currency —
+            Broken"*). It is not broken; it is refusing to convert money it has
+            no rate for, which is the only safe thing to do. Saying which rate is
+            missing, and that the figures below are the real ones, turns a
+            mysterious refusal into a fact about the exchange-rate feed. */}
+        We don't have an exchange rate for {preview.baseCurrency} → {preview.previewCurrency}, so
+        nothing has been converted. The figures below are the real ones, in {preview.baseCurrency}.
       </Notice>
     );
   }

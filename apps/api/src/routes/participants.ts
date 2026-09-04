@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { schema } from "@showme/db";
 import { notifyProfileMembers } from "@showme/db/notify";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, isNull, or } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -53,9 +53,30 @@ const OffPlatformParticipantBody = z.object({
 
 const UpdateParticipantBody = z.object({
   role: participantRole.optional(),
-  permissionSetId: z.string().uuid().optional(),
+  /**
+   * NULLABLE, not merely optional — the difference is whether access can come
+   * back DOWN.
+   *
+   * Optional-only, the field could be omitted (leave it alone) or set to a set id
+   * (raise it), and there was no third thing to send: a collaborator promoted to
+   * full control could never be demoted, because "no permission set, standard for
+   * the role" was unsayable. The edit dialog had to state that limit instead of
+   * offering a select that would silently no-op (ClickUp 86cbazcc7, item 1).
+   *
+   * `null` means "back to the role's default". Lowering is never an entitlement
+   * grant, so `assertGrantAdminAllows` returns early on it — a free plan can
+   * always take admin authority away, and only ever pays to hand it out.
+   */
+  permissionSetId: z.string().uuid().nullable().optional(),
   status: participantStatus.optional(),
   performerTag: performerTag.optional(),
+});
+
+const PermissionSetResponse = z.object({
+  id: z.string(),
+  name: z.string(),
+  capabilities: z.array(z.string()),
+  isPreset: z.boolean(),
 });
 
 const ParticipantResponse = z.object({
@@ -72,6 +93,10 @@ const ParticipantResponse = z.object({
   status: z.string(),
   performerTag: z.string().nullable(),
   permissionSetId: z.string().nullable().optional(),
+  /** The set itself, so the UI can describe authority rather than compare ids. */
+  permissionSet: PermissionSetResponse.optional(),
+  /** What a removed row was before it was removed — the restore target. */
+  statusBeforeRemoval: z.string().nullable().optional(),
   details: z.unknown().optional(),
 });
 
@@ -105,9 +130,19 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
           // 404 for every unpublished act.
           slug: schema.profiles.slug,
           isPublic: schema.profiles.isPublic,
+          // The permission set BY VALUE, not by id. Serialized only for the
+          // operator tier, but joined for everyone because the join is free —
+          // one LEFT JOIN on an indexed primary key against a table of presets.
+          permissionSetName: schema.permissionSets.name,
+          permissionSetCapabilities: schema.permissionSets.capabilities,
+          permissionSetProfileId: schema.permissionSets.profileId,
         })
         .from(schema.eventParticipants)
         .leftJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
+        .leftJoin(
+          schema.permissionSets,
+          eq(schema.permissionSets.id, schema.eventParticipants.permissionSetId),
+        )
         .where(eq(schema.eventParticipants.eventId, id));
 
       // Every face on the bill signed in ONE round, not one round trip per row —
@@ -146,8 +181,69 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
           },
           imageUrls,
           selfProfileIds,
+          row.participant.permissionSetId && row.permissionSetName
+            ? {
+                id: row.participant.permissionSetId,
+                name: row.permissionSetName,
+                capabilities: row.permissionSetCapabilities ?? [],
+                isPreset: row.permissionSetProfileId === null,
+              }
+            : null,
         ),
       );
+    },
+  );
+
+  /**
+   * The permission sets that may be put on a participant of this event.
+   *
+   * There was no route for this at all, which is what forced the roster to guess
+   * at authority by comparing set ids (ClickUp 86cbazcc7, item 2) and left the
+   * edit dialog with nothing to populate a select from.
+   *
+   * TWO SOURCES, one list: the system presets (`profile_id IS NULL`, available to
+   * everyone) and the sets belonging to THIS EVENT'S HOST. The host's, not the
+   * caller's — the sets are a property of the account whose event this is, a
+   * co-host managing the roster hands out the host's vocabulary rather than their
+   * own, and it is the host's plan that `assertGrantAdminAllows` charges for an
+   * admin-grade grant.
+   *
+   * `participants.manage`, the capability that lets a caller ASSIGN one. Reading
+   * the list is not more sensitive than assigning from it, and gating it any
+   * lower would tell an arm's-length party how the host's access is arranged.
+   */
+  app.get(
+    "/events/:id/permission-sets",
+    { schema: { params: EventParams, response: { 200: z.array(PermissionSetResponse) } } },
+    async (request) => {
+      const { database } = request.server;
+      const { id } = request.params;
+
+      await requireEventCapability(request, id, "participants.manage");
+
+      const [event] = await database
+        .select({ hostProfileId: schema.events.hostProfileId })
+        .from(schema.events)
+        .where(eq(schema.events.id, id));
+      if (!event) throw notFound("Event not found");
+
+      const rows = await database
+        .select()
+        .from(schema.permissionSets)
+        .where(
+          or(
+            isNull(schema.permissionSets.profileId),
+            eq(schema.permissionSets.profileId, event.hostProfileId),
+          ),
+        )
+        .orderBy(asc(schema.permissionSets.name));
+
+      return rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        capabilities: row.capabilities,
+        isPreset: row.profileId === null,
+      }));
     },
   );
 
@@ -489,10 +585,24 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
         });
       }
 
+      // Coming back from `removed` retires the memory of what it was. Left
+      // behind, `status_before_removal` would be a second and older opinion about
+      // a row that is no longer removed, and the next reader would have to work
+      // out which one counts. Only a status change AWAY from `removed` clears it,
+      // so an edit that touches something else leaves an undo intact.
+      const isRestore =
+        before.status === "removed" &&
+        request.body.status !== undefined &&
+        request.body.status !== "removed";
+
       const updated = await database.transaction(async (tx) => {
         const [after] = await tx
           .update(schema.eventParticipants)
-          .set({ ...request.body, updatedAt: new Date() })
+          .set({
+            ...request.body,
+            ...(isRestore ? { statusBeforeRemoval: null } : {}),
+            updatedAt: new Date(),
+          })
           .where(eq(schema.eventParticipants.id, pid))
           .returning();
         if (!after) throw notFound("Participant not found");
@@ -550,7 +660,15 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
       const updated = await database.transaction(async (tx) => {
         const [after] = await tx
           .update(schema.eventParticipants)
-          .set({ status: "removed", updatedAt: new Date() })
+          .set({
+            status: "removed",
+            // Keep what is about to be written over, so the confirm can honestly
+            // offer an undo. Guarded against a second remove: removing an
+            // already-removed row would otherwise record `removed` as the thing
+            // to restore to, turning the undo into a no-op.
+            ...(before.status === "removed" ? {} : { statusBeforeRemoval: before.status }),
+            updatedAt: new Date(),
+          })
           .where(eq(schema.eventParticipants.id, pid))
           .returning();
         if (!after) throw notFound("Participant not found");

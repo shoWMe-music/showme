@@ -4,6 +4,7 @@ import { createFirebaseTokenVerifier } from "./auth/token-verifier";
 import { loadEnv } from "./config";
 import { createCalendarIntegration } from "./lib/calendar-integration";
 import { createLeadSink } from "./lib/clickup";
+import { logConfigurationAudit } from "./lib/config-audit";
 import { createEmailSink } from "./lib/email";
 import { createGeocoder } from "./lib/geocode";
 
@@ -67,6 +68,11 @@ app
   .listen({ port: env.PORT, host: env.HOST })
   .then((address) => {
     app.log.info({ address }, "shoWMe API listening");
+    // Say out loud which integrations this deployment does NOT have. Every one of
+    // them degrades silently by design (see lib/config-audit.ts), so without this
+    // line a deploy that strips a variable looks identical to a healthy one until
+    // a user reports the symptom days later.
+    logConfigurationAudit(app.log);
   })
   .catch((error) => {
     app.log.fatal(error, "shoWMe API failed to start");

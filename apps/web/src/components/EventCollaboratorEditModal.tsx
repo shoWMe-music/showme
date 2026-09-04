@@ -38,6 +38,7 @@ export function EventCollaboratorEditModal({ editor }: { editor: EventCollaborat
 
   return (
     <Modal
+      dismissOnScrim={false}
       open={editor.open}
       onClose={editor.close}
       title={`Edit ${editor.displayName}`}
@@ -79,42 +80,44 @@ export function EventCollaboratorEditModal({ editor }: { editor: EventCollaborat
           )}
         </div>
 
-        {/* Access is a one-way door, so the panel is in one of three states, never
-            a select that pretends otherwise: already granted (nothing to do),
-            grantable (choose), or not a grant this role may hold at all. */}
-        {editor.hasFullControl ? (
+        {/* Access is an ORDINARY SELECT now, in both directions.
+
+            It used to be three states, because it had to be: `permissionSetId`
+            was optional-not-nullable on the route, so "standard for the role" was
+            a thing the API had no way to be told. A collaborator on full control
+            got a paragraph explaining that taking it back meant removing them and
+            inviting them again. `.nullable()` (ClickUp 86cbazcc7, item 1) makes
+            that paragraph obsolete, and a rule that no longer holds is worse than
+            no rule at all.
+
+            The panel still disappears entirely for a role that cannot carry full
+            control — that ceiling is real (decisions #4), and a select with one
+            option is not a question. */}
+        {editor.canGrantFullControl && (
           <div style={COLLABORATOR_PANEL_STYLE.fieldGroup}>
             <Eyebrow>Access</Eyebrow>
-            <span style={COLLABORATOR_PANEL_STYLE.hint}>
-              They hold full control of this event — the same set the operator does. Taking it back
-              isn't something this screen can do: remove them and invite them again at the access
-              you want.
-            </span>
+            <Select
+              value={editor.access}
+              onChange={(value) => editor.setAccess(value as EventCollaboratorAccess)}
+              options={ACCESS_OPTIONS.map((option) => ({
+                value: option.value,
+                label: option.label,
+              }))}
+              aria-label="Access"
+            />
+            {accessDescription && (
+              <span style={COLLABORATOR_PANEL_STYLE.hint}>{accessDescription}</span>
+            )}
+            {/* Named, because the set is what they actually hold and two sets can
+                grant the same thing under different names. */}
+            {editor.hasFullControl && editor.currentSetName && (
+              <span style={COLLABORATOR_PANEL_STYLE.hint}>
+                They currently hold{" "}
+                <strong style={{ color: "var(--text)" }}>{editor.currentSetName}</strong>. Setting
+                this back to standard returns them to the role's own access.
+              </span>
+            )}
           </div>
-        ) : (
-          editor.canGrantFullControl && (
-            <div style={COLLABORATOR_PANEL_STYLE.fieldGroup}>
-              <Eyebrow>Access</Eyebrow>
-              <Select
-                value={editor.access}
-                onChange={(value) => editor.setAccess(value as EventCollaboratorAccess)}
-                options={ACCESS_OPTIONS.map((option) => ({
-                  value: option.value,
-                  label: option.label,
-                }))}
-                aria-label="Access"
-              />
-              {accessDescription && (
-                <span style={COLLABORATOR_PANEL_STYLE.hint}>{accessDescription}</span>
-              )}
-              {editor.access === "full_control" && (
-                <span style={COLLABORATOR_PANEL_STYLE.hint}>
-                  Granting this cannot be undone from this screen — say it now rather than discover
-                  it later.
-                </span>
-              )}
-            </div>
-          )
         )}
 
         {editor.refusal && <CollaboratorCallout>{editor.refusal}</CollaboratorCallout>}

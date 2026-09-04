@@ -41,8 +41,10 @@ Ctrl-C will not reap.
 **`pnpm vitest run` at the repo root is wrong.** It sweeps `apps/web/tests`
 Playwright specs into vitest and starves Docker; you get ~47 failures that mean
 nothing. Correct: `cd apps/api && pnpm vitest run [src/one.test.ts]`, per package.
-`apps/web` has **no** vitest suite at all — its `test` script is Playwright, run
-from the root with `pnpm test:e2e`.
+`apps/web` **now has a vitest suite** (added 2026-09-03, [86cbazcf3](https://app.clickup.com/t/86cbazcf3)):
+`pnpm --filter @showme/web test:unit`, or `pnpm test:unit` for every package that
+has one. Its `test` script is still Playwright, run from the root with
+`pnpm test:e2e` — hence the two task names.
 
 **Testcontainer suites fail spuriously under contention.** Two did today and both
 passed 24/24 and 7/7 alone. Re-run a single suite before believing a failure.
@@ -115,8 +117,10 @@ and say which in a comment.
 ### 3b. Six tasks that DO NOT EXIST and need creating
 Full scope for the first four is in `backlog-2026-08-27-feature-scopes.md`.
 
-1. **Budget Planner regression test** — `shiftedTwoPlaces` is a pure function with
-   no test, because `apps/web` has no unit runner. Blocked on [86cbazcf3](https://app.clickup.com/t/86cbazcf3).
+1. ~~**Budget Planner regression test**~~ — **DONE 2026-09-03.** `apps/web` has a
+   vitest project now ([86cbazcf3](https://app.clickup.com/t/86cbazcf3)), the two
+   exiled suites are home, and `shiftedTwoPlaces` is covered where it lives
+   (`apps/web/src/lib/moneyUnits.test.ts`). See §9.4.
 2. **`reconcileEvent` does not filter deals by `status`** — **DONE 2026-08-31.**
    Both halves. Read the whole entry before re-opening it: the middle of this
    story is a fix that would have been a disaster, and the shape of it is worth
@@ -237,8 +241,8 @@ Full scope for the first four is in `backlog-2026-08-27-feature-scopes.md`.
 |---|---|
 | ~~Deals rollback~~ · ~~deal-kind menu~~ · ~~settlement Deal Structure tab~~ | **DECIDED AND BUILT 2026-08-27 evening** — see §7. |
 | Events list vs the design ([86cbaxu87](https://app.clickup.com/t/86cbaxu87), data half shipped) | **`/design consent`** from Daniel. Per the `claude-design` skill the prototype must be RENDERED and looked at — never read as HTML or rebuilt from a description. That has gone wrong twice. |
-| Access giving ([86cbaxvqk](https://app.clickup.com/t/86cbaxvqk)) | The API gaps in [86cbazcc7](https://app.clickup.com/t/86cbazcc7): `permissionSetId` is optional-but-not-nullable, so access is a one-way door — "revoke to standard" has no meaning yet — and no route lists permission sets, so the UI cannot name the bundle it grants. |
-| File uploads ([86cbaxw0w](https://app.clickup.com/t/86cbaxw0w)) | **Ran.** Not reproducible: `FIREBASE_STORAGE_BUCKET` and both BREVO secrets ARE set in production (read off the live service). Best remaining guess is he hit the rider Upload button, disabled for operators by design. Ask him what he clicked before building anything. |
+| ~~Access giving~~ ([86cbaxvqk](https://app.clickup.com/t/86cbaxvqk)) | **UNBLOCKED AND BUILT 2026-09-03** — the API gaps in [86cbazcc7](https://app.clickup.com/t/86cbazcc7) are closed (`permissionSetId` is `.nullable()`, `GET /events/:id/permission-sets` exists, and the participant serializer carries the set's name and capabilities). Settings → Team Access is a real screen: members with a role select, pending invitations with Withdraw, and an invite form. See §9. |
+| ~~File uploads~~ ([86cbaxw0w](https://app.clickup.com/t/86cbaxw0w)) | **CLOSED 2026-09-03, and it was never Ran's bug.** `FIREBASE_STORAGE_BUCKET` is set in production, as this row already said. What was missing was any way to KNOW that — nine integrations degrade silently and a `--set-env-vars` deploy replaces the whole set. There is now a boot-time audit and `GET /admin/configuration`. The operator's rider Upload button no longer looks broken either. See §9. |
 
 ---
 
@@ -808,3 +812,153 @@ reached the process.
   `docker volume ls -q | grep -E '^[0-9a-f]{64}$' | xargs docker volume rm`
   — never plain `prune`, which also takes the named dev database.
 - The open product calls listed earlier in this file still stand.
+
+---
+
+## 9. The five engineering-found bugs — 2026-09-03
+
+The items on the board that Ran never filed: found while verifying his lists, filed,
+and then left. All five are closed. Each was a different KIND of invisible: a trap in
+code nobody had run, a failure with no way to observe it, a rule that could only be
+stated because the API could not express it, a package with nowhere to put a test, and
+a screen that shipped as a placeholder.
+
+### 1. A `terraform apply` on prod would have replaced the LIVE TLS certificate
+[123qy9rng46](https://app.clickup.com/t/123qy9rng46) · `infra/`
+
+`cert_version` shipped with a default of `"v1"` on 2026-08-23 to force a replacement
+that was needed at the time. The certificate then went `ACTIVE` on Google's own retry,
+and the now-pointless rename sat in the code for **eleven days**. `name` forces
+replacement on a managed certificate, so the next bare `terraform apply` in `envs/prod`
+would have taken `api.showme.music` off the air for the 15–60 minutes the new cert
+spends provisioning. Not degraded — the whole product, failing TLS.
+
+`create_before_destroy` does not save you. It guarantees the proxy references *some*
+certificate; it says nothing about that certificate being valid.
+
+Fixed by making the default `""`, which reproduces the live name `showme-api-lb-cert`,
+so `terraform plan` goes quiet. The escape hatch survives, with the rule written into
+the module: **bumping `cert_version` is only right when the certificate has ALREADY
+failed.** Rotating a healthy one needs an overlap, and the two-apply procedure for that
+is in `infra/README.md`. `cert_version` is also now declared as a root variable in
+`envs/prod` — the README's `terraform apply -var="cert_version=v2"` had never worked,
+because the root module did not declare it.
+
+Also corrected while in there: the README still said Cloud Scheduler lives in
+`europe-north1` (it is `europe-west1` — Scheduler exists in neither Nordic region) and
+still claimed `Dockerfile.jobs` did not exist.
+
+**Not verified against the live plan.** Terraform is not installed on this machine and
+`gcloud` needs a re-auth. Run `terraform plan` in `infra/envs/prod` and confirm it
+reports no changes to `module.api_load_balancer` before trusting this.
+
+### 2. File uploads — the bug was that nothing could observe the bug
+[86cbaxw0w](https://app.clickup.com/t/86cbaxw0w) · `apps/api/src/lib/config-audit.ts`
+
+The ticket asked whether `FIREBASE_STORAGE_BUCKET` was set in production. It is, and
+§4 of this file already said so. The real defect is the class of failure: **nine
+integrations degrade silently by design**, and `gcloud run deploy --set-env-vars`
+REPLACES the whole set rather than merging it. One deploy that forgets a variable
+strips it from a healthy service and nothing errors — email keeps "succeeding" into a
+no-op sink, uploads keep returning a URL to nowhere. The only trace is a user, days
+later, saying a feature is "missing or non functional". That is precisely how this
+ticket started, and it could as easily have been any of the other eight.
+
+So the API now states, once, what each variable buys and what its absence costs:
+
+- **At boot** it logs which subsystems are configured, and in production logs one
+  `ERROR` per missing REQUIRED subsystem, naming the variables and the **symptom** —
+  "File storage is unavailable. Every upload fails: posters, avatars, banners and rider
+  documents." Search Cloud Logging for `configuration INCOMPLETE` after a deploy.
+- **`GET /admin/configuration`** serves the same report on demand. Platform-admin only,
+  and **presence-only**: it reports that a variable is set, never what it is set to.
+
+It logs and returns; it never exits. A stripped `BREVO_API_KEY` must not take down an
+API that is still settling shows correctly.
+
+The rider UI gap folded in as asked: the operator's **Upload button is now ABSENT
+rather than disabled**, with a plain line saying riders are submitted by the act on the
+bill. The explanation used to live only in a `title` tooltip — no explanation at all on
+a touch device, and a broken-looking button everywhere else. The ticket's second UI gap
+(a rider rendering "NO FILE") **was already closed**: that rider carries notes, the row
+opens to them, and there is an e2e spec for it.
+
+### 3. Participants API — three limits the UI could only apologise for
+[86cbazcc7](https://app.clickup.com/t/86cbazcc7) · migration **0037**
+
+1. **`permissionSetId` was optional but not nullable, so access only went up.** A
+   collaborator promoted to full control could never be demoted — "standard for the
+   role" was a thing the API had no way to be told. Now `.nullable()`. Lowering is
+   never an entitlement grant, so `assertGrantAdminAllows` returns early on it: **a
+   free plan can always take admin authority away, and only ever pays to hand it out.**
+2. **Nothing listed the permission sets, and a participant serialized to a bare id.**
+   The roster could only detect "full control" by comparing set ids against the HOST's
+   — a comparison of rows, not of authority — and it got the seeded co-host wrong.
+   Northlight Presents holds set `c6`, a *different row* carrying an identical
+   `operator_full` list, and was labelled "Standard for the role" while having exactly
+   the authority that denies. Now there is `GET /events/:id/permission-sets`, and the
+   participant carries its set by value (name + capabilities), operator-tier only.
+   `ADMIN_GRADE_CAPABILITIES` / `confersAdminAuthority` **moved to `@showme/shared`** so
+   the API's entitlement gate and the web app's label read the same list — two copies
+   would eventually disagree about who counts as an administrator.
+3. **The soft remove discarded the prior status, so there was no honest Restore.**
+   `invited`, `accepted` and `confirmed` were flattened into `removed`, and nothing
+   could put a row back as it was — so the confirm dialog presented a reversible act as
+   a permanent one. Migration 0037 adds `event_participants.status_before_removal`,
+   written by the remove and CLEARED by the restore. A column and not the audit log:
+   the moment a product feature reads the audit trail, pruning it becomes a breaking
+   change.
+
+### 4. `apps/web` had no unit-test runner
+[86cbazcf3](https://app.clickup.com/t/86cbazcf3)
+
+`"test": "playwright test"` and no vitest project, so nothing could assert a pure
+function — which is how `parseDayLocal` shipped with an unanchored regex that sent a
+zoned instant down the date-only branch and named the UTC day rather than the reader's.
+
+Added `apps/web/vitest.config.ts` (node env, `src/**/*.test.ts`, explicitly excluding
+the Playwright specs, pinned to `TZ=Europe/Stockholm` so the "reader's day vs UTC day"
+distinction can actually fail), a `test:unit` script, a `test:unit` turbo task and a CI
+step. `test` still means Playwright for this package, hence a second task rather than a
+rename.
+
+The two suites exiled into `apps/api` (`web-format.test.ts`, `money-units.test.ts`) are
+home, headers dropped. Backfilled the modules the ticket named: **103 tests** across
+`lib/format`, `lib/status`, `lib/moneyUnits`, `components/calendarGrid`,
+`components/budgetPlannerView` and `hooks/useEventList` — for which
+`eventListQuery` was lifted out of the hook so the filter→query rule (the whole of the
+Events screen's filtering) could be asserted without React.
+
+### 5. Settings → Team Access was a shipped "coming soon"
+[86cbaxvqk](https://app.clickup.com/t/86cbaxvqk)
+
+Two read-only rows and an empty state. Next to a working per-EVENT invite flow it read
+as a broken feature rather than an unbuilt one, which is exactly how Ran reported it.
+
+Almost nothing had to be invented. It is the same `POST /invitations` the event roster
+sends, with `type: "profile_member"` and a `targetProfileId`, plus the
+`profile_members` routes that have existed since the schema did. The one missing piece
+was **`GET /profiles/:id/invitations`** — an invitation writes NO member row until it
+is answered, so an owner who had just invited someone saw a list identical to the one
+before they asked, with nothing to withdraw and every reason to send it twice.
+
+The screen now shows members (role as a select, remove), pending invitations (with
+Withdraw), and an inline invite form. Roles carry a plain-language sentence and say
+**before** you choose whether they cost a seat, so running out is a fact met on the way
+in rather than a 403 met on the way out.
+
+### How it was verified
+
+- **39/39 live probes** against the booted stack as the real seeded accounts, asserting
+  the reason as well as the status and reading rows back in Postgres.
+- **A browser pass** through both changed screens: invited and withdrew a teammate,
+  demoted the co-host (confirmed `NULL` in Postgres), was refused on re-raising it with
+  "Granting admin requires a paid plan" **on the form**, and removed → restored Priya
+  Sound, whose menu offered *"Puts them back on this event as confirmed"* and left
+  `status_before_removal` null afterwards.
+- **One probe lied and was caught.** It asserted the operator gets 403 from
+  `/admin/configuration`. The seeded operator carries `users.is_admin = true` — checked
+  in Postgres rather than assumed — so 200 was correct and the probe was wrong. Rewritten
+  to assert the admin's 200 *and* a performer's 403.
+
+Terraform is the one item with no live verification; see §9.1.

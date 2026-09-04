@@ -186,6 +186,24 @@ export const eventParticipants = pgTable(
     permissionSetId: uuid("permission_set_id").references(() => permissionSets.id),
     performerTag: performerTag("performer_tag"),
     status: eventParticipantStatus("status").notNull().default("invited"),
+    /**
+     * What `status` was immediately before this row was removed — the fact that
+     * makes an undo possible.
+     *
+     * `DELETE /events/:id/participants/:pid` is a SOFT remove: it writes
+     * `status = 'removed'` so a settled show keeps every name that was on its
+     * bill. Written over the top, though, `invited`, `accepted` and `confirmed`
+     * become indistinguishable, so nothing could put the row back as it was and
+     * the confirm dialog had to present a reversible act as a permanent one.
+     *
+     * Written ONLY by the remove, and CLEARED by the restore. A row sitting at
+     * `accepted` while still carrying a value here would be a second, older
+     * opinion about the same participant.
+     *
+     * NULL on every row written before this existed, and read as "no undo offered"
+     * — which is exactly how those rows already behave.
+     */
+    statusBeforeRemoval: eventParticipantStatus("status_before_removal"),
     details: jsonb("details"), // crew_details (call_time, task, pay_note) folded in
     /**
      * When this profile filed the event away — ARCHIVING, and deliberately not a

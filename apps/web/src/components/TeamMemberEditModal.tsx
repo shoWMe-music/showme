@@ -106,6 +106,7 @@ export function TeamMemberEditModal({ open, member, onClose, onSaved }: TeamMemb
 
   return (
     <Modal
+      dismissOnScrim={false}
       open={open && member !== null}
       onClose={onClose}
       title="Edit member"

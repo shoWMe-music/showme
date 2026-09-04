@@ -64,6 +64,27 @@ export interface EventListView extends CursorList<EventItem> {
 }
 
 /**
+ * The chip the reader pressed, as a query the server can answer.
+ *
+ * Lifted out of the hook so it can be ASSERTED. It is the whole of the screen's
+ * filtering logic — nothing is filtered in the browser — and every part of it is a
+ * rule that reads as arbitrary from the call site: that "Pending" is two statuses,
+ * that "Archived" sends no status at all, that "All" sends neither parameter. A
+ * wrong answer here does not throw; it renders a shorter list, which looks exactly
+ * like a correct list of a customer with fewer shows.
+ */
+export function eventListQuery(filter: EventFilterKey): EventsQuery {
+  const statuses = CHIP_STATUSES[filter];
+  return {
+    limit: PAGE_SIZE,
+    // `GET /events?status=` takes a LIST — the "Pending" chip is pending ∪ suggested,
+    // and the fetch mutator stringifies the array to `status=pending,suggested`.
+    status: statuses.length > 0 ? [...statuses] : undefined,
+    archived: filter === ARCHIVED_CHIP ? "only" : undefined,
+  };
+}
+
+/**
  * The Events screen's data: server-side status filtering over the keyset-paginated
  * list. The List view pages on demand ("Load more"); the Board view drains the
  * cursor, because its columns show counts and a count over page one is a lie.
@@ -72,14 +93,7 @@ export function useEventList(): EventListView {
   const [filter, setFilter] = useState<EventFilterKey>("all");
   const [view, setView] = useState<EventView>("list");
 
-  const statuses = CHIP_STATUSES[filter];
-  const params: EventsQuery = {
-    limit: PAGE_SIZE,
-    // `GET /events?status=` takes a LIST — the "Pending" chip is pending ∪ suggested,
-    // and the fetch mutator stringifies the array to `status=pending,suggested`.
-    status: statuses.length > 0 ? [...statuses] : undefined,
-    archived: filter === ARCHIVED_CHIP ? "only" : undefined,
-  };
+  const params = eventListQuery(filter);
 
   const list = useCursorList<EventItem>({
     queryKey: infiniteKey(getGetApiV1EventsQueryKey(params)),

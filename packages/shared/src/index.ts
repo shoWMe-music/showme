@@ -1,4 +1,10 @@
-export { CAPABILITIES, isCapability, type Capability } from "./capabilities";
+export {
+  ADMIN_GRADE_CAPABILITIES,
+  CAPABILITIES,
+  confersAdminAuthority,
+  isCapability,
+  type Capability,
+} from "./capabilities";
 export {
   eventParticipantRoleLabel,
   humanizeEnumValue,

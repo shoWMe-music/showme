@@ -12,4 +12,8 @@ export type PatchApiV1Me200 = {
   /** @nullable */
   actingProfileId: string | null;
   memberships: PatchApiV1Me200MembershipsItem[];
+  /** @nullable */
+  currency: string | null;
+  /** @nullable */
+  timezone: string | null;
 };

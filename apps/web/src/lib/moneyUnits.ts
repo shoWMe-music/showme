@@ -5,10 +5,9 @@
  * It sits in `lib/` rather than inside `useBudgetEditor` for a reason worth
  * stating: these are pure string functions, and `useBudgetEditor` is a React hook
  * that drags in the generated API client, the design system and TanStack Query.
- * Nothing that has to be unit-tested should be reachable only through that. See
- * `apps/api/src/money-units.test.ts` — the tests live in `apps/api` because that
- * is where a vitest runner exists, and they can only import this file because it
- * is free of React.
+ * Nothing that has to be unit-tested should be reachable only through that. The
+ * tests are in `moneyUnits.test.ts` beside this file, and they can import it at
+ * all only because it is free of React.
  */
 
 /**

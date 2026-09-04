@@ -65,6 +65,13 @@ jobs:
       # Negative filters keep new Vitest packages included automatically.
       - run: pnpm exec turbo run test --filter='!@showme/web' --filter='!@showme/marketing'
 
+      # `test` means "this package's default suite", which for @showme/web is
+      # Playwright — hence the filter above. Its UNIT suite is a separate task, so
+      # it needs a separate line or it would never run in CI at all. Unfiltered:
+      # only packages that declare `test:unit` have one, and any package that adds
+      # one later is picked up without touching this file.
+      - run: pnpm exec turbo run test:unit
+
   marketing-e2e:
     name: Marketing e2e (Playwright)
     runs-on: ubuntu-latest
