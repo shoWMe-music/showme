@@ -1,3 +1,74 @@
+# Deployed — 2026-09-04
+
+| | |
+|---|---|
+| **API** | Cloud Run `showme-api-00032-s8n`, 100% of traffic, no pin. `api.showme.music` health 200. |
+| **Database** | migrations **36 → 38**. `0036_a_comment_can_name_the_figure`, `0037_a_removal_remembers_what_it_undid`. |
+| **Web app** | `showme-app.web.app` on `music-showme` — bundle `index-DL3iRfP2.js`, 3 of 23 files uploaded (content-addressed store). Served bundle matches the local build **byte for byte** (sha256 `52d2a53f…`). |
+| **Marketing** | NOT redeployed. Nothing in this release touches `apps/marketing`. |
+| **Terraform** | NOT applied, and none needed — `plan` reports *"No changes. Your infrastructure matches the configuration."* |
+
+## What shipped
+
+Fourteen commits closing eight tickets: the five engineering-found bugs
+(terraform cert trap, the configuration audit, the participants API + migration
+0037, the web unit-test runner, Team Access) and Wave 1 of the bug plan (settings
+currency/timezone, the wizard's destroyed work, venue Rooms UI shown to
+performers, the unavailability reason prompt, the double-booking warning, the FX
+notice). Detail in `handoff-2026-09-04-wave-one.md` and
+`bug-analysis-2026-09-04.md`.
+
+## What was checked, and how
+
+**Configuration survived.** The live env and secrets were recorded BEFORE the
+deploy and compared after: all 12 present, 6 plain + 6 secret, no drift. A
+`--source` deploy names no configuration, which is what makes that safe — `--set-*`
+would have replaced the whole set.
+
+**The API said so itself.** First production run of the boot audit built for
+`86cbaxw0w`:
+
+```
+shoWMe API configuration complete
+unconfigured: Google Calendar integration; Google Calendar push notifications
+missingRequired: (none)
+```
+
+Those two are genuinely optional. Search Cloud Logging for
+`configuration INCOMPLETE` after any future deploy.
+
+**The migrations moved schema and not data.** Row counts either side: 18 events,
+26 participants, 5 settlements — unchanged — and `status_before_removal` is
+non-null on zero rows. Both migrations are additive: one nullable column each,
+no backfill, no drop.
+
+**Which revision answered.** A first attempt to prove this by hitting a
+00032-only route was INVALID and is worth recording: the auth preHandler runs
+before routing, so a nonexistent path also returns 401. The discriminator proved
+nothing. A negative control caught it. Confirmed instead by the traffic
+allocation (100% to 00032, `latestRevision: true`) and that revision's own boot
+log.
+
+**The bundle is a production build.** Checked for emulator markers before
+uploading — `9099`, `connectAuthEmulator`, `demo-showme`, `127.0.0.1` all absent,
+and the production API origin and Firebase project present. `pnpm test:e2e`
+overwrites `apps/web/dist` with an emulator build, and this file already records
+an incident where exactly that went live.
+
+**The pair works, not just the halves.** Driven in a real browser at
+`showme-app.web.app`: the sign-in screen renders, and a `fetch` from that origin
+to the deployed API returns 200 rather than throwing — so CORS admits the app.
+
+## Terraform, verified without installing it
+
+`plan` was run through the `hashicorp/terraform` Docker image with ADC mounted
+read-only (recipe in `infra/README.md`). Result: no changes, anywhere. The live
+certificate `showme-api-lb-cert` (ACTIVE, expires 2026-11-21), the name the module
+now produces, and the name in state all agree. The rename that would have forced a
+replacement — and taken `api.showme.music` down for 15–60 minutes — is gone.
+
+---
+
 # Deployment status — what is live, and what is not
 
 The standing answer to "what's deployed where". Update it when that changes.
