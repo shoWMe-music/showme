@@ -49,6 +49,22 @@ function CalendarRow({ label, count, muted }: { label: string; count: number; mu
 }
 
 export function MyCalendarsCard({ groups, periodTitle, onManageRooms }: MyCalendarsCardProps) {
+  /**
+   * Does this reader have anywhere with rooms in it?
+   *
+   * Everything below about rooms — the sentence explaining that they are separate
+   * calendars, and the link to manage them — is VENUE furniture, and it used to
+   * render for everybody. A performer opening their calendar was told "a venue's
+   * rooms are separate calendars — two rooms can hold two shows on the same
+   * night" and offered "+ Manage rooms", for a building they do not have
+   * (ClickUp 86cbcgw46). It reads as the app mistaking them for a venue, which
+   * is exactly what it was doing.
+   *
+   * `some`, not `every`: an operator who also performs has both kinds of profile,
+   * and the rooms half is still true and useful for the venue among them.
+   */
+  const hasVenue = groups.some((group) => group.isVenue);
+
   return (
     <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <Eyebrow>My calendars</Eyebrow>
@@ -73,37 +89,41 @@ export function MyCalendarsCard({ groups, periodTitle, onManageRooms }: MyCalend
         </div>
       )}
       <p style={{ margin: 0, fontSize: 11.5, color: "var(--dim)" }}>
-        Shows in {periodTitle}. A venue's rooms are separate calendars — two rooms can hold two
-        shows on the same night.
+        Shows in {periodTitle}.
+        {hasVenue
+          ? " A venue's rooms are separate calendars — two rooms can hold two shows on the same night."
+          : ""}
       </p>
-      <button
-        type="button"
-        onClick={onManageRooms}
-        // Touch: 324x19. The overlay rather than growth — this is the last line
-        // of a card, and a 44px-tall link would put 25px of dead space between
-        // it and the paragraph it follows. Nothing else in the card is
-        // interactive, so the halo cannot steal anyone's tap.
-        className="touch-target-overlay"
-        style={{
-          all: "unset",
-          // `all: unset` is an inline declaration, so it beats the utility's
-          // own `position: relative` and would leave the ::after positioning
-          // against some ancestor instead of this button. Restoring it here is
-          // what keeps the halo centred on the link. (The pseudo-element itself
-          // is untouched by `all`.)
-          position: "relative",
-          cursor: "pointer",
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          fontSize: 12,
-          color: "var(--brand-red)",
-          fontWeight: 500,
-        }}
-      >
-        <Icon name="plus" size={12} />
-        Manage rooms
-      </button>
+      {hasVenue && (
+        <button
+          type="button"
+          onClick={onManageRooms}
+          // Touch: 324x19. The overlay rather than growth — this is the last line
+          // of a card, and a 44px-tall link would put 25px of dead space between
+          // it and the paragraph it follows. Nothing else in the card is
+          // interactive, so the halo cannot steal anyone's tap.
+          className="touch-target-overlay"
+          style={{
+            all: "unset",
+            // `all: unset` is an inline declaration, so it beats the utility's
+            // own `position: relative` and would leave the ::after positioning
+            // against some ancestor instead of this button. Restoring it here is
+            // what keeps the halo centred on the link. (The pseudo-element itself
+            // is untouched by `all`.)
+            position: "relative",
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 12,
+            color: "var(--brand-red)",
+            fontWeight: 500,
+          }}
+        >
+          <Icon name="plus" size={12} />
+          Manage rooms
+        </button>
+      )}
     </Card>
   );
 }
