@@ -1446,3 +1446,282 @@ describe("PATCH /events/:id — a guest list saved before the rule does not bric
     expect(touched.json().error.message).toContain("8 over the 2 you allow in total");
   });
 });
+
+/**
+ * `GET /events/date-conflicts` — the warning that did not exist.
+ *
+ * ClickUp 86cbceux0. The room-scoped rule (`@showme/shared` `occupiedDates`) has
+ * been written and tested since the calendar was built; what was missing was
+ * anything asking it at the moment somebody was about to create a clash. These
+ * assert the ANSWERS, especially the one that makes the feature worth having:
+ * a venue with a free basement is not busy because its main hall is sold.
+ */
+describe("GET /events/date-conflicts — warning before the booking", () => {
+  const NIGHT = "2026-11-14";
+
+  /** An operator with a venue profile and two rooms in it. */
+  async function seedVenueWithRooms(prefix: string) {
+    const { db } = harness;
+    const operator = await seedMemberWithSet(
+      `${prefix}-op`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const rooms = await db
+      .insert(schema.stages)
+      .values([
+        { venueProfileId: operator.profileId, name: "Main Hall", capacity: 400 },
+        { venueProfileId: operator.profileId, name: "Basement", capacity: 90 },
+      ])
+      .returning();
+    const [main, basement] = rooms;
+    if (!main || !basement) throw new Error("room seed failed");
+    return { operator, main, basement };
+  }
+
+  const ask = (uid: string, query: Record<string, string>) =>
+    app.inject({
+      method: "GET",
+      url: `/api/v1/events/date-conflicts?${new URLSearchParams(query).toString()}`,
+      headers: auth(uid),
+    });
+
+  it("reports a free night as free", async () => {
+    const { operator } = await seedVenueWithRooms("dc-free");
+    const response = await ask("dc-free-op", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ roomIsBusy: false, events: [], unavailability: [] });
+  });
+
+  it("names the show already on that night", async () => {
+    const { operator, main } = await seedVenueWithRooms("dc-taken");
+    await seedHostedEvent("Neon Tide", operator, "dc-taken-op", {
+      eventDate: NIGHT,
+      venueProfileId: operator.profileId,
+      stageId: main.id,
+    });
+
+    const response = await ask("dc-taken-op", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+      stageId: main.id,
+    });
+    expect(response.json().roomIsBusy).toBe(true);
+    expect(response.json().events).toHaveLength(1);
+    expect(response.json().events[0]).toMatchObject({
+      title: "Neon Tide",
+      stageName: "Main Hall",
+    });
+  });
+
+  /**
+   * THE WHOLE POINT OF DOING THIS PER ROOM. Ran: *"a promoter could book as many
+   * shows as they like on one date, as long as the space is not the same."* A
+   * venue-wide check would call this busy and turn away a booking the basement
+   * could take.
+   */
+  it("leaves the basement free when only the main hall is booked", async () => {
+    const { operator, main, basement } = await seedVenueWithRooms("dc-rooms");
+    await seedHostedEvent("Neon Tide", operator, "dc-rooms-op", {
+      eventDate: NIGHT,
+      venueProfileId: operator.profileId,
+      stageId: main.id,
+    });
+
+    const busyRoom = await ask("dc-rooms-op", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+      stageId: main.id,
+    });
+    expect(busyRoom.json().roomIsBusy).toBe(true);
+
+    const freeRoom = await ask("dc-rooms-op", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+      stageId: basement.id,
+    });
+    expect(freeRoom.json().roomIsBusy).toBe(false);
+    // It still LISTS the other show — "the building is busy, this room is not"
+    // is more use than silence.
+    expect(freeRoom.json().events).toHaveLength(1);
+  });
+
+  it("calls the venue entire busy only when every room is taken", async () => {
+    const { operator, main, basement } = await seedVenueWithRooms("dc-full");
+    await seedHostedEvent("Main show", operator, "dc-full-op", {
+      eventDate: NIGHT,
+      venueProfileId: operator.profileId,
+      stageId: main.id,
+    });
+
+    const partly = await ask("dc-full-op", { venueProfileId: operator.profileId, date: NIGHT });
+    expect(partly.json().roomIsBusy).toBe(false);
+
+    await seedHostedEvent("Cellar show", operator, "dc-full-op", {
+      eventDate: NIGHT,
+      venueProfileId: operator.profileId,
+      stageId: basement.id,
+    });
+    const full = await ask("dc-full-op", { venueProfileId: operator.profileId, date: NIGHT });
+    expect(full.json().roomIsBusy).toBe(true);
+  });
+
+  /**
+   * A show with no room recorded occupies EVERY room, because nobody can say
+   * which one it is in. Erring the other way would let the venue sell a night it
+   * has already booked — the worst thing this feature can do.
+   */
+  it("treats a show with no room set as occupying every room", async () => {
+    const { operator, basement } = await seedVenueWithRooms("dc-unassigned");
+    await seedHostedEvent("Room TBC", operator, "dc-unassigned-op", {
+      eventDate: NIGHT,
+      venueProfileId: operator.profileId,
+    });
+
+    const response = await ask("dc-unassigned-op", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+      stageId: basement.id,
+    });
+    expect(response.json().roomIsBusy).toBe(true);
+  });
+
+  it("ignores a cancelled show — it is not holding the room", async () => {
+    const { operator, main } = await seedVenueWithRooms("dc-cancelled");
+    await seedHostedEvent("Called off", operator, "dc-cancelled-op", {
+      eventDate: NIGHT,
+      venueProfileId: operator.profileId,
+      stageId: main.id,
+      status: "cancelled",
+    });
+
+    const response = await ask("dc-cancelled-op", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+      stageId: main.id,
+    });
+    expect(response.json()).toMatchObject({ roomIsBusy: false, events: [] });
+  });
+
+  /** A DRAFT counts. It is somebody's intention to use the night, and noticing
+   *  early is the entire point of warning rather than blocking. */
+  it("counts a draft as holding the room", async () => {
+    const { operator, main } = await seedVenueWithRooms("dc-draft");
+    await seedHostedEvent("Pencilled in", operator, "dc-draft-op", {
+      eventDate: NIGHT,
+      venueProfileId: operator.profileId,
+      stageId: main.id,
+      status: "draft",
+    });
+
+    const response = await ask("dc-draft-op", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+      stageId: main.id,
+    });
+    expect(response.json().roomIsBusy).toBe(true);
+  });
+
+  /** Editing an event must not warn that it clashes with itself. */
+  it("excludes the event being edited", async () => {
+    const { operator, main } = await seedVenueWithRooms("dc-self");
+    const event = await seedHostedEvent("The one being edited", operator, "dc-self-op", {
+      eventDate: NIGHT,
+      venueProfileId: operator.profileId,
+      stageId: main.id,
+    });
+
+    const response = await ask("dc-self-op", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+      stageId: main.id,
+      excludeEventId: event.id,
+    });
+    expect(response.json()).toMatchObject({ roomIsBusy: false, events: [] });
+  });
+
+  it("reports a date the operator marked unavailable, with the reason", async () => {
+    const { operator } = await seedVenueWithRooms("dc-blocked");
+    await harness.db.insert(schema.profileUnavailability).values({
+      profileId: operator.profileId,
+      startDate: "2026-11-10",
+      endDate: "2026-11-20",
+      reason: "Refit",
+    });
+
+    const response = await ask("dc-blocked-op", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+    });
+    expect(response.json().unavailability).toEqual([
+      { startDate: "2026-11-10", endDate: "2026-11-20", reason: "Refit" },
+    ]);
+  });
+
+  it("does not report a block that ends before the night asked about", async () => {
+    const { operator } = await seedVenueWithRooms("dc-past-block");
+    await harness.db.insert(schema.profileUnavailability).values({
+      profileId: operator.profileId,
+      startDate: "2026-10-01",
+      endDate: "2026-10-31",
+      reason: "Refit",
+    });
+
+    const response = await ask("dc-past-block-op", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+    });
+    expect(response.json().unavailability).toEqual([]);
+  });
+
+  it("ignores a show at the same venue on a different night", async () => {
+    const { operator, main } = await seedVenueWithRooms("dc-other-night");
+    await seedHostedEvent("The night before", operator, "dc-other-night-op", {
+      eventDate: "2026-11-13",
+      venueProfileId: operator.profileId,
+      stageId: main.id,
+    });
+
+    const response = await ask("dc-other-night-op", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+      stageId: main.id,
+    });
+    expect(response.json()).toMatchObject({ roomIsBusy: false, events: [] });
+  });
+
+  /**
+   * Another operator's calendar is not ours to read. "The 14th is busy" for any
+   * profile id you can guess would leak their whole booking schedule.
+   */
+  it("refuses somebody with no membership of the venue", async () => {
+    const { operator } = await seedVenueWithRooms("dc-stranger");
+    await seedMemberWithSet("dc-stranger-out", "operator", PRESET_PERMISSION_SETS.operator_full);
+
+    const response = await ask("dc-stranger-out", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+    });
+    expect(response.statusCode).toBeGreaterThanOrEqual(400);
+    expect(response.statusCode).toBeLessThan(500);
+  });
+
+  /**
+   * The route sits at `/events/date-conflicts` and must not be swallowed by
+   * `/events/:id`. Fastify prefers a static segment over a parametric one, and
+   * this is the test that says so out loud.
+   */
+  it("is not captured by the /events/:id route", async () => {
+    const { operator } = await seedVenueWithRooms("dc-routing");
+    const response = await ask("dc-routing-op", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+    });
+    // A 200 with this body shape can only have come from the conflicts handler.
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toHaveProperty("roomIsBusy");
+  });
+});

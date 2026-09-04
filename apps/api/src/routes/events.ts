@@ -4,10 +4,12 @@ import { notifyProfileMembers } from "@showme/db/notify";
 import {
   type Capability,
   type DealDraft,
+  WHOLE_VENUE,
   basisPointsToPercent,
   dealDraftProblems,
   guestListProblem,
   minorToDecimalString,
+  occupiedDates,
 } from "@showme/shared";
 import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -18,7 +20,7 @@ import { changedFieldNames, writeActivity } from "../lib/activity";
 import { autoAssignAgentOnPerformerJoin } from "../lib/agent-assignment";
 import type { Transaction } from "../lib/audit";
 import { writeAudit } from "../lib/audit";
-import { requireEventCapability } from "../lib/authorize";
+import { requireEventCapability, requireProfileRole } from "../lib/authorize";
 import { assertEventCapAllows } from "../lib/entitlements";
 import { resolveEventTimezone } from "../lib/event-timezone";
 import { assertProfileImageFiles, signProfileImageUrls } from "../lib/profile-media";
@@ -426,6 +428,52 @@ async function createStatedDeal(
     summary: { name: deal.name, type: deal.type },
   });
 }
+
+/**
+ * Who may ask whether a night at this venue is taken. Every member — the warning
+ * is about the caller's own building, and an editor creating an event needs it
+ * as much as an owner does. A viewer seeing "the 14th is busy" learns nothing
+ * they could not read off the calendar they already have.
+ */
+const CONFLICT_READ_ROLES = ["owner", "admin", "editor", "viewer", "crew"] as const;
+
+const DateConflictQuery = z.object({
+  venueProfileId: z.string().uuid(),
+  /** `yyyy-mm-dd` — the night being considered. */
+  date: z.string().min(1),
+  /** The room, when one has been picked. Absent asks about the venue entire. */
+  stageId: z.string().uuid().optional(),
+  /** The event being EDITED, so it does not warn about clashing with itself. */
+  excludeEventId: z.string().uuid().optional(),
+});
+
+const DateConflictResponse = z.object({
+  date: z.string(),
+  /**
+   * The answer, from `@showme/shared`'s rule rather than from counting rows: is
+   * the room being asked about (or the venue entire) unable to take this night?
+   * A venue with a free basement is NOT busy just because the main hall is sold.
+   */
+  roomIsBusy: z.boolean(),
+  /** What is already on that night, so the warning can name it. */
+  events: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      status: z.string(),
+      stageId: z.string().nullable(),
+      stageName: z.string().nullable(),
+    }),
+  ),
+  /** Any manual block covering the date — the second half of Ran's report. */
+  unavailability: z.array(
+    z.object({
+      startDate: z.string(),
+      endDate: z.string(),
+      reason: z.string().nullable(),
+    }),
+  ),
+});
 
 const CreateEventBody = z.object({
   title: z.string().min(1),
@@ -1331,6 +1379,122 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
       });
 
       return { id, archived: false, archivedAt: null };
+    },
+  );
+
+  /**
+   * IS THIS NIGHT ALREADY TAKEN? — asked BEFORE a booking is made, not after.
+   *
+   * ClickUp 86cbceux0: *"The system is not warning about double booking a date"*
+   * and *"not warning about trying to book on a date marked Unavailable"*. The
+   * rule for the first has existed and been tested since the calendar was built
+   * (`@showme/shared` `occupiedDates`), and was called only by screens that
+   * DISPLAY availability. Nothing asked it at the moment somebody was about to
+   * create a clash.
+   *
+   * ── It warns. It never blocks. ───────────────────────────────────────────
+   * This is a read, and creating the event is a separate call that does not
+   * consult it. Ran was explicit that a promoter may run several shows on one
+   * night, and that the operator can open a date deliberately — so the product
+   * rule is "tell them, then let them decide". A route that refused would be a
+   * different and worse feature, and no amount of UI could work around it.
+   *
+   * ── Per ROOM, not per venue ──────────────────────────────────────────────
+   * A venue with a main hall and a basement sells two shows on the same Friday.
+   * `occupiedDates` carries that (including the rule that a show with NO room
+   * recorded occupies every room, because nobody can say which one is still
+   * free), so this route decides nothing about availability itself — it gathers
+   * the bookings and asks the shared module.
+   *
+   * ── Only for a venue you are a member of ─────────────────────────────────
+   * `requireProfileRole` gates it, which means an operator booking into somebody
+   * else's venue gets no warning. That is correct rather than a gap: another
+   * operator's calendar is not ours to read, and "the 14th is busy" leaks their
+   * bookings to anyone who can guess a profile id.
+   */
+  app.get(
+    "/events/date-conflicts",
+    {
+      schema: {
+        querystring: DateConflictQuery,
+        response: { 200: DateConflictResponse },
+      },
+    },
+    async (request) => {
+      const { database } = request.server;
+      const { venueProfileId, date, stageId, excludeEventId } = request.query;
+
+      requireProfileRole(request, venueProfileId, [...CONFLICT_READ_ROLES]);
+
+      const [rooms, sameDay, blocks] = await Promise.all([
+        database
+          .select({ id: schema.stages.id, name: schema.stages.name })
+          .from(schema.stages)
+          .where(eq(schema.stages.venueProfileId, venueProfileId)),
+        database
+          .select({
+            id: schema.events.id,
+            title: schema.events.title,
+            status: schema.events.status,
+            stageId: schema.events.stageId,
+          })
+          .from(schema.events)
+          .where(
+            and(
+              eq(schema.events.venueProfileId, venueProfileId),
+              eq(schema.events.eventDate, date),
+              // A cancelled show is not holding a room. Everything else is —
+              // including a draft, because a draft is somebody's intention to
+              // use the night and the whole point is to notice it early.
+              ne(schema.events.status, "cancelled"),
+            ),
+          ),
+        database
+          .select()
+          .from(schema.profileUnavailability)
+          .where(eq(schema.profileUnavailability.profileId, venueProfileId)),
+      ]);
+
+      // Editing an event must not warn about the event being edited.
+      const others = excludeEventId
+        ? sameDay.filter((event) => event.id !== excludeEventId)
+        : sameDay;
+
+      const roomIds = rooms.map((room) => room.id);
+      const roomNameById = new Map(rooms.map((room) => [room.id, room.name]));
+      const busy = occupiedDates(
+        { venueProfileId, room: stageId ?? WHOLE_VENUE },
+        roomIds,
+        others.map((event) => ({
+          date,
+          venueProfileId,
+          stageId: event.stageId,
+          // Every non-cancelled show counts. The `occupies` flag exists for the
+          // share modal, where a user chooses whether held dates read as busy;
+          // a warning to the operator making the booking wants to know about
+          // all of it.
+          occupies: true,
+        })),
+      );
+
+      const blocked = blocks.filter((block) => block.startDate <= date && date <= block.endDate);
+
+      return {
+        date,
+        roomIsBusy: busy.has(date),
+        events: others.map((event) => ({
+          id: event.id,
+          title: event.title,
+          status: event.status,
+          stageId: event.stageId,
+          stageName: event.stageId ? (roomNameById.get(event.stageId) ?? null) : null,
+        })),
+        unavailability: blocked.map((block) => ({
+          startDate: block.startDate,
+          endDate: block.endDate,
+          reason: block.reason,
+        })),
+      };
     },
   );
 }

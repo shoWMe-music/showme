@@ -1,6 +1,7 @@
 import { useGetApiV1ProfilesIdStages } from "@showme/api-client";
 import { Icon, StatusDot, TextField } from "@showme/design-system";
 import { type ReactNode, useMemo } from "react";
+import { useDateConflicts } from "../hooks/useDateConflicts";
 import { formatDay } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
 import { EventInlineDateChoice, EventInlineOptionChoice } from "./EventInlineChoice";
@@ -82,6 +83,16 @@ export function EventInlineInformation({
     ],
     [rooms.data],
   );
+
+  const dateConflicts = useDateConflicts({
+    venueProfileId: event.venueProfileId ?? null,
+    // The draft, so the warning tracks what is being typed rather than what is
+    // already saved. Only while the field is open — otherwise every event page
+    // would ask this on load for a date nobody is changing.
+    date: inline.editingField === "eventDate" ? inline.draft : null,
+    stageId: inline.values.stageId || null,
+    excludeEventId: event.id,
+  });
 
   const stageId = inline.values.stageId;
   const roomText = (() => {
@@ -167,6 +178,24 @@ export function EventInlineInformation({
             onCancel={inline.cancel}
             onSave={inline.commitDraft}
           />
+          {/* The same warning the create wizard gives, on the other way a date
+              gets set (ClickUp 86cbceux0). Asked about the DRAFT rather than the
+              saved value, so it answers the date being typed; and excluding this
+              event, so moving a show never reports it as clashing with itself.
+              It warns and nothing more — Save stays enabled. */}
+          {dateConflicts.message && (
+            <output
+              style={{
+                display: "block",
+                margin: "6px 0 0",
+                fontSize: 12,
+                lineHeight: 1.45,
+                color: "var(--brand-amber)",
+              }}
+            >
+              {dateConflicts.message}
+            </output>
+          )}
         </EventInlineField>
 
         <EventInlineField
