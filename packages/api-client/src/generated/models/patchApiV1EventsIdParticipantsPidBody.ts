@@ -10,7 +10,8 @@ import type { PatchApiV1EventsIdParticipantsPidBodyPerformerTag } from './patchA
 
 export type PatchApiV1EventsIdParticipantsPidBody = {
   role?: PatchApiV1EventsIdParticipantsPidBodyRole;
-  permissionSetId?: string;
+  /** @nullable */
+  permissionSetId?: string | null;
   status?: PatchApiV1EventsIdParticipantsPidBodyStatus;
   performerTag?: PatchApiV1EventsIdParticipantsPidBodyPerformerTag;
 };

@@ -154,9 +154,24 @@
                         "required": ["profileId", "kind", "role"],
                         "additionalProperties": false
                       }
+                    },
+                    "currency": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "timezone": {
+                      "type": "string",
+                      "nullable": true
                     }
                   },
-                  "required": ["userId", "isAdmin", "actingProfileId", "memberships"],
+                  "required": [
+                    "userId",
+                    "isAdmin",
+                    "actingProfileId",
+                    "memberships",
+                    "currency",
+                    "timezone"
+                  ],
                   "additionalProperties": false
                 }
               }
@@ -225,9 +240,24 @@
                         "required": ["profileId", "kind", "role"],
                         "additionalProperties": false
                       }
+                    },
+                    "currency": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "timezone": {
+                      "type": "string",
+                      "nullable": true
                     }
                   },
-                  "required": ["userId", "isAdmin", "actingProfileId", "memberships"],
+                  "required": [
+                    "userId",
+                    "isAdmin",
+                    "actingProfileId",
+                    "memberships",
+                    "currency",
+                    "timezone"
+                  ],
                   "additionalProperties": false
                 }
               }
@@ -1977,6 +2007,117 @@
         }
       }
     },
+    "/api/v1/events/date-conflicts": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "query",
+            "name": "venueProfileId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "query",
+            "name": "date",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "query",
+            "name": "stageId",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "query",
+            "name": "excludeEventId",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "date": {
+                      "type": "string"
+                    },
+                    "roomIsBusy": {
+                      "type": "boolean"
+                    },
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "stageId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "stageName": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": ["id", "title", "status", "stageId", "stageName"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "unavailability": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "startDate": {
+                            "type": "string"
+                          },
+                          "endDate": {
+                            "type": "string"
+                          },
+                          "reason": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": ["startDate", "endDate", "reason"],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["date", "roomIsBusy", "events", "unavailability"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/events/{id}/publish": {
       "post": {
         "requestBody": {
@@ -2188,6 +2329,32 @@
                         "type": "string",
                         "nullable": true
                       },
+                      "permissionSet": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "capabilities": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "isPreset": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": ["id", "name", "capabilities", "isPreset"],
+                        "additionalProperties": false
+                      },
+                      "statusBeforeRemoval": {
+                        "type": "string",
+                        "nullable": true
+                      },
                       "details": {}
                     },
                     "required": [
@@ -2299,6 +2466,32 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "permissionSet": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "capabilities": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "isPreset": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["id", "name", "capabilities", "isPreset"],
+                      "additionalProperties": false
+                    },
+                    "statusBeforeRemoval": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "details": {}
                   },
                   "required": [
@@ -2312,6 +2505,55 @@
                     "performerTag"
                   ],
                   "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/events/{id}/permission-sets": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "capabilities": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "isPreset": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["id", "name", "capabilities", "isPreset"],
+                    "additionalProperties": false
+                  }
                 }
               }
             }
@@ -2415,6 +2657,32 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "permissionSet": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "capabilities": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "isPreset": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["id", "name", "capabilities", "isPreset"],
+                      "additionalProperties": false
+                    },
+                    "statusBeforeRemoval": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "details": {}
                   },
                   "required": [
@@ -2458,7 +2726,8 @@
                   },
                   "permissionSetId": {
                     "type": "string",
-                    "format": "uuid"
+                    "format": "uuid",
+                    "nullable": true
                   },
                   "status": {
                     "type": "string",
@@ -2532,6 +2801,32 @@
                       "nullable": true
                     },
                     "permissionSetId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "permissionSet": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "capabilities": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "isPreset": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["id", "name", "capabilities", "isPreset"],
+                      "additionalProperties": false
+                    },
+                    "statusBeforeRemoval": {
                       "type": "string",
                       "nullable": true
                     },
@@ -2613,6 +2908,32 @@
                       "nullable": true
                     },
                     "permissionSetId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "permissionSet": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "capabilities": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "isPreset": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["id", "name", "capabilities", "isPreset"],
+                      "additionalProperties": false
+                    },
+                    "statusBeforeRemoval": {
                       "type": "string",
                       "nullable": true
                     },
@@ -15430,6 +15751,82 @@
         }
       }
     },
+    "/api/v1/profiles/{id}/invitations": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "source": {
+                        "type": "string"
+                      },
+                      "recipientEmail": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "recipientName": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "role": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "permissionSetId": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      },
+                      "expiresAt": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "status",
+                      "source",
+                      "recipientEmail",
+                      "recipientName",
+                      "role",
+                      "permissionSetId",
+                      "createdAt",
+                      "expiresAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/invitations/{id}/revoke": {
       "post": {
         "parameters": [
@@ -20030,6 +20427,66 @@
                     }
                   },
                   "required": ["results"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/configuration": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "subsystems": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "subsystem": {
+                            "type": "string"
+                          },
+                          "variables": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "configured": {
+                            "type": "boolean"
+                          },
+                          "requiredInProduction": {
+                            "type": "boolean"
+                          },
+                          "consequence": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "subsystem",
+                          "variables",
+                          "configured",
+                          "requiredInProduction",
+                          "consequence"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "missingRequired": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": ["subsystems", "missingRequired"],
                   "additionalProperties": false
                 }
               }

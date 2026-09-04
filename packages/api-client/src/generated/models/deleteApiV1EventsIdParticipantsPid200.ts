@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { DeleteApiV1EventsIdParticipantsPid200PermissionSet } from './deleteApiV1EventsIdParticipantsPid200PermissionSet';
 
 export type DeleteApiV1EventsIdParticipantsPid200 = {
   id: string;
@@ -21,5 +22,8 @@ export type DeleteApiV1EventsIdParticipantsPid200 = {
   performerTag: string | null;
   /** @nullable */
   permissionSetId?: string | null;
+  permissionSet?: DeleteApiV1EventsIdParticipantsPid200PermissionSet;
+  /** @nullable */
+  statusBeforeRemoval?: string | null;
   details?: unknown;
 };
