@@ -1,23 +1,16 @@
 /**
- * Unit tests for the web app's MAJOR → MINOR unit conversion — the rounding
- * helper behind the Budget Planner.
+ * MAJOR → MINOR unit conversion — the rounding helper behind the Budget Planner.
  *
- * They live in `apps/api` for the same reason `web-format.test.ts` does: this is
- * where a vitest runner exists. `apps/web`'s own `test` script is Playwright, so
- * the web app has NO unit suite at all, and `shiftedTwoPlaces` — a pure function
- * that decides what whole minor units a typed figure becomes, on the one screen
- * whose output must satisfy `Σ net = 0` — had not a single case asserted about
- * it. It was also the site of a real bug (`Math.round(Number("4.015") * 100)`
- * is 401, not 402). Worth giving `apps/web` a vitest project of its own and
- * moving both files there.
+ * `shiftedTwoPlaces` decides what whole minor units a typed figure becomes, on
+ * the one screen whose output must satisfy `Σ net = 0`, and it was the site of a
+ * real bug (`Math.round(Number("4.015") * 100)` is 401, not 402).
  *
- * The import only works because the conversions were lifted out of
- * `useBudgetEditor` into `apps/web/src/lib/moneyUnits.ts`: the hook drags in
- * React, TanStack Query, the design system and the generated API client, none of
- * which `apps/api` has. A pure function must be reachable without them.
+ * The conversions live in `lib/moneyUnits.ts` rather than inside
+ * `useBudgetEditor` precisely so they can be asserted without React, TanStack
+ * Query, the design system and the generated API client coming along.
  */
 import { describe, expect, it } from "vitest";
-import { shiftedTwoPlaces, toBasisPoints, toMinorUnits } from "../../web/src/lib/moneyUnits";
+import { shiftedTwoPlaces, toBasisPoints, toMinorUnits } from "./moneyUnits";
 
 describe("shiftedTwoPlaces — the float traps", () => {
   /**
