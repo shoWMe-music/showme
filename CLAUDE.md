@@ -19,6 +19,12 @@ code before you scope from prose.
 ## The blueprint
 The complete architecture, data model, engines, and API surface live in **[PLAN.md](./PLAN.md)** — the single source
 of truth. Topic guides are in `.claude/skills/`: `data-model`, `authorization`, `settlement`, `api-conventions`.
+**If the work came from a ClickUp ticket — which is nearly all of it — follow `ticket-to-commit`.** It is
+the standing loop, not an option: check the ticket against the code before scoping it, build, prove it,
+write the finding back to the ticket, and commit naming the ticket. Measured 2026-09-04: of twenty open
+bug tickets, **nine did not say what they appeared to say** — one `low` ticket was the root cause of an
+`urgent` one, one urgent ticket was already ~90% shipped, and three separate urgent tickets were a single
+missing mechanism. None of that is visible from the board.
 **Before calling anything done, read `verify-e2e`** — how a change is proven against the running stack
 (with `app-walkthrough` for the browser half and `ui-testing` for authoring specs).
 **Before building any screen meant to match the design, read `claude-design`** — the prototype is
