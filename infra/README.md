@@ -75,6 +75,27 @@ own retry, and the now-pointless rename sat in the code for eleven days. Any bar
 `terraform apply` in `envs/prod` would have taken the API offline. The default is now
 `""`, which reproduces the live name `showme-api-lb-cert`, and `terraform plan` is quiet.
 
+> **VERIFIED 2026-09-04.** `terraform plan` against real production state answers
+> *"No changes. Your infrastructure matches the configuration."* — the trap
+> described below is closed, and no apply is pending.
+
+### Planning prod without terraform installed
+
+The `hashicorp/terraform` image needs no host install, and ADC mounts read-only:
+
+```bash
+docker run --rm \
+  -v "$PWD/infra:/infra" \
+  -v "$HOME/.config/gcloud/application_default_credentials.json:/adc.json:ro" \
+  -e GOOGLE_APPLICATION_CREDENTIALS=/adc.json \
+  -e GOOGLE_PROJECT=prod-showme \
+  -w /infra/envs/prod hashicorp/terraform:latest plan -input=false -lock=false
+```
+
+`-lock=false` keeps a read-only plan from taking the state lock. Run
+`gcloud auth application-default login` first — or `gcloud auth login --update-adc`,
+which refreshes the CLI credential and ADC together.
+
 Check the live one before touching anything:
 
 ```bash
