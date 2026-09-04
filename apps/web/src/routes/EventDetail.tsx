@@ -70,6 +70,7 @@ import { type EventTicketTier, useBudgetSeed } from "../components/useBudgetSeed
 import { useBudgetToolbar } from "../components/useBudgetToolbar";
 import { usePerformingRightsTerritory } from "../components/usePerformingRightsTerritory";
 import { useEventCollaborators } from "../hooks/useEventCollaborators";
+import { useEventPermissionSets } from "../hooks/useEventPermissionSets";
 import { formatDay } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
 
@@ -105,6 +106,23 @@ export function EventDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState(requestedTab ?? "details");
+  /**
+   * DELIBERATELY NOT seeded from the reader's account currency preference, and
+   * this needs saying because the obvious change here is a wrong one.
+   *
+   * This selector does not convert. `currency` is handed to the budget planner,
+   * the details tab, the deals tab and the settlement tab purely as the argument
+   * to `formatMoney`, and every figure they hold is in the EVENT's base currency.
+   * Picking EUR on a SEK event therefore relabels SEK numbers with a euro sign —
+   * it does not translate them. Defaulting it to `users.currency` (which is what
+   * `useDisplayCurrency` does on the settlement screen, where conversion is real)
+   * would turn a mislabelling you have to opt into today into the default for
+   * every user whose preference differs from the event's currency.
+   *
+   * So it stays local and starts on the event's own currency until the selector
+   * is either wired to the exchange-rate cache like the settlement screen's, or
+   * removed. Tracked as ClickUp 123qy9rnjb8.
+   */
   const [displayCurrency, setDisplayCurrency] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -118,6 +136,15 @@ export function EventDetail() {
 
   const { data: event, isPending, isError, error } = useGetApiV1EventsId(eventId);
   const participants = useGetApiV1EventsIdParticipants(eventId);
+  // ABOVE the loading/error guards below, because it is a hook: called after an
+  // early return it would run on some renders and not others, which is the
+  // "rendered more hooks than during the previous render" crash. `?? []` covers
+  // the render before `event` arrives — no capabilities, so the query stays
+  // disabled and asks nothing until the caller is known to hold the capability.
+  const permissionSets = useEventPermissionSets(
+    eventId,
+    (event?.capabilities ?? []).includes("participants.manage"),
+  );
   const patchEvent = usePatchApiV1EventsId({
     mutation: {
       onSuccess: () =>
@@ -142,13 +169,15 @@ export function EventDetail() {
   const capabilities = event.capabilities ?? [];
   const canEditEvent = capabilities.includes("event.edit");
 
-  // The one admin-grade permission set the web app can name. There is no route to
-  // list or create permission sets, so the only bundle it can offer a collaborator
-  // is one already standing on this event — the HOST's, which is `operator_full`.
-  // `permissionSetId` is present on the row only for a caller who may manage the
-  // roster (`serializeParticipant`), so an absent id correctly hides the option.
-  const hostPermissionSetId =
-    roster.find((party) => party.role === "host")?.permissionSetId ?? null;
+  // The admin-grade permission set "Full control" grants, from the real list
+  // (`GET /events/:id/permission-sets`, fetched above). It used to be scraped off
+  // the HOST's participant row, because no route listed the sets — which meant the
+  // app could name exactly one bundle and had to decide who held full control by
+  // comparing ids against it. Two rows can carry identical capabilities, so that
+  // misread the co-host (ClickUp 86cbazcc7, item 2). `useEventPermissionSets`
+  // picks by what a set GRANTS, and `null` (the caller may not read the list)
+  // hides the option.
+  const fullControlPermissionSetId = permissionSets.fullControlSet?.id ?? null;
 
   const performerParty =
     roster.find((party) => party.role === "performer") ??
@@ -464,7 +493,7 @@ export function EventDetail() {
             // on anything else offers a button whose click is a 403 (or hides one
             // that would have worked — see `serialize/event.ts`).
             canManage={canManageParticipants}
-            fullControlPermissionSetId={hostPermissionSetId}
+            fullControlPermissionSetId={fullControlPermissionSetId}
             onInvite={canManageParticipants ? () => openInvite() : undefined}
           />
         )}
@@ -486,7 +515,7 @@ export function EventDetail() {
         }}
         eventId={eventId}
         eventTitle={event.title}
-        fullControlPermissionSetId={hostPermissionSetId}
+        fullControlPermissionSetId={fullControlPermissionSetId}
         initialRole={inviteRole}
       />
     </>

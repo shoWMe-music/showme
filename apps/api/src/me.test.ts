@@ -125,3 +125,110 @@ describe("me", () => {
     expect(audit.some((row) => row.action === "gdpr.erase")).toBe(true);
   });
 });
+
+/**
+ * The display preferences, and the bug that made saving them look like losing
+ * them (ClickUp 123qy9rnfz0).
+ *
+ * `PATCH /me` always wrote `currency` and `timezone` correctly. `GET /me` never
+ * returned them, so the Settings form had nothing to seed from and came up blank
+ * on every visit — which a person reads as "it didn't save". The round trip is
+ * the whole fix, so the round trip is what these assert.
+ */
+describe("me — display preferences survive a round trip", () => {
+  it("returns what PATCH stored, on the PATCH itself and on the next GET", async () => {
+    await seedUser("prefs-round-trip");
+
+    const saved = await app.inject({
+      method: "PATCH",
+      url: "/api/v1/me",
+      headers: auth("prefs-round-trip"),
+      payload: { currency: "SEK", timezone: "Europe/Stockholm" },
+    });
+    expect(saved.statusCode).toBe(200);
+    // The write's own response carries them — the form re-seeds from this.
+    expect(saved.json()).toMatchObject({ currency: "SEK", timezone: "Europe/Stockholm" });
+
+    // And a FRESH read agrees. This is the assertion that would have failed
+    // before: the value was in Postgres the whole time and unreachable.
+    const read = await app.inject({
+      method: "GET",
+      url: "/api/v1/me",
+      headers: auth("prefs-round-trip"),
+    });
+    expect(read.json()).toMatchObject({ currency: "SEK", timezone: "Europe/Stockholm" });
+  });
+
+  it("reports null for a user who has never chosen, rather than inventing a default", async () => {
+    await seedUser("prefs-unset");
+
+    const read = await app.inject({
+      method: "GET",
+      url: "/api/v1/me",
+      headers: auth("prefs-unset"),
+    });
+    expect(read.statusCode).toBe(200);
+    // Null, not "EUR". The honest default differs per surface — an event settles
+    // in ITS base currency whatever the reader prefers — so the API must not
+    // pick one here and have every screen inherit it.
+    expect(read.json().currency).toBeNull();
+    expect(read.json().timezone).toBeNull();
+  });
+
+  it("changes one preference without disturbing the other", async () => {
+    await seedUser("prefs-partial");
+    await app.inject({
+      method: "PATCH",
+      url: "/api/v1/me",
+      headers: auth("prefs-partial"),
+      payload: { currency: "GBP", timezone: "Europe/London" },
+    });
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: "/api/v1/me",
+      headers: auth("prefs-partial"),
+      payload: { currency: "NOK" },
+    });
+    expect(patched.json()).toMatchObject({ currency: "NOK", timezone: "Europe/London" });
+  });
+
+  /**
+   * The name is written through the same body and must not be collateral damage
+   * — the Settings form sends all three together.
+   */
+  it("keeps writing the name alongside them", async () => {
+    await seedUser("prefs-name");
+    await app.inject({
+      method: "PATCH",
+      url: "/api/v1/me",
+      headers: auth("prefs-name"),
+      payload: { name: "Blackbird Presents", currency: "EUR" },
+    });
+
+    const [row] = await harness.db
+      .select({ name: schema.users.name, currency: schema.users.currency })
+      .from(schema.users)
+      .where(eq(schema.users.id, "prefs-name"));
+    expect(row).toMatchObject({ name: "Blackbird Presents", currency: "EUR" });
+  });
+
+  /** Preferences are per user. One caller's choice must not leak into another's. */
+  it("keeps one caller's preferences off another's response", async () => {
+    await seedUser("prefs-mine");
+    await seedUser("prefs-theirs");
+    await app.inject({
+      method: "PATCH",
+      url: "/api/v1/me",
+      headers: auth("prefs-mine"),
+      payload: { currency: "DKK" },
+    });
+
+    const theirs = await app.inject({
+      method: "GET",
+      url: "/api/v1/me",
+      headers: auth("prefs-theirs"),
+    });
+    expect(theirs.json().currency).toBeNull();
+  });
+});
