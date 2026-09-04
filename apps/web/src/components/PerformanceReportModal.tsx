@@ -36,6 +36,7 @@ export function PerformanceReportModal({ target, onClose }: PerformanceReportMod
 
   return (
     <Modal
+      dismissOnScrim={false}
       open={Boolean(target)}
       onClose={onClose}
       title={`Report to ${report.societyName}`}

@@ -133,6 +133,7 @@ export function BudgetCustomFieldModal({
 
   return (
     <Modal
+      dismissOnScrim={false}
       open={kind !== null}
       onClose={onClose}
       title={

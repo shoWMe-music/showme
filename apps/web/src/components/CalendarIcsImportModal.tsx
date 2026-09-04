@@ -115,7 +115,14 @@ export function CalendarIcsImportModal({ open, onClose }: CalendarIcsImportModal
   );
 
   return (
-    <Modal open={open} onClose={close} title="Import a calendar" width={820} footer={footer}>
+    <Modal
+      dismissOnScrim={false}
+      open={open}
+      onClose={close}
+      title="Import a calendar"
+      width={820}
+      footer={footer}
+    >
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <input
           ref={fileInput}

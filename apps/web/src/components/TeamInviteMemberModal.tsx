@@ -201,6 +201,7 @@ export function TeamInviteMemberModal({
 
   return (
     <Modal
+      dismissOnScrim={false}
       open={open}
       onClose={onClose}
       title={invite.sentTo ? "Invitation sent" : "Invite member"}

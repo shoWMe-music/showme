@@ -85,6 +85,7 @@ export function CostSplitModal({ target, participants, onClose, onSubmit }: Cost
 
   return (
     <Modal
+      dismissOnScrim={false}
       open={target !== null}
       onClose={onClose}
       title={target ? `Split “${target.label}”` : "Split cost"}

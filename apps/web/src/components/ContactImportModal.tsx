@@ -139,7 +139,14 @@ export function ContactImportModal({
   );
 
   return (
-    <Modal open={open} onClose={close} title="Import contacts" width={760} footer={footer}>
+    <Modal
+      dismissOnScrim={false}
+      open={open}
+      onClose={close}
+      title="Import contacts"
+      width={760}
+      footer={footer}
+    >
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <input
           ref={fileInput}

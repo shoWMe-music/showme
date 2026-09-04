@@ -21,6 +21,7 @@ import {
 } from "@showme/shared";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useDateConflicts } from "../hooks/useDateConflicts";
 import { useDealAutoSend } from "../hooks/useDealAutoSend";
 import { setActiveProfileId } from "../lib/activeProfile";
 import { errorMessage } from "../lib/errors";
@@ -291,6 +292,9 @@ export function NewEventWizard({
     : ["details", "deal"];
 
   const [stepIndex, setStepIndex] = useState(0);
+  /** The "you have unsaved work" dialog is up. See `requestClose`. */
+  const [confirmingExit, setConfirmingExit] = useState(false);
+  const exitTitleId = useId();
   const [selectedProfileId, setSelectedProfileId] = useState("");
   const [multiPerformer, setMultiPerformer] = useState(false);
   const [performers, setPerformers] = useState<WizardPerformer[]>([]);
@@ -442,6 +446,31 @@ export function NewEventWizard({
     }
   };
 
+  /**
+   * The draft save's own mutation, deliberately separate from `create` below.
+   *
+   * react-query runs the hook-level and call-level callbacks BOTH, so reusing
+   * `create` would fire its deal auto-send and its hold placement for a save
+   * that has neither, and toast "created" over the top of "saved as a draft".
+   * Two intents, two mutations.
+   */
+  const saveDraftMutation = usePostApiV1Events({
+    mutation: {
+      onSuccess: (event) => {
+        toast.success(
+          isHold
+            ? `"${event.title}" saved as a draft. It is not on hold yet — set its status when you're ready.`
+            : `"${event.title}" saved as a draft.`,
+        );
+        setConfirmingExit(false);
+        reset();
+        onCreated(event.id);
+      },
+      onError: (mutationError) =>
+        toast.error(errorMessage(mutationError, "Couldn't save this as a draft.")),
+    },
+  });
+
   const create = usePostApiV1Events({
     mutation: {
       onSuccess: async (event, variables) => {
@@ -516,13 +545,25 @@ export function NewEventWizard({
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (keyEvent: KeyboardEvent) => {
-      if (keyEvent.key === "Escape") {
-        keyEvent.stopPropagation();
-        // Not `close()` — that is declared below the early return, so calling it
-        // here would read as a forward reference. Same two steps.
-        reset();
-        onClose();
+      if (keyEvent.key !== "Escape") return;
+      keyEvent.stopPropagation();
+      // Escape used to `reset()` immediately, which destroyed the form just as
+      // surely as the backdrop did — the same bug through a different gesture.
+      // It now goes through the same guard.
+      //
+      // With the confirm already up, Escape dismisses THAT and leaves the wizard
+      // standing: the reader asked to back out of the question, not to answer it
+      // with the destructive option.
+      if (confirmingExit) {
+        setConfirmingExit(false);
+        return;
       }
+      if (isDirty) {
+        setConfirmingExit(true);
+        return;
+      }
+      reset();
+      onClose();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
@@ -639,11 +680,118 @@ export function NewEventWizard({
     onClose();
   };
 
+  /**
+   * HAS ANYTHING BEEN ENTERED THAT CLOSING WOULD DESTROY?
+   *
+   * Compared against what the wizard OPENS with, not against empty: `date` is
+   * seeded when the wizard is opened from a calendar cell, and the role step is
+   * skipped (pre-selecting the profile) for an operator with one profile. Neither
+   * is the operator's typing, and treating them as such would make the confirm
+   * fire on a wizard nobody had touched — which teaches people to click through
+   * it, and then it protects nothing.
+   */
+  const isDirty =
+    stepIndex > 0 ||
+    artist.trim() !== "" ||
+    venue.trim() !== "" ||
+    city.trim() !== "" ||
+    cap.trim() !== "" ||
+    ticketing.trim() !== "" ||
+    guarantee.trim() !== "" ||
+    performers.length > 0 ||
+    multiPerformer ||
+    venueProfileId !== null ||
+    stageId !== null ||
+    currency !== null ||
+    dealWithPerformerId !== "" ||
+    performerSplit !== "70" ||
+    dealStructure !== "guarantee_vs_door" ||
+    date !== (initialDate ?? "");
+
+  /**
+   * The way OUT of the wizard, for every gesture that is not the finish button:
+   * the backdrop, the X, Cancel, and Escape.
+   *
+   * Until 2026-09-04 all four ran `reset()` immediately. Clicking a millimetre
+   * outside the panel discarded everything typed, with no warning and no way
+   * back — reported twice (ClickUp 123qy9rnfyw, *"We had this issue before"*).
+   * An empty wizard still closes instantly; there is nothing to protect and a
+   * dialog would just be in the way.
+   */
+  const requestClose = () => {
+    if (isDirty) {
+      setConfirmingExit(true);
+      return;
+    }
+    close();
+  };
+
+  /**
+   * "Save draft" — create the event NOW with whatever has been filled in, and
+   * open it.
+   *
+   * Ran asked for this alongside Leave and Continue, and it is the option that
+   * makes the other two safe: without it, "are you sure?" only offers a choice
+   * between losing the work and not being allowed to leave.
+   *
+   * It writes a real event at `draft`, which is the API's default status — the
+   * same state the wizard's own finish button lands on. The AGREEMENT is left
+   * behind on purpose: a half-stated deal is not a deal, and writing one from an
+   * incomplete step would put figures on a settlement nobody agreed. The deal
+   * step is still there when they come back to the event.
+   */
+  const saveDraft = () => {
+    if (selectedProfile) setActiveProfileId(selectedProfile.id);
+    saveDraftMutation.mutate({ data: eventPayload() });
+  };
+
   const advance = () => {
     if (!stepValid) return;
     if (isLast) submit();
     else setStepIndex((index) => index + 1);
   };
+
+  /**
+   * The event itself, without the agreement — everything the wizard has been
+   * told about WHAT is happening and WHERE.
+   *
+   * Split out of `submit` so "Save draft" can send exactly the same event with
+   * exactly the same shape. A draft that recorded a subtly different event from
+   * the one the finish button would have created is worse than no draft at all:
+   * the operator would come back to a record they did not make.
+   *
+   * `title` falls back, because it is the one field the API requires and the
+   * operator may be saving from step one having typed only a date. An "Untitled
+   * event" they can rename beats a refusal to save what they have.
+   */
+  const eventPayload = () => ({
+    title: artist.trim() || venue.trim() || (date ? `Event on ${date}` : "Untitled event"),
+    baseCurrency: effectiveCurrency,
+    ...(date ? { eventDate: date } : {}),
+    ...(venue.trim() ? { venueName: venue.trim() } : {}),
+    ...(venueProfileId ? { venueProfileId } : {}),
+    ...(stageId ? { stageId } : {}),
+    ...(cap && Number.isFinite(Number(cap)) ? { capacity: Number(cap) } : {}),
+    extras: {
+      createdAsRole: selectedProfile?.type ?? "operator",
+      createdAsProfileId: selectedProfile?.id,
+      multiPerformer,
+      ...(multiPerformer
+        ? {
+            performers: performers.map((performer) => ({
+              name: performer.name,
+              source: performer.source,
+              ...(performer.profileId ? { profileId: performer.profileId } : {}),
+              ...(performer.slug ? { slug: performer.slug } : {}),
+              ...(performer.contactId ? { contactId: performer.contactId } : {}),
+              ...(performer.email ? { email: performer.email } : {}),
+            })),
+          }
+        : {}),
+      ...(city.trim() ? { city: city.trim() } : {}),
+      ...(ticketing.trim() ? { ticketing: { provider: ticketing.trim() } } : {}),
+    },
+  });
 
   const submit = () => {
     // Create AS the chosen profile — the api-client sends the active profile id
@@ -672,32 +820,10 @@ export function NewEventWizard({
         : {};
     create.mutate({
       data: {
+        ...eventPayload(),
+        // The finish button states the title the operator typed, not the
+        // fallback — `eventPayload` only invents one for a half-filled draft.
         title: artist.trim(),
-        baseCurrency: effectiveCurrency,
-        ...(date ? { eventDate: date } : {}),
-        ...(venue.trim() ? { venueName: venue.trim() } : {}),
-        ...(venueProfileId ? { venueProfileId } : {}),
-        ...(stageId ? { stageId } : {}),
-        ...(cap && Number.isFinite(Number(cap)) ? { capacity: Number(cap) } : {}),
-        extras: {
-          createdAsRole: selectedProfile?.type ?? "operator",
-          createdAsProfileId: selectedProfile?.id,
-          multiPerformer,
-          ...(multiPerformer
-            ? {
-                performers: performers.map((performer) => ({
-                  name: performer.name,
-                  source: performer.source,
-                  ...(performer.profileId ? { profileId: performer.profileId } : {}),
-                  ...(performer.slug ? { slug: performer.slug } : {}),
-                  ...(performer.contactId ? { contactId: performer.contactId } : {}),
-                  ...(performer.email ? { email: performer.email } : {}),
-                })),
-              }
-            : {}),
-          ...(city.trim() ? { city: city.trim() } : {}),
-          ...(ticketing.trim() ? { ticketing: { provider: ticketing.trim() } } : {}),
-        },
         ...withDeal,
       },
     });
@@ -721,7 +847,7 @@ export function NewEventWizard({
         padding: "48px 20px",
         overflowY: "auto",
       }}
-      onMouseDown={(clickEvent) => clickEvent.target === clickEvent.currentTarget && close()}
+      onMouseDown={(clickEvent) => clickEvent.target === clickEvent.currentTarget && requestClose()}
     >
       <div
         style={{
@@ -768,7 +894,7 @@ export function NewEventWizard({
           <button
             type="button"
             aria-label="Close"
-            onClick={close}
+            onClick={requestClose}
             // Touch: 34px square. The wizard draws its own panel rather than
             // using the shared `Modal` shell, so it missed the overlay that
             // shell's close button already carries. It grows instead of taking
@@ -902,7 +1028,7 @@ export function NewEventWizard({
             <span />
           )}
           <div style={{ display: "flex", gap: 10 }}>
-            <button type="button" onClick={close} style={footerGhost}>
+            <button type="button" onClick={requestClose} style={footerGhost}>
               Cancel
             </button>
             <GradientButton
@@ -920,6 +1046,83 @@ export function NewEventWizard({
           </div>
         </div>
       </div>
+
+      {/* The unsaved-work question, drawn INSIDE the wizard's own backdrop and
+          above its panel. Its own scrim rather than a second portal: the wizard
+          is already the top layer, and a nested portal would let a click land on
+          the wizard behind the question it is asking. */}
+      {confirmingExit && (
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby={exitTitleId}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 110,
+            background: "color-mix(in srgb, var(--ink-1000) 62%, transparent)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+          // Clicking outside the QUESTION is the least destructive answer, not
+          // the most: it puts the reader back where they were. A confirm whose
+          // backdrop discards the work would be the original bug wearing a
+          // dialog.
+          onMouseDown={(clickEvent) =>
+            clickEvent.target === clickEvent.currentTarget && setConfirmingExit(false)
+          }
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              borderRadius: 16,
+              padding: "22px 24px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 14,
+            }}
+          >
+            <h2 id={exitTitleId} style={{ margin: 0, fontSize: 16.5, fontWeight: 640 }}>
+              {isHold ? "Leave without placing this hold?" : "Leave without creating this event?"}
+            </h2>
+            <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.55, color: "var(--muted)" }}>
+              Everything you have filled in will be lost. You can save it as a draft instead and
+              finish it later from the event.
+            </p>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              {/* Continue is FIRST and is the default action — the reader almost
+                  certainly clicked outside by accident, and the safe answer
+                  should be the one under their hand. */}
+              <GradientButton
+                onClick={() => setConfirmingExit(false)}
+                style={{ padding: "10px 18px", borderRadius: 11, fontSize: 13.5 }}
+              >
+                Keep editing
+              </GradientButton>
+              <button
+                type="button"
+                onClick={saveDraft}
+                disabled={saveDraftMutation.isPending}
+                style={footerGhost}
+              >
+                {saveDraftMutation.isPending ? "Saving…" : "Save draft"}
+              </button>
+              <button
+                type="button"
+                onClick={close}
+                style={{ ...footerGhost, color: "var(--brand-red)" }}
+              >
+                Leave
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
   return createPortal(overlay, document.body);
@@ -1130,6 +1333,15 @@ function DetailsStep(props: {
   const venueFieldId = useId();
   const isHold = Boolean(props.holdPlacement);
 
+  // "Is this night already taken?" — asked live as the venue, room and date are
+  // chosen, and answered only for a venue the caller runs (ClickUp 86cbceux0).
+  // It WARNS; nothing here can stop the wizard advancing.
+  const conflicts = useDateConflicts({
+    venueProfileId: props.venueProfileId,
+    date: props.date,
+    stageId: props.stageId,
+  });
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 15 }}>
       <div
@@ -1286,6 +1498,23 @@ function DetailsStep(props: {
             onChange={(e) => props.setDate(e.target.value)}
             style={bigField}
           />
+          {/* Under the date, not at the top of the step: it is an answer about
+              THIS field, and a banner elsewhere would be read as being about the
+              form. Amber rather than red — nothing is wrong, and the operator is
+              allowed to proceed. */}
+          {conflicts.message && (
+            <output
+              style={{
+                display: "block",
+                margin: "6px 0 0",
+                fontSize: 12,
+                lineHeight: 1.45,
+                color: "var(--brand-amber)",
+              }}
+            >
+              {conflicts.message}
+            </output>
+          )}
         </div>
         <label>
           <span style={labelStyle}>Capacity</span>

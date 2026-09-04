@@ -31,6 +31,7 @@ export function CalendarItemCreateModal({ open, onClose, view }: CalendarItemCre
 
   return (
     <Modal
+      dismissOnScrim={false}
       open={open}
       onClose={onClose}
       width={480}

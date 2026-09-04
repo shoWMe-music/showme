@@ -60,6 +60,7 @@ export function MarkUnavailableModal({ view }: MarkUnavailableModalProps) {
 
   return (
     <Modal
+      dismissOnScrim={false}
       open={view.isConfirmOpen}
       onClose={view.closeConfirm}
       width={520}

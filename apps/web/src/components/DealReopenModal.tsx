@@ -31,6 +31,7 @@ export function DealReopenModal({
 }: DealReopenModalProps) {
   return (
     <Modal
+      dismissOnScrim={false}
       open={open}
       onClose={onClose}
       title="Reopen for renegotiation"
