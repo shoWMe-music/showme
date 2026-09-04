@@ -6,6 +6,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { badRequest, forbidden, notFound } from "../errors";
 import { writeAudit } from "../lib/audit";
+import { auditConfiguration, missingInProduction } from "../lib/config-audit";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
 import { signProfileImageUrls } from "../lib/profile-media";
 import { serializeProfile } from "../serialize/profile";
@@ -53,6 +54,20 @@ const AlertResponse = z.object({
   details: z.unknown().optional(),
   resolved: z.boolean(),
   createdAt: z.string(),
+});
+
+const ConfigurationResponse = z.object({
+  subsystems: z.array(
+    z.object({
+      subsystem: z.string(),
+      variables: z.array(z.string()),
+      configured: z.boolean(),
+      requiredInProduction: z.boolean(),
+      consequence: z.string(),
+    }),
+  ),
+  /** Empty is the only healthy answer in production. */
+  missingRequired: z.array(z.string()),
 });
 
 const AuditQuery = PaginationQuery.extend({ eventId: z.string().uuid().optional() });
@@ -136,6 +151,27 @@ interface KeysetCursor {
  */
 export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+
+  // What this deployment is silently missing. Every integration in the API
+  // degrades rather than throwing when unconfigured (lib/config-audit.ts explains
+  // why that is right on a laptop and dangerous in production), so after a deploy
+  // there is otherwise no way to ask whether a variable got stripped —
+  // `--set-env-vars` replaces the whole set instead of merging it.
+  //
+  // Admin-only, and presence-only: it reports THAT a variable is set, never what
+  // it is set to.
+  app.get(
+    "/admin/configuration",
+    { schema: { response: { 200: ConfigurationResponse } } },
+    async (request) => {
+      if (!request.principal?.isAdmin) throw forbidden();
+      const subsystems = auditConfiguration();
+      return {
+        subsystems,
+        missingRequired: missingInProduction(subsystems).map((entry) => entry.subsystem),
+      };
+    },
+  );
 
   // List every profile on the platform (keyset paginated over created_at, id).
   app.get(
