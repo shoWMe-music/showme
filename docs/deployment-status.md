@@ -8,6 +8,22 @@
 | **Marketing** | NOT redeployed. Nothing in this release touches `apps/marketing`. |
 | **Terraform** | NOT applied, and none needed — `plan` reports *"No changes. Your infrastructure matches the configuration."* |
 
+## Owed: three ClickUp status flips
+
+ClickUp hit its write rate limit mid-update (~93 min lockout, ~16:50 CEST
+2026-09-04). Six tickets were moved to `shipped`; **three are live but still say
+`in review`**:
+
+- [123qy9rnfyw](https://app.clickup.com/t/123qy9rnfyw) — the wizard no longer eats your work
+- [86cbcgw46](https://app.clickup.com/t/86cbcgw46) — venue Rooms UI shown to performers
+- [86cbcgjhw](https://app.clickup.com/t/86cbcgjhw) — unavailability reason prompt
+
+Each already carries its explanatory comment; only the status is outstanding.
+Retrying inside the lockout window only burns attempts — wait it out.
+
+`86cbceux0` (double booking) stays open ON PURPOSE: two of its three bullets
+shipped, and the third needs Ran's decision on a room-level migration.
+
 ## What shipped
 
 Fourteen commits closing eight tickets: the five engineering-found bugs
