@@ -52,7 +52,40 @@ export interface SerializedParticipant {
   status: string;
   performerTag: string | null;
   permissionSetId?: string | null;
+  /**
+   * The permission set ITSELF, not just its id — operator tier only.
+   *
+   * A bare id told the UI nothing, so the only way to ask "does this collaborator
+   * have full control?" was to compare their set id against the HOST's. That is a
+   * comparison of rows, not of authority, and it got the seeded co-host wrong:
+   * Northlight Presents holds set `c6`, a different row carrying identical
+   * `operator_full` capabilities, and was labelled "Standard for the role" while
+   * having exactly the authority the label denies (ClickUp 86cbazcc7, item 2).
+   *
+   * Absent when the participant holds no set (standard for the role), and absent
+   * for every non-operator caller — the set is operator-tier, and naming it would
+   * tell an arm's-length party how the host's access is arranged.
+   */
+  permissionSet?: SerializedPermissionSet;
+  /**
+   * For a removed row: what its status was before the removal, so a restore can
+   * put back the fact rather than guessing at one. Null on a row that is not
+   * removed, and on one removed before the column existed — read either as "no
+   * undo offered here".
+   */
+  statusBeforeRemoval?: string | null;
   details?: unknown;
+}
+
+/** A permission set as a roster row names it: what it is, and what it grants. */
+export interface SerializedPermissionSet {
+  id: string;
+  name: string;
+  /** What the set actually allows. The UI describes authority from this, never
+   *  by comparing ids — see `permissionSet` above for what that cost. */
+  capabilities: string[];
+  /** True for a system preset (`profile_id` IS NULL), available to everyone. */
+  isPreset: boolean;
 }
 
 /**
@@ -138,6 +171,12 @@ export function serializeParticipant(
   profile?: ParticipantProfileFace | null,
   imageUrls?: Map<string, string>,
   selfProfileIds?: ReadonlySet<string>,
+  /**
+   * The row's permission set, when the caller joined it. Optional so the routes
+   * that serialize a single just-written participant stay one query — they know
+   * the id they wrote and the roster refetch fills in the rest.
+   */
+  permissionSet?: SerializedPermissionSet | null,
 ): SerializedParticipant {
   const base: SerializedParticipant = {
     id: participant.id,
@@ -157,6 +196,11 @@ export function serializeParticipant(
 
   if (canManageParticipants(capabilities)) {
     base.permissionSetId = participant.permissionSetId;
+    if (permissionSet) base.permissionSet = permissionSet;
+    // Only ever set on a row that is actually removed. Sending it alongside an
+    // `accepted` status would offer an undo for something nobody undid.
+    base.statusBeforeRemoval =
+      participant.status === "removed" ? participant.statusBeforeRemoval : null;
     base.details = participant.details;
     return base;
   }

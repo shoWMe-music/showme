@@ -86,11 +86,13 @@ export interface UseEventCollaboratorInviteOptions {
   open: boolean;
   eventId: string;
   /**
-   * The admin-grade permission set to attach when "Full control" is chosen — in
-   * practice the operator participant's own set, read off `GET /events/:id/participants`
-   * (the serializer only returns `permissionSetId` to a caller who may manage the
-   * roster). There is no route to LIST or CREATE permission sets, so this is the
-   * only honest admin-grade bundle the web app can name. `null` hides the option.
+   * The admin-grade permission set to attach when "Full control" is chosen, from
+   * `GET /events/:id/permission-sets` via `useEventPermissionSets` — chosen by
+   * what a set GRANTS rather than by which row it is.
+   *
+   * It used to be scraped off the HOST participant's row, because no route listed
+   * the sets, which made the host's own bundle the only one the app could name.
+   * `null` hides the option, and is what a caller who may not read the list sees.
    */
   fullControlPermissionSetId: string | null;
 }
