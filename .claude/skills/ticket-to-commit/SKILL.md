@@ -103,6 +103,21 @@ passed nothing: the seed gives *every* user SEK, so it was true whether the rout
 was correct or leaking. When a probe passes, ask what would have made it fail.
 When it fails, check the data before believing it.
 
+**Run the FULL browser suite before a deploy that changes UI behaviour, not
+after.** `pnpm test:e2e` — unpiped, or read the summary line, never the exit code
+(CLAUDE.md). On 2026-09-04 a modal guard went out after typecheck, unit tests and
+a live walkthrough, none of which press Escape. Four specs already asserting the
+broken rule went red on the next full run, *days* after it reached production.
+The suite had the answer the whole time; nobody asked it.
+
+**A behaviour flag ships with a test or it does not ship, and the test asserts
+BOTH halves.** That guard (`dismissOnScrim`) turned off the scrim click and the
+Escape key together, fixing "a stray click discards my form" by creating "a phone
+cannot leave this dialog" — which the same spec file calls the worse of the two.
+A test proving only that the scrim is ignored would have stayed green through it.
+Pin what the flag stops *and* what it must leave working; one half alone leaves
+the flag free to be wrong in the other direction.
+
 ---
 
 ## 5. Write the finding back to the ticket

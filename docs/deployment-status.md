@@ -1,3 +1,51 @@
+# Deployed — 2026-09-05
+
+| | |
+|---|---|
+| **API** | Unchanged from 2026-09-04 — `showme-api-00032-s8n`, 100% of traffic. Nothing in this release touches `apps/api`. |
+| **Database** | Unchanged — still at migration **38**. No migration in this release. |
+| **Web app** | `showme-app.web.app` on `music-showme` — bundle `index-BKtQMhmD.js`, 2 files uploaded. Served bundle matches the local build **byte for byte** (sha256 `46462b8d…`). |
+| **Marketing** | NOT redeployed. |
+| **Terraform** | Not touched, none needed. |
+
+## What shipped
+
+Two commits, both web-only:
+
+- **The Escape regression** — `dismissOnScrim={false}` shipped on 2026-09-04
+  gating the Escape handler as well as the scrim click, so the sixteen modals
+  holding unsaved input could only be left by the X. Escape is now ungated.
+- **The display-currency picker is gone** ([123qy9rnjb8](https://app.clickup.com/t/123qy9rnjb8)) —
+  it relabelled the Budget Planner's money **inputs** without converting them,
+  so a fee could be typed under a € and settled as SEK.
+
+## The lesson: a flag with no test shipped a worse bug than the one it fixed
+
+Worth recording, because the failure was in the PROCESS and not the code.
+
+The guard was correct about the stray click and wrong about Escape, and the
+mobile audit already contained the sentence that settles it: *"a dialog you
+cannot leave is worse than one that overflows."* Four specs asserting exactly
+that went red — but **on the next full browser run, which was days after the
+deploy.** The last green `test:e2e` predated the modal change; the pre-deploy
+checks were typecheck, unit tests and a live walkthrough, none of which touch
+Escape.
+
+Two rules out of it:
+
+1. **A behaviour flag ships with a test or it does not ship.** `dismissOnScrim`
+   had none, so nothing could catch it being wrong.
+2. **Assert both halves of a guard together.** The new spec checks per dialog
+   that the scrim does nothing AND that the X and Escape both still work. One
+   half alone leaves the flag free to fail in the other direction — which is
+   precisely what happened.
+
+And the older rule that would also have caught it: **run `test:e2e` before a
+deploy that changes UI behaviour**, not only after. Piped or partial runs do not
+count — see CLAUDE.md on `tail` hiding a red suite.
+
+---
+
 # Deployed — 2026-09-04
 
 | | |
@@ -8,7 +56,11 @@
 | **Marketing** | NOT redeployed. Nothing in this release touches `apps/marketing`. |
 | **Terraform** | NOT applied, and none needed — `plan` reports *"No changes. Your infrastructure matches the configuration."* |
 
-## Owed: three ClickUp status flips
+## Owed: three ClickUp status flips — CLEARED 2026-09-05
+
+**All three are now `shipped`**, along with 123qy9rnjb8. Nothing outstanding.
+The original note follows for the record.
+
 
 ClickUp hit its write rate limit mid-update (~93 min lockout, ~16:50 CEST
 2026-09-04). Six tickets were moved to `shipped`; **three are live but still say
