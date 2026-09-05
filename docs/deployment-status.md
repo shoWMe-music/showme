@@ -1,3 +1,44 @@
+# Deployed — 2026-09-05 (third release)
+
+| | |
+|---|---|
+| **Web app** | `showme-app.web.app` — bundle `index-BT7bSGBg.js`, served copy matches the local build byte for byte (sha256 `a383d032…`). The served CSS carries `clamp(19px,13cqi,34px)`. |
+| **API / DB / infra** | Untouched. |
+
+## KPI figures no longer break mid-number
+
+`SEK 83,000` rendered as "SEK 83,00 / 0". `Intl` joins a spelled-out currency
+code to its digits with a NON-BREAKING space, so the figure is one unbreakable
+word; `overflow-wrap: anywhere` then had nowhere legal to break and split it
+between digits. A number cut that way reads as a different number.
+
+`€7,163` has no space and six characters, so it never tripped — the bug was
+invisible in the currency the design was drawn in and live in the one the first
+market uses.
+
+`StatCard` is now a query container and the figure is `clamp(19px, 13cqi, 34px)`,
+sized to its own tile. 13cqi was measured, not guessed, and sized to the binding
+case (a seven-figure negative total) rather than to the six-figure one that was
+visibly broken.
+
+**It was wider than the screen it was noticed on.** Reverting the CSS to prove the
+new spec bites also failed Settlements, Invoices and Projections — every SEK
+screen with a KPI band.
+
+## The layout sweep could not have caught it
+
+`mobile-audit.spec.ts` measures `scrollWidth > clientWidth`, and a wrap is the
+browser SUCCEEDING at staying inside the box — there is no overflow to find. The
+failure also sits at DESKTOP width in a four-across grid, which a 360–861px sweep
+never visits. Another entry for CLAUDE.md's "ask what the check CAN fail on":
+green meant "nothing overflowed", never "the numbers are legible".
+
+`kpi-figures.spec.ts` measures the real thing — a figure's natural single-line
+width against the space its tile offers — and was mutation-tested by reverting
+the CSS.
+
+---
+
 # Deployed — 2026-09-05 (second release)
 
 | | |
