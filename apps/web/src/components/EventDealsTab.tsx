@@ -34,9 +34,7 @@ export interface EventDealsTabProps {
   eventStatusLabel: string;
   /** The caller's own effective capabilities on this event. */
   capabilities: readonly string[];
-  /** The display currency chosen in the header; a deal's own currency wins over it. */
-  currency: string;
-  /** The event's base currency — what a new deal is denominated in by default. */
+  /** The event's base currency. A deal's own currency wins over it. */
   baseCurrency: string;
   venueLabel: string;
   operatorName: string;
@@ -51,7 +49,6 @@ export function EventDealsTab({
   eventDate,
   eventStatusLabel,
   capabilities,
-  currency,
   baseCurrency,
   venueLabel,
   operatorName,
@@ -71,7 +68,6 @@ export function EventDealsTab({
         eventDate={eventDate}
         eventStatusLabel={eventStatusLabel}
         capabilities={capabilities}
-        currency={currency}
         baseCurrency={baseCurrency}
         venueLabel={venueLabel}
         operatorName={operatorName}

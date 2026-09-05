@@ -31,9 +31,16 @@ export interface EventAgreementTabProps {
   eventStatusLabel: string;
   /** The caller's own effective capabilities on this event — what may be offered. */
   capabilities: readonly string[];
-  /** The display currency chosen in the header; a deal's own currency wins over it. */
-  currency: string;
-  /** The event's base currency — what a new deal is denominated in by default. */
+  /**
+   * The event's base currency: what a new deal is denominated in by default, and
+   * the fallback for a deal that names none. A DEAL'S OWN currency always wins
+   * over it — a euro guarantee on a krona event is a euro guarantee.
+   *
+   * There used to be a second prop for a "display currency" picked in the header.
+   * That picker only ever changed the symbol without converting anything, and it
+   * is gone (ClickUp 123qy9rnjb8); the two props always carried the same value by
+   * the end, and one of them was lying about what it meant.
+   */
   baseCurrency: string;
   venueLabel: string;
   operatorName: string;
@@ -64,7 +71,6 @@ export function EventAgreementTab({
   eventDate,
   eventStatusLabel,
   capabilities,
-  currency,
   baseCurrency,
   venueLabel,
   operatorName,
@@ -152,7 +158,7 @@ export function EventAgreementTab({
               venueLabel,
               operatorName,
             })}
-            dealStructure={dealStructureFields(deal, currency)}
+            dealStructure={dealStructureFields(deal, baseCurrency)}
             schedule={scheduleEntries}
             parties={partyLines(deal, agreements.roster)}
             actions={dealActionsFor(deal, agreements.authority, agreements.roster)}
@@ -268,8 +274,10 @@ function agreementSummary(
  * described as "Guarantee vs door" when it was written should not read back as
  * "Guarantee_vs_door".
  */
-function dealStructureFields(deal: Deal, displayCurrency: string): AgreementField[] {
-  const currency = deal.currency ?? displayCurrency;
+function dealStructureFields(deal: Deal, fallbackCurrency: string): AgreementField[] {
+  // The deal's own currency is authoritative; the event's base is only what to
+  // use when the deal names none.
+  const currency = deal.currency ?? fallbackCurrency;
   const rows: AgreementField[] = [
     // ONE row, because the composer now asks ONE question: the kind of deal IS
     // the settlement shape, and `deals.type` is derived from it. Reading it back

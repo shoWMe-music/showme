@@ -20,7 +20,6 @@ import {
   Card,
   EmptyState,
   Icon,
-  Select,
   type Status,
   TabPanels,
 } from "@showme/design-system";
@@ -106,24 +105,7 @@ export function EventDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState(requestedTab ?? "details");
-  /**
-   * DELIBERATELY NOT seeded from the reader's account currency preference, and
-   * this needs saying because the obvious change here is a wrong one.
-   *
-   * This selector does not convert. `currency` is handed to the budget planner,
-   * the details tab, the deals tab and the settlement tab purely as the argument
-   * to `formatMoney`, and every figure they hold is in the EVENT's base currency.
-   * Picking EUR on a SEK event therefore relabels SEK numbers with a euro sign —
-   * it does not translate them. Defaulting it to `users.currency` (which is what
-   * `useDisplayCurrency` does on the settlement screen, where conversion is real)
-   * would turn a mislabelling you have to opt into today into the default for
-   * every user whose preference differs from the event's currency.
-   *
-   * So it stays local and starts on the event's own currency until the selector
-   * is either wired to the exchange-rate cache like the settlement screen's, or
-   * removed. Tracked as ClickUp 123qy9rnjb8.
-   */
-  const [displayCurrency, setDisplayCurrency] = useState<string | null>(null);
+
   const [inviteOpen, setInviteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   // Which role the invite modal opens on. The header's button asks the open
@@ -156,7 +138,28 @@ export function EventDetail() {
   if (isError) return <ErrorState error={error} title="Couldn't load this event" />;
 
   const display = apiStatusToDisplay(event.status);
-  const currency = displayCurrency ?? event.baseCurrency;
+  /**
+   * THE EVENT'S OWN CURRENCY, and there is no picker any more.
+   *
+   * This screen used to carry a "Display currency" select whose only effect was
+   * to change the SYMBOL — nothing on this workspace converts, so picking EUR on
+   * a SEK event drew SEK figures with a euro sign (ClickUp 123qy9rnjb8).
+   *
+   * It was not fixed by making it convert, because on this screen it cannot be.
+   * The Budget Planner is an EDITOR: `currencySymbol` is the leftIcon on the
+   * money fields an operator types into. A converted input has no answer to
+   * "which currency did you just type?" — the value would have to be converted
+   * back at a rate that can move between render and save, and a typed figure is
+   * the one thing that must survive a round trip exactly. So the honest
+   * conversion of an editable money field is no conversion at all.
+   *
+   * Reading a settlement in another currency IS useful, and that surface still
+   * has it: `EventSettlement` uses `useCurrencyPreview`, which converts through
+   * the exchange-rate cache, keeps the settled currency on screen at all times,
+   * and refuses to convert rather than relabel when it has no rate. It can do
+   * that because its figures are read-only.
+   */
+  const currency = event.baseCurrency;
   const roster = participants.data ?? [];
   // Each of these is the capability the route behind the button actually
   // authorizes. They replace a single `canEdit = event.holdAutoPromote !==
@@ -256,8 +259,6 @@ export function EventDetail() {
   const saveExtras = (next: EventExtras) => {
     patchEvent.mutate({ id: eventId, data: { extras: next, expectedVersion: event.version } });
   };
-
-  const currencyOptions = Array.from(new Set([event.baseCurrency, "EUR", "USD", "GBP"]));
 
   return (
     <>
@@ -361,14 +362,6 @@ export function EventDetail() {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <div style={{ width: 116 }}>
-            <Select
-              value={currency}
-              onChange={(value) => setDisplayCurrency(value)}
-              options={currencyOptions}
-              aria-label="Display currency"
-            />
-          </div>
           {canManageParticipants && (
             <Button
               variant="secondary"
@@ -446,7 +439,6 @@ export function EventDetail() {
             // running across the change): no capabilities means no action is
             // offered, which is the safe reading, rather than a crash.
             capabilities={event.capabilities ?? []}
-            currency={currency}
             baseCurrency={event.baseCurrency}
             venueLabel={venueLabel}
             operatorName={operatorName}

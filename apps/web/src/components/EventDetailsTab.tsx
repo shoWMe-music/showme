@@ -916,7 +916,16 @@ function TicketInformationCard({
   );
 }
 
-function currencySymbol(currency: string): string {
+/**
+ * The symbol for a currency code — "kr" for SEK, "€" for EUR.
+ *
+ * Exported because it is not decoration: it is the leftIcon on the Budget
+ * Planner's money INPUTS, so it names the currency an operator is typing in. A
+ * wrong symbol here is not a cosmetic slip, it is a figure entered under the
+ * wrong denomination and settled under another — which is exactly what a
+ * "display currency" picker on this screen used to cause (ClickUp 123qy9rnjb8).
+ */
+export function currencySymbol(currency: string): string {
   try {
     const parts = new Intl.NumberFormat("en", { style: "currency", currency }).formatToParts(0);
     return parts.find((part) => part.type === "currency")?.value ?? currency;
