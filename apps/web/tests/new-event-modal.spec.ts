@@ -68,7 +68,15 @@ test("every open is a FRESH wizard, not the last one re-shown", async ({ page })
   await topbarButton(page).click();
   await expect(wizard(page)).toBeVisible();
   await page.getByPlaceholder("e.g. Nils Frahm").fill("Abandoned draft");
+
+  // A FILLED wizard no longer leaves on Escape alone — it asks first (ClickUp
+  // 123qy9rnfyw). That guard is the point of the two assertions below: this test
+  // has to abandon a draft to mean anything, and abandoning one is now a
+  // deliberate two-step act. `Escape and the backdrop both close it` covers the
+  // empty wizard, which still leaves on the first gesture.
   await page.keyboard.press("Escape");
+  await expect(wizard(page), "Escape discarded a filled-in wizard without asking.").toBeVisible();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Leave" }).click();
   await expect(wizard(page)).toBeHidden();
 
   await topbarButton(page).click();

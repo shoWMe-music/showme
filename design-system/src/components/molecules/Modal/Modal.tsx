@@ -16,31 +16,41 @@ export interface ModalProps {
   width?: number;
   className?: string;
   /**
-   * May a click on the scrim, or Escape, close this dialog?
+   * May a click on the SCRIM close this dialog? Escape always can — see below.
    *
    * `true` — the default, and right for most modals. A dialog you are only
    * reading, or one whose single control is a button, should get out of the way
    * the moment you look away from it.
    *
-   * `false` for a dialog holding UNSAVED INPUT. The X and the footer's own
-   * Cancel still work; what stops is the accidental dismissal — a click a
-   * millimetre outside the panel, or an Escape aimed at a dropdown that had
-   * already closed. That gesture discarding a filled-in form is ClickUp
-   * 123qy9rnfyw, and the reason this flag exists.
+   * `false` for a dialog holding UNSAVED INPUT. What stops is the ACCIDENTAL
+   * dismissal: a click a millimetre outside the panel, which discards a
+   * filled-in form (ClickUp 123qy9rnfyw). The X, the footer's Cancel and Escape
+   * all still work.
    *
-   * DELIBERATELY OPT-IN. Making every modal in the app refuse to close on the
-   * scrim would be the opposite mistake: most of them hold nothing worth
-   * protecting, and a dialog that will not go away teaches people to hunt for
-   * the X. The modals that guard themselves are the ones that have something to
-   * lose.
+   * ESCAPE IS NOT GATED BY THIS, and that distinction was got wrong once. This
+   * flag first disabled Escape too, which broke the rule
+   * `mobile-audit.spec.ts` exists to enforce: *"a dialog you cannot leave is
+   * worse than one that overflows — on a phone there is no window chrome and no
+   * visible scrim to click past."* Escape is a deliberate, unambiguous "get me
+   * out"; nobody presses it by accident, which is exactly what separates it from
+   * a stray click. Guarding it would be protecting the user from a decision they
+   * made on purpose.
+   *
+   * A dialog that genuinely must interrogate an Escape — the event wizard, which
+   * offers Leave / Save draft / Keep editing — owns its own key handler rather
+   * than asking for one here.
+   *
+   * DELIBERATELY OPT-IN. Making every modal refuse the scrim would be the
+   * opposite mistake: most hold nothing worth protecting, and a dialog that will
+   * not go away teaches people to hunt for the X.
    */
   dismissOnScrim?: boolean;
 }
 
 /** Centered dialog over a blurred scrim — the pattern behind profile modals,
- * venue specs, deal editors. Closes on scrim click or Escape unless
- * `dismissOnScrim` is false, which is how a modal holding unsaved input opts out
- * of being dismissed by accident. */
+ * venue specs, deal editors. Escape always closes it; a click on the scrim also
+ * does unless `dismissOnScrim` is false, which is how a modal holding unsaved
+ * input opts out of being dismissed by accident. */
 export function Modal({
   open,
   onClose,
@@ -53,12 +63,13 @@ export function Modal({
 }: ModalProps) {
   const { rendered, scrim, panel } = useModalMotion(open);
 
+  // Escape closes EVERY dialog, `dismissOnScrim` or not. See the prop's doc.
   useEffect(() => {
-    if (!open || !dismissOnScrim) return;
+    if (!open) return;
     const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose, dismissOnScrim]);
+  }, [open, onClose]);
 
   if (!rendered || typeof document === "undefined") return null;
   // Portal to <body> so the fixed scrim covers the WHOLE viewport (sidebar + top

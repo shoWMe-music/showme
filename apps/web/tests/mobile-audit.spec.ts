@@ -499,13 +499,43 @@ const MODALS: ReadonlyArray<{
   readonly trigger: string | RegExp;
   /** Something only this dialog says, so a stray toast or confirm can't pass. */
   readonly contains: RegExp;
+  /**
+   * This dialog holds unsaved input, so it sets `dismissOnScrim={false}` and a
+   * click on the scrim must NOT discard what is typed in it (ClickUp
+   * 123qy9rnfyw). Escape and the X still close it — that is the whole point of
+   * the distinction, and `is guarded against a stray click` below pins both
+   * halves.
+   *
+   * Left off the New event wizard deliberately: it is not a `Modal`, it guards
+   * itself, and while EMPTY it still leaves on the first gesture
+   * (`new-event-modal.spec.ts` owns that pair).
+   */
+  readonly guardsUnsavedInput?: true;
 }> = [
   { name: "New event wizard", path: "/", trigger: "New event", contains: /Create New Event/i },
   { name: "Add contact", path: "/contacts", trigger: "Add Contact", contains: /IBAN/i },
-  { name: "Import contacts CSV", path: "/contacts", trigger: "Import CSV", contains: /CSV/i },
-  { name: "New task", path: "/tasks", trigger: "New Task", contains: /Task/i },
+  {
+    name: "Import contacts CSV",
+    path: "/contacts",
+    trigger: "Import CSV",
+    contains: /CSV/i,
+    guardsUnsavedInput: true,
+  },
+  {
+    name: "New task",
+    path: "/tasks",
+    trigger: "New Task",
+    contains: /Task/i,
+    guardsUnsavedInput: true,
+  },
   { name: "Create work-group", path: "/tasks", trigger: "Create Group", contains: /group/i },
-  { name: "Invite team member", path: "/team", trigger: /Invite Member$/, contains: /email/i },
+  {
+    name: "Invite team member",
+    path: "/team",
+    trigger: /Invite Member$/,
+    contains: /email/i,
+    guardsUnsavedInput: true,
+  },
   { name: "New invoice", path: "/invoices", trigger: "New invoice", contains: /invoice/i },
   { name: "New profile", path: "/profiles", trigger: "New profile", contains: /profile/i },
   {
@@ -519,6 +549,7 @@ const MODALS: ReadonlyArray<{
     path: "/calendar",
     trigger: "Import",
     contains: /ics|calendar/i,
+    guardsUnsavedInput: true,
   },
 ];
 
@@ -738,6 +769,48 @@ test.describe("modals, the viewport inside the viewport", () => {
       await expect(
         dialog,
         "Escape did not close the dialog, so a phone is stuck inside it.",
+      ).toBeHidden({ timeout: 10_000 });
+    });
+
+    if (!modal.guardsUnsavedInput) continue;
+
+    /**
+     * The two halves of `dismissOnScrim={false}`, which have to be asserted
+     * TOGETHER or the flag is free to be wrong in either direction.
+     *
+     * It shipped on 2026-09-04 gating Escape as well as the scrim, and nothing
+     * here noticed: the four specs above went red on the next full run, days
+     * after the deploy. A flag with no test is what let a fix for one bug
+     * (a stray click discarding a filled form) create another (a dialog a phone
+     * cannot leave, which the spec above calls the worse of the two).
+     */
+    test(`${modal.name} is guarded against a stray click`, async ({ page }) => {
+      await page.goto(modal.path);
+      await waitForShell(page);
+
+      await modalTrigger(page, modal.trigger).click();
+      const dialog = page.getByRole("dialog").filter({ hasText: modal.contains }).first();
+      await expect(dialog).toBeVisible({ timeout: 15_000 });
+
+      // The scrim is the panel's parent, so its top-left corner is always
+      // outside the panel however the dialog is sized.
+      const scrim = page.locator('[role="presentation"]:has([role="dialog"])').first();
+      await scrim.click({ position: { x: 4, y: 4 } });
+      await expect(
+        dialog,
+        "A click on the scrim discarded a dialog holding unsaved input.",
+      ).toBeVisible();
+
+      // ...and it is still leaveable, by both routes that stayed open.
+      await dialog.getByRole("button", { name: "Close" }).click();
+      await expect(dialog, "The X did not close the dialog.").toBeHidden({ timeout: 10_000 });
+
+      await modalTrigger(page, modal.trigger).click();
+      await expect(dialog).toBeVisible({ timeout: 15_000 });
+      await page.keyboard.press("Escape");
+      await expect(
+        dialog,
+        "Escape is gated by `dismissOnScrim`, which is the regression this test exists for.",
       ).toBeHidden({ timeout: 10_000 });
     });
   }
