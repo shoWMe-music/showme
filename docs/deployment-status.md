@@ -1,3 +1,32 @@
+# Not deployed — the currency peek is waiting on an API key
+
+`main` carries the Budget Planner's currency peek (`94f7b76`) and it is **not on
+production on purpose**. `GET /exchange-rate` answers `No cached rate for this
+pair` for EVERY pair, so the peek would refuse to convert every time — honest,
+and indistinguishable to a reader from the broken selector the ticket reported.
+
+The cause is written in our own Terraform (`infra/envs/prod/variables.tf:85`):
+*"No such secret exists on prod-showme… this is set the day the key is bought."*
+No **ExchangeRate-API** key was ever purchased, so the nightly refresh has always
+skipped with `exchangeRates: EXCHANGE_RATE_API is not set`. The other six
+scheduled jobs are unaffected.
+
+**This is wider than the peek:** the settlement screen's "Preview in another
+currency" has never converted in production either, for the same reason, since
+the day it shipped. Nobody noticed because the no-rate notice is written to
+explain itself.
+
+To unblock (free tier is ample — 1 500 calls/month against ~180 used, since one
+USD→all call derives every pair as a cross-rate):
+
+1. get a key at exchangerate-api.com;
+2. `printf %s "<key>" | gcloud secrets create EXCHANGE_RATE_API --project prod-showme --replication-policy automatic --data-file=-`
+3. set `exchange_rate_api_secret_name` and `terraform apply`;
+4. `gcloud run jobs execute showme-jobs --region europe-north2 --wait`, then
+   confirm `GET /exchange-rate?from=SEK&to=EUR` answers, and deploy the web app.
+
+---
+
 # Deployed — 2026-09-05
 
 | | |
