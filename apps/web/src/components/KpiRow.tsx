@@ -31,12 +31,6 @@ export interface KpiRowProps {
    * columns instead of crushing them.
    */
   columns?: number;
-  /**
-   * Override the tile figure's size. Four-across tiles are narrower than the
-   * three the default 34px was drawn for, and a six-figure total in a currency
-   * whose code is spelled out ("SEK 306,700") does not fit one at that size.
-   */
-  valueFontSize?: number;
 }
 
 const TONE_COLOR: Record<KpiTone, string | undefined> = {
@@ -46,13 +40,7 @@ const TONE_COLOR: Record<KpiTone, string | undefined> = {
   neutral: undefined,
 };
 
-export function KpiRow({
-  items,
-  eyebrow,
-  minTileWidth = 200,
-  columns,
-  valueFontSize,
-}: KpiRowProps) {
+export function KpiRow({ items, eyebrow, minTileWidth = 200, columns }: KpiRowProps) {
   const gap = 14;
   const trackMinimum = columns
     ? `max(${minTileWidth}px, calc((100% - ${(columns - 1) * gap}px) / ${columns}))`
@@ -68,9 +56,13 @@ export function KpiRow({
         }}
       >
         {items.map((item, index) => {
+          // `valueFontSize` used to live here, forcing 24px on the four-across
+          // Results block because "SEK 306,700" would not fit 34px. `StatCard`
+          // now sizes the figure to its own tile, which does the same job for
+          // every caller and adapts to figures this one could not — a fixed 24px
+          // still overflowed a seven-figure total in a 180px tile.
           const color = item.tone ? TONE_COLOR[item.tone] : undefined;
-          const figureStyle =
-            color || valueFontSize ? { color, fontSize: valueFontSize } : undefined;
+          const figureStyle = color ? { color } : undefined;
           return (
             <StatCard
               // A KPI row is a fixed, order-stable set of tiles (no add/remove/reorder),

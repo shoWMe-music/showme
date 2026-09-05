@@ -671,7 +671,7 @@ export function BudgetPlanner({
         {/* Four across, so the seven tiles leave a short last row — that is the
             design, not an accident (handoff §3.5). 180px is the floor before the
             grid drops to fewer columns rather than crushing them. */}
-        <KpiRow items={results} minTileWidth={180} columns={4} valueFontSize={24} />
+        <KpiRow items={results} minTileWidth={180} columns={4} />
       </Card>
 
       <BudgetBreakEvenChart breakEven={breakEven} />

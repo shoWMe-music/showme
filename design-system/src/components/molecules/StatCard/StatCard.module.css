@@ -4,6 +4,11 @@
   border-radius: 14px;
   box-shadow: var(--shadow);
   padding: 18px 20px;
+  /* Makes the tile a query container so the figure below can size itself to THIS
+     card rather than to the viewport. A KPI tile's width comes from a grid track,
+     not from the window, so a viewport-based clamp would be measuring the wrong
+     box. */
+  container-type: inline-size;
 }
 .row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .label {
@@ -21,14 +26,44 @@
 .value {
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: 34px;
+  /*
+   * SIZED TO THE TILE, never larger than the 34px it was drawn at.
+   *
+   * A currency whose code is spelled out does not fit one line at 34px in a
+   * ~200px tile, and the way it failed was the problem: `Intl` joins the code to
+   * the digits with a NON-BREAKING space (`SEK\u00A083,000`), so the figure is a
+   * single unbreakable ten-character word. `overflow-wrap: anywhere` below then
+   * has nowhere legal to break and splits it BETWEEN DIGITS — "SEK 83,00 / 0",
+   * which does not read as a wrapped number, it reads as a different number.
+   * `€7,163` never trips it: no space, six characters.
+   *
+   * So the floor is removed rather than pixels bought (CLAUDE.md): the figure
+   * shrinks until it fits instead of wrapping.
+   *
+   * 13cqi is MEASURED, in Clash Display 600, as the largest size at which the
+   * worst realistic figure still fits one line. Against a 190px tile content box:
+   *
+   *     €7,163           31.1cqi        SEK 306,700       15.5cqi
+   *     ≈ €7,163         25.6cqi        SEK 1,250,000     13.9cqi
+   *     SEK 83,000       17.1cqi        -SEK 1,250,000    13.2cqi
+   *
+   * The binding case is a seven-figure NEGATIVE total — a festival that lost
+   * money — not the six-figure one that was visibly broken. Sizing to the visible
+   * case would have left the same bug waiting for a bigger show.
+   *
+   * The clamp can only take the figure BELOW 34px, never above, so nothing that
+   * fits today changes; and because it measures the TILE, a wide layout keeps the
+   * full 34px (reached at ~283px of tile content) while only the cramped
+   * four-across grid steps down.
+   */
+  font-size: clamp(19px, 13cqi, 34px);
   letter-spacing: -.02em;
   line-height: 1.1;
   margin-top: 10px;
   color: var(--text);
-  /* A seven-figure total in a narrow tile used to run out past the card and be
-     clipped by its neighbour — an amount that is unreadable is worse than one
-     that takes two lines. */
+  /* Still the last resort, now reached far less often: a figure too long even at
+     19px is clipped by its neighbour otherwise, and an unreadable amount is worse
+     than one that takes two lines. */
   overflow-wrap: anywhere;
   min-width: 0;
 }
