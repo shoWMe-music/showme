@@ -44,6 +44,7 @@ import { BudgetCustomFieldModal, type CustomFieldKind } from "../components/Budg
 import { BudgetTemplateDialogs } from "../components/BudgetTemplateDialogs";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CostSplitModal } from "../components/CostSplitModal";
+import { CurrencyPeekControl } from "../components/CurrencyPeek";
 import { DateText } from "../components/DateText";
 import { EventCollaboratorEditModal } from "../components/EventCollaboratorEditModal";
 import { EventCollaboratorInviteModal } from "../components/EventCollaboratorInviteModal";
@@ -54,6 +55,7 @@ import { EventRowMenu } from "../components/EventRowMenu";
 import { EventSetlistTab } from "../components/EventSetlistTab";
 import { EventSettlementTab } from "../components/EventSettlementTab";
 import { ProfileFace } from "../components/ProfileFace";
+import { useCurrencyPreview } from "../components/SettlementCurrencyPreview";
 import { ShareExportModal } from "../components/ShareExportModal";
 import { budgetPlannerViewFrom } from "../components/budgetPlannerView";
 import {
@@ -71,6 +73,7 @@ import { usePerformingRightsTerritory } from "../components/usePerformingRightsT
 import { useEventCollaborators } from "../hooks/useEventCollaborators";
 import { useEventPermissionSets } from "../hooks/useEventPermissionSets";
 import { formatDay } from "../lib/format";
+import { toMinorUnits } from "../lib/moneyUnits";
 import { apiStatusToDisplay } from "../lib/status";
 
 type EventDetailData = Awaited<ReturnType<typeof getApiV1EventsId>>;
@@ -153,11 +156,13 @@ export function EventDetail() {
    * the one thing that must survive a round trip exactly. So the honest
    * conversion of an editable money field is no conversion at all.
    *
-   * Reading a settlement in another currency IS useful, and that surface still
-   * has it: `EventSettlement` uses `useCurrencyPreview`, which converts through
-   * the exchange-rate cache, keeps the settled currency on screen at all times,
-   * and refuses to convert rather than relabel when it has no rate. It can do
-   * that because its figures are read-only.
+   * What replaced it is a PEEK, on the Budget tab where the money is
+   * (`CurrencyPeekControl`). Ran's rule: figures are always in the transaction
+   * currency, and a selector is for checking what that comes to somewhere else —
+   * so the event's currency stays on screen throughout and a converted figure is
+   * marked `≈`. While peeking, the planner's money fields become readouts, which
+   * is what makes the paragraph above stop being a reason not to have the
+   * feature: nothing converted is ever typed into.
    */
   const currency = event.baseCurrency;
   const roster = participants.data ?? [];
@@ -690,6 +695,53 @@ function BudgetTab({
   );
   const seed = useBudgetSeed(eventId, seedSources);
   const editor = useBudgetEditor(eventId, seed);
+  /**
+   * The currency peek. State lives here rather than in the control so it resets
+   * when the tab unmounts — a peek is a glance, not a preference, and coming back
+   * to a budget you last looked at in euros and finding it still in euros is the
+   * silent-relabel bug wearing a memory.
+   *
+   * `isExplicitChoice` is true because everything reaching this hook came from
+   * the select: on a budget there is no inherited account default to fall back
+   * to quietly, so a missing rate is always worth saying out loud.
+   */
+  const [peekCurrency, setPeekCurrency] = useState("");
+  const preview = useCurrencyPreview(currency, peekCurrency, setPeekCurrency, true);
+  /**
+   * Convert one of the planner's MAJOR-unit draft strings for reading.
+   *
+   * The route is major string → minor string → convert → format, and every step
+   * of it is exact except the rate multiply itself, which `convertMinorUnits`
+   * owns. `toMinorUnits` shifts the decimal point TEXTUALLY for exactly this
+   * reason — `Math.round(Number("4.015") * 100)` is 401, and that float was
+   * losing money on this screen until it was removed.
+   *
+   * Undefined unless a peek is actually converting, which is what leaves the
+   * fields editable the rest of the time.
+   */
+  /**
+   * EVERY PEEKED FIGURE CARRIES `≈`, and that one character is the whole
+   * safeguard rather than a decoration.
+   *
+   * Found by scrolling. The control says "the budget is in SEK" and sits at the
+   * top of a sheet about 3 500px tall, so by the time a reader reaches the cost
+   * breakdown the only thing on screen saying which currency they are looking at
+   * has scrolled away — and `€7,163` on its own reads as the real figure. Ran's
+   * rule is that it must be clear a number is NOT the actual currency unless it
+   * is the original, and a notice you have scrolled past does not clear that bar.
+   *
+   * A marker that travels with the number does, at every scroll position, on all
+   * forty of them, in a screenshot somebody pastes into a chat. `≈` is also
+   * honest about the second thing wrong with a converted figure: it is an
+   * approximation at a rate that moved this morning.
+   */
+  const peek = preview.isPreviewing
+    ? (minorUnits: string) => `≈ ${preview.format(minorUnits)}`
+    : undefined;
+  const readMoneyAs = peek ? (draft: string) => peek(toMinorUnits(draft)) : undefined;
+  // The same function in the shape `budgetPlannerViewFrom` wants: its figures are
+  // already minor units, so they need no shifting.
+  const peekFormat = peek;
   // Which PRO rate governs THIS show. The API resolves the show's country from
   // the venue and looks up what a platform admin configured for it; the fee
   // itself is computed here, against the live draft, because the ticket revenue
@@ -722,7 +774,7 @@ function BudgetTab({
   // Every figure on the screen, derived once. The arithmetic is `@showme/shared`'s
   // and the unit boundary is `budgetPlannerView`'s (CLAUDE.md: business logic is
   // plain, framework-agnostic TS) — this screen picks a currency and renders.
-  const view = budgetPlannerViewFrom(editor, currency, performingRightsTerritory);
+  const view = budgetPlannerViewFrom(editor, currency, performingRightsTerritory, peekFormat);
   const splitTargetRow = editor.costs.find((cost) => cost.key === splitTargetKey);
 
   return (
@@ -735,8 +787,10 @@ function BudgetTab({
         />
       )}
       {editor.readOnlyReason && <Eyebrow>{editor.readOnlyReason}</Eyebrow>}
+      <CurrencyPeekControl preview={preview} />
       <BudgetPlanner
         currencySymbol={currencySymbol(currency)}
+        readMoneyAs={readMoneyAs}
         kpis={view.kpis}
         results={view.results}
         breakEven={view.breakEven}

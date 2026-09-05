@@ -120,6 +120,26 @@ export interface BudgetPlannerProps {
    */
   dealFigureWarnings?: Record<string, DealFigureWarning>;
   currencySymbol?: string;
+  /**
+   * A PEEK at another currency: format a major-unit draft string for READING.
+   *
+   * Set, every money field on the sheet stops being an `<Input>` and becomes a
+   * derived readout — the same treatment a figure owned by a deal already gets.
+   * That is not a limitation being worked around, it is the point. A money input
+   * showing a converted number has no answer to "which currency did you just
+   * type?", and saving one means converting back at a rate that can have moved
+   * since it was rendered. Relabelling the inputs without converting them was the
+   * original bug (ClickUp 123qy9rnjb8): a fee typed under a € and settled as SEK.
+   *
+   * So a peek is a READ, exactly like the eye on a password field reveals without
+   * letting you edit what it revealed. Dropping back to the event's own currency
+   * is one click and returns every field to being editable.
+   *
+   * Absent, every field is an ordinary editable input in `currencySymbol` — which
+   * is the default and the state the planner is in unless somebody asked to look
+   * at something else.
+   */
+  readMoneyAs?: (majorUnitDraft: string) => string;
   advisory?: string;
   /**
    * Everyone on the event, for the collected-by / paid-by / borne-by selectors
@@ -204,6 +224,7 @@ export function BudgetPlanner({
   performingRights,
   dealFigureWarnings = {},
   currencySymbol = "€",
+  readMoneyAs,
   advisory = "This is an estimate only and should be reviewed before final decisions.",
   participants = [],
   deals = [],
@@ -247,17 +268,31 @@ export function BudgetPlanner({
   // input, which the browser does not connect to it — and now that each row also
   // carries three attribution selects, an unnamed money field is the only control
   // on the row with nothing to call it.
-  const money = (value: string, onChange?: (value: string) => void, label?: string) => (
-    <div style={{ width: 120, flexShrink: 0 }}>
-      <Input
-        value={value}
-        inputMode="decimal"
-        aria-label={label}
-        leftIcon={<span style={{ color: "var(--muted)" }}>{currencySymbol}</span>}
-        onChange={(event) => onChange?.(event.target.value)}
-      />
-    </div>
-  );
+  /**
+   * A figure this sheet SHOWS but does not own — a deal's own number, a derived
+   * one, or any field at all while a currency peek is on. One helper so a peeked
+   * row cannot end up half converted: before this, the deal-owned figure below
+   * kept rendering in the event's symbol beside neighbours that had converted.
+   */
+  const readOnlyFigure = (value: string, label?: string) =>
+    readMoneyAs
+      ? readOnlyMoneyText(value === "" ? "—" : readMoneyAs(value), label)
+      : readOnlyMoney(value, currencySymbol, label);
+
+  const money = (value: string, onChange?: (value: string) => void, label?: string) =>
+    readMoneyAs ? (
+      readOnlyFigure(value, label)
+    ) : (
+      <div style={{ width: 120, flexShrink: 0 }}>
+        <Input
+          value={value}
+          inputMode="decimal"
+          aria-label={label}
+          leftIcon={<span style={{ color: "var(--muted)" }}>{currencySymbol}</span>}
+          onChange={(event) => onChange?.(event.target.value)}
+        />
+      </div>
+    );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -515,7 +550,7 @@ export function BudgetPlanner({
                     the typing at the next recompute. Clear the rule to type a
                     figure — the × on the row does that by removing it. */}
                 {cost.readFromDeal || cost.derivedFrom
-                  ? readOnlyMoney(cost.value, currencySymbol)
+                  ? readOnlyFigure(cost.value, `${cost.label} amount`)
                   : money(
                       cost.value,
                       (value) => onCostChange?.(cost.key, value),
@@ -602,13 +637,17 @@ export function BudgetPlanner({
               </div>
               <span style={{ color: "var(--muted)", fontSize: 12 }}>+</span>
               <div style={{ width: 110 }}>
-                <Input
-                  value={processingFlatPerTicket}
-                  inputMode="decimal"
-                  aria-label="Payment processing amount per ticket"
-                  leftIcon={<span style={{ color: "var(--muted)" }}>{currencySymbol}</span>}
-                  onChange={(event) => onProcessingFlatPerTicketChange?.(event.target.value)}
-                />
+                {readMoneyAs ? (
+                  readOnlyFigure(processingFlatPerTicket, "Payment processing amount per ticket")
+                ) : (
+                  <Input
+                    value={processingFlatPerTicket}
+                    inputMode="decimal"
+                    aria-label="Payment processing amount per ticket"
+                    leftIcon={<span style={{ color: "var(--muted)" }}>{currencySymbol}</span>}
+                    onChange={(event) => onProcessingFlatPerTicketChange?.(event.target.value)}
+                  />
+                )}
               </div>
               <span style={{ color: "var(--muted)", fontSize: 12 }}>/ ticket</span>
             </div>
@@ -793,9 +832,27 @@ function groupDigits(value: string): string {
   return fraction === undefined ? `${sign}${grouped}` : `${sign}${grouped}.${fraction}`;
 }
 
-function readOnlyMoney(value: string, currencySymbol: string) {
+function readOnlyMoney(value: string, currencySymbol: string, label?: string) {
+  return readOnlyMoneyText(value === "" ? "—" : `${currencySymbol} ${groupDigits(value)}`, label);
+}
+
+/**
+ * The same readout, given text that is already formatted.
+ *
+ * A currency peek arrives here with a string from `formatMoney` — grouped,
+ * symbol placed, in a currency this component never has to know about — so it has
+ * nothing left to compose. Sharing the presentation is the point: a peeked figure
+ * has to look like the figures it sits beside, and a second hand-rolled money
+ * style is exactly the divergence that drifts.
+ *
+ * `label` names it for assistive technology, because during a peek this replaces
+ * an `<Input>` that had an `aria-label`, and a row of six unnamed numbers is
+ * worse than a row of six named fields.
+ */
+function readOnlyMoneyText(text: string, label?: string) {
   return (
     <span
+      aria-label={label}
       style={{
         width: 120,
         flexShrink: 0,
@@ -806,7 +863,7 @@ function readOnlyMoney(value: string, currencySymbol: string) {
         paddingRight: 2,
       }}
     >
-      {value === "" ? "—" : `${currencySymbol} ${groupDigits(value)}`}
+      {text}
     </span>
   );
 }

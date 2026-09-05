@@ -2056,6 +2056,42 @@ async function main() {
       .returning({ id: schema.calendarItems.id });
     record("calendar_items", calendarItems);
 
+    // ── Exchange rates ─────────────────────────────────────────────────────
+    /**
+     * A few display-only rates, so the currency PEEK is reachable at all.
+     *
+     * `GET /exchange-rate` 404s on a pair it has no cached row for, and the two
+     * surfaces that read it — the settlement's "Preview in another currency" and
+     * the Budget Planner's peek — correctly refuse to convert rather than
+     * relabel. With an empty cache that refusal is the ONLY behaviour either one
+     * can show, so every rendered test of them was pinning the failure path and
+     * the converting path had no coverage whatsoever.
+     *
+     * Every seeded event is in SEK, so these are the pairs a peek on one can ask
+     * for. Deliberately NOT round numbers: a rate of exactly 10 would let a
+     * conversion bug that drops or duplicates a factor of ten pass unnoticed, and
+     * an off-by-one-place error is the most likely kind here.
+     *
+     * Plausible mid-2026 values, and it does not matter that they are stale — the
+     * production cache is refreshed six times a day by `apps/jobs`, and nothing
+     * settled has ever read this table (money.md: settlement locks its own rate at
+     * finalize). These exist so a human clicking through, and the browser suite,
+     * can see a converted figure.
+     */
+    const exchangeRates = await database
+      .insert(schema.exchangeRateCache)
+      .values([
+        { base: SEK, quote: "EUR", rate: "0.0863" },
+        { base: SEK, quote: "USD", rate: "0.0941" },
+        { base: SEK, quote: "GBP", rate: "0.0742" },
+        // The way back, for a reader whose own display currency is not SEK.
+        { base: "EUR", quote: SEK, rate: "11.5875" },
+        { base: "USD", quote: SEK, rate: "10.6270" },
+        { base: "GBP", quote: SEK, rate: "13.4770" },
+      ])
+      .returning({ base: schema.exchangeRateCache.base });
+    record("exchange_rate_cache", exchangeRates);
+
     // ── Summary ────────────────────────────────────────────────────────────
     console.log("\nE2E seed complete. Accounts (Firebase uid = users.id):");
     for (const account of Object.values(E2E_ACCOUNTS)) {

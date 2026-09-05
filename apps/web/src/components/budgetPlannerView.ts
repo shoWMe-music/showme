@@ -177,10 +177,25 @@ export function budgetPlannerViewFrom(
   editor: BudgetEditor,
   currency: string,
   territory?: PerformingRightsTerritory,
+  /**
+   * How to render a figure — the ONE seam a currency peek needs.
+   *
+   * Every derived number on this screen is formatted by the `money` below, so
+   * handing in `useCurrencyPreview`'s `format` converts the whole read-only half
+   * of the planner at once: the KPI band, Results, break-even, both breakdowns
+   * and the PRO estimate. Nothing else here changes, because nothing else here
+   * knows what a currency is — the arithmetic is all in minor units and stays in
+   * the event's own currency whatever is on screen.
+   *
+   * Omitted, figures format in `currency`, which is what every caller that is not
+   * peeking wants and what this did before the peek existed.
+   */
+  formatFigure?: (minorUnits: string) => string,
 ): BudgetPlannerView {
   const inputs = budgetInputsFrom(editor);
   const projection = computeBudgetProjection(inputs);
-  const money = (minor: bigint) => formatMoney(minor.toString(), currency);
+  const money = (minor: bigint) =>
+    formatFigure ? formatFigure(minor.toString()) : formatMoney(minor.toString(), currency);
 
   const chart = computeBreakEvenChart({
     projection,
@@ -250,6 +265,13 @@ export function budgetPlannerViewFrom(
     const planned = money(drift.planned);
     const authoritative = money(drift.deal);
     const roundsToTheSameText = planned === authoritative;
+    // The collision fallback stays in `currency` even during a currency peek, and
+    // that is the right way round. It exists to be EXACT about two figures that
+    // differ by less than a rounded unit, and the only place that difference is
+    // real is the currency the money is actually in — restating it through a live
+    // rate would mean disambiguating with a number that has its own rounding in
+    // it. `formatMoneyExact` prints the symbol, so the sentence says which
+    // currency it means.
     dealFigureWarnings[cost.key] = {
       dealName: deal.name,
       plannedLabel: roundsToTheSameText
