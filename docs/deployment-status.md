@@ -1,29 +1,50 @@
-# Not deployed — the currency peek is waiting on an API key
+# Deployed — 2026-09-05 (second release)
 
-`main` carries the Budget Planner's currency peek (`94f7b76`) and it is **not on
-production on purpose**. `GET /exchange-rate` answers `No cached rate for this
-pair` for EVERY pair, so the peek would refuse to convert every time — honest,
-and indistinguishable to a reader from the broken selector the ticket reported.
+| | |
+|---|---|
+| **Web app** | `showme-app.web.app` on `music-showme` — bundle `index-B3QMVv9s.js`. Served copy matches the local build **byte for byte** (sha256 `c9e056fd…`). |
+| **API** | Unchanged — `showme-api-00032-s8n`. No route or schema changed. |
+| **Database** | Unchanged — migration 38. No migration. |
+| **Infrastructure** | `terraform apply`: 1 added (secret IAM binding), 1 changed (jobs env), **0 destroyed**. The SSL certificate was refreshed, never replaced. |
+| **Secret** | `EXCHANGE_RATE_API` created on `prod-showme` — 24 bytes, no trailing newline, verified live *from the stored value* rather than from the source file. |
 
-The cause is written in our own Terraform (`infra/envs/prod/variables.tf:85`):
-*"No such secret exists on prod-showme… this is set the day the key is bought."*
-No **ExchangeRate-API** key was ever purchased, so the nightly refresh has always
-skipped with `exchangeRates: EXCHANGE_RATE_API is not set`. The other six
-scheduled jobs are unaffected.
+## Production has exchange rates for the first time
 
-**This is wider than the peek:** the settlement screen's "Preview in another
-currency" has never converted in production either, for the same reason, since
-the day it shipped. Nobody noticed because the no-rate notice is written to
-explain itself.
+`GET /exchange-rate?from=SEK&to=EUR` answers `0.0900242546`. An hour earlier it
+answered `No cached rate for this pair`, and had done since the day the endpoint
+shipped, because no ExchangeRate-API key was ever bought. The key already existed
+in the retired app — same provider, ExchangeRate-API v6 — and is now this app's.
 
-To unblock (free tier is ample — 1 500 calls/month against ~180 used, since one
-USD→all call derives every pair as a cross-rate):
+The job run reports `errors=[] skipped=[] exchangeRates=56`: 56 cross-pairs from
+one USD→all call. The round trip closes (SEK→EUR 0.0900 × EUR→SEK 11.108 = 1.000).
 
-1. get a key at exchangerate-api.com;
-2. `printf %s "<key>" | gcloud secrets create EXCHANGE_RATE_API --project prod-showme --replication-policy automatic --data-file=-`
-3. set `exchange_rate_api_secret_name` and `terraform apply`;
-4. `gcloud run jobs execute showme-jobs --region europe-north2 --wait`, then
-   confirm `GET /exchange-rate?from=SEK&to=EUR` answers, and deploy the web app.
+**This fixed more than the feature that surfaced it.** The settlement screen's
+"Preview in another currency" had been unable to convert since it shipped,
+silently showing its no-rate notice — which is worded to explain itself, which is
+presumably why nobody chased it.
+
+## Two traps in the scheduled-jobs module, both hit here
+
+**The first apply fails, and correctly.** Cloud Run checks secret access ~6s after
+the IAM binding is created, before it has propagated, and rejects the revision
+with `SecretsAccessCheckFailed`. Terraform's dependency graph is right; the race
+is Google's. A second apply converges.
+
+**But the job then stays wedged.** The failed condition blocks execution even once
+IAM is good, and Terraform sees no diff to repair it. Re-setting the IDENTICAL
+image out of band (`gcloud run jobs update --image <same>`) forces reconciliation
+without drifting from the Terraform file.
+
+**`--wait` reporting success is not the job succeeding.** A container can exit 0
+having skipped every job by name. Read the orchestrator's summary line; `errors=[]`
+is the pass.
+
+## Not verified in a production browser
+
+The peek was driven live against the local stack with seeded rates — the same code
+path, the same endpoint — and production's endpoint is confirmed answering. The
+production UI itself was not clicked through, because that needs a real user's
+account and there is no test login on live data.
 
 ---
 
