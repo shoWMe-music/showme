@@ -84,7 +84,12 @@ variable "database_url_secret_name" {
 
 variable "exchange_rate_api_secret_name" {
   type = string
-  # No such secret exists on prod-showme. The FX refresh is display-only, so the
-  # other six jobs run without it and this is set the day the key is bought.
-  default = ""
+  # Created 2026-09-05, so the FX refresh is live. Until then this was "" and the
+  # cache stayed EMPTY — which meant every conversion surface in the product
+  # silently showed its no-rate notice, including the settlement screen's
+  # "Preview in another currency" from the day that shipped. The key came from
+  # the retired app (same provider, ExchangeRate-API v6) and is now this app's;
+  # the old one is being replaced, so nothing else reads it and it is free to
+  # rotate.
+  default = "EXCHANGE_RATE_API"
 }
