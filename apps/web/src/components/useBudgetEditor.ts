@@ -436,6 +436,8 @@ export interface BudgetEditor {
   selectedBudgetId: string | null;
   selectBudget: (budgetId: string) => void;
   ticketTiers: TicketTierDraft[];
+  /** How the door divides, from the deal — see `TicketSplitRaw`. */
+  seedTicketSplit: BudgetSeed["ticketSplit"];
   costs: CostDraft[];
   /** Every row a percentage deduction may be taken of, as the draft stands. */
   deductionBases: DeductionBaseOption[];
@@ -554,7 +556,19 @@ export interface BudgetEditor {
  * prevent, so the first writer wins and the second is told.
  */
 /** Nothing known about the event — the planner then behaves exactly as before. */
-const NO_SEED: BudgetSeed = { capacity: null, performerFees: [], venueCost: null, ticketTiers: [] };
+const NO_SEED: BudgetSeed = {
+  capacity: null,
+  performerFees: [],
+  venueCost: null,
+  ticketTiers: [],
+  ticketSplit: {
+    doorMinor: 0n,
+    shares: [],
+    operatorRemainderMinor: 0n,
+    badge: null,
+    summary: null,
+  },
+};
 
 /**
  * Which standing heading each seeded AMOUNT fills in as an editable draft.
@@ -1804,6 +1818,11 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     selectedBudgetId: budgetId,
     selectBudget: setSelectedBudgetId,
     ticketTiers: tiers,
+    // Passed straight through from the seed. The split is a fact about the DEAL
+    // and the event's door, not about the sheet being edited, so the editor
+    // carries it rather than deriving anything from it (#23.2: event-scoped,
+    // never re-derived per book).
+    seedTicketSplit: seedSource.ticketSplit,
     costs: resolvedCosts,
     deductionBases,
     capacity,

@@ -13,6 +13,7 @@ import { formatMoney, formatMoneyExact } from "../lib/format";
 import { toMinorUnits } from "../lib/moneyUnits";
 import type { KpiItem } from "./KpiRow";
 import { type BudgetEditor, budgetInputsFrom, minorUnitsOf } from "./useBudgetEditor";
+import type { TicketSplitRaw } from "./useBudgetSeed";
 
 /**
  * Everything the Budget Planner draws, derived once from the editor's draft.
@@ -104,6 +105,8 @@ export interface BudgetPlannerView {
   ticketTierTotals: Record<string, string>;
   /** "1,280 tickets planned across all types" — the totals band's subtitle. */
   ticketsPlannedLabel: string;
+  /** How the door divides, ready to render. Empty when no percentage deal applies. */
+  ticketSplit: TicketSplitDisplay;
   barRevenue: string;
   merchRevenue: string;
   breakEven: BreakEvenDisplay;
@@ -185,6 +188,76 @@ export function splitCostRows<Row extends PartitionableCostRow>(
  *   planner falls back to the flat planning estimate and SAYS SO on the card,
  *   which is the same thing it did before any tariff table existed.
  */
+/** One bar on the "How ticket revenue splits" block. */
+export interface TicketSplitRow {
+  key: string;
+  name: string;
+  /** "70%" — the share of the door, for the chip beside the name. */
+  percentLabel: string;
+  /** Bar width as a percentage of the widest possible bar (the whole door). */
+  widthPercent: number;
+  amount: string;
+  color: string;
+  /** The operators' line is a remainder, not a deal — said plainly on the row. */
+  isRemainder?: boolean;
+}
+
+export interface TicketSplitDisplay {
+  rows: TicketSplitRow[];
+  badge: string | null;
+  summary: string | null;
+  /** Nothing to draw: no percentage deal, or no door yet. */
+  isEmpty: boolean;
+}
+
+/**
+ * The split bars, named and formatted.
+ *
+ * COLOURS ARE POSITIONAL, not semantic: these are shares of one figure, and none
+ * of them is good or bad. Borrowing the green/red the rest of this screen uses for
+ * profit and loss would say something about a performer's cut that is not true.
+ */
+const SPLIT_COLORS = ["#F4A046", "#6FC97A", "#6FA8E0", "#C77E1E", "#FF7A68"];
+
+export function ticketSplitDisplay(
+  raw: TicketSplitRaw,
+  participants: { id: string; label: string }[],
+  money: (amount: bigint) => string,
+): TicketSplitDisplay {
+  if (raw.doorMinor <= 0n || raw.shares.length === 0) {
+    return { rows: [], badge: null, summary: null, isEmpty: true };
+  }
+  const nameOf = (id: string) =>
+    participants.find((party) => party.id === id)?.label ?? "A collaborator";
+  const share = (amount: bigint) => Number((amount * 10_000n) / raw.doorMinor) / 100;
+
+  const rows: TicketSplitRow[] = raw.shares.map((line, index) => ({
+    key: line.participantId,
+    name: nameOf(line.participantId),
+    percentLabel: `${Math.round(line.basisPoints / 100)}%`,
+    widthPercent: share(line.amountMinor),
+    amount: money(line.amountMinor),
+    color: SPLIT_COLORS[index % SPLIT_COLORS.length] as string,
+  }));
+
+  // Only when there is something left. A deal taking the whole door — the seeded
+  // album release does exactly that at 100% — would otherwise draw a zero-width
+  // bar labelled "the operators", which reads as an error rather than as nothing.
+  if (raw.operatorRemainderMinor > 0n) {
+    rows.push({
+      key: "operators",
+      name: "The operators",
+      percentLabel: `${Math.round(share(raw.operatorRemainderMinor))}%`,
+      widthPercent: share(raw.operatorRemainderMinor),
+      amount: money(raw.operatorRemainderMinor),
+      color: SPLIT_COLORS[rows.length % SPLIT_COLORS.length] as string,
+      isRemainder: true,
+    });
+  }
+
+  return { rows, badge: raw.badge, summary: raw.summary, isEmpty: false };
+}
+
 export function budgetPlannerViewFrom(
   editor: BudgetEditor,
   currency: string,
@@ -329,6 +402,7 @@ export function budgetPlannerViewFrom(
       { label: "Cost per guest", value: money(projection.costPerGuest) },
     ],
     ticketRevenueTotal: money(projection.ticketRevenue),
+    ticketSplit: ticketSplitDisplay(editor.seedTicketSplit, editor.participants, money),
     ticketsPlannedLabel: `${projection.ticketsSold.toLocaleString()} ${
       projection.ticketsSold === 1 ? "ticket" : "tickets"
     } planned across all types`,

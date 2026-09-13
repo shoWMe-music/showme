@@ -1,6 +1,6 @@
 import { useGetApiV1EventsIdBudgets, useGetApiV1EventsIdDeals } from "@showme/api-client";
 import { type EntitlementBasis, dealEntitlementDetailed } from "@showme/settlement";
-import { basisPointsToPercent } from "@showme/shared";
+import { allocate, basisPointsToPercent } from "@showme/shared";
 import { useMemo } from "react";
 
 /**
@@ -105,6 +105,8 @@ export interface BudgetSeed {
   venueCost: string | null;
   /** The event's own ticket tiers, carried through untouched. */
   ticketTiers: EventTicketTier[];
+  /** How the door divides, in minor units — see `TicketSplitRaw`. */
+  ticketSplit: TicketSplitRaw;
 }
 
 /** The share of capacity a seeded "General Admission" tier expects to sell. */
@@ -279,6 +281,37 @@ function isTicketLine(details: unknown): boolean {
   return basis == null || !NON_TICKET_BASES.has(basis);
 }
 
+/**
+ * HOW THE DOOR DIVIDES — one line per party, plus whatever the operators keep.
+ *
+ * The prototype's most distinctive block, and the only place the screen says what
+ * a percentage deal actually comes to. Amounts stay in minor units here; the
+ * formatting and the participant names are applied in `budgetPlannerView`, which
+ * is where the currency and the labels live.
+ *
+ * The operators' line is a REMAINDER, not a deal: no deal pays them, they keep
+ * what the deals do not claim. That is `reconcile()`'s residual, and saying so on
+ * the planner is what stops an operator reading their share as an entitlement
+ * somebody could renegotiate.
+ */
+export interface TicketSplitShare {
+  participantId: string;
+  amountMinor: bigint;
+  /** Share OF THE DOOR, basis points — derived from the amount, not the deal. */
+  basisPoints: number;
+}
+
+export interface TicketSplitRaw {
+  doorMinor: bigint;
+  shares: TicketSplitShare[];
+  /** What no deal claimed. Negative when the deals promise more than the door. */
+  operatorRemainderMinor: bigint;
+  /** "Guarantee vs Door" / "Door Split" — the shape of the deal driving the split. */
+  badge: string | null;
+  /** The sentence under the bars, in the engine's own terms. */
+  summary: string | null;
+}
+
 /** What the sheet currently forecasts, in the currency the budget is kept in. */
 export interface DoorForecast {
   /** Gross TICKET revenue — what a percentage deal is a percentage of (#23.1). */
@@ -307,6 +340,92 @@ function derivedLabel(deal: Deal, basis: EntitlementBasis): string {
       : `${deal.name} · the guarantee beats ${basisPointsToPercent(basis.basisPoints)}% of the door`;
   }
   return deal.name;
+}
+
+/**
+ * Every entitled party's slice of the door, and what the operators keep.
+ *
+ * Runs the SETTLEMENT ENGINE, like the fee beside it: the bar an operator reads
+ * while planning has to be the arithmetic that settles later, or the screen is
+ * quietly promising something the settlement will not pay (#23, and the €2 300
+ * disagreement in Ran's own prototype).
+ */
+function ticketSplitOf(deals: Deal[], performers: Set<string>, door: DoorForecast): TicketSplitRaw {
+  const shares: TicketSplitShare[] = [];
+  let badge: string | null = null;
+  let summary: string | null = null;
+  let claimed = 0n;
+
+  if (door.ticketRevenue <= 0n) {
+    return { doorMinor: 0n, shares, operatorRemainderMinor: 0n, badge, summary };
+  }
+
+  for (const deal of deals) {
+    if (deal.status !== "confirmed" || isRental(deal)) continue;
+    const structure = deal.structure;
+    if (structure !== "door_split" && structure !== "guarantee_vs_door") continue;
+
+    const entitled = (deal.parties ?? []).filter((party) =>
+      ENTITLED_DEAL_ROLES.has(party.roleInDeal),
+    );
+    const onTheBill = entitled.filter((party) => performers.has(party.participantId));
+    if (onTheBill.length === 0 || onTheBill.length !== entitled.length) continue;
+
+    const settled = dealEntitlementDetailed(
+      {
+        dealId: deal.id,
+        structure,
+        payeeParticipantIds: onTheBill.map((party) => party.participantId),
+        ...(deal.guaranteeAmount != null ? { guaranteeAmount: BigInt(deal.guaranteeAmount) } : {}),
+        ...(deal.splitBasisPoints != null ? { splitBasisPoints: deal.splitBasisPoints } : {}),
+      },
+      { doorBase: door.ticketRevenue, grossRevenue: door.totalRevenue },
+      door.ticketsSold,
+    );
+    if (settled.amount <= 0n) continue;
+
+    // Divided across the deal's payees the way the engine divides it, so a 60/40
+    // split shows two lines that sum to the deal — never a rounded pair that does
+    // not add up to what the deal pays.
+    const weights = onTheBill.map((party) => BigInt(party.share?.splitBasisPoints ?? 1));
+    const parts = allocate(settled.amount, weights);
+    onTheBill.forEach((party, index) => {
+      const amountMinor = parts[index] ?? 0n;
+      if (amountMinor <= 0n) return;
+      shares.push({
+        participantId: party.participantId,
+        amountMinor,
+        basisPoints: Number((amountMinor * 10_000n) / door.ticketRevenue),
+      });
+      claimed += amountMinor;
+    });
+
+    if (badge === null) {
+      badge = structure === "guarantee_vs_door" ? "Guarantee vs Door" : "Door Split";
+      summary = splitSummarySentence(settled.basis);
+    }
+  }
+
+  return {
+    doorMinor: door.ticketRevenue,
+    shares,
+    operatorRemainderMinor: door.ticketRevenue - claimed,
+    badge,
+    summary,
+  };
+}
+
+/** The rule in one sentence, from the operands the engine actually compared. */
+function splitSummarySentence(basis: EntitlementBasis): string | null {
+  if (basis.kind === "door_split") {
+    return `${basisPointsToPercent(basis.basisPoints)}% of the door.`;
+  }
+  if (basis.kind === "guarantee_vs_door") {
+    return basis.won === "door"
+      ? `The door beats the guarantee — ${basisPointsToPercent(basis.basisPoints)}% of the door is more than the guarantee, so the split governs.`
+      : `The guarantee beats the door — ${basisPointsToPercent(basis.basisPoints)}% of the door falls short of it, so the guarantee is paid.`;
+  }
+  return null;
 }
 
 /**
@@ -451,6 +570,7 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
       performerFees: deals
         .map((deal) => performerFeeOf(deal, performers, door))
         .filter((fee): fee is BudgetSeedDealFigure => fee !== null),
+      ticketSplit: ticketSplitOf(deals, performers, door),
       // The rental fee is the rental fee whoever collects it. There is no
       // "venue" participant role, so requiring a payee match here would seed
       // nothing on every event where the venue is not on the bill.

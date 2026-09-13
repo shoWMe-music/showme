@@ -12,6 +12,7 @@ import {
 import tableStyles from "./BudgetTable.module.css";
 import { type KpiItem, KpiRow } from "./KpiRow";
 import { PerformingRightsEstimateCard } from "./PerformingRightsEstimateCard";
+import type { TicketSplitDisplay } from "./budgetPlannerView";
 import {
   type BreakEvenDisplay,
   type BreakdownDisplayRow,
@@ -96,6 +97,8 @@ export interface BudgetPlannerProps {
   ticketTierTotals: Record<string, string>;
   /** The totals band's subtitle — how many tickets the sheet expects to sell. */
   ticketsPlannedLabel: string;
+  /** How the door divides — the bars under the totals band. */
+  ticketSplit: TicketSplitDisplay;
   capacity: string;
   avgBarSpend: string;
   avgMerchSpend: string;
@@ -214,6 +217,7 @@ export function BudgetPlanner({
   ticketRevenueTotal,
   ticketTierTotals,
   ticketsPlannedLabel,
+  ticketSplit,
   capacity,
   avgBarSpend,
   avgMerchSpend,
@@ -465,6 +469,7 @@ export function BudgetPlanner({
               {ticketRevenueTotal}
             </span>
           </div>
+          {!ticketSplit.isEmpty && <TicketSplitBars split={ticketSplit} />}
           {onAddTicketType && (
             <Button
               variant="ghost"
@@ -874,6 +879,112 @@ export function BudgetPlanner({
  * no figure has no `budget_lines` row, so there is nothing here for the settlement
  * to read whether it is drawn or not.
  */
+/**
+ * HOW THE DOOR DIVIDES — one bar per party, and what the operators keep.
+ *
+ * The only place on the planner that says what a percentage deal actually comes
+ * to. Before it, an operator could see a Performer fee of 53 760 and nothing on
+ * the screen said it was 70% of the door, what the other 30% was, or who had it.
+ *
+ * The figures are the settlement engine's own (`useBudgetSeed`), so the bar is a
+ * forecast of what will settle rather than a second opinion about it — which is
+ * the whole of decision #23 in one block.
+ */
+function TicketSplitBars({ split }: { split: TicketSplitDisplay }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        padding: "12px 14px",
+        borderRadius: 11,
+        border: "1px solid var(--border)",
+        background: "var(--elevated)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          flexWrap: "wrap",
+        }}
+      >
+        <Eyebrow>How ticket revenue splits</Eyebrow>
+        {split.badge && (
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 9.5,
+              letterSpacing: "1px",
+              textTransform: "uppercase",
+              color: "#EE5746",
+              background: "color-mix(in srgb, #EE5746 12%, transparent)",
+              borderRadius: 999,
+              padding: "3px 9px",
+            }}
+          >
+            {split.badge}
+          </span>
+        )}
+      </div>
+
+      {split.rows.map((row) => (
+        <div key={row.key} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              gap: 10,
+            }}
+          >
+            <span style={{ color: "var(--text)", fontSize: 13, minWidth: 0 }}>
+              {row.name}
+              <span style={{ color: "var(--muted)", fontSize: 11.5, marginLeft: 7 }}>
+                {row.isRemainder ? "what no deal claims" : row.percentLabel}
+              </span>
+            </span>
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 12.5,
+                color: "var(--text)",
+                fontVariantNumeric: "tabular-nums",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span style={{ color: "var(--muted)", marginRight: 8 }}>{row.percentLabel}</span>
+              {row.amount}
+            </span>
+          </div>
+          {/* The track is the whole door, so every bar is read against the same
+              width and the shares can be compared by eye. Scaling each to the
+              largest would make a 10% line look like a third of the night. */}
+          <div style={{ height: 5, borderRadius: 999, background: "var(--border)" }}>
+            <div
+              style={{
+                height: "100%",
+                width: `${Math.max(0, Math.min(100, row.widthPercent))}%`,
+                borderRadius: 999,
+                background: row.color,
+              }}
+            />
+          </div>
+        </div>
+      ))}
+
+      {split.summary && (
+        <span style={{ color: "var(--muted)", fontSize: 12, lineHeight: 1.45 }}>
+          {split.summary}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function UnusedCostHeadings({
   rows,
   onReveal,

@@ -822,6 +822,7 @@ function BudgetTab({
         ticketRevenueTotal={view.ticketRevenueTotal}
         ticketTierTotals={view.ticketTierTotals}
         ticketsPlannedLabel={view.ticketsPlannedLabel}
+        ticketSplit={view.ticketSplit}
         capacity={editor.capacity}
         avgBarSpend={editor.averageBarSpend}
         barRevenue={view.barRevenue}
