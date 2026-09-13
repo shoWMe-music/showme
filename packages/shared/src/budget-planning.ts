@@ -128,6 +128,27 @@ export interface BudgetProjection {
    * before — overstates the count by however much the bar was expected to bring.
    */
   readonly breakEvenTickets: number;
+  /**
+   * Revenue that arrives whether or not a ticket sells — the standing other-revenue
+   * row plus every custom row. The break-even line's intercept, and the ONLY
+   * revenue that offsets a fixed cost rather than riding on attendance.
+   */
+  readonly standingRevenue: bigint;
+  /**
+   * Bar + merch spend for ONE head, as rates rather than totals. Totals are zero
+   * on a half-typed form (no tier has a quantity yet), but the rates are known
+   * from the moment they are typed, and the chart needs the slope before it has
+   * a forecast to draw against.
+   */
+  readonly perHeadRevenue: bigint;
+  /** What selling one more ticket costs: the provider's cut of it, plus the flat charge. */
+  readonly variableCostPerTicket: bigint;
+  /**
+   * What one more guest leaves behind: ticket price + per-head revenue, less the
+   * variable cost of selling to them. Non-positive means there is no break-even
+   * at any attendance, which is why `breakEvenTickets` is 0 in that case.
+   */
+  readonly contributionPerHead: bigint;
   /** Profit as a percentage of revenue. Zero when there is no revenue. */
   readonly marginPercent: number;
   readonly revenuePerGuest: bigint;
@@ -152,12 +173,27 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
     (total, tier) => total + Math.trunc(tier.quantity),
     0,
   );
-  const heads = BigInt(Math.trunc(inputs.capacity));
-  const barRevenue = inputs.averageBarSpend * heads;
-  const merchRevenue = (inputs.averageMerchSpend ?? 0n) * heads;
+  /**
+   * ATTENDEES, NOT CAPACITY — the bug this block used to carry.
+   *
+   * Bar and merch are spend PER HEAD, so they arrive with the people who turn
+   * up, not with the seats the room happens to have. Multiplying by `capacity`
+   * credited a sold-out bar to a plan that expects 1 280 of 1 600, inflating
+   * revenue and profit at the plan and understating break-even underneath it.
+   * The old comment defended it as "money in hand before a ticket sells" — true
+   * of a sponsorship, false of a bar take, and that conflation is what put a
+   * per-head figure on a fixed footing.
+   *
+   * `capacity` still bounds the CHART's x-axis; it no longer decides how many
+   * people bought a drink.
+   */
+  const attendees = BigInt(ticketsSold);
+  const barRevenue = inputs.averageBarSpend * attendees;
+  const merchRevenue = (inputs.averageMerchSpend ?? 0n) * attendees;
   const customRevenue = sum(inputs.customRevenue ?? []);
-  const totalRevenue =
-    ticketRevenue + barRevenue + merchRevenue + inputs.otherRevenue + customRevenue;
+  /** Money that genuinely arrives whether or not a ticket sells. */
+  const standingRevenue = inputs.otherRevenue + customRevenue;
+  const totalRevenue = ticketRevenue + barRevenue + merchRevenue + standingRevenue;
   const enteredCosts = sum(inputs.costs);
   // The provider charges on the tickets it sells, so the percentage is taken on
   // TICKET revenue only — not on the bar or merch take, nor a sponsorship, none
@@ -173,21 +209,48 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
   const averageTicketPrice =
     ticketsSold > 0 ? divideRounded(ticketRevenue, BigInt(ticketsSold)) : 0n;
 
-  // What ticket sales still have to cover once the money that arrives regardless
-  // of them is counted — the bar, the standing other-revenue row, AND every
-  // custom row, all of which are money in hand before a ticket sells. Leaving
-  // the custom rows out here would demand tickets for a sponsorship already
-  // banked. Already covered → nothing left to break even on.
-  const uncovered = totalCosts - barRevenue - merchRevenue - inputs.otherRevenue - customRevenue;
+  /**
+   * BREAK-EVEN IS SOLVED, NOT DIVIDED.
+   *
+   * Every term that moves with attendance has to be evaluated at the attendance
+   * being solved for — which the previous version did not do. It divided by the
+   * ticket price alone, after subtracting a bar take counted at capacity and
+   * adding processing fees counted at the PLANNED ticket count. Both are
+   * functions of `t` frozen at the wrong `t`, and the answer moved whenever the
+   * forecast did, which is the tell that it was wrong: break-even is a property
+   * of the economics, not of the plan.
+   *
+   * So: contribution per head — what one more guest leaves behind after the
+   * variable cost of selling to them — against the costs that genuinely do not
+   * move, less the revenue that genuinely does not either.
+   *
+   *   contribution = price + bar + merch − (provider % of price + flat per ticket)
+   *   break-even   = ceil((fixed costs − standing revenue) / contribution)
+   *
+   * A non-positive contribution means every extra guest loses money: there is no
+   * break-even, and 0 says so (the screen renders that as "no break-even", never
+   * as "none needed").
+   */
+  const variableCostPerTicket = inputs.paymentProcessing
+    ? applyBasisPoints(averageTicketPrice, inputs.paymentProcessing.percentBasisPoints) +
+      inputs.paymentProcessing.flatPerTicket
+    : 0n;
+  const contributionPerHead =
+    averageTicketPrice +
+    inputs.averageBarSpend +
+    (inputs.averageMerchSpend ?? 0n) -
+    variableCostPerTicket;
+  const uncovered = enteredCosts - standingRevenue;
   let breakEvenTickets = 0;
-  if (averageTicketPrice > 0n && uncovered > 0n) {
-    const whole = uncovered / averageTicketPrice;
-    const exact = whole * averageTicketPrice === uncovered;
-    breakEvenTickets = Number(exact ? whole : whole + 1n); // a part ticket is a whole ticket
+  if (contributionPerHead > 0n && uncovered > 0n) {
+    // Ceiling division: a part ticket is a whole ticket, because half a guest
+    // does not buy half a drink.
+    breakEvenTickets = Number((uncovered + contributionPerHead - 1n) / contributionPerHead);
   }
 
   const marginPercent = totalRevenue > 0n ? (Number(profit) / Number(totalRevenue)) * 100 : 0;
-  const guests = BigInt(Math.max(Math.trunc(inputs.capacity), 1));
+  // Per GUEST: the people who came, not the seats that exist (see `attendees`).
+  const guests = attendees > 0n ? attendees : 1n;
 
   return {
     ticketRevenue,
@@ -202,6 +265,10 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
     ticketsSold,
     averageTicketPrice,
     breakEvenTickets,
+    standingRevenue,
+    perHeadRevenue: inputs.averageBarSpend + (inputs.averageMerchSpend ?? 0n),
+    variableCostPerTicket,
+    contributionPerHead,
     marginPercent,
     revenuePerGuest: totalRevenue / guests,
     costPerGuest: totalCosts / guests,

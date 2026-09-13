@@ -45,7 +45,7 @@ describe("budget projection", () => {
     const withMerch = computeBudgetProjection({
       ticketTiers: [{ unitAmount: major(200), quantity: 500 }],
       averageBarSpend: major(50),
-      averageMerchSpend: major(25), // 25 a head across 400 → 10 000
+      averageMerchSpend: major(25), // 25 a head across the 500 expected → 12 500
       capacity: 400,
       otherRevenue: 0n,
       costs: [major(100000)],
@@ -53,17 +53,18 @@ describe("budget projection", () => {
 
     // Its own field on the projection, never folded into the bar's.
     expect(withoutMerch.merchRevenue).toBe(0n);
-    expect(withMerch.merchRevenue).toBe(major(10000));
+    expect(withMerch.merchRevenue).toBe(major(12500));
     expect(withMerch.barRevenue).toBe(withoutMerch.barRevenue);
 
     // It reaches the total…
-    expect(withMerch.totalRevenue - withoutMerch.totalRevenue).toBe(major(10000));
+    expect(withMerch.totalRevenue - withoutMerch.totalRevenue).toBe(major(12500));
 
-    // …and it offsets costs, so fewer tickets are needed. 100 000 of costs less
-    // 20 000 of bar leaves 80 000 → 400 tickets at 200; less 10 000 of merch as
-    // well leaves 70 000 → 350.
+    // …and every head now contributes it, so fewer tickets are needed. Merch is
+    // per-head spend, so it raises the CONTRIBUTION rather than offsetting a
+    // fixed cost: 200 + 50 of bar = 250 a head against 100 000 → 400; add 25 of
+    // merch and it is 275 a head → 364.
     expect(withoutMerch.breakEvenTickets).toBe(400);
-    expect(withMerch.breakEvenTickets).toBe(350);
+    expect(withMerch.breakEvenTickets).toBe(364);
   });
 
   /**
@@ -103,9 +104,11 @@ describe("budget projection", () => {
 
     const projection = computeBudgetProjection(inputs);
 
-    // 100 000 of costs, less 20 000 of bar and 10 000 of sponsorship, leaves
-    // 70 000 for tickets at 200 → 350.
-    expect(projection.breakEvenTickets).toBe(350);
+    // The sponsorship is the only part that truly arrives without a ticket, so
+    // it is the only part that offsets a fixed cost: 100 000 less 10 000 leaves
+    // 90 000, over a contribution of 200 + 50 of bar a head → 360. The bar is
+    // NOT subtracted up front — it turns up with the guests.
+    expect(projection.breakEvenTickets).toBe(360);
     // Ignoring the bar and the sponsor would have demanded 500.
     expect(projection.breakEvenTickets).toBeLessThan(500);
   });
@@ -225,6 +228,50 @@ describe("payment processing fees", () => {
     expect(projection.totalCosts).toBe(projection.enteredCosts);
   });
 
+  /**
+   * THE PROPERTY THAT CATCHES THE WHOLE CLASS OF BUG (decisions #23).
+   *
+   * Break-even is a fact about the economics — price, per-head spend, costs. It
+   * is NOT a fact about the forecast. So changing only the expected quantity, or
+   * only the size of the room, must not move it.
+   *
+   * Both used to move it. Bar takings were counted at `capacity`, so a bigger
+   * room lowered break-even; processing fees were counted at the planned ticket
+   * count, so a bigger forecast raised it. Ran's prototype had the same fault in
+   * a third place (a door-split performer fee frozen at the planned night), which
+   * is how it reported 908 tickets where its own figures give 855.
+   */
+  it("does not move when only the forecast or the room size changes", () => {
+    const base = {
+      ticketTiers: [{ unitAmount: major(60), quantity: 1280 }],
+      averageBarSpend: major(8),
+      averageMerchSpend: major(4),
+      capacity: 1600,
+      otherRevenue: 0n,
+      costs: [major(10500)],
+      paymentProcessing: { percentBasisPoints: 150, flatPerTicket: major(0.3) },
+    };
+
+    const planned = computeBudgetProjection(base);
+    const optimistic = computeBudgetProjection({
+      ...base,
+      ticketTiers: [{ unitAmount: major(60), quantity: 1400 }],
+    });
+    const cautious = computeBudgetProjection({
+      ...base,
+      ticketTiers: [{ unitAmount: major(60), quantity: 1000 }],
+    });
+    const biggerRoom = computeBudgetProjection({ ...base, capacity: 3000 });
+
+    expect(optimistic.breakEvenTickets).toBe(planned.breakEvenTickets);
+    expect(cautious.breakEvenTickets).toBe(planned.breakEvenTickets);
+    expect(biggerRoom.breakEvenTickets).toBe(planned.breakEvenTickets);
+
+    // 60 + 8 + 4 = 72 a head, less 1.5% of 60 and 0.30 flat = 1.20 → 70.80.
+    // 10 500 of costs over 70.80 → 149 (ceil of 148.3).
+    expect(planned.breakEvenTickets).toBe(149);
+  });
+
   it("pushes break-even up, because a fee is a cost tickets have to cover", () => {
     const withoutFees = computeBudgetProjection({
       ticketTiers: [{ unitAmount: major(100), quantity: 500 }],
@@ -243,8 +290,11 @@ describe("payment processing fees", () => {
     });
 
     expect(withoutFees.breakEvenTickets).toBe(200);
-    // 20 000 of costs + 2 500 of fees, over a 100.00 ticket → 225.
-    expect(withFees.breakEvenTickets).toBe(225);
+    // The fee is charged per ticket SOLD, so it comes off the contribution, not
+    // off a lump counted at the planned 500: 5% of a 100.00 ticket leaves 95.00
+    // a head against 20 000 → 211. Billing the planned night's whole 2 500 of
+    // fees against a 211-ticket night is what the old figure of 225 did.
+    expect(withFees.breakEvenTickets).toBe(211);
   });
 });
 

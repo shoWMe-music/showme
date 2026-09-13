@@ -983,6 +983,100 @@ Removing the event cap was safe regardless — it takes a restriction away.
 **Verified matching, no change needed:** Basic's one seat, Pro's two plus purchased extras, Performer's
 50 offers a month, Agent's unlimited offers.
 
+## 23. The door split is a share of gross ticket revenue, not of the pool (2026-09-13)
+
+**Daniel, choosing between Ran's own two implementations:** *"D1 his planner."* Ran's Budget Planner
+prototype and his settlement spec disagree about what a percentage deal is a percentage OF, and the
+planner wins. Three linked calls were made in the same session; all three reverse shipped behaviour, so
+they are recorded together.
+
+### 23.1 The split base is GROSS TICKET REVENUE
+
+His planner states it on screen: *"Door beats the guarantee — 70% of €76,800 = €53,760."* That figure
+is gross tickets, nothing deducted. His settlement engine (§7 of the Deal Logic doc) instead computes
+`adjustedNet * artistSplit/100` — after deductions and after venue rental comes off the top. Both call
+themselves "70%"; on his own demo night they differ by roughly €2,300.
+
+**We take the planner.** `packages/settlement/src/reconcile.ts:51` currently builds
+`pool = revenue - externalCosts` and `entitlement.ts` applies the split to that pool, so today **every
+shared cost silently lowers the performer's share**. On a gross-door basis it does not: the act takes its
+percentage of the door whatever the night cost, and the operator absorbs overruns alone. That is what a
+gross door deal means in the trade, and it is the simpler thing to explain to a venue.
+
+Two consequences, both intended:
+- **Bar and merch leave the split entirely.** They belong to whoever collects them — the venue's bar, the
+  act's merch — which matches the prototype and ordinary practice.
+- **Deductions become load-bearing.** They are now the ONLY route by which a cost reaches a performer.
+  Under the pool model costs arrived automatically; under gross, nothing does unless it is named.
+
+**Nothing comes off the top.** This follows from the above and is consistent in his design: his venue
+cost is an ordinary cost row *"Covered by Funkhaus"*, not an off-the-top rental. So PRO fees, card fees
+and facility fees are costs with a bearer like any other. There is no third category.
+
+> **When `Settlement.html` is ported, its split base must NOT come with it.** §7 is the losing side of
+> this decision, and it will read as a bug to anyone who meets it cold.
+
+### 23.2 A deduction and a revenue share are two different things
+
+Ran described both under one heading — his card is titled *"Revenue shares & deductions"* — and the
+conflation is what made the cost/deduction UI confusing in the first place.
+
+| | What it is | Totals move? | Have we got it? |
+|---|---|---|---|
+| **Deduction** | a cost borne by a named party (backline the venue fronted, the act's hotel) | yes — money left the building | **Yes.** `payee_participant_id`, or `cost_split` for a split. It is his Costs card's `SETTLEMENT` column. |
+| **Revenue share** | a named slice of a named revenue line, moved from its collector to another party | no — attribution only | **No.** New. |
+
+**The card should be renamed "Revenue shares".** Deductions already live in the Costs card, expressed as
+who carries each line.
+
+**The door split is the same SHAPE as a revenue share, but the deal stays its authority.** The act's 70%
+of the ticket line is conceptually "a named slice of a named revenue line" — but it is written on the
+deal, along with the guarantee, the escalator tiers and the bonus, and that is where settlement must read
+it from. Ran's prototype is built this way too: his *"How ticket revenue splits"* bar is **derived** from
+the deal and carries the deal-type badge, while his deductions card is separate and empty in the demo.
+
+So the new construct covers what the deal does NOT describe — 10% of the bar to the act, a slice of merch
+to the venue, a promoter's cut of a sponsorship. **Do not give the ticket split a second, editable home
+in the budget**; two writable sources for one number is the drift this rebuild exists to delete.
+
+His prototype specifies the mechanics completely:
+`amount = isPct ? line.total * value/100 : Math.min(value, line.total)` — a chosen revenue line, a
+percentage-or-fixed basis, a recipient, and fixed amounts clamped so a share can never exceed the line.
+It moves from the line's collector, or from "the operators" when the line has no owner.
+
+Three details he leaves open, decided here:
+- **Several shares on one line stack in parallel**, each taken off the line total. Same reasoning as
+  `commissionMode`'s default: order-independent, so entering two parties in the other order cannot change
+  what anyone is paid.
+- **`allocate()` divides them**, not repeated percentage maths, so three parties on one line cannot lose
+  a minor unit between them.
+- **Σ shares ≤ 100% of the line**, refused at write time.
+
+### 23.3 A bonus threshold measures gross revenue
+
+**Daniel:** *"D3 Follow his."* `entitlement.ts:128` fires the threshold bonus on `pool >= bonusThreshold`
+— after deductions. That is the version a promoter can defeat by spending more, which is why no artist's
+representative accepts it and why real contracts read *"if paid attendance exceeds N"* or *"if gross
+receipts exceed X"*. Ran's code compares against `totalRevenue`, gross. His is right.
+
+Noted, because it is a choice rather than an oversight: his `totalRevenue` includes **bar, merch and
+additional revenue**, not tickets alone. A busy bar can therefore trigger a bonus while contributing
+nothing to the act's share under 23.1. Defensible — a full bar means a full room — and it keeps the
+property that matters: gross-side, so costs cannot defeat it.
+
+**Escalator tiers are unaffected** and were already correct: `splitBasisPointsForSales()` keys on
+`ticketsSold`, the commoner contractual form. The engine now measures both gross-side, where before it
+measured one gross and one net.
+
+This closes [86cba8wqn](https://app.clickup.com/t/86cba8wqn) *"what does a performance bonus threshold
+measure?"*, open and unanswered since 2026-08-26.
+
+### What this costs to land
+
+`reconcile.ts` changing its split base **alters figures on settlements already computed**. A recompute
+diff against existing events is required before it ships, not after. Everything else in 23.2 and 23.3 is
+additive or a one-line comparison change.
+
 ## Still-open product calls (not yet decided)
 
 - ~~**Event start/end mechanism (#16.4)**~~ **RESOLVED 2026-08-02 (see #16.4):** explicit required

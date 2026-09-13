@@ -31,10 +31,75 @@ describe("break-even chart geometry", () => {
     expect(endY).toBeLessThan(startY);
   });
 
-  it("draws total cost as a flat line, because none of it moves with the door", () => {
+  it("draws total cost flat only when nothing about it moves with the door", () => {
+    // This fixture names no payment provider, so there is genuinely no per-ticket
+    // charge and the line really is flat. That is a property of THESE inputs, not
+    // of cost in general — see the next test.
     const [, leftY] = pointAt(chart.costPoints, 0);
     const [, rightY] = pointAt(chart.costPoints, 1);
     expect(leftY).toBe(rightY);
+  });
+
+  /**
+   * The line used to be flat unconditionally (decisions #23), and this fixture is
+   * the one that shows why that was wrong: a provider taking a cut of every
+   * ticket is a cost that rises with attendance, so the cost line has a slope and
+   * the crossing moves accordingly.
+   */
+  it("slopes total cost when the provider charges per ticket", () => {
+    const sloped = computeBudgetProjection({
+      ticketTiers: [{ unitAmount: major(100), quantity: 500 }],
+      averageBarSpend: 0n,
+      capacity: 1000,
+      otherRevenue: 0n,
+      costs: [major(20000)],
+      paymentProcessing: { percentBasisPoints: 500, flatPerTicket: 0n }, // 5% of 100.00 = 5.00
+    });
+    const slopedChart = computeBreakEvenChart({ projection: sloped, capacity: 1000 });
+
+    const [, leftY] = pointAt(slopedChart.costPoints, 0);
+    const [, rightY] = pointAt(slopedChart.costPoints, 1);
+
+    // Up the page is a smaller y, so a rising cost line ENDS higher than it starts.
+    expect(rightY).toBeLessThan(leftY);
+    // 100.00 a head less the 5.00 cut = 95.00 against 20 000 → 211.
+    expect(slopedChart.breakEvenTickets).toBe(211);
+  });
+
+  /**
+   * The bar arrives with the guests, so it belongs to the revenue line's SLOPE.
+   * It used to sit on the intercept, which drew a show as already holding its
+   * whole bar take before the doors opened.
+   */
+  it("puts only standing revenue on the intercept, and the bar in the slope", () => {
+    const common = {
+      ticketTiers: [{ unitAmount: major(100), quantity: 500 }],
+      capacity: 1000,
+      otherRevenue: major(1000), // a sponsorship — this one really is standing
+      costs: [major(20000)],
+    };
+    const withBar = computeBreakEvenChart({
+      projection: computeBudgetProjection({ ...common, averageBarSpend: major(50) }),
+      capacity: 1000,
+    });
+    const noBar = computeBreakEvenChart({
+      projection: computeBudgetProjection({ ...common, averageBarSpend: 0n }),
+      capacity: 1000,
+    });
+
+    // In the SLOPE: 100 a head needs 190 tickets to clear 19 000; 100 + 50 needs 127.
+    // (Pixel positions are not comparable across the two — a taller revenue line
+    //  rescales the whole chart — so the crossing is what the assertion reads.)
+    expect(noBar.breakEvenTickets).toBe(190);
+    expect(withBar.breakEvenTickets).toBe(127);
+
+    // NOT on the intercept. Only the 1 000 sponsorship starts on the axis, which
+    // is 0.6% of this chart's scale — hard against the bottom. Had the bar's
+    // 50 000 sat there too it would start ~31% up the plot.
+    const plotTop = 10;
+    const plotBottom = plotTop + (withBar.height - 20);
+    const [, interceptY] = pointAt(withBar.revenuePoints, 0);
+    expect(interceptY).toBeGreaterThan(plotBottom - (plotBottom - plotTop) * 0.05);
   });
 
   it("puts the marker where the two lines actually cross", () => {

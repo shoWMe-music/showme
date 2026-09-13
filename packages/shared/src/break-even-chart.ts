@@ -2,11 +2,21 @@
  * The geometry behind the Budget Planner's Break-even Analysis chart, ported from
  * the design prototype ("shoWMe All View" → Budget → Break-even Analysis).
  *
- * Two straight lines in ticket-count space: revenue rises from whatever arrives
- * without selling a ticket (bar + sponsorship) up to what a sold-out house brings,
- * while total cost is flat because none of it moves with the door. Where they
- * cross is break-even. That is the whole chart, and its honesty comes from being
- * exactly the arithmetic the KPI band shows, drawn.
+ * Two lines in ticket-count space. Revenue rises from the money that arrives
+ * without selling a ticket — a sponsorship, a grant — at the rate one more guest
+ * brings: the ticket price PLUS their bar and merch spend. Cost rises too, at the
+ * rate of selling one more ticket, because the provider takes its cut per
+ * transaction. Where they cross is break-even.
+ *
+ * NEITHER LINE IS FLAT, and the cost line used to be (decisions #23). Drawing it
+ * flat at the planned night's total charged a full forecast's processing fees
+ * against every attendance on the axis, and put the bar's whole take on the
+ * intercept as though it arrived before the doors opened. The crossing it drew
+ * was not the crossing the KPI band reported.
+ *
+ * Its honesty comes from being exactly the arithmetic the KPI band shows, drawn —
+ * so the break-even marker is `projection.breakEvenTickets`, never a second
+ * calculation of the same thing.
  *
  * Framework-agnostic (CLAUDE.md): this returns numbers and SVG point strings, and
  * the component renders them. Nothing here knows it is inside React, and the
@@ -52,7 +62,7 @@ export interface BreakEvenChart {
   readonly height: number;
   /** `x,y x,y` for the revenue polyline: from no tickets sold to a sold-out house. */
   readonly revenuePoints: string;
-  /** `x,y x,y` for the flat total-cost line. */
+  /** `x,y x,y` for the total-cost line, sloped by the per-ticket provider charge. */
   readonly costPoints: string;
   /** The region under revenue, left of the crossing — the part still in the red. */
   readonly shadedAreaPoints: string;
@@ -87,17 +97,24 @@ export function computeBreakEvenChart(inputs: BreakEvenChartInputs): BreakEvenCh
       ? projection.averageTicketPrice
       : (inputs.fallbackTicketPrice ?? 0n);
 
-  // Money that arrives whether or not a ticket sells — the line's intercept.
-  const nonTicketRevenue =
-    projection.totalRevenue - projection.ticketRevenue > 0n
-      ? projection.totalRevenue - projection.ticketRevenue
-      : 0n;
-  const revenueAtCapacity = averageTicketPrice * BigInt(capacity) + nonTicketRevenue;
+  /**
+   * The two lines, as functions of attendance rather than a pair of endpoints.
+   * Every term is evaluated at the `t` being drawn, which is the fix: a rate that
+   * moves with the door has to be asked for the attendance it is being drawn at,
+   * not the one the operator happens to have forecast.
+   */
+  const revenuePerHead = averageTicketPrice + projection.perHeadRevenue;
+  const revenueAt = (tickets: number): bigint =>
+    revenuePerHead * BigInt(tickets) + projection.standingRevenue;
+  const costAt = (tickets: number): bigint =>
+    projection.enteredCosts + projection.variableCostPerTicket * BigInt(tickets);
+
+  const revenueAtCapacity = revenueAt(capacity);
+  const costAtCapacity = costAt(capacity);
 
   // 10% of headroom above the taller of the two lines, so neither runs along the
   // top edge. `1n` keeps an empty budget from dividing by zero.
-  const scaleTop =
-    (bigger(revenueAtCapacity, bigger(projection.totalCosts, 1n)) * 110n) / 100n || 1n;
+  const scaleTop = (bigger(revenueAtCapacity, bigger(costAtCapacity, 1n)) * 110n) / 100n || 1n;
 
   const plotWidth = WIDTH - PADDING_LEFT - PADDING_RIGHT;
   const plotHeight = HEIGHT - PADDING_TOP - PADDING_BOTTOM;
@@ -105,24 +122,23 @@ export function computeBreakEvenChart(inputs: BreakEvenChartInputs): BreakEvenCh
   const toY = (amount: bigint) =>
     PADDING_TOP + (1 - Number(amount) / Number(scaleTop)) * plotHeight;
 
-  // Tickets at the crossing: where price x tickets + non-ticket revenue meets the
-  // flat cost line. Clamped to the chart, and reported as absent when it lands on
-  // an edge, because a marker at x=0 would claim a crossing that is really "there
-  // isn't one in this room".
-  const uncovered = projection.totalCosts - nonTicketRevenue;
-  const exactBreakEven =
-    averageTicketPrice > 0n && uncovered > 0n ? Number(uncovered) / Number(averageTicketPrice) : 0;
-  const breakEvenAt = Math.min(Math.max(exactBreakEven, 0), capacity);
+  /**
+   * The crossing is the KPI band's figure, clamped to the room. Deliberately NOT
+   * recomputed here: two numbers for one thing on one screen is how a screen
+   * loses an operator's trust, and the projection already solved it against every
+   * term that moves.
+   */
+  const breakEvenAt = Math.min(Math.max(projection.breakEvenTickets, 0), capacity);
   const breakEvenX = toX(breakEvenAt);
-  const breakEvenY = toY(averageTicketPrice * BigInt(Math.round(breakEvenAt)) + nonTicketRevenue);
+  const breakEvenY = toY(revenueAt(breakEvenAt));
 
   const baseline = toY(0n);
   return {
     width: WIDTH,
     height: HEIGHT,
-    revenuePoints: `${toX(0)},${toY(nonTicketRevenue)} ${toX(capacity)},${toY(revenueAtCapacity)}`,
-    costPoints: `${toX(0)},${toY(projection.totalCosts)} ${toX(capacity)},${toY(projection.totalCosts)}`,
-    shadedAreaPoints: `${toX(0)},${toY(nonTicketRevenue)} ${breakEvenX},${breakEvenY} ${breakEvenX},${baseline} ${toX(0)},${baseline}`,
+    revenuePoints: `${toX(0)},${toY(projection.standingRevenue)} ${toX(capacity)},${toY(revenueAtCapacity)}`,
+    costPoints: `${toX(0)},${toY(costAt(0))} ${toX(capacity)},${toY(costAtCapacity)}`,
+    shadedAreaPoints: `${toX(0)},${toY(projection.standingRevenue)} ${breakEvenX},${breakEvenY} ${breakEvenX},${baseline} ${toX(0)},${baseline}`,
     breakEvenX,
     breakEvenY,
     guideTop: PADDING_TOP,

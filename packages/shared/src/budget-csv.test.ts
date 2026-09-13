@@ -64,9 +64,9 @@ describe("budget CSV", () => {
     const csv = csvFor();
     const marginRow = csv.split("\r\n").find((line) => line.includes("Profit margin %"));
 
-    // …so nothing reads "37.8%" as an amount in EUR.
+    // …so nothing reads "36.7%" as an amount in EUR.
     expect(marginRow?.endsWith(",")).toBe(true);
-    expect(marginRow).toContain("37.8%");
+    expect(marginRow).toContain("36.7%");
   });
 
   it("quotes a label containing a comma rather than splitting the row", () => {
