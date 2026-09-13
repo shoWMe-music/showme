@@ -15,6 +15,21 @@ The handoff also exists for the whole logged-in app:
 
 ---
 
+> **SUPERSEDED, 2026-09-13, for layout.** Ran sent a new Budget Planner prototype
+> on ClickUp [123qy9rnwud](https://app.clickup.com/t/123qy9rnwud), and the screen
+> moved: the two-column Revenue/Costs became full-width stacked cards, the
+> label-and-field rows became tables with top-level columns, and three things
+> arrived that are not described anywhere below — a `Collected by` column, a
+> derived ticket-split bar, and a revenue-shares card.
+>
+> **Build from [`design-spec-budget-planner-2026-09-13.md`](./design-spec-budget-planner-2026-09-13.md)**,
+> which is measured off the rendered prototype and carries the delta.
+>
+> This document is still the authority on everything it alone records — the
+> designer's intent, the open decisions in §7, and the reasoning behind the
+> break-even chart. **§2's math is out of date**: decisions.md #23 moved the
+> split base to gross ticket revenue and the bonus threshold to gross.
+
 ## Scope, in the designer's words
 
 > The planner is a *forecast*, not a ledger. It never moves money and never feeds
