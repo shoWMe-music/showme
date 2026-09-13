@@ -8395,6 +8395,26 @@
                         },
                         "nullable": true
                       },
+                      "revenueShares": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "toParticipantId": {
+                              "type": "string"
+                            },
+                            "basisPoints": {
+                              "type": "number"
+                            },
+                            "amount": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["toParticipantId"],
+                          "additionalProperties": false
+                        },
+                        "nullable": true
+                      },
                       "dealId": {
                         "type": "string",
                         "nullable": true
@@ -8463,6 +8483,7 @@
                       "paidBy",
                       "payeeParticipantId",
                       "costSplit",
+                      "revenueShares",
                       "dealId",
                       "attributedDealId",
                       "originBudgetLineId",
@@ -8630,6 +8651,26 @@
                       },
                       "nullable": true
                     },
+                    "revenueShares": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "toParticipantId": {
+                            "type": "string"
+                          },
+                          "basisPoints": {
+                            "type": "number"
+                          },
+                          "amount": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["toParticipantId"],
+                        "additionalProperties": false
+                      },
+                      "nullable": true
+                    },
                     "dealId": {
                       "type": "string",
                       "nullable": true
@@ -8698,6 +8739,7 @@
                     "paidBy",
                     "payeeParticipantId",
                     "costSplit",
+                    "revenueShares",
                     "dealId",
                     "attributedDealId",
                     "originBudgetLineId",
@@ -8878,6 +8920,26 @@
                       },
                       "nullable": true
                     },
+                    "revenueShares": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "toParticipantId": {
+                            "type": "string"
+                          },
+                          "basisPoints": {
+                            "type": "number"
+                          },
+                          "amount": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["toParticipantId"],
+                        "additionalProperties": false
+                      },
+                      "nullable": true
+                    },
                     "dealId": {
                       "type": "string",
                       "nullable": true
@@ -8946,6 +9008,7 @@
                     "paidBy",
                     "payeeParticipantId",
                     "costSplit",
+                    "revenueShares",
                     "dealId",
                     "attributedDealId",
                     "originBudgetLineId",

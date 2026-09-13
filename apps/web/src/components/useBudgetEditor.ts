@@ -421,6 +421,22 @@ export interface BudgetDealOption {
   guaranteeAmount: string | null;
 }
 
+/** A revenue share as it sits in `budget_lines.revenue_shares`. */
+interface StoredRevenueShare {
+  toParticipantId: string;
+  basisPoints?: number;
+}
+
+/** One share, flattened out of the line that carries it so a card can list it. */
+export interface RevenueShareRow {
+  lineId: string;
+  lineLabel: string;
+  /** Position in the line's own array — how an edit addresses an entry with no id. */
+  index: number;
+  toParticipantId: string;
+  basisPoints: number;
+}
+
 export interface BudgetEditor {
   isPending: boolean;
   isError: boolean;
@@ -436,6 +452,17 @@ export interface BudgetEditor {
   selectedBudgetId: string | null;
   selectBudget: (budgetId: string) => void;
   ticketTiers: TicketTierDraft[];
+  /** Every slice a revenue line gives away, flattened across the lines (#23.2). */
+  revenueShares: RevenueShareRow[];
+  /** The revenue lines a share can be taken FROM — anything with money on it. */
+  revenueShareSources: { id: string; label: string }[];
+  addRevenueShare: (lineId: string, toParticipantId: string) => void;
+  changeRevenueShare: (
+    lineId: string,
+    index: number,
+    patch: { toParticipantId?: string; basisPoints?: number },
+  ) => void;
+  removeRevenueShare: (lineId: string, index: number) => void;
   /** How the door divides, from the deal — see `TicketSplitRaw`. */
   seedTicketSplit: BudgetSeed["ticketSplit"];
   costs: CostDraft[];
@@ -916,6 +943,44 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
    * `useEventInlineFields` answers it, and it works here for the same reason.
    */
   const lineVersionsRef = useRef(new Map<string, number>());
+  /**
+   * REVENUE SHARES (#23.2) — a slice of one revenue line owed to somebody other
+   * than its collector. "10% of the bar to the act."
+   *
+   * Flattened across the lines, because the card asks a question about the EVENT
+   * ("who is owed a piece of what?") while the store answers it per line. Each row
+   * carries the line it came from and its index in that line's array, which is
+   * what makes an edit or a removal addressable without inventing an id for
+   * something that has none.
+   *
+   * NOT where a door split lives. That is written on the deal and read from there
+   * by the settlement — two writable homes for one number is the drift this
+   * rebuild deletes.
+   */
+  const revenueShareRows = useMemo<RevenueShareRow[]>(
+    () =>
+      lines.flatMap((line) =>
+        line.kind !== "revenue"
+          ? []
+          : ((line.revenueShares ?? []) as StoredRevenueShare[]).map((share, index) => ({
+              lineId: line.id,
+              lineLabel: line.label,
+              index,
+              toParticipantId: share.toParticipantId,
+              basisPoints: share.basisPoints ?? 0,
+            })),
+      ),
+    [lines],
+  );
+
+  const revenueShareSources = useMemo(
+    () =>
+      lines
+        .filter((line) => line.kind === "revenue" && BigInt(line.amount) > 0n)
+        .map((line) => ({ id: line.id, label: line.label })),
+    [lines],
+  );
+
   const budgetVersionRef = useRef(budget?.version ?? 1);
   /** Which budget `budgetVersionRef` is counting — the scope switch changes it. */
   const trackedBudgetRef = useRef<string | null>(null);
@@ -1679,6 +1744,68 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     [costs.length, scheduleFlush],
   );
 
+  /**
+   * Write a line's whole share array back.
+   *
+   * WHOLESALE, not a patch of one entry: `revenue_shares` is a jsonb array with no
+   * ids, so there is nothing to address an individual element by across a request.
+   * Sending the array the UI is looking at also makes the write idempotent — a
+   * retry lands the same state rather than appending a second copy of a slice.
+   */
+  const writeShares = useCallback(
+    (lineId: string, next: StoredRevenueShare[]) => {
+      if (!budgetId) return;
+      const line = lines.find((row) => row.id === lineId);
+      if (!line) return;
+      updateRow(budgetId, lineId, line.label, `${next.length} share(s)`, {
+        revenueShares: next.length > 0 ? next : null,
+      });
+    },
+    [budgetId, lines, updateRow],
+  );
+
+  const sharesOf = useCallback(
+    (lineId: string): StoredRevenueShare[] =>
+      ((lines.find((row) => row.id === lineId)?.revenueShares ?? []) as StoredRevenueShare[]).map(
+        (share) => ({ ...share }),
+      ),
+    [lines],
+  );
+
+  const addRevenueShare = useCallback(
+    (lineId: string, toParticipantId: string) => {
+      // 10% is a starting point, not a guess at the deal: it is the commonest
+      // back-of-house cut and it is one edit away from anything else. A share of
+      // zero would be a row that promises nobody anything.
+      writeShares(lineId, [...sharesOf(lineId), { toParticipantId, basisPoints: 1000 }]);
+    },
+    [sharesOf, writeShares],
+  );
+
+  const changeRevenueShare = useCallback(
+    (lineId: string, index: number, patch: { toParticipantId?: string; basisPoints?: number }) => {
+      const next = sharesOf(lineId);
+      const current = next[index];
+      if (!current) return;
+      next[index] = {
+        toParticipantId: patch.toParticipantId ?? current.toParticipantId,
+        basisPoints: patch.basisPoints ?? current.basisPoints,
+      };
+      writeShares(lineId, next);
+    },
+    [sharesOf, writeShares],
+  );
+
+  const removeRevenueShare = useCallback(
+    (lineId: string, index: number) => {
+      writeShares(
+        lineId,
+        sharesOf(lineId).filter((_, position) => position !== index),
+      );
+    },
+    [sharesOf, writeShares],
+  );
+
   const removeCost = useCallback(
     (key: string) => {
       setCosts((rows) => rows.filter((row) => row.key !== key));
@@ -1818,6 +1945,11 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     selectedBudgetId: budgetId,
     selectBudget: setSelectedBudgetId,
     ticketTiers: tiers,
+    revenueShares: revenueShareRows,
+    revenueShareSources,
+    addRevenueShare,
+    changeRevenueShare,
+    removeRevenueShare,
     // Passed straight through from the seed. The split is a fact about the DEAL
     // and the event's door, not about the sheet being edited, so the editor
     // carries it rather than deriving anything from it (#23.2: event-scoped,

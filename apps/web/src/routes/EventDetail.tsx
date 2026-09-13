@@ -823,6 +823,15 @@ function BudgetTab({
         ticketTierTotals={view.ticketTierTotals}
         ticketsPlannedLabel={view.ticketsPlannedLabel}
         ticketSplit={view.ticketSplit}
+        revenueShares={{
+          rows: editor.revenueShares,
+          sources: editor.revenueShareSources,
+          participants: editor.participants,
+          onAdd: editor.addRevenueShare,
+          onChange: editor.changeRevenueShare,
+          onRemove: editor.removeRevenueShare,
+          readOnly: editor.readOnlyReason !== null,
+        }}
         capacity={editor.capacity}
         avgBarSpend={editor.averageBarSpend}
         barRevenue={view.barRevenue}

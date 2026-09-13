@@ -9,6 +9,10 @@ import {
   DealAssignmentNote,
   RevenueAttribution,
 } from "./BudgetLineAttribution";
+import {
+  BudgetRevenueSharesCard,
+  type BudgetRevenueSharesCardProps,
+} from "./BudgetRevenueSharesCard";
 import tableStyles from "./BudgetTable.module.css";
 import { type KpiItem, KpiRow } from "./KpiRow";
 import { PerformingRightsEstimateCard } from "./PerformingRightsEstimateCard";
@@ -99,6 +103,8 @@ export interface BudgetPlannerProps {
   ticketsPlannedLabel: string;
   /** How the door divides — the bars under the totals band. */
   ticketSplit: TicketSplitDisplay;
+  /** The Revenue shares card, between Costs and Results. */
+  revenueShares: BudgetRevenueSharesCardProps;
   capacity: string;
   avgBarSpend: string;
   avgMerchSpend: string;
@@ -218,6 +224,7 @@ export function BudgetPlanner({
   ticketTierTotals,
   ticketsPlannedLabel,
   ticketSplit,
+  revenueShares,
   capacity,
   avgBarSpend,
   avgMerchSpend,
@@ -838,6 +845,8 @@ export function BudgetPlanner({
           )}
         </Card>
       </div>
+
+      <BudgetRevenueSharesCard {...revenueShares} />
 
       <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <CardHeading title="Results" subtitle="Live estimate. Review before final decisions." />

@@ -2379,6 +2379,16 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
     paidBy: z.string().nullable(),
     payeeParticipantId: z.string().nullable(),
     costSplit: z.record(z.string(), z.number()).nullable(),
+    /** Slices of this revenue line owed to someone other than its collector (#23.2). */
+    revenueShares: z
+      .array(
+        z.object({
+          toParticipantId: z.string(),
+          basisPoints: z.number().optional(),
+          amount: z.string().optional(),
+        }),
+      )
+      .nullable(),
     dealId: z.string().nullable(),
     attributedDealId: z.string().nullable(),
     /** The forecast line this came from. Null = added here, never budgeted. */
@@ -2397,6 +2407,14 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
     paidBy: row.paidBy,
     payeeParticipantId: row.payeeParticipantId,
     costSplit: (row.costSplit as Record<string, number> | null) ?? null,
+    // Carried because the settlement is where a share is CORRECTED after the show,
+    // the same way every other figure on the line is. Omitting it made the shares
+    // invisible the moment a budget became a settlement — they still settled, but
+    // nothing could show or change them.
+    revenueShares:
+      (row.revenueShares as
+        | { toParticipantId: string; basisPoints?: number; amount?: string }[]
+        | null) ?? null,
     dealId: row.dealId,
     attributedDealId: row.attributedDealId,
     originBudgetLineId: row.originBudgetLineId,
