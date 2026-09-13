@@ -50,3 +50,4 @@ export type {
   Transfer,
   SettlementResult,
 } from "./types";
+export { type RevenueShare, revenueSharesOf, reachesThePool } from "./revenue-shares";

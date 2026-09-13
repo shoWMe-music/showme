@@ -832,6 +832,139 @@ describe("reconcile — disclosed commissions (analysis case 8)", () => {
   });
 });
 
+describe("reconcile — whose revenue is it (#23.1) and revenue shares (#23.2)", () => {
+  /**
+   * The case the decision names: a venue that runs its own bar.
+   *
+   * Before revenue attribution existed every line reached the pool whatever
+   * `collected_by` said, so the venue was credited nothing while holding the cash
+   * and `net = entitlement − held` had it owing the operator its own takings. The
+   * books balanced the whole time — which is why only a test that asks WHOSE money
+   * it was could catch it.
+   */
+  const withBar: SettlementInput = {
+    baseCurrency: "EUR",
+    participants: [
+      { participantId: "OP", isOperator: true },
+      { participantId: "VENUE" },
+      { participantId: "BAND" },
+    ],
+    deals: [],
+    budgetLines: [
+      { kind: "revenue", revenueKind: "ticket", amount: eur(10000), collectedBy: "OP" },
+      {
+        kind: "revenue",
+        revenueKind: "other",
+        amount: eur(2000),
+        collectedBy: "VENUE",
+        label: "Bar",
+      },
+    ],
+  };
+
+  it("leaves the venue its own bar take instead of making it owe the operator", () => {
+    const result = reconcile(withBar);
+    const venue = result.breakdowns.find((party) => party.participantId === "VENUE");
+    expect(venue?.collected).toBe(eur(2000));
+    expect(venue?.entitlement).toBe(eur(2000)); // its own money, not the event's
+    expect(venue?.net).toBe(0n); // …so nothing to settle either way
+    // And the operator's residual is the TICKET money only — the bar never entered.
+    expect(result.pool).toBe(eur(10000));
+    expect(netOf(result, "OP")).toBe(0n);
+    expect(result.transfers).toHaveLength(0);
+    assertBalanced(result);
+  });
+
+  it("moves a percentage of the bar to the act without changing any total", () => {
+    const result = reconcile({
+      ...withBar,
+      budgetLines: [
+        withBar.budgetLines[0] as SettlementBudgetLine,
+        {
+          ...(withBar.budgetLines[1] as SettlementBudgetLine),
+          revenueShares: [{ toParticipantId: "BAND", basisPoints: 1000 }], // 10% of the bar
+        },
+      ],
+    });
+    const venue = result.breakdowns.find((party) => party.participantId === "VENUE");
+    const band = result.breakdowns.find((party) => party.participantId === "BAND");
+    expect(band?.entitlement).toBe(eur(200)); // 10% of 2 000
+    expect(venue?.entitlement).toBe(eur(1800)); // keeps the rest
+    // The venue holds the cash, so it is the venue that pays the act.
+    expect(venue?.net).toBe(eur(-200));
+    expect(band?.net).toBe(eur(200));
+    // Totals untouched: the pool is still just the ticket money.
+    expect(result.pool).toBe(eur(10000));
+    assertBalanced(result);
+  });
+
+  it("charges a share off the OPERATOR's own line to the residual", () => {
+    const result = reconcile({
+      ...withBar,
+      budgetLines: [
+        {
+          kind: "revenue",
+          revenueKind: "ticket",
+          amount: eur(10000),
+          collectedBy: "OP",
+          revenueShares: [{ toParticipantId: "BAND", basisPoints: 2500 }],
+        },
+      ],
+    });
+    const band = result.breakdowns.find((party) => party.participantId === "BAND");
+    expect(band?.entitlement).toBe(eur(2500));
+    // The line DID reach the pool, so the slice comes out of the operator's share
+    // rather than out of thin air — the residual is what is left.
+    expect(result.breakdowns.find((party) => party.participantId === "OP")?.residual).toBe(
+      eur(7500),
+    );
+    assertBalanced(result);
+  });
+
+  it("clamps shares at the line, however they are written", () => {
+    const result = reconcile({
+      ...withBar,
+      budgetLines: [
+        {
+          kind: "revenue",
+          revenueKind: "other",
+          amount: eur(1000),
+          collectedBy: "VENUE",
+          // 80% plus a flat 500 is more than the line holds; the second is capped
+          // at what the first left, and nothing is invented.
+          revenueShares: [
+            { toParticipantId: "BAND", basisPoints: 8000 },
+            { toParticipantId: "OP", amount: eur(500) },
+          ],
+        },
+      ],
+    });
+    const band = result.breakdowns.find((party) => party.participantId === "BAND");
+    expect(band?.entitlement).toBe(eur(800));
+    expect(result.breakdowns.find((party) => party.participantId === "VENUE")?.entitlement).toBe(
+      0n,
+    ); // gave the whole line away
+    assertBalanced(result);
+  });
+
+  it("refuses a share pointed at somebody who is not on the event", () => {
+    expect(() =>
+      reconcile({
+        ...withBar,
+        budgetLines: [
+          {
+            kind: "revenue",
+            revenueKind: "other",
+            amount: eur(1000),
+            collectedBy: "VENUE",
+            revenueShares: [{ toParticipantId: "GHOST", basisPoints: 1000 }],
+          },
+        ],
+      }),
+    ).toThrow(/not a participant on this event/);
+  });
+});
+
 describe("reconcile — the ladder and the rule behind each figure", () => {
   // What a party needs in order to CHECK a settlement against a contract: gross
   // revenue, the costs nobody was charged for, the pool that becomes the

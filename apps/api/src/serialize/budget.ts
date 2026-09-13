@@ -133,6 +133,13 @@ function budgetCostSplit(value: unknown): BudgetCostSplit | null {
  * (money.md) and MUST cross the wire as a STRING — a JS number silently loses
  * precision past 2^53. This serializer is the single place that conversion lives.
  */
+/** A revenue share as it travels — money in minor units as a string. */
+export interface SerializedRevenueShare {
+  toParticipantId: string;
+  basisPoints?: number;
+  amount?: string;
+}
+
 export interface SerializedBudgetLine {
   id: string;
   budgetId: string;
@@ -146,6 +153,8 @@ export interface SerializedBudgetLine {
   paidBy: string | null;
   payeeParticipantId: string | null;
   costSplit: BudgetCostSplit | null;
+  /** Slices of a revenue line owed to someone other than its collector (#23.2). */
+  revenueShares: SerializedRevenueShare[] | null;
   /** The deal whose OWN figure this line is — settlement takes it from the deal. */
   dealId: string | null;
   /** The deal this real cost is REPORTED UNDER — settlement still counts it. */
@@ -179,6 +188,7 @@ export function serializeBudgetLine(line: BudgetLineRow): SerializedBudgetLine {
     paidBy: line.paidBy,
     payeeParticipantId: line.payeeParticipantId,
     costSplit: budgetCostSplit(line.costSplit),
+    revenueShares: (line.revenueShares as SerializedRevenueShare[] | null) ?? null,
     dealId: line.dealId,
     attributedDealId: line.attributedDealId,
     details: budgetLineDetails(line.details),

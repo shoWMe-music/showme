@@ -4596,6 +4596,31 @@
                               },
                               "nullable": true
                             },
+                            "revenueShares": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "toParticipantId": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  },
+                                  "basisPoints": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 10000
+                                  },
+                                  "amount": {
+                                    "type": "string",
+                                    "pattern": "^-?\\d+$"
+                                  }
+                                },
+                                "required": ["toParticipantId"],
+                                "additionalProperties": false
+                              },
+                              "maxItems": 20,
+                              "nullable": true
+                            },
                             "dealId": {
                               "type": "string",
                               "nullable": true
@@ -4663,6 +4688,7 @@
                             "paidBy",
                             "payeeParticipantId",
                             "costSplit",
+                            "revenueShares",
                             "dealId",
                             "attributedDealId",
                             "details",
@@ -4824,6 +4850,31 @@
                             },
                             "nullable": true
                           },
+                          "revenueShares": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "toParticipantId": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "basisPoints": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 10000
+                                },
+                                "amount": {
+                                  "type": "string",
+                                  "pattern": "^-?\\d+$"
+                                }
+                              },
+                              "required": ["toParticipantId"],
+                              "additionalProperties": false
+                            },
+                            "maxItems": 20,
+                            "nullable": true
+                          },
                           "dealId": {
                             "type": "string",
                             "nullable": true
@@ -4891,6 +4942,7 @@
                           "paidBy",
                           "payeeParticipantId",
                           "costSplit",
+                          "revenueShares",
                           "dealId",
                           "attributedDealId",
                           "details",
@@ -5082,6 +5134,31 @@
                             },
                             "nullable": true
                           },
+                          "revenueShares": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "toParticipantId": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "basisPoints": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 10000
+                                },
+                                "amount": {
+                                  "type": "string",
+                                  "pattern": "^-?\\d+$"
+                                }
+                              },
+                              "required": ["toParticipantId"],
+                              "additionalProperties": false
+                            },
+                            "maxItems": 20,
+                            "nullable": true
+                          },
                           "dealId": {
                             "type": "string",
                             "nullable": true
@@ -5149,6 +5226,7 @@
                           "paidBy",
                           "payeeParticipantId",
                           "costSplit",
+                          "revenueShares",
                           "dealId",
                           "attributedDealId",
                           "details",
@@ -5254,6 +5332,31 @@
                         },
                         "nullable": true
                       },
+                      "revenueShares": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "toParticipantId": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "basisPoints": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 10000
+                            },
+                            "amount": {
+                              "type": "string",
+                              "pattern": "^-?\\d+$"
+                            }
+                          },
+                          "required": ["toParticipantId"],
+                          "additionalProperties": false
+                        },
+                        "maxItems": 20,
+                        "nullable": true
+                      },
                       "dealId": {
                         "type": "string",
                         "nullable": true
@@ -5321,6 +5424,7 @@
                       "paidBy",
                       "payeeParticipantId",
                       "costSplit",
+                      "revenueShares",
                       "dealId",
                       "attributedDealId",
                       "details",
@@ -5385,6 +5489,31 @@
                       "minimum": 1,
                       "maximum": 10000
                     },
+                    "nullable": true
+                  },
+                  "revenueShares": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "toParticipantId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "basisPoints": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 10000
+                        },
+                        "amount": {
+                          "type": "string",
+                          "pattern": "^-?\\d+$"
+                        }
+                      },
+                      "required": ["toParticipantId"],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 20,
                     "nullable": true
                   },
                   "dealId": {
@@ -5519,6 +5648,31 @@
                       },
                       "nullable": true
                     },
+                    "revenueShares": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "toParticipantId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "basisPoints": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 10000
+                          },
+                          "amount": {
+                            "type": "string",
+                            "pattern": "^-?\\d+$"
+                          }
+                        },
+                        "required": ["toParticipantId"],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 20,
+                      "nullable": true
+                    },
                     "dealId": {
                       "type": "string",
                       "nullable": true
@@ -5586,6 +5740,7 @@
                     "paidBy",
                     "payeeParticipantId",
                     "costSplit",
+                    "revenueShares",
                     "dealId",
                     "attributedDealId",
                     "details",
@@ -5647,6 +5802,31 @@
                       "minimum": 1,
                       "maximum": 10000
                     },
+                    "nullable": true
+                  },
+                  "revenueShares": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "toParticipantId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "basisPoints": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 10000
+                        },
+                        "amount": {
+                          "type": "string",
+                          "pattern": "^-?\\d+$"
+                        }
+                      },
+                      "required": ["toParticipantId"],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 20,
                     "nullable": true
                   },
                   "dealId": {
@@ -5794,6 +5974,31 @@
                       },
                       "nullable": true
                     },
+                    "revenueShares": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "toParticipantId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "basisPoints": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 10000
+                          },
+                          "amount": {
+                            "type": "string",
+                            "pattern": "^-?\\d+$"
+                          }
+                        },
+                        "required": ["toParticipantId"],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 20,
+                      "nullable": true
+                    },
                     "dealId": {
                       "type": "string",
                       "nullable": true
@@ -5861,6 +6066,7 @@
                     "paidBy",
                     "payeeParticipantId",
                     "costSplit",
+                    "revenueShares",
                     "dealId",
                     "attributedDealId",
                     "details",

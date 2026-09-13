@@ -7,6 +7,8 @@
  */
 
 /** The settlement math a deal uses (matches the DB `deal_structure` enum). */
+import type { RevenueShare } from "./revenue-shares";
+
 export type DealStructure = "guarantee" | "door_split" | "guarantee_vs_door" | "rental";
 
 /** `deals.payment_timing` — WHEN the deal's money moves, relative to the night. */
@@ -112,6 +114,12 @@ export interface SettlementBudgetLine {
    * the bar.
    */
   revenueKind?: "ticket" | "other";
+  /**
+   * Slices of THIS revenue line that belong to somebody other than its collector
+   * — "10% of the bar to the act" (#23.2). Attribution only: totals do not move.
+   * See `revenue-shares.ts` for the clamp and why percentages are of the whole.
+   */
+  revenueShares?: RevenueShare[];
   collectedBy?: string; // participantId who received the revenue
   paidBy?: string; // participantId who fronted the cost
   payeeParticipantId?: string; // cost on behalf of this party; undefined = external supplier

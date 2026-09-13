@@ -7,6 +7,7 @@
 import type { PostApiV1EventsIdBudgetsBidLinesBodyKind } from './postApiV1EventsIdBudgetsBidLinesBodyKind';
 import type { PostApiV1EventsIdBudgetsBidLinesBodySource } from './postApiV1EventsIdBudgetsBidLinesBodySource';
 import type { PostApiV1EventsIdBudgetsBidLinesBodyCostSplit } from './postApiV1EventsIdBudgetsBidLinesBodyCostSplit';
+import type { PostApiV1EventsIdBudgetsBidLinesBodyRevenueSharesItem } from './postApiV1EventsIdBudgetsBidLinesBodyRevenueSharesItem';
 import type { PostApiV1EventsIdBudgetsBidLinesBodyDetails } from './postApiV1EventsIdBudgetsBidLinesBodyDetails';
 
 export type PostApiV1EventsIdBudgetsBidLinesBody = {
@@ -24,6 +25,11 @@ export type PostApiV1EventsIdBudgetsBidLinesBody = {
   payeeParticipantId?: string;
   /** @nullable */
   costSplit?: PostApiV1EventsIdBudgetsBidLinesBodyCostSplit;
+  /**
+   * @maxItems 20
+   * @nullable
+   */
+  revenueShares?: PostApiV1EventsIdBudgetsBidLinesBodyRevenueSharesItem[] | null;
   dealId?: string;
   attributedDealId?: string;
   /** @nullable */

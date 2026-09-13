@@ -96,6 +96,9 @@ async function copyBudgetOnce(
         paidBy: line.paidBy,
         payeeParticipantId: line.payeeParticipantId,
         costSplit: line.costSplit,
+        // A share agreed while planning has to survive into what settles (#23.2),
+        // the same way the cost rule beside it does.
+        revenueShares: line.revenueShares,
         details: line.details,
         dealId: line.dealId,
         attributedDealId: line.attributedDealId,

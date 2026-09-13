@@ -6,6 +6,7 @@
  */
 import type { PatchApiV1EventsIdBudgetsBidLinesLidBodyKind } from './patchApiV1EventsIdBudgetsBidLinesLidBodyKind';
 import type { PatchApiV1EventsIdBudgetsBidLinesLidBodyCostSplit } from './patchApiV1EventsIdBudgetsBidLinesLidBodyCostSplit';
+import type { PatchApiV1EventsIdBudgetsBidLinesLidBodyRevenueSharesItem } from './patchApiV1EventsIdBudgetsBidLinesLidBodyRevenueSharesItem';
 import type { PatchApiV1EventsIdBudgetsBidLinesLidBodyDetails } from './patchApiV1EventsIdBudgetsBidLinesLidBodyDetails';
 
 export type PatchApiV1EventsIdBudgetsBidLinesLidBody = {
@@ -27,6 +28,11 @@ export type PatchApiV1EventsIdBudgetsBidLinesLidBody = {
   payeeParticipantId?: string | null;
   /** @nullable */
   costSplit?: PatchApiV1EventsIdBudgetsBidLinesLidBodyCostSplit;
+  /**
+   * @maxItems 20
+   * @nullable
+   */
+  revenueShares?: PatchApiV1EventsIdBudgetsBidLinesLidBodyRevenueSharesItem[] | null;
   /** @nullable */
   dealId?: string | null;
   /** @nullable */

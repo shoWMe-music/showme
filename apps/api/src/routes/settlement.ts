@@ -10,6 +10,7 @@ import {
 } from "@showme/db/notify";
 import {
   type EscalatorTier,
+  type RevenueShare,
   type SettlementBudgetLine,
   type SettlementDeal,
   type SettlementInput,
@@ -492,6 +493,8 @@ type BudgetLineReference = {
   kind: "revenue" | "cost";
   /** The cost-split bearers name participants as KEYS — same check applies. */
   costSplit?: unknown;
+  /** A revenue share names its RECIPIENT — same check, same reason (#23.2). */
+  revenueShares?: unknown;
 } & Partial<Record<(typeof PARTICIPANT_REFERENCE_FIELDS)[number], string | null>>;
 
 /** How a guard tells the operator which row is at fault and how to be rid of it. */
@@ -546,6 +549,20 @@ function assertBudgetLinesAreEventScoped(
             eventId,
             line,
             `has a cost split naming ${participantId}, which is not a participant on this event, so part of it is charged to nobody`,
+          );
+        }
+      }
+    }
+    // And a revenue share through the same door: its recipient is credited an
+    // entitlement, so a stranger there breaks the conservation law just as surely
+    // — the engine would throw, but about a participant id rather than a row.
+    if (Array.isArray(line.revenueShares)) {
+      for (const share of line.revenueShares as { toParticipantId?: string }[]) {
+        if (share.toParticipantId && !participantIdsOnEvent.has(share.toParticipantId)) {
+          throw unsettlableLine(
+            eventId,
+            line,
+            `gives a revenue share to ${share.toParticipantId}, which is not a participant on this event, so part of it is owed to nobody`,
           );
         }
       }
@@ -676,6 +693,7 @@ async function reconcileEvent(
       paidBy: schema.settlementLines.paidBy,
       payeeParticipantId: schema.settlementLines.payeeParticipantId,
       costSplit: schema.settlementLines.costSplit,
+      revenueShares: schema.settlementLines.revenueShares,
       // Read for one reason: telling a ticket tier from the bar (#23.1). See
       // `isTicketRevenueLine`.
       details: schema.settlementLines.details,
@@ -856,6 +874,12 @@ async function reconcileEvent(
       paidBy: line.paidBy ?? undefined,
       payeeParticipantId: line.payeeParticipantId ?? undefined,
       costSplit: (line.costSplit as Record<string, number> | null) ?? undefined,
+      // Slices of this line owed to somebody other than its collector (#23.2).
+      // Money arrives as a minor-unit string in the line's own currency, so a
+      // fixed share converts exactly like the line it comes out of.
+      ...(line.kind === "revenue"
+        ? { revenueShares: revenueSharesForEngine(line.revenueShares, line.currency, toBase) }
+        : {}),
     }));
 
   /**
@@ -885,6 +909,31 @@ async function reconcileEvent(
   assertBalanced(result);
 
   return { result, baseCurrency, rates };
+}
+
+/**
+ * `budget_lines.revenue_shares` → the engine's shares.
+ *
+ * A share states a percentage OR a fixed amount and the route refuses both or
+ * neither, so this only has to carry whichever arrived. `undefined` rather than an
+ * empty array when a line promises nothing, so the engine's fast path is the
+ * common one.
+ */
+function revenueSharesForEngine(
+  stored: unknown,
+  currency: string | null,
+  toBase: (amount: bigint, currency: string | null) => bigint,
+): RevenueShare[] | undefined {
+  const shares = stored as
+    | { toParticipantId: string; basisPoints?: number; amount?: string }[]
+    | null
+    | undefined;
+  if (!shares?.length) return undefined;
+  return shares.map((share) => ({
+    toParticipantId: share.toParticipantId,
+    ...(share.basisPoints != null ? { basisPoints: share.basisPoints } : {}),
+    ...(share.amount != null ? { amount: toBase(BigInt(share.amount), currency) } : {}),
+  }));
 }
 
 /** A tier row's quantity, or 0 when the line does not state one. */

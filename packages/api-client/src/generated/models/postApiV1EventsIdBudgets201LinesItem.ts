@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { PostApiV1EventsIdBudgets201LinesItemCostSplit } from './postApiV1EventsIdBudgets201LinesItemCostSplit';
+import type { PostApiV1EventsIdBudgets201LinesItemRevenueSharesItem } from './postApiV1EventsIdBudgets201LinesItemRevenueSharesItem';
 import type { PostApiV1EventsIdBudgets201LinesItemDetails } from './postApiV1EventsIdBudgets201LinesItemDetails';
 
 export type PostApiV1EventsIdBudgets201LinesItem = {
@@ -26,6 +27,11 @@ export type PostApiV1EventsIdBudgets201LinesItem = {
   payeeParticipantId: string | null;
   /** @nullable */
   costSplit: PostApiV1EventsIdBudgets201LinesItemCostSplit;
+  /**
+   * @maxItems 20
+   * @nullable
+   */
+  revenueShares: PostApiV1EventsIdBudgets201LinesItemRevenueSharesItem[] | null;
   /** @nullable */
   dealId: string | null;
   /** @nullable */

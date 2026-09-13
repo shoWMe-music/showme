@@ -108,6 +108,21 @@ export const budgetLines = pgTable(
     paidBy: uuid("paid_by").references(() => eventParticipants.id),
     payeeParticipantId: uuid("payee_participant_id").references(() => eventParticipants.id),
     costSplit: jsonb("cost_split"), // split rule (e.g. 50/50) when shared
+    /**
+     * REVENUE SHARES — slices of a revenue line that belong to somebody other
+     * than its collector (#23.2): "10% of the bar to the act", a cut of merch
+     * back to the venue. The mirror of `cost_split`, and the reason it is jsonb
+     * rather than a table is the same: it is read with its line and nothing ever
+     * queries or aggregates across it (the normalize-vs-embed rule).
+     *
+     * NOT where a door split lives. That is written on the deal, with the
+     * guarantee and the escalator tiers, and settlement reads it from there —
+     * two writable homes for one number is the drift this rebuild deletes.
+     *
+     * `[{ toParticipantId, basisPoints? , amount? }]`, money as a minor-unit
+     * string. See `packages/settlement/src/revenue-shares.ts` for the clamp.
+     */
+    revenueShares: jsonb("revenue_shares"),
     // The planner's breakdown behind `amount` (unit x quantity). `amount`
     // stays the authoritative figure settlement reads; this only remembers
     // how the operator arrived at it. NULL for a hand-entered line.
@@ -380,6 +395,8 @@ export const settlementLines = pgTable(
     paidBy: uuid("paid_by").references(() => eventParticipants.id),
     payeeParticipantId: uuid("payee_participant_id").references(() => eventParticipants.id),
     costSplit: jsonb("cost_split"),
+    /** The same shares the forecast carried, corrected after the show (#23.2). */
+    revenueShares: jsonb("revenue_shares"),
     details: jsonb("details"),
     dealId: uuid("deal_id").references(() => deals.id),
     attributedDealId: uuid("attributed_deal_id").references(() => deals.id),

@@ -94,6 +94,33 @@ const LineDetails = z.object({
  */
 const CostSplit = z.record(z.string().uuid(), z.number().int().min(1).max(10_000));
 
+/**
+ * Slices of a REVENUE line owed to someone other than its collector (#23.2) —
+ * "10% of the bar to the act". The mirror of `CostSplit`, and an array rather than
+ * a record because a share can be a percentage OR a fixed amount, and a record
+ * keyed by participant could not carry which.
+ *
+ * Percentages are of the whole line, and the engine clamps the running total so
+ * shares can never sum past it (`revenue-shares.ts`). Money is minor units as a
+ * string, like every other amount crossing this boundary.
+ *
+ * NOT where a door split goes. That is written on the deal (#23.2) — offering the
+ * ticket split a second, editable home here is the drift the decision forbids.
+ */
+const RevenueShares = z
+  .array(
+    z
+      .object({
+        toParticipantId: z.string().uuid(),
+        basisPoints: z.number().int().min(1).max(10_000).optional(),
+        amount: MinorUnitsAmount.optional(),
+      })
+      .refine((share) => (share.basisPoints == null) !== (share.amount == null), {
+        message: "A revenue share states a percentage or a fixed amount, not both and not neither",
+      }),
+  )
+  .max(20);
+
 const CreateLineBody = z.object({
   kind: z.enum(["revenue", "cost"]),
   /** Provenance of a revenue line (decisions #15) — `manual` unless synced. */
@@ -106,6 +133,7 @@ const CreateLineBody = z.object({
   paidBy: z.string().uuid().optional(),
   payeeParticipantId: z.string().uuid().optional(),
   costSplit: CostSplit.nullable().optional(),
+  revenueShares: RevenueShares.nullable().optional(),
   dealId: z.string().uuid().optional(),
   attributedDealId: z.string().uuid().optional(),
   details: LineDetails.nullable().optional(),
@@ -120,6 +148,7 @@ const UpdateLineBody = z.object({
   paidBy: z.string().uuid().nullable().optional(),
   payeeParticipantId: z.string().uuid().nullable().optional(),
   costSplit: CostSplit.nullable().optional(),
+  revenueShares: RevenueShares.nullable().optional(),
   dealId: z.string().uuid().nullable().optional(),
   attributedDealId: z.string().uuid().nullable().optional(),
   details: LineDetails.nullable().optional(),
@@ -144,6 +173,7 @@ const BudgetLineResponse = z.object({
   paidBy: z.string().nullable(),
   payeeParticipantId: z.string().nullable(),
   costSplit: CostSplit.nullable(),
+  revenueShares: RevenueShares.nullable(),
   dealId: z.string().nullable(),
   attributedDealId: z.string().nullable(),
   details: LineDetails.nullable(),

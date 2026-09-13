@@ -3018,6 +3018,115 @@ describe("settlement — the 2026-08-26 money rules", () => {
   }
 
   /**
+   * REVENUE ATTRIBUTION AND A SHARE, END TO END (#23.1/#23.2).
+   *
+   * The decision says bar and merch "belong to whoever collects them". Before this
+   * every revenue line reached the pool whatever `collected_by` said, so an act
+   * selling its own merch was credited nothing while holding the cash — and
+   * `net = entitlement − held` had it owing the operator its own takings. The books
+   * balanced the whole time, which is why only a test that asks WHOSE money it was
+   * can catch it.
+   *
+   * MERCH, not the bar, and the difference matters: a venue on an event is a host
+   * or co-host, so `OPERATOR_EVENT_ROLES` makes it an operator and its bar reaches
+   * the pool by design. The performer is the party whose income is genuinely its
+   * own, which is why Ran's prototype collects merch to the act.
+   */
+  it("leaves the act its merch, less the slice the room is owed", async () => {
+    const { db } = harness;
+    const operator = await seedMemberWithSet(
+      "rev-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const band = await seedMemberWithSet("rev-band", "performer", PRESET_PERMISSION_SETS.performer);
+
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: operator.profileId,
+        title: "Merch Night",
+        baseCurrency: "EUR",
+        createdBy: operator.userId,
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+
+    const parts = await db
+      .insert(schema.eventParticipants)
+      .values([
+        {
+          eventId: event.id,
+          profileId: operator.profileId,
+          role: "host" as const,
+          permissionSetId: operator.permissionSetId,
+          status: "confirmed" as const,
+        },
+        {
+          eventId: event.id,
+          profileId: band.profileId,
+          role: "performer" as const,
+          permissionSetId: band.permissionSetId,
+          status: "confirmed" as const,
+        },
+      ])
+      .returning();
+    const hostPart = parts.find((row) => row.profileId === operator.profileId)?.id as string;
+    const bandPart = parts.find((row) => row.profileId === band.profileId)?.id as string;
+
+    const [budget] = await db.insert(schema.budgets).values({ eventId: event.id }).returning();
+    if (!budget) throw new Error("budget seed failed");
+    await db.insert(schema.budgetLines).values([
+      {
+        budgetId: budget.id,
+        kind: "revenue" as const,
+        label: "Tickets",
+        amount: 1_000_000n,
+        currency: "EUR",
+        collectedBy: hostPart,
+        details: { basis: "ticket_tier", unitAmount: "2500", quantity: 400 },
+      },
+      {
+        budgetId: budget.id,
+        kind: "revenue" as const,
+        label: "Merch",
+        amount: 200_000n,
+        currency: "EUR",
+        collectedBy: bandPart, // the ACT sells its own merch…
+        details: { basis: "merch_spend" },
+        revenueShares: [{ toParticipantId: hostPart, basisPoints: 1000 }], // …10% back to the room
+      },
+    ]);
+
+    const response = await compute(event.id, operator.userId);
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    const rowOf = (id: string) =>
+      body.breakdowns.find((row: { participantId: string }) => row.participantId === id);
+
+    // The merch is the act's, less the 10% it promised the room — NOT the event's.
+    expect(rowOf(bandPart).collected).toBe("200000");
+    expect(rowOf(bandPart).entitlement).toBe("180000");
+    expect(rowOf(bandPart).net).toBe("-20000"); // it owes the room the slice, nothing more
+
+    // The pool is the TICKET money alone: the merch never entered it, so the
+    // operator's residual is untouched by a take that was never the event's…
+    expect(body.pool).toBe("1000000");
+    expect(body.ladder.doorBase).toBe("1000000");
+    expect(rowOf(hostPart).residual).toBe("1000000");
+    // …and the slice arrives ON TOP of that residual, which is what makes a share
+    // a transfer of attribution rather than a change to anybody's totals.
+    expect(rowOf(hostPart).entitlement).toBe("1020000");
+    expect(rowOf(hostPart).net).toBe("20000");
+
+    const netSum = body.breakdowns.reduce(
+      (total: bigint, row: { net: string }) => total + BigInt(row.net),
+      0n,
+    );
+    expect(netSum).toBe(0n);
+  });
+
+  /**
    * ESCALATORS AND THE THRESHOLD BONUS, END TO END (ClickUp 123qy9rnwud).
    *
    * The engine computed both from the day it was written and neither could ever

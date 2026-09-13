@@ -3,6 +3,7 @@ import { applyCommissions } from "./commissions";
 import { costBearingOf } from "./cost-bearing";
 import { isOffTheTop } from "./deal-order";
 import { dealEntitlementDetailed } from "./entitlement";
+import { reachesThePool, revenueSharesOf } from "./revenue-shares";
 import { greedyTransfers } from "./transfers";
 import type {
   EntitlementLine,
@@ -44,7 +45,11 @@ export function reconcile(input: SettlementInput): SettlementResult {
   //    true whether a cost is shared, deducted from one party, or split between
   //    several (the 2026-08 meeting's "either a cost split or a single payer").
   const revenueLines = budgetLines.filter((line) => line.kind === "revenue");
+  /** Gross, for the ladder and for a threshold bonus (#23.3) — every line, whoever took it. */
   const revenue = sumBigint(revenueLines.map((line) => line.amount));
+  const operatorParticipantIds = new Set(
+    participants.filter((party) => party.isOperator).map((party) => party.participantId),
+  );
   /**
    * THE DOOR — gross ticket revenue, and what every percentage deal is a
    * percentage of (#23.1). Costs do not reach it: a door deal pays its share of
@@ -58,7 +63,22 @@ export function reconcile(input: SettlementInput): SettlementResult {
   const bases = { doorBase, grossRevenue: revenue };
   const bearings = budgetLines.map((line) => costBearingOf(line));
   const externalCosts = sumBigint(bearings.map((bearing) => bearing.poolShare));
-  const pool = revenue - externalCosts;
+  /**
+   * ONLY WHAT THE EVENT ACTUALLY POOLS (#23.1, `revenue-shares.ts`). A line an
+   * operator collected, or that names no collector, is the event's and reaches
+   * here. A line the venue or the act took is THEIRS — it is credited to them in
+   * step 2c instead, and the operator's residual never sees it.
+   *
+   * Before this the pool swallowed every line whatever `collected_by` said, so a
+   * venue running its own bar was credited nothing while holding the cash, and
+   * `net = entitlement − held` had it owing the operator its own takings.
+   */
+  const pooledRevenue = sumBigint(
+    revenueLines
+      .filter((line) => reachesThePool(line, operatorParticipantIds))
+      .map((line) => line.amount),
+  );
+  const pool = pooledRevenue - externalCosts;
 
   // 2a. Base entitlements from deals — split each deal across its payees with
   //     allocate() (exact), then apply disclosed commissions.
@@ -152,9 +172,30 @@ export function reconcile(input: SettlementInput): SettlementResult {
     if (!isOffTheTop(deal)) settleDeal(deal);
   }
 
-  // 2b. Operator residual = pool − Σ all deal entitlements, allocated across operators.
+  /**
+   * 2c. REVENUE ATTRIBUTION — who each line's money belongs to (#23.1/#23.2).
+   *
+   * Computed here, credited below the residual, because the two have to agree
+   * about one thing: a slice taken off a line that REACHED the pool comes out of
+   * the operator's share, so the residual must be told about it; a slice off a
+   * line the venue collected never touched the pool and must not be.
+   *
+   * Getting that backwards is what broke `Σ net = 0` the first time this was
+   * written — the residual subtracted attributions that had never been in it.
+   */
+  const attribution = revenueLines.map((line) => ({
+    line,
+    slices: revenueSharesOf(line),
+    pooled: reachesThePool(line, operatorParticipantIds),
+  }));
+  const slicesOffPooledRevenue = sumBigint(
+    attribution.filter((entry) => entry.pooled).flatMap((entry) => [...entry.slices.values()]),
+  );
+
+  // 2b. Operator residual = what is left of the pool once the deals and any shares
+  //     taken off the event's own revenue have claimed. Allocated across operators.
   const dealBaseSum = sumBigint([...entitlement.values()]);
-  const residual = pool - dealBaseSum;
+  const residual = pool - dealBaseSum - slicesOffPooledRevenue;
   const operators = participants.filter((party) => party.isOperator);
   if (operators.length > 0) {
     const weights = operators.map((operator) => BigInt(operator.operatorResidualShare ?? 1));
@@ -163,6 +204,23 @@ export function reconcile(input: SettlementInput): SettlementResult {
       credit(operator.participantId, parts[index] ?? 0n);
       addTo(residualOf, operator.participantId, parts[index] ?? 0n);
     });
+  }
+
+  // …and now the attributions themselves. A non-operator collector keeps what is
+  // left of its own line, so its `net` lands on zero and no transfer is written
+  // for money that was never the event's.
+  for (const { line, slices, pooled } of attribution) {
+    let movedAway = 0n;
+    for (const [recipient, slice] of slices) {
+      if (!entitlement.has(recipient)) {
+        throw new Error(
+          `A revenue line gives ${slice} to ${recipient}, who is not a participant on this event.`,
+        );
+      }
+      credit(recipient, slice);
+      movedAway += slice;
+    }
+    if (!pooled && line.collectedBy) credit(line.collectedBy, line.amount - movedAway);
   }
 
   // 3. Deductibles — the borne half of each cost lowers those parties' entitlements.

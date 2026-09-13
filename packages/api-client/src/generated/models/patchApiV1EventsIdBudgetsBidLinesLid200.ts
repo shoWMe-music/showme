@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { PatchApiV1EventsIdBudgetsBidLinesLid200CostSplit } from './patchApiV1EventsIdBudgetsBidLinesLid200CostSplit';
+import type { PatchApiV1EventsIdBudgetsBidLinesLid200RevenueSharesItem } from './patchApiV1EventsIdBudgetsBidLinesLid200RevenueSharesItem';
 import type { PatchApiV1EventsIdBudgetsBidLinesLid200Details } from './patchApiV1EventsIdBudgetsBidLinesLid200Details';
 
 export type PatchApiV1EventsIdBudgetsBidLinesLid200 = {
@@ -26,6 +27,11 @@ export type PatchApiV1EventsIdBudgetsBidLinesLid200 = {
   payeeParticipantId: string | null;
   /** @nullable */
   costSplit: PatchApiV1EventsIdBudgetsBidLinesLid200CostSplit;
+  /**
+   * @maxItems 20
+   * @nullable
+   */
+  revenueShares: PatchApiV1EventsIdBudgetsBidLinesLid200RevenueSharesItem[] | null;
   /** @nullable */
   dealId: string | null;
   /** @nullable */
