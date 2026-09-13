@@ -9,12 +9,17 @@ export interface BudgetBreakdownCardProps {
 }
 
 /**
- * Revenue Sources and Cost Breakdown (§3b, the design prototype's Budget screen):
- * one labelled bar per heading, with its amount and its share of the total.
+ * Revenue Sources and Cost Breakdown — a donut and a legend.
  *
- * One component for both lists because they are the same object — a list of named
- * slices of a total — and giving them separate implementations is how two lists
- * that should agree start rounding differently.
+ * One component for both lists because they are the same object: named slices of
+ * one total. Giving them separate implementations is how two lists that should
+ * agree start rounding differently.
+ *
+ * A DONUT, not the bar list this used to draw. The bars were scaled so the
+ * largest always filled its track, which answers "which is biggest?" and hides
+ * the question the card is actually asked — how the night divides. A ring answers
+ * that by construction: the slices close, so a reader can see that the performer
+ * fee IS most of the cost rather than inferring it from a full-width bar.
  */
 export function BudgetBreakdownCard({ title, rows, emptyLabel }: BudgetBreakdownCardProps) {
   return (
@@ -25,42 +30,123 @@ export function BudgetBreakdownCard({ title, rows, emptyLabel }: BudgetBreakdown
           {emptyLabel}
         </div>
       ) : (
-        rows.map((row) => (
-          <div key={row.label} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-              <span style={{ color: "var(--text)" }}>{row.label}</span>
-              <span style={{ fontFamily: "var(--font-mono)", color: "var(--muted)" }}>
-                {row.amountLabel} · {row.percentLabel}
-              </span>
-            </div>
-            <div style={trackStyle}>
+        <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+          <BreakdownDonut rows={rows} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 9, flex: "1 1 190px" }}>
+            {rows.map((row) => (
               <div
-                style={{
-                  height: "100%",
-                  width: `${row.barPercent}%`,
-                  borderRadius: 999,
-                  background: row.color,
-                }}
-              />
-            </div>
+                key={row.label}
+                style={{ display: "flex", alignItems: "baseline", gap: 10, fontSize: 13 }}
+              >
+                <span
+                  aria-hidden
+                  style={{
+                    width: 9,
+                    height: 9,
+                    borderRadius: 3,
+                    background: row.color,
+                    flexShrink: 0,
+                    alignSelf: "center",
+                  }}
+                />
+                <span style={{ color: "var(--text)", flex: 1, minWidth: 0 }}>{row.label}</span>
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    color: "var(--text)",
+                    fontVariantNumeric: "tabular-nums",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {row.amountLabel}
+                </span>
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    color: "var(--muted)",
+                    width: 38,
+                    textAlign: "right",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {row.percentLabel}
+                </span>
+              </div>
+            ))}
           </div>
-        ))
+        </div>
       )}
     </Card>
+  );
+}
+
+/**
+ * The ring, drawn with one `stroke-dasharray` arc per slice on a shared circle.
+ *
+ * SVG rather than a conic gradient: a gradient cannot carry the 1px gaps between
+ * slices, and it gives nothing to hang a `<title>` on. The arcs run from a
+ * rotated origin so the first slice starts at twelve o'clock, where a reader
+ * expects a total to begin.
+ */
+function BreakdownDonut({ rows }: { rows: BreakdownDisplayRow[] }) {
+  const RADIUS = 45;
+  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+  let consumed = 0;
+
+  return (
+    <svg
+      viewBox="0 0 120 120"
+      width={112}
+      height={112}
+      role="img"
+      aria-label={rows.map((row) => `${row.label} ${row.percentLabel}`).join(", ")}
+      style={{ flexShrink: 0 }}
+    >
+      <circle cx="60" cy="60" r={RADIUS} fill="none" stroke="var(--border)" strokeWidth="13" />
+      {rows.map((row) => {
+        // Clamped, because a rounding residue must never let the ring overrun
+        // itself — a slice lapping the circle would draw over the first one and
+        // quietly misreport the split.
+        const share = Math.max(0, Math.min(100 - consumed, row.sharePercent));
+        const length = (share / 100) * CIRCUMFERENCE;
+        const offset = -(consumed / 100) * CIRCUMFERENCE;
+        consumed += share;
+        return (
+          <circle
+            key={row.label}
+            cx="60"
+            cy="60"
+            r={RADIUS}
+            fill="none"
+            stroke={row.color}
+            strokeWidth="13"
+            strokeDasharray={`${Math.max(0, length - 1)} ${CIRCUMFERENCE}`}
+            strokeDashoffset={offset}
+            transform="rotate(-90 60 60)"
+          />
+        );
+      })}
+      <text
+        x="60"
+        y="63"
+        textAnchor="middle"
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          fill: "var(--muted)",
+          letterSpacing: "0.5px",
+        }}
+      >
+        Total
+      </text>
+    </svg>
   );
 }
 
 const headingStyle = {
   fontFamily: "var(--font-display)",
   fontWeight: 600,
-  fontSize: 14,
+  fontSize: 17,
   color: "var(--text)",
   margin: 0,
-} as const;
-
-const trackStyle = {
-  height: 7,
-  borderRadius: 999,
-  background: "var(--shape-fill)",
-  overflow: "hidden",
 } as const;

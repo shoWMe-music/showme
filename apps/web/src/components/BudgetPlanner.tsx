@@ -308,6 +308,21 @@ export function BudgetPlanner({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* The screen names itself. The workspace header above says which EVENT is
+          open; it never said which of its ten tabs you are looking at, so the
+          planner began at an advisory banner with no title of its own. */}
+      <h3
+        style={{
+          fontFamily: "var(--font-display)",
+          fontWeight: 600,
+          fontSize: 24,
+          letterSpacing: "-0.02em",
+          color: "var(--text)",
+          margin: 0,
+        }}
+      >
+        Budget Planner
+      </h3>
       <Card
         padding="sm"
         style={{

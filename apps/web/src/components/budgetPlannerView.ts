@@ -46,6 +46,15 @@ export interface BreakdownDisplayRow {
   amountLabel: string;
   /** How wide to draw the bar: this row against the biggest one. */
   barPercent: number;
+  /**
+   * This row's share of the TOTAL, as a number — the donut's arc.
+   *
+   * Deliberately not `barPercent`, which is this row against the LARGEST row so
+   * the biggest bar always fills its track. A ring drawn from that would not close
+   * and its slices would not be comparable: the same 83% would sweep the whole
+   * circle whether it was 83% of the night or all of it.
+   */
+  sharePercent: number;
   color: string;
 }
 
@@ -497,5 +506,6 @@ const displayRow =
     amountLabel: money(row.amount),
     percentLabel: `${row.percentOfTotal}%`,
     barPercent: row.percentOfLargest,
+    sharePercent: row.percentOfTotal,
     color: row.color,
   });
