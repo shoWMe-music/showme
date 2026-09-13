@@ -14,4 +14,5 @@ export type GetApiV1EventsIdSettlements200Ladder = {
   pool: string;
   offTheTop: string;
   splitPool: string;
+  doorBase: string;
 } | null;

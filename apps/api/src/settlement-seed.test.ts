@@ -2,6 +2,7 @@ import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import {
   REFERENCE_DEALS,
+  REFERENCE_DOOR_SPLIT_DOOR,
   REFERENCE_DOOR_SPLIT_POOL,
   REFERENCE_DOOR_SPLIT_SHARES,
   REFERENCE_DOOR_SPLIT_TERMS,
@@ -247,26 +248,32 @@ async function seedReferenceEvent(prefix: string, settled: boolean): Promise<Ref
 
 describe("the seeded reference settlement (A-13)", () => {
   /**
-   * The arithmetic, spelled out, because the whole finding is that it was wrong and
-   * plausible. `splitBasisPoints` is a share OF THE POOL, and the pool is revenue
-   * minus costs paid to outsiders — the hotel names the performer, so it is a
-   * deductible against her entitlement and leaves the pool alone.
+   * The arithmetic, spelled out, because these figures are what the product is
+   * demonstrated with. `splitBasisPoints` is a share OF THE DOOR since #23.1 —
+   * gross ticket revenue, which no cost reaches. The hotel names the performer,
+   * so it is a deductible against her entitlement; the sound bill names nobody,
+   * so it lowers the pool and lands on the operator alone.
    *
+   *   door       = 78 000 ticket sales, gross                        = 78 000
    *   pool       = 78 000 door − 9 000 sound & production            = 69 000
-   *   performer  = max(18 000 guarantee, 70% × 69 000 = 48 300)      = 48 300
-   *                less the 1 800 hotel                              = 46 500
-   *   operator   = residual 69 000 − 48 300                          = 20 700
+   *   performer  = max(18 000 guarantee, 70% × 78 000 = 54 600)      = 54 600
+   *                less the 1 800 hotel                              = 52 800
+   *   operator   = residual 69 000 − 54 600                          = 14 400
    *   held       = operator 78 000 − 10 800 = 67 200 · performer 0
-   *   net        = operator 20 700 − 67 200 = −46 500 · performer +46 500  (Σ = 0)
+   *   net        = operator 14 400 − 67 200 = −52 800 · performer +52 800  (Σ = 0)
    *
-   * The pre-fix fixture took 70% of the 78 000 GROSS (54 600) and paid 52 800 —
-   * 6 300.00 SEK too much, on the settlement the product is demonstrated with.
+   * THIS REVERSES A PREVIOUS FIX, deliberately, and the old note is worth keeping
+   * in view: the pre-#23 fixture took 70% of the 78 000 gross and was corrected to
+   * 70% of the 69 000 pool, because at the time a split WAS a share of the pool.
+   * #23.1 makes gross the rule — the act takes its share of the door whatever the
+   * night cost — so the operator now carries the whole 9 000 and the performer is
+   * 6 300.00 SEK better off than under the pool model.
    */
   const POOL = "6900000";
-  const PERFORMER_ENTITLEMENT = "4650000";
-  const OPERATOR_ENTITLEMENT = "2070000";
+  const PERFORMER_ENTITLEMENT = "5280000";
+  const OPERATOR_ENTITLEMENT = "1440000";
   const OPERATOR_HELD = "6720000";
-  const TRANSFER = "4650000";
+  const TRANSFER = "5280000";
 
   let settled: ReferenceEvent;
 
@@ -305,14 +312,17 @@ describe("the seeded reference settlement (A-13)", () => {
       residual: OPERATOR_ENTITLEMENT,
     });
 
-    // The ladder — gross, costs, and the adjusted net the 70% was taken from. The
-    // operator holds `budget.view`, so it arrives; the performer's read below proves
-    // it does not travel any further.
+    // The ladder — gross, costs, the pool, and the DOOR the 70% was taken from
+    // (#23.1). The operator holds `budget.view`, so it arrives; the performer's
+    // read below proves it does not travel any further.
     expect(body.ladder).toEqual({
       revenue: "7800000",
       costs: "900000",
       pool: POOL,
-      // No rental on this event, so the adjusted net IS the pool.
+      // The whole 7 800 000 came through the box office, so the door is the gross
+      // revenue — NOT the pool, which the 900 000 of costs has already reduced.
+      doorBase: "7800000",
+      // Both pinned since #23.1: nothing comes off the top any more.
       offTheTop: "0",
       splitPool: POOL,
     });
@@ -354,15 +364,15 @@ describe("the seeded reference settlement (A-13)", () => {
       // WHY she is owed it: her 70% beat the 18 000 floor, and the hotel the
       // operator fronted came off afterwards.
       //
-      // `pool` and `door` are ABSENT, and that is the point: they are the event's
-      // adjusted net, which story.md:44 keeps from a performer as an inviolable
-      // ceiling. Her own terms — that the door arm won, her percentage, her floor —
+      // `base` and `door` are ABSENT, and that is the point: between them they are
+      // the event's takings, which story.md:44 keeps from a performer as an
+      // inviolable ceiling. Her own terms — that the door arm won, her percentage, her floor —
       // all survive, so the line still says what rule paid her.
       lines: [
         {
           dealId: settled.dealId,
-          dealTotal: "4830000",
-          amount: "4830000",
+          dealTotal: "5460000",
+          amount: "5460000",
           basis: {
             kind: "guarantee_vs_door",
             won: "door",
@@ -460,7 +470,9 @@ describe("the seeded album split deal (A-01's leftover)", () => {
     for (const { label, terms } of REFERENCE_DEALS) {
       const entitlement = dealEntitlement(
         dealTermsAsTheEngineSeesThem(terms),
-        REFERENCE_DOOR_SPLIT_POOL,
+        // A percentage deal is a share of the DOOR since #23.1 — gross ticket
+        // revenue, which the event's costs never reach.
+        { doorBase: REFERENCE_DOOR_SPLIT_DOOR, grossRevenue: REFERENCE_DOOR_SPLIT_DOOR },
         0,
       );
       expect(entitlement, `${label} takes nothing out of the pool`).toBeGreaterThan(0n);
@@ -607,9 +619,10 @@ describe("the seeded album split deal (A-01's leftover)", () => {
       body.breakdowns.find((row: { participantId: string }) => row.participantId === participantId)
         ?.entitlement;
 
-    // 83 000 revenue − 33 000 external cost, netting to the pool the signed shares
-    // are quoted at. Stated against the constant, not the literal, so a budget line
-    // that moves fails HERE rather than silently re-pricing both performers.
+    // 83 000 revenue − 33 000 external cost. The pool is now the OPERATOR's base,
+    // not the base the shares are quoted at — since #23.1 those are quoted at the
+    // door. Stated against the constant, not the literal, so a budget line that
+    // moves fails HERE rather than silently re-pricing both performers.
     expect(body.pool).toBe(REFERENCE_DOOR_SPLIT_POOL.toString());
     // Pre-fix these were "0" and "0", with the host holding the entire 5 000 000.
     expect(entitlementOf(headlinerParticipantId)).toBe(
@@ -618,7 +631,10 @@ describe("the seeded album split deal (A-01's leftover)", () => {
     expect(entitlementOf(supportParticipantId)).toBe(
       REFERENCE_DOOR_SPLIT_SHARES.supportAmount.toString(), // 40% — A-01's snapshot
     );
-    expect(entitlementOf(hostParticipantId)).toBe("0"); // the split members take the pool
+    // The operator keeps nothing and is out of pocket: the two acts divide the
+    // whole 83 000 door between them, so the 33 000 of costs lands on the
+    // operator's side alone (#23.1).
+    expect(entitlementOf(hostParticipantId)).toBe("-3300000");
 
     // And the venue pays it out rather than keeping it.
     expect(body.transfers).toHaveLength(2);

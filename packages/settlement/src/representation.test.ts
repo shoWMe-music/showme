@@ -45,7 +45,9 @@ describe("split deal: one agented performer, one self-managed", () => {
         partyShares: { A: 5000, B: 5000 },
       },
     ],
-    budgetLines: [{ kind: "revenue", amount: eur(10000), collectedBy: "OP" }],
+    budgetLines: [
+      { kind: "revenue", revenueKind: "ticket", amount: eur(10000), collectedBy: "OP" },
+    ],
   };
 
   it("keeps the event balanced with both performers at full gross", () => {

@@ -98,13 +98,13 @@ export function serializeSummary(result: SettlementResult): SerializedSummary {
 }
 
 /**
- * Strip the POOL out of the rule a line settled under.
+ * Strip the event's TAKINGS out of the rule a line settled under.
  *
  * `basis` names the operands the engine compared, and on a percentage arm two of
- * them are the pool itself: `pool` IS `ladder.splitPool`, and `door` divided by
- * `basisPoints` gives it straight back. Serving those on a party row would hand a
- * performer the event's adjusted net through the side door, while `ladder` — the
- * same figure — is withheld two lines below. story.md:44 draws that boundary and
+ * them give the door away: `base` IS `ladder.doorBase` — gross ticket revenue
+ * since #23.1 — and `door` divided by `basisPoints` hands it straight back.
+ * Serving those on a party row would tell a performer what the whole room took,
+ * while `ladder` — carrying the same figure — is withheld two lines below. story.md:44 draws that boundary and
  * calls it inviolable: a performer sees "only their own slice — never the event
  * budget/pool … even if an operator wanted to show them", and
  * `POOL_CAPABILITIES` in `packages/auth` is that sentence as code.
@@ -120,7 +120,7 @@ export function serializeSummary(result: SettlementResult): SerializedSummary {
  * is not a thing a redaction can achieve — the only way to close that would be to
  * withhold her own percentage, which is a term she signed and the one number that
  * makes the line checkable at all. What this DOES remove is the event's takings and
- * costs (`ladder`) and any pool figure for a party whose deal does not already
+ * costs (`ladder`) and any door figure for a party whose deal does not already
  * imply one — a guarantee, a rental, a shared split. That is the disclosure the
  * ceiling is actually about; the rest is a consequence of percentage deals existing.
  */
@@ -131,15 +131,15 @@ function redactPool(breakdown: SerializedBreakdown): SerializedBreakdown {
     lines: breakdown.lines.map((line) => {
       switch (line.basis.kind) {
         case "door_split": {
-          const { pool: _pool, ...basis } = line.basis;
+          const { base: _base, ...basis } = line.basis;
           return { ...line, basis };
         }
         case "guarantee_vs_door": {
-          const { pool: _pool, door: _door, ...basis } = line.basis;
+          const { base: _base, door: _door, ...basis } = line.basis;
           return { ...line, basis };
         }
         default:
-          // `guarantee`, `rental` and `paper` name no pool to begin with.
+          // `guarantee`, `rental` and `paper` name no base to begin with.
           return line;
       }
     }),

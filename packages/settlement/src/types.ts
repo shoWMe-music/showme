@@ -97,6 +97,21 @@ export interface SettlementBudgetLine {
    * Optional, so every existing caller and every stored snapshot is unaffected.
    */
   label?: string;
+  /**
+   * WHAT KIND OF REVENUE THIS IS — set only on `kind: "revenue"` lines.
+   *
+   * A percentage deal is a percentage of the DOOR (#23.1), so the engine has to
+   * be able to tell a ticket line from the bar. It cannot infer it: every revenue
+   * row is a label and an amount, and the planner already distinguishes them by
+   * `budget_lines.details.basis` (`bar_spend`, `merch_spend`, `other_revenue`,
+   * `custom_revenue` — a ticket tier is the one with none). The mapper in
+   * `routes/settlement.ts` owns that translation; the engine reads this.
+   *
+   * Absent is read as `"other"`, so a caller that has not been taught about
+   * ticket lines yet produces a door base of zero rather than silently splitting
+   * the bar.
+   */
+  revenueKind?: "ticket" | "other";
   collectedBy?: string; // participantId who received the revenue
   paidBy?: string; // participantId who fronted the cost
   payeeParticipantId?: string; // cost on behalf of this party; undefined = external supplier
@@ -209,8 +224,8 @@ export type EntitlementBasis =
   | { kind: "guarantee"; guarantee: bigint }
   /** A fixed amount for the room — settled OFF THE TOP (`deal-order.ts`). */
   | { kind: "rental"; rental: bigint }
-  /** A share of the pool the percentage deals divide. */
-  | { kind: "door_split"; basisPoints: number; pool: bigint }
+  /** A share of GROSS TICKET REVENUE — the door (#23.1). `base` is what it was a share of. */
+  | { kind: "door_split"; basisPoints: number; base: bigint }
   /** Whichever of the two was larger, and which one won. */
   | {
       kind: "guarantee_vs_door";
@@ -218,7 +233,7 @@ export type EntitlementBasis =
       guarantee: bigint;
       door: bigint;
       basisPoints: number;
-      pool: bigint;
+      base: bigint;
     }
   /** A paper-only agreement: signed, recorded, never computed. */
   | { kind: "paper" };
@@ -250,11 +265,17 @@ export interface EntitlementLine {
  * the operator's view of the night, and the number every percentage below it is
  * taken from.
  *
- * `splitPool` is what the industry calls **adjusted net** and what the reference
- * app called `adjustedNet` (`../showme-settle-fast/src/lib/models.ts:368`). It is
- * derived inside `reconcile()` either way; returning it is what stops a settlement
- * reading as an arbitrary set of figures, because a 20% line that does not name
- * the number it is 20% OF cannot be checked by the party being paid it.
+ * SINCE #23.1 THIS LADDER NO LONGER ENDS AT THE SPLIT BASE. A percentage deal is
+ * a share of `doorBase` — gross ticket revenue — which sits outside the ladder
+ * entirely because no cost reaches it. The ladder still describes the operator's
+ * own position: what came in, what nobody was charged for, and what is therefore
+ * left to become their residual once every deal has claimed.
+ *
+ * `offTheTop` and `splitPool` survive as fields and are now always `0` and
+ * `pool`. Rentals stopped shrinking anything the moment the split stopped being
+ * a share of the pool (ClickUp 86cba8wfk), and the fields are kept only so the
+ * stored snapshots and the API response shape do not change under readers that
+ * have not been taught about the door yet.
  *
  * `costs` is only the share of the cost lines that nobody was charged for.
  * Costs borne by a named party never touch the pool — they come off that party's
@@ -265,8 +286,13 @@ export interface PoolLadder {
   costs: bigint;
   /** `revenue − costs`. */
   pool: bigint;
-  /** Σ of the off-the-top deals (rentals), settled before the rest divide. */
+  /** Always `0` since #23.1 — nothing is taken off the top any more. */
   offTheTop: bigint;
-  /** `pool − offTheTop` — the adjusted net every percentage deal is a share of. */
+  /** Always equal to `pool` since #23.1. Kept for the stored snapshot's shape. */
   splitPool: bigint;
+  /**
+   * GROSS TICKET REVENUE — what every percentage deal is actually a share of
+   * (#23.1). Deliberately not derived from `pool`: costs never reach it.
+   */
+  doorBase: bigint;
 }

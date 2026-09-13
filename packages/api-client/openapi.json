@@ -6224,9 +6224,19 @@
                         },
                         "splitPool": {
                           "type": "string"
+                        },
+                        "doorBase": {
+                          "type": "string"
                         }
                       },
-                      "required": ["revenue", "costs", "pool", "offTheTop", "splitPool"],
+                      "required": [
+                        "revenue",
+                        "costs",
+                        "pool",
+                        "offTheTop",
+                        "splitPool",
+                        "doorBase"
+                      ],
                       "additionalProperties": false
                     },
                     "breakdowns": {
@@ -6306,7 +6316,7 @@
                                         "basisPoints": {
                                           "type": "number"
                                         },
-                                        "pool": {
+                                        "base": {
                                           "type": "string"
                                         }
                                       },
@@ -6333,7 +6343,7 @@
                                         "basisPoints": {
                                           "type": "number"
                                         },
-                                        "pool": {
+                                        "base": {
                                           "type": "string"
                                         }
                                       },
@@ -6952,7 +6962,7 @@
                                             "basisPoints": {
                                               "type": "number"
                                             },
-                                            "pool": {
+                                            "base": {
                                               "type": "string"
                                             }
                                           },
@@ -6979,7 +6989,7 @@
                                             "basisPoints": {
                                               "type": "number"
                                             },
-                                            "pool": {
+                                            "base": {
                                               "type": "string"
                                             }
                                           },
@@ -7181,9 +7191,19 @@
                         },
                         "splitPool": {
                           "type": "string"
+                        },
+                        "doorBase": {
+                          "type": "string"
                         }
                       },
-                      "required": ["revenue", "costs", "pool", "offTheTop", "splitPool"],
+                      "required": [
+                        "revenue",
+                        "costs",
+                        "pool",
+                        "offTheTop",
+                        "splitPool",
+                        "doorBase"
+                      ],
                       "additionalProperties": false,
                       "nullable": true
                     },
@@ -7394,7 +7414,7 @@
                                       "basisPoints": {
                                         "type": "number"
                                       },
-                                      "pool": {
+                                      "base": {
                                         "type": "string"
                                       }
                                     },
@@ -7421,7 +7441,7 @@
                                       "basisPoints": {
                                         "type": "number"
                                       },
-                                      "pool": {
+                                      "base": {
                                         "type": "string"
                                       }
                                     },

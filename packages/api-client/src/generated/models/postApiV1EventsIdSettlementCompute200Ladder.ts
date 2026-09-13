@@ -11,4 +11,5 @@ export type PostApiV1EventsIdSettlementCompute200Ladder = {
   pool: string;
   offTheTop: string;
   splitPool: string;
+  doorBase: string;
 };

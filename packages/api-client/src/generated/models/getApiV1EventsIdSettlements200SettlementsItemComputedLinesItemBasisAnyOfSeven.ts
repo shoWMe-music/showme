@@ -13,5 +13,5 @@ export type GetApiV1EventsIdSettlements200SettlementsItemComputedLinesItemBasisA
   guarantee: string;
   door?: string;
   basisPoints: number;
-  pool?: string;
+  base?: string;
 };

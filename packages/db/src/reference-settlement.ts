@@ -139,12 +139,19 @@ export const REFERENCE_DOOR_SPLIT_TERMS = {
 export const REFERENCE_DOOR_SPLIT_SHARES = {
   headlinerBasisPoints: 6_000, // Marlo Vance — 60.00%
   supportBasisPoints: 4_000, // Neon Tide — 40.00%
-  headlinerAmount: 3_000_000n, // 30 000.00 SEK at the reference pool
-  supportAmount: 2_000_000n, // 20 000.00 SEK at the reference pool
+  // Quoted at the DOOR since #23.1, not at the pool: 60% and 40% of the 83 000
+  // gross ticket revenue. Under the pool model these were 30 000 and 20 000 —
+  // 60/40 of the 50 000 left after the 33 000 of costs. The costs now land on the
+  // operator alone, which is what a gross door deal means.
+  headlinerAmount: 4_980_000n, // 49 800.00 SEK — 60% of the door
+  supportAmount: 3_320_000n, // 33 200.00 SEK — 40% of the door
 } as const;
 
-/** The reference pool the door split's signed per-line amounts are quoted at. */
+/** Revenue less the costs nobody was charged for — the operator's residual base. */
 export const REFERENCE_DOOR_SPLIT_POOL = 5_000_000n; // 50 000.00 SEK
+
+/** Gross ticket revenue on the same event — what the percentages divide (#23.1). */
+export const REFERENCE_DOOR_SPLIT_DOOR = 8_300_000n; // 83 000.00 SEK
 
 /**
  * The dev seed's flat guarantee on the upcoming album release — one payee, no split.
@@ -467,6 +474,16 @@ export function referenceSettlementInput(spine: ReferenceEventSpine): Settlement
     // the same rows said another — which is the exact drift (A-01) this fixture
     // exists to catch, caught this time by the fixture itself.
     label: line.label,
+    // AND SO DOES THE REVENUE KIND, for exactly the same reason (#23.1). A
+    // percentage deal is a share of the door, so a revenue line the engine cannot
+    // recognise as ticket income contributes nothing to the base — and the
+    // performer silently falls back to the guarantee. The route decides this from
+    // `details.basis` (`isTicketRevenueLine`); the reference lines carry no
+    // `details`, which is what a ticket tier looks like, so they are the door.
+    //
+    // This fixture caught the omission the first time it was written: the route
+    // computed 70% of 78 000 while the fixture computed 70% of nothing.
+    ...(line.kind === "revenue" ? { revenueKind: "ticket" as const } : {}),
     collectedBy: line.collectedBy,
     paidBy: line.paidBy,
     payeeParticipantId: line.payeeParticipantId,

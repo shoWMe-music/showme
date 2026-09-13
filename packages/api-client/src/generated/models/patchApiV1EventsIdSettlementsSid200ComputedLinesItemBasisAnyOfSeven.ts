@@ -13,5 +13,5 @@ export type PatchApiV1EventsIdSettlementsSid200ComputedLinesItemBasisAnyOfSeven 
   guarantee: string;
   door?: string;
   basisPoints: number;
-  pool?: string;
+  base?: string;
 };

@@ -175,16 +175,20 @@ export function describeBasis(basis: EntitlementLine["basis"], currency: string)
     case "rental":
       return `Rental of ${formatMoney(basis.rental, currency)}, settled off the top`;
     case "door_split":
-      // The pool is redacted for a party who may not read it (story.md:44), so the
-      // sentence names the RULE and drops the base rather than printing a hole.
-      // Their own percentage is theirs and is never redacted.
-      return basis.pool == null
-        ? `${basisPointsToPercent(basis.basisPoints)}% of the adjusted net`
-        : `${basisPointsToPercent(basis.basisPoints)}% of the adjusted net ${formatMoney(basis.pool, currency)}`;
+      // The base is redacted for a party who may not read the event's takings
+      // (story.md:44), so the sentence names the RULE and drops the figure rather
+      // than printing a hole. Their own percentage is theirs and is never redacted.
+      //
+      // "the door", not "the adjusted net": since #23.1 a percentage is a share of
+      // GROSS ticket revenue, and the old wording told every party that costs had
+      // already come off the number they were being paid a share of.
+      return basis.base == null
+        ? `${basisPointsToPercent(basis.basisPoints)}% of the door`
+        : `${basisPointsToPercent(basis.basisPoints)}% of the door ${formatMoney(basis.base, currency)}`;
     case "guarantee_vs_door":
       return basis.won === "door"
-        ? `${basisPointsToPercent(basis.basisPoints)}% of the adjusted net beats the ${formatMoney(basis.guarantee, currency)} guarantee`
-        : `The ${formatMoney(basis.guarantee, currency)} guarantee beats ${basisPointsToPercent(basis.basisPoints)}% of the adjusted net`;
+        ? `${basisPointsToPercent(basis.basisPoints)}% of the door beats the ${formatMoney(basis.guarantee, currency)} guarantee`
+        : `The ${formatMoney(basis.guarantee, currency)} guarantee beats ${basisPointsToPercent(basis.basisPoints)}% of the door`;
     default:
       return "A paper agreement — nothing for the settlement to compute";
   }
@@ -309,18 +313,17 @@ export interface LadderRow {
   value: string;
   /** Money coming OFF the running figure — rendered as a subtraction. */
   negative?: boolean;
-  /** The adjusted net: the figure every percentage below it is a share of. */
+  /** The figure every percentage is a share of — rendered as the emphatic rung. */
   total?: boolean;
 }
 
 /**
- * Gross takings → adjusted net, the five rungs the engine already computed.
+ * Gross takings → the pool, plus the door the percentages divide.
  *
  * This is the prototype's "Revenue & deductions" totals block, and it is the whole
  * reason a settlement reads as arithmetic rather than as an assertion: without the
- * base, "70% of the adjusted net" names a rule nobody can check. `splitPool` is
- * that base — the reference app called it `adjustedNet` — and `offTheTop` is the
- * rentals that settled before the percentage deals divided what was left.
+ * base, "70% of the door" names a rule nobody can check. `doorBase` is that base —
+ * gross ticket revenue since #23.1, which is why no cost above it reaches it.
  *
  * OPERATOR ONLY, and the caller does not choose: the route serves `ladder: null`
  * to anyone without `budget.view` (story.md:44), so a party who may not read the
@@ -367,16 +370,23 @@ export function ladderRows(
      * over that says what guessing costs.
      */
     { key: "pool", label: "Left to divide (the pool)", value: formatAmount(ladder.pool) },
+    /**
+     * THE DOOR, and it is deliberately the last rung even though nothing above it
+     * feeds it (#23.1). A percentage deal is a share of gross ticket revenue, so
+     * the number that makes "70% of the door" checkable does not come off the
+     * bottom of the ladder — it sits beside it, untouched by the costs the two
+     * rungs above describe. Printing it here is what stops a reader assuming the
+     * percentage applies to the pool directly above.
+     *
+     * It replaces two rungs that #23.1 emptied: "Rentals settled off the top",
+     * which is now always zero, and "Adjusted net", which is now just the pool
+     * under a second name. Leaving a live-looking row at a constant zero is worse
+     * than not drawing it.
+     */
     {
-      key: "off-the-top",
-      label: "Rentals settled off the top",
-      value: formatAmount(ladder.offTheTop),
-      negative: true,
-    },
-    {
-      key: "split-pool",
-      label: "Adjusted net",
-      value: formatAmount(ladder.splitPool),
+      key: "door-base",
+      label: "The door (what percentages divide)",
+      value: formatAmount(ladder.doorBase),
       total: true,
     },
   ];

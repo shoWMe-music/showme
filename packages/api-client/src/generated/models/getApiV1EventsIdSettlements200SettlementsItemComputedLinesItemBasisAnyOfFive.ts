@@ -9,5 +9,5 @@ import type { GetApiV1EventsIdSettlements200SettlementsItemComputedLinesItemBasi
 export type GetApiV1EventsIdSettlements200SettlementsItemComputedLinesItemBasisAnyOfFive = {
   kind: GetApiV1EventsIdSettlements200SettlementsItemComputedLinesItemBasisAnyOfFiveKind;
   basisPoints: number;
-  pool?: string;
+  base?: string;
 };

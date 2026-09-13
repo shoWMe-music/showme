@@ -43,9 +43,19 @@ export function reconcile(input: SettlementInput): SettlementResult {
   //    step 3. The two halves always sum to the line, which is what keeps `Σ net = 0`
   //    true whether a cost is shared, deducted from one party, or split between
   //    several (the 2026-08 meeting's "either a cost split or a single payer").
-  const revenue = sumBigint(
-    budgetLines.filter((line) => line.kind === "revenue").map((line) => line.amount),
+  const revenueLines = budgetLines.filter((line) => line.kind === "revenue");
+  const revenue = sumBigint(revenueLines.map((line) => line.amount));
+  /**
+   * THE DOOR — gross ticket revenue, and what every percentage deal is a
+   * percentage of (#23.1). Costs do not reach it: a door deal pays its share of
+   * the door whatever the night cost, and the operator absorbs overruns alone.
+   * That is what makes a deduction the only route by which a cost reaches a
+   * performer.
+   */
+  const doorBase = sumBigint(
+    revenueLines.filter((line) => line.revenueKind === "ticket").map((line) => line.amount),
   );
+  const bases = { doorBase, grossRevenue: revenue };
   const bearings = budgetLines.map((line) => costBearingOf(line));
   const externalCosts = sumBigint(bearings.map((bearing) => bearing.poolShare));
   const pool = revenue - externalCosts;
@@ -77,10 +87,10 @@ export function reconcile(input: SettlementInput): SettlementResult {
     map.set(participantId, (map.get(participantId) ?? 0n) + amount);
   };
 
-  /** Settle one deal against the pool it divides; returns what it claims in total. */
-  const settleDeal = (deal: SettlementDeal, poolForDeal: bigint): bigint => {
+  /** Settle one deal against the gross bases; returns what it claims in total. */
+  const settleDeal = (deal: SettlementDeal): bigint => {
     if (deal.payeeParticipantIds.length === 0) return 0n;
-    const settled = dealEntitlementDetailed(deal, poolForDeal, ticketsSold);
+    const settled = dealEntitlementDetailed(deal, bases, ticketsSold);
     const total = settled.amount;
     const weights = deal.payeeParticipantIds.map((payee) => {
       const share = deal.partyShares?.[payee];
@@ -122,18 +132,24 @@ export function reconcile(input: SettlementInput): SettlementResult {
     return total;
   };
 
-  // OFF THE TOP FIRST. A rental is settled before the percentage deals and reduces
-  // the pool they divide (`deal-order.ts` for the rule and why it is rentals only) —
-  // 10 000 pool, 2 000 rental, 50% door → the performer takes half of 8 000, not
-  // half of 10 000. Off-the-top deals themselves are computed against the FULL pool:
-  // they are fixed amounts, and the operator's residual is still `pool − Σ everyone`,
-  // so `Σ net = 0` is unaffected by the ordering — only the DISTRIBUTION moves.
-  let splitPool = pool;
+  /**
+   * ORDER STILL RUNS RENTALS FIRST, BUT IT NO LONGER MOVES MONEY (#23.1).
+   *
+   * A rental used to come OFF THE TOP and shrink the pool the percentage deals
+   * divided — 10 000 pool, 2 000 rental, 50% door meant half of 8 000, not half
+   * of 10 000 (ClickUp 86cba8wfk, `deal-order.ts`). That rule only had meaning
+   * while a split was a share of the POOL. It is now a share of the DOOR, which
+   * nothing is subtracted from, so a rental is simply one more entitlement and
+   * the operator's residual absorbs it.
+   *
+   * `Σ net = 0` is untouched either way: the residual below is DEFINED as
+   * `pool − Σ entitlements`, so whatever the deals claim, the remainder balances.
+   */
   for (const deal of deals) {
-    if (isOffTheTop(deal)) splitPool -= settleDeal(deal, pool);
+    if (isOffTheTop(deal)) settleDeal(deal);
   }
   for (const deal of deals) {
-    if (!isOffTheTop(deal)) settleDeal(deal, splitPool);
+    if (!isOffTheTop(deal)) settleDeal(deal);
   }
 
   // 2b. Operator residual = pool − Σ all deal entitlements, allocated across operators.
@@ -270,8 +286,11 @@ export function reconcile(input: SettlementInput): SettlementResult {
       revenue,
       costs: externalCosts,
       pool,
-      offTheTop: pool - splitPool,
-      splitPool,
+      // Both constant since #23.1 — see `PoolLadder`. The figure that matters to
+      // a percentage line is `doorBase`, and it is not derived from the pool.
+      offTheTop: 0n,
+      splitPool: pool,
+      doorBase,
     },
     breakdowns,
     transfers: greedyTransfers(breakdowns),

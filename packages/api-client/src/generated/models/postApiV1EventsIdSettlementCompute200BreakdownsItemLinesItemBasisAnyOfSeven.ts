@@ -13,5 +13,5 @@ export type PostApiV1EventsIdSettlementCompute200BreakdownsItemLinesItemBasisAny
   guarantee: string;
   door?: string;
   basisPoints: number;
-  pool?: string;
+  base?: string;
 };

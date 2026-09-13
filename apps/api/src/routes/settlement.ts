@@ -68,15 +68,19 @@ const TransferParams = z.object({ id: z.string().uuid(), tid: z.string().uuid() 
 const BasisResponse = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("guarantee"), guarantee: z.string() }),
   z.object({ kind: z.literal("rental"), rental: z.string() }),
-  // `pool` and `door` are OPTIONAL because they are the pool, and a party row is
-  // redacted of it unless the route has checked the caller may read the pool
-  // (`redactPool` in `../serialize/settlement`). The party's own terms — the
-  // percentage, the guarantee, which side won — are never redacted, so the line
-  // still states its rule even when it cannot state the base.
+  // `base` and `door` are OPTIONAL because between them they give away the
+  // event's takings, and a party row is redacted of them unless the route has
+  // checked the caller may read the pool (`redactPool` in
+  // `../serialize/settlement`). The party's own terms — the percentage, the
+  // guarantee, which side won — are never redacted, so the line still states its
+  // rule even when it cannot state the base.
+  //
+  // `base` WAS `pool`: since #23.1 a percentage is a share of gross ticket
+  // revenue, not of the adjusted net.
   z.object({
     kind: z.literal("door_split"),
     basisPoints: z.number(),
-    pool: z.string().optional(),
+    base: z.string().optional(),
   }),
   z.object({
     kind: z.literal("guarantee_vs_door"),
@@ -84,7 +88,7 @@ const BasisResponse = z.discriminatedUnion("kind", [
     guarantee: z.string(),
     door: z.string().optional(),
     basisPoints: z.number(),
-    pool: z.string().optional(),
+    base: z.string().optional(),
   }),
   z.object({ kind: z.literal("paper") }),
 ]);
@@ -111,9 +115,12 @@ const LadderResponse = z.object({
   costs: z.string(),
   pool: z.string(),
   /** Σ of the rentals settled before the percentage deals divide what is left. */
+  /** Always "0" since #23.1 — nothing is taken off the top. */
   offTheTop: z.string(),
-  /** `pool − offTheTop` — the adjusted net every percentage is a share of. */
+  /** Always equal to `pool` since #23.1. Kept so the response shape is stable. */
   splitPool: z.string(),
+  /** Gross ticket revenue — what every percentage deal is a share of (#23.1). */
+  doorBase: z.string(),
 });
 
 const BreakdownResponse = z.object({
@@ -668,6 +675,9 @@ async function reconcileEvent(
       paidBy: schema.settlementLines.paidBy,
       payeeParticipantId: schema.settlementLines.payeeParticipantId,
       costSplit: schema.settlementLines.costSplit,
+      // Read for one reason: telling a ticket tier from the bar (#23.1). See
+      // `isTicketRevenueLine`.
+      details: schema.settlementLines.details,
       dealId: schema.settlementLines.dealId,
     })
     .from(schema.settlementLines)
@@ -812,6 +822,21 @@ async function reconcileEvent(
     .map((line) => ({
       kind: line.kind,
       amount: toBase(line.amount, line.currency),
+      // WHICH REVENUE IS THE DOOR (#23.1). A percentage deal is a percentage of
+      // gross ticket revenue, so the engine has to be able to tell a ticket tier
+      // from the bar — and every revenue row is otherwise just a label and an
+      // amount. The planner already draws that line with `details.basis`, which
+      // it sets on the rows that are NOT tiers (`useBudgetEditor`): the bar
+      // estimate, the merch estimate, the standing other-revenue row and every
+      // free-form custom row. A ticket tier is the one with no basis at all.
+      //
+      // Reading it here rather than in the engine keeps the convention at the
+      // boundary where DB shape becomes engine input. If it ever needs to be
+      // queried across, it is promoted to a column; until then a second source
+      // of truth would be the drift this rebuild exists to delete.
+      ...(line.kind === "revenue"
+        ? { revenueKind: isTicketRevenueLine(line) ? ("ticket" as const) : ("other" as const) }
+        : {}),
       // Carried purely so a short entitlement can name the costs that shortened
       // it. Nothing in the engine computes with it.
       label: line.label,
@@ -826,6 +851,23 @@ async function reconcileEvent(
   assertBalanced(result);
 
   return { result, baseCurrency, rates };
+}
+
+/**
+ * The non-tier revenue bases the planner stamps on `budget_lines.details`. Kept
+ * as a list of what a tier is NOT, because that is how the planner decides too —
+ * see `useBudgetEditor`'s `barLine` / `merchLine` / `otherRevenueLine` lookups.
+ */
+const NON_TICKET_REVENUE_BASES = new Set([
+  "bar_spend",
+  "merch_spend",
+  "other_revenue",
+  "custom_revenue",
+]);
+
+function isTicketRevenueLine(line: { details: unknown }): boolean {
+  const basis = (line.details as { basis?: string } | null)?.basis;
+  return basis == null || !NON_TICKET_REVENUE_BASES.has(basis);
 }
 
 /** The participant ids the caller's profiles hold on one event. */
@@ -1193,6 +1235,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
                 pool: result.ladder.pool.toString(),
                 offTheTop: result.ladder.offTheTop.toString(),
                 splitPool: result.ladder.splitPool.toString(),
+                doorBase: result.ladder.doorBase.toString(),
               },
               breakdowns: result.breakdowns.map(serializeBreakdown),
               transfers: result.transfers.map((transfer) => ({
@@ -1436,8 +1479,8 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
 
       return {
         settlements: visibleSettlements.map((row) => ({
-          // Same gate as `ladder` below, for the same figure: `basis.pool` IS
-          // `ladder.splitPool`, and `door / basisPoints` recovers it. Withholding
+          // Same gate as `ladder` below, for the same figure: `basis.base` IS
+          // `ladder.doorBase`, and `door / basisPoints` recovers it. Withholding
           // one while serving the other would be a ceiling that only looks closed.
           ...serializeSettlement(row, { includePool: capabilities.has("budget.view") }),
           isYours: mine.has(row.participantId as string),

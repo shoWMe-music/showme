@@ -9,5 +9,5 @@ import type { PatchApiV1EventsIdSettlementsSid200ComputedLinesItemBasisAnyOfFive
 export type PatchApiV1EventsIdSettlementsSid200ComputedLinesItemBasisAnyOfFive = {
   kind: PatchApiV1EventsIdSettlementsSid200ComputedLinesItemBasisAnyOfFiveKind;
   basisPoints: number;
-  pool?: string;
+  base?: string;
 };

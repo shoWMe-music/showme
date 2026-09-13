@@ -68,25 +68,29 @@ export interface SerializedEntitlementLine {
 /**
  * `EntitlementBasis` with its money as strings — same discriminants.
  *
- * `pool` and `door` are OPTIONAL, and only because this type is transported as
+ * `base` and `door` are OPTIONAL, and only because this type is transported as
  * well as persisted. As WRITTEN they are always present — `serializeBasis` below
  * fills every operand the engine compared. On the way OUT to a party who may not
- * read the pool, the API redacts exactly these two (`redactPool` in
- * `apps/api/src/serialize/settlement.ts`): `pool` IS the adjusted net, and
- * `door / basisPoints` hands it straight back. A reader must therefore cope with
- * their absence, which is what making them optional says.
+ * read the whole night's takings, the API redacts exactly these two (`redactPool`
+ * in `apps/api/src/serialize/settlement.ts`), because `door / basisPoints` hands
+ * the base straight back. A reader must therefore cope with their absence, which
+ * is what making them optional says.
+ *
+ * `base` WAS `pool` and the rename is the point (#23.1): it is gross ticket
+ * revenue, not the adjusted net, and a field still called `pool` would keep
+ * telling every future reader that costs had already come off it.
  */
 export type SerializedBasis =
   | { kind: "guarantee"; guarantee: string }
   | { kind: "rental"; rental: string }
-  | { kind: "door_split"; basisPoints: number; pool?: string }
+  | { kind: "door_split"; basisPoints: number; base?: string }
   | {
       kind: "guarantee_vs_door";
       won: "guarantee" | "door";
       guarantee: string;
       door?: string;
       basisPoints: number;
-      pool?: string;
+      base?: string;
     }
   | { kind: "paper" };
 
@@ -97,6 +101,7 @@ export interface SerializedLadder {
   pool: string;
   offTheTop: string;
   splitPool: string;
+  doorBase: string;
 }
 
 /** Turn the pool ladder into its JSON-safe (string money) form. */
@@ -107,6 +112,7 @@ export function serializeLadder(ladder: PoolLadder): SerializedLadder {
     pool: ladder.pool.toString(),
     offTheTop: ladder.offTheTop.toString(),
     splitPool: ladder.splitPool.toString(),
+    doorBase: ladder.doorBase.toString(),
   };
 }
 
@@ -120,7 +126,7 @@ function serializeBasis(basis: EntitlementBasis): SerializedBasis {
       return {
         kind: "door_split",
         basisPoints: basis.basisPoints,
-        pool: basis.pool.toString(),
+        base: basis.base.toString(),
       };
     case "guarantee_vs_door":
       return {
@@ -129,7 +135,7 @@ function serializeBasis(basis: EntitlementBasis): SerializedBasis {
         guarantee: basis.guarantee.toString(),
         door: basis.door.toString(),
         basisPoints: basis.basisPoints,
-        pool: basis.pool.toString(),
+        base: basis.base.toString(),
       };
     default:
       return { kind: "paper" };

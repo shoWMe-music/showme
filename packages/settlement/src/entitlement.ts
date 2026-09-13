@@ -26,14 +26,31 @@ export interface DealEntitlement {
  * is the total the deal pays its payee(s); allocation across multiple payees and
  * commissions happens in the orchestration.
  */
-export function dealEntitlement(deal: SettlementDeal, pool: bigint, ticketsSold: number): bigint {
-  return dealEntitlementDetailed(deal, pool, ticketsSold).amount;
+/**
+ * The two gross figures a deal can be measured against (#23.1, #23.3). Neither is
+ * the pool: costs do not reach either of them, which is the whole point — a door
+ * deal pays its percentage of the door whatever the night cost, and a threshold
+ * bonus cannot be defeated by spending more.
+ */
+export interface EntitlementBases {
+  /** Gross TICKET revenue. What a percentage deal is a percentage of. */
+  doorBase: bigint;
+  /** Every revenue line, gross. What a threshold bonus is measured against. */
+  grossRevenue: bigint;
+}
+
+export function dealEntitlement(
+  deal: SettlementDeal,
+  bases: EntitlementBases,
+  ticketsSold: number,
+): bigint {
+  return dealEntitlementDetailed(deal, bases, ticketsSold).amount;
 }
 
 /** The same math, keeping the rule it settled under. */
 export function dealEntitlementDetailed(
   deal: SettlementDeal,
-  pool: bigint,
+  bases: EntitlementBases,
   ticketsSold: number,
 ): DealEntitlement {
   switch (deal.structure) {
@@ -56,10 +73,10 @@ export function dealEntitlementDetailed(
       };
     }
     case "door_split": {
-      const door = doorDetail(deal, pool, ticketsSold);
+      const door = doorDetail(deal, bases, ticketsSold);
       return {
         amount: door.amount,
-        basis: { kind: "door_split", basisPoints: door.basisPoints, pool },
+        basis: { kind: "door_split", basisPoints: door.basisPoints, base: bases.doorBase },
         bonus: door.bonus,
         escalatorApplied: door.escalatorApplied,
       };
@@ -67,7 +84,7 @@ export function dealEntitlementDetailed(
     case "guarantee_vs_door": {
       // The performer takes whichever is larger — the classic vs-door protection.
       const guarantee = deal.guaranteeAmount ?? 0n;
-      const door = doorDetail(deal, pool, ticketsSold);
+      const door = doorDetail(deal, bases, ticketsSold);
       const guaranteeWins = guarantee > door.amount;
       return {
         amount: guaranteeWins ? guarantee : door.amount,
@@ -77,7 +94,7 @@ export function dealEntitlementDetailed(
           guarantee,
           door: door.amount,
           basisPoints: door.basisPoints,
-          pool,
+          base: bases.doorBase,
         },
         // A guarantee that beat the door share pays the guarantee and nothing else;
         // the bonus is part of what the door arm offered and loses with it.
@@ -92,7 +109,7 @@ export function dealEntitlementDetailed(
 }
 
 interface DoorDetail {
-  /** The floored share of the pool, plus the bonus if it was earned. */
+  /** The floored share of the door, plus the bonus if it was earned. */
   amount: bigint;
   basisPoints: number;
   bonus: bigint;
@@ -120,12 +137,19 @@ interface DoorDetail {
  * performer whose hotel the venue fronted, or who was advanced more than the night
  * earned, genuinely owes that money back and is not floored.
  */
-function doorDetail(deal: SettlementDeal, pool: bigint, ticketsSold: number): DoorDetail {
+function doorDetail(
+  deal: SettlementDeal,
+  bases: EntitlementBases,
+  ticketsSold: number,
+): DoorDetail {
   const basisPoints = splitBasisPointsForSales(deal, ticketsSold);
-  const share = applyBasisPoints(pool, basisPoints);
+  const share = applyBasisPoints(bases.doorBase, basisPoints);
   let amount = share > 0n ? share : 0n;
   let bonus = 0n;
-  if (deal.bonusThreshold != null && pool >= deal.bonusThreshold) {
+  // GROSS, not the pool (#23.3). A bonus payable on money left after costs is one
+  // the promoter can defeat by spending more, which is why no artist's
+  // representative accepts it and why contracts read "if gross receipts exceed X".
+  if (deal.bonusThreshold != null && bases.grossRevenue >= deal.bonusThreshold) {
     bonus = deal.bonusAmount ?? 0n;
     amount += bonus;
   }

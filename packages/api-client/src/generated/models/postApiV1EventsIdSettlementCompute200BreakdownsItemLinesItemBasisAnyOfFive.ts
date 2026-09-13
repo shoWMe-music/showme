@@ -9,5 +9,5 @@ import type { PostApiV1EventsIdSettlementCompute200BreakdownsItemLinesItemBasisA
 export type PostApiV1EventsIdSettlementCompute200BreakdownsItemLinesItemBasisAnyOfFive = {
   kind: PostApiV1EventsIdSettlementCompute200BreakdownsItemLinesItemBasisAnyOfFiveKind;
   basisPoints: number;
-  pool?: string;
+  base?: string;
 };
