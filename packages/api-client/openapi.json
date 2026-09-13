@@ -3031,6 +3031,41 @@
                         "type": "string",
                         "nullable": true
                       },
+                      "terms": {
+                        "type": "object",
+                        "properties": {
+                          "escalators": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "thresholdSold": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "splitBasisPoints": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 10000
+                                }
+                              },
+                              "required": ["thresholdSold", "splitBasisPoints"],
+                              "additionalProperties": false
+                            },
+                            "maxItems": 10
+                          },
+                          "bonusThreshold": {
+                            "type": "string",
+                            "pattern": "^\\d+$"
+                          },
+                          "bonusAmount": {
+                            "type": "string",
+                            "pattern": "^\\d+$"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "nullable": true
+                      },
                       "version": {
                         "type": "number"
                       },
@@ -3090,6 +3125,7 @@
                       "status",
                       "agreementStatus",
                       "agreementBodyText",
+                      "terms",
                       "version",
                       "parties"
                     ],
@@ -3146,6 +3182,40 @@
                   },
                   "priority": {
                     "type": "integer"
+                  },
+                  "terms": {
+                    "type": "object",
+                    "properties": {
+                      "escalators": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "thresholdSold": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "splitBasisPoints": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 10000
+                            }
+                          },
+                          "required": ["thresholdSold", "splitBasisPoints"],
+                          "additionalProperties": false
+                        },
+                        "maxItems": 10
+                      },
+                      "bonusThreshold": {
+                        "type": "string",
+                        "pattern": "^\\d+$"
+                      },
+                      "bonusAmount": {
+                        "type": "string",
+                        "pattern": "^\\d+$"
+                      }
+                    },
+                    "additionalProperties": false
                   },
                   "parties": {
                     "type": "array",
@@ -3268,6 +3338,41 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "terms": {
+                      "type": "object",
+                      "properties": {
+                        "escalators": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "thresholdSold": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "splitBasisPoints": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000
+                              }
+                            },
+                            "required": ["thresholdSold", "splitBasisPoints"],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 10
+                        },
+                        "bonusThreshold": {
+                          "type": "string",
+                          "pattern": "^\\d+$"
+                        },
+                        "bonusAmount": {
+                          "type": "string",
+                          "pattern": "^\\d+$"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
                     "version": {
                       "type": "number"
                     },
@@ -3327,6 +3432,7 @@
                     "status",
                     "agreementStatus",
                     "agreementBodyText",
+                    "terms",
                     "version",
                     "parties"
                   ],
@@ -3410,6 +3516,41 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "terms": {
+                      "type": "object",
+                      "properties": {
+                        "escalators": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "thresholdSold": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "splitBasisPoints": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000
+                              }
+                            },
+                            "required": ["thresholdSold", "splitBasisPoints"],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 10
+                        },
+                        "bonusThreshold": {
+                          "type": "string",
+                          "pattern": "^\\d+$"
+                        },
+                        "bonusAmount": {
+                          "type": "string",
+                          "pattern": "^\\d+$"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
                     "version": {
                       "type": "number"
                     },
@@ -3469,6 +3610,7 @@
                     "status",
                     "agreementStatus",
                     "agreementBodyText",
+                    "terms",
                     "version",
                     "parties"
                   ],
@@ -3525,6 +3667,41 @@
                   },
                   "priority": {
                     "type": "integer"
+                  },
+                  "terms": {
+                    "type": "object",
+                    "properties": {
+                      "escalators": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "thresholdSold": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "splitBasisPoints": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 10000
+                            }
+                          },
+                          "required": ["thresholdSold", "splitBasisPoints"],
+                          "additionalProperties": false
+                        },
+                        "maxItems": 10
+                      },
+                      "bonusThreshold": {
+                        "type": "string",
+                        "pattern": "^\\d+$"
+                      },
+                      "bonusAmount": {
+                        "type": "string",
+                        "pattern": "^\\d+$"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "nullable": true
                   },
                   "status": {
                     "type": "string",
@@ -3609,6 +3786,41 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "terms": {
+                      "type": "object",
+                      "properties": {
+                        "escalators": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "thresholdSold": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "splitBasisPoints": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000
+                              }
+                            },
+                            "required": ["thresholdSold", "splitBasisPoints"],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 10
+                        },
+                        "bonusThreshold": {
+                          "type": "string",
+                          "pattern": "^\\d+$"
+                        },
+                        "bonusAmount": {
+                          "type": "string",
+                          "pattern": "^\\d+$"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
                     "version": {
                       "type": "number"
                     },
@@ -3668,6 +3880,7 @@
                     "status",
                     "agreementStatus",
                     "agreementBodyText",
+                    "terms",
                     "version",
                     "parties"
                   ],
@@ -3785,6 +3998,41 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "terms": {
+                      "type": "object",
+                      "properties": {
+                        "escalators": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "thresholdSold": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "splitBasisPoints": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000
+                              }
+                            },
+                            "required": ["thresholdSold", "splitBasisPoints"],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 10
+                        },
+                        "bonusThreshold": {
+                          "type": "string",
+                          "pattern": "^\\d+$"
+                        },
+                        "bonusAmount": {
+                          "type": "string",
+                          "pattern": "^\\d+$"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
                     "version": {
                       "type": "number"
                     },
@@ -3844,6 +4092,7 @@
                     "status",
                     "agreementStatus",
                     "agreementBodyText",
+                    "terms",
                     "version",
                     "parties"
                   ],
@@ -3927,6 +4176,41 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "terms": {
+                      "type": "object",
+                      "properties": {
+                        "escalators": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "thresholdSold": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "splitBasisPoints": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000
+                              }
+                            },
+                            "required": ["thresholdSold", "splitBasisPoints"],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 10
+                        },
+                        "bonusThreshold": {
+                          "type": "string",
+                          "pattern": "^\\d+$"
+                        },
+                        "bonusAmount": {
+                          "type": "string",
+                          "pattern": "^\\d+$"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
                     "version": {
                       "type": "number"
                     },
@@ -3986,6 +4270,7 @@
                     "status",
                     "agreementStatus",
                     "agreementBodyText",
+                    "terms",
                     "version",
                     "parties"
                   ],
@@ -4089,6 +4374,41 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "terms": {
+                      "type": "object",
+                      "properties": {
+                        "escalators": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "thresholdSold": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "splitBasisPoints": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000
+                              }
+                            },
+                            "required": ["thresholdSold", "splitBasisPoints"],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 10
+                        },
+                        "bonusThreshold": {
+                          "type": "string",
+                          "pattern": "^\\d+$"
+                        },
+                        "bonusAmount": {
+                          "type": "string",
+                          "pattern": "^\\d+$"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
                     "version": {
                       "type": "number"
                     },
@@ -4148,6 +4468,7 @@
                     "status",
                     "agreementStatus",
                     "agreementBodyText",
+                    "terms",
                     "version",
                     "parties"
                   ],

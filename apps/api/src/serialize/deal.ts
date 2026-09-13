@@ -42,6 +42,12 @@ export interface SerializedDeal {
   guaranteeAmount: string | null;
   advanceAmount: string | null;
   splitBasisPoints: number | null;
+  /**
+   * Escalator tiers and the threshold bonus (ClickUp 123qy9rnwud). Deal-level like
+   * the agreement body: the tiers ARE the agreement, so every party to it reads
+   * the terms it signed. `null` when the deal has neither.
+   */
+  terms: SerializedDealTerms | null;
   paymentTiming: string;
   /** How several disclosed commissions stack — `parallel` | `cascading` (86cba8wmb). */
   commissionMode: string;
@@ -101,6 +107,13 @@ function partyRecord(party: DealPartyRow): DealPartyRecord {
  * override. Money is emitted as a decimal STRING (minor units), never a JS number —
  * the raw `bigint` is stringified at the boundary.
  */
+/** `deals.terms` as it travels — money in minor units as strings (jsonb has no bigint). */
+export interface SerializedDealTerms {
+  escalators?: { thresholdSold: number; splitBasisPoints: number }[];
+  bonusThreshold?: string;
+  bonusAmount?: string;
+}
+
 export function serializeDeal(
   deal: DealRow,
   parties: DealPartyRow[],
@@ -145,6 +158,11 @@ function build(deal: DealRow): Omit<SerializedDeal, "parties"> {
     status: deal.status,
     agreementStatus: deal.agreementStatus,
     agreementBodyText: deal.agreementBodyText ?? null,
+    // Escalator tiers and the threshold bonus (ClickUp 123qy9rnwud). Party-scoped
+    // like everything else here only in the sense that a caller who cannot see the
+    // deal sees none of it — the tiers ARE the agreement, so a party to it reads
+    // the terms it signed.
+    terms: (deal.terms as SerializedDealTerms | null) ?? null,
     version: deal.version,
   };
 }

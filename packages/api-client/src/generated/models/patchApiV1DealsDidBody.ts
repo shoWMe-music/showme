@@ -7,6 +7,7 @@
 import type { PatchApiV1DealsDidBodyStructure } from './patchApiV1DealsDidBodyStructure';
 import type { PatchApiV1DealsDidBodyPaymentTiming } from './patchApiV1DealsDidBodyPaymentTiming';
 import type { PatchApiV1DealsDidBodyCommissionMode } from './patchApiV1DealsDidBodyCommissionMode';
+import type { PatchApiV1DealsDidBodyTerms } from './patchApiV1DealsDidBodyTerms';
 import type { PatchApiV1DealsDidBodyStatus } from './patchApiV1DealsDidBodyStatus';
 
 export type PatchApiV1DealsDidBody = {
@@ -28,6 +29,8 @@ export type PatchApiV1DealsDidBody = {
   paymentTiming?: PatchApiV1DealsDidBodyPaymentTiming;
   commissionMode?: PatchApiV1DealsDidBodyCommissionMode;
   priority?: number;
+  /** @nullable */
+  terms?: PatchApiV1DealsDidBodyTerms;
   status?: PatchApiV1DealsDidBodyStatus;
   expectedVersion?: number;
 };

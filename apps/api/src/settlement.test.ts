@@ -3017,6 +3017,118 @@ describe("settlement — the 2026-08-26 money rules", () => {
     return { event, operator, hostPart, bandPart };
   }
 
+  /**
+   * ESCALATORS AND THE THRESHOLD BONUS, END TO END (ClickUp 123qy9rnwud).
+   *
+   * The engine computed both from the day it was written and neither could ever
+   * fire: no route accepted them, the settlement mapper never read `deals.terms`,
+   * and `ticketsSold` was never populated, so the "highest tier reached" was
+   * always the base split. A unit test on `splitBasisPointsForSales` passed the
+   * whole time. This is the test that would have failed.
+   *
+   * Ran's example, from the ticket: 60/40 until 300 tickets, 70/30 from 300.
+   */
+  it("applies the escalator tier the night reached, and the gross-revenue bonus", async () => {
+    const { db } = harness;
+    const operator = await seedMemberWithSet(
+      "esc-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const band = await seedMemberWithSet("esc-band", "performer", PRESET_PERMISSION_SETS.performer);
+
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: operator.profileId,
+        title: "Escalator Night",
+        baseCurrency: "EUR",
+        createdBy: operator.userId,
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+
+    const [host, performer] = await db
+      .insert(schema.eventParticipants)
+      .values([
+        {
+          eventId: event.id,
+          profileId: operator.profileId,
+          role: "host" as const,
+          permissionSetId: operator.permissionSetId,
+          status: "confirmed" as const,
+        },
+        {
+          eventId: event.id,
+          profileId: band.profileId,
+          role: "performer" as const,
+          permissionSetId: band.permissionSetId,
+          status: "confirmed" as const,
+        },
+      ])
+      .returning();
+    if (!host || !performer) throw new Error("participant seed failed");
+
+    const [deal] = await db
+      .insert(schema.deals)
+      .values({
+        eventId: event.id,
+        type: "performance",
+        structure: "door_split",
+        name: "60/40, escalating at 300",
+        currency: "EUR",
+        splitBasisPoints: 6000,
+        terms: {
+          escalators: [{ thresholdSold: 300, splitBasisPoints: 7000 }],
+          bonusThreshold: "1000000", // 10 000.00 of GROSS revenue
+          bonusAmount: "50000", // 500.00
+        },
+        agreementStatus: "confirmed",
+        status: "confirmed",
+        createdBy: operator.userId,
+      })
+      .returning();
+    if (!deal) throw new Error("deal seed failed");
+    await db.insert(schema.dealParties).values([
+      { dealId: deal.id, participantId: host.id, roleInDeal: "payer" },
+      { dealId: deal.id, participantId: performer.id, roleInDeal: "payee" },
+    ]);
+
+    const [budget] = await db.insert(schema.budgets).values({ eventId: event.id }).returning();
+    if (!budget) throw new Error("budget seed failed");
+    await db.insert(schema.budgetLines).values([
+      {
+        budgetId: budget.id,
+        kind: "revenue" as const,
+        label: "General admission",
+        amount: 1_200_000n, // 12 000.00 across 400 tickets at 30.00
+        currency: "EUR",
+        collectedBy: host.id,
+        details: { basis: "ticket_tier", unitAmount: "3000", quantity: 400 },
+      },
+    ]);
+
+    const response = await compute(event.id, operator.userId);
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    const line = body.breakdowns
+      .flatMap((row: { lines?: { basis: { basisPoints?: number } }[] }) => row.lines ?? [])
+      .find((entry: { basis: { kind: string } }) => entry.basis.kind === "door_split");
+
+    // 400 sold clears the 300 tier, so the split is 70% and not the base 60%.
+    expect(line.basis.basisPoints).toBe(7000);
+    expect(line.escalatorApplied).toBe(true);
+    // 70% of the 12 000 door = 8 400, plus the 500 bonus the 12 000 gross earned.
+    expect(line.bonus).toBe("50000");
+    expect(line.amount).toBe("890000");
+
+    // And the same figures survive the round trip the operator actually reads.
+    expect(
+      body.breakdowns.find((row: { participantId: string }) => row.participantId === performer.id)
+        ?.entitlement,
+    ).toBe("890000");
+  });
+
   it("pays the act its share of the door and leaves the whole loss with the operator", async () => {
     const seed = await seedLossMakingDoorSplit("floor", false);
 

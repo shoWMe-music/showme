@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { GetApiV1EventsIdDeals200ItemTerms } from './getApiV1EventsIdDeals200ItemTerms';
 import type { GetApiV1EventsIdDeals200ItemPartiesItem } from './getApiV1EventsIdDeals200ItemPartiesItem';
 
 export type GetApiV1EventsIdDeals200Item = {
@@ -28,6 +29,8 @@ export type GetApiV1EventsIdDeals200Item = {
   agreementStatus: string;
   /** @nullable */
   agreementBodyText: string | null;
+  /** @nullable */
+  terms: GetApiV1EventsIdDeals200ItemTerms;
   version: number;
   parties: GetApiV1EventsIdDeals200ItemPartiesItem[];
 };

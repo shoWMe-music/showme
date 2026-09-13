@@ -106,6 +106,46 @@ const DealPartyInput = z.object({
   share: DealPartyShare.optional(),
 });
 
+/**
+ * THE TERMS THE ENGINE COULD ALREADY SETTLE BUT NOBODY COULD WRITE.
+ *
+ * `splitBasisPointsForSales()` has sorted escalator tiers and `doorDetail()` has
+ * applied a threshold bonus since the engine was written, with tests on both —
+ * and neither could ever fire, because no route accepted them and the settlement
+ * mapper never read them. `routes/settlement.ts` even serialized
+ * `escalatorApplied`, and `settlementDocument.ts` rendered "Includes the bonus
+ * and the escalator tier the night reached": a label that could not be true.
+ * ClickUp 123qy9rnwud reports it as missing; it was unreachable.
+ *
+ * Stored in `deals.terms`, which the schema has named "escalator tiers, bonus,
+ * commissions" all along. Money is minor units as a STRING inside jsonb, the same
+ * spelling `deal_parties.share.illustrativeAmount` uses — jsonb has no bigint and
+ * a number would round a large guarantee.
+ */
+const DealTermsBody = z.object({
+  /**
+   * Tiers that REPLACE the base split once ticket sales reach them — Ran's
+   * "60/40 until 300 tickets, 70/30 from 300, 80/20 from 900" (123qy9rnwud).
+   * The highest tier reached wins; the engine sorts, so order here is free.
+   */
+  escalators: z
+    .array(
+      z.object({
+        thresholdSold: z.number().int().nonnegative(),
+        splitBasisPoints: z.number().int().min(0).max(10_000),
+      }),
+    )
+    .max(10)
+    .optional(),
+  /**
+   * A flat bonus once GROSS revenue reaches this (#23.3 — never the pool, which a
+   * promoter could defeat by spending more). Both halves or neither: a threshold
+   * with no amount pays nothing and an amount with no threshold would pay always.
+   */
+  bonusThreshold: z.string().regex(/^\d+$/).optional(),
+  bonusAmount: z.string().regex(/^\d+$/).optional(),
+});
+
 const CreateDealBody = z.object({
   type: dealTypeEnum,
   structure: dealStructureEnum.optional(),
@@ -125,6 +165,8 @@ const CreateDealBody = z.object({
   paymentTiming: paymentTimingEnum.optional(),
   commissionMode: commissionModeEnum.optional(),
   priority: z.number().int().optional(),
+  /** Escalator tiers and a threshold bonus — see `DealTermsBody`. */
+  terms: DealTermsBody.optional(),
   parties: z.array(DealPartyInput).min(1),
 });
 
@@ -166,6 +208,8 @@ const UpdateDealBody = z.object({
   paymentTiming: paymentTimingEnum.optional(),
   commissionMode: commissionModeEnum.optional(),
   priority: z.number().int().optional(),
+  /** Replaces the stored terms wholesale; `null` clears them. */
+  terms: DealTermsBody.nullable().optional(),
   /**
    * `draft` or `cancelled` only — see the guard in the handler. `confirmed` is
    * derived from the parties' signatures and is refused here.
@@ -203,6 +247,8 @@ const DealResponse = z.object({
   agreementStatus: z.string(),
   /** The terms & conditions text, or null when none has been written. */
   agreementBodyText: z.string().nullable(),
+  /** Escalator tiers and the threshold bonus, or null when the deal has neither. */
+  terms: DealTermsBody.nullable(),
   version: z.number(),
   parties: z.array(DealPartyResponse),
 });
@@ -397,6 +443,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
                 paymentTiming: body.paymentTiming,
                 commissionMode: body.commissionMode,
                 priority: body.priority,
+                terms: body.terms,
                 createdBy: principal.userId,
               })
               .returning();

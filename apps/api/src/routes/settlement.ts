@@ -9,6 +9,7 @@ import {
   settlementRecipients,
 } from "@showme/db/notify";
 import {
+  type EscalatorTier,
   type SettlementBudgetLine,
   type SettlementDeal,
   type SettlementInput,
@@ -794,6 +795,17 @@ async function reconcileEvent(
       guaranteeAmount:
         deal.guaranteeAmount != null ? toBase(deal.guaranteeAmount, deal.currency) : undefined,
       splitBasisPoints: deal.splitBasisPoints ?? undefined,
+      // ESCALATORS AND THE THRESHOLD BONUS (ClickUp 123qy9rnwud). The engine has
+      // computed both since it was written — `splitBasisPointsForSales()` picks the
+      // highest tier ticket sales reached, `doorDetail()` adds the bonus — and
+      // until this line neither could fire, because nothing populated them. The
+      // route serialized `escalatorApplied` and the settlement document rendered a
+      // label for it that could never be true.
+      //
+      // `deals.terms` is where the schema has always said they live. Money arrives
+      // as minor-unit strings in the deal's own currency, so it converts like every
+      // other figure crossing this boundary.
+      ...dealTermsForEngine(deal.terms, deal.currency, toBase),
       partyShares: hasShares ? partyShares : undefined,
       commissions: commissions.length > 0 ? commissions : undefined,
       // How those commissions stack, from the AGREEMENT rather than a global rule
@@ -846,11 +858,72 @@ async function reconcileEvent(
       costSplit: (line.costSplit as Record<string, number> | null) ?? undefined,
     }));
 
-  const input: SettlementInput = { baseCurrency, participants, deals, budgetLines };
+  /**
+   * HOW MANY TICKETS THE NIGHT ACTUALLY SOLD — what escalator tiers are measured
+   * against (`splitBasisPointsForSales`). Without it the engine saw 0 on every
+   * event and the highest tier reached was always the base split, so a deal could
+   * carry tiers and still never leave 60/40.
+   *
+   * Counted off the tier rows' own `details.quantity`, the figure the planner
+   * writes when the operator states a tier and the settlement corrects after the
+   * show. A line with no quantity contributes nothing rather than guessing one
+   * from the amount: two tiers at different prices cannot be recovered from a
+   * total, and a wrong count moves a tier boundary.
+   */
+  const ticketsSold = lineRows
+    .filter((line) => line.kind === "revenue" && isTicketRevenueLine(line))
+    .reduce((total, line) => total + ticketQuantityOf(line.details), 0);
+
+  const input: SettlementInput = {
+    baseCurrency,
+    participants,
+    deals,
+    budgetLines,
+    ticketsSold,
+  };
   const result = reconcile(input);
   assertBalanced(result);
 
   return { result, baseCurrency, rates };
+}
+
+/** A tier row's quantity, or 0 when the line does not state one. */
+function ticketQuantityOf(details: unknown): number {
+  const quantity = (details as { quantity?: unknown } | null)?.quantity;
+  return typeof quantity === "number" && Number.isFinite(quantity) && quantity > 0
+    ? Math.trunc(quantity)
+    : 0;
+}
+
+/**
+ * `deals.terms` → the engine's escalator and bonus inputs.
+ *
+ * A threshold with no amount pays nothing and an amount with no threshold would
+ * pay on every night, so both halves travel together or neither does — the route
+ * accepts them the same way.
+ */
+function dealTermsForEngine(
+  terms: unknown,
+  currency: string | null,
+  // The base-currency converter, passed in because it closes over the event's
+  // locked rates and cannot be reached from module scope.
+  toBase: (amount: bigint, currency: string | null) => bigint,
+): { escalators?: EscalatorTier[]; bonusThreshold?: bigint; bonusAmount?: bigint } {
+  const stored = terms as
+    | { escalators?: EscalatorTier[]; bonusThreshold?: string; bonusAmount?: string }
+    | null
+    | undefined;
+  if (!stored) return {};
+  const hasBonus = stored.bonusThreshold != null && stored.bonusAmount != null;
+  return {
+    ...(stored.escalators?.length ? { escalators: stored.escalators } : {}),
+    ...(hasBonus
+      ? {
+          bonusThreshold: toBase(BigInt(stored.bonusThreshold as string), currency),
+          bonusAmount: toBase(BigInt(stored.bonusAmount as string), currency),
+        }
+      : {}),
+  };
 }
 
 /**

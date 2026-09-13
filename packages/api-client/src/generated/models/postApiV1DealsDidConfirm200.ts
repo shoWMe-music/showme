@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PostApiV1DealsDidConfirm200Terms } from './postApiV1DealsDidConfirm200Terms';
 import type { PostApiV1DealsDidConfirm200PartiesItem } from './postApiV1DealsDidConfirm200PartiesItem';
 
 export type PostApiV1DealsDidConfirm200 = {
@@ -28,6 +29,8 @@ export type PostApiV1DealsDidConfirm200 = {
   agreementStatus: string;
   /** @nullable */
   agreementBodyText: string | null;
+  /** @nullable */
+  terms: PostApiV1DealsDidConfirm200Terms;
   version: number;
   parties: PostApiV1DealsDidConfirm200PartiesItem[];
 };
