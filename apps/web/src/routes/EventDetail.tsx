@@ -823,6 +823,8 @@ function BudgetTab({
         ticketTierTotals={view.ticketTierTotals}
         ticketsPlannedLabel={view.ticketsPlannedLabel}
         ticketSplit={view.ticketSplit}
+        operatorCostSplit={editor.operatorCostSplit}
+        onOperatorCostSplitChange={editor.setOperatorCostSplit}
         revenueShares={{
           rows: editor.revenueShares,
           sources: editor.revenueShareSources,

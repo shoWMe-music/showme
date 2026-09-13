@@ -1381,6 +1381,11 @@ describe("budgets — planning assumptions are rates on the budget, not cost lin
     expect(patched.statusCode).toBe(200);
     expect(patched.json().planningAssumptions).toEqual({
       paymentProcessing: { percentBasisPoints: 150, flatPerTicket: "50" },
+      // The operators' cost split rides on the same object and is narrowed
+      // independently of the fee, so it comes back explicitly absent rather than
+      // missing — the caller can tell "no split" from "this API is older than
+      // splits".
+      operatorCostSplit: null,
     });
 
     const reread = await app.inject({
@@ -1391,6 +1396,7 @@ describe("budgets — planning assumptions are rates on the budget, not cost lin
     const reloaded = reread.json().find((row: { id: string }) => row.id === budget.id);
     expect(reloaded.planningAssumptions).toEqual({
       paymentProcessing: { percentBasisPoints: 150, flatPerTicket: "50" },
+      operatorCostSplit: null,
     });
   });
 

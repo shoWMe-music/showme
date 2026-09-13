@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { GetApiV1EventsIdBudgets200ItemPlanningAssumptionsPaymentProcessing } from './getApiV1EventsIdBudgets200ItemPlanningAssumptionsPaymentProcessing';
+import type { GetApiV1EventsIdBudgets200ItemPlanningAssumptionsOperatorCostSplit } from './getApiV1EventsIdBudgets200ItemPlanningAssumptionsOperatorCostSplit';
 
 /**
  * @nullable
@@ -12,4 +13,6 @@ import type { GetApiV1EventsIdBudgets200ItemPlanningAssumptionsPaymentProcessing
 export type GetApiV1EventsIdBudgets200ItemPlanningAssumptions = {
   /** @nullable */
   paymentProcessing: GetApiV1EventsIdBudgets200ItemPlanningAssumptionsPaymentProcessing;
+  /** @nullable */
+  operatorCostSplit: GetApiV1EventsIdBudgets200ItemPlanningAssumptionsOperatorCostSplit;
 } | null;

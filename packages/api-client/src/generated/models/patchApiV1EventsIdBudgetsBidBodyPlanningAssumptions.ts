@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { PatchApiV1EventsIdBudgetsBidBodyPlanningAssumptionsPaymentProcessing } from './patchApiV1EventsIdBudgetsBidBodyPlanningAssumptionsPaymentProcessing';
+import type { PatchApiV1EventsIdBudgetsBidBodyPlanningAssumptionsOperatorCostSplit } from './patchApiV1EventsIdBudgetsBidBodyPlanningAssumptionsOperatorCostSplit';
 
 /**
  * @nullable
@@ -12,4 +13,6 @@ import type { PatchApiV1EventsIdBudgetsBidBodyPlanningAssumptionsPaymentProcessi
 export type PatchApiV1EventsIdBudgetsBidBodyPlanningAssumptions = {
   /** @nullable */
   paymentProcessing: PatchApiV1EventsIdBudgetsBidBodyPlanningAssumptionsPaymentProcessing;
+  /** @nullable */
+  operatorCostSplit: PatchApiV1EventsIdBudgetsBidBodyPlanningAssumptionsOperatorCostSplit;
 } | null;

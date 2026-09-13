@@ -105,6 +105,9 @@ export interface BudgetPlannerProps {
   ticketSplit: TicketSplitDisplay;
   /** The Revenue shares card, between Costs and Results. */
   revenueShares: BudgetRevenueSharesCardProps;
+  /** How co-operators share what the event carries, and how to change it. */
+  operatorCostSplit: Record<string, number> | null;
+  onOperatorCostSplitChange?: (next: Record<string, number> | null) => void;
   capacity: string;
   avgBarSpend: string;
   avgMerchSpend: string;
@@ -225,6 +228,8 @@ export function BudgetPlanner({
   ticketsPlannedLabel,
   ticketSplit,
   revenueShares,
+  operatorCostSplit,
+  onOperatorCostSplitChange,
   capacity,
   avgBarSpend,
   avgMerchSpend,
@@ -663,6 +668,11 @@ export function BudgetPlanner({
             title="Costs"
             subtitle="Each cost says who paid it, and who carries it at settlement."
           />
+          <ProductionCostsSplit
+            participants={participants}
+            split={operatorCostSplit}
+            onChange={onOperatorCostSplitChange}
+          />
           <CostAttributionLegend />
           {/* THE COST TABLE. Every caption — Paid by, To be deducted from, Deal —
               used to sit beside its own control on every row. They are column
@@ -1004,6 +1014,146 @@ function TicketSplitBars({ split }: { split: TicketSplitDisplay }) {
         <span style={{ color: "var(--muted)", fontSize: 12, lineHeight: 1.45 }}>
           {split.summary}
         </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * PRODUCTION COSTS SPLIT — how co-operators share what the event itself carries.
+ *
+ * Offered only when there IS more than one operator. On a single-promoter show it
+ * is a control with one possible answer, and a toggle that can only mean 100% is
+ * a question nobody was asking.
+ *
+ * WHAT IT ACTUALLY WEIGHTS, said on the card: the remainder. A cost nobody is
+ * charged for lowers the pool, and the residual is what is left of the pool — so
+ * the same number governs the costs and the upside. A co-promoter on 70% of the
+ * costs is on 70% of the profit, which is what "we're 70/30 on this show"
+ * ordinarily means. The model has one number for both and the card says so rather
+ * than implying a precision it does not have.
+ */
+function ProductionCostsSplit({
+  participants,
+  split,
+  onChange,
+}: {
+  participants: BudgetAttributionOption[];
+  split: Record<string, number> | null;
+  onChange?: (next: Record<string, number> | null) => void;
+}) {
+  const operators = participants.filter((party) => party.isOperator);
+  if (operators.length < 2 || !onChange) return null;
+
+  const on = split !== null;
+  const evenShare = Math.round(10_000 / operators.length);
+  const shareOf = (id: string) => split?.[id] ?? evenShare;
+  const total = operators.reduce((running, party) => running + shareOf(party.id), 0);
+
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 12,
+        background: "var(--elevated)",
+        padding: "11px 13px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 9,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+          <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 600 }}>
+            Production costs split
+          </span>
+          <span style={{ color: "var(--muted)", fontSize: 12, lineHeight: 1.45 }}>
+            For co-promotions. Agree once how the operators share everything the event carries — and
+            the profit it leaves. You can still override any single cost on its own row.
+          </span>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={on}
+          aria-label="Split production costs between the operators"
+          onClick={() =>
+            onChange(
+              on ? null : Object.fromEntries(operators.map((party) => [party.id, evenShare])),
+            )
+          }
+          style={{
+            position: "relative",
+            width: 42,
+            height: 24,
+            flexShrink: 0,
+            borderRadius: 999,
+            border: 0,
+            cursor: "pointer",
+            background: on ? "var(--accent)" : "var(--border-strong)",
+            transition: "background .15s",
+          }}
+        >
+          <span
+            style={{
+              position: "absolute",
+              top: 3,
+              left: 3,
+              width: 18,
+              height: 18,
+              borderRadius: "50%",
+              background: "#fff",
+              transform: on ? "translateX(18px)" : "none",
+              transition: "transform .15s",
+            }}
+          />
+        </button>
+      </div>
+
+      {on && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+          {operators.map((party) => (
+            <div
+              key={party.id}
+              style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}
+            >
+              <span style={{ flex: "1 1 160px", minWidth: 0, color: "var(--text)", fontSize: 13 }}>
+                {party.label}
+              </span>
+              <div style={{ width: 96 }}>
+                <Input
+                  value={String(Math.round(shareOf(party.id) / 100))}
+                  inputMode="numeric"
+                  aria-label={`${party.label}'s share of what the event carries`}
+                  leftIcon={<span style={{ color: "var(--muted)" }}>%</span>}
+                  onChange={(event) => {
+                    const parsed = Number(event.target.value);
+                    if (!Number.isFinite(parsed)) return;
+                    const points = Math.max(1, Math.min(100, Math.round(parsed))) * 100;
+                    onChange({ ...(split ?? {}), [party.id]: points });
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+          {/* Said, never silently corrected. The engine divides by WEIGHT, so a
+              total of 90 or 110 still settles and still balances — it just is not
+              the split anybody meant to write. */}
+          {total !== 10_000 && (
+            <span style={{ color: "#F4A046", fontSize: 12 }}>
+              These add up to {Math.round(total / 100)}%, not 100. The shares still divide the
+              remainder in that ratio, so the settlement balances — but it is probably not what you
+              meant.
+            </span>
+          )}
+        </div>
       )}
     </div>
   );

@@ -198,6 +198,36 @@ const PlanningAssumptions = z.object({
       flatPerTicket: MinorUnitsAmount,
     })
     .nullable(),
+  /**
+   * HOW CO-OPERATORS SHARE WHAT THE EVENT ITSELF CARRIES — participant id to
+   * basis points. Ran's "Production costs split": *"For co-promotions. Agree how
+   * operators share production costs once, and it applies to every cost set to
+   * 'Operators carry it'."*
+   *
+   * It rides on `planning_assumptions` rather than a column of its own because it
+   * is exactly what that jsonb is for — a standing assumption of the planner, not
+   * a line anybody has paid. No migration, and it travels with the shared ledger
+   * it describes.
+   *
+   * IT WEIGHTS THE RESIDUAL, which is the one lever the engine has
+   * (`operatorResidualShare`, `reconcile.ts`) and which nothing has ever set — so
+   * until now every operator split the remainder equally however the deal read.
+   * A cost nobody is charged for lowers the pool, and the residual is what is left
+   * of the pool, so weighting the residual weights the shared costs with it.
+   *
+   * Worth being plain about the consequence: it weights the UPSIDE too. A
+   * co-promoter on 70% of the costs is on 70% of the profit. That is what a 70/30
+   * co-promotion usually means, and the model has one number for both — it cannot
+   * express sharing revenue evenly while splitting costs unevenly.
+   */
+  // OPTIONAL as well as nullable, so every caller written before this field keeps
+  // working: omitting it is "I am not saying anything about the split", where
+  // null is "there isn't one". A required key here 400s the payment-processing
+  // write that has been sending this object since 0015.
+  operatorCostSplit: z
+    .record(z.string().uuid(), z.number().int().min(1).max(10_000))
+    .nullish()
+    .default(null),
 });
 
 const UpdateBudgetBody = z.object({

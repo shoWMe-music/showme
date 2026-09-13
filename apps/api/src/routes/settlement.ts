@@ -669,9 +669,32 @@ async function reconcileEvent(
     .from(schema.eventParticipants)
     .where(eq(schema.eventParticipants.eventId, eventId));
 
+  /**
+   * HOW CO-OPERATORS SHARE THE REMAINDER — the planner's "Production costs split".
+   *
+   * `operatorResidualShare` has been in the engine since it was written and
+   * nothing ever set it, so every operator split the residual equally however the
+   * co-promotion actually read. The weight is a standing assumption of the SHARED
+   * ledger (`budgets.planning_assumptions`), which is where a fact about the whole
+   * event belongs; a private book cannot change how the event's own costs land.
+   *
+   * Absent, or naming nobody on the event, falls back to equal shares — the
+   * behaviour every existing settlement already has.
+   */
+  const [sharedBudget] = await database
+    .select({ planningAssumptions: schema.budgets.planningAssumptions })
+    .from(schema.budgets)
+    .where(and(eq(schema.budgets.eventId, eventId), eq(schema.budgets.scope, "shared")));
+  const operatorCostSplit =
+    (sharedBudget?.planningAssumptions as { operatorCostSplit?: Record<string, number> } | null)
+      ?.operatorCostSplit ?? null;
+
   const participants: SettlementParticipant[] = participantRows.map((row) => ({
     participantId: row.id,
     isOperator: OPERATOR_EVENT_ROLES.has(row.role),
+    ...(operatorCostSplit?.[row.id] != null
+      ? { operatorResidualShare: operatorCostSplit[row.id] }
+      : {}),
   }));
 
   // THE SETTLEMENT'S OWN LINES, never the planner's.

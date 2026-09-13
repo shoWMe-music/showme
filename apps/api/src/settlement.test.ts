@@ -3018,6 +3018,111 @@ describe("settlement — the 2026-08-26 money rules", () => {
   }
 
   /**
+   * THE PRODUCTION COSTS SPLIT, END TO END.
+   *
+   * `operatorResidualShare` has been in the engine since it was written and
+   * nothing ever set it: every co-promotion split the remainder equally however
+   * the deal actually read. A unit test on `reconcile()` passed the whole time,
+   * because the engine was never the part that was missing.
+   */
+  it("weights the remainder between co-operators when the budget says to", async () => {
+    const { db } = harness;
+    const lead = await seedMemberWithSet(
+      "split-lead",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const co = await seedMemberWithSet(
+      "split-co",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: lead.profileId,
+        title: "Co-promotion",
+        baseCurrency: "EUR",
+        createdBy: lead.userId,
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+
+    const parts = await db
+      .insert(schema.eventParticipants)
+      .values([
+        {
+          eventId: event.id,
+          profileId: lead.profileId,
+          role: "host" as const,
+          permissionSetId: lead.permissionSetId,
+          status: "confirmed" as const,
+        },
+        {
+          eventId: event.id,
+          profileId: co.profileId,
+          role: "co_host" as const,
+          permissionSetId: co.permissionSetId,
+          status: "confirmed" as const,
+        },
+      ])
+      .returning();
+    const leadPart = parts.find((row) => row.profileId === lead.profileId)?.id as string;
+    const coPart = parts.find((row) => row.profileId === co.profileId)?.id as string;
+
+    const [budget] = await db
+      .insert(schema.budgets)
+      .values({
+        eventId: event.id,
+        scope: "shared",
+        // 70/30, the commonest co-promotion. Weights the upside with the costs:
+        // the model has one number for both, which is what "we're 70/30 on this
+        // show" already means.
+        planningAssumptions: { operatorCostSplit: { [leadPart]: 7000, [coPart]: 3000 } },
+      })
+      .returning();
+    if (!budget) throw new Error("budget seed failed");
+    await db.insert(schema.budgetLines).values([
+      {
+        budgetId: budget.id,
+        kind: "revenue" as const,
+        label: "Tickets",
+        amount: 1_000_000n,
+        currency: "EUR",
+        collectedBy: leadPart,
+        details: { basis: "ticket_tier", unitAmount: "2500", quantity: 400 },
+      },
+      {
+        budgetId: budget.id,
+        kind: "cost" as const,
+        label: "Production",
+        amount: 200_000n,
+        currency: "EUR",
+        paidBy: leadPart,
+      },
+    ]);
+
+    const response = await compute(event.id, lead.userId);
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    const rowOf = (id: string) =>
+      body.breakdowns.find((row: { participantId: string }) => row.participantId === id);
+
+    // 1 000 000 less the 200 000 nobody was charged for = 800 000, divided 70/30
+    // rather than the 400 000 apiece an equal split would have given.
+    expect(body.pool).toBe("800000");
+    expect(rowOf(leadPart).residual).toBe("560000");
+    expect(rowOf(coPart).residual).toBe("240000");
+
+    const netSum = body.breakdowns.reduce(
+      (total: bigint, row: { net: string }) => total + BigInt(row.net),
+      0n,
+    );
+    expect(netSum).toBe(0n);
+  });
+
+  /**
    * REVENUE ATTRIBUTION AND A SHARE, END TO END (#23.1/#23.2).
    *
    * The decision says bar and merch "belong to whoever collects them". Before this

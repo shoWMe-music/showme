@@ -405,6 +405,15 @@ export interface BudgetAttributionOption {
   id: string;
   label: string;
   roleLabel: string;
+  /**
+   * Is this party one of the event's OPERATORS — a host or co-host?
+   *
+   * The same rule the settlement applies (`OPERATOR_EVENT_ROLES`), because the
+   * screen and the engine must agree about who shares a remainder. Read here
+   * rather than guessed from a label, which would break the first time a role was
+   * renamed in one place and not the other.
+   */
+  isOperator: boolean;
 }
 
 /** One agreement a cost can be booked against. */
@@ -452,6 +461,9 @@ export interface BudgetEditor {
   selectedBudgetId: string | null;
   selectBudget: (budgetId: string) => void;
   ticketTiers: TicketTierDraft[];
+  /** How co-operators share what the event carries — participant id to basis points. */
+  operatorCostSplit: Record<string, number> | null;
+  setOperatorCostSplit: (next: Record<string, number> | null) => void;
   /** Every slice a revenue line gives away, flattened across the lines (#23.2). */
   revenueShares: RevenueShareRow[];
   /** The revenue lines a share can be taken FROM — anything with money on it. */
@@ -643,6 +655,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
           participant.performerTag ??
           eventParticipantRoleLabel(participant.role),
         roleLabel: eventParticipantRoleLabel(participant.role),
+        isOperator: participant.role === "host" || participant.role === "co_host",
       })),
     [participantsQuery.data],
   );
@@ -807,6 +820,8 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
    * only when the server's picture of this budget actually changes.
    */
   const processing = budget?.planningAssumptions?.paymentProcessing ?? null;
+  /** How co-operators share what the event itself carries — see `routes/budget.ts`. */
+  const operatorCostSplit = budget?.planningAssumptions?.operatorCostSplit ?? null;
 
   const seed = useMemo(() => {
     // The bar line is where the planner keeps its head count, so a budget that
@@ -1567,9 +1582,17 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
               id: eventId,
               bid: budgetId,
               data: {
-                planningAssumptions: cleared
-                  ? null
-                  : { paymentProcessing: { percentBasisPoints, flatPerTicket } },
+                // CARRIES THE OTHER ASSUMPTION THROUGH. `planningAssumptions` is
+                // one jsonb object and this write replaces it, so sending only
+                // the fee would silently drop the operators' cost split — and
+                // "clearing" the fee must clear the fee, not the whole object.
+                planningAssumptions:
+                  cleared && !operatorCostSplit
+                    ? null
+                    : {
+                        paymentProcessing: cleared ? null : { percentBasisPoints, flatPerTicket },
+                        operatorCostSplit,
+                      },
                 expectedVersion: budgetVersionRef.current,
               },
             });
@@ -1806,6 +1829,39 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     [sharesOf, writeShares],
   );
 
+  /**
+   * Write the operators' cost split, keeping the payment-processing assumption
+   * beside it — the two share one jsonb object and a write replaces the whole of
+   * it.
+   *
+   * Immediate, not debounced: it is a toggle and a handful of percentages, not a
+   * field somebody types into character by character.
+   */
+  const setOperatorCostSplit = useCallback(
+    (next: Record<string, number> | null) => {
+      if (!budgetId) return;
+      enqueue(
+        "Production costs split",
+        next ? `${Object.keys(next).length} operators` : "off",
+        async () => {
+          const updated = await updateBudget.mutateAsync({
+            id: eventId,
+            bid: budgetId,
+            data: {
+              planningAssumptions:
+                !next && !processing
+                  ? null
+                  : { paymentProcessing: processing, operatorCostSplit: next },
+              expectedVersion: budgetVersionRef.current,
+            },
+          });
+          budgetVersionRef.current = updated.version;
+        },
+      );
+    },
+    [budgetId, enqueue, eventId, processing, updateBudget],
+  );
+
   const removeCost = useCallback(
     (key: string) => {
       setCosts((rows) => rows.filter((row) => row.key !== key));
@@ -1945,6 +2001,8 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     selectedBudgetId: budgetId,
     selectBudget: setSelectedBudgetId,
     ticketTiers: tiers,
+    operatorCostSplit,
+    setOperatorCostSplit,
     revenueShares: revenueShareRows,
     revenueShareSources,
     addRevenueShare,

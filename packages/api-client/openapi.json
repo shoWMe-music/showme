@@ -4535,9 +4535,18 @@
                             "required": ["percentBasisPoints", "flatPerTicket"],
                             "additionalProperties": false,
                             "nullable": true
+                          },
+                          "operatorCostSplit": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 10000
+                            },
+                            "nullable": true
                           }
                         },
-                        "required": ["paymentProcessing"],
+                        "required": ["paymentProcessing", "operatorCostSplit"],
                         "additionalProperties": false,
                         "nullable": true
                       },
@@ -4789,9 +4798,18 @@
                           "required": ["percentBasisPoints", "flatPerTicket"],
                           "additionalProperties": false,
                           "nullable": true
+                        },
+                        "operatorCostSplit": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 10000
+                          },
+                          "nullable": true
                         }
                       },
-                      "required": ["paymentProcessing"],
+                      "required": ["paymentProcessing", "operatorCostSplit"],
                       "additionalProperties": false,
                       "nullable": true
                     },
@@ -4997,9 +5015,18 @@
                         "required": ["percentBasisPoints", "flatPerTicket"],
                         "additionalProperties": false,
                         "nullable": true
+                      },
+                      "operatorCostSplit": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 10000
+                        },
+                        "nullable": true
                       }
                     },
-                    "required": ["paymentProcessing"],
+                    "required": ["paymentProcessing", "operatorCostSplit"],
                     "additionalProperties": false,
                     "nullable": true
                   },
@@ -5073,9 +5100,18 @@
                           "required": ["percentBasisPoints", "flatPerTicket"],
                           "additionalProperties": false,
                           "nullable": true
+                        },
+                        "operatorCostSplit": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 10000
+                          },
+                          "nullable": true
                         }
                       },
-                      "required": ["paymentProcessing"],
+                      "required": ["paymentProcessing", "operatorCostSplit"],
                       "additionalProperties": false,
                       "nullable": true
                     },

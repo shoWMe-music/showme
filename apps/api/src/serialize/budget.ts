@@ -96,15 +96,38 @@ export interface BudgetPlanningAssumptions {
     /** Minor units per ticket SOLD, as a string (money.md's JSON boundary). */
     flatPerTicket: string;
   } | null;
+  /** Participant id → basis points of what the EVENT itself carries. See the route. */
+  operatorCostSplit: Record<string, number> | null;
 }
 
 function budgetPlanningAssumptions(value: unknown): BudgetPlanningAssumptions | null {
   if (typeof value !== "object" || value === null) return null;
-  const candidate = (value as Record<string, unknown>).paymentProcessing;
-  if (typeof candidate !== "object" || candidate === null) return null;
-  const { percentBasisPoints, flatPerTicket } = candidate as Record<string, unknown>;
-  if (typeof percentBasisPoints !== "number" || typeof flatPerTicket !== "string") return null;
-  return { paymentProcessing: { percentBasisPoints, flatPerTicket } };
+  const record = value as Record<string, unknown>;
+
+  const candidate = record.paymentProcessing;
+  let paymentProcessing: BudgetPlanningAssumptions["paymentProcessing"] = null;
+  if (typeof candidate === "object" && candidate !== null) {
+    const { percentBasisPoints, flatPerTicket } = candidate as Record<string, unknown>;
+    if (typeof percentBasisPoints === "number" && typeof flatPerTicket === "string") {
+      paymentProcessing = { percentBasisPoints, flatPerTicket };
+    }
+  }
+
+  // NARROWED INDEPENDENTLY of the fee above, and that is the fix as much as the
+  // field. This used to bail on the whole object the moment `paymentProcessing`
+  // was missing, so a budget that carried only a cost split would have had it
+  // silently dropped — the classic "one bad key discards the row" shape.
+  let operatorCostSplit: Record<string, number> | null = null;
+  const split = record.operatorCostSplit;
+  if (typeof split === "object" && split !== null) {
+    const entries = Object.entries(split as Record<string, unknown>).filter(
+      ([, points]) => typeof points === "number" && Number.isFinite(points) && points > 0,
+    ) as [string, number][];
+    if (entries.length > 0) operatorCostSplit = Object.fromEntries(entries);
+  }
+
+  if (!paymentProcessing && !operatorCostSplit) return null;
+  return { paymentProcessing, operatorCostSplit };
 }
 
 /**

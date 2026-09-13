@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { PostApiV1EventsIdBudgets201PlanningAssumptionsPaymentProcessing } from './postApiV1EventsIdBudgets201PlanningAssumptionsPaymentProcessing';
+import type { PostApiV1EventsIdBudgets201PlanningAssumptionsOperatorCostSplit } from './postApiV1EventsIdBudgets201PlanningAssumptionsOperatorCostSplit';
 
 /**
  * @nullable
@@ -12,4 +13,6 @@ import type { PostApiV1EventsIdBudgets201PlanningAssumptionsPaymentProcessing } 
 export type PostApiV1EventsIdBudgets201PlanningAssumptions = {
   /** @nullable */
   paymentProcessing: PostApiV1EventsIdBudgets201PlanningAssumptionsPaymentProcessing;
+  /** @nullable */
+  operatorCostSplit: PostApiV1EventsIdBudgets201PlanningAssumptionsOperatorCostSplit;
 } | null;
