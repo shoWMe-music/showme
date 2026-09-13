@@ -1,4 +1,4 @@
-import { useGetApiV1EventsIdDeals } from "@showme/api-client";
+import { useGetApiV1EventsIdBudgets, useGetApiV1EventsIdDeals } from "@showme/api-client";
 import { type EntitlementBasis, dealEntitlementDetailed } from "@showme/settlement";
 import { basisPointsToPercent } from "@showme/shared";
 import { useMemo } from "react";
@@ -78,7 +78,7 @@ export interface BudgetSeedDealFigure {
   /**
    * WHERE THE FIGURE CAME FROM, in words — the deal's name, plus the RULE when the
    * figure is a share rather than a fixed fee ("Album Release — Door Split · 100%
-   * of the adjusted net").
+   * of the door").
    *
    * The rule is part of the source and not decoration. A percentage deal's figure
    * is *what this line is worth at the projected pool* (`routes/deals.ts`,
@@ -266,6 +266,19 @@ export function performerFeeOf(
   return null;
 }
 
+/**
+ * The non-tier revenue bases the planner stamps on a line's `details`. A ticket
+ * tier is the one with none of them — the same rule `routes/settlement.ts` applies
+ * when it decides which revenue is the door, and deliberately the same list, so
+ * the planner and the settlement cannot disagree about what a ticket is.
+ */
+const NON_TICKET_BASES = new Set(["bar_spend", "merch_spend", "other_revenue", "custom_revenue"]);
+
+function isTicketLine(details: unknown): boolean {
+  const basis = (details as { basis?: string } | null)?.basis;
+  return basis == null || !NON_TICKET_BASES.has(basis);
+}
+
 /** What the sheet currently forecasts, in the currency the budget is kept in. */
 export interface DoorForecast {
   /** Gross TICKET revenue — what a percentage deal is a percentage of (#23.1). */
@@ -300,7 +313,7 @@ function derivedLabel(deal: Deal, basis: EntitlementBasis): string {
  * The deal's name, and — on a door split — the share of the night these lines are.
  *
  * Only `door_split` earns the suffix. It is the one structure whose entitlement is
- * purely a percentage of the adjusted net, so the sentence is exactly true. A
+ * purely a percentage of the door, so the sentence is exactly true. A
  * `guarantee_vs_door` settles as `max(guarantee, door)` and calling it a
  * percentage would describe an outcome it may never reach, which is the kind of
  * confident half-truth `docs/money.md` exists to keep off a money screen.
@@ -313,10 +326,15 @@ function sourceLabel(deal: Deal, lines: DealParty[]): string {
     0,
   );
   if (lineWeight === 0) return deal.name;
-  // The deal takes `dealShare` of the pool and these lines take `lineWeight` of
-  // that, so together they are a share of the pool worth the product.
-  const shareOfPool = Math.round((dealShare * lineWeight) / 10000);
-  return `${deal.name} · ${basisPointsToPercent(shareOfPool)}% of the adjusted net`;
+  // The deal takes `dealShare` of the door and these lines take `lineWeight` of
+  // that, so together they are a share of the door worth the product.
+  //
+  // "the door", not "the adjusted net" — #23.1 moved the base, and this string was
+  // still telling every operator that costs had come off the number their act is
+  // paid a percentage of. It is the sentence the planner actually prints under a
+  // derived Performer fee row.
+  const shareOfDoor = Math.round((dealShare * lineWeight) / 10000);
+  return `${deal.name} · ${basisPointsToPercent(shareOfDoor)}% of the door`;
 }
 
 /** One ticket tier as the EVENT states it (`events.extras.ticketTiers`). */
@@ -365,6 +383,21 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
   // Shares TanStack's cache with the Details and Agreement tabs, so this is free
   // whenever either has been opened and one request otherwise.
   const dealsQuery = useGetApiV1EventsIdDeals(eventId);
+  /**
+   * The sheet's own ticket lines, for the door a percentage deal is measured
+   * against.
+   *
+   * Without this the percentage derivation is dead on most events.
+   * `sources.ticketTiers` is `events.extras.ticketTiers` — what the operator typed
+   * on Event Details — and the seeded reference event has none: its tiers were
+   * written straight into the budget. The door read zero, the percentage branch
+   * never fired, and the fee fell back to `illustrativeAmount`, a figure frozen
+   * when the deal was written. That is the exact fault the derivation exists to
+   * remove, and it was found by opening the planner, not by a test.
+   *
+   * `useBudgetEditor` already fetches this, so TanStack serves it from cache.
+   */
+  const budgetsQuery = useGetApiV1EventsIdBudgets(eventId);
 
   return useMemo(() => {
     const deals = (dealsQuery.data ?? []) as Deal[];
@@ -383,21 +416,28 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
      * Major units × 100, because the Ticketing card takes a price in major units
      * and every figure past this boundary is minor (money.md).
      */
+    const fromEventTiers = sources.ticketTiers.reduce(
+      (total, tier) => total + BigInt(Math.round(tier.price * 100)) * BigInt(Math.trunc(tier.est)),
+      0n,
+    );
+    // The SHEET wins when it has tiers of its own: it is the later statement of the
+    // same fact, and the one the operator is looking at. Read off the SHARED
+    // ledger, never a private book — the act's fee is a fact about the event, not
+    // about whichever slice of it a co-operator happens to be looking at (#23.2).
+    const sharedLines =
+      (budgetsQuery.data ?? []).find((budget) => budget.scope === "shared")?.lines ?? [];
+    const fromSheet = sharedLines
+      .filter((line) => line.kind === "revenue" && isTicketLine(line.details))
+      .reduce((total, line) => total + BigInt(line.amount), 0n);
+    const ticketRevenue = fromSheet > 0n ? fromSheet : fromEventTiers;
+
     const door: DoorForecast = {
-      ticketRevenue: sources.ticketTiers.reduce(
-        (total, tier) =>
-          total + BigInt(Math.round(tier.price * 100)) * BigInt(Math.trunc(tier.est)),
-        0n,
-      ),
+      ticketRevenue,
       // The planner has no other revenue at seed time, so the gross a bonus is
       // measured against is the door. A bonus threshold the bar would have cleared
       // is therefore never seeded optimistically — the sheet says so once the bar
       // line exists, and the settlement is the authority either way.
-      totalRevenue: sources.ticketTiers.reduce(
-        (total, tier) =>
-          total + BigInt(Math.round(tier.price * 100)) * BigInt(Math.trunc(tier.est)),
-        0n,
-      ),
+      totalRevenue: ticketRevenue,
       ticketsSold: sources.ticketTiers.reduce((total, tier) => total + Math.trunc(tier.est), 0),
     };
 
@@ -423,5 +463,5 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
       // `events.production_cost` and no venue equivalent. Seeding it would mean
       // inventing a number, which on a budget screen is worse than a blank.
     };
-  }, [dealsQuery.data, sources]);
+  }, [dealsQuery.data, budgetsQuery.data, sources]);
 }
