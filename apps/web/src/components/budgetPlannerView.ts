@@ -102,6 +102,8 @@ export interface BudgetPlannerView {
    * opinions about one figure.
    */
   ticketTierTotals: Record<string, string>;
+  /** "1,280 tickets planned across all types" — the totals band's subtitle. */
+  ticketsPlannedLabel: string;
   barRevenue: string;
   merchRevenue: string;
   breakEven: BreakEvenDisplay;
@@ -327,6 +329,9 @@ export function budgetPlannerViewFrom(
       { label: "Cost per guest", value: money(projection.costPerGuest) },
     ],
     ticketRevenueTotal: money(projection.ticketRevenue),
+    ticketsPlannedLabel: `${projection.ticketsSold.toLocaleString()} ${
+      projection.ticketsSold === 1 ? "ticket" : "tickets"
+    } planned across all types`,
     // Keyed by the EDITOR's row id, and taken from the same `inputs` the
     // projection reads, so the column and the band under it can never disagree.
     ticketTierTotals: Object.fromEntries(

@@ -1,10 +1,11 @@
-import { Button, Card, Icon, type IconName, Input, KeyValueRow } from "@showme/design-system";
+import { Button, Card, Icon, type IconName, Input } from "@showme/design-system";
 import { BudgetBreakEvenChart } from "./BudgetBreakEvenChart";
 import { BudgetBreakdownCard } from "./BudgetBreakdownCard";
 import {
   CostAttribution,
   CostAttributionLegend,
   CostBearingBadge,
+  CostBearingNote,
   DealAssignmentNote,
   RevenueAttribution,
 } from "./BudgetLineAttribution";
@@ -93,6 +94,8 @@ export interface BudgetPlannerProps {
   ticketRevenueTotal: string;
   /** Each tier's own price x quantity, formatted, keyed by row id. */
   ticketTierTotals: Record<string, string>;
+  /** The totals band's subtitle — how many tickets the sheet expects to sell. */
+  ticketsPlannedLabel: string;
   capacity: string;
   avgBarSpend: string;
   avgMerchSpend: string;
@@ -210,6 +213,7 @@ export function BudgetPlanner({
   ticketTypes,
   ticketRevenueTotal,
   ticketTierTotals,
+  ticketsPlannedLabel,
   capacity,
   avgBarSpend,
   avgMerchSpend,
@@ -349,8 +353,11 @@ export function BudgetPlanner({
        */}
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <Eyebrow style={{ color: "#6FC97A" }}>Revenue</Eyebrow>
-          <Eyebrow>Ticket revenue</Eyebrow>
+          <CardHeading
+            title="Revenue"
+            subtitle="What the event brings in, and who collects the cash."
+          />
+          <Eyebrow>Ticket types (box office)</Eyebrow>
           {/* THE TABLE. Column headers once, at the top, instead of a label
               beside every field — the meeting's "simplified table structure,
               remove excessive spacing". Below 860px `BudgetTable.module.css`
@@ -426,12 +433,38 @@ export function BudgetPlanner({
               </div>
             ))}
           </div>
-          <KeyValueRow
-            label="Total ticket revenue"
-            value={ticketRevenueTotal}
-            mono
-            valueColor="#6FC97A"
-          />
+          {/* THE TOTALS BAND. A tinted full-width strip, not a thin key-value
+              row: it closes the ticket table and is the figure every percentage
+              deal is a share of (#23.1), so it carries the weight of a result
+              rather than of another line. */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              flexWrap: "wrap",
+              padding: "10px 14px",
+              borderRadius: 11,
+              background: "color-mix(in srgb, #6FC97A 9%, transparent)",
+              border: "1px solid color-mix(in srgb, #6FC97A 22%, transparent)",
+            }}
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <Eyebrow>Total tickets revenue</Eyebrow>
+              <span style={{ color: "var(--muted)", fontSize: 12 }}>{ticketsPlannedLabel}</span>
+            </div>
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 19,
+                color: "#6FC97A",
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {ticketRevenueTotal}
+            </span>
+          </div>
           {onAddTicketType && (
             <Button
               variant="ghost"
@@ -441,81 +474,138 @@ export function BudgetPlanner({
               Add ticket type
             </Button>
           )}
-          <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 14 }}>
-              Capacity
+              Venue capacity
+              <span style={{ color: "var(--muted)", fontSize: 12.5, marginLeft: 8 }}>
+                Used for break-even and per-guest revenue.
+              </span>
             </span>
             <div style={{ width: 120, flexShrink: 0 }}>
               <Input
                 value={capacity}
                 inputMode="numeric"
+                aria-label="Venue capacity"
                 onChange={(event) => onCapacityChange?.(event.target.value)}
               />
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 14 }}>
-              Average bar spend per guest
-            </span>
-            {money(avgBarSpend, onAvgBarSpendChange, "Average bar spend per guest")}
-          </div>
-          <KeyValueRow label="Bar revenue" value={barRevenue} mono valueColor="#6FC97A" />
-          <RevenueAttribution
-            participants={participants}
-            value={barCollectedBy}
-            fallbackParticipantId={defaultParticipantId}
-            onChange={(participantId) => onBarCollectedByChange?.(participantId)}
-            rowLabel="bar revenue"
-          />
-          {/*
-           * MERCH IS ITS OWN ROW, with its own collector — ClickUp `86cbcn1ue`,
-           * 2026-09-03: *"Bar and merchandise can not be together."*
-           *
-           * Laid out as an exact mirror of the bar above it (per head → computed
-           * total → collected by) rather than as some new shape, because the two
-           * ARE the same arithmetic on the same head count. What differs is the
-           * one thing the old combined row could not express: who collects it.
-           */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 14 }}>
-              Average merch spend per guest
-            </span>
-            {money(avgMerchSpend, onAvgMerchSpendChange, "Average merch spend per guest")}
-          </div>
-          <KeyValueRow label="Merch revenue" value={merchRevenue} mono valueColor="#6FC97A" />
-          <RevenueAttribution
-            participants={participants}
-            value={merchCollectedBy}
-            fallbackParticipantId={defaultParticipantId}
-            onChange={(participantId) => onMerchCollectedByChange?.(participantId)}
-            rowLabel="merch revenue"
-          />
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 14 }}>
-              Other revenue
-            </span>
-            {money(otherRevenue, onOtherRevenueChange, "Other revenue")}
-          </div>
-          <RevenueAttribution
-            participants={participants}
-            value={otherRevenueCollectedBy}
-            fallbackParticipantId={defaultParticipantId}
-            onChange={(participantId) => onOtherRevenueCollectedByChange?.(participantId)}
-            rowLabel="other revenue"
-          />
-          {customRevenue.map((row) => (
-            <div key={row.id} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 14 }}>
-                  {row.label}
-                </span>
-                {money(
-                  row.value,
-                  (value) => onCustomRevenueChange?.(row.id, value),
-                  `${row.label} amount`,
-                )}
-                {onRemoveCustomRevenue && (
+
+          {/* OTHER REVENUE, as a table. Bar, merch and the standing other-revenue
+              row were three stacks of three lines each — a rate, a computed total
+              and a collector, every one of them labelled. They are rows now, and
+              the labels live in the header once. */}
+          <Eyebrow>Other revenue</Eyebrow>
+          <div className={tableStyles.table}>
+            <div className={tableStyles.headRevenue}>
+              <span>Source</span>
+              <span>Basis</span>
+              <span className={tableStyles.numeric}>Amount</span>
+              <span>Collected by</span>
+              <span className={tableStyles.numeric}>Total</span>
+              <span />
+            </div>
+
+            <div className={tableStyles.rowRevenue}>
+              <span style={{ color: "var(--text)", fontSize: 14 }}>Bar</span>
+              <span className={tableStyles.basis}>Per guest</span>
+              <div style={{ minWidth: 0 }}>
+                <span className={tableStyles.cellLabel}>Amount per guest</span>
+                {money(avgBarSpend, onAvgBarSpendChange, "Average bar spend per guest")}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <span className={tableStyles.cellLabel}>Collected by</span>
+                <RevenueAttribution
+                  participants={participants}
+                  value={barCollectedBy}
+                  fallbackParticipantId={defaultParticipantId}
+                  onChange={(participantId) => onBarCollectedByChange?.(participantId)}
+                  rowLabel="bar revenue"
+                  hideLabel
+                />
+              </div>
+              <span className={tableStyles.total}>{barRevenue}</span>
+              <span />
+            </div>
+
+            {/*
+             * MERCH IS ITS OWN ROW, with its own collector — ClickUp `86cbcn1ue`,
+             * 2026-09-03: *"Bar and merchandise can not be together."* One row of
+             * the same shape as the bar above it, because the two ARE the same
+             * arithmetic on the same head count; what differs is who collects it,
+             * and under #23.1 that is now what decides whose money it is.
+             */}
+            <div className={tableStyles.rowRevenue}>
+              <span style={{ color: "var(--text)", fontSize: 14 }}>Merch</span>
+              <span className={tableStyles.basis}>Per guest</span>
+              <div style={{ minWidth: 0 }}>
+                <span className={tableStyles.cellLabel}>Amount per guest</span>
+                {money(avgMerchSpend, onAvgMerchSpendChange, "Average merch spend per guest")}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <span className={tableStyles.cellLabel}>Collected by</span>
+                <RevenueAttribution
+                  participants={participants}
+                  value={merchCollectedBy}
+                  fallbackParticipantId={defaultParticipantId}
+                  onChange={(participantId) => onMerchCollectedByChange?.(participantId)}
+                  rowLabel="merch revenue"
+                  hideLabel
+                />
+              </div>
+              <span className={tableStyles.total}>{merchRevenue}</span>
+              <span />
+            </div>
+
+            <div className={tableStyles.rowRevenue}>
+              <span style={{ color: "var(--text)", fontSize: 14 }}>Other revenue</span>
+              <span className={tableStyles.basis}>Flat</span>
+              <div style={{ minWidth: 0 }}>
+                <span className={tableStyles.cellLabel}>Amount</span>
+                {money(otherRevenue, onOtherRevenueChange, "Other revenue")}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <span className={tableStyles.cellLabel}>Collected by</span>
+                <RevenueAttribution
+                  participants={participants}
+                  value={otherRevenueCollectedBy}
+                  fallbackParticipantId={defaultParticipantId}
+                  onChange={(participantId) => onOtherRevenueCollectedByChange?.(participantId)}
+                  rowLabel="other revenue"
+                  hideLabel
+                />
+              </div>
+              <span className={tableStyles.total} />
+              <span />
+            </div>
+
+            {customRevenue.map((row) => (
+              <div key={row.id} className={tableStyles.rowRevenue}>
+                <span style={{ color: "var(--text)", fontSize: 14, minWidth: 0 }}>{row.label}</span>
+                <span className={tableStyles.basis}>Flat</span>
+                <div style={{ minWidth: 0 }}>
+                  <span className={tableStyles.cellLabel}>Amount</span>
+                  {money(
+                    row.value,
+                    (value) => onCustomRevenueChange?.(row.id, value),
+                    `${row.label} amount`,
+                  )}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <span className={tableStyles.cellLabel}>Collected by</span>
+                  <RevenueAttribution
+                    participants={participants}
+                    value={row.collectedBy ?? ""}
+                    fallbackParticipantId={defaultParticipantId}
+                    onChange={(participantId) =>
+                      onCustomRevenueCollectedByChange?.(row.id, participantId)
+                    }
+                    rowLabel={row.label}
+                    hideLabel
+                  />
+                </div>
+                <span className={tableStyles.total} />
+                {onRemoveCustomRevenue ? (
                   <button
                     type="button"
                     aria-label={`Remove ${row.label}`}
@@ -524,19 +614,12 @@ export function BudgetPlanner({
                   >
                     <Icon name="x" size={14} />
                   </button>
+                ) : (
+                  <span />
                 )}
               </div>
-              <RevenueAttribution
-                participants={participants}
-                value={row.collectedBy ?? ""}
-                fallbackParticipantId={defaultParticipantId}
-                onChange={(participantId) =>
-                  onCustomRevenueCollectedByChange?.(row.id, participantId)
-                }
-                rowLabel={row.label}
-              />
-            </div>
-          ))}
+            ))}
+          </div>
           {onAddCustomField && (
             <Button
               variant="ghost"
@@ -549,98 +632,146 @@ export function BudgetPlanner({
         </Card>
 
         <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <Eyebrow style={{ color: "#EE5746" }}>Costs</Eyebrow>
+          <CardHeading
+            title="Costs"
+            subtitle="Each cost says who paid it, and who carries it at settlement."
+          />
           <CostAttributionLegend />
-          {budgetedCosts.map((cost) => (
-            <div key={cost.key} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 14 }}>
-                  {cost.label}
-                </span>
-                {/* The one-glance cost-vs-deduction answer. Sits with the LABEL
-                    rather than under the selectors, because the complaint was
-                    about scanning the column, and the column is the labels. */}
-                {!cost.readFromDeal && (
-                  <CostBearingBadge
-                    bearing={cost.bearing ?? { kind: "shared" }}
-                    participants={participants}
-                  />
-                )}
-                {/* A derived figure is READ-ONLY for the same reason a deal's
-                    figure is: it is an answer, not an entry. An editable box over
-                    a computed number invites somebody to type into it and lose
-                    the typing at the next recompute. Clear the rule to type a
-                    figure — the × on the row does that by removing it. */}
-                {cost.readFromDeal || cost.derivedFrom
-                  ? readOnlyFigure(cost.value, `${cost.label} amount`)
-                  : money(
-                      cost.value,
-                      (value) => onCostChange?.(cost.key, value),
-                      `${cost.label} amount`,
-                    )}
-                {/*
-                 * EVERY COST ROW CAN NOW BE CLEARED — the reported gap ("no
-                 * delete buttons") was that three of the five row kinds had one.
-                 *
-                 * The two verbs stay different because the two rows are. A
-                 * CUSTOM row is the operator's own invention: removing it deletes
-                 * it outright, and nothing brings it back but typing it again. A
-                 * STANDING heading is one of the six the sheet always offers:
-                 * clearing it deletes the `budget_lines` row behind it and the
-                 * heading drops back into "Not budgeted" below, one click from
-                 * returning. That is why the old comment's objection — "the
-                 * operator would have no way to get it back" — no longer applies.
-                 *
-                 * Offered only for a heading that HAS a stored line. A heading
-                 * showing a figure it read from a deal (the rental seeded into
-                 * "Venue cost", the guarantee in "Performer fee") owns nothing to
-                 * delete; that figure is changed on the deal, which the note under
-                 * the row already says.
-                 */}
-                {!cost.readFromDeal && onRemoveCost && !cost.key.startsWith(NEW_ROW_PREFIX) && (
-                  <button
-                    type="button"
-                    aria-label={cost.isCustom ? `Remove ${cost.label}` : `Clear ${cost.label}`}
-                    title={cost.isCustom ? "Remove this row" : "Clear this heading"}
-                    onClick={() => onRemoveCost(cost.key)}
-                    style={iconButtonStyle}
+          {/* THE COST TABLE. Every caption — Paid by, To be deducted from, Deal —
+              used to sit beside its own control on every row. They are column
+              headers now, written once. The prototype has three columns to our
+              five because its cost model is simpler; what is being ported is the
+              treatment, which is what "too spacious" was about. */}
+          <div className={tableStyles.table}>
+            <div className={tableStyles.headCost}>
+              <span>Cost</span>
+              <span className={tableStyles.numeric}>Amount</span>
+              <span>Paid by</span>
+              <span>To be deducted from</span>
+              <span>Deal</span>
+              <span />
+            </div>
+            {budgetedCosts.map((cost) => (
+              <div key={cost.key} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <div className={tableStyles.rowCost}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      minWidth: 0,
+                      flexWrap: "wrap",
+                    }}
                   >
-                    <Icon name={cost.isCustom ? "x" : "trash"} size={14} />
-                  </button>
+                    <span style={{ color: "var(--text)", fontSize: 14, minWidth: 0 }}>
+                      {cost.label}
+                    </span>
+                    {/* The one-glance cost-vs-deduction answer, kept beside the
+                        LABEL: the complaint was about scanning the column, and
+                        the column is the labels. */}
+                    {!cost.readFromDeal && (
+                      <CostBearingBadge
+                        bearing={cost.bearing ?? { kind: "shared" }}
+                        participants={participants}
+                      />
+                    )}
+                  </div>
+
+                  {/* A derived figure is READ-ONLY for the same reason a deal's
+                      figure is: it is an answer, not an entry. An editable box
+                      over a computed number invites somebody to type into it and
+                      lose the typing at the next recompute. */}
+                  <div style={{ minWidth: 0 }}>
+                    <span className={tableStyles.cellLabel}>Amount</span>
+                    {cost.readFromDeal || cost.derivedFrom
+                      ? readOnlyFigure(cost.value, `${cost.label} amount`)
+                      : money(
+                          cost.value,
+                          (value) => onCostChange?.(cost.key, value),
+                          `${cost.label} amount`,
+                        )}
+                  </div>
+
+                  {cost.readFromDeal ? (
+                    <>
+                      <span />
+                      <span />
+                      <span />
+                    </>
+                  ) : (
+                    <CostAttribution
+                      participants={participants}
+                      deals={deals}
+                      paidBy={cost.paidBy ?? ""}
+                      fallbackParticipantId={defaultParticipantId}
+                      bearing={cost.bearing ?? { kind: "shared" }}
+                      dealLink={cost.dealLink ?? { kind: "none" }}
+                      onPaidByChange={(participantId) =>
+                        onCostPaidByChange?.(cost.key, participantId)
+                      }
+                      onBearingChange={(bearing) => onCostBearingChange?.(cost.key, bearing)}
+                      onEditSplit={() => onEditCostSplit?.(cost.key)}
+                      onDealLinkChange={(link) => onCostDealLinkChange?.(cost.key, link)}
+                      rowLabel={cost.label}
+                      asCells
+                    />
+                  )}
+
+                  {/*
+                   * EVERY COST ROW CAN BE CLEARED — the reported gap ("no delete
+                   * buttons") was that three of the five row kinds had one.
+                   *
+                   * The two verbs stay different because the two rows are. A
+                   * CUSTOM row is the operator's own invention: removing it
+                   * deletes it outright. A STANDING heading is one the sheet
+                   * always offers: clearing it drops the heading back into "Not
+                   * budgeted" below, one click from returning.
+                   *
+                   * Offered only for a heading that HAS a stored line — a figure
+                   * read from a deal owns nothing to delete, and the note under
+                   * the row says where to change it.
+                   */}
+                  {!cost.readFromDeal && onRemoveCost && !cost.key.startsWith(NEW_ROW_PREFIX) ? (
+                    <button
+                      type="button"
+                      aria-label={cost.isCustom ? `Remove ${cost.label}` : `Clear ${cost.label}`}
+                      title={cost.isCustom ? "Remove this row" : "Clear this heading"}
+                      onClick={() => onRemoveCost(cost.key)}
+                      style={iconButtonStyle}
+                    >
+                      <Icon name={cost.isCustom ? "x" : "trash"} size={14} />
+                    </button>
+                  ) : (
+                    <span />
+                  )}
+                </div>
+
+                {/* The sentences BELOW the row. A table has columns for controls
+                    and nowhere to put a sentence about one particular line, so
+                    these keep their own space under it. */}
+                {cost.derivedFrom && <DerivedDeductionNote rule={cost.derivedFrom} />}
+                {cost.readFromDeal ? (
+                  <ReadFromDealNote dealNames={cost.readFromDeal.dealNames} />
+                ) : (
+                  <>
+                    <CostBearingNote
+                      bearing={cost.bearing ?? { kind: "shared" }}
+                      participants={participants}
+                      paidBy={cost.paidBy ?? ""}
+                    />
+                    <DealAssignmentNote
+                      link={cost.dealLink ?? { kind: "none" }}
+                      dealName={
+                        deals.find((deal) => deal.id === linkedDealId(cost.dealLink))?.name ??
+                        "this deal"
+                      }
+                    />
+                    <DealFigureDriftWarning warning={dealFigureWarnings[cost.key]} />
+                  </>
                 )}
               </div>
-              {cost.derivedFrom && <DerivedDeductionNote rule={cost.derivedFrom} />}
-              {cost.readFromDeal ? (
-                <ReadFromDealNote dealNames={cost.readFromDeal.dealNames} />
-              ) : (
-                <>
-                  <CostAttribution
-                    participants={participants}
-                    deals={deals}
-                    paidBy={cost.paidBy ?? ""}
-                    fallbackParticipantId={defaultParticipantId}
-                    bearing={cost.bearing ?? { kind: "shared" }}
-                    dealLink={cost.dealLink ?? { kind: "none" }}
-                    onPaidByChange={(participantId) =>
-                      onCostPaidByChange?.(cost.key, participantId)
-                    }
-                    onBearingChange={(bearing) => onCostBearingChange?.(cost.key, bearing)}
-                    onEditSplit={() => onEditCostSplit?.(cost.key)}
-                    onDealLinkChange={(link) => onCostDealLinkChange?.(cost.key, link)}
-                    rowLabel={cost.label}
-                  />
-                  <DealAssignmentNote
-                    link={cost.dealLink ?? { kind: "none" }}
-                    dealName={
-                      deals.find((deal) => deal.id === linkedDealId(cost.dealLink))?.name ??
-                      "this deal"
-                    }
-                  />
-                  <DealFigureDriftWarning warning={dealFigureWarnings[cost.key]} />
-                </>
-              )}
-            </div>
-          ))}
+            ))}
+          </div>
           {unusedCostHeadings.length > 0 && onRevealCost && (
             <UnusedCostHeadings rows={unusedCostHeadings} onReveal={onRevealCost} />
           )}
@@ -689,7 +820,7 @@ export function BudgetPlanner({
       </div>
 
       <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <h4 style={sectionHeadingStyle}>Results</h4>
+        <CardHeading title="Results" subtitle="Live estimate. Review before final decisions." />
         {/* Three across, nine tiles, three full rows — the new prototype's grid.
             The old 4×7 left a short last row BY DESIGN; this one divides evenly,
             so a gap would now read as a missing figure rather than as intent.
@@ -958,10 +1089,34 @@ function ReadFromDealNote({ dealNames }: { dealNames: string[] }) {
 const sectionHeadingStyle = {
   fontFamily: "var(--font-display)",
   fontWeight: 600,
-  fontSize: 14,
+  // 17px, up from 14. Measured off the prototype
+  // (design-spec-budget-planner-2026-09-13.md): its cards ANNOUNCE themselves in
+  // Clash Display, where ours whispered in a small mono eyebrow. Of everything
+  // that separated the two screens side by side, this was the largest.
+  fontSize: 17,
   color: "var(--text)",
   margin: 0,
 } as const;
+
+/**
+ * A card's heading and the sentence that says what the card is for.
+ *
+ * The subtitle is not decoration: each one answers the question an operator opens
+ * the card with — "what does this card want from me?" — in the designer's own
+ * words. `Costs` saying *"Each cost says who paid it, and who carries it at
+ * settlement"* is the whole cost/deduction distinction in one line, which is what
+ * the meeting asked for after the old UI made it confusing.
+ */
+function CardHeading({ title, subtitle }: { title: string; subtitle?: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+      <h4 style={sectionHeadingStyle}>{title}</h4>
+      {subtitle && (
+        <span style={{ color: "var(--muted)", fontSize: 12.5, lineHeight: 1.4 }}>{subtitle}</span>
+      )}
+    </div>
+  );
+}
 
 const headingChipStyle = {
   display: "inline-flex",

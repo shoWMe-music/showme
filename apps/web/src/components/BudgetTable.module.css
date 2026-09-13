@@ -28,9 +28,17 @@
   align-items: center;
 }
 
-.head {
-  /* 9px/400 with 0.9px tracking — the lightest type on the screen. Column
-     headers are meant to recede; the values are the content. */
+/* 9px/400 with 0.9px tracking — the lightest type on the screen. Column headers
+   are meant to recede; the values are the content.
+
+   All three header rows, not just the ticket one. The revenue and cost tables
+   were added later with only their grid defined, so their headers inherited the
+   card's 14px body text and read as content rather than as labels — caught by
+   looking at the rendered page beside the prototype, which is the only way a
+   missing selector shows up. */
+.head,
+.headRevenue,
+.headCost {
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 400;
@@ -85,5 +93,54 @@
   .numeric,
   .total {
     text-align: left;
+  }
+}
+
+/* OTHER REVENUE — source / basis / amount / collected by / total / remove.
+   The prototype's 275 / 100 / 85 / 215 / 80 / 34 at 1440, as ratios. `basis` is a
+   static word rather than a control: the bar is per head and a sponsorship is
+   not, and that is a fact about the row, not a choice the operator makes here. */
+.headRevenue,
+.rowRevenue {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) 104px 104px minmax(0, 1fr) 100px 34px;
+  gap: 7px;
+  align-items: center;
+}
+
+/* COSTS — cost / amount / settlement. Three columns, which is the whole of the
+   cost/deduction distinction the meeting asked to make legible: what it is, what
+   it costs, and whose share it finally comes out of. */
+/* COST | AMOUNT | PAID BY | TO BE DEDUCTED FROM | DEAL | remove.
+   The prototype has three columns because its cost model is simpler — one
+   "Settlement" select. Ours carries `paid_by`, the bearing rule and the deal
+   link, all shipped for tickets W1/W2 and 86cbaxvf5, so it gets five. The
+   TREATMENT is what is being ported: every caption becomes a column header
+   written once, which is what "too spacious" was actually about. */
+.headCost,
+.rowCost {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) 130px minmax(0, 0.9fr) minmax(0, 1.1fr) minmax(0, 1fr) 34px;
+  gap: 7px;
+  align-items: center;
+}
+
+.basis {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+@media (max-width: 860px) {
+  .headRevenue,
+  .headCost {
+    display: none;
+  }
+
+  .rowRevenue,
+  .rowCost {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
   }
 }

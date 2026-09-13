@@ -1,4 +1,5 @@
 import { Badge, Icon, type IconName, Select } from "@showme/design-system";
+import type { ReactNode } from "react";
 import type {
   BudgetAttributionOption,
   BudgetDealOption,
@@ -280,6 +281,20 @@ export interface CostAttributionProps {
   onEditSplit: () => void;
   onDealLinkChange: (link: CostDealLink) => void;
   rowLabel: string;
+  /**
+   * Lay the selects out as BARE CELLS for a table row rather than as a strip of
+   * captioned fields.
+   *
+   * Repeating "Paid by / To be deducted from / Deal" beside every control on
+   * every row is most of what "too spacious" meant. In a table the caption is a
+   * column header written once, so it is dropped here — but every `aria-label`
+   * stays, because a screen reader moving field to field is handed no column
+   * header to carry the meaning.
+   *
+   * The note and the split pill still render, below the row: they are sentences
+   * about a particular row, not columns, and a table has nowhere to put them.
+   */
+  asCells?: boolean;
 }
 
 /**
@@ -303,6 +318,7 @@ export function CostAttribution({
   onEditSplit,
   onDealLinkChange,
   rowLabel,
+  asCells = false,
 }: CostAttributionProps) {
   if (participants.length === 0) return null;
 
@@ -330,11 +346,15 @@ export function CostAttribution({
   // two senses are separate.
   const isDealFigure = dealLink.kind === "deal_figure";
 
+  const Strip = asCells
+    ? ({ children }: { children: ReactNode }) => <>{children}</>
+    : ({ children }: { children: ReactNode }) => <div style={stripStyle}>{children}</div>;
+
   return (
     <>
-      <div style={stripStyle}>
+      <Strip>
         {!isDealFigure && (
-          <Field caption="Paid by" basis={190}>
+          <Cell caption="Paid by" basis={190} asCells={asCells}>
             <Select
               value={paidBy}
               placeholder={defaultsToPlaceholder(participants, fallbackParticipantId)}
@@ -344,10 +364,10 @@ export function CostAttribution({
               searchable={participants.length > 6}
               aria-label={`Paid by — who the invoice goes out from, for ${rowLabel}`}
             />
-          </Field>
+          </Cell>
         )}
         {!isDealFigure && (
-          <Field caption="To be deducted from" basis={300}>
+          <Cell caption="To be deducted from" basis={300} asCells={asCells}>
             <Select
               value={bearingValue}
               menuWidth={MENU_WIDTH}
@@ -372,7 +392,7 @@ export function CostAttribution({
               searchable={participants.length > 6}
               aria-label={`To be deducted from — whose money it finally comes out of, for ${rowLabel}`}
             />
-          </Field>
+          </Cell>
         )}
         {!isDealFigure && bearing.kind === "split" && (
           <button type="button" onClick={onEditSplit} style={splitPillStyle}>
@@ -388,7 +408,7 @@ export function CostAttribution({
           // counts it like any other. Offering one entry per deal would force the
           // planner to guess, and either guess is somebody's residual out by the
           // whole amount; the sentence under the row then says which was chosen.
-          <Field caption="Deal" basis={220}>
+          <Cell caption="Deal" basis={220} asCells={asCells}>
             <Select
               value={dealOptionValue(dealLink)}
               menuWidth={MENU_WIDTH}
@@ -411,13 +431,33 @@ export function CostAttribution({
               searchable={deals.length > 3}
               aria-label={`How this cost relates to a deal, for ${rowLabel}`}
             />
-          </Field>
+          </Cell>
         )}
-      </div>
-      {!isDealFigure && (
+      </Strip>
+      {!isDealFigure && !asCells && (
         <CostBearingNote bearing={bearing} participants={participants} paidBy={paidBy} />
       )}
     </>
+  );
+}
+
+/** A captioned field, or the bare control when the column header does the naming. */
+function Cell({
+  caption,
+  basis,
+  asCells,
+  children,
+}: {
+  caption: string;
+  basis: number;
+  asCells: boolean;
+  children: ReactNode;
+}) {
+  if (asCells) return <>{children}</>;
+  return (
+    <Field caption={caption} basis={basis}>
+      {children}
+    </Field>
   );
 }
 
@@ -495,7 +535,13 @@ export function CostAttributionLegend() {
  * that is the case that gets a sentence — the `DealAssignmentNote` pattern, in
  * the same treatment, for the same reason.
  */
-function CostBearingNote({
+/**
+ * Exported because a TABLE row cannot hold it. In the strip layout this renders
+ * itself under the selects; in cell mode the selects are placed by the parent's
+ * grid, which has columns and nowhere to put a sentence — so the parent renders
+ * it beneath the row instead. Same component either way; only who mounts it moves.
+ */
+export function CostBearingNote({
   bearing,
   participants,
   paidBy,
