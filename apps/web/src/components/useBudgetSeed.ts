@@ -1,4 +1,5 @@
 import { useGetApiV1EventsIdDeals } from "@showme/api-client";
+import { type EntitlementBasis, dealEntitlementDetailed } from "@showme/settlement";
 import { basisPointsToPercent } from "@showme/shared";
 import { useMemo } from "react";
 
@@ -126,7 +127,7 @@ interface DealParty {
   share?: { splitBasisPoints?: number; illustrativeAmount?: string } | null;
 }
 
-interface Deal {
+export interface Deal {
   id: string;
   name: string;
   type: string;
@@ -194,7 +195,11 @@ function isRental(deal: Deal): boolean {
  * every entitled party is on the bill, because otherwise the row would book the
  * whole fee under a fraction of the people earning it.
  */
-function performerFeeOf(deal: Deal, performers: Set<string>): BudgetSeedDealFigure | null {
+export function performerFeeOf(
+  deal: Deal,
+  performers: Set<string>,
+  door: DoorForecast,
+): BudgetSeedDealFigure | null {
   if (deal.status !== "confirmed" || isRental(deal)) return null;
 
   const entitled = (deal.parties ?? []).filter((party) =>
@@ -202,6 +207,49 @@ function performerFeeOf(deal: Deal, performers: Set<string>): BudgetSeedDealFigu
   );
   const onTheBill = entitled.filter((party) => performers.has(party.participantId));
   if (onTheBill.length === 0) return null;
+
+  /**
+   * A PERCENTAGE DEAL IS DERIVED FROM THE DOOR, not read off a stored figure
+   * (#23.1). `illustrativeAmount` is what a party line was worth at the pool
+   * somebody projected when the deal was written — it does not move when the
+   * ticket forecast does, which is exactly the fault Ran's prototype has in the
+   * other direction: a fee frozen at one attendance and then treated as fixed.
+   *
+   * SETTLEMENT'S OWN FUNCTION does the arithmetic, deliberately. The planner
+   * forecasts what `reconcile()` will later compute, so running a second formula
+   * here is how the two come to disagree — which is the whole finding behind #23,
+   * where Ran's planner split gross tickets and his settlement split adjusted net
+   * and both called it 70%.
+   *
+   * Only when the sheet knows its door. A budget with no ticket tiers yet has no
+   * base to take a percentage of, so it falls through to the stated figures
+   * below rather than seeding a confident zero.
+   */
+  if (door.ticketRevenue > 0n && onTheBill.length === entitled.length) {
+    const structure = deal.structure;
+    if (structure === "door_split" || structure === "guarantee_vs_door") {
+      const settled = dealEntitlementDetailed(
+        {
+          dealId: deal.id,
+          structure,
+          payeeParticipantIds: onTheBill.map((party) => party.participantId),
+          ...(deal.guaranteeAmount != null
+            ? { guaranteeAmount: BigInt(deal.guaranteeAmount) }
+            : {}),
+          ...(deal.splitBasisPoints != null ? { splitBasisPoints: deal.splitBasisPoints } : {}),
+        },
+        { doorBase: door.ticketRevenue, grossRevenue: door.totalRevenue },
+        door.ticketsSold,
+      );
+      if (settled.amount > 0n) {
+        return {
+          dealId: deal.id,
+          dealName: derivedLabel(deal, settled.basis),
+          amount: settled.amount.toString(),
+        };
+      }
+    }
+  }
 
   const stated = onTheBill.filter((party) => party.share?.illustrativeAmount != null);
   if (stated.length > 0) {
@@ -216,6 +264,36 @@ function performerFeeOf(deal: Deal, performers: Set<string>): BudgetSeedDealFigu
     return { dealId: deal.id, dealName: deal.name, amount: deal.guaranteeAmount };
   }
   return null;
+}
+
+/** What the sheet currently forecasts, in the currency the budget is kept in. */
+export interface DoorForecast {
+  /** Gross TICKET revenue — what a percentage deal is a percentage of (#23.1). */
+  ticketRevenue: bigint;
+  /** Every revenue line, for a threshold bonus (#23.3). */
+  totalRevenue: bigint;
+  /** Tickets expected across every tier — what escalator tiers are measured against. */
+  ticketsSold: number;
+}
+
+/**
+ * The deal's name plus the rule that produced the figure, in words — "… · 70% of
+ * the door beats the 18 000 guarantee".
+ *
+ * The RULE, not just the percentage, because a derived fee moves when the ticket
+ * forecast does and an operator who sees it change is owed the reason. This is the
+ * planner's half of the same sentence `settlementDocument.ts` prints afterwards.
+ */
+function derivedLabel(deal: Deal, basis: EntitlementBasis): string {
+  if (basis.kind === "door_split") {
+    return `${deal.name} · ${basisPointsToPercent(basis.basisPoints)}% of the door`;
+  }
+  if (basis.kind === "guarantee_vs_door") {
+    return basis.won === "door"
+      ? `${deal.name} · ${basisPointsToPercent(basis.basisPoints)}% of the door beats the guarantee`
+      : `${deal.name} · the guarantee beats ${basisPointsToPercent(basis.basisPoints)}% of the door`;
+  }
+  return deal.name;
 }
 
 /**
@@ -292,6 +370,37 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
     const deals = (dealsQuery.data ?? []) as Deal[];
     const performers = new Set(sources.performerParticipantIds);
 
+    /**
+     * The door the percentage deals are measured against, off the tiers the
+     * operator has already written on Event Details.
+     *
+     * EVENT-SCOPED, not book-scoped (#23.2). The tiers belong to the event, so a
+     * co-operator opening their own private book still derives the act's fee from
+     * the same door the shared ledger sees — deriving it from whatever slice of
+     * ticket revenue happened to be in the book being viewed would produce a
+     * number that is not the performer's fee and never will be.
+     *
+     * Major units × 100, because the Ticketing card takes a price in major units
+     * and every figure past this boundary is minor (money.md).
+     */
+    const door: DoorForecast = {
+      ticketRevenue: sources.ticketTiers.reduce(
+        (total, tier) =>
+          total + BigInt(Math.round(tier.price * 100)) * BigInt(Math.trunc(tier.est)),
+        0n,
+      ),
+      // The planner has no other revenue at seed time, so the gross a bonus is
+      // measured against is the door. A bonus threshold the bar would have cleared
+      // is therefore never seeded optimistically — the sheet says so once the bar
+      // line exists, and the settlement is the authority either way.
+      totalRevenue: sources.ticketTiers.reduce(
+        (total, tier) =>
+          total + BigInt(Math.round(tier.price * 100)) * BigInt(Math.trunc(tier.est)),
+        0n,
+      ),
+      ticketsSold: sources.ticketTiers.reduce((total, tier) => total + Math.trunc(tier.est), 0),
+    };
+
     return {
       capacity: sources.capacity,
       ticketTiers: sources.ticketTiers,
@@ -300,7 +409,7 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
       // test is what keeps the venue's room hire out of the artist's row — a
       // RENTAL deal carries a `guaranteeAmount` too.
       performerFees: deals
-        .map((deal) => performerFeeOf(deal, performers))
+        .map((deal) => performerFeeOf(deal, performers, door))
         .filter((fee): fee is BudgetSeedDealFigure => fee !== null),
       // The rental fee is the rental fee whoever collects it. There is no
       // "venue" participant role, so requiring a payee match here would seed

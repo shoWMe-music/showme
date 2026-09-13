@@ -14,6 +14,7 @@
   "dependencies": {
     "@showme/api-client": "workspace:*",
     "@showme/design-system": "workspace:*",
+    "@showme/settlement": "workspace:*",
     "@showme/shared": "workspace:*",
     "@tanstack/react-query": "^5.62.7",
     "@tanstack/react-router": "1.170.24",
