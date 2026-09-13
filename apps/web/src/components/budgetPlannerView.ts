@@ -60,6 +60,8 @@ export interface BreakdownDisplayRow {
 
 export interface BreakEvenDisplay {
   chart: BreakEvenChart;
+  /** The money scale, formatted here so the currency peek reaches the chart too. */
+  gridLabels: { y: number; label: string }[];
   breakEvenLabel: string;
   capacityLabel: string;
 }
@@ -430,6 +432,7 @@ export function budgetPlannerViewFrom(
     merchRevenue: money(projection.merchRevenue),
     breakEven: {
       chart,
+      gridLabels: chart.gridLines.map((line) => ({ y: line.y, label: money(line.amount) })),
       breakEvenLabel: `${chart.breakEvenTickets.toLocaleString()} tickets`,
       capacityLabel: chart.capacity.toLocaleString(),
     },

@@ -31,8 +31,12 @@
 import type { BudgetProjection } from "./budget-planning";
 
 /** The prototype's viewBox and padding, kept so the drawing matches shot-for-shot. */
-const WIDTH = 460;
-const HEIGHT = 180;
+// The prototype's own viewBox (design-spec-budget-planner-2026-09-13.md). Was
+// 460x180, which is a squatter box than the design draws and forced the
+// component to stretch it — distorting the stroke widths along with everything
+// else. Matching the ratio lets the chart scale honestly.
+const WIDTH = 700;
+const HEIGHT = 210;
 const PADDING_LEFT = 8;
 const PADDING_RIGHT = 8;
 const PADDING_TOP = 10;
@@ -80,6 +84,17 @@ export interface BreakEvenChart {
   readonly breakEvenTickets: number;
   /** The x-axis end label: the capacity actually being drawn against. */
   readonly capacity: number;
+  /**
+   * The horizontal rules and what each one is worth.
+   *
+   * `amount` is MONEY, not a label: this module deals in coordinates and the
+   * caller owns the currency (see the header note). Handing back a formatted
+   * string here would put a second money formatter in the codebase, and the
+   * currency peek would silently stop applying to the chart.
+   */
+  readonly gridLines: readonly { readonly y: number; readonly amount: bigint }[];
+  /** Where the operator's own forecast sits, or null when it is off the chart. */
+  readonly plannedX: number | null;
 }
 
 export function computeBreakEvenChart(inputs: BreakEvenChartInputs): BreakEvenChart {
@@ -133,7 +148,15 @@ export function computeBreakEvenChart(inputs: BreakEvenChartInputs): BreakEvenCh
   const breakEvenY = toY(revenueAt(breakEvenAt));
 
   const baseline = toY(0n);
+  // Three rules — nothing, half, and the top of the scale. Enough to read a
+  // figure off the chart; more would be a table with lines through it.
+  const gridLines = [0n, scaleTop / 2n, scaleTop].map((amount) => ({ y: toY(amount), amount }));
+  const planned = projection.ticketsSold;
   return {
+    gridLines,
+    // The forecast, drawn only when it is inside the room. A guide pinned to the
+    // edge would claim a plan the operator has not made.
+    plannedX: planned > 0 && planned <= capacity ? toX(planned) : null,
     width: WIDTH,
     height: HEIGHT,
     revenuePoints: `${toX(0)},${toY(projection.standingRevenue)} ${toX(capacity)},${toY(revenueAtCapacity)}`,

@@ -191,3 +191,67 @@ describe("break-even chart geometry", () => {
     }
   });
 });
+
+/**
+ * The money scale and the forecast guide — the two things the chart gained when
+ * it was ported to the design's own viewBox.
+ *
+ * Both are read off the returned object rather than off a rendered SVG, because
+ * the component draws exactly what it is handed. What a rendering test could
+ * still catch — and these deliberately cannot — is the label overlapping the
+ * line it belongs to; that is what the screenshot pass is for.
+ */
+describe("the money scale and the planned-tickets guide", () => {
+  const projection = computeBudgetProjection({
+    ticketTiers: [{ unitAmount: major(100), quantity: 500 }],
+    averageBarSpend: 0n,
+    capacity: 1000,
+    otherRevenue: 0n,
+    costs: [major(20000)],
+  });
+  const chart = computeBreakEvenChart({ projection, capacity: 1000 });
+
+  it("rules the scale at nothing, half and the top — in that order up the page", () => {
+    expect(chart.gridLines).toHaveLength(3);
+    const [zero, half, top] = chart.gridLines;
+
+    expect(zero?.amount).toBe(0n);
+    expect(half?.amount).toBe(top?.amount ? top.amount / 2n : -1n);
+    // Up the page is a SMALLER y. A scale that climbs while its rules climb too
+    // would be drawn upside down, and an `amount` assertion alone cannot see it.
+    expect(half?.y).toBeLessThan(zero?.y ?? 0);
+    expect(top?.y).toBeLessThan(half?.y ?? 0);
+  });
+
+  it("puts the zero rule on the same baseline the lines are measured from", () => {
+    // The scale and the plot must share an origin. If they drift, every figure
+    // read off the chart is wrong by a constant nobody would notice.
+    const [, revenueStartY] = pointAt(chart.revenuePoints, 0);
+    expect(chart.gridLines[0]?.y).toBe(revenueStartY); // standing revenue is 0 here
+  });
+
+  it("places the forecast guide at the share of the room actually planned", () => {
+    // 500 of 1,000 — the guide belongs at the midpoint of the drawn area.
+    const [leftX] = pointAt(chart.revenuePoints, 0);
+    const [rightX] = pointAt(chart.revenuePoints, 1);
+    expect(chart.plannedX).toBeCloseTo((leftX + rightX) / 2, 5);
+  });
+
+  it("omits the guide rather than pinning it to the edge when the plan overfills the room", () => {
+    // A plan bigger than the capacity being drawn has no honest position. Clamping
+    // it to the right edge would draw a sold-out forecast that was never made.
+    const overfull = computeBreakEvenChart({ projection, capacity: 400 });
+    expect(overfull.plannedX).toBeNull();
+  });
+
+  it("omits the guide when nothing has been planned yet", () => {
+    const empty = computeBudgetProjection({
+      ticketTiers: [],
+      averageBarSpend: 0n,
+      capacity: 1000,
+      otherRevenue: 0n,
+      costs: [major(20000)],
+    });
+    expect(computeBreakEvenChart({ projection: empty, capacity: 1000 }).plannedX).toBeNull();
+  });
+});
