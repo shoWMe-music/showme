@@ -227,6 +227,13 @@ export interface RevenueAttributionProps {
   onChange: (participantId: string) => void;
   /** Names the row in the accessible label — "Collected by, for Advance tickets". */
   rowLabel: string;
+  /**
+   * Drop the visible "Collected by" caption, for a table that already names the
+   * column in its header. The ACCESSIBLE label stays either way — a screen reader
+   * moving field to field gets no column header, so the only thing that changes
+   * is what is drawn.
+   */
+  hideLabel?: boolean;
 }
 
 /** One select: the party who RECEIVES a revenue line. */
@@ -236,20 +243,25 @@ export function RevenueAttribution({
   fallbackParticipantId,
   onChange,
   rowLabel,
+  hideLabel = false,
 }: RevenueAttributionProps) {
   if (participants.length === 0) return null;
+  const select = (
+    <Select
+      value={value}
+      placeholder={defaultsToPlaceholder(participants, fallbackParticipantId)}
+      menuWidth={MENU_WIDTH}
+      onChange={onChange}
+      options={participantOptions(participants)}
+      searchable={participants.length > 6}
+      aria-label={`Collected by, for ${rowLabel}`}
+    />
+  );
+  if (hideLabel) return select;
   return (
     <div style={stripStyle}>
       <Field caption="Collected by" basis={200}>
-        <Select
-          value={value}
-          placeholder={defaultsToPlaceholder(participants, fallbackParticipantId)}
-          menuWidth={MENU_WIDTH}
-          onChange={onChange}
-          options={participantOptions(participants)}
-          searchable={participants.length > 6}
-          aria-label={`Collected by, for ${rowLabel}`}
-        />
+        {select}
       </Field>
     </div>
   );

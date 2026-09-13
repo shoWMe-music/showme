@@ -8,6 +8,7 @@ import {
   DealAssignmentNote,
   RevenueAttribution,
 } from "./BudgetLineAttribution";
+import tableStyles from "./BudgetTable.module.css";
 import { type KpiItem, KpiRow } from "./KpiRow";
 import { PerformingRightsEstimateCard } from "./PerformingRightsEstimateCard";
 import {
@@ -90,6 +91,8 @@ export interface BudgetPlannerProps {
   ticketTypes: TicketTypeRow[];
   /** Computed "Total ticket revenue", formatted. */
   ticketRevenueTotal: string;
+  /** Each tier's own price x quantity, formatted, keyed by row id. */
+  ticketTierTotals: Record<string, string>;
   capacity: string;
   avgBarSpend: string;
   avgMerchSpend: string;
@@ -206,6 +209,7 @@ export function BudgetPlanner({
   kpis,
   ticketTypes,
   ticketRevenueTotal,
+  ticketTierTotals,
   capacity,
   avgBarSpend,
   avgMerchSpend,
@@ -329,81 +333,99 @@ export function BudgetPlanner({
 
       <KpiRow items={kpis} />
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-          gap: 14,
-          /*
-           * EACH COLUMN IS AS TALL AS ITS OWN CONTENT.
-           *
-           * A grid item stretches to the row's height by default, so the shorter
-           * card — Revenue, which has four headings to Costs' six plus three
-           * selects apiece — was padded out to match. Measured on the seeded
-           * event: ~400px of empty card under "Add field", which is most of
-           * *"budget planner: too big / too much whitespace"* (ClickUp
-           * 86cbcn1ue) on its own.
-           *
-           * The Results grid below already does this (`alignItems: "start"`);
-           * this one was the outlier, not the precedent.
-           */
-          alignItems: "start",
-        }}
-      >
+      {/*
+       * FULL WIDTH, STACKED — not the two columns the old handoff specified
+       * (design-spec-budget-planner-2026-09-13.md).
+       *
+       * Side by side, each card had roughly half the width to lay a row out in,
+       * which is why both were built as label-and-field stacks: there was no
+       * room for a row of real columns. The new design gives each card the whole
+       * width and spends it on a TABLE — the meeting's headline request, "a
+       * simplified table structure, remove excessive spacing". The spacing goes
+       * away because the columns take it, not because anything was squeezed.
+       *
+       * `alignItems: start` is gone with the grid: a stacked card is already as
+       * tall as its own content, which is what that note was working around.
+       */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <Eyebrow style={{ color: "#6FC97A" }}>Revenue</Eyebrow>
           <Eyebrow>Ticket revenue</Eyebrow>
-          {ticketTypes.map((ticket) => (
-            <div key={ticket.id} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {/* Wraps rather than crushing: at 390px a fixed price field, a
-                  quantity field and a delete button leave the NAME about 60px,
-                  which is not a field. `flex: 1 1 140px` lets the name take the
-                  first line on its own and the figures drop under it. */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <div style={{ flex: "1 1 140px", minWidth: 0 }}>
+          {/* THE TABLE. Column headers once, at the top, instead of a label
+              beside every field — the meeting's "simplified table structure,
+              remove excessive spacing". Below 860px `BudgetTable.module.css`
+              turns each row back into a labelled stack, because six columns do
+              not fit a phone and a crushed table is worse than an honest list. */}
+          <div className={tableStyles.table}>
+            <div className={tableStyles.head}>
+              <span>Ticket type</span>
+              <span className={tableStyles.numeric}>Price</span>
+              <span className={tableStyles.numeric}>Qty</span>
+              <span>Collected by</span>
+              <span className={tableStyles.numeric}>Total</span>
+              <span />
+            </div>
+            {ticketTypes.map((ticket) => (
+              <div key={ticket.id} className={tableStyles.row}>
+                <div style={{ minWidth: 0 }}>
+                  <span className={tableStyles.cellLabel}>Ticket type</span>
                   <Input
                     value={ticket.name}
                     placeholder="Ticket type"
                     onChange={(event) => onTicketChange?.(ticket.id, "name", event.target.value)}
                   />
                 </div>
-                {money(
-                  ticket.price,
-                  (value) => onTicketChange?.(ticket.id, "price", value),
-                  `${ticket.name || "Ticket type"} price`,
-                )}
-                <div style={{ width: 76, flexShrink: 0 }}>
+                <div style={{ minWidth: 0 }}>
+                  <span className={tableStyles.cellLabel}>Price</span>
+                  {money(
+                    ticket.price,
+                    (value) => onTicketChange?.(ticket.id, "price", value),
+                    `${ticket.name || "Ticket type"} price`,
+                  )}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <span className={tableStyles.cellLabel}>Qty</span>
                   <Input
                     value={ticket.quantity}
                     inputMode="numeric"
                     placeholder="Qty"
+                    aria-label={`${ticket.name || "Ticket type"} quantity`}
                     onChange={(event) =>
                       onTicketChange?.(ticket.id, "quantity", event.target.value)
                     }
                   />
                 </div>
-                {onRemoveTicketType && (
+                <div style={{ minWidth: 0 }}>
+                  <span className={tableStyles.cellLabel}>Collected by</span>
+                  <RevenueAttribution
+                    participants={participants}
+                    value={ticket.collectedBy ?? ""}
+                    fallbackParticipantId={defaultParticipantId}
+                    onChange={(participantId) =>
+                      onTicketChange?.(ticket.id, "collectedBy", participantId)
+                    }
+                    rowLabel={ticket.name || "this ticket type"}
+                    hideLabel
+                  />
+                </div>
+                {/* Price times quantity, derived in the view model so this column
+                    and the band below it are one figure, not two opinions. */}
+                <span className={tableStyles.total}>{ticketTierTotals[ticket.id] ?? "—"}</span>
+                {onRemoveTicketType ? (
                   <button
                     type="button"
-                    aria-label="Remove ticket type"
+                    aria-label={`Remove ${ticket.name || "ticket type"}`}
                     onClick={() => onRemoveTicketType(ticket.id)}
                     style={iconButtonStyle}
                   >
                     <Icon name="trash" size={15} />
                   </button>
+                ) : (
+                  <span />
                 )}
               </div>
-              <RevenueAttribution
-                participants={participants}
-                value={ticket.collectedBy ?? ""}
-                fallbackParticipantId={defaultParticipantId}
-                onChange={(participantId) =>
-                  onTicketChange?.(ticket.id, "collectedBy", participantId)
-                }
-                rowLabel={ticket.name || "this ticket type"}
-              />
-            </div>
-          ))}
+            ))}
+          </div>
           <KeyValueRow
             label="Total ticket revenue"
             value={ticketRevenueTotal}
@@ -668,10 +690,12 @@ export function BudgetPlanner({
 
       <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <h4 style={sectionHeadingStyle}>Results</h4>
-        {/* Four across, so the seven tiles leave a short last row — that is the
-            design, not an accident (handoff §3.5). 180px is the floor before the
-            grid drops to fewer columns rather than crushing them. */}
-        <KpiRow items={results} minTileWidth={180} columns={4} />
+        {/* Three across, nine tiles, three full rows — the new prototype's grid.
+            The old 4×7 left a short last row BY DESIGN; this one divides evenly,
+            so a gap would now read as a missing figure rather than as intent.
+            180px is the floor before the grid drops to fewer columns rather than
+            crushing them. */}
+        <KpiRow items={results} minTileWidth={180} columns={3} />
       </Card>
 
       <BudgetBreakEvenChart breakEven={breakEven} />
@@ -696,20 +720,11 @@ export function BudgetPlanner({
         />
       </div>
 
-      {/* Half-width, paired with a deliberately EMPTY column (handoff §3.8) — the
-          estimate is advisory and the design gives it the weight of half a row,
-          not the full width a card with no neighbour would otherwise take. */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 320px), 1fr))",
-          gap: 14,
-          alignItems: "start",
-        }}
-      >
-        <PerformingRightsEstimateCard performingRights={performingRights} />
-        <div aria-hidden />
-      </div>
+      {/* FULL WIDTH. It was half a row beside a deliberately empty column
+          (handoff §3.8); the new prototype gives it the whole width like every
+          other card, and the empty column it was paired with went with it — an
+          invisible spacer is a thing to explain rather than a thing to keep. */}
+      <PerformingRightsEstimateCard performingRights={performingRights} />
     </div>
   );
 }

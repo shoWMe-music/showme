@@ -92,6 +92,16 @@ export interface BudgetPlannerView {
   kpis: KpiItem[];
   results: KpiItem[];
   ticketRevenueTotal: string;
+  /**
+   * Each tier's own `price × quantity`, formatted, keyed by tier id — the TOTAL
+   * column the new design gives every ticket row.
+   *
+   * Derived here rather than in the component, which takes values and emits
+   * events (CLAUDE.md's review gate). It also has to be derived from the same
+   * inputs the projection uses, or the column and the band under it would be two
+   * opinions about one figure.
+   */
+  ticketTierTotals: Record<string, string>;
   barRevenue: string;
   merchRevenue: string;
   breakEven: BreakEvenDisplay;
@@ -288,6 +298,12 @@ export function budgetPlannerViewFrom(
   return {
     kpis: [
       { label: "Total revenue", value: money(projection.totalRevenue), tone: "green" },
+      // TICKET REVENUE beside the total, because the two answer different
+      // questions and #23.1 made the difference matter: the total is what the
+      // night takes, the DOOR is what every percentage deal is a share of. An
+      // operator checking an act's fee needs the second figure, and it was only
+      // reachable by scrolling to the Revenue card and reading a band.
+      { label: "Ticket revenue", value: money(projection.ticketRevenue), tone: "blue" },
       { label: "Total costs", value: money(projection.totalCosts), tone: "red" },
       {
         label: "Profit / loss",
@@ -298,14 +314,30 @@ export function budgetPlannerViewFrom(
     ],
     results: [
       { label: "Total revenue", value: money(projection.totalRevenue) },
+      { label: "Ticket revenue", value: money(projection.ticketRevenue) },
       { label: "Total costs", value: money(projection.totalCosts) },
       { label: "Profit / Loss", value: money(projection.profit) },
       { label: "Break-even ticket count", value: projection.breakEvenTickets.toLocaleString() },
       { label: "Profit margin %", value: `${projection.marginPercent.toFixed(1)}%` },
+      // What the sheet expects to SELL. The grid showed revenue and cost per
+      // guest without ever saying how many guests it meant, so neither figure
+      // could be checked.
+      { label: "Tickets planned", value: projection.ticketsSold.toLocaleString() },
       { label: "Revenue per guest", value: money(projection.revenuePerGuest) },
       { label: "Cost per guest", value: money(projection.costPerGuest) },
     ],
     ticketRevenueTotal: money(projection.ticketRevenue),
+    // Keyed by the EDITOR's row id, and taken from the same `inputs` the
+    // projection reads, so the column and the band under it can never disagree.
+    ticketTierTotals: Object.fromEntries(
+      editor.ticketTiers.map((tier, index) => {
+        const parsed = inputs.ticketTiers[index];
+        return [
+          tier.id,
+          money(parsed ? parsed.unitAmount * BigInt(Math.trunc(parsed.quantity)) : 0n),
+        ];
+      }),
+    ),
     barRevenue: money(projection.barRevenue),
     merchRevenue: money(projection.merchRevenue),
     breakEven: {

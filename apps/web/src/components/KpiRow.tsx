@@ -5,7 +5,7 @@ import { Eyebrow } from "./primitives";
 /** A row of KPI `StatCard`s with an optional mono eyebrow — the triptych's top
  * band (§15.F), reused on Dashboard, Reports, Projections, Budget. Thin wrapper:
  * lays the tiles out responsively and applies an optional tint to the figure. */
-export type KpiTone = "green" | "red" | "amber" | "neutral";
+export type KpiTone = "green" | "blue" | "red" | "amber" | "neutral";
 
 export interface KpiItem {
   label: ReactNode;
@@ -35,6 +35,10 @@ export interface KpiRowProps {
 
 const TONE_COLOR: Record<KpiTone, string | undefined> = {
   green: "#6FC97A",
+  // The Budget Planner's Ticket revenue tile. Informational rather than good or
+  // bad — the door is neither a win nor a loss, it is the base every percentage
+  // deal is measured against (#23.1), so it must not borrow green's meaning.
+  blue: "#6FA8E0",
   red: "#EE5746",
   amber: "#F4A046",
   neutral: undefined,

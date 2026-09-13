@@ -820,6 +820,7 @@ function BudgetTab({
           collectedBy: tier.collectedBy,
         }))}
         ticketRevenueTotal={view.ticketRevenueTotal}
+        ticketTierTotals={view.ticketTierTotals}
         capacity={editor.capacity}
         avgBarSpend={editor.averageBarSpend}
         barRevenue={view.barRevenue}
