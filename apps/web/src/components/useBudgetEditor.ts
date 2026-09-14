@@ -1309,9 +1309,10 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       });
     }
     return bases;
+    // `capacity` is deliberately absent: the bases count TICKETS now, and a
+    // dependency on the room would recompute them when nothing about them moved.
   }, [
     tiers,
-    capacity,
     averageBarSpend,
     averageMerchSpend,
     otherRevenue,
