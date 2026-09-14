@@ -13,9 +13,32 @@ export const eyebrowStyle: CSSProperties = {
   color: "var(--muted)",
 };
 
+/**
+ * A denser eyebrow, for a label that names a SECTION INSIDE a card rather than a
+ * field — "OTHER REVENUE", "TICKET TYPES (BOX OFFICE)".
+ *
+ * Measured off Ran's Budget Planner prototype: 10px at weight 600 with 1.4px of
+ * tracking, against the 11px/400/0.88px above. Smaller AND heavier is the point —
+ * it recedes in size while still reading as a divider, where our regular-weight
+ * 11px read as another line of content. The default is untouched: it labels
+ * fields on half a dozen other screens and moving it would repaint all of them.
+ */
+export const sectionEyebrowStyle: CSSProperties = {
+  ...eyebrowStyle,
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: "0.14em",
+};
+
 /** A mono, letter-spaced, uppercase micro-label (INBOUND, WANTED DATE, FEE…). */
-export function Eyebrow({ children, style }: { children: ReactNode; style?: CSSProperties }) {
-  return <span style={{ ...eyebrowStyle, ...style }}>{children}</span>;
+export function Eyebrow({
+  children,
+  style,
+  section = false,
+}: { children: ReactNode; style?: CSSProperties; section?: boolean }) {
+  return (
+    <span style={{ ...(section ? sectionEyebrowStyle : eyebrowStyle), ...style }}>{children}</span>
+  );
 }
 
 /**

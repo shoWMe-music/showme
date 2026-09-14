@@ -366,7 +366,12 @@ export function BudgetPlanner({
         </div>
       )}
 
-      <KpiRow items={kpis} />
+      {/* Five across as ONE slab, which is how the prototype draws it: the strip
+          is a single reading, not five cards that happen to be adjacent. 150px is
+          the floor before it drops to fewer columns — five 200px tiles need
+          1,004px and the card is 1,120px, so at anything narrower the strip used
+          to break 4 + 1 and leave an orphan. */}
+      <KpiRow items={kpis} variant="slab" valueSize={19} minTileWidth={150} columns={5} />
 
       {/*
        * FULL WIDTH, STACKED — not the two columns the old handoff specified
@@ -383,12 +388,22 @@ export function BudgetPlanner({
        * tall as its own content, which is what that note was working around.
        */}
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {/* DENSE FIELDS. `density-compact` remaps the --control-* tokens for
+            everything inside, so every input and select in these tables is the
+            prototype's 29px instead of our 40px form-field. It is a class rather
+            than a prop because all five field components already read those
+            tokens; see tokens.css. It is also a no-op on touch, where the 44px
+            target is an accessibility floor. */}
+        <Card
+          padding="md"
+          className="density-compact"
+          style={{ display: "flex", flexDirection: "column", gap: 10 }}
+        >
           <CardHeading
             title="Revenue"
             subtitle="What the event brings in, and who collects the cash."
           />
-          <Eyebrow>Ticket types (box office)</Eyebrow>
+          <Eyebrow section>Ticket types (box office)</Eyebrow>
           {/* THE TABLE. Column headers once, at the top, instead of a label
               beside every field — the meeting's "simplified table structure,
               remove excessive spacing". Below 860px `BudgetTable.module.css`
@@ -464,6 +479,21 @@ export function BudgetPlanner({
               </div>
             ))}
           </div>
+          {/* DIRECTLY UNDER THE ROWS IT ADDS TO, and only as wide as its own
+              label. It sat after the split bars and stretched the full width of
+              the card, which reads as a section divider rather than as "one more
+              of these" — the prototype puts it against the last row for the same
+              reason a spreadsheet does. */}
+          {onAddTicketType && (
+            <Button
+              variant="ghost"
+              leftIcon={<Icon name="plus" size={14} />}
+              onClick={onAddTicketType}
+              style={{ alignSelf: "flex-start" }}
+            >
+              Add ticket type
+            </Button>
+          )}
           {/* THE TOTALS BAND. A tinted full-width strip, not a thin key-value
               row: it closes the ticket table and is the figure every percentage
               deal is a share of (#23.1), so it carries the weight of a result
@@ -482,7 +512,7 @@ export function BudgetPlanner({
             }}
           >
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              <Eyebrow>Total tickets revenue</Eyebrow>
+              <Eyebrow section>Total tickets revenue</Eyebrow>
               <span style={{ color: "var(--muted)", fontSize: 12 }}>{ticketsPlannedLabel}</span>
             </div>
             <span
@@ -497,23 +527,15 @@ export function BudgetPlanner({
             </span>
           </div>
           {!ticketSplit.isEmpty && <TicketSplitBars split={ticketSplit} />}
-          {onAddTicketType && (
-            <Button
-              variant="ghost"
-              leftIcon={<Icon name="plus" size={14} />}
-              onClick={onAddTicketType}
-            >
-              Add ticket type
-            </Button>
-          )}
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 14 }}>
+          {/* LABEL, FIELD, THEN THE REASON — reading order. The field used to be
+              pinned to the right-hand edge with the helper sentence stranded
+              between the two, so the eye crossed the whole card to answer "what
+              do I type here". */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ color: "var(--text)", fontSize: 14, flexShrink: 0 }}>
               Venue capacity
-              <span style={{ color: "var(--muted)", fontSize: 12.5, marginLeft: 8 }}>
-                Used for break-even and per-guest revenue.
-              </span>
             </span>
-            <div style={{ width: 120, flexShrink: 0 }}>
+            <div style={{ width: 96, flexShrink: 0 }}>
               <Input
                 value={capacity}
                 inputMode="numeric"
@@ -521,13 +543,16 @@ export function BudgetPlanner({
                 onChange={(event) => onCapacityChange?.(event.target.value)}
               />
             </div>
+            <span style={{ color: "var(--muted)", fontSize: 12.5, minWidth: 0 }}>
+              Used for break-even and per-guest revenue.
+            </span>
           </div>
 
           {/* OTHER REVENUE, as a table. Bar, merch and the standing other-revenue
               row were three stacks of three lines each — a rate, a computed total
               and a collector, every one of them labelled. They are rows now, and
               the labels live in the header once. */}
-          <Eyebrow>Other revenue</Eyebrow>
+          <Eyebrow section>Other revenue</Eyebrow>
           <div className={tableStyles.table}>
             <div className={tableStyles.headRevenue}>
               <span>Source</span>
@@ -657,13 +682,18 @@ export function BudgetPlanner({
               variant="ghost"
               leftIcon={<Icon name="plus" size={14} />}
               onClick={() => onAddCustomField("revenue")}
+              style={{ alignSelf: "flex-start" }}
             >
               Add field
             </Button>
           )}
         </Card>
 
-        <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <Card
+          padding="md"
+          className="density-compact"
+          style={{ display: "flex", flexDirection: "column", gap: 10 }}
+        >
           <CardHeading
             title="Costs"
             subtitle="Each cost says who paid it, and who carries it at settlement."
@@ -865,7 +895,7 @@ export function BudgetPlanner({
             so a gap would now read as a missing figure rather than as intent.
             180px is the floor before the grid drops to fewer columns rather than
             crushing them. */}
-        <KpiRow items={results} minTileWidth={180} columns={3} />
+        <KpiRow items={results} minTileWidth={180} columns={3} variant="slab" valueSize={15} />
       </Card>
 
       <BudgetBreakEvenChart breakEven={breakEven} />
@@ -946,7 +976,7 @@ function TicketSplitBars({ split }: { split: TicketSplitDisplay }) {
           flexWrap: "wrap",
         }}
       >
-        <Eyebrow>How ticket revenue splits</Eyebrow>
+        <Eyebrow section>How ticket revenue splits</Eyebrow>
         {split.badge && (
           <span
             style={{

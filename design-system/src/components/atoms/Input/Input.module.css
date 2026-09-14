@@ -2,13 +2,15 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  /* Vertical normalised to its siblings' 10px — this was 11px and stood 2px
-     taller than every other control before content differences even applied.
-     The roomier 15px horizontal stays: this backs SearchInput. */
-  padding: 10px 15px;
+  /* Both axes now come from the shared token. The vertical was already
+     normalised to its siblings' 10px; the horizontal was held at a roomier 15px
+     because this backs SearchInput, and that 3px is what it costs to let one
+     density move every control together. A field that opts out of the token is a
+     field that stays 40px tall inside a table built to be 29px. */
+  padding: var(--control-padding);
   min-height: var(--control-height);
   line-height: var(--control-line-height);
-  border-radius: 12px;
+  border-radius: var(--control-radius);
   /* The same two tokens TextField, NumberField and Select use. This component
      backs SearchInput — the input people touch most — and was left on
      --border-strong over --bg when the others moved, so in light mode it sat on
@@ -27,11 +29,15 @@
 .input {
   flex: 1;
   min-width: 0;
+  /* Chrome gives a bare <input> `padding: 1px 2px` of its own, which the wrapper
+     then pads again. Two pixels nobody chose, and at compact density they are the
+     difference between the 29px the design draws and the 31px we drew. */
+  padding: 0;
   border: 0;
   outline: none;
   background: transparent;
   color: var(--text);
-  font-size: 13.5px;
+  font-size: var(--control-font-size);
 }
 .input::placeholder { color: var(--muted); }
 .trailing { color: var(--dim); font-family: var(--font-mono); font-size: 11px; flex-shrink: 0; }

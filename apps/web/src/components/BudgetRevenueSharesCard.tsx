@@ -48,7 +48,11 @@ export function BudgetRevenueSharesCard({
   const canAdd = !readOnly && sources.length > 0 && participants.length > 0;
 
   return (
-    <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+    <Card
+      padding="md"
+      className="density-compact"
+      style={{ display: "flex", flexDirection: "column", gap: 10 }}
+    >
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <h4
           style={{
@@ -209,6 +213,10 @@ function AddShare({
  * rewritten wholesale (`writeShares`) — so "10" on the way to "100" would each
  * land as a saved figure. Committing on blur keeps one write per decision.
  */
+/** Module scope, so the effect below has a stable dependency rather than a new
+ *  closure on every render. */
+const asPercent = (points: number) => String(Math.round(points / 100));
+
 function PercentField({
   basisPoints,
   disabled,
@@ -220,7 +228,6 @@ function PercentField({
   label: string;
   onCommit: (basisPoints: number) => void;
 }) {
-  const asPercent = (points: number) => String(Math.round(points / 100));
   const [draft, setDraft] = useState(asPercent(basisPoints));
 
   // Follow the server when it moves under us — another tab, or a rejected write

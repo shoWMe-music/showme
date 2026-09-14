@@ -39,7 +39,9 @@ export function BudgetBreakEvenChart({ breakEven }: BudgetBreakEvenChartProps) {
             — and a key built from those is the same key three times. React
             reported it; the chart also drew one rule where it meant three. */}
         {breakEven.gridLabels.map((line, index) => (
-          <g key={`grid-${index}`}>
+          // Three fixed rules that never reorder; position IS the identity.
+          // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering rules
+          <g key={index}>
             <line
               x1={0}
               y1={line.y}
@@ -61,7 +63,16 @@ export function BudgetBreakEvenChart({ breakEven }: BudgetBreakEvenChartProps) {
             </text>
           </g>
         ))}
-        <polygon points={chart.shadedAreaPoints} fill="rgba(111, 201, 122, 0.12)" />
+        {/* THE GAP BETWEEN THE LINES, which is the loss or the profit. This used
+            to shade the area UNDER revenue, in green, all the way to the
+            baseline — so the part of the chart where the show loses money was
+            coloured like the part where it makes money. */}
+        {chart.lossAreaPoints && (
+          <polygon points={chart.lossAreaPoints} fill="rgba(238, 87, 70, 0.11)" />
+        )}
+        {chart.profitAreaPoints && (
+          <polygon points={chart.profitAreaPoints} fill="rgba(111, 201, 122, 0.14)" />
+        )}
         <polyline
           points={chart.costPoints}
           fill="none"

@@ -20,11 +20,11 @@
   gap: 8px;
   box-sizing: border-box;
   width: 100%;
-  padding: 10px 12px;
+  padding: var(--control-padding);
   /* One height for every control, whatever the content — see tokens.css. */
   min-height: var(--control-height);
   line-height: var(--control-line-height);
-  border-radius: 10px;
+  border-radius: var(--control-radius);
   border: 1px solid var(--control-border);
   background: var(--control-surface);
   color: var(--text);
@@ -43,7 +43,7 @@
   flex-shrink: 0;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 13.5px;
+  font-size: var(--control-font-size);
   line-height: 1;
   user-select: none;
 }

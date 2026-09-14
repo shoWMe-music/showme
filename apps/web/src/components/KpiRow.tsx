@@ -31,6 +31,18 @@ export interface KpiRowProps {
    * columns instead of crushing them.
    */
   columns?: number;
+  /**
+   * `cards` — separate tiles with their own border and radius. The dashboards.
+   *
+   * `slab` — one panel divided by hairlines, which is what the Budget Planner
+   * prototype draws: tiles butted together with a 1px gap, the panel's own
+   * background showing through as the rule. Nine figures that belong to ONE
+   * calculation read as one object; nine floating cards read as nine unrelated
+   * numbers, and that difference is the whole reason the design groups them.
+   */
+  variant?: "cards" | "slab";
+  /** Compact only: the figure size in px, passed through to `StatCard`. */
+  valueSize?: number;
 }
 
 const TONE_COLOR: Record<KpiTone, string | undefined> = {
@@ -44,8 +56,18 @@ const TONE_COLOR: Record<KpiTone, string | undefined> = {
   neutral: undefined,
 };
 
-export function KpiRow({ items, eyebrow, minTileWidth = 200, columns }: KpiRowProps) {
-  const gap = 14;
+export function KpiRow({
+  items,
+  eyebrow,
+  minTileWidth = 200,
+  columns,
+  variant = "cards",
+  valueSize,
+}: KpiRowProps) {
+  const slab = variant === "slab";
+  // The hairline IS the gap: the panel's border colour shows between tiles that
+  // each paint their own surface. One rule between neighbours, never two.
+  const gap = slab ? 1 : 14;
   const trackMinimum = columns
     ? `max(${minTileWidth}px, calc((100% - ${(columns - 1) * gap}px) / ${columns}))`
     : `${minTileWidth}px`;
@@ -57,6 +79,14 @@ export function KpiRow({ items, eyebrow, minTileWidth = 200, columns }: KpiRowPr
           display: "grid",
           gridTemplateColumns: `repeat(auto-fit, minmax(${trackMinimum}, 1fr))`,
           gap,
+          ...(slab
+            ? {
+                background: "var(--border)",
+                border: "1px solid var(--border)",
+                borderRadius: 12,
+                overflow: "hidden",
+              }
+            : null),
         }}
       >
         {items.map((item, index) => {
@@ -73,6 +103,8 @@ export function KpiRow({ items, eyebrow, minTileWidth = 200, columns }: KpiRowPr
               // and `label` is a ReactNode, so the index is the stable identity here.
               // biome-ignore lint/suspicious/noArrayIndexKey: static, non-reordering tiles
               key={index}
+              density={slab ? "compact" : "comfortable"}
+              valueSize={valueSize}
               label={item.label}
               value={figureStyle ? <span style={figureStyle}>{item.value}</span> : item.value}
               hint={item.hint}

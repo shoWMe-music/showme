@@ -158,6 +158,13 @@
      this and every field moves together, which is the point. */
   --control-height: 40px;
   --control-line-height: 18px;
+  /* THE REST OF THE CONTROL'S BOX, as tokens for the same reason the height is
+     one: so a density can move all of them together. Every field hardcoded these
+     and therefore could not be made denser without editing five stylesheets and
+     hoping they stayed in agreement. */
+  --control-padding: 10px 12px;
+  --control-radius: 10px;
+  --control-font-size: 13.5px;
 
   /* The fill for a small SHAPE that must be visible against a surface — a toggle
      track, a skeleton, a stepper rail, an option under the cursor. Distinct from
@@ -283,5 +290,33 @@ a:hover { opacity: .85; }
 @media (pointer: coarse) {
   :root {
     --control-height: 44px;
+  }
+}
+
+/* COMPACT DENSITY — a table's worth of fields, not a form's.
+   Measured off Ran's Budget Planner prototype: 29px tall, 6px/9px padding, 9px
+   radius, 12.5px text, against our 40px/10px-15px/12px/13.5px. "A simplified
+   table structure, remove excessive spacing" was the meeting's headline request,
+   and the fields are where nearly all of that 11px per row was sitting.
+
+   A CLASS THAT REMAPS TOKENS, not a prop threaded through five components. Every
+   field already reads --control-*; one scope changes all of them at once, and a
+   component added later is dense for free rather than being the one that is not.
+
+   NOT ON TOUCH. The 44px target under `pointer: coarse` is an accessibility
+   floor, and a dense table is not a reason to drop through it — so the remap is
+   gated to fine pointers and the coarse block above keeps winning on a phone.
+   The tables collapse to stacks below 860px anyway, where density is moot. */
+@media (pointer: fine) {
+  .density-compact {
+    --control-height: 29px;
+    /* 15, not 17: the box is 15px of line + 6px padding top and bottom + 1px of
+       border each side = the 29px above. A 17px line box made every field 31px
+       and the min-height never bit, which is the failure mode --control-height
+       exists to prevent — a control as tall as its content happens to make it. */
+    --control-line-height: 15px;
+    --control-padding: 6px 9px;
+    --control-radius: 9px;
+    --control-font-size: 12.5px;
   }
 }

@@ -12,10 +12,13 @@
    Above the breakpoint: columns, with the header naming them once.
    Below it: one field per line, each labelled, header hidden. Same DOM. */
 
+/* NO GAP BETWEEN ROWS. The rows carry their own 6px of padding instead, which is
+   how the prototype does it: adjacent fields end up 12px apart, and the row is a
+   band you can hit rather than a line floating in a gutter. A gap here on top of
+   that padding would double the rhythm. */
 .table {
   display: flex;
   flex-direction: column;
-  gap: 6px;
 }
 
 /* 439 / 96 / 78 / 308 / 100 / 34 at 1440, expressed as ratios so it holds at any
@@ -26,6 +29,14 @@
   grid-template-columns: minmax(0, 1.4fr) 96px 78px minmax(0, 1fr) 100px 34px;
   gap: 7px;
   align-items: center;
+}
+
+/* The prototype's 44px band: a 29px control with 6px above and below. Measured
+   off the rendered page, not read off its source. */
+.row,
+.rowRevenue,
+.rowCost {
+  padding: 6px;
 }
 
 /* 9px/400 with 0.9px tracking — the lightest type on the screen. Column headers
@@ -45,7 +56,7 @@
   letter-spacing: 0.9px;
   text-transform: uppercase;
   color: var(--muted);
-  padding: 0 2px 2px;
+  padding: 7px 6px 5px;
 }
 
 /* Right-aligned where the eye compares digits down a column. */

@@ -68,8 +68,17 @@ export interface BreakEvenChart {
   readonly revenuePoints: string;
   /** `x,y x,y` for the total-cost line, sloped by the per-ticket provider charge. */
   readonly costPoints: string;
-  /** The region under revenue, left of the crossing — the part still in the red. */
-  readonly shadedAreaPoints: string;
+  /**
+   * The two wedges BETWEEN the lines: where cost is above revenue, and where
+   * revenue is above cost. Either is `null` when it has no area.
+   *
+   * This replaced a single region drawn under the revenue line down to the
+   * baseline, which shaded the wrong thing — the area under revenue is takings,
+   * and takings are not a loss. The gap between the lines is the loss (or the
+   * profit), which is the quantity the chart exists to show.
+   */
+  readonly lossAreaPoints: string | null;
+  readonly profitAreaPoints: string | null;
   readonly breakEvenX: number;
   readonly breakEvenY: number;
   readonly guideTop: number;
@@ -147,11 +156,48 @@ export function computeBreakEvenChart(inputs: BreakEvenChartInputs): BreakEvenCh
   const breakEvenX = toX(breakEvenAt);
   const breakEvenY = toY(revenueAt(breakEvenAt));
 
-  const baseline = toY(0n);
   // Three rules — nothing, half, and the top of the scale. Enough to read a
   // figure off the chart; more would be a table with lines through it.
   const gridLines = [0n, scaleTop / 2n, scaleTop].map((amount) => ({ y: toY(amount), amount }));
   const planned = projection.ticketsSold;
+
+  /**
+   * Both lines are straight, so each wedge is a triangle when they cross inside
+   * the room and a quadrilateral across the whole width when they do not.
+   *
+   * Which side is which follows from the lines, never from `hasBreakEven`: a show
+   * that is already profitable at the door and one that can never break even both
+   * report "no crossing", and colouring them the same would tell an operator the
+   * opposite of the truth in one of the two cases.
+   */
+  const leftRevenue = toY(projection.standingRevenue);
+  const leftCost = toY(costAt(0));
+  const rightRevenue = toY(revenueAtCapacity);
+  const rightCost = toY(costAtCapacity);
+  const left = toX(0);
+  const right = toX(capacity);
+  const crosses = breakEvenAt > 0 && breakEvenAt < capacity;
+  // Up the page is a smaller y, so revenue is ABOVE cost when its y is smaller.
+  // THE TIE MATTERS. A show with no costs entered has both lines starting on the
+  // baseline, and "revenue is not strictly above cost at x=0" would call the
+  // whole chart a loss while the revenue line climbs away from a flat zero. When
+  // the left edge is level, the right edge is the one that decides.
+  const startsInProfit =
+    leftRevenue < leftCost || (leftRevenue === leftCost && rightRevenue < rightCost);
+  const wedges = crosses
+    ? {
+        lossAreaPoints: `${left},${leftRevenue} ${breakEvenX},${breakEvenY} ${left},${leftCost}`,
+        profitAreaPoints: `${breakEvenX},${breakEvenY} ${right},${rightRevenue} ${right},${rightCost}`,
+      }
+    : {
+        lossAreaPoints: startsInProfit
+          ? null
+          : `${left},${leftRevenue} ${right},${rightRevenue} ${right},${rightCost} ${left},${leftCost}`,
+        profitAreaPoints: startsInProfit
+          ? `${left},${leftRevenue} ${right},${rightRevenue} ${right},${rightCost} ${left},${leftCost}`
+          : null,
+      };
+
   return {
     gridLines,
     // The forecast, drawn only when it is inside the room. A guide pinned to the
@@ -161,7 +207,7 @@ export function computeBreakEvenChart(inputs: BreakEvenChartInputs): BreakEvenCh
     height: HEIGHT,
     revenuePoints: `${toX(0)},${toY(projection.standingRevenue)} ${toX(capacity)},${toY(revenueAtCapacity)}`,
     costPoints: `${toX(0)},${toY(costAt(0))} ${toX(capacity)},${toY(costAtCapacity)}`,
-    shadedAreaPoints: `${toX(0)},${toY(projection.standingRevenue)} ${breakEvenX},${breakEvenY} ${breakEvenX},${baseline} ${toX(0)},${baseline}`,
+    ...wedges,
     breakEvenX,
     breakEvenY,
     guideTop: PADDING_TOP,

@@ -255,3 +255,52 @@ describe("the money scale and the planned-tickets guide", () => {
     expect(computeBreakEvenChart({ projection: empty, capacity: 1000 }).plannedX).toBeNull();
   });
 });
+
+/**
+ * The profit and loss wedges.
+ *
+ * The case worth protecting is the one with NO crossing: "already profitable at
+ * the door" and "cannot break even in this room" both report `hasBreakEven:
+ * false`, and colouring off that flag would paint one of them the exact opposite
+ * of the truth.
+ */
+describe("the wedges between the two lines", () => {
+  const build = (costs: bigint, quantity = 500) =>
+    computeBreakEvenChart({
+      projection: computeBudgetProjection({
+        ticketTiers: [{ unitAmount: major(100), quantity }],
+        averageBarSpend: 0n,
+        capacity: 1000,
+        otherRevenue: 0n,
+        costs: [costs],
+      }),
+      capacity: 1000,
+    });
+
+  it("draws both wedges when the lines cross inside the room", () => {
+    const chart = build(major(20000)); // breaks even at 200 of 1,000
+    expect(chart.hasBreakEven).toBe(true);
+    // A triangle each: three vertices, meeting at the crossing.
+    expect(chart.lossAreaPoints?.split(" ")).toHaveLength(3);
+    expect(chart.profitAreaPoints?.split(" ")).toHaveLength(3);
+    const crossing = `${chart.breakEvenX},${chart.breakEvenY}`;
+    expect(chart.lossAreaPoints).toContain(crossing);
+    expect(chart.profitAreaPoints).toContain(crossing);
+  });
+
+  it("shades the whole width RED when the room cannot cover the costs", () => {
+    const chart = build(major(500000)); // 5,000 tickets of room needed; there are 1,000
+    expect(chart.hasBreakEven).toBe(false);
+    expect(chart.profitAreaPoints).toBeNull();
+    expect(chart.lossAreaPoints?.split(" ")).toHaveLength(4);
+  });
+
+  it("shades the whole width GREEN when the show is ahead before it opens", () => {
+    // No costs at all: revenue starts level and only climbs, so there is no
+    // crossing — and calling that a loss is the bug this test exists for.
+    const chart = build(0n);
+    expect(chart.hasBreakEven).toBe(false);
+    expect(chart.lossAreaPoints).toBeNull();
+    expect(chart.profitAreaPoints?.split(" ")).toHaveLength(4);
+  });
+});

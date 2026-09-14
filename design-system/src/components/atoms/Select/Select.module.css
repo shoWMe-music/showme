@@ -21,16 +21,16 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 12px;
+  padding: var(--control-padding);
   /* One height for every control, whatever the content — see tokens.css. */
   min-height: var(--control-height);
   line-height: var(--control-line-height);
-  border-radius: 10px;
+  border-radius: var(--control-radius);
   border: 1px solid var(--control-border);
   background: var(--control-surface);
   color: var(--text);
   font-family: var(--font-sans);
-  font-size: 13.5px;
+  font-size: var(--control-font-size);
   text-align: left;
   cursor: pointer;
   outline: none;
@@ -70,6 +70,12 @@
 .chevron {
   color: var(--muted);
   flex-shrink: 0;
+  /* The icon is 16px and the compact line box is 15, so in a flex row the CHEVRON
+     was setting the trigger's height — a select one pixel taller than the input
+     beside it, which is exactly the disagreement --control-height exists to end.
+     `display: block` also drops the inline baseline gap underneath it. */
+  display: block;
+  max-height: var(--control-line-height);
   transition: transform var(--duration-base);
 }
 .chevronOpen {

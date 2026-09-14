@@ -163,3 +163,57 @@ That gate exists because the eyeball version failed twice: six screens were buil
 as the wrong feature entirely from a written description, and a settlement screen
 was reported as matching when the owner's reply was *"You think they look the
 same? To me the prototype is very different."*
+
+
+---
+
+## Scored, 2026-09-14 — the measured after-state
+
+Both pages served and their computed styles walked, per the gate above. Numbers
+are `getComputedStyle` / `getBoundingClientRect` at a 1440px viewport.
+
+| | prototype | ours, before | ours, after |
+|---|---|---|---|
+| Page title | Clash 24/600/-0.48 | ✓ | ✓ |
+| Card heading | Clash 17/600 | ✓ | ✓ |
+| Card radius | 14px | ✓ | ✓ |
+| Column header | mono 9/400/0.9 | ✓ | ✓ |
+| Section eyebrow | mono 10/600/1.4 | 11/400/0.88 | **10/600/1.4** |
+| **Field height** | **29px** | 40.5px | **29px** |
+| Field padding / radius / text | 6px 9px · 9px · 12.5 | 10px 15px · 12px · 13.5 | **matched** |
+| Table row / header | 44 / 27 | 30 (+6 gap) / 16 | **42 / 25.9** |
+| KPI tile padding | 10px 14px | 18px 20px | 10px 13px |
+| KPI label | mono 10/600/1.3 | 11/400/1.32 | **matched** |
+| KPI figure | **Inter Tight** 19/600 | Clash 21.8/600 | **matched** |
+| Results tile padding | 9px 11px | 18px 20px | 10px 13px |
+| Results figure | **Inter Tight** 15/600 | Clash **29.8**/600 | **matched** |
+| Results / KPI grid | one slab, 1px rules | 9 cards, 14px gaps | **one slab, 1px rules** |
+
+Page height fell from 4,016px to 3,777px on the same data.
+
+### How the field density is implemented
+
+`.density-compact` in `design-system/src/styles/tokens.css` remaps `--control-*`;
+every field component reads those tokens, so one class moves all of them and a
+component added later is dense for free. It is gated to `pointer: fine` — the
+44px touch target is an accessibility floor and a dense table is not a reason to
+drop through it.
+
+Two pixels of the old 31px came from Chrome's UA `padding: 1px 2px` on a bare
+`<input>`, and one more from a 16px chevron setting the Select's height in a
+15px line box. Both are fixed at the component, not papered over with a height.
+
+### Deliberate differences, and why each stays
+
+- **Five cost columns to his three.** Ours carries `paid_by`, the bearing rule
+  and the deal link (tickets W1/W2, 86cbaxvf5). His model has one Settlement
+  select, so it needs one column.
+- **"Revenue shares", not "Revenue shares & deductions"** — decisions.md #23.2.
+- **A money scale on the break-even chart, which his does not draw.** His y-axis
+  labels are `{{ }}` interpolations inside an `<svg>`, which Claude Design's
+  `sc-interp` renders as a `<span>` in the SVG namespace — they have never
+  appeared on screen. The intent is in his markup; only the rendering is missing.
+- **Our `--muted`.** His `#8C7A6C` measures 4.24:1 on `--ink-800` and is the
+  contrast failure Ran himself reported on `86cbcn1ue`.
+- **Tile padding 10px 13px against his 10px 14px / 9px 11px.** One compact tile
+  rather than two that differ by a pixel or two.

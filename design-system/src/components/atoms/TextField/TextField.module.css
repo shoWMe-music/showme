@@ -13,16 +13,16 @@
 .input {
   width: 100%;
   box-sizing: border-box;
-  padding: 10px 12px;
+  padding: var(--control-padding);
   /* One height for every control, whatever the content — see tokens.css. */
   min-height: var(--control-height);
   line-height: var(--control-line-height);
-  border-radius: 10px;
+  border-radius: var(--control-radius);
   border: 1px solid var(--control-border);
   background: var(--control-surface);
   color: var(--text);
   font-family: var(--font-sans);
-  font-size: 13.5px;
+  font-size: var(--control-font-size);
   outline: none;
   transition: border-color var(--duration-quick);
 }

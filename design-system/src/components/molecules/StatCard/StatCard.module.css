@@ -68,3 +68,42 @@
   min-width: 0;
 }
 .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+
+/* COMPACT — a cell in a grid of figures, not a card.
+   Measured off Ran's Budget Planner prototype: 9-11px padding against our 18/20,
+   a 10px/600 mono label against our 11px/400, and the figure in Inter Tight at
+   19px (headline strip) or 15px (the nine-tile grid) against our display face at
+   up to 34px. The card chrome comes off because `KpiRow`'s slab draws the
+   separators — two borders meeting in a 1px gap is a 2px rule. */
+.card.compact {
+  /* An OPAQUE surface, not `none`: in the slab the panel's border colour sits
+     behind every tile and shows through the 1px gaps as the rule. A transparent
+     tile would let it flood the cell instead. */
+  background: var(--surface);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 10px 13px;
+}
+
+.compact .label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .13em;
+}
+
+.compact .value {
+  /* The SANS face, and a fixed size rather than the container-query clamp: these
+     tiles sit in a grid whose track width is already decided, so there is nothing
+     for the figure to adapt to, and a clamp here would make two tiles on the same
+     row disagree when one holds a longer number. */
+  font-family: var(--font-sans);
+  font-size: var(--stat-value-size, 15px);
+  letter-spacing: normal;
+  margin-top: 2px;
+}
+
+.compact .hint {
+  font-size: 11px;
+  margin-top: 2px;
+}

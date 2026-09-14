@@ -27,9 +27,9 @@
   gap: 6px;
   box-sizing: border-box;
   width: 100%;
-  padding: 7px 9px;
+  padding: var(--control-padding);
   min-height: var(--control-height);
-  border-radius: 10px;
+  border-radius: var(--control-radius);
   border: 1px solid var(--control-border);
   background: var(--control-surface);
   color: var(--text);
