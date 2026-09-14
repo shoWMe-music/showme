@@ -17,7 +17,7 @@ export function BudgetBreakEvenChart({ breakEven }: BudgetBreakEvenChartProps) {
   const { chart } = breakEven;
   return (
     <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <h4 style={headingStyle}>Break-even Analysis</h4>
+      <h4 style={headingStyle}>Break-even analysis</h4>
       <p style={{ color: "var(--muted)", fontSize: 12, margin: "0 0 12px" }}>
         Revenue vs. fixed costs across ticket sales up to capacity.
       </p>
@@ -120,11 +120,14 @@ export function BudgetBreakEvenChart({ breakEven }: BudgetBreakEvenChartProps) {
       </svg>
       <div style={axisRowStyle}>
         <span>0</span>
-        {/* Off-chart break-even is stated, not drawn at an edge it does not sit on. */}
+        {/* THE SENTENCE THE DESIGN WRITES, not a bare figure: "Break-even ≈ 364
+            tickets" names the number without saying what happens there. Off-chart
+            break-even is still stated rather than drawn at an edge it does not
+            sit on. */}
         <span style={{ color: "#F4A046" }}>
           {chart.hasBreakEven
-            ? `Break-even ≈ ${breakEven.breakEvenLabel}`
-            : "No break-even inside this capacity"}
+            ? `Ticket revenue passes total cost at ${breakEven.breakEvenLabel} of ${breakEven.capacityLabel} capacity.`
+            : `Ticket revenue never passes total cost inside ${breakEven.capacityLabel} capacity.`}
         </span>
         <span>{breakEven.capacityLabel} cap</span>
       </div>

@@ -900,24 +900,30 @@ export function BudgetPlanner({
 
       <BudgetBreakEvenChart breakEven={breakEven} />
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-          gap: 14,
-          alignItems: "start",
-        }}
-      >
-        <BudgetBreakdownCard
-          title="Revenue Sources"
-          rows={revenueSources}
-          emptyLabel="No revenue data yet"
-        />
-        <BudgetBreakdownCard
-          title="Cost Breakdown"
-          rows={costBreakdown}
-          emptyLabel="No cost data yet"
-        />
+      {/* The design names this pair, and the name is the only thing that says why
+          two donuts sit side by side rather than being two more cards in the
+          stack: one is where the money comes from, the other where it goes. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <Eyebrow section>Where the money comes from and goes</Eyebrow>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+            gap: 14,
+            alignItems: "start",
+          }}
+        >
+          <BudgetBreakdownCard
+            title="Revenue sources"
+            rows={revenueSources}
+            emptyLabel="No revenue data yet"
+          />
+          <BudgetBreakdownCard
+            title="Cost breakdown"
+            rows={costBreakdown}
+            emptyLabel="No cost data yet"
+          />
+        </div>
       </div>
 
       {/* FULL WIDTH. It was half a row beside a deliberately empty column
@@ -1007,6 +1013,11 @@ function TicketSplitBars({ split }: { split: TicketSplitDisplay }) {
           >
             <span style={{ color: "var(--text)", fontSize: 13, minWidth: 0 }}>
               {row.name}
+              {row.roleLabel && (
+                <span style={{ color: "var(--muted)", fontSize: 11.5, marginLeft: 7 }}>
+                  · {row.roleLabel}
+                </span>
+              )}
               <span style={{ color: "var(--muted)", fontSize: 11.5, marginLeft: 7 }}>
                 {row.isRemainder ? "what no deal claims" : row.percentLabel}
               </span>

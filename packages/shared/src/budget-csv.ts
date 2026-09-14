@@ -135,13 +135,13 @@ export function budgetCsvRows(inputs: BudgetCsvInputs): BudgetCsvRow[] {
   );
   rows.push(moneyRow("Costs", "Total costs", projection.totalCosts));
 
-  rows.push(moneyRow("Results", "Profit / Loss", projection.profit));
-  rows.push(plainRow("Results", "Profit margin %", `${projection.marginPercent.toFixed(1)}%`));
+  rows.push(moneyRow("Results", "Profit / loss", projection.profit));
+  rows.push(plainRow("Results", "Profit margin", `${projection.marginPercent.toFixed(1)}%`));
   rows.push(plainRow("Results", "Tickets sold", projection.ticketsSold.toString()));
   rows.push(moneyRow("Results", "Average ticket price", projection.averageTicketPrice));
-  rows.push(plainRow("Results", "Break-even ticket count", projection.breakEvenTickets.toString()));
-  rows.push(moneyRow("Results", "Revenue per guest", projection.revenuePerGuest));
-  rows.push(moneyRow("Results", "Cost per guest", projection.costPerGuest));
+  rows.push(plainRow("Results", "Break-even tickets", projection.breakEvenTickets.toString()));
+  rows.push(moneyRow("Results", "Revenue / guest", projection.revenuePerGuest));
+  rows.push(moneyRow("Results", "Cost / guest", projection.costPerGuest));
 
   return rows;
 }

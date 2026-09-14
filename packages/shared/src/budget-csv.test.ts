@@ -62,7 +62,7 @@ describe("budget CSV", () => {
 
   it("leaves the currency column blank on a row that is not money", () => {
     const csv = csvFor();
-    const marginRow = csv.split("\r\n").find((line) => line.includes("Profit margin %"));
+    const marginRow = csv.split("\r\n").find((line) => line.includes("Profit margin"));
 
     // …so nothing reads "36.7%" as an amount in EUR.
     expect(marginRow?.endsWith(",")).toBe(true);

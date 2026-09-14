@@ -203,6 +203,16 @@ export function splitCostRows<Row extends PartitionableCostRow>(
 export interface TicketSplitRow {
   key: string;
   name: string;
+  /**
+   * What this party IS on the event — "Performer", "Co-host", "Venue".
+   *
+   * The design names every line this way and it is the difference between "Marlo
+   * Vance 60%" and "Marlo Vance · Performer 60%": the first is a number beside a
+   * name, the second says why that party is owed it. Read from the participant's
+   * event role, never inferred from the deal — a deal tells you what someone is
+   * paid, not what they are here to do.
+   */
+  roleLabel: string | null;
   /** "70%" — the share of the door, for the chip beside the name. */
   percentLabel: string;
   /** Bar width as a percentage of the widest possible bar (the whole door). */
@@ -232,19 +242,20 @@ const SPLIT_COLORS = ["#F4A046", "#6FC97A", "#6FA8E0", "#C77E1E", "#FF7A68"];
 
 export function ticketSplitDisplay(
   raw: TicketSplitRaw,
-  participants: { id: string; label: string }[],
+  participants: { id: string; label: string; roleLabel?: string }[],
   money: (amount: bigint) => string,
 ): TicketSplitDisplay {
   if (raw.doorMinor <= 0n || raw.shares.length === 0) {
     return { rows: [], badge: null, summary: null, isEmpty: true };
   }
-  const nameOf = (id: string) =>
-    participants.find((party) => party.id === id)?.label ?? "A collaborator";
+  const partyOf = (id: string) => participants.find((party) => party.id === id);
+  const nameOf = (id: string) => partyOf(id)?.label ?? "A collaborator";
   const share = (amount: bigint) => Number((amount * 10_000n) / raw.doorMinor) / 100;
 
   const rows: TicketSplitRow[] = raw.shares.map((line, index) => ({
     key: line.participantId,
     name: nameOf(line.participantId),
+    roleLabel: partyOf(line.participantId)?.roleLabel ?? null,
     percentLabel: `${Math.round(line.basisPoints / 100)}%`,
     widthPercent: share(line.amountMinor),
     amount: money(line.amountMinor),
@@ -258,6 +269,8 @@ export function ticketSplitDisplay(
     rows.push({
       key: "operators",
       name: "The operators",
+      // No role: this line is nobody in particular, it is what no deal claimed.
+      roleLabel: null,
       percentLabel: `${Math.round(share(raw.operatorRemainderMinor))}%`,
       widthPercent: share(raw.operatorRemainderMinor),
       amount: money(raw.operatorRemainderMinor),
@@ -402,15 +415,19 @@ export function budgetPlannerViewFrom(
       { label: "Total revenue", value: money(projection.totalRevenue) },
       { label: "Ticket revenue", value: money(projection.ticketRevenue) },
       { label: "Total costs", value: money(projection.totalCosts) },
-      { label: "Profit / Loss", value: money(projection.profit) },
-      { label: "Break-even ticket count", value: projection.breakEvenTickets.toLocaleString() },
-      { label: "Profit margin %", value: `${projection.marginPercent.toFixed(1)}%` },
+      { label: "Profit / loss", value: money(projection.profit) },
+      // MARGIN BEFORE BREAK-EVEN, which is the design's order and the reading
+      // order that follows from it: profit, then profit as a rate, then the
+      // attendance that would make it zero. We had the last two the other way
+      // round, so the row read profit, attendance, rate.
+      { label: "Profit margin", value: `${projection.marginPercent.toFixed(1)}%` },
+      { label: "Break-even tickets", value: projection.breakEvenTickets.toLocaleString() },
       // What the sheet expects to SELL. The grid showed revenue and cost per
       // guest without ever saying how many guests it meant, so neither figure
       // could be checked.
       { label: "Tickets planned", value: projection.ticketsSold.toLocaleString() },
-      { label: "Revenue per guest", value: money(projection.revenuePerGuest) },
-      { label: "Cost per guest", value: money(projection.costPerGuest) },
+      { label: "Revenue / guest", value: money(projection.revenuePerGuest) },
+      { label: "Cost / guest", value: money(projection.costPerGuest) },
     ],
     ticketRevenueTotal: money(projection.ticketRevenue),
     ticketSplit: ticketSplitDisplay(editor.seedTicketSplit, editor.participants, money),

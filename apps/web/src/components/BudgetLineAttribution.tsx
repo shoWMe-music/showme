@@ -519,7 +519,8 @@ export function CostAttributionLegend() {
       <span>
         <strong>Paid by</strong> is who the invoice actually goes out from.{" "}
         <strong>To be deducted from</strong> is whose share it finally comes off. Usually nobody —
-        the event carries its own costs, and a contract is what makes it otherwise.
+        the event carries its own costs, and a contract is what makes it otherwise. Both menus list
+        the event&rsquo;s Collaborators.
       </span>
     </div>
   );
