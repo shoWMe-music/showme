@@ -5,9 +5,11 @@ import { authFile } from "./support/accounts";
  * THE COST VOCABULARY ON THE BUDGET PLANNER, AND THE COST-VS-DEDUCTION SIGNAL.
  *
  * Both come from ClickUp `86cbcn1ue`, and both exist because the same complaint
- * has now been answered four times:
+ * has now been answered five times:
  *
- *   "Born by" → "Carries it" → "Borne by" → "To be deducted from"
+ *   "Born by" → "Carries it" → "Borne by" → "Paid by" → "Carried by"
+ *
+ * (paired throughout with "To be deducted from", which has not moved.)
  *
  * Every round was somebody reading a written note and picking words. This spec is
  * the thing that was missing each time — the caption is asserted, so the fifth
@@ -43,13 +45,14 @@ test("cost rows are captioned in the product owner's words", async ({ page }) =>
       .map((span) => span.textContent?.trim() ?? ""),
   );
 
-  expect(captions).toContain("Paid by");
+  expect(captions).toContain("Carried by");
   expect(captions).toContain("To be deducted from");
 
-  // The three wordings this caption has already worn. Any of them coming back is
-  // a regression, not a preference — see the rename history in
-  // `BudgetLineAttribution.tsx`.
-  for (const retired of ["Borne by", "Born by", "Carries it", "Pays it"]) {
+  // Every wording this caption has already worn. Any of them coming back is a
+  // regression, not a preference — see the rename history in
+  // `BudgetLineAttribution.tsx`. "Paid by" joined the list on 2026-09-14: it was
+  // his own word for a fortnight and is now retired like the rest.
+  for (const retired of ["Borne by", "Born by", "Carries it", "Pays it", "Paid by"]) {
     expect(captions).not.toContain(retired);
   }
 });
@@ -142,8 +145,12 @@ test("only a row with a bearer is badged a Deduction", async ({ page }) => {
 test("bar and merch are separate rows, each with its own collector", async ({ page }) => {
   await openBudgetPlanner(page);
 
-  await expect(page.getByText("Average bar spend per guest")).toBeVisible();
-  await expect(page.getByText("Average merch spend per guest")).toBeVisible();
+  // BY LABEL, NOT BY TEXT. The revenue card became a table, so each field's
+  // description is its `aria-label` and the visible words are the column headers
+  // written once. `getByText` passed until then and would now pass only if the
+  // old stacked layout came back.
+  await expect(page.getByLabel("Average bar spend per guest")).toBeVisible();
+  await expect(page.getByLabel("Average merch spend per guest")).toBeVisible();
   await expect(page.getByText("Bar and merchandise")).toHaveCount(0);
 
   await expect(page.locator('[aria-label="Collected by, for bar revenue"]')).toBeVisible();
@@ -186,12 +193,26 @@ test("a percentage deduction follows its base, on screen and in what gets saved"
 
   await openBudgetPlanner(page);
 
-  // A base worth taking a share of: 25 a head across the seeded 400 = 10 000.
+  /*
+   * A base worth taking a share of: 25 a head across the 320 tickets the seed
+   * PLANS TO SELL = 8 000.
+   *
+   * It was 10 000 — 25 across the 400-seat capacity — until per-head revenue
+   * moved onto attendance. A bar take is earned by the people who turn up, not by
+   * the seats the room has, and counting it at capacity credited a sold-out bar
+   * to a plan expecting 320 of 400.
+   */
   const merch = page.locator('[aria-label="Average merch spend per guest"]');
   await merch.fill("25");
-  await expect(page.getByText("Merch revenue").locator("..")).toContainText("10,000");
+  const merchRow = page
+    .locator('[class*="rowRevenue"]')
+    .filter({ has: page.locator('[aria-label="Collected by, for merch revenue"]') });
+  await expect(merchRow).toContainText("8,000");
 
-  await page.getByRole("button", { name: "Add field" }).last().click();
+  // Named per card since the two "Add field" buttons became "Add revenue field"
+  // and "Add cost field" — `.last()` was picking the cost one by position, which
+  // is a coin flip the moment the order changes.
+  await page.getByRole("button", { name: "Add cost field" }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByText("A deduction").click();
   await dialog.getByText("A percentage of…").click();
@@ -208,7 +229,7 @@ test("a percentage deduction follows its base, on screen and in what gets saved"
     .locator("main div")
     .filter({ hasText: /^Venue's cut of merch/ })
     .first();
-  await expect(row).toContainText("1,000"); // 10% of 10 000
+  await expect(row).toContainText("800"); // 10% of 8 000
   await expect(row).toContainText("Deduction");
   // The rule is named on the row, so the figure is checkable rather than magic.
   await expect(page.getByText("10% of Merchandise, kept in step with it.")).toBeVisible();
@@ -248,18 +269,18 @@ test("a percentage deduction follows its base, on screen and in what gets saved"
     .locator("main div")
     .filter({ hasText: /^Venue's cut of merch/ })
     .first();
-  await expect(reloaded).toContainText("1,000");
+  await expect(reloaded).toContainText("800");
   await expect(page.getByText("10% of Merchandise, kept in step with it.")).toBeVisible();
 
   saved.length = 0;
 
-  // Move the base. 50 a head across 400 = 20 000, so the cut is 2 000.
+  // Move the base. 50 a head across the 320 planned = 16 000, so the cut is 1 600.
   await page.locator('[aria-label="Average merch spend per guest"]').fill("50");
-  await expect(reloaded).toContainText("2,000");
+  await expect(reloaded).toContainText("1,600");
 
   // AND it must reach the server. Without this the test passes on a stale write.
   await expect
-    .poll(() => saved.some((body) => body.includes('"amount":"200000"')), {
+    .poll(() => saved.some((body) => body.includes('"amount":"160000"')), {
       timeout: 5_000,
       message: "the derived deduction was re-saved after its base moved",
     })
