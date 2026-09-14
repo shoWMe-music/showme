@@ -25,7 +25,19 @@
   /* Same 1px border as at rest — only the color changes to primary. */
   border-color: #EE5746;
 }
-.icon { display: inline-flex; color: var(--muted); flex-shrink: 0; }
+/* The icon slot follows the CONTROL's type size, not whatever the surrounding
+   card happens to set. A text icon — a currency symbol, a "%" — was rendering at
+   the inherited size while the field's own value sat at --control-font-size, so
+   the symbol was wider than the text beside it and pushed the value out of
+   alignment with read-only figures in the same column. An <Icon> is an SVG sized
+   by its own prop, so nothing graphical moves. */
+.icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  flex-shrink: 0;
+  font-size: var(--control-font-size);
+}
 .input {
   flex: 1;
   min-width: 0;

@@ -418,8 +418,11 @@ export function BudgetPlanner({
           <div className={tableStyles.table}>
             <div className={tableStyles.head}>
               <span>Ticket type</span>
-              <span className={tableStyles.numeric}>Price</span>
-              <span className={tableStyles.numeric}>Qty</span>
+              {/* A header is aligned like the thing under it. Price and Qty are
+                  FIELDS, which are left-aligned; only Total is a bare figure in a
+                  right-aligned column. */}
+              <span>Price</span>
+              <span>Qty</span>
               <span>Collected by</span>
               <span className={tableStyles.numeric}>Total</span>
               <span />
@@ -563,7 +566,7 @@ export function BudgetPlanner({
             <div className={tableStyles.headRevenue}>
               <span>Source</span>
               <span>Basis</span>
-              <span className={tableStyles.numeric}>Amount</span>
+              <span>Amount</span>
               <span>Collected by</span>
               <span className={tableStyles.numeric}>Total</span>
               <span />
@@ -746,7 +749,11 @@ export function BudgetPlanner({
           <div className={tableStyles.table}>
             <div className={tableStyles.headCost}>
               <span>Cost</span>
-              <span className={tableStyles.numeric}>Amount</span>
+              {/* LEFT, like the figures under it. `numeric` right-aligns, which is
+                  right for a column of bare totals and wrong for a column of
+                  fields: the header sat hard against the "Paid by" column while
+                  the amounts it names started 90px to its left. */}
+              <span>Amount</span>
               <span>Paid by</span>
               <span>To be deducted from</span>
               <span>Deal</span>
@@ -779,7 +786,18 @@ export function BudgetPlanner({
                         />
                       </div>
                     ) : (
-                      <span style={{ color: "var(--text)", fontSize: 14, minWidth: 0 }}>
+                      <span
+                        style={{
+                          color: "var(--text)",
+                          fontSize: 14,
+                          minWidth: 0,
+                          // Where an Input puts its first character: 1px of
+                          // border plus 9px of padding. Without it the one
+                          // read-only name in the table sat 10px left of every
+                          // other one.
+                          paddingLeft: 10,
+                        }}
+                      >
                         {cost.label}
                       </span>
                     )}
@@ -1424,8 +1442,53 @@ function groupDigits(value: string): string {
 }
 
 function readOnlyMoney(value: string, currencySymbol: string, label?: string) {
-  return readOnlyMoneyText(value === "" ? "—" : `${currencySymbol} ${groupDigits(value)}`, label);
+  // The symbol and the digits as two elements with the FIELD'S OWN GAP between
+  // them, so a derived figure's digits land exactly where a typed figure's do.
+  // As one string they were a single space apart and sat ~6px left of the column.
+  if (value === "") return readOnlyMoneyText("—", label);
+  return (
+    <span aria-label={label} style={readOnlyFieldStyle}>
+      {/* The symbol in the BODY face, because that is what `Input` renders its
+          own currency icon in — mono here made the same three letters a
+          different width and pushed the digits 7px out of the column. */}
+      <span style={{ color: "var(--muted)", fontFamily: "var(--font-sans)" }}>
+        {currencySymbol}
+      </span>
+      <span style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>
+        {groupDigits(value)}
+      </span>
+    </span>
+  );
 }
+
+/**
+ * THE BOX A VALUE YOU CANNOT TYPE INTO WEARS.
+ *
+ * Same height, padding and radius as `Input` — read from the same `--control-*`
+ * tokens, so it follows the compact density instead of having to be re-tuned
+ * beside it. A read-only figure used to be a right-aligned 120px span next to
+ * left-aligned fields, which put the derived performer fee 49px left of every
+ * other amount in its own column.
+ *
+ * Quiet rather than absent: a plain hairline and no fill says "a value, not a
+ * field", where the filled `--control-surface` of a real input says "type here".
+ */
+const readOnlyFieldStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  minHeight: "var(--control-height)",
+  padding: "var(--control-padding)",
+  borderRadius: "var(--control-radius)",
+  border: "1px solid var(--border)",
+  fontFamily: "var(--font-mono)",
+  fontSize: "var(--control-font-size)",
+  lineHeight: "var(--control-line-height)",
+  color: "var(--text)",
+  fontVariantNumeric: "tabular-nums",
+  minWidth: 0,
+  boxSizing: "border-box",
+} as const;
 
 /**
  * The same readout, given text that is already formatted.
@@ -1442,18 +1505,7 @@ function readOnlyMoney(value: string, currencySymbol: string, label?: string) {
  */
 function readOnlyMoneyText(text: string, label?: string) {
   return (
-    <span
-      aria-label={label}
-      style={{
-        width: 120,
-        flexShrink: 0,
-        textAlign: "right",
-        fontFamily: "var(--font-mono)",
-        fontSize: 13,
-        color: "var(--text)",
-        paddingRight: 2,
-      }}
-    >
+    <span aria-label={label} style={readOnlyFieldStyle}>
       {text}
     </span>
   );
