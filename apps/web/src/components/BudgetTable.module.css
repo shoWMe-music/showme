@@ -128,10 +128,15 @@
    link, all shipped for tickets W1/W2 and 86cbaxvf5, so it gets five. The
    TREATMENT is what is being ported: every caption becomes a column header
    written once, which is what "too spacious" was actually about. */
+/* The NAME column gets the largest share of what is left. It is the column a
+   reader scans, and a cost is now free text — "Door & security staffing" was
+   clipped inside its own field at 1100px while "Not tied to a deal" sat in a
+   wider one. The deal column gives up the difference: its values are short and
+   its longest is a placeholder. */
 .headCost,
 .rowCost {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) 130px minmax(0, 0.9fr) minmax(0, 1.1fr) minmax(0, 1fr) 34px;
+  grid-template-columns: minmax(0, 1.4fr) 130px minmax(0, 0.9fr) minmax(0, 1.1fr) minmax(0, 0.85fr) 34px;
   gap: 7px;
   align-items: center;
 }

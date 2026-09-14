@@ -328,12 +328,18 @@ export function BudgetPlanner({
     readMoneyAs ? (
       readOnlyFigure(value, label)
     ) : (
-      <div style={{ width: 120, flexShrink: 0 }}>
+      // FILLS ITS COLUMN. A hard 120px was 24px wider than the ticket table's
+      // price track and 16px wider than the revenue table's amount track, so the
+      // field sat ON TOP of the one beside it — 17px into Qty, 9px into Collected
+      // by. A grid decides the width; a field that also decides its own is a
+      // field that overlaps the moment the two disagree.
+      <div style={{ minWidth: 0 }}>
         <Input
           value={value}
           inputMode="decimal"
           aria-label={label}
-          leftIcon={<span style={{ color: "var(--muted)" }}>{currencySymbol}</span>}
+          style={moneyDigitsStyle}
+          leftIcon={<span style={currencyAffixStyle}>{currencySymbol}</span>}
           onChange={(event) => onChange?.(event.target.value)}
         />
       </div>
@@ -1448,15 +1454,10 @@ function readOnlyMoney(value: string, currencySymbol: string, label?: string) {
   if (value === "") return readOnlyMoneyText("—", label);
   return (
     <span aria-label={label} style={readOnlyFieldStyle}>
-      {/* The symbol in the BODY face, because that is what `Input` renders its
-          own currency icon in — mono here made the same three letters a
-          different width and pushed the digits 7px out of the column. */}
-      <span style={{ color: "var(--muted)", fontFamily: "var(--font-sans)" }}>
-        {currencySymbol}
-      </span>
-      <span style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>
-        {groupDigits(value)}
-      </span>
+      {/* The same affix and the same digit style a typed figure uses, so the two
+          line up down the column instead of being two treatments of one number. */}
+      <span style={currencyAffixStyle}>{currencySymbol}</span>
+      <span style={moneyDigitsStyle}>{groupDigits(value)}</span>
     </span>
   );
 }
@@ -1473,6 +1474,32 @@ function readOnlyMoney(value: string, currencySymbol: string, label?: string) {
  * Quiet rather than absent: a plain hairline and no fill says "a value, not a
  * field", where the filled `--control-surface` of a real input says "type here".
  */
+/**
+ * THE CURRENCY CODE IS AN AFFIX, NOT A VALUE. It was set at the field's own size
+ * in the field's own face, so "SEK" read as loudly as "500" and took 22px of a
+ * 96px column away from the number it belongs to. Smaller and muted puts the
+ * emphasis back on the figure, which is the thing being read.
+ */
+const currencyAffixStyle = {
+  color: "var(--muted)",
+  fontFamily: "var(--font-sans)",
+  fontSize: 10,
+  letterSpacing: "0.3px",
+} as const;
+
+/**
+ * Money digits, typed or read-only, in one face.
+ *
+ * Mono with tabular figures because this is a COLUMN of amounts: proportional
+ * digits make 111 narrower than 000, so a column of them never lines up. The
+ * read-only figure already did this; an editable one that did not was the same
+ * number in two faces depending on whether you could touch it.
+ */
+const moneyDigitsStyle = {
+  fontFamily: "var(--font-mono)",
+  fontVariantNumeric: "tabular-nums",
+} as const;
+
 const readOnlyFieldStyle = {
   display: "flex",
   alignItems: "center",
