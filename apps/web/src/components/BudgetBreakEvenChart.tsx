@@ -1,4 +1,3 @@
-import { Card } from "@showme/design-system";
 import type { BreakEvenDisplay } from "./budgetPlannerView";
 
 export interface BudgetBreakEvenChartProps {
@@ -12,14 +11,18 @@ export interface BudgetBreakEvenChartProps {
  * the point where they cross. Presentational to the last coordinate: every number
  * in the SVG comes from `computeBreakEvenChart()` in `@showme/shared`, so this
  * component cannot disagree with the KPI band above it.
+ *
+ * NO CARD OF ITS OWN, and no heading. It sits inside the Results card under an
+ * eyebrow, because the chart is not a separate panel — it is the nine figures
+ * above it, plotted. The prototype draws it exactly this way, bare, while the
+ * two donuts beside it keep their borders.
  */
 export function BudgetBreakEvenChart({ breakEven }: BudgetBreakEvenChartProps) {
   const { chart } = breakEven;
   return (
-    <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <h4 style={headingStyle}>Break-even analysis</h4>
-      <p style={{ color: "var(--muted)", fontSize: 12, margin: "0 0 12px" }}>
-        Revenue vs. fixed costs across ticket sales up to capacity.
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <p style={{ color: "var(--muted)", fontSize: 12, margin: "0 0 8px" }}>
+        Revenue vs. total cost across ticket sales up to capacity.
       </p>
       {/* NO `preserveAspectRatio="none"`. It stretched a 460x180 box to whatever
           width the card had, which distorts every stroke with it — a 2px line
@@ -121,13 +124,16 @@ export function BudgetBreakEvenChart({ breakEven }: BudgetBreakEvenChartProps) {
       <div style={axisRowStyle}>
         <span>0</span>
         {/* THE SENTENCE THE DESIGN WRITES, not a bare figure: "Break-even ≈ 364
-            tickets" names the number without saying what happens there. Off-chart
-            break-even is still stated rather than drawn at an edge it does not
+            tickets" names the number without saying what happens there.
+            "REVENUE", not the design's "ticket revenue": our line carries bar and
+            merch per head as well as the door (#23.1), so naming it after the
+            door alone would describe a line we are not drawing. Off-chart
+            break-even is still stated rather than pinned to an edge it does not
             sit on. */}
         <span style={{ color: "#F4A046" }}>
           {chart.hasBreakEven
-            ? `Ticket revenue passes total cost at ${breakEven.breakEvenLabel} of ${breakEven.capacityLabel} capacity.`
-            : `Ticket revenue never passes total cost inside ${breakEven.capacityLabel} capacity.`}
+            ? `Revenue passes total cost at ${breakEven.breakEvenLabel} of ${breakEven.capacityLabel} capacity.`
+            : `Revenue never passes total cost inside ${breakEven.capacityLabel} capacity.`}
         </span>
         <span>{breakEven.capacityLabel} cap</span>
       </div>
@@ -136,7 +142,7 @@ export function BudgetBreakEvenChart({ breakEven }: BudgetBreakEvenChartProps) {
         <LegendKey color="#EE5746" label="Total cost" />
         {chart.plannedX !== null && <LegendKey color="var(--muted)" label="Tickets planned" />}
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -150,14 +156,6 @@ function LegendKey({ color, label }: { color: string; label: string }) {
     </span>
   );
 }
-
-const headingStyle = {
-  fontFamily: "var(--font-display)",
-  fontWeight: 600,
-  fontSize: 17,
-  color: "var(--text)",
-  margin: 0,
-} as const;
 
 const axisRowStyle = {
   display: "flex",

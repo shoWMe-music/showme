@@ -217,3 +217,57 @@ Two pixels of the old 31px came from Chrome's UA `padding: 1px 2px` on a bare
   contrast failure Ran himself reported on `86cbcn1ue`.
 - **Tile padding 10px 13px against his 10px 14px / 9px 11px.** One compact tile
   rather than two that differ by a pixel or two.
+
+
+---
+
+## Second pass, 2026-09-14 — the text diff
+
+The first pass scored geometry and never compared the WORDS. Both pages' visible
+text was extracted and diffed, which found nine renamed labels and five things
+we simply did not have. All are now closed except the two at the bottom.
+
+### Structure, which the geometry pass also missed
+
+The prototype has **three** sections — Revenue, Costs, Results — and the third is
+1,035px tall because it CONTAINS the chart, both donuts and the PRO estimate. We
+had four sibling cards, which says these are four unrelated panels that happen to
+be adjacent. They are not: each is the same arithmetic from a different angle.
+`Break-even analysis` and `Where the money comes from and goes` are **eyebrows**
+inside that card, not card headings — the chart is drawn bare while the donuts
+and the PRO estimate keep their own borders.
+
+### The tone vocabulary
+
+| | prototype | ours, before |
+|---|---|---|
+| revenue | green `#6FC97A` | green |
+| ticket revenue | blue `#6FA8E0` | blue |
+| **cost** | **amber `#F4A046`** | **red** |
+| profit / loss | green, by sign | green/red |
+| **counts and rates** | **plain** | break-even was amber |
+
+Red is reserved for a figure that is actually bad. A cost is not bad — it is what
+a show costs — and painting it like a loss meant a profitable event showed two
+red figures out of five. The nine Results figures were entirely untoned; they now
+follow the same rule as the strip.
+
+### Still different, and why — both are model, not markup
+
+- **`Basis` on an other-revenue row is a word, not a select.** The prototype lets
+  you switch Bar between "per guest" and flat. Ours cannot: `averageBarSpend` and
+  `averageMerchSpend` are per-head by construction and other revenue is flat, so
+  the basis is a fact about the row rather than a choice. Making it switchable is
+  an engine change that moves settlement math, not a UI port.
+- **A cost's name is not editable inline.** The prototype treats every cost as a
+  free-text row. Ours are a fixed taxonomy (`STANDARD_COST_HEADINGS`), and the
+  heading IS the identity that matches a stored line to its row — rename it and
+  the row loses its line. The taxonomy is also what drives the "+ Production
+  cost / + Staff cost" buttons and the seeding of the performer fee and venue
+  cost from deals. Custom rows do carry their own names; they are edited in a
+  modal rather than in place.
+
+Two prototype affordances are covered elsewhere in our shell rather than missing:
+its toolbar **Share** button (our event header has Share & Export) and its page
+subtitle **"Nils Frahm · Funkhaus · Berlin"** (our event header carries the
+lineup, venue and date directly above the tab).

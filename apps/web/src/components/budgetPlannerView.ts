@@ -226,6 +226,15 @@ export interface TicketSplitRow {
 export interface TicketSplitDisplay {
   rows: TicketSplitRow[];
   badge: string | null;
+  /**
+   * The whole split in one line — "70% performer / 20% promoter / 10% venue".
+   *
+   * Composed from the rows being drawn, so it can never disagree with them, and
+   * by ROLE where the roles tell the parties apart. Two performers on one bill
+   * would give "60% performer / 40% performer", which names nothing, so the line
+   * falls back to the parties' own names the moment a role repeats.
+   */
+  composition: string | null;
   summary: string | null;
   /** Nothing to draw: no percentage deal, or no door yet. */
   isEmpty: boolean;
@@ -246,7 +255,7 @@ export function ticketSplitDisplay(
   money: (amount: bigint) => string,
 ): TicketSplitDisplay {
   if (raw.doorMinor <= 0n || raw.shares.length === 0) {
-    return { rows: [], badge: null, summary: null, isEmpty: true };
+    return { rows: [], badge: null, composition: null, summary: null, isEmpty: true };
   }
   const partyOf = (id: string) => participants.find((party) => party.id === id);
   const nameOf = (id: string) => partyOf(id)?.label ?? "A collaborator";
@@ -279,7 +288,17 @@ export function ticketSplitDisplay(
     });
   }
 
-  return { rows, badge: raw.badge, summary: raw.summary, isEmpty: false };
+  const roles = rows.map((row) => row.roleLabel);
+  const rolesTellThemApart =
+    roles.every((role) => role !== null) && new Set(roles).size === roles.length;
+  const composition = rows
+    .map(
+      (row) =>
+        `${row.percentLabel} ${rolesTellThemApart ? (row.roleLabel as string).toLowerCase() : row.name}`,
+    )
+    .join(" / ");
+
+  return { rows, badge: raw.badge, composition, summary: raw.summary, isEmpty: false };
 }
 
 export function budgetPlannerViewFrom(
@@ -403,19 +422,36 @@ export function budgetPlannerViewFrom(
       // operator checking an act's fee needs the second figure, and it was only
       // reachable by scrolling to the Revenue card and reading a band.
       { label: "Ticket revenue", value: money(projection.ticketRevenue), tone: "blue" },
-      { label: "Total costs", value: money(projection.totalCosts), tone: "red" },
+      // AMBER, NOT RED. The design reserves red for a figure that is actually
+      // bad, and a cost is not bad — it is what a show costs. Painting it the
+      // same colour as a loss meant a profitable event still showed two red
+      // figures out of five, which is the screen shouting at an operator who is
+      // doing fine.
+      { label: "Total costs", value: money(projection.totalCosts), tone: "amber" },
       {
         label: "Profit / loss",
         value: money(projection.profit),
         tone: projection.profit < 0n ? "red" : "green",
       },
-      { label: "Break-even tickets", value: projection.breakEvenTickets, tone: "amber" },
+      // A COUNT, left plain. It is neither good nor bad until you know the room,
+      // and the tile beside it already says whether the night makes money.
+      { label: "Break-even tickets", value: projection.breakEvenTickets },
     ],
+    // TONED THE SAME WAY THE STRIP IS, which is what the design does and what we
+    // did not: money carries its meaning (revenue green, the door blue, cost
+    // amber, profit by its sign) and a COUNT OR A RATE stays plain. A margin
+    // printed in green would be the third colour saying the same thing the
+    // profit tile beside it already says, and "364 tickets" is neither good nor
+    // bad until you know the room.
     results: [
-      { label: "Total revenue", value: money(projection.totalRevenue) },
-      { label: "Ticket revenue", value: money(projection.ticketRevenue) },
-      { label: "Total costs", value: money(projection.totalCosts) },
-      { label: "Profit / loss", value: money(projection.profit) },
+      { label: "Total revenue", value: money(projection.totalRevenue), tone: "green" },
+      { label: "Ticket revenue", value: money(projection.ticketRevenue), tone: "blue" },
+      { label: "Total costs", value: money(projection.totalCosts), tone: "amber" },
+      {
+        label: "Profit / loss",
+        value: money(projection.profit),
+        tone: projection.profit < 0n ? "red" : "green",
+      },
       // MARGIN BEFORE BREAK-EVEN, which is the design's order and the reading
       // order that follows from it: profit, then profit as a rate, then the
       // attendance that would make it zero. We had the last two the other way
@@ -426,8 +462,8 @@ export function budgetPlannerViewFrom(
       // guest without ever saying how many guests it meant, so neither figure
       // could be checked.
       { label: "Tickets planned", value: projection.ticketsSold.toLocaleString() },
-      { label: "Revenue / guest", value: money(projection.revenuePerGuest) },
-      { label: "Cost / guest", value: money(projection.costPerGuest) },
+      { label: "Revenue / guest", value: money(projection.revenuePerGuest), tone: "green" },
+      { label: "Cost / guest", value: money(projection.costPerGuest), tone: "amber" },
     ],
     ticketRevenueTotal: money(projection.ticketRevenue),
     ticketSplit: ticketSplitDisplay(editor.seedTicketSplit, editor.participants, money),

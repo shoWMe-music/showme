@@ -684,7 +684,7 @@ export function BudgetPlanner({
               onClick={() => onAddCustomField("revenue")}
               style={{ alignSelf: "flex-start" }}
             >
-              Add field
+              Add revenue field
             </Button>
           )}
         </Card>
@@ -879,7 +879,7 @@ export function BudgetPlanner({
                 leftIcon={<Icon name="plus" size={14} />}
                 onClick={() => onAddCustomField("cost")}
               >
-                Add field
+                Add cost field
               </Button>
             </div>
           )}
@@ -888,7 +888,19 @@ export function BudgetPlanner({
 
       <BudgetRevenueSharesCard {...revenueShares} />
 
-      <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* ONE RESULTS CARD, and everything the results ARE lives inside it: the
+          nine figures, the chart that plots them, the two donuts that decompose
+          them, and the PRO estimate derived from them. Measured off the
+          prototype, where Revenue, Costs and Results are three sections and the
+          third is 1,035px tall.
+
+          We had four sibling cards, which says these are four unrelated panels
+          that happen to be adjacent. They are not: every one of them is the same
+          arithmetic looked at from a different angle, and the card boundary is
+          what tells a reader so. The inner headings are EYEBROWS for the same
+          reason — a card heading would re-open a section the card already
+          opened. */}
+      <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <CardHeading title="Results" subtitle="Live estimate. Review before final decisions." />
         {/* Three across, nine tiles, three full rows — the new prototype's grid.
             The old 4×7 left a short last row BY DESIGN; this one divides evenly,
@@ -896,41 +908,41 @@ export function BudgetPlanner({
             180px is the floor before the grid drops to fewer columns rather than
             crushing them. */}
         <KpiRow items={results} minTileWidth={180} columns={3} variant="slab" valueSize={15} />
-      </Card>
 
-      <BudgetBreakEvenChart breakEven={breakEven} />
-
-      {/* The design names this pair, and the name is the only thing that says why
-          two donuts sit side by side rather than being two more cards in the
-          stack: one is where the money comes from, the other where it goes. */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <Eyebrow section>Where the money comes from and goes</Eyebrow>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-            gap: 14,
-            alignItems: "start",
-          }}
-        >
-          <BudgetBreakdownCard
-            title="Revenue sources"
-            rows={revenueSources}
-            emptyLabel="No revenue data yet"
-          />
-          <BudgetBreakdownCard
-            title="Cost breakdown"
-            rows={costBreakdown}
-            emptyLabel="No cost data yet"
-          />
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <Eyebrow section>Break-even analysis</Eyebrow>
+          <BudgetBreakEvenChart breakEven={breakEven} />
         </div>
-      </div>
 
-      {/* FULL WIDTH. It was half a row beside a deliberately empty column
-          (handoff §3.8); the new prototype gives it the whole width like every
-          other card, and the empty column it was paired with went with it — an
-          invisible spacer is a thing to explain rather than a thing to keep. */}
-      <PerformingRightsEstimateCard performingRights={performingRights} />
+        {/* The design names this pair, and the name is the only thing that says
+            why two donuts sit side by side rather than being two more panels in
+            the stack: one is where the money comes from, the other where it
+            goes. */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <Eyebrow section>Where the money comes from and goes</Eyebrow>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+              gap: 14,
+              alignItems: "start",
+            }}
+          >
+            <BudgetBreakdownCard
+              title="Revenue sources"
+              rows={revenueSources}
+              emptyLabel="No revenue data yet"
+            />
+            <BudgetBreakdownCard
+              title="Cost breakdown"
+              rows={costBreakdown}
+              emptyLabel="No cost data yet"
+            />
+          </div>
+        </div>
+
+        <PerformingRightsEstimateCard performingRights={performingRights} />
+      </Card>
     </div>
   );
 }
@@ -983,22 +995,42 @@ function TicketSplitBars({ split }: { split: TicketSplitDisplay }) {
         }}
       >
         <Eyebrow section>How ticket revenue splits</Eyebrow>
-        {split.badge && (
-          <span
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: 9.5,
-              letterSpacing: "1px",
-              textTransform: "uppercase",
-              color: "#EE5746",
-              background: "color-mix(in srgb, #EE5746 12%, transparent)",
-              borderRadius: 999,
-              padding: "3px 9px",
-            }}
-          >
-            {split.badge}
-          </span>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {/* The whole split in one line, beside the badge that names its
+              structure — the design's pairing, and the only place a reader gets
+              the shape of the deal without adding up the bars underneath. */}
+          {split.composition && (
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 9.5,
+                letterSpacing: "0.6px",
+                color: "var(--muted)",
+                border: "1px solid var(--border)",
+                borderRadius: 999,
+                padding: "3px 9px",
+              }}
+            >
+              {split.composition}
+            </span>
+          )}
+          {split.badge && (
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 9.5,
+                letterSpacing: "1px",
+                textTransform: "uppercase",
+                color: "#EE5746",
+                background: "color-mix(in srgb, #EE5746 12%, transparent)",
+                borderRadius: 999,
+                padding: "3px 9px",
+              }}
+            >
+              {split.badge}
+            </span>
+          )}
+        </div>
       </div>
 
       {split.rows.map((row) => (
