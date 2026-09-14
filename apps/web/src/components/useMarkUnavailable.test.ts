@@ -10,9 +10,15 @@
  * None of this had a test until now: `apps/web` had no unit runner (86cbazcf3),
  * and range arithmetic that silently loses a night is precisely the kind of bug
  * a person only finds by being double-booked.
+ *
+ * IMPORTED FROM `unavailabilityRanges`, not from the hook. Reaching these two
+ * functions through the hook pulled in `AuthProvider` -> `auth/firebase.ts`,
+ * which calls `initializeApp()` at module scope — so this file threw
+ * `auth/invalid-api-key` on every CI run, where the web env vars do not exist,
+ * and had been red on `main` since at least 2026-09-05 for that reason alone.
  */
 import { describe, expect, it } from "vitest";
-import { type UnavailabilityBlock, applyDaySelection, collapseDays } from "./useMarkUnavailable";
+import { type UnavailabilityBlock, applyDaySelection, collapseDays } from "./unavailabilityRanges";
 
 /** Ranges as `start..end (reason)`, so a failure reads as dates and not objects. */
 const shape = (blocks: UnavailabilityBlock[]) =>
