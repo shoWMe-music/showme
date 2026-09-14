@@ -779,15 +779,34 @@ function BudgetTab({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {editor.budgets.length > 1 && (
-        <BudgetScopeSwitch
-          budgets={editor.budgets}
-          selectedBudgetId={editor.selectedBudgetId}
-          onSelect={editor.selectBudget}
-        />
-      )}
+      {/* ONE ROW OF CHROME: which book you are in on the left, what currency you
+          are reading it in hard right. They were stacked, which made two rows of
+          controls out of two one-line questions — and the planner's own title
+          under them, naming a screen the tab above already names.
+
+          `marginLeft: auto` rather than `space-between`, because the switch is
+          hidden on an event with a single budget and space-between would then
+          drag the currency control to the left edge. */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        {editor.budgets.length > 1 && (
+          <BudgetScopeSwitch
+            budgets={editor.budgets}
+            selectedBudgetId={editor.selectedBudgetId}
+            onSelect={editor.selectBudget}
+          />
+        )}
+        <div style={{ marginLeft: "auto" }}>
+          <CurrencyPeekControl preview={preview} />
+        </div>
+      </div>
       {editor.readOnlyReason && <Eyebrow>{editor.readOnlyReason}</Eyebrow>}
-      <CurrencyPeekControl preview={preview} />
       <BudgetPlanner
         currencySymbol={currencySymbol(currency)}
         readMoneyAs={readMoneyAs}
