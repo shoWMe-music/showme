@@ -1,3 +1,59 @@
+# Deployed — 2026-09-14 (the budget planner, rebuilt to the design)
+
+| | |
+|---|---|
+| **Database** | migration **0038** — `revenue_shares` jsonb on `budget_lines` and `settlement_lines`. 38 applied → **39**. |
+| **API** | `showme-api-00033-m58` (was `00032-s8n`), 100% of traffic. Routine `--source` deploy; configuration untouched. |
+| **Web app** | `showme-app.web.app` — bundle `index-s41X6jxi.js`, served copy matches the local build byte for byte (sha256 `fb9029aa…`). |
+| **Infrastructure** | Untouched. No terraform. |
+
+## Why this one was not web-only
+
+The three parts had to go in order, and skipping any of them ships a broken app:
+the columns first, then an API whose Zod schemas otherwise **silently strip**
+`perGuest` and `revenueShares` (proved during the session — a stale API accepted
+the field, returned 200, and wrote the row without it), then a web app that
+reads `EntitlementBasis.base` where the old one sent `pool`.
+
+**The migration moved schema and not data.** Row counts either side: 27
+`budget_lines`, 0 `settlement_lines`, 28 events. Both columns nullable jsonb, and
+zero rows non-null, so nothing recomputes and no backfill is owed.
+
+**The API was verified by CONTENT, not by a 200.** CLAUDE.md's rule that a
+post-deploy check can be answered by the revision you just replaced applies here,
+so the check was for something only the new build can emit: the live OpenAPI
+carries `perGuest` ×8, `revenueShares` ×20, `operatorCostSplit` ×4.
+
+## What the deploy itself turned up
+
+`main` had been **red since at least 2026-09-05** and nobody was gated by it.
+Getting CI green before touching production found two real bugs:
+
+- **A deduction was a share of a figure the screen no longer showed.** The merch
+  row read SEK 8,000 while "10% of Merchandise" directly under it worked out SEK
+  1,000: `deductionBases` still multiplied per-head rates by CAPACITY after the
+  projection moved onto ATTENDANCE. Two numbers on one card, one of them wrong.
+  Only the rendered card puts them side by side, so no unit test could see it —
+  the e2e suite caught it.
+- **`useMarkUnavailable.test.ts` never had a failing assertion.** Reaching two
+  pure functions imported the hook → `AuthProvider` → `initializeApp()` at module
+  scope, so it threw `auth/invalid-api-key` wherever the web env vars are absent,
+  which is every CI run. The arithmetic now lives in `unavailabilityRanges.ts`.
+
+Three e2e specs were also stale — two had been red since the revenue card became
+a table, because the session ran Vitest and never Playwright.
+
+## Credentials
+
+All four expired independently, as CLAUDE.md warns: `gcloud auth login`,
+`application-default`, and `firebase login` all needed re-doing. The ADC login
+overwrites the Firebase-admin impersonation credentials local dev uses for
+Storage signing — **restored from
+`~/.config/gcloud/application_default_credentials.firebase-impersonation.bak.json`
+after the migration**, so a local API run still signs Storage URLs.
+
+---
+
 # Deployed — 2026-09-05 (third release)
 
 | | |
