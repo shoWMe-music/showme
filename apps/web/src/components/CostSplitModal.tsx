@@ -104,7 +104,7 @@ export function CostSplitModal({ target, participants, onClose, onSubmit }: Cost
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <p style={{ margin: 0, color: "var(--muted)", fontSize: 13, lineHeight: 1.5 }}>
           What share of this cost each party carries at settlement. Whoever fronts the cash is a
-          separate question — that is the row's “Paid by”.
+          separate question — that is the row's “Carried by”.
         </p>
         {participants.map((party) => (
           <div

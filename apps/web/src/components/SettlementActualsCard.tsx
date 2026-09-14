@@ -405,7 +405,7 @@ function LineRow({
             disabled={isFinalized || editor.isBusy}
             onChange={(value) => editor.updateLine(row, { [partyField]: value })}
             options={editor.participants.map((party) => ({ value: party.id, label: party.name }))}
-            aria-label={row.kind === "revenue" ? "Collected by" : "Paid by"}
+            aria-label={row.kind === "revenue" ? "Collected by" : "Carried by"}
           />
         </div>
         {!isFinalized && (
@@ -561,10 +561,10 @@ function AddLine({
           value={party}
           onChange={setParty}
           options={[
-            { value: "", label: kind === "revenue" ? "Collected by…" : "Paid by…" },
+            { value: "", label: kind === "revenue" ? "Collected by…" : "Carried by…" },
             ...editor.participants.map((entry) => ({ value: entry.id, label: entry.name })),
           ]}
-          aria-label={kind === "revenue" ? "Collected by" : "Paid by"}
+          aria-label={kind === "revenue" ? "Collected by" : "Carried by"}
         />
       </div>
       <Button

@@ -47,6 +47,23 @@ import { NO_DEAL_LINK } from "./useBudgetEditor";
  *                                 means *carried* rather than *given birth to*
  *        - "To be deducted from" — 2026-09-03: *"I dont like borne by, I want it
  *                                 more clear — Paid by + to be deducted from"*
+ *        - "Carried by"          — 2026-09-14, the FIFTH rename, and it moves the
+ *                                 other caption: the first column is "Carried by"
+ *                                 and the second stays "To be deducted from". Asked
+ *                                 for after reading the prototype's Costs table,
+ *                                 whose single "Settlement" column says "Operators
+ *                                 carry it". He was shown that "Carries it" had
+ *                                 already been tried and rejected here, and that
+ *                                 "Paid by" was his own literal wording, and chose
+ *                                 this anyway. It is his vocabulary; it stands.
+ *
+ *      **WHAT DID NOT CHANGE IS THE FIELD.** "Carried by" still writes
+ *      `budget_lines.paid_by`, which `reconcile.ts:250` reads as CASH HELD by that
+ *      party — not as who bears the cost, which is `cost_split` /
+ *      `payee_participant_id` behind "To be deducted from". The caption is a word
+ *      for "who fronted it"; it is not a second bearing control, and wiring it to
+ *      one because the label sounds like bearing would change what a settlement
+ *      pays. The legend says which is which, in one sentence, for this reason.
  *
  *      Every round before this one was a reading of a written note. This one is
  *      his literal sentence, so it is taken literally, verbatim, including the
@@ -285,7 +302,7 @@ export interface CostAttributionProps {
    * Lay the selects out as BARE CELLS for a table row rather than as a strip of
    * captioned fields.
    *
-   * Repeating "Paid by / To be deducted from / Deal" beside every control on
+   * Repeating "Carried by / To be deducted from / Deal" beside every control on
    * every row is most of what "too spacious" meant. In a table the caption is a
    * column header written once, so it is dropped here — but every `aria-label`
    * stays, because a screen reader moving field to field is handed no column
@@ -354,7 +371,7 @@ export function CostAttribution({
     <>
       <Strip>
         {!isDealFigure && (
-          <Cell caption="Paid by" basis={190} asCells={asCells}>
+          <Cell caption="Carried by" basis={190} asCells={asCells}>
             <Select
               value={paidBy}
               placeholder={defaultsToPlaceholder(participants, fallbackParticipantId)}
@@ -362,7 +379,7 @@ export function CostAttribution({
               onChange={onPaidByChange}
               options={participantOptions(participants)}
               searchable={participants.length > 6}
-              aria-label={`Paid by — who the invoice goes out from, for ${rowLabel}`}
+              aria-label={`Carried by — who the invoice goes out from, for ${rowLabel}`}
             />
           </Cell>
         )}
@@ -517,7 +534,7 @@ export function CostAttributionLegend() {
   return (
     <div style={legendStyle}>
       <span>
-        <strong>Paid by</strong> is who the invoice actually goes out from.{" "}
+        <strong>Carried by</strong> is who the invoice actually goes out from.{" "}
         <strong>To be deducted from</strong> is whose share it finally comes off. Usually nobody —
         the event carries its own costs, and a contract is what makes it otherwise. Both menus list
         the event&rsquo;s Collaborators.

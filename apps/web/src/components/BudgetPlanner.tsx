@@ -741,7 +741,7 @@ export function BudgetPlanner({
             onChange={onOperatorCostSplitChange}
           />
           <CostAttributionLegend />
-          {/* THE COST TABLE. Every caption — Paid by, To be deducted from, Deal —
+          {/* THE COST TABLE. Every caption — Carried by, To be deducted from, Deal —
               used to sit beside its own control on every row. They are column
               headers now, written once. The prototype has three columns to our
               five because its cost model is simpler; what is being ported is the
@@ -751,10 +751,10 @@ export function BudgetPlanner({
               <span>Cost</span>
               {/* LEFT, like the figures under it. `numeric` right-aligns, which is
                   right for a column of bare totals and wrong for a column of
-                  fields: the header sat hard against the "Paid by" column while
+                  fields: the header sat hard against the "Carried by" column while
                   the amounts it names started 90px to its left. */}
               <span>Amount</span>
-              <span>Paid by</span>
+              <span>Carried by</span>
               <span>To be deducted from</span>
               <span>Deal</span>
               <span />

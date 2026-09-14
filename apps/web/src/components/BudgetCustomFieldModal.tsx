@@ -196,7 +196,7 @@ export function BudgetCustomFieldModal({
          */}
         {kind === "cost" && participants.length > 0 && (
           <div>
-            <span style={fieldLabelStyle}>Paid by</span>
+            <span style={fieldLabelStyle}>Carried by</span>
             <Select
               value={paidBy}
               onChange={setPaidBy}
@@ -206,7 +206,7 @@ export function BudgetCustomFieldModal({
                 description: party.roleLabel,
               }))}
               placeholder="Defaults to you"
-              aria-label="Paid by — who the invoice goes out from"
+              aria-label="Carried by — who the invoice goes out from"
               searchable={participants.length > 6}
             />
           </div>
