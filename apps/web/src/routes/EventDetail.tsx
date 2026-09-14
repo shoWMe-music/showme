@@ -878,6 +878,7 @@ function BudgetTab({
         onAvgMerchSpendChange={editor.changeAverageMerchSpend}
         onOtherRevenueChange={editor.changeOtherRevenue}
         onCostChange={editor.changeCost}
+        onCostLabelChange={editor.changeCostLabel}
         onRemoveCost={removeCost}
         revealedCostHeadings={revealedCostHeadings}
         onRevealCost={(heading) => setRevealedCostHeadings((headings) => [...headings, heading])}

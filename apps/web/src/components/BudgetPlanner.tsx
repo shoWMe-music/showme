@@ -218,6 +218,8 @@ export interface BudgetPlannerProps {
   onRevealCost?: (heading: string) => void;
   onCustomRevenueChange?: (id: string, value: string) => void;
   onRemoveCustomRevenue?: (id: string) => void;
+  /** Rename a cost row. Absent makes every name read-only. */
+  onCostLabelChange?: (key: string, label: string) => void;
   /** Opens the "+ Add Field" modal for one of the two cards. */
   onAddCustomField?: (kind: "revenue" | "cost") => void;
   onProcessingPercentChange?: (value: string) => void;
@@ -290,6 +292,7 @@ export function BudgetPlanner({
   onAvgMerchSpendChange,
   onOtherRevenueChange,
   onCostChange,
+  onCostLabelChange,
   onRemoveCost,
   revealedCostHeadings = [],
   onRevealCost,
@@ -761,9 +764,25 @@ export function BudgetPlanner({
                       flexWrap: "wrap",
                     }}
                   >
-                    <span style={{ color: "var(--text)", fontSize: 14, minWidth: 0 }}>
-                      {cost.label}
-                    </span>
+                    {/* THE NAME IS A FIELD, as the design draws it — a cost is
+                        whatever the show calls it, not one of six words we chose.
+                        Not on a row read from a deal or derived from a rule:
+                        those rows have no stored line of their own to rename, so
+                        a box over them would take typing and lose it. */}
+                    {onCostLabelChange && !cost.readFromDeal && !cost.derivedFrom ? (
+                      <div style={{ minWidth: 0, flex: "1 1 120px" }}>
+                        <span className={tableStyles.cellLabel}>Cost</span>
+                        <Input
+                          value={cost.label}
+                          aria-label={`${cost.label} name`}
+                          onChange={(event) => onCostLabelChange(cost.key, event.target.value)}
+                        />
+                      </div>
+                    ) : (
+                      <span style={{ color: "var(--text)", fontSize: 14, minWidth: 0 }}>
+                        {cost.label}
+                      </span>
+                    )}
                     {/* The one-glance cost-vs-deduction answer, kept beside the
                         LABEL: the complaint was about scanning the column, and
                         the column is the labels. */}
@@ -1020,7 +1039,9 @@ function BasisSelect({
   label: string;
   onChange?: (value: RevenueBasis) => void;
 }) {
-  const word = value === "per_guest" ? "Per guest" : "Flat";
+  // "Flat TOTAL", the prototype's wording: "Flat" alone reads as a flat RATE, and
+  // the whole distinction being drawn is rate versus total.
+  const word = value === "per_guest" ? "Per guest" : "Flat total";
   if (!onChange) return <span className={tableStyles.basis}>{word}</span>;
   return (
     <div style={{ minWidth: 0 }}>
@@ -1030,7 +1051,7 @@ function BasisSelect({
         onChange={(next) => onChange(next as RevenueBasis)}
         options={[
           { value: "per_guest", label: "Per guest" },
-          { value: "flat", label: "Flat" },
+          { value: "flat", label: "Flat total" },
         ]}
         aria-label={label}
       />

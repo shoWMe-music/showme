@@ -561,6 +561,8 @@ export interface BudgetEditor {
   changeOtherRevenueCollectedBy: (participantId: string) => void;
   changeCustomRevenueCollectedBy: (id: string, participantId: string) => void;
   changeCost: (key: string, value: string) => void;
+  /** Rename a cost row. See `changeCostLabel` for what renaming a heading does. */
+  changeCostLabel: (key: string, label: string) => void;
   /** Who FRONTED a cost — cash attribution, not who carries it. */
   changeCostPaidBy: (key: string, participantId: string) => void;
   /** The cost rule: shared, a single bearer, or a split (2026-08 meeting, 01:06:31). */
@@ -1795,6 +1797,22 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     [scheduleFlush],
   );
 
+  /**
+   * RENAME A COST. The prototype's cost name is a text field and ours was a
+   * label, so "Sound & production" could not become "PA hire".
+   *
+   * Renaming a standing heading MOVES THE ROW: the row a stored line belongs to
+   * is found by its label (`costHeadingOf`), so a line called something else is
+   * a custom row from the next read on — it keeps its id, figure and
+   * attribution, and the heading it left becomes available again from the "not
+   * budgeted" buttons. That is the honest outcome rather than a bug: the
+   * operator said this cost is not the standing heading any more.
+   */
+  const changeCostLabel = useCallback(
+    (key: string, label: string) => patchCost(key, { label }),
+    [patchCost],
+  );
+
   const changeCostPaidBy = useCallback(
     (key: string, participantId: string) => patchCost(key, { paidBy: participantId }),
     [patchCost],
@@ -2187,6 +2205,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     changeOtherRevenueCollectedBy,
     changeCustomRevenueCollectedBy,
     changeCost,
+    changeCostLabel,
     changeCostPaidBy,
     changeCostBearing,
     changeCostDealLink,
