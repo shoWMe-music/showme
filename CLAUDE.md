@@ -3,7 +3,12 @@
 Live-events **booking + settlement** SaaS. This repo is a **from-scratch rebuild** of the prior Firebase/Firestore
 app, built as a **monorepo**. **Status:** scaffolded and substantially built, with the API and web app deployed.
 
-**Start with [docs/handoff-2026-08-27-ran-list-state.md](./docs/handoff-2026-08-27-ran-list-state.md)** — the
+**Going to work on settlements? Start with
+[docs/handoff-2026-09-14-settlement-surface.md](./docs/handoff-2026-09-14-settlement-surface.md)** —
+what the budget-planner work moved underneath the engine, and the fact that
+production has **zero** settlement lines, so nothing there has ever run on real rows.
+
+**Otherwise start with [docs/handoff-2026-08-27-ran-list-state.md](./docs/handoff-2026-08-27-ran-list-state.md)** — the
 current state of the work: what is deployed versus merely committed, the three pending migrations (one of
 which drops a table, guarded), the ClickUp writes owed, and the findings that are recorded nowhere else.
 Then **[docs/deployment-status.md](./docs/deployment-status.md)** (what is live).
@@ -101,6 +106,29 @@ Two more ways a check lies, both measured here:
 - **A post-deploy check can be answered by the revision you just replaced.** A
   warm instance serves during the traffic shift. Wait for the rollout, or
   confirm which revision answered.
+
+## The dev stack does NOT reload the API — the browser can be a day behind the code
+`pnpm dev` spawns the API with plain `tsx`, **no `watch`** (`scripts/stack.mjs:320`),
+while the web runs under Vite with HMR. So an API change — a Zod schema, a route, a
+serializer — is invisible to the browser until the process is restarted, and the
+browser is the thing you are checking. Measured 2026-09-14: a new `details.perGuest`
+field was added, the client regenerated, the control wired; the API accepted the write,
+answered **200**, and stored the row **without the field**, because Zod strips unknown
+keys and the running server had been up since 08:45. It reads exactly like a frontend
+bug, and the request that proves otherwise (the response echoes the field back) needs
+the server restarted to be true.
+- **Restart the API before believing any browser check of an API change.** Its env is
+  readable from the running process (`ps eww -p <pid>`) if you need to relaunch it alone.
+- A green **vitest** run says nothing about this: API tests spin up their own app.
+
+## Run the whole check, not the part you touched
+Two lint/test scopes bit in one session. `npx biome check apps/web/src` passes while
+CI runs `biome check .` over 658 files; `pnpm --filter @showme/web exec vitest run`
+passes while the Playwright suite — the only thing that renders two numbers side by
+side — is red. Measured 2026-09-14: three e2e specs had been failing for several
+commits, and one of them was catching a **real** bug (a deduction computed off
+capacity while the row above it computed off attendance). `main` had been red since
+2026-09-05 and nothing gated on it.
 
 ## An error at the end of a tunnel may belong to the tunnel
 `cloud-sql-proxy` authenticates with **Application Default Credentials**, which
