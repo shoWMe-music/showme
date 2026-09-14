@@ -416,3 +416,82 @@ describe("a budget row that claims to be a deal's own figure", () => {
     });
   });
 });
+
+/**
+ * PER GUEST vs FLAT.
+ *
+ * The prototype puts this on every other-revenue row as a control; ours had it
+ * hardcoded. The case that could not be expressed at all is a bar MINIMUM — "the
+ * venue guarantees 40,000 over the bar whatever the room does" — which is an
+ * ordinary deal term, and typing it as a per-head rate made it scale with
+ * attendance, the one thing a guarantee does not do.
+ *
+ * Break-even is where it bites, not the total: a flat row covers fixed costs
+ * from the first ticket, a per-head row only as guests arrive.
+ */
+describe("the basis of a revenue row", () => {
+  const base = {
+    ticketTiers: [{ unitAmount: major(100), quantity: 500 }],
+    capacity: 1000,
+    otherRevenue: 0n,
+    averageMerchSpend: 0n,
+    costs: [major(30000)],
+  };
+
+  it("defaults to what each row has always meant", () => {
+    // No basis given: bar per head, other revenue flat — so nothing recomputes
+    // for a budget written before the field existed.
+    const projection = computeBudgetProjection({
+      ...base,
+      averageBarSpend: major(10),
+      otherRevenue: major(5000),
+    });
+    expect(projection.barRevenue).toBe(major(10) * 500n); // per head, times attendance
+    expect(projection.standingRevenue).toBe(major(5000)); // other revenue, taken once
+    expect(projection.perHeadRevenue).toBe(major(10));
+  });
+
+  it("takes a flat bar minimum once, however many come", () => {
+    const flat = computeBudgetProjection({
+      ...base,
+      averageBarSpend: major(40000),
+      barBasis: "flat",
+    });
+    expect(flat.barRevenue).toBe(major(40000));
+    // And it is STANDING revenue, so it does not ride on the contribution.
+    expect(flat.standingRevenue).toBe(major(40000));
+    expect(flat.perHeadRevenue).toBe(0n);
+  });
+
+  it("moves break-even, which is the half a total would hide", () => {
+    // The same 40,000 of bar money, read the two ways, against 30,000 of cost.
+    // Flat: it covers the costs outright, so the door only has to cover nothing.
+    const flat = computeBudgetProjection({
+      ...base,
+      averageBarSpend: major(40000),
+      barBasis: "flat",
+    });
+    expect(flat.breakEvenTickets).toBe(0);
+
+    // Per head at 80.00 a guest: contribution is 100 + 80 = 180, so 30,000 of
+    // fixed cost needs ceil(30000 / 180) = 167 guests.
+    const perGuest = computeBudgetProjection({
+      ...base,
+      averageBarSpend: major(80),
+      barBasis: "per_guest",
+    });
+    expect(perGuest.breakEvenTickets).toBe(167);
+  });
+
+  it("lets other revenue be a per-head figure too", () => {
+    const projection = computeBudgetProjection({
+      ...base,
+      averageBarSpend: 0n,
+      otherRevenue: major(7),
+      otherRevenueBasis: "per_guest",
+    });
+    expect(projection.totalRevenue).toBe(major(100) * 500n + major(7) * 500n);
+    expect(projection.standingRevenue).toBe(0n);
+    expect(projection.perHeadRevenue).toBe(major(7));
+  });
+});

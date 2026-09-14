@@ -15,6 +15,7 @@ export type PostApiV1EventsIdBudgets201LinesItemDetails = {
   unitAmount: string;
   /** @minimum 0 */
   quantity: number;
+  perGuest?: boolean;
   /** @maxLength 200 */
   ofKey?: string;
   /** @maxLength 200 */

@@ -835,6 +835,12 @@ function BudgetTab({
           readOnly: editor.readOnlyReason !== null,
         }}
         capacity={editor.capacity}
+        barBasis={editor.barBasis}
+        merchBasis={editor.merchBasis}
+        otherRevenueBasis={editor.otherRevenueBasis}
+        onBarBasisChange={editor.changeBarBasis}
+        onMerchBasisChange={editor.changeMerchBasis}
+        onOtherRevenueBasisChange={editor.changeOtherRevenueBasis}
         avgBarSpend={editor.averageBarSpend}
         barRevenue={view.barRevenue}
         avgMerchSpend={editor.averageMerchSpend}

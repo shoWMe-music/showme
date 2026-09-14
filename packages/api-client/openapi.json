@@ -4543,10 +4543,11 @@
                               "minimum": 1,
                               "maximum": 10000
                             },
-                            "nullable": true
+                            "nullable": true,
+                            "default": null
                           }
                         },
-                        "required": ["paymentProcessing", "operatorCostSplit"],
+                        "required": ["paymentProcessing"],
                         "additionalProperties": false,
                         "nullable": true
                       },
@@ -4661,6 +4662,9 @@
                                 "quantity": {
                                   "type": "integer",
                                   "minimum": 0
+                                },
+                                "perGuest": {
+                                  "type": "boolean"
                                 },
                                 "ofKey": {
                                   "type": "string",
@@ -4806,10 +4810,11 @@
                             "minimum": 1,
                             "maximum": 10000
                           },
-                          "nullable": true
+                          "nullable": true,
+                          "default": null
                         }
                       },
-                      "required": ["paymentProcessing", "operatorCostSplit"],
+                      "required": ["paymentProcessing"],
                       "additionalProperties": false,
                       "nullable": true
                     },
@@ -4924,6 +4929,9 @@
                               "quantity": {
                                 "type": "integer",
                                 "minimum": 0
+                              },
+                              "perGuest": {
+                                "type": "boolean"
                               },
                               "ofKey": {
                                 "type": "string",
@@ -5023,10 +5031,11 @@
                           "minimum": 1,
                           "maximum": 10000
                         },
-                        "nullable": true
+                        "nullable": true,
+                        "default": null
                       }
                     },
-                    "required": ["paymentProcessing", "operatorCostSplit"],
+                    "required": ["paymentProcessing"],
                     "additionalProperties": false,
                     "nullable": true
                   },
@@ -5108,10 +5117,11 @@
                             "minimum": 1,
                             "maximum": 10000
                           },
-                          "nullable": true
+                          "nullable": true,
+                          "default": null
                         }
                       },
-                      "required": ["paymentProcessing", "operatorCostSplit"],
+                      "required": ["paymentProcessing"],
                       "additionalProperties": false,
                       "nullable": true
                     },
@@ -5226,6 +5236,9 @@
                               "quantity": {
                                 "type": "integer",
                                 "minimum": 0
+                              },
+                              "perGuest": {
+                                "type": "boolean"
                               },
                               "ofKey": {
                                 "type": "string",
@@ -5425,6 +5438,9 @@
                             "type": "integer",
                             "minimum": 0
                           },
+                          "perGuest": {
+                            "type": "boolean"
+                          },
                           "ofKey": {
                             "type": "string",
                             "maxLength": 200
@@ -5584,6 +5600,9 @@
                         "type": "integer",
                         "minimum": 0
                       },
+                      "perGuest": {
+                        "type": "boolean"
+                      },
                       "ofKey": {
                         "type": "string",
                         "maxLength": 200
@@ -5740,6 +5759,9 @@
                         "quantity": {
                           "type": "integer",
                           "minimum": 0
+                        },
+                        "perGuest": {
+                          "type": "boolean"
                         },
                         "ofKey": {
                           "type": "string",
@@ -5898,6 +5920,9 @@
                       "quantity": {
                         "type": "integer",
                         "minimum": 0
+                      },
+                      "perGuest": {
+                        "type": "boolean"
                       },
                       "ofKey": {
                         "type": "string",
@@ -6066,6 +6091,9 @@
                         "quantity": {
                           "type": "integer",
                           "minimum": 0
+                        },
+                        "perGuest": {
+                          "type": "boolean"
                         },
                         "ofKey": {
                           "type": "string",

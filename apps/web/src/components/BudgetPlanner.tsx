@@ -1,4 +1,5 @@
-import { Button, Card, Icon, type IconName, Input } from "@showme/design-system";
+import { Button, Card, Icon, type IconName, Input, Select } from "@showme/design-system";
+import type { RevenueBasis } from "@showme/shared";
 import { BudgetBreakEvenChart } from "./BudgetBreakEvenChart";
 import { BudgetBreakdownCard } from "./BudgetBreakdownCard";
 import {
@@ -111,6 +112,17 @@ export interface BudgetPlannerProps {
   capacity: string;
   avgBarSpend: string;
   avgMerchSpend: string;
+  /**
+   * How each of the three named revenue rows reads its amount — the prototype's
+   * `Basis` column, and the only way to say "the venue guarantees 40,000 over
+   * the bar" rather than a rate that scales with the room.
+   */
+  barBasis: RevenueBasis;
+  merchBasis: RevenueBasis;
+  otherRevenueBasis: RevenueBasis;
+  onBarBasisChange?: (value: RevenueBasis) => void;
+  onMerchBasisChange?: (value: RevenueBasis) => void;
+  onOtherRevenueBasisChange?: (value: RevenueBasis) => void;
   /** Computed bar revenue, formatted. */
   barRevenue: string;
   /** Computed merch revenue, formatted. Its own row — the bar's is the venue's. */
@@ -233,6 +245,12 @@ export function BudgetPlanner({
   capacity,
   avgBarSpend,
   avgMerchSpend,
+  barBasis,
+  merchBasis,
+  otherRevenueBasis,
+  onBarBasisChange,
+  onMerchBasisChange,
+  onOtherRevenueBasisChange,
   barRevenue,
   merchRevenue,
   otherRevenue,
@@ -565,10 +583,20 @@ export function BudgetPlanner({
 
             <div className={tableStyles.rowRevenue}>
               <span style={{ color: "var(--text)", fontSize: 14 }}>Bar</span>
-              <span className={tableStyles.basis}>Per guest</span>
+              <BasisSelect
+                value={barBasis}
+                label="How the bar amount is read"
+                onChange={onBarBasisChange}
+              />
               <div style={{ minWidth: 0 }}>
-                <span className={tableStyles.cellLabel}>Amount per guest</span>
-                {money(avgBarSpend, onAvgBarSpendChange, "Average bar spend per guest")}
+                <span className={tableStyles.cellLabel}>
+                  {barBasis === "per_guest" ? "Amount per guest" : "Amount"}
+                </span>
+                {money(
+                  avgBarSpend,
+                  onAvgBarSpendChange,
+                  barBasis === "per_guest" ? "Average bar spend per guest" : "Bar revenue, flat",
+                )}
               </div>
               <div style={{ minWidth: 0 }}>
                 <span className={tableStyles.cellLabel}>Collected by</span>
@@ -594,10 +622,22 @@ export function BudgetPlanner({
              */}
             <div className={tableStyles.rowRevenue}>
               <span style={{ color: "var(--text)", fontSize: 14 }}>Merch</span>
-              <span className={tableStyles.basis}>Per guest</span>
+              <BasisSelect
+                value={merchBasis}
+                label="How the merch amount is read"
+                onChange={onMerchBasisChange}
+              />
               <div style={{ minWidth: 0 }}>
-                <span className={tableStyles.cellLabel}>Amount per guest</span>
-                {money(avgMerchSpend, onAvgMerchSpendChange, "Average merch spend per guest")}
+                <span className={tableStyles.cellLabel}>
+                  {merchBasis === "per_guest" ? "Amount per guest" : "Amount"}
+                </span>
+                {money(
+                  avgMerchSpend,
+                  onAvgMerchSpendChange,
+                  merchBasis === "per_guest"
+                    ? "Average merch spend per guest"
+                    : "Merch revenue, flat",
+                )}
               </div>
               <div style={{ minWidth: 0 }}>
                 <span className={tableStyles.cellLabel}>Collected by</span>
@@ -616,9 +656,15 @@ export function BudgetPlanner({
 
             <div className={tableStyles.rowRevenue}>
               <span style={{ color: "var(--text)", fontSize: 14 }}>Other revenue</span>
-              <span className={tableStyles.basis}>Flat</span>
+              <BasisSelect
+                value={otherRevenueBasis}
+                label="How the other-revenue amount is read"
+                onChange={onOtherRevenueBasisChange}
+              />
               <div style={{ minWidth: 0 }}>
-                <span className={tableStyles.cellLabel}>Amount</span>
+                <span className={tableStyles.cellLabel}>
+                  {otherRevenueBasis === "per_guest" ? "Amount per guest" : "Amount"}
+                </span>
                 {money(otherRevenue, onOtherRevenueChange, "Other revenue")}
               </div>
               <div style={{ minWidth: 0 }}>
@@ -972,6 +1018,41 @@ export function BudgetPlanner({
  * forecast of what will settle rather than a second opinion about it — which is
  * the whole of decision #23 in one block.
  */
+/**
+ * PER GUEST or FLAT, on a revenue row.
+ *
+ * Read-only rows keep the word rather than a disabled control: a select nobody
+ * can open says "you may change this" and then refuses, which is worse than a
+ * label. The amount's own caption follows the basis too — "Amount per guest"
+ * against "Amount" — because the number means a different thing either way.
+ */
+function BasisSelect({
+  value,
+  label,
+  onChange,
+}: {
+  value: RevenueBasis;
+  label: string;
+  onChange?: (value: RevenueBasis) => void;
+}) {
+  const word = value === "per_guest" ? "Per guest" : "Flat";
+  if (!onChange) return <span className={tableStyles.basis}>{word}</span>;
+  return (
+    <div style={{ minWidth: 0 }}>
+      <span className={tableStyles.cellLabel}>Basis</span>
+      <Select
+        value={value}
+        onChange={(next) => onChange(next as RevenueBasis)}
+        options={[
+          { value: "per_guest", label: "Per guest" },
+          { value: "flat", label: "Flat" },
+        ]}
+        aria-label={label}
+      />
+    </div>
+  );
+}
+
 function TicketSplitBars({ split }: { split: TicketSplitDisplay }) {
   return (
     <div

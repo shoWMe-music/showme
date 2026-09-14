@@ -13,7 +13,12 @@ import {
   usePostApiV1EventsIdBudgetsBidLines,
 } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
-import { type BudgetInputs, applyBasisPoints, eventParticipantRoleLabel } from "@showme/shared";
+import {
+  type BudgetInputs,
+  type RevenueBasis,
+  applyBasisPoints,
+  eventParticipantRoleLabel,
+} from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getActiveProfileId } from "../lib/activeProfile";
@@ -291,6 +296,14 @@ const OTHER_REVENUE_LABEL = "Other revenue";
  * simply carry no merch figure — which is honest, because none was ever recorded
  * separately.
  */
+/**
+ * A stored `perGuest` flag back into a basis, with the row's historical meaning
+ * as the fallback. Absent is not "flat" — it is "whatever this row always was".
+ */
+function basisOf(perGuest: boolean | undefined, fallback: RevenueBasis): RevenueBasis {
+  return perGuest === undefined ? fallback : perGuest ? "per_guest" : "flat";
+}
+
 const BAR_LABEL = "Bar";
 const MERCH_LABEL = "Merchandise";
 
@@ -306,6 +319,38 @@ const BAR_ROW = "row:bar";
 const MERCH_ROW = "row:merch";
 const OTHER_REVENUE_ROW = "row:other-revenue";
 const ASSUMPTIONS_ROW = "row:assumptions";
+
+/**
+ * What a revenue row STORES, given the figure typed and the basis chosen.
+ *
+ * Pulled out of the flush because it is arithmetic with one sharp edge, and the
+ * edge cost a bug: `quantity` is not "how many of this were sold", it is THE
+ * HEAD COUNT THE ROW WAS COMPUTED AGAINST, and the venue capacity has no row of
+ * its own — the planner reads it straight back out of the bar line. A flat row
+ * written as `quantity: 1`, which is what it is arithmetically, wiped the
+ * capacity to one guest and took break-even, the per-guest figures and the
+ * chart's x-axis with it.
+ *
+ * So the head count is always recorded and `perGuest` alone decides whether the
+ * amount is a product or the figure itself.
+ */
+export function revenueRowWrite({
+  unitAmount,
+  heads,
+  perGuest,
+}: {
+  unitAmount: string;
+  heads: number;
+  perGuest: boolean;
+}): { amount: string; quantity: number } {
+  // `Math.max(0, NaN)` is NaN, and `BigInt(NaN)` THROWS — inside a flush, which
+  // would take the whole save down. A half-typed capacity is 0 heads.
+  const count = Number.isFinite(heads) ? Math.max(0, Math.trunc(heads)) : 0;
+  return {
+    amount: (perGuest ? BigInt(unitAmount) * BigInt(count) : BigInt(unitAmount)).toString(),
+    quantity: count,
+  };
+}
 
 function numeric(value: string): number {
   const parsed = Number(value);
@@ -482,6 +527,13 @@ export interface BudgetEditor {
   deductionBases: DeductionBaseOption[];
   capacity: string;
   averageBarSpend: string;
+  /** Per head, or a sum for the night — the prototype's `Basis` column. */
+  barBasis: RevenueBasis;
+  merchBasis: RevenueBasis;
+  otherRevenueBasis: RevenueBasis;
+  changeBarBasis: (value: RevenueBasis) => void;
+  changeMerchBasis: (value: RevenueBasis) => void;
+  changeOtherRevenueBasis: (value: RevenueBasis) => void;
   /** Average merch spend per head. Its own row — see `BAR_LABEL`. */
   averageMerchSpend: string;
   otherRevenue: string;
@@ -882,7 +934,18 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       capacity,
       averageBarSpend: barLine?.details ? toMajorUnits(barLine.details.unitAmount) : "",
       averageMerchSpend: merchLine?.details ? toMajorUnits(merchLine.details.unitAmount) : "",
-      otherRevenue: otherRevenueLine ? toMajorUnits(otherRevenueLine.amount) : "",
+      // The RATE, not the product. `amount` equals `unitAmount` on a flat row, so
+      // this read was right until other revenue could be per-guest — at which
+      // point it would have put the whole night's takings in a field captioned
+      // "amount per guest".
+      otherRevenue: otherRevenueLine
+        ? toMajorUnits(otherRevenueLine.details?.unitAmount ?? otherRevenueLine.amount)
+        : "",
+      // `perGuest` is absent on every line written before the column existed, so
+      // each row falls back to what it has always meant.
+      barBasis: basisOf(barLine?.details?.perGuest, "per_guest"),
+      merchBasis: basisOf(merchLine?.details?.perGuest, "per_guest"),
+      otherRevenueBasis: basisOf(otherRevenueLine?.details?.perGuest, "flat"),
       // Every budget assumes a provider takes something until the operator says
       // otherwise. An explicit 0 is stored and read back as 0, so this fills a
       // blank without preventing anyone from saying the rails are free.
@@ -910,6 +973,9 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   const [costs, setCosts] = useState<CostDraft[]>(seed.costs);
   const [customRevenue, setCustomRevenue] = useState<CustomRevenueDraft[]>(seed.customRevenue);
   const [capacity, setCapacity] = useState(seed.capacity);
+  const [barBasis, setBarBasis] = useState<RevenueBasis>(seed.barBasis);
+  const [merchBasis, setMerchBasis] = useState<RevenueBasis>(seed.merchBasis);
+  const [otherRevenueBasis, setOtherRevenueBasis] = useState<RevenueBasis>(seed.otherRevenueBasis);
   const [averageBarSpend, setAverageBarSpend] = useState(seed.averageBarSpend);
   const [averageMerchSpend, setAverageMerchSpend] = useState(seed.averageMerchSpend);
   const [otherRevenue, setOtherRevenue] = useState(seed.otherRevenue);
@@ -933,6 +999,9 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     setCosts(seed.costs);
     setCustomRevenue(seed.customRevenue);
     setCapacity(seed.capacity);
+    setBarBasis(seed.barBasis);
+    setMerchBasis(seed.merchBasis);
+    setOtherRevenueBasis(seed.otherRevenueBasis);
     setAverageBarSpend(seed.averageBarSpend);
     setAverageMerchSpend(seed.averageMerchSpend);
     setOtherRevenue(seed.otherRevenue);
@@ -1204,17 +1273,17 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     bases.push({
       key: BAR_ROW,
       label: BAR_LABEL,
-      amount: BigInt(toMinorUnits(averageBarSpend)) * heads,
+      amount: BigInt(toMinorUnits(averageBarSpend)) * (barBasis === "per_guest" ? heads : 1n),
     });
     bases.push({
       key: MERCH_ROW,
       label: MERCH_LABEL,
-      amount: BigInt(toMinorUnits(averageMerchSpend)) * heads,
+      amount: BigInt(toMinorUnits(averageMerchSpend)) * (merchBasis === "per_guest" ? heads : 1n),
     });
     bases.push({
       key: OTHER_REVENUE_ROW,
       label: OTHER_REVENUE_LABEL,
-      amount: BigInt(toMinorUnits(otherRevenue)),
+      amount: BigInt(toMinorUnits(otherRevenue)) * (otherRevenueBasis === "per_guest" ? heads : 1n),
     });
     for (const row of customRevenue) {
       bases.push({
@@ -1224,7 +1293,17 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       });
     }
     return bases;
-  }, [tiers, capacity, averageBarSpend, averageMerchSpend, otherRevenue, customRevenue]);
+  }, [
+    tiers,
+    capacity,
+    averageBarSpend,
+    averageMerchSpend,
+    otherRevenue,
+    customRevenue,
+    barBasis,
+    merchBasis,
+    otherRevenueBasis,
+  ]);
 
   /**
    * The costs as the screen and the writer both see them: a derived row's figure
@@ -1440,11 +1519,28 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     // from the event, so opening the planner and typing anywhere created a
     // "Bar and merchandise" revenue line worth 0 that nobody had entered.
     if (wasEdited(BAR_ROW)) {
-      const heads = Math.trunc(numeric(capacity));
+      // `quantity` ALWAYS CARRIES THE HEAD COUNT, whatever the basis, because the
+      // venue capacity has no row of its own — the seed reads it straight back
+      // out of this line (`barLine.details.quantity`). Writing a flat row as
+      // "quantity: 1", which is what it is arithmetically, wiped the capacity to
+      // one guest and took the break-even, the per-guest figures and the chart's
+      // x-axis with it. `perGuest` is the discriminator; quantity is data.
+      const perGuest = barBasis === "per_guest";
       const perHead = toMinorUnits(averageBarSpend);
-      const amount = (BigInt(perHead) * BigInt(heads)).toString();
-      const details = { basis: "bar_spend" as const, unitAmount: perHead, quantity: heads };
-      const attempted = `${averageBarSpend || "0"} a head across ${heads}`;
+      const { amount, quantity: heads } = revenueRowWrite({
+        unitAmount: perHead,
+        heads: numeric(capacity),
+        perGuest,
+      });
+      const details = {
+        basis: "bar_spend" as const,
+        unitAmount: perHead,
+        quantity: heads,
+        perGuest,
+      };
+      const attempted = perGuest
+        ? `${averageBarSpend || "0"} a head across ${heads}`
+        : `${averageBarSpend || "0"} flat`;
       if (!barLine) {
         write(() =>
           createRow(budgetId, BAR_LABEL, attempted, {
@@ -1472,11 +1568,22 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     // so a shared trigger would create a Merchandise line worth 0 on any budget
     // whose capacity was merely looked at.
     if (wasEdited(MERCH_ROW)) {
-      const heads = Math.trunc(numeric(capacity));
+      const perGuest = merchBasis === "per_guest";
       const perHead = toMinorUnits(averageMerchSpend);
-      const amount = (BigInt(perHead) * BigInt(heads)).toString();
-      const details = { basis: "merch_spend" as const, unitAmount: perHead, quantity: heads };
-      const attempted = `${averageMerchSpend || "0"} a head across ${heads}`;
+      const { amount, quantity: heads } = revenueRowWrite({
+        unitAmount: perHead,
+        heads: numeric(capacity),
+        perGuest,
+      });
+      const details = {
+        basis: "merch_spend" as const,
+        unitAmount: perHead,
+        quantity: heads,
+        perGuest,
+      };
+      const attempted = perGuest
+        ? `${averageMerchSpend || "0"} a head across ${heads}`
+        : `${averageMerchSpend || "0"} flat`;
       if (!merchLine) {
         write(() =>
           createRow(budgetId, MERCH_LABEL, attempted, {
@@ -1506,8 +1613,19 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       // Blank reads as ZERO, exactly as a cleared cost row does. Skipping the
       // write instead — which is what used to happen — left the old figure in the
       // database, so clearing the field and reloading brought the money back.
-      const amount = toMinorUnits(typed === "" ? "0" : typed);
-      const details = { basis: "other_revenue" as const, unitAmount: amount, quantity: 1 };
+      const perGuest = otherRevenueBasis === "per_guest";
+      const unitAmount = toMinorUnits(typed === "" ? "0" : typed);
+      const { amount, quantity: heads } = revenueRowWrite({
+        unitAmount,
+        heads: numeric(capacity),
+        perGuest,
+      });
+      const details = {
+        basis: "other_revenue" as const,
+        unitAmount,
+        quantity: heads,
+        perGuest,
+      };
       if (!otherRevenueLine) {
         write(() =>
           createRow(budgetId, OTHER_REVENUE_LABEL, typed || "0", {
@@ -1950,6 +2068,36 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     [scheduleFlush, merchLine, averageMerchSpend],
   );
 
+  /**
+   * Changing a basis REWRITES THE ROW, which is why each of these flushes: the
+   * stored amount is the rate times the heads, so switching a 40.00 bar row from
+   * per-guest to flat turns a 12,000 line into a 40 line. Leaving the old amount
+   * behind would leave the screen saying one thing and the ledger another.
+   */
+  const changeBarBasis = useCallback(
+    (value: RevenueBasis) => {
+      setBarBasis(value);
+      scheduleFlush(BAR_ROW);
+    },
+    [scheduleFlush],
+  );
+
+  const changeMerchBasis = useCallback(
+    (value: RevenueBasis) => {
+      setMerchBasis(value);
+      scheduleFlush(MERCH_ROW);
+    },
+    [scheduleFlush],
+  );
+
+  const changeOtherRevenueBasis = useCallback(
+    (value: RevenueBasis) => {
+      setOtherRevenueBasis(value);
+      scheduleFlush(OTHER_REVENUE_ROW);
+    },
+    [scheduleFlush],
+  );
+
   const changeAverageBarSpend = useCallback(
     (value: string) => {
       setAverageBarSpend(value);
@@ -2019,6 +2167,9 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     averageBarSpend,
     averageMerchSpend,
     otherRevenue,
+    barBasis,
+    merchBasis,
+    otherRevenueBasis,
     processingPercent,
     processingFlatPerTicket,
     // Queued as well as in flight: the writes are serialized, so a mutation's
@@ -2050,6 +2201,9 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     changeAverageBarSpend,
     changeAverageMerchSpend,
     changeOtherRevenue,
+    changeBarBasis,
+    changeMerchBasis,
+    changeOtherRevenueBasis,
     changeProcessingPercent,
     changeProcessingFlatPerTicket,
   };
@@ -2085,6 +2239,9 @@ export function budgetInputsFrom(editor: BudgetEditor): BudgetInputs {
   const percentBasisPoints = toBasisPoints(editor.processingPercent);
   const flatPerTicket = BigInt(toMinorUnits(editor.processingFlatPerTicket));
   return {
+    barBasis: editor.barBasis,
+    merchBasis: editor.merchBasis,
+    otherRevenueBasis: editor.otherRevenueBasis,
     ticketTiers: editor.ticketTiers.map((tier) => ({
       unitAmount: BigInt(toMinorUnits(tier.price)),
       quantity: wholeNumber(tier.quantity),

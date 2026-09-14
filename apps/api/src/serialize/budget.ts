@@ -37,6 +37,12 @@ export interface BudgetLineDetails {
   unitAmount: string;
   quantity: number;
   /**
+   * Whether `unitAmount` is a rate per head or the whole sum — the planner's
+   * `Basis` column. Absent on every line written before it existed, which reads
+   * as the row's historical meaning rather than as `false`.
+   */
+  perGuest?: boolean;
+  /**
    * A DEDUCTION STATED AS A PERCENTAGE OF ANOTHER LINE — the three fields below,
    * set together, and only on `basis: "percentage_of"`.
    *
@@ -77,6 +83,11 @@ function budgetLineDetails(value: unknown): BudgetLineDetails | null {
     ...(typeof candidate.ofKey === "string" ? { ofKey: candidate.ofKey } : {}),
     ...(typeof candidate.ofLabel === "string" ? { ofLabel: candidate.ofLabel } : {}),
     ...(typeof candidate.basisPoints === "number" ? { basisPoints: candidate.basisPoints } : {}),
+    // Absent stays ABSENT rather than becoming false: the planner reads "no
+    // flag" as "whatever this row has always meant" — per head for bar and
+    // merch, flat for other revenue — and a false here would silently turn every
+    // bar line written before the column into a flat one.
+    ...(typeof candidate.perGuest === "boolean" ? { perGuest: candidate.perGuest } : {}),
   };
 }
 

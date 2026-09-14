@@ -15,6 +15,7 @@ export type PatchApiV1EventsIdBudgetsBidLinesLid200Details = {
   unitAmount: string;
   /** @minimum 0 */
   quantity: number;
+  perGuest?: boolean;
   /** @maxLength 200 */
   ofKey?: string;
   /** @maxLength 200 */

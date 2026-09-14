@@ -69,6 +69,20 @@ const LineDetails = z.object({
   unitAmount: MinorUnitsAmount,
   quantity: z.number().int().min(0),
   /**
+   * Whether `unitAmount` is a RATE PER HEAD or the whole sum for the night.
+   *
+   * The bar, merch and other-revenue rows each carry a basis the operator picks
+   * (the prototype's `Basis` column). It lives here rather than being inferred
+   * from `quantity`, because a flat row and a per-head row at an attendance of
+   * one are the same pair of numbers and mean completely different things the
+   * moment attendance moves.
+   *
+   * Optional: absent means what the row has always meant — per head for bar and
+   * merch, flat for other revenue — so no existing line recomputes and no
+   * backfill is owed. `details` is jsonb, so there is no migration either.
+   */
+  perGuest: z.boolean().optional(),
+  /**
    * A deduction stated as a percentage of another line (ClickUp `86cbcn1ue`).
    * Optional and set together; `amount` stays the authoritative figure, and these
    * only remember how it was reached so the planner can recompute it when the

@@ -14,6 +14,22 @@
 
 import { applyBasisPoints } from "./money";
 
+/**
+ * Whether an amount is a RATE PER HEAD or a SUM FOR THE NIGHT.
+ *
+ * The prototype puts this on every other-revenue row as a control, and until now
+ * ours was hardcoded: the bar and merch were always per head, other revenue was
+ * always flat. A bar MINIMUM — "the venue guarantees 40,000 over the bar
+ * whatever the room does" — is an ordinary deal term and could not be expressed
+ * at all; typing it as a per-head rate made it scale with attendance, which is
+ * the one thing a guarantee does not do.
+ *
+ * It matters beyond the total: a per-head row belongs in `contributionPerHead`
+ * and a flat one in `standingRevenue`, and break-even is solved from those two.
+ * Getting the basis wrong moves the break-even, not just a figure.
+ */
+export type RevenueBasis = "per_guest" | "flat";
+
 /** One ticket tier as the planner holds it: a price and how many are expected. */
 export interface TicketTier {
   readonly unitAmount: bigint;
@@ -69,9 +85,18 @@ export interface BudgetInputs {
    * split — keeps computing exactly the number it did before.
    */
   readonly averageMerchSpend?: bigint;
+  /**
+   * How to read `averageBarSpend` / `averageMerchSpend`. Absent means `per_guest`,
+   * which is what every budget written before this field meant, so nothing
+   * recomputes.
+   */
+  readonly barBasis?: RevenueBasis;
+  readonly merchBasis?: RevenueBasis;
   readonly capacity: number;
   /** Revenue that is neither ticketing, bar nor merch (sponsorship, a fee, a grant). */
   readonly otherRevenue: bigint;
+  /** How to read `otherRevenue`. Absent means `flat`, as it always was. */
+  readonly otherRevenueBasis?: RevenueBasis;
   /**
    * Free-form revenue rows the operator named themselves ("+ Add Field" on the
    * design prototype's Revenue card) — a merch guarantee, a bar minimum, a city
@@ -188,12 +213,31 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
    * people bought a drink.
    */
   const attendees = BigInt(ticketsSold);
-  const barRevenue = inputs.averageBarSpend * attendees;
-  const merchRevenue = (inputs.averageMerchSpend ?? 0n) * attendees;
+  // A row's amount is a rate times the heads, or the whole sum once. Defaults
+  // preserve what each row has always meant.
+  const perGuest = (basis: RevenueBasis | undefined, fallback: RevenueBasis) =>
+    (basis ?? fallback) === "per_guest";
+  const barIsPerGuest = perGuest(inputs.barBasis, "per_guest");
+  const merchIsPerGuest = perGuest(inputs.merchBasis, "per_guest");
+  const otherIsPerGuest = perGuest(inputs.otherRevenueBasis, "flat");
+
+  const merchSpend = inputs.averageMerchSpend ?? 0n;
+  const barRevenue = barIsPerGuest ? inputs.averageBarSpend * attendees : inputs.averageBarSpend;
+  const merchRevenue = merchIsPerGuest ? merchSpend * attendees : merchSpend;
+  const otherRevenue = otherIsPerGuest ? inputs.otherRevenue * attendees : inputs.otherRevenue;
   const customRevenue = sum(inputs.customRevenue ?? []);
-  /** Money that genuinely arrives whether or not a ticket sells. */
-  const standingRevenue = inputs.otherRevenue + customRevenue;
-  const totalRevenue = ticketRevenue + barRevenue + merchRevenue + standingRevenue;
+  /**
+   * Money that genuinely arrives whether or not a ticket sells — so only the rows
+   * whose basis says so. This is the half of the basis that break-even reads: a
+   * flat bar minimum covers fixed costs from the first ticket, where a per-head
+   * bar take only arrives as guests do.
+   */
+  const standingRevenue =
+    (otherIsPerGuest ? 0n : inputs.otherRevenue) +
+    (barIsPerGuest ? 0n : inputs.averageBarSpend) +
+    (merchIsPerGuest ? 0n : merchSpend) +
+    customRevenue;
+  const totalRevenue = ticketRevenue + barRevenue + merchRevenue + otherRevenue + customRevenue;
   const enteredCosts = sum(inputs.costs);
   // The provider charges on the tickets it sells, so the percentage is taken on
   // TICKET revenue only — not on the bar or merch take, nor a sponsorship, none
@@ -235,11 +279,11 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
     ? applyBasisPoints(averageTicketPrice, inputs.paymentProcessing.percentBasisPoints) +
       inputs.paymentProcessing.flatPerTicket
     : 0n;
-  const contributionPerHead =
-    averageTicketPrice +
-    inputs.averageBarSpend +
-    (inputs.averageMerchSpend ?? 0n) -
-    variableCostPerTicket;
+  const perHeadRevenue =
+    (barIsPerGuest ? inputs.averageBarSpend : 0n) +
+    (merchIsPerGuest ? merchSpend : 0n) +
+    (otherIsPerGuest ? inputs.otherRevenue : 0n);
+  const contributionPerHead = averageTicketPrice + perHeadRevenue - variableCostPerTicket;
   const uncovered = enteredCosts - standingRevenue;
   let breakEvenTickets = 0;
   if (contributionPerHead > 0n && uncovered > 0n) {
@@ -266,7 +310,7 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
     averageTicketPrice,
     breakEvenTickets,
     standingRevenue,
-    perHeadRevenue: inputs.averageBarSpend + (inputs.averageMerchSpend ?? 0n),
+    perHeadRevenue,
     variableCostPerTicket,
     contributionPerHead,
     marginPercent,

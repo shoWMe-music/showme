@@ -17,6 +17,7 @@ export {
   type DealFigureDisagreement,
   dealFigureDisagreement,
   type PaymentProcessingAssumption,
+  type RevenueBasis,
   type TicketTier,
 } from "./budget-planning";
 export {

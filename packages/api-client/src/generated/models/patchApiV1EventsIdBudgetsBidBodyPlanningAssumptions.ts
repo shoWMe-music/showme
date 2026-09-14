@@ -14,5 +14,5 @@ export type PatchApiV1EventsIdBudgetsBidBodyPlanningAssumptions = {
   /** @nullable */
   paymentProcessing: PatchApiV1EventsIdBudgetsBidBodyPlanningAssumptionsPaymentProcessing;
   /** @nullable */
-  operatorCostSplit: PatchApiV1EventsIdBudgetsBidBodyPlanningAssumptionsOperatorCostSplit;
+  operatorCostSplit?: PatchApiV1EventsIdBudgetsBidBodyPlanningAssumptionsOperatorCostSplit;
 } | null;
