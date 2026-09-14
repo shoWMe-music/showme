@@ -4,9 +4,13 @@ Live-events **booking + settlement** SaaS. This repo is a **from-scratch rebuild
 app, built as a **monorepo**. **Status:** scaffolded and substantially built, with the API and web app deployed.
 
 **Going to work on settlements? Start with
-[docs/handoff-2026-09-14-settlement-surface.md](./docs/handoff-2026-09-14-settlement-surface.md)** —
-what the budget-planner work moved underneath the engine, and the fact that
-production has **zero** settlement lines, so nothing there has ever run on real rows.
+[docs/handoff-2026-09-14-settlement-surface.md](./docs/handoff-2026-09-14-settlement-surface.md)**
+(what the budget-planner work moved underneath the engine, and the fact that production
+has **zero** settlement lines) and
+**[docs/design-settlement-2026-09-10.md](./docs/design-settlement-2026-09-10.md)** — the
+design, where the files live, and the **three rules in it we deliberately do not
+follow**. Implementing its §3 waterfall or §7 `compute()` literally would undo
+decisions.md #23.
 
 **Otherwise start with [docs/handoff-2026-08-27-ran-list-state.md](./docs/handoff-2026-08-27-ran-list-state.md)** — the
 current state of the work: what is deployed versus merely committed, the three pending migrations (one of

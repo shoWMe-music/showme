@@ -1,0 +1,160 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>shoWMe — Budget, Settlement & Deal Logic</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#F5EDE2;--surface:#FFFBF5;--card:#fff;--elevated:#FAF4EC;--border:#E6D9CB;--border-strong:#D3C2B0;--text:#2B1D12;--muted:#7A6857;--dim:#A8957F;--accent:#EE5746;--mono:'JetBrains Mono',monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter Tight',system-ui,sans-serif;line-height:1.65;font-size:15px}
+.wrap{max-width:880px;margin:0 auto;padding:48px 24px 96px}
+h1{font-size:34px;font-weight:700;letter-spacing:-.02em;margin:0 0 8px}
+.sub{color:var(--muted);margin:0 0 36px;font-size:15px}
+h2{font-size:22px;font-weight:600;letter-spacing:-.01em;margin:44px 0 6px;padding-bottom:8px;border-bottom:2px solid var(--border)}
+h3{font-size:16px;font-weight:600;margin:26px 0 6px}
+p{margin:0 0 12px}
+code{font-family:var(--mono);font-size:.88em;background:var(--elevated);border:1px solid var(--border);border-radius:5px;padding:1px 5px}
+pre{background:#22160D;color:#F0E4D4;border-radius:12px;padding:18px 20px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.6}
+table{width:100%;border-collapse:collapse;margin:12px 0 20px;font-size:14px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+th{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);font-weight:600}
+td:first-child{font-weight:600;white-space:nowrap}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px 20px;margin:14px 0}
+.note{background:color-mix(in srgb,#6FA8E0 8%,transparent);border:1px solid color-mix(in srgb,#6FA8E0 28%,transparent);border-radius:12px;padding:13px 16px;margin:14px 0;font-size:14px}
+.warn{background:color-mix(in srgb,#F4A046 10%,transparent);border:1px solid color-mix(in srgb,#F4A046 32%,transparent);border-radius:12px;padding:13px 16px;margin:14px 0;font-size:14px}
+ol,ul{margin:0 0 14px;padding-left:22px}
+li{margin-bottom:5px}
+.eg{font-family:var(--mono);font-size:13px;background:var(--elevated);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:12px 16px;margin:12px 0;white-space:pre-wrap}
+</style></head><body><div class="wrap">
+
+<h1>Budget Planner, Settlement &amp; Deal Logic</h1>
+<p class="sub">How forecasting, deal terms and settlement calculation interlock in shoWMe. Code blocks are the shipped implementation.</p>
+
+<h2>1. The three stages</h2>
+<table>
+<tr><th>Stage</th><th>Purpose</th><th>Editable</th></tr>
+<tr><td>Budget Planner</td><td>Forecast the night before it happens — ticket tiers, costs, deal terms. Produces break-even and projected P&amp;L.</td><td>Yes</td></tr>
+<tr><td>Financials (settlement)</td><td>Record what actually happened. Seeded from the planner, then corrected. Extra revenue/cost/deduction lines can be added or removed here.</td><td>Yes</td></tr>
+<tr><td>Settlement</td><td>Read-only preview of entitlements and party payouts. Curated per collaborator, commented per line, then sent for approval.</td><td>No</td></tr>
+</table>
+<div class="note"><b>Planner is the baseline.</b> Choosing “Start from Budget Planner” copies every tier, cost and deal term into Financials. The planner figures are retained so the settlement can show <b>Planned vs actual</b> deltas per line.</div>
+
+<h2>2. Deal structures</h2>
+<table>
+<tr><th>Deal type</th><th>Performer entitlement</th><th>Ticket revenue</th></tr>
+<tr><td>Guarantee</td><td>Fixed fee, regardless of turnout.</td><td>All ticket revenue is the operator's. Performer carries no upside or downside.</td></tr>
+<tr><td>Door Split</td><td>Agreed % of the door/net.</td><td>Split by the percentages, no floor.</td></tr>
+<tr><td>Guarantee vs Door</td><td><code>max(guarantee, split share)</code> — the guarantee is a floor, the split is the upside.</td><td>Below the crossover the operator absorbs the shortfall; above it the split governs.</td></tr>
+<tr><td>Rental</td><td>Performer/promoter rents the room; venue takes a fixed rental.</td><td>Belongs to the renter, less the rental fee.</td></tr>
+</table>
+
+<h3>Guarantee vs Door — worked example</h3>
+<div class="eg">Guarantee  €1,000
+Split      70 / 30  (performer / operator)
+
+Ticket revenue €1,000
+  split share = 1,000 × 70% = €700
+  entitlement = max(1,000, 700) = €1,000   ← guarantee floor applies
+  operator keeps €0 and absorbs any costs → break-even or a loss
+
+Ticket revenue €2,000
+  split share = 2,000 × 70% = €1,400
+  entitlement = max(1,000, 1,400) = €1,400 ← split now exceeds the floor
+  operator share = €600</div>
+<div class="warn"><b>The performer fee in Costs is derived, not typed.</b> Once ticket revenue crosses the point where the split beats the guarantee, the performer cost line rises with it. The guarantee is always the minimum.</div>
+
+<h3>Three-way splits</h3>
+<p>Splits are <b>independent shares of the adjusted net</b>, expressed as percentages that total 100 across performer, promoter and venue. The promoter is <b>not</b> a residual claimant — each party's share is computed from the same pool, so no party silently absorbs rounding or shortfall. Percentages are shown next to every derived figure so the basis is always visible.</p>
+
+<h2>3. Waterfall order</h2>
+<ol>
+<li><b>Gross revenue</b> — ticket tiers + door + additional revenue + custom revenue lines</li>
+<li><b>less Deductions</b> — ticketing fees, tax, refunds, production, additional and custom cost/deduction lines</li>
+<li>= <b>Net revenue</b></li>
+<li><b>less Venue rental</b> — taken off the top, before splits</li>
+<li>= <b>Adjusted net</b> — the pool the splits apply to</li>
+<li><b>Performer entitlement</b> — per deal type, guarantee as floor, plus any performance bonus once its threshold is met</li>
+<li><b>Venue and promoter shares</b> — their split percentages of the adjusted net</li>
+</ol>
+
+<h2>4. Break-even</h2>
+<p>Break-even is the ticket count where revenue meets total cost. The planner graph plots both lines and shades the space between them — green above the crossover (profit), red below (loss). Hovering reads off revenue, cost and margin at any ticket count while the calculated break-even marker stays pinned.</p>
+<div class="eg">revenue(t) = Σ(tier price × tickets sold) + bar/F&amp;B + other
+cost(t)    = fixed costs + performer entitlement(t) + per-ticket fees × t
+break-even = smallest t where revenue(t) ≥ cost(t)</div>
+<div class="note">Because the performer entitlement itself moves with revenue under Guarantee vs Door, the cost line is <b>not flat</b> — it steps up once the split overtakes the guarantee. That kink is where operator margin stops growing linearly.</div>
+
+<h2>5. Visibility rules</h2>
+<p>Operators see every figure. Collaborators see only what concerns them, and the operator can curate this line by line.</p>
+<table>
+<tr><th>Role</th><th>Sees by default</th></tr>
+<tr><td>Operator</td><td>Everything — all revenue, all costs, every party's payout</td></tr>
+<tr><td>Performer</td><td>Own deal terms and entitlement, ticket revenue, merchandise (if in deal), share of bar/food (if in deal)</td></tr>
+<tr><td>Venue</td><td>Own deal and rental, ticket revenue, bar/food revenue</td></tr>
+</table>
+<p>Curation is per role and per line, including custom lines. A hidden line is simply absent from the collaborator's settlement — no placeholder is shown, because the existence of, say, a venue's own cost is not the performer's business.</p>
+
+<h2>6. Approval and comments</h2>
+<p>Every line carries its own comment thread; operator and collaborators can both post, attributed with name, role and time. Settlements are sent for review per collaborator, so each party receives only their curated view. Each records its own approval, and a request for changes moves the settlement back to <code>comments_received</code> for revision.</p>
+
+<h2>7. Implementation — settlement engine</h2>
+<pre>compute(e){
+    // Implements handoff Section 7.4 — party splits are independent, promoter is NOT residual.
+    const d=e.deal, r=e.rev, n=this.n.bind(this);
+    const xs=(e.sdExtras||[]);
+    const xRev=xs.filter(x=&gt;x.kind==='revenue').reduce((a,x)=&gt;a+n(x.amount),0);
+    const xDed=xs.filter(x=&gt;x.kind!=='revenue').reduce((a,x)=&gt;a+n(x.amount),0);
+    const totalRevenue = n(r.gross)+n(r.door)+n(r.additionalRevenue)+xRev;
+    const totalDeductions = n(r.ticketFees)+n(r.tax)+n(r.refunds)+n(r.production)+n(r.additionalCosts)+xDed;
+    const netRevenue = totalRevenue - totalDeductions;
+    const venueRental = n(d.venueRental);
+    const adjustedNet = netRevenue - venueRental;
+    const doorShare = adjustedNet * n(d.artistSplit)/100;
+    let artistBase, basis;
+    if(d.dealType==='guarantee'){ artistBase=n(d.guarantee); basis='Flat guarantee'; }
+    else if(d.dealType==='door_split'){ artistBase=doorShare; basis=n(d.artistSplit)+'% of adjusted net'; }
+    else if(d.dealType==='guarantee_vs_door'){
+      if(doorShare&gt;=n(d.guarantee)){ artistBase=doorShare; basis=n(d.artistSplit)+'% door beats \u20ac'+n(d.guarantee).toLocaleString('en-US')+' gtee'; }
+      else { artistBase=n(d.guarantee); basis='\u20ac'+n(d.guarantee).toLocaleString('en-US')+' gtee beats '+n(d.artistSplit)+'% door'; }
+    } else { artistBase = n(d.guarantee)&gt;0?n(d.guarantee):doorShare; basis='Rental deal'; }
+    let bonus=0, bonusEligible = n(d.bonusThreshold)&gt;0;
+    if(bonusEligible &amp;&amp; totalRevenue&gt;=n(d.bonusThreshold)) bonus=n(d.bonusAmount);
+    // Section 7.4: each party = adjustedNet * theirSplit% (independent); venue also keeps the rental.
+    const venuePool = adjustedNet * n(d.venueSplit)/100;
+    const promoterPool = adjustedNet * n(d.promoterSplit||0)/100;
+    const venuePayout = venueRental + venuePool;
+    const artistPayout = artistBase + bonus;
+    const promoterPayout = promoterPool;
+    // The margin promoter retains after paying artist above their pool (visibility only).
+    const promoterMargin = adjustedNet - artistBase - venuePool - bonus;
+    return { totalRevenue,totalDeductions,netRevenue,venueRental,adjustedNet,artistBase,doorShare,basis,bonus,bonusEligible,venuePool,promoterPool,venuePayout,artistPayout,promoterPayout,promoterMargin };
+  }</pre>
+
+<h2>8. Implementation — budget planner</h2>
+<pre>computeBudget(e){
+    const b=e.budget||{}, n=this.n.bind(this);
+    const tickets=b.ticketTypes||[];
+    const ticketRev=tickets.reduce((s,t)=&gt;s+n(t.price)*n(t.qty),0);
+    const soldTickets=tickets.reduce((s,t)=&gt;s+n(t.qty),0);
+    const revLines=b.revLines||[];
+    const otherRev=revLines.reduce((s,r)=&gt;s+this.revLineTotal(b,r,soldTickets),0);
+    const legacyRev=n(b.avgBar)*n(b.capacity)+n(b.otherRev)+(b.customRev||[]).reduce((s,x)=&gt;s+n(x.amount),0);
+    const totalRev=ticketRev+otherRev+legacyRev;
+    const costLines=b.costLines||[];
+    const cashCosts=costLines.reduce((s,c)=&gt;s+this.costLineAmount(e,c,ticketRev),0)+(b.customCost||[]).reduce((s,x)=&gt;s+n(x.amount),0);
+    const ppFees=ticketRev*n(b.ppFeePct)/100 + n(b.ppFeeFlat)*soldTickets;
+    const totalCost=cashCosts+ppFees;
+    const profit=totalRev-totalCost;
+    const avgP=soldTickets?ticketRev/soldTickets:0;
+    const perGuest=revLines.filter(r=&gt;r.basis==='guest').reduce((s,r)=&gt;s+n(r.amount),0);
+    const flat=revLines.filter(r=&gt;r.basis!=='guest').reduce((s,r)=&gt;s+n(r.amount),0)+legacyRev;
+    const varCost=avgP*n(b.ppFeePct)/100+n(b.ppFeeFlat);
+    const contribution=avgP+perGuest-varCost;
+    const fixed=cashCosts-flat;
+    const beRaw=contribution&lt;=0?Infinity:Math.ceil(fixed/contribution);
+    const beInfinite=!isFinite(beRaw)||beRaw&lt;0;
+    const margin=totalRev&gt;0?profit/totalRev*100:0;
+    return {ticketRev,soldTickets,otherRev,barRev:legacyRev,totalRev,cashCosts,ppFees,totalCost,profit,margin,
+      breakEven:beInfinite?0:beRaw, beInfinite, beContribution:contribution, beFixed:fixed, beAvgP:avgP, bePerGuest:perGuest, beFlat:flat, beVarCost:varCost,
+      revPerGuest:soldTickets?totalRev/soldTickets:0, costPerGuest:soldTickets?totalCost/soldTickets:0, cap:n(b.capacity)};
+  }</pre>
+
+</div></body></html>

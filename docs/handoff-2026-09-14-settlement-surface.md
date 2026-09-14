@@ -66,10 +66,15 @@ one was an informed choice rather than another guess, is in
 - **ClickUp writes.** Nothing was written back to any ticket this session. The
   `ticket-to-commit` loop is owed for the budget planner work, including the two
   contradictions on `86cbcn1f8` and the three missing cards recorded earlier.
-- **`Settlement.html`** — Ran's second design document from 2026-09-10 has
-  **never been rendered**, only the Budget Planner one. Do that before scoping a
-  settlement screen: the budget planner was built twice because a written
-  description was trusted over the rendered page.
+- **The settlement design** is written up in
+  [design-settlement-2026-09-10.md](./design-settlement-2026-09-10.md), and both of
+  Ran's files now live in `claude-prototype/ran-2026-09-10/` rather than in
+  `~/Downloads`. *Correction to the first version of this file: there is no
+  `Settlement.html`.* What exists is the Deal Logic spec's settlement sections plus
+  the Settlements screen in the All View prototype — render that before scoping a
+  screen, because the budget planner was built twice from a written description.
+  **Three of the spec's settlement rules are deliberately not ours** (decisions.md
+  #23); implementing §3 and §7 literally would undo that.
 - **`drizzle-kit generate` is still blocked** by pre-existing meta snapshot
   collisions at 0006/0007 and 0008/0009. Migration 0038 was hand-written. Any new
   migration needs the same treatment until those are repaired.
