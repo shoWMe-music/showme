@@ -1263,7 +1263,21 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
    * invent.
    */
   const deductionBases = useMemo<DeductionBaseOption[]>(() => {
-    const heads = BigInt(Math.trunc(numeric(capacity)));
+    /*
+     * HEADS ARE TICKETS SOLD, NOT SEATS — the same rule
+     * `computeBudgetProjection` applies, and it has to be the same or a
+     * percentage is taken of a figure the screen never showed.
+     *
+     * Caught by the e2e suite, not by a unit test: the merch row read 8 000
+     * (25 a head across 320 planned) while "10% of Merchandise" underneath it
+     * worked out 1 000 — ten per cent of a 10 000 the bar/merch rows stopped
+     * reporting when per-head revenue moved off capacity. Both numbers sat on
+     * the same card, and only one of them was right.
+     */
+    const heads = tiers.reduce(
+      (running, tier) => running + BigInt(Math.max(0, Math.trunc(numeric(tier.quantity)))),
+      0n,
+    );
     const bases: DeductionBaseOption[] = [];
     for (const tier of tiers) {
       bases.push({
