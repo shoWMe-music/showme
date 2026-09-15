@@ -91,6 +91,7 @@ export {
 } from "./currencies";
 export {
   COUNTRY_CODES,
+  countryFlag,
   isCountryCode,
   normalizeCountryCode,
   normalizeCountryCodes,

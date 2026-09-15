@@ -536,6 +536,18 @@ const EventResponse = z.object({
   hostProfileId: z.string(),
   venueProfileId: z.string().nullable(),
   venueName: z.string().nullable(),
+  /**
+   * The venue profile's primary location — the address and country the event
+   * shows (ClickUp `123qy9rnfab`). Null when the venue is free text with no
+   * profile behind it, or when the profile has answered no address.
+   */
+  venueLocation: z
+    .object({
+      street: z.string().nullable(),
+      city: z.string().nullable(),
+      country: z.string().nullable(),
+    })
+    .nullable(),
   capacity: z.number().nullable(),
   stageId: z.string().nullable(),
   notes: z.string().nullable(),
@@ -1101,6 +1113,41 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
+  /**
+   * The venue's primary location, for the address + country an event shows
+   * (ClickUp `123qy9rnfab`).
+   *
+   * A separate small read rather than a join onto every event query: only the two
+   * routes that serialize ONE event need it, the row is tiny, and widening the
+   * list query's joins for a field the list does not render would be paying on
+   * every page for something one screen uses.
+   *
+   * `is_primary` decides which of a profile's locations is "the address". A
+   * profile with several and none marked primary has not answered the question,
+   * and guessing (the first row, the most recently added) would show a different
+   * address depending on insert order — so it shows none.
+   */
+  async function venueLocationOf(
+    database: FastifyInstance["database"],
+    venueProfileId: string | null,
+  ) {
+    if (!venueProfileId) return null;
+    const [location] = await database
+      .select({
+        street: schema.profileLocations.street,
+        city: schema.profileLocations.city,
+        country: schema.profileLocations.country,
+      })
+      .from(schema.profileLocations)
+      .where(
+        and(
+          eq(schema.profileLocations.profileId, venueProfileId),
+          eq(schema.profileLocations.isPrimary, true),
+        ),
+      );
+    return location ?? null;
+  }
+
   // Read: authorize `event.view`, then serialize by the caller's capabilities.
   app.get(
     "/events/:id",
@@ -1118,7 +1165,12 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
       const imageUrls = await signProfileImageUrls(database, request.server.storageSigner, [
         event.imageFileId,
       ]);
-      return serializeEvent(event, capabilities, imageUrls);
+      return serializeEvent(
+        event,
+        capabilities,
+        imageUrls,
+        await venueLocationOf(database, event.venueProfileId),
+      );
     },
   );
 
@@ -1274,7 +1326,14 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
       const imageUrls = await signProfileImageUrls(database, request.server.storageSigner, [
         updated.imageFileId,
       ]);
-      return serializeEvent(updated, capabilities, imageUrls);
+      // The address travels on the PATCH response too — a save that moved the
+      // venue must not answer with the old room's country still on screen.
+      return serializeEvent(
+        updated,
+        capabilities,
+        imageUrls,
+        await venueLocationOf(database, updated.venueProfileId),
+      );
     },
   );
 

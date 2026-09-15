@@ -114,6 +114,17 @@ export interface EditableEventInformation {
   stageId: string | null;
   /** The venue PROFILE this event stands at, when one is linked. */
   venueProfileId?: string | null;
+  /**
+   * That venue's address — read-only here, and shown beside its name (ClickUp
+   * `123qy9rnfab`). It is not in `EventInlineFieldValues` because it is not
+   * editable on this card: an address is a fact about the ROOM, kept on the
+   * venue's own profile, and a show does not get to move a building.
+   */
+  venueLocation?: {
+    street?: string | null;
+    city?: string | null;
+    country?: string | null;
+  } | null;
   version: number;
 }
 

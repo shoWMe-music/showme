@@ -82,3 +82,46 @@ export function normalizeCountryCodes(values: readonly string[]): string[] {
   }
   return normalized;
 }
+
+/**
+ * The flag for a country code, as an emoji — `SE` → 🇸🇪 (ClickUp `123qy9rnfab`:
+ * *"Country code and flag next to each event (i.e SE 🇸🇪, DE 🇩🇪)"*).
+ *
+ * Ran's reason is on the ticket and is worth keeping in view: *"this is for the
+ * Performers and agents to know"*. An act reading a list of their own nights
+ * needs to see which country each one is in — that is the fact that decides a
+ * flight, a carnet and a tax form — and the operator who titled the show had no
+ * reason to put it in the title.
+ *
+ * ## It is computed, not a table
+ *
+ * A flag emoji IS its country code: two REGIONAL INDICATOR SYMBOLS, one per
+ * letter, at `U+1F1E6` + the letter's offset from `A`. So there is no 249-row
+ * lookup to maintain here and no chance of the list drifting from the register
+ * above — the code IS the flag, arithmetically.
+ *
+ * ## It returns null rather than a placeholder
+ *
+ * An unknown or malformed code gives `null`, so a caller renders the code alone
+ * rather than a white flag, a question mark, or — worst — some other country's.
+ * Validated against the register rather than merely by shape, because two letters
+ * that are not a country still produce a well-formed pair of indicators that most
+ * systems draw as two blank letter-boxes: a plausible-looking flag for a place
+ * that does not exist.
+ *
+ * Rendering is the platform's: a system with no flag glyphs (notably Windows)
+ * draws the two letters instead, which is why the country CODE is shown beside
+ * the flag and not replaced by it.
+ */
+export function countryFlag(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const code = normalizeCountryCode(value);
+  if (!isCountryCode(code)) return null;
+  const REGIONAL_INDICATOR_A = 0x1f1e6;
+  const LETTER_A = "A".codePointAt(0) as number;
+  return String.fromCodePoint(
+    ...[...code].map(
+      (letter) => REGIONAL_INDICATOR_A + ((letter.codePointAt(0) as number) - LETTER_A),
+    ),
+  );
+}

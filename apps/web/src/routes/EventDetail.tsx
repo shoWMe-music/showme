@@ -664,6 +664,11 @@ function DetailsTab({
         curfew: event.curfew,
         venueName: event.venueName,
         venueProfileId: event.venueProfileId,
+        // ClickUp `123qy9rnfab` — the venue's address and country, shown beside
+        // its name. This mapping is field-by-field, so a new field is invisible
+        // until it is named here: the API returned it and the card rendered
+        // nothing, which reads exactly like a backend bug.
+        venueLocation: event.venueLocation,
         hostProfileId: event.hostProfileId,
         imageUrl: event.imageUrl,
         capacity: event.capacity,

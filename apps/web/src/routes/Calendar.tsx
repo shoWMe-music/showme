@@ -533,6 +533,9 @@ export function Calendar() {
         // the 24h of its own local date. Derived, never stored — see `lib/status`.
         status: eventDisplayStatus(event).status,
         statusLabel: eventDisplayStatus(event).label,
+        // ClickUp `123qy9rnfab` — which country each night is in, on the surface
+        // a touring act reads most.
+        country: event.venueLocation?.country ?? null,
       }));
     return [...items, ...dated];
   }, [calendar.data, events.items, myProfileIds]);

@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { GetApiV1Events200ItemsItemVenueLocation } from "./getApiV1Events200ItemsItemVenueLocation";
 
 export type GetApiV1Events200ItemsItem = {
   id: string;
@@ -20,6 +21,8 @@ export type GetApiV1Events200ItemsItem = {
   venueProfileId: string | null;
   /** @nullable */
   venueName: string | null;
+  /** @nullable */
+  venueLocation: GetApiV1Events200ItemsItemVenueLocation | null;
   /** @nullable */
   capacity: number | null;
   /** @nullable */

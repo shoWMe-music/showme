@@ -29,6 +29,16 @@ export interface DetailsEvent {
   venueName: string | null;
   /** The venue PROFILE this event is placed at, when one is linked. */
   venueProfileId?: string | null;
+  /**
+   * That venue's address, shown read-only beside its name (ClickUp
+   * `123qy9rnfab`). Owned by the venue's own profile — a show does not move a
+   * building — so it is passed through rather than edited here.
+   */
+  venueLocation?: {
+    street?: string | null;
+    city?: string | null;
+    country?: string | null;
+  } | null;
   /** Whose event this is — a poster is uploaded into THIS profile's folder. */
   hostProfileId: string;
   /** The poster, resolved and signed by the API. Null when there is none. */

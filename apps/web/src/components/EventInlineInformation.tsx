@@ -4,6 +4,7 @@ import { type ReactNode, useMemo } from "react";
 import { useDateConflicts } from "../hooks/useDateConflicts";
 import { formatDay } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
+import { CountryTag } from "./CountryTag";
 import { EventInlineDateChoice, EventInlineOptionChoice } from "./EventInlineChoice";
 import {
   EVENT_INLINE_CONTROL_BOX,
@@ -51,6 +52,53 @@ export interface EventInlineInformationProps {
  * value that is still reachable) is in `EventInlineField`. This file only says
  * which fields exist and how each one reads.
  */
+/**
+ * The venue's street, city and country, shown beside its name (ClickUp
+ * `123qy9rnfab`).
+ *
+ * Street and city are joined with a comma and the country is drawn by
+ * `CountryTag`, which shows the CODE alongside the flag — a flag-only tag is two
+ * blank boxes on Windows and a guess between similar tricolours everywhere else.
+ *
+ * Renders nothing when the venue profile has recorded no address, which is a real
+ * state and reads better as absence than as a row of em-dashes.
+ */
+function EventVenueAddress({
+  location,
+}: {
+  location: { street?: string | null; city?: string | null; country?: string | null } | null;
+}) {
+  if (!location) return null;
+  const street = [location.street, location.city].filter(Boolean).join(", ");
+  if (!street && !location.country) return null;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+      {/* The STREET is what gives way when the row runs out of room, and the
+          country is what survives. That ordering is the ticket's: Ran asked for
+          the country *"for the Performers and agents to know"* — it decides a
+          flight — whereas the street is detail you look up once you are in the
+          city. So the street truncates and `CountryTag` never shrinks. */}
+      {street && (
+        <span
+          style={{
+            color: "var(--muted)",
+            fontSize: 12.5,
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          · {street}
+        </span>
+      )}
+      <span style={{ flex: "0 0 auto" }}>
+        <CountryTag country={location.country} />
+      </span>
+    </span>
+  );
+}
+
 export function EventInlineInformation({
   event,
   operatorName,
@@ -206,6 +254,14 @@ export function EventInlineInformation({
             event.venueProfileId && inline.values.venueName !== "" ? (
               <EventInlineGlyphValue glyph={<Icon name="building" size={13} />}>
                 {inline.values.venueName}
+                {/* WHERE IT ACTUALLY IS (ClickUp `123qy9rnfab`: *"Event manager
+                    and details should always show Address and country of the
+                    event place"*). Read-only and beside the name rather than a
+                    row of its own: it is a fact about the ROOM, not about this
+                    show, and it is edited on the venue's profile. It appears only
+                    for a linked venue profile, because a free-text venue name has
+                    no address behind it to show. */}
+                <EventVenueAddress location={event.venueLocation ?? null} />
               </EventInlineGlyphValue>
             ) : undefined
           }

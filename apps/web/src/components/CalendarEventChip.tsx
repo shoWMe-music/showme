@@ -1,5 +1,6 @@
 import { STATUS_COLOR, type Status } from "@showme/design-system";
 import { CalendarEntryPreview } from "./CalendarEntryPreview";
+import { CountryTag } from "./CountryTag";
 import { useCalendarEntryPreview } from "./useCalendarEntryPreview";
 
 /** One entry on the calendar, and the chip that draws it. Lives here rather than
@@ -31,6 +32,12 @@ export interface CalendarEvent {
   /** Set only when this chip is a real event (not a standalone calendar item);
    * drives the click-through to the event workspace. */
   eventId?: string;
+  /**
+   * ISO 3166-1 alpha-2 of the venue's country, drawn as `SE 🇸🇪` before the label
+   * (ClickUp `123qy9rnfab`). Absent for a standalone calendar item and for an
+   * event whose venue is free text — neither has a country to claim.
+   */
+  country?: string | null;
 }
 
 export function chipLabel(event: CalendarEvent, mode: CalendarLabelMode): string {
@@ -110,6 +117,16 @@ export function CalendarEventChip({
             style={{ fontFamily: "var(--font-mono)", fontSize: 10, marginRight: 6, opacity: 0.8 }}
           >
             {startTime}
+          </span>
+        )}
+        {/* BEFORE the title, and it keeps its width while the title truncates.
+            Ran asked for the country on every calendar entry *"for the Performers
+            and agents to know"* — which is precisely the reader whose titles all
+            say their own name, so the country is the part of this chip carrying
+            information and the title is the part that can afford to be cut. */}
+        {event.country && (
+          <span style={{ marginRight: 5, opacity: 0.85 }}>
+            <CountryTag country={event.country} size={10} />
           </span>
         )}
         {label}

@@ -28,6 +28,35 @@ export interface SerializedEvent {
   hostProfileId: string;
   venueProfileId: string | null;
   venueName: string | null;
+  /**
+   * WHERE THE SHOW PHYSICALLY IS (ClickUp `123qy9rnfab`).
+   *
+   * Ran: *"Event manager and details should always show Address and country of
+   * the event place… this is for the Performers and agents to know."* Which is
+   * exactly the point — the operator who titled the show knows the address by
+   * heart, and everyone travelling to it does not. A country decides a flight, a
+   * carnet and a tax form, and until now it appeared nowhere on an event.
+   *
+   * It is the VENUE PROFILE's primary location, read through `venue_profile_id`,
+   * rather than columns on the event: a room's address is a permanent fact about
+   * the room, and copying it onto every show there would be the denormalization
+   * this rebuild exists to delete. `null` when the event names its venue only as
+   * free text (`venue_name` with no profile behind it), which is a real state —
+   * a fixture, or a room not on the platform.
+   *
+   * A PLACE's street address is publishable and a person's is not; that rule is
+   * `serialize/profile.ts`'s and is unchanged here, because a venue profile is a
+   * place. An event whose "venue" is somebody's home studio profile would
+   * therefore publish a home address — which is the same exposure the profile
+   * serializer already decides, in one place, rather than a second decision made
+   * here from less context.
+   */
+  venueLocation: {
+    street: string | null;
+    city: string | null;
+    /** ISO 3166-1 alpha-2, the platform's one country vocabulary. */
+    country: string | null;
+  } | null;
   capacity: number | null;
   stageId: string | null;
   notes: string | null;
@@ -68,6 +97,7 @@ export function serializeEvent(
   event: EventRow,
   capabilities: Set<Capability>,
   imageUrls?: Map<string, string>,
+  venueLocation?: SerializedEvent["venueLocation"],
 ): SerializedEvent {
   const base: SerializedEvent = {
     id: event.id,
@@ -84,6 +114,7 @@ export function serializeEvent(
     hostProfileId: event.hostProfileId,
     venueProfileId: event.venueProfileId,
     venueName: event.venueName,
+    venueLocation: venueLocation ?? null,
     capacity: event.capacity,
     stageId: event.stageId,
     notes: event.notes,

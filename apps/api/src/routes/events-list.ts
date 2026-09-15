@@ -127,6 +127,19 @@ const EventResponse = z.object({
    */
   venueName: z.string().nullable(),
   /**
+   * The venue's address and country (ClickUp `123qy9rnfab`). The list draws only
+   * the country code and its flag — Ran: *"this is for the Performers and agents
+   * to know"* — but the shape is the detail route's, so the field means one thing
+   * everywhere.
+   */
+  venueLocation: z
+    .object({
+      street: z.string().nullable(),
+      city: z.string().nullable(),
+      country: z.string().nullable(),
+    })
+    .nullable(),
+  /**
    * Same story as `venueName` one field up, and the same fix: `serializeEvent`
    * has always returned the capacity and this schema never declared it, so
    * Fastify stripped it and the Events list drew an em-dash under "Cap" for a
@@ -459,12 +472,53 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
       // detail read, the two public surfaces and the editor all carry the poster;
       // when a list wants a thumbnail, the signer already takes a batch and the
       // avatar round above is where it would join.
+      /**
+       * The venues' addresses, in ONE query for the page (ClickUp `123qy9rnfab`).
+       *
+       * The list renders only the country code and flag; the whole location object
+       * travels anyway so that `venueLocation` means exactly one thing wherever it
+       * appears, rather than being a country here and an address there — a field
+       * whose shape depends on the route is the drift this codebase argues against
+       * repeatedly, and the object is three short strings.
+       *
+       * Batched by profile, not by event: several shows in a page are usually at
+       * the same room, so this is typically a handful of rows however long the
+       * page is. Same shape as the headline-performer and settlement lookups above.
+       */
+      const venueProfileIds = [
+        ...new Set(items.map((event) => event.venueProfileId).filter((id) => id !== null)),
+      ];
+      const locationRows = venueProfileIds.length
+        ? await database
+            .select({
+              profileId: schema.profileLocations.profileId,
+              street: schema.profileLocations.street,
+              city: schema.profileLocations.city,
+              country: schema.profileLocations.country,
+            })
+            .from(schema.profileLocations)
+            .where(
+              and(
+                inArray(schema.profileLocations.profileId, venueProfileIds),
+                eq(schema.profileLocations.isPrimary, true),
+              ),
+            )
+        : [];
+      const locationByProfile = new Map(
+        locationRows.map(({ profileId, ...location }) => [profileId, location] as const),
+      );
+
       const serialized = await Promise.all(
         items.map(async (event) => {
           const capabilities = await eventCapabilities(request, event.id);
           const headline = headlineByEvent.get(event.id);
           return {
-            ...serializeEvent(event, capabilities),
+            ...serializeEvent(
+              event,
+              capabilities,
+              undefined,
+              (event.venueProfileId ? locationByProfile.get(event.venueProfileId) : null) ?? null,
+            ),
             archived: event.archived,
             headlinePerformerName: headline?.name ?? null,
             headlinePerformerAvatarUrl: headline

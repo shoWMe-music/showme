@@ -4,7 +4,6 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
-
 export * from './deleteApiV1CalendarId200';
 export * from './deleteApiV1DealsDidBody';
 export * from './deleteApiV1EventsId200';
@@ -54,6 +53,7 @@ export * from './getApiV1DealsDid200Terms';
 export * from './getApiV1DealsDid200TermsEscalatorsItem';
 export * from './getApiV1Events200';
 export * from './getApiV1Events200ItemsItem';
+export * from './getApiV1Events200ItemsItemVenueLocation';
 export * from './getApiV1EventsArchived';
 export * from './getApiV1EventsDateConflicts200';
 export * from './getApiV1EventsDateConflicts200EventsItem';
@@ -66,6 +66,7 @@ export * from './getApiV1EventsId200ExtrasGuestListGuestsItem';
 export * from './getApiV1EventsId200ExtrasTicketTiersItem';
 export * from './getApiV1EventsId200ExtrasTicketing';
 export * from './getApiV1EventsId200ExtrasVenueCarryOver';
+export * from './getApiV1EventsId200VenueLocation';
 export * from './getApiV1EventsIdBudgets200Item';
 export * from './getApiV1EventsIdBudgets200ItemLinesItem';
 export * from './getApiV1EventsIdBudgets200ItemLinesItemCostSplit';
@@ -313,6 +314,7 @@ export * from './patchApiV1EventsId200ExtrasGuestListGuestsItem';
 export * from './patchApiV1EventsId200ExtrasTicketTiersItem';
 export * from './patchApiV1EventsId200ExtrasTicketing';
 export * from './patchApiV1EventsId200ExtrasVenueCarryOver';
+export * from './patchApiV1EventsId200VenueLocation';
 export * from './patchApiV1EventsIdBody';
 export * from './patchApiV1EventsIdBodyExtras';
 export * from './patchApiV1EventsIdBodyExtrasGuestList';

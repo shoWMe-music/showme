@@ -728,6 +728,124 @@ describe("venue-profile prefill — the venue's own facts fill the blanks", () =
     return profile.id;
   }
 
+  /**
+   * THE ADDRESS AN EVENT SHOWS (ClickUp `123qy9rnfab`).
+   *
+   * Ran: *"Event manager and details should always show Address and country of
+   * the event place… this is for the Performers and agents to know."* The operator
+   * who titled the show knows the address by heart; everybody travelling to it
+   * does not, and a country decides a flight, a carnet and a tax form.
+   *
+   * These assert the API half, and they are worth having because the failure is
+   * silent in a particular way this codebase has been bitten by twice: a field the
+   * response SCHEMA does not declare is stripped by Fastify on the way out, so the
+   * serializer looks right, the handler looks right, and the client receives
+   * nothing. Two fields on this very route (`venueName`, `capacity`) shipped that
+   * way and the comments above them say so.
+   */
+  it("carries the venue's address and country on the list row", async () => {
+    const host = await seedMemberWithSet(
+      "loc-list-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const venueProfileId = await seedVenueProfile("loc-list-venue", "The Lantern Hall");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("loc-list-op"), "x-profile-id": host.profileId },
+      payload: { title: "Located", baseCurrency: "SEK", venueProfileId },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const list = await app.inject({
+      method: "GET",
+      url: "/api/v1/events",
+      headers: { ...auth("loc-list-op"), "x-profile-id": host.profileId },
+    });
+    const row = list.json().items.find((item: { title: string }) => item.title === "Located");
+    expect(row.venueLocation).toMatchObject({ city: "Stockholm", country: "SE" });
+  });
+
+  /**
+   * An event that names its room as free text has no address to show, and `null`
+   * is the honest answer. Showing the HOST's country instead would be worse than
+   * showing none: an operator books abroad, and a performer reading the flag would
+   * pack for the wrong country.
+   */
+  it("says null for an event whose venue is only free text", async () => {
+    const host = await seedMemberWithSet(
+      "loc-none-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("loc-none-op"), "x-profile-id": host.profileId },
+      payload: { title: "Unlocated", baseCurrency: "SEK", venueName: "A field, somewhere" },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const list = await app.inject({
+      method: "GET",
+      url: "/api/v1/events",
+      headers: { ...auth("loc-none-op"), "x-profile-id": host.profileId },
+    });
+    const row = list.json().items.find((item: { title: string }) => item.title === "Unlocated");
+    expect(row.venueLocation).toBeNull();
+  });
+
+  /**
+   * A profile with several addresses and none marked primary has not answered the
+   * question. Guessing — the first row, the newest — would show a different
+   * address depending on insert order, which is a bug nobody could reproduce.
+   */
+  it("shows no address when the venue has not said which one is primary", async () => {
+    const { db } = harness;
+    const host = await seedMemberWithSet(
+      "loc-amb-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    await db.insert(schema.users).values({
+      id: "loc-amb-venue",
+      email: "loc-amb-venue@example.showme.test",
+      kind: "operator",
+    });
+    const [venue] = await db
+      .insert(schema.profiles)
+      .values({
+        kind: "operator",
+        type: "venue",
+        ownerUserId: "loc-amb-venue",
+        name: "Two Doors",
+        slug: "loc-amb-venue",
+      })
+      .returning();
+    if (!venue) throw new Error("venue seed failed");
+    await db.insert(schema.profileLocations).values([
+      { profileId: venue.id, city: "Stockholm", country: "SE", isPrimary: false },
+      { profileId: venue.id, city: "Berlin", country: "DE", isPrimary: false },
+    ]);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("loc-amb-op"), "x-profile-id": host.profileId },
+      payload: { title: "Ambiguous", baseCurrency: "SEK", venueProfileId: venue.id },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${created.json().id}`,
+      headers: { ...auth("loc-amb-op"), "x-profile-id": host.profileId },
+    });
+    expect(detail.json().venueLocation).toBeNull();
+  });
+
   it("fills name, capacity, curfew, amenities and city on create", async () => {
     const host = await seedMemberWithSet(
       "prefill-create-op",

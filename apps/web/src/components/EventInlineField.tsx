@@ -278,6 +278,14 @@ export function EventInlineGlyphValue({
         gap: 6,
         verticalAlign: "middle",
         height: 20,
+        // SHRINKABLE. Without these the box's min-content is its children's, so a
+        // long value (the venue's name plus its street — ClickUp `123qy9rnfab`)
+        // set a floor the row could not go under and widened the whole card until
+        // the Event workspace scrolled sideways on a phone. `.value` around it
+        // already clips; this is what lets it.
+        minWidth: 0,
+        maxWidth: "100%",
+        overflow: "hidden",
       }}
     >
       {glyph}

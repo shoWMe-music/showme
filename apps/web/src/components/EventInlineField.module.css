@@ -23,7 +23,14 @@
 
 .grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* `minmax(0, 1fr)` and NOT `1fr`. A bare `1fr` is `minmax(auto, 1fr)`, whose
+     floor is the column's min-content — so one long value (the venue's name plus
+     its street, ClickUp `123qy9rnfab`) pushed this column to 365px inside a 272px
+     card and the whole workspace scrolled sideways on a phone. Every row measured
+     the same 365 afterwards, which is what makes this look like a card-wide
+     problem rather than one cell: they were all sized by the widest.
+     Removing the floor is the fix, not shortening the value — see CLAUDE.md. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 2px 40px;
   /* Cells keep their own height rather than stretching to the tallest in the
      row. Nothing here should ever be tall enough to matter — that is the point —
@@ -35,7 +42,7 @@
    a two-column grid on a phone leaves no room to read what you typed. */
 @media (max-width: 720px) {
   .grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

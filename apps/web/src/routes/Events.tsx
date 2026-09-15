@@ -11,6 +11,7 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import type { CSSProperties } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { CountryTag } from "../components/CountryTag";
 import { DateText } from "../components/DateText";
 import { type EventMenuItem, EventRowMenu, rowClickTargetStyle } from "../components/EventRowMenu";
 import { GradientButton } from "../components/eventUi";
@@ -194,11 +195,28 @@ export function Events() {
             sweep, not by eye. `maxWidth: 100%` did not save it: the row's
             min-content is its children's, so the fix is to remove the floor
             (`flex` basis + `min-width: 0`) rather than to buy pixels back. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 10,
+            // `1 1 auto` so the group TAKES the width the chips left on the row
+            // instead of being squeezed to its own shrunk size and wrapping with
+            // 200px of empty row beside it — which is what it did at 1440 when
+            // this was left to `0 1 auto`.
+            flex: "1 1 auto",
+            flexWrap: "wrap",
+          }}
+        >
           {/* ClickUp `123qy9rngbp`. Answered by the SERVER (`useEventList`), so it
               searches every event the caller has and not the page on screen —
               which matters here precisely because this list pages. */}
-          <div style={{ flex: "1 1 240px", minWidth: 0 }}>
+          {/* `0 1 240px`: it may SHRINK below 240 on a phone but never grow past
+              it, which is the difference between the two ways this row can break.
+              Growing pushed "New event" onto a second line at desktop width — a
+              wrap that looks like a mistake on a screen with room to spare. */}
+          <div style={{ flex: "0 1 240px", minWidth: 0 }}>
             <SearchInput
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -599,8 +617,24 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
                 />
               </span>
             </span>
-            <span className={styles.cellVenue} style={{ color: "var(--muted)", fontSize: 13 }}>
-              {event.venueName ?? "—"}
+            <span
+              className={styles.cellVenue}
+              style={{
+                color: "var(--muted)",
+                fontSize: 13,
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                minWidth: 0,
+              }}
+            >
+              {/* The room, then WHICH COUNTRY it is in (ClickUp `123qy9rnfab`) —
+                  the fact a performer or agent reading their own list needs, and
+                  the one an operator had no reason to put in the title. */}
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                {event.venueName ?? "—"}
+              </span>
+              <CountryTag country={event.venueLocation?.country} />
             </span>
             {/* Unlinked: the row already IS a link (the stretched button above),
                 and a link inside a link is not a thing. */}
