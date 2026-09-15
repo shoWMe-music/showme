@@ -7,9 +7,9 @@
 
 export type PostApiV1EventsIdSettlementCompute200Ladder = {
   revenue: string;
+  attributed: string;
   costs: string;
-  pool: string;
+  netRevenue: string;
   offTheTop: string;
-  splitPool: string;
-  doorBase: string;
+  adjustedNet: string;
 };

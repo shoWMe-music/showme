@@ -740,6 +740,7 @@ function PoolLadderRows({ settlement }: { settlement: EventSettlementData }) {
         <KeyValueRow
           key={rung.key}
           label={rung.label}
+          caption={rung.caption}
           value={rung.negative ? `− ${rung.value}` : rung.value}
           mono
           total={rung.total}
@@ -1162,10 +1163,10 @@ function FinancialsTab({
           variance={data.variance?.costs ?? null}
           currency={data.baseCurrency}
         />
-        {/* Named as it is on the ladder — see `ladderRows` for why the word is
-            kept and paired rather than replaced. */}
+        {/* Named as the waterfall names it, so planned-vs-actual and the Overview
+            card are talking about the same row. */}
         <PlannedActualRow
-          label="Left to divide (the pool)"
+          label="Net revenue"
           planned={data.plan.pool}
           actual={data.actual.pool}
           variance={data.variance?.pool ?? null}

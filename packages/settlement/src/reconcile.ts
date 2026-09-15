@@ -2,7 +2,7 @@ import { allocate } from "@showme/shared";
 import { applyCommissions } from "./commissions";
 import { costBearingOf } from "./cost-bearing";
 import { isOffTheTop } from "./deal-order";
-import { dealEntitlementDetailed } from "./entitlement";
+import { type EntitlementBases, dealEntitlementDetailed } from "./entitlement";
 import { reachesThePool, revenueSharesOf } from "./revenue-shares";
 import { greedyTransfers } from "./transfers";
 import type {
@@ -22,9 +22,9 @@ const sumBigint = (values: bigint[]): bigint =>
  * The orchestration (new; the per-deal math is ported), all in `bigint` minor
  * units so nothing rounds:
  *   1. pool        = Σ revenue − Σ external costs
- *   2. entitlement = off-the-top deals first (they reduce the pool the rest divide),
- *                    then each remaining deal's payee share (allocate) + commissions,
- *                    operator = residual (allocate)
+ *   2. adjustedNet = pool − rentals (settled first, off the top)
+ *      entitlement = each remaining deal's share of the adjusted net (allocate)
+ *                    + commissions, operator = residual (allocate)
  *   3. deductibles = costs on behalf of a party reduce that party's entitlement
  *   4. held        = collected − paid
  *   5. net         = entitlement − held   →   Σ net === 0n exactly, by construction
@@ -50,17 +50,6 @@ export function reconcile(input: SettlementInput): SettlementResult {
   const operatorParticipantIds = new Set(
     participants.filter((party) => party.isOperator).map((party) => party.participantId),
   );
-  /**
-   * THE DOOR — gross ticket revenue, and what every percentage deal is a
-   * percentage of (#23.1). Costs do not reach it: a door deal pays its share of
-   * the door whatever the night cost, and the operator absorbs overruns alone.
-   * That is what makes a deduction the only route by which a cost reaches a
-   * performer.
-   */
-  const doorBase = sumBigint(
-    revenueLines.filter((line) => line.revenueKind === "ticket").map((line) => line.amount),
-  );
-  const bases = { doorBase, grossRevenue: revenue };
   const bearings = budgetLines.map((line) => costBearingOf(line));
   const externalCosts = sumBigint(bearings.map((bearing) => bearing.poolShare));
   /**
@@ -107,8 +96,14 @@ export function reconcile(input: SettlementInput): SettlementResult {
     map.set(participantId, (map.get(participantId) ?? 0n) + amount);
   };
 
-  /** Settle one deal against the gross bases; returns what it claims in total. */
-  const settleDeal = (deal: SettlementDeal): bigint => {
+  /**
+   * Settle one deal against the bases it is measured on; returns what it claims.
+   *
+   * The bases are an ARGUMENT and not a closure because the two passes below do
+   * not share them: a rental is settled before the split base exists, and the
+   * split base is what is left once the rentals have taken theirs.
+   */
+  const settleDeal = (deal: SettlementDeal, bases: EntitlementBases): bigint => {
     if (deal.payeeParticipantIds.length === 0) return 0n;
     const settled = dealEntitlementDetailed(deal, bases, ticketsSold);
     const total = settled.amount;
@@ -153,23 +148,47 @@ export function reconcile(input: SettlementInput): SettlementResult {
   };
 
   /**
-   * ORDER STILL RUNS RENTALS FIRST, BUT IT NO LONGER MOVES MONEY (#23.1).
+   * RENTALS FIRST, AND THEY MOVE MONEY AGAIN (2026-09-15, reversing #23.1).
    *
-   * A rental used to come OFF THE TOP and shrink the pool the percentage deals
-   * divided — 10 000 pool, 2 000 rental, 50% door meant half of 8 000, not half
-   * of 10 000 (ClickUp 86cba8wfk, `deal-order.ts`). That rule only had meaning
-   * while a split was a share of the POOL. It is now a share of the DOOR, which
-   * nothing is subtracted from, so a rental is simply one more entitlement and
-   * the operator's residual absorbs it.
+   * A rental is the cost of the room, settled before anything divides, and the
+   * percentage deals divide what is left — the design's waterfall
+   * (`docs/design-settlement-2026-09-10.md` §3, chosen by the owner on
+   * 2026-09-15 over the rule that replaced it two days earlier). On a 10 000 net
+   * with a 2 000 rental, a 50% split is half of 8 000, not half of 10 000.
    *
-   * `Σ net = 0` is untouched either way: the residual below is DEFINED as
-   * `pool − Σ entitlements`, so whatever the deals claim, the remainder balances.
+   * Between 2026-09-13 and 2026-09-15 this pass deliberately changed nothing: a
+   * split was a share of gross ticket revenue, which no rental was subtracted
+   * from, so ordering had no arithmetic left to express. The ordering machinery
+   * (`deal-order.ts`) was kept standing through that period, which is why turning
+   * this back on is four lines rather than a rewrite.
+   *
+   * A rental is settled against `grossRevenue` alone — its amount is fixed, so it
+   * needs no split base, and asking for one would be circular.
    */
+  const rentalBases: EntitlementBases = { splitBase: 0n, grossRevenue: revenue };
+  let offTheTop = 0n;
   for (const deal of deals) {
-    if (isOffTheTop(deal)) settleDeal(deal);
+    if (isOffTheTop(deal)) offTheTop += settleDeal(deal, rentalBases);
   }
+
+  /**
+   * THE ADJUSTED NET — the bottom of the waterfall, and the base every percentage
+   * deal is a percentage of.
+   *
+   * `pool` is the design's "Net revenue": what the event pooled, less the costs
+   * nobody was charged for. Take the rentals off it and what remains is what the
+   * splits divide.
+   *
+   * It is NOT floored at zero. A night that lost money divides a negative
+   * adjusted net, and `doorDetail` floors each percentage share at zero on the way
+   * out — so the loss stays with the operators through the residual, which is the
+   * rule the product owner set on 2026-08-26 and the one thing about a bad night
+   * that must not change.
+   */
+  const adjustedNet = pool - offTheTop;
+  const bases: EntitlementBases = { splitBase: adjustedNet, grossRevenue: revenue };
   for (const deal of deals) {
-    if (!isOffTheTop(deal)) settleDeal(deal);
+    if (!isOffTheTop(deal)) settleDeal(deal, bases);
   }
 
   /**
@@ -342,13 +361,13 @@ export function reconcile(input: SettlementInput): SettlementResult {
     pool,
     ladder: {
       revenue,
+      // What the event never pooled because another party collected and kept it
+      // (#23.2). Zero on an ordinary night, and the row the screen hides when it is.
+      attributed: revenue - pooledRevenue,
       costs: externalCosts,
-      pool,
-      // Both constant since #23.1 — see `PoolLadder`. The figure that matters to
-      // a percentage line is `doorBase`, and it is not derived from the pool.
-      offTheTop: 0n,
-      splitPool: pool,
-      doorBase,
+      netRevenue: pool,
+      offTheTop,
+      adjustedNet,
     },
     breakdowns,
     transfers: greedyTransfers(breakdowns),

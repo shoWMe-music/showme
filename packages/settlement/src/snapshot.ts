@@ -94,25 +94,72 @@ export type SerializedBasis =
     }
   | { kind: "paper" };
 
-/** The gross → adjusted-net ladder, money as STRING. */
+/**
+ * The gross → adjusted-net waterfall, money as STRING.
+ *
+ * Every field is optional to READ and required to WRITE, and that asymmetry is
+ * deliberate. Snapshots frozen before 2026-09-15 carry the previous shape
+ * (`pool` / `splitPool` / `doorBase`) and are immutable legal records, so a
+ * reader must cope with their absence rather than a migration rewriting them.
+ * `poolLadderOf` below is the one place that decides what a missing row means.
+ */
 export interface SerializedLadder {
   revenue: string;
+  attributed: string;
   costs: string;
-  pool: string;
+  netRevenue: string;
   offTheTop: string;
-  splitPool: string;
-  doorBase: string;
+  adjustedNet: string;
 }
 
-/** Turn the pool ladder into its JSON-safe (string money) form. */
+/**
+ * A ladder as it was stored, which may predate the waterfall — the shape written
+ * before 2026-09-15 named the same money differently and had no `attributed` row.
+ */
+export interface StoredLadder extends Partial<SerializedLadder> {
+  /** The pre-2026-09-15 name for `netRevenue`. */
+  pool?: string;
+  /** The pre-2026-09-15 name for `adjustedNet` — it equalled `pool` then. */
+  splitPool?: string;
+  /** The pre-2026-09-15 split base: gross ticket revenue, which nothing else held. */
+  doorBase?: string;
+}
+
+/** Turn the waterfall into its JSON-safe (string money) form. */
 export function serializeLadder(ladder: PoolLadder): SerializedLadder {
   return {
     revenue: ladder.revenue.toString(),
+    attributed: ladder.attributed.toString(),
     costs: ladder.costs.toString(),
-    pool: ladder.pool.toString(),
+    netRevenue: ladder.netRevenue.toString(),
     offTheTop: ladder.offTheTop.toString(),
-    splitPool: ladder.splitPool.toString(),
-    doorBase: ladder.doorBase.toString(),
+    adjustedNet: ladder.adjustedNet.toString(),
+  };
+}
+
+/**
+ * Read a stored ladder as a waterfall, whenever it is old enough to need it.
+ *
+ * An old snapshot has `pool` where this one has `netRevenue`, and no row at all
+ * for `attributed`. Filling those in from the old names is not a rewrite of
+ * history — the money is identical, only the vocabulary moved — but `adjustedNet`
+ * is the one row where the two eras genuinely disagree: before 2026-09-15 a split
+ * divided `doorBase`, which is a different figure from anything in this shape.
+ * Where that is all there is, `doorBase` is returned as the split base it was, and
+ * the screen says the settlement predates the waterfall rather than drawing a
+ * chain that never happened.
+ */
+export function poolLadderOf(stored: StoredLadder): SerializedLadder & { legacy: boolean } {
+  const legacy = stored.netRevenue == null;
+  const netRevenue = stored.netRevenue ?? stored.pool ?? "0";
+  return {
+    revenue: stored.revenue ?? "0",
+    attributed: stored.attributed ?? "0",
+    costs: stored.costs ?? "0",
+    netRevenue,
+    offTheTop: stored.offTheTop ?? "0",
+    adjustedNet: stored.adjustedNet ?? stored.doorBase ?? stored.splitPool ?? netRevenue,
+    legacy,
   };
 }
 

@@ -19,6 +19,7 @@ import {
   assertBalanced,
   prepaidAmountOf,
   reconcile,
+  serializeLadder,
 } from "@showme/settlement";
 import { convertMinorUnits } from "@showme/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm";
@@ -108,21 +109,27 @@ const EntitlementLineResponse = z.object({
 });
 
 /**
- * The gross → adjusted-net ladder. Event-level and OPERATOR-ONLY: it is the whole
- * night's takings and costs, which the ceiling in `packages/auth`
- * (`POOL_CAPABILITIES`) keeps away from every arm's-length party.
+ * THE WATERFALL — gross money down to the figure every percentage divides, in the
+ * design's own five rows (`PoolLadder`, and Ran's Overview tab).
+ *
+ * Event-level and OPERATOR-ONLY: it is the whole night's takings and costs, which
+ * the ceiling in `packages/auth` (`POOL_CAPABILITIES`) keeps away from every
+ * arm's-length party. Whoever may read it is decided by the route, once, before
+ * this is attached to a response.
  */
 const LadderResponse = z.object({
+  /** Every revenue line, gross. "Gross revenue · all sources". */
   revenue: z.string(),
+  /** Lines another party collected and keeps (#23.2). "0" on an ordinary night. */
+  attributed: z.string(),
+  /** The share of the cost lines nobody was charged for. "Deductions". */
   costs: z.string(),
-  pool: z.string(),
-  /** Σ of the rentals settled before the percentage deals divide what is left. */
-  /** Always "0" since #23.1 — nothing is taken off the top. */
+  /** `revenue − attributed − costs`. "Net revenue · after deductions". */
+  netRevenue: z.string(),
+  /** Σ of the rentals settled before anything divides. "Venue rental". */
   offTheTop: z.string(),
-  /** Always equal to `pool` since #23.1. Kept so the response shape is stable. */
-  splitPool: z.string(),
-  /** Gross ticket revenue — what every percentage deal is a share of (#23.1). */
-  doorBase: z.string(),
+  /** `netRevenue − offTheTop`. "Adjusted net · what percentages divide". */
+  adjustedNet: z.string(),
 });
 
 const BreakdownResponse = z.object({
@@ -1374,14 +1381,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
             return {
               baseCurrency,
               pool: result.pool.toString(),
-              ladder: {
-                revenue: result.ladder.revenue.toString(),
-                costs: result.ladder.costs.toString(),
-                pool: result.ladder.pool.toString(),
-                offTheTop: result.ladder.offTheTop.toString(),
-                splitPool: result.ladder.splitPool.toString(),
-                doorBase: result.ladder.doorBase.toString(),
-              },
+              ladder: serializeLadder(result.ladder),
               breakdowns: result.breakdowns.map(serializeBreakdown),
               transfers: result.transfers.map((transfer) => ({
                 fromParticipantId: transfer.fromParticipantId,

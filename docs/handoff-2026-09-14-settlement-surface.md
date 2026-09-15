@@ -69,10 +69,13 @@ one was an informed choice rather than another guess, is in
 - **The settlement design** is written up in
   [design-settlement-2026-09-10.md](./design-settlement-2026-09-10.md), and both of
   Ran's files now live in `claude-prototype/ran-2026-09-10/` rather than in
-  `~/Downloads`. *Correction to the first version of this file: there is no
-  `Settlement.html`.* What exists is the Deal Logic spec's settlement sections plus
-  the Settlements screen in the All View prototype — render that before scoping a
-  screen, because the budget planner was built twice from a written description.
+  `~/Downloads`. **Correction, 2026-09-15: `Settlement.html` DOES exist** — 1.1 MB,
+  attached to ClickUp `123qy9rnwud` in the same comment as the other two, with two
+  screenshots of the Send-for-review modal. It had simply never been downloaded, and
+  two earlier versions of this note wrote that absence down as a fact. It is now in
+  `claude-prototype/ran-2026-09-10/settlement.html`, with every tab screenshotted
+  under `renders/`. Render it before scoping a screen, because the budget planner
+  was built twice from a written description.
   **Three of the spec's settlement rules are deliberately not ours** (decisions.md
   #23); implementing §3 and §7 literally would undo that.
 - **`drizzle-kit generate` is still blocked** by pre-existing meta snapshot

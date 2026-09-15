@@ -227,8 +227,8 @@ describe("reconcile — co-operators split the residual", () => {
 });
 
 describe("dealEntitlement — ported math", () => {
-  /** A night whose whole take is the door — the common single-revenue-line case. */
-  const doorOf = (amount: bigint) => ({ doorBase: amount, grossRevenue: amount });
+  /** A night with no costs, so the adjusted net and the gross are the same figure. */
+  const doorOf = (amount: bigint) => ({ splitBase: amount, grossRevenue: amount });
 
   const vsDoor: SettlementDeal = {
     dealId: "d",
@@ -239,7 +239,8 @@ describe("dealEntitlement — ported math", () => {
   };
 
   it("guarantee_vs_door takes the max of guarantee and door", () => {
-    // The door is GROSS TICKET REVENUE (#23.1), so these bases are takings, not pools.
+    // The split base is the ADJUSTED NET (2026-09-15); `doorOf` is a night that
+    // cost nothing, so the two figures coincide and the arithmetic reads plainly.
     expect(dealEntitlement(vsDoor, doorOf(eur(6000)), 0)).toBe(eur(3000)); // 50% of 6 000 wins
     expect(dealEntitlement(vsDoor, doorOf(eur(2000)), 0)).toBe(eur(2000)); // guarantee wins
   });
@@ -272,10 +273,11 @@ describe("dealEntitlement — ported math", () => {
     expect(dealEntitlement(deal, doorOf(eur(4000)), 0)).toBe(eur(2000)); // 50% of 4 000, no bonus
     expect(dealEntitlement(deal, doorOf(eur(6000)), 0)).toBe(eur(3500)); // 50% of 6 000 + 500 bonus
 
-    // …and gross is what it reads. A night whose DOOR is only 4 000 but whose
-    // gross reaches 5 000 on the bar still earns the bonus — a promoter cannot
-    // defeat a threshold by spending, nor by where the money came from.
-    expect(dealEntitlement(deal, { doorBase: eur(4000), grossRevenue: eur(5000) }, 0)).toBe(
+    // …and gross is what it reads. A night whose ADJUSTED NET is only 4 000 —
+    // because 1 000 went on costs — but whose gross reached 5 000 still earns the
+    // bonus. That is #23.3, and it is the one part of #23 the waterfall did not
+    // reverse: a promoter cannot defeat a threshold by spending.
+    expect(dealEntitlement(deal, { splitBase: eur(4000), grossRevenue: eur(5000) }, 0)).toBe(
       eur(2500),
     );
   });
@@ -453,13 +455,15 @@ describe("cost bearing — the meeting's 'either a cost split or a single payer'
 describe("reconcile — a rental settles OFF THE TOP (analysis §3.3, case 1)", () => {
   /**
    * The reference app reduced the pool by the venue rental BEFORE any percentage
-   * split (`../showme-settle-fast` `src/lib/models.ts:368`, `:437`), and we did not.
-   * The product owner's answer (2026-08-26) is that it should: a rental is the cost
-   * of the room, and "net door" means after it.
+   * split (`../showme-settle-fast` `src/lib/models.ts:368`, `:437`). The product
+   * owner agreed on 2026-08-26 — a rental is the cost of the room, and "net door"
+   * means after it — then #23.1 retired it on 2026-09-13, and the design's
+   * waterfall put it back on 2026-09-15. It has been round the loop twice; what
+   * follows is the rule as it now stands, and the third opinion would need a
+   * better reason than either of the first two had.
    *
-   * Pool 10 000, rental 2 000, performer on a 50% door split:
-   *   before → V 2 000, B 5 000 (half of the whole pool), P 3 000
-   *   after  → V 2 000, B 4 000 (half of 8 000),          P 4 000
+   * Net revenue 10 000, rental 2 000, performer on a 50% split:
+   *   V 2 000 (off the top), B 4 000 (half of the 8 000 left), P 4 000
    */
   const input: SettlementInput = {
     baseCurrency: "EUR",
@@ -485,22 +489,26 @@ describe("reconcile — a rental settles OFF THE TOP (analysis §3.3, case 1)", 
     budgetLines: [{ kind: "revenue", revenueKind: "ticket", amount: eur(10000), collectedBy: "P" }],
   };
 
-  it("no longer shrinks the door — the rental is just another claim (#23.1)", () => {
+  it("takes the rental off the top, and the split divides what is left", () => {
     const result = reconcile(input);
     const entitlementOf = (id: string) =>
       result.breakdowns.find((party) => party.participantId === id)?.entitlement;
 
-    expect(result.pool).toBe(eur(10000)); // the pool itself is untouched — only who claims it
+    // The pool — the design's "Net revenue" — is untouched. What the rental moves
+    // is the ADJUSTED NET below it, which is what the percentage divides.
+    expect(result.pool).toBe(eur(10000));
+    expect(result.ladder.adjustedNet).toBe(eur(8000));
     expect(entitlementOf("V")).toBe(eur(2000));
-    // WAS 4 000 — half of the 8 000 left after the rental. The split is now a
-    // share of the DOOR, which the rental does not touch, so it is half of 10 000.
-    expect(entitlementOf("B")).toBe(eur(5000));
-    expect(entitlementOf("P")).toBe(eur(3000)); // residual absorbs the difference
+    expect(entitlementOf("B")).toBe(eur(4000)); // half of 8 000, not half of 10 000
+    expect(entitlementOf("P")).toBe(eur(4000)); // residual absorbs the difference
     assertBalanced(result);
   });
 
-  it("leaves a fixed guarantee that is NOT a rental dividing the same pool", () => {
-    // Same shape with the 2 000 as a plain guarantee: the performer keeps 5 000.
+  it("leaves a fixed guarantee that is NOT a rental dividing the whole net", () => {
+    // Same shape with the 2 000 as a plain guarantee. Only a rental comes off the
+    // top (`deal-order.ts`), so the adjusted net is still the full 10 000 and the
+    // performer keeps 5 000 — the contrast that makes the rule above a rule and
+    // not just "fixed amounts go first".
     const result = reconcile({
       ...input,
       deals: [
@@ -525,7 +533,7 @@ describe("reconcile — a rental settles OFF THE TOP (analysis §3.3, case 1)", 
     assertBalanced(result);
   });
 
-  it("stacks two rentals as claims, neither of them reaching the door", () => {
+  it("stacks two rentals, both of them off the top", () => {
     const result = reconcile({
       ...input,
       participants: [...input.participants, { participantId: "V2" }],
@@ -541,9 +549,11 @@ describe("reconcile — a rental settles OFF THE TOP (analysis §3.3, case 1)", 
     });
     const entitlementOf = (id: string) =>
       result.breakdowns.find((party) => party.participantId === id)?.entitlement;
-    // WAS 3 500 — 50% of (10 000 − 2 000 − 1 000). Neither rental reaches the door.
-    expect(entitlementOf("B")).toBe(eur(5000));
-    expect(entitlementOf("P")).toBe(eur(2000)); // 10 000 less both rentals and the act
+    // 50% of (10 000 − 2 000 − 1 000) = 3 500.
+    expect(result.ladder.offTheTop).toBe(eur(3000));
+    expect(result.ladder.adjustedNet).toBe(eur(7000));
+    expect(entitlementOf("B")).toBe(eur(3500));
+    expect(entitlementOf("P")).toBe(eur(3500)); // 10 000 less both rentals and the act
 
     assertBalanced(result);
   });
@@ -575,21 +585,25 @@ describe("reconcile — a rental settles OFF THE TOP (analysis §3.3, case 1)", 
   });
 });
 
-describe("reconcile — a loss falls on the operator, not on the door (analysis case 5, #23.1)", () => {
+describe("reconcile — a loss falls on the operator, and the floor is what puts it there", () => {
   /**
-   * A loss-making event, pure door split: door 2 000, costs 5 000 → pool −3 000.
+   * A loss-making event, pure door split: takings 2 000, costs 5 000 → net −3 000.
    *
-   * THE ANSWER CHANGED WITH #23.1 AND THE OLD ONE IS WORTH KEEPING IN VIEW. The
-   * reference app paid the performer −1 500 — the performer owed money for having
-   * played — and the product owner's "should not be negative no" (2026-08-26)
-   * floored that at zero. Both were answers to a question that no longer arises:
-   * they were shares of the POOL, which a bad night makes negative.
+   * THIS ANSWER HAS MOVED TWICE AND IS WORTH READING SLOWLY, because all three
+   * versions are defensible and they pay the act three different amounts:
    *
-   * A share of the DOOR cannot be negative, because takings cannot be. The act
-   * takes its 50% of the 2 000 that came through the door, the operator carries
-   * the whole 5 000 of cost, and that is what a gross door deal means. The floor
-   * in `doorDetail` survives only as a guard against a refund line dragging the
-   * door below zero.
+   *   reference app  −1 500   the act owes the operator for having played
+   *   #23.1          +1 000   50% of the 2 000 that came through the door
+   *   the waterfall       0   50% of a negative adjusted net, floored at zero
+   *
+   * The floor is the product owner's, 2026-08-26 ("Should not be negative no"),
+   * and with the split base back on the adjusted net it is load-bearing again
+   * rather than a guard against refunds. What it buys is that a percentage deal
+   * is a share of an upside and never a share of a liability. What it costs is
+   * visible right here: **on a night that lost money, a pure door-split act is
+   * paid nothing at all.** An act that cannot carry that risk signs a guarantee,
+   * which is exactly what a guarantee is for — see the case-4 test below, where
+   * the same bad night pays a guaranteed act in full.
    */
   const lossMaking: SettlementInput = {
     baseCurrency: "EUR",
@@ -608,20 +622,23 @@ describe("reconcile — a loss falls on the operator, not on the door (analysis 
     ],
   };
 
-  it("pays the act its share of the door and leaves the whole loss with the operator", () => {
+  it("floors the act's share at zero and leaves the whole loss with the operator", () => {
     const result = reconcile(lossMaking);
     expect(result.pool).toBe(eur(-3000));
+    expect(result.ladder.adjustedNet).toBe(eur(-3000));
     const band = result.breakdowns.find((party) => party.participantId === "B");
-    expect(band?.entitlement).toBe(eur(1000)); // 50% of the 2 000 door — not of the −3 000 pool
-    expect(band?.net).toBe(eur(1000));
-    // The operator took 2 000 at the door, spent 5 000, and owes the act 1 000.
+    // 50% of −3 000 is −1 500, floored to nothing. The act is not asked to pay
+    // for having played, and is not paid either.
+    expect(band?.entitlement).toBe(0n);
+    expect(band?.net).toBe(0n);
+    // The operator took 2 000, spent 5 000, and carries the 3 000 alone.
     expect(result.breakdowns.find((party) => party.participantId === "P")?.entitlement).toBe(
-      eur(-4000),
+      eur(-3000),
     );
     assertBalanced(result);
   });
 
-  it("divides the door share across a multi-performer split", () => {
+  it("floors a multi-performer split at zero for every payee, not just in total", () => {
     const result = reconcile({
       ...lossMaking,
       participants: [...lossMaking.participants, { participantId: "B2" }],
@@ -635,20 +652,17 @@ describe("reconcile — a loss falls on the operator, not on the door (analysis 
         },
       ],
     });
-    // 50% of the 2 000 door = 1 000, split 60/40 between them.
-    expect(result.breakdowns.find((party) => party.participantId === "B")?.entitlement).toBe(
-      eur(600),
-    );
-    expect(result.breakdowns.find((party) => party.participantId === "B2")?.entitlement).toBe(
-      eur(400),
-    );
+    // The deal claims nothing at all, so 60/40 of nothing is nothing each — the
+    // allocation never sees a negative to divide.
+    expect(result.breakdowns.find((party) => party.participantId === "B")?.entitlement).toBe(0n);
+    expect(result.breakdowns.find((party) => party.participantId === "B2")?.entitlement).toBe(0n);
     assertBalanced(result);
   });
 
-  it("lets a deductible eat into the door share, and past it", () => {
-    // Deductions are now the ONLY route by which a cost reaches a performer
-    // (#23.1), so this is the mechanism carrying the weight: the hotel the
-    // operator fronted comes off the act's door share.
+  it("lets a deductible eat into a floored share, and past it into the negative", () => {
+    // The floor stops the SPLIT going negative; it does not stop the party's
+    // position going negative afterwards. A hotel the operator fronted on the
+    // act's behalf is money genuinely owed back, whatever the night did.
     const result = reconcile({
       baseCurrency: "EUR",
       participants: [{ participantId: "P", isOperator: true }, { participantId: "B" }],
@@ -667,9 +681,9 @@ describe("reconcile — a loss falls on the operator, not on the door (analysis 
       ],
     });
     const band = result.breakdowns.find((party) => party.participantId === "B");
-    // 50% of the 2 000 door = 1 000, less the 800 hotel fronted on its behalf.
-    expect(band?.entitlement).toBe(eur(200));
-    expect(band?.net).toBe(eur(200));
+    // Nothing from the split, less the 800 fronted on its behalf.
+    expect(band?.entitlement).toBe(eur(-800));
+    expect(band?.net).toBe(eur(-800));
     assertBalanced(result);
   });
 
@@ -999,17 +1013,34 @@ describe("reconcile — the ladder and the rule behind each figure", () => {
     ],
   };
 
-  it("reports revenue, costs, the pool, and the door the percentages divide", () => {
+  /**
+   * THE DESIGN'S OWN WORKED EXAMPLE, to the euro.
+   *
+   * `input` above is the night on Ran's Overview tab — 100 200 gross, 23 700 of
+   * deductions, a 4 000 rental and a 70% guarantee-vs-door against a 50 000 floor
+   * (`claude-prototype/ran-2026-09-10/renders/proto-settlement-overview.png`).
+   * Every row below is a figure printed on that screen, which is what makes this
+   * test the acceptance criterion for the 2026-09-15 waterfall and not just a
+   * restatement of the code.
+   */
+  it("walks the design's waterfall: gross → deductions → net → rental → adjusted net", () => {
     const { ladder } = reconcile(input);
-    expect(ladder.revenue).toBe(eur(100200));
-    expect(ladder.costs).toBe(eur(23700));
-    expect(ladder.pool).toBe(eur(76500));
-    // The door is GROSS: neither the 23 700 of costs nor the 4 000 rental reach it.
-    expect(ladder.doorBase).toBe(eur(100200));
-    // Both retired by #23.1 and pinned so a reader is not misled by a live-looking
-    // field: nothing comes off the top, so there is no adjusted net to report.
-    expect(ladder.offTheTop).toBe(0n);
-    expect(ladder.splitPool).toBe(ladder.pool);
+    expect(ladder.revenue).toBe(eur(100200)); // "Gross revenue · all sources"
+    expect(ladder.attributed).toBe(0n); // nobody else collected anything
+    expect(ladder.costs).toBe(eur(23700)); // "Deductions · fees, tax, refunds"
+    expect(ladder.netRevenue).toBe(eur(76500)); // "Net revenue · after deductions"
+    expect(ladder.offTheTop).toBe(eur(4000)); // "Venue rental · paid off the top"
+    expect(ladder.adjustedNet).toBe(eur(72500)); // "Adjusted net · what percentages divide"
+  });
+
+  it("pays the performer 70% of the adjusted net, the design's €50,750", () => {
+    const result = reconcile(input);
+    const performer = result.breakdowns.find((party) => party.participantId === "performer");
+    // 70% of 72 500 = 50 750, which beats the 50 000 floor by 750 — the crossover
+    // the design's Deal structure tab describes, landing on the figure its
+    // Settlement tab prints.
+    expect(performer?.entitlement).toBe(eur(50750));
+    assertBalanced(result);
   });
 
   it("says WHICH side of a guarantee-vs-door comparison won, and what it beat", () => {
@@ -1021,13 +1052,13 @@ describe("reconcile — the ladder and the rule behind each figure", () => {
       kind: "guarantee_vs_door",
       won: "door",
       guarantee: eur(50000),
-      // 70% of the GROSS DOOR (100 200) — was 50 750, i.e. 70% of an adjusted net
-      // that had costs and a rental taken out of it first (#23.1).
-      door: eur(70140),
+      // 70% of the ADJUSTED NET (72 500). The design's Settlement tab captions
+      // this line "70% door beats €50,000 gtee" and prints exactly this figure.
+      door: eur(50750),
       basisPoints: 7000,
-      base: eur(100200),
+      base: eur(72500),
     });
-    expect(line?.amount).toBe(eur(70140));
+    expect(line?.amount).toBe(eur(50750));
   });
 
   it("gives the venue its rental as its own line, priced off the top", () => {
@@ -1047,7 +1078,8 @@ describe("reconcile — the ladder and the rule behind each figure", () => {
     const result = reconcile(input);
     const operator = result.breakdowns.find((party) => party.participantId === "operator");
     expect(operator?.lines).toEqual([]);
-    expect(operator?.residual).toBe(eur(76500) - eur(4000) - eur(70140));
+    // 76 500 net, less the 4 000 rental off the top, less the act's 50 750.
+    expect(operator?.residual).toBe(eur(21750));
     expect(operator?.entitlement).toBe(operator?.residual);
   });
 

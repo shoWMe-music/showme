@@ -27,14 +27,20 @@ export interface DealEntitlement {
  * commissions happens in the orchestration.
  */
 /**
- * The two gross figures a deal can be measured against (#23.1, #23.3). Neither is
- * the pool: costs do not reach either of them, which is the whole point — a door
- * deal pays its percentage of the door whatever the night cost, and a threshold
- * bonus cannot be defeated by spending more.
+ * The two figures a deal can be measured against, and they are deliberately not
+ * the same one.
+ *
+ * `splitBase` is the ADJUSTED NET — the bottom of the waterfall, after costs and
+ * after any rental came off the top (the design's order, adopted 2026-09-15; see
+ * `PoolLadder`). `grossRevenue` is every revenue line before anything is taken
+ * off, and a threshold bonus is measured against THAT (#23.3, which stands: the
+ * spec's own §7 reads `if (totalRevenue >= d.bonusThreshold)`). A bonus payable on
+ * money left after costs is one the promoter can defeat by spending more, which is
+ * why contracts read "if gross receipts exceed X".
  */
 export interface EntitlementBases {
-  /** Gross TICKET revenue. What a percentage deal is a percentage of. */
-  doorBase: bigint;
+  /** The adjusted net. What a percentage deal is a percentage of. */
+  splitBase: bigint;
   /** Every revenue line, gross. What a threshold bonus is measured against. */
   grossRevenue: bigint;
 }
@@ -76,7 +82,7 @@ export function dealEntitlementDetailed(
       const door = doorDetail(deal, bases, ticketsSold);
       return {
         amount: door.amount,
-        basis: { kind: "door_split", basisPoints: door.basisPoints, base: bases.doorBase },
+        basis: { kind: "door_split", basisPoints: door.basisPoints, base: bases.splitBase },
         bonus: door.bonus,
         escalatorApplied: door.escalatorApplied,
       };
@@ -94,7 +100,7 @@ export function dealEntitlementDetailed(
           guarantee,
           door: door.amount,
           basisPoints: door.basisPoints,
-          base: bases.doorBase,
+          base: bases.splitBase,
         },
         // A guarantee that beat the door share pays the guarantee and nothing else;
         // the bonus is part of what the door arm offered and loses with it.
@@ -109,7 +115,7 @@ export function dealEntitlementDetailed(
 }
 
 interface DoorDetail {
-  /** The floored share of the door, plus the bonus if it was earned. */
+  /** The floored share of the adjusted net, plus the bonus if it was earned. */
   amount: bigint;
   basisPoints: number;
   bonus: bigint;
@@ -117,9 +123,9 @@ interface DoorDetail {
 }
 
 /**
- * Split-of-pool with escalator tier selection and threshold bonus.
+ * Split of the adjusted net, with escalator tier selection and threshold bonus.
  *
- * **A share of the pool is floored at zero** (product owner, 2026-08-26: *"Should
+ * **A share is floored at zero** (product owner, 2026-08-26: *"Should
  * not be negative no"*). A percentage deal is a share of an upside, not a share of
  * a liability: on a pool of −3 000 a 50% door split used to hand the performer an
  * entitlement of −1 500, i.e. the performer *owes* the operator for having played
@@ -129,7 +135,7 @@ interface DoorDetail {
  * entitlement is the residual `pool − Σ others`, so whatever the floor spares the
  * performer lands there and `Σ net = 0` still holds exactly.
  *
- * **Scope, precisely.** This floors the *percentage-of-pool* component only.
+ * **Scope, precisely.** This floors the *percentage* component only.
  * A `guarantee` is untouched (it never was negative), `guarantee_vs_door` is
  * unaffected in substance (a non-negative guarantee already won every comparison a
  * negative door could enter), and — most importantly — a party's NET may still go
@@ -143,12 +149,11 @@ function doorDetail(
   ticketsSold: number,
 ): DoorDetail {
   const basisPoints = splitBasisPointsForSales(deal, ticketsSold);
-  const share = applyBasisPoints(bases.doorBase, basisPoints);
+  const share = applyBasisPoints(bases.splitBase, basisPoints);
   let amount = share > 0n ? share : 0n;
   let bonus = 0n;
-  // GROSS, not the pool (#23.3). A bonus payable on money left after costs is one
-  // the promoter can defeat by spending more, which is why no artist's
-  // representative accepts it and why contracts read "if gross receipts exceed X".
+  // GROSS, not the adjusted net (#23.3 — the one part of #23 that survived the
+  // 2026-09-15 reversal, because the spec's own §7 code measures it the same way).
   if (deal.bonusThreshold != null && bases.grossRevenue >= deal.bonusThreshold) {
     bonus = deal.bonusAmount ?? 0n;
     amount += bonus;

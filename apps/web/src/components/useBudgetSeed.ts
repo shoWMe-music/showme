@@ -240,7 +240,7 @@ export function performerFeeOf(
             : {}),
           ...(deal.splitBasisPoints != null ? { splitBasisPoints: deal.splitBasisPoints } : {}),
         },
-        { doorBase: door.ticketRevenue, grossRevenue: door.totalRevenue },
+        { splitBase: door.splitBase, grossRevenue: door.totalRevenue },
         door.ticketsSold,
       );
       if (settled.amount > 0n) {
@@ -314,10 +314,26 @@ export interface TicketSplitRaw {
 
 /** What the sheet currently forecasts, in the currency the budget is kept in. */
 export interface DoorForecast {
-  /** Gross TICKET revenue — what a percentage deal is a percentage of (#23.1). */
+  /**
+   * Gross TICKET revenue. Not the split base since 2026-09-15 — it is the base of
+   * the design's "Ticket revenue split" card, which is explicitly *"box office
+   * only, before costs and rental"* and says so on the card.
+   */
   ticketRevenue: bigint;
   /** Every revenue line, for a threshold bonus (#23.3). */
   totalRevenue: bigint;
+  /**
+   * THE ADJUSTED NET the settlement will divide — revenue, less the costs nobody
+   * is charged for, less any rental off the top (`PoolLadder`).
+   *
+   * This is the figure a percentage deal is actually measured against, so it is
+   * the one the planner must derive a performer fee from. Deriving it from ticket
+   * revenue instead is how the planner comes to promise a fee the settlement will
+   * not pay, which is the disagreement in Ran's own prototype: its Deal-structure
+   * sentence states €53,760 (70% of the box office) while its Overview pays
+   * €50,750 (70% of the adjusted net) for the same deal on the same night.
+   */
+  splitBase: bigint;
   /** Tickets expected across every tier — what escalator tiers are measured against. */
   ticketsSold: number;
 }
@@ -379,7 +395,10 @@ function ticketSplitOf(deals: Deal[], performers: Set<string>, door: DoorForecas
         ...(deal.guaranteeAmount != null ? { guaranteeAmount: BigInt(deal.guaranteeAmount) } : {}),
         ...(deal.splitBasisPoints != null ? { splitBasisPoints: deal.splitBasisPoints } : {}),
       },
-      { doorBase: door.ticketRevenue, grossRevenue: door.totalRevenue },
+      // The CARD's own base, deliberately: this is the ticket-revenue split, which
+      // the design draws before costs and rental. The entitlement it illustrates
+      // is on the settlement, computed from `splitBase`.
+      { splitBase: door.ticketRevenue, grossRevenue: door.totalRevenue },
       door.ticketsSold,
     );
     if (settled.amount <= 0n) continue;
@@ -550,13 +569,34 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
       .reduce((total, line) => total + BigInt(line.amount), 0n);
     const ticketRevenue = fromSheet > 0n ? fromSheet : fromEventTiers;
 
+    /**
+     * The sheet's own revenue and costs, which is what turns a ticket forecast
+     * into the ADJUSTED NET the settlement will divide.
+     *
+     * A cost line carrying a `dealId` is the deal's OWN figure — the performer fee
+     * the planner derived — and the engine drops it at its boundary
+     * (`routes/settlement.ts`). Counting it here would charge the night for the
+     * fee and then pay the fee out of what is left, which is the circularity the
+     * two-column rule on `budget_lines` exists to prevent.
+     */
+    const sheetRevenue = sharedLines
+      .filter((line) => line.kind === "revenue")
+      .reduce((total, line) => total + BigInt(line.amount), 0n);
+    const sheetCosts = sharedLines
+      .filter((line) => line.kind === "cost" && line.dealId == null)
+      .reduce((total, line) => total + BigInt(line.amount), 0n);
+    const rentals = deals
+      .filter((deal) => deal.status === "confirmed" && isRental(deal))
+      .reduce((total, deal) => total + BigInt(deal.guaranteeAmount ?? 0), 0n);
+    const totalRevenue = sheetRevenue > 0n ? sheetRevenue : ticketRevenue;
+
     const door: DoorForecast = {
       ticketRevenue,
-      // The planner has no other revenue at seed time, so the gross a bonus is
-      // measured against is the door. A bonus threshold the bar would have cleared
-      // is therefore never seeded optimistically — the sheet says so once the bar
-      // line exists, and the settlement is the authority either way.
-      totalRevenue: ticketRevenue,
+      totalRevenue,
+      // Revenue less the costs nobody is charged for, less the room. Before the
+      // sheet has any costs on it this is simply the revenue, which is the honest
+      // forecast at that moment rather than an optimistic one.
+      splitBase: totalRevenue - sheetCosts - rentals,
       ticketsSold: sources.ticketTiers.reduce((total, tier) => total + Math.trunc(tier.est), 0),
     };
 

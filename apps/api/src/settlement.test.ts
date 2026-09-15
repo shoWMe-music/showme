@@ -542,7 +542,9 @@ describe("settlement — visibility (decisions #4)", () => {
     const operatorBody = asOperator.json();
     expect(operatorBody.ladder).not.toBeNull();
     const doorLine = linesOf(operatorBody).find((line) => line.basis.kind === "door_split");
-    expect(doorLine?.basis.base).toBe(operatorBody.ladder.doorBase);
+    // The base IS the bottom of the waterfall, which is exactly why a party row
+    // must not carry it: handing a performer `base` hands them the whole night.
+    expect(doorLine?.basis.base).toBe(operatorBody.ladder.adjustedNet);
   });
 });
 
@@ -2145,10 +2147,11 @@ describe("settlement — per-party split shares (A-01 regression)", () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.pool).toBe("850000");
-    // 60/40 of the 1 000 000 DOOR (#23.1) — not of the 850 000 pool. The 150 000
-    // of costs lands on the operator instead of quietly shrinking both acts.
-    expect(entitlementOf(body, seed.aPart)).toBe("600000"); // 60%
-    expect(entitlementOf(body, seed.bPart)).toBe("400000"); // 40%
+    // 60/40 of the 850 000 ADJUSTED NET — the deal claims 100% of it, and the two
+    // acts divide what the deal claimed. The 150 000 of costs came off ABOVE the
+    // split, so both acts carry their share of it.
+    expect(entitlementOf(body, seed.aPart)).toBe("510000"); // 60%
+    expect(entitlementOf(body, seed.bPart)).toBe("340000"); // 40%
     // Pre-fix this was 425000/425000 — and it balanced.
     expect(entitlementOf(body, seed.aPart)).not.toBe(entitlementOf(body, seed.bPart));
   });
@@ -2165,8 +2168,8 @@ describe("settlement — per-party split shares (A-01 regression)", () => {
       0n,
     );
     expect(net).toBe(0n);
-    expect(entitlementOf(body, seed.aPart)).toBe("750000"); // 75% of the door
-    expect(entitlementOf(body, seed.bPart)).toBe("250000"); // 25% of the door
+    expect(entitlementOf(body, seed.aPart)).toBe("637500"); // 75% of the adjusted net
+    expect(entitlementOf(body, seed.bPart)).toBe("212500"); // 25% of the adjusted net
   });
 
   it("refuses to settle a share it cannot read rather than splitting equally", async () => {
@@ -2866,13 +2869,13 @@ describe("settlement — the 2026-08-26 money rules", () => {
         ?.entitlement;
 
     expect(body.pool).toBe("1000000");
-    expect(entitlementOf(seed.venuePart)).toBe("200000"); // the rental, one claim among others
-    // 50% of the 1 000 000 DOOR less the 10% commission. The rental no longer
-    // shrinks what the percentage divides (#23.1) — it was 360 000 when the split
-    // was half of the 800 000 left after it.
-    expect(entitlementOf(seed.bandPart)).toBe("450000");
-    expect(entitlementOf(seed.agencyPart)).toBe("50000"); // 10% of the larger line
-    expect(entitlementOf(seed.hostPart)).toBe("300000"); // residual absorbs the difference
+    expect(body.ladder.offTheTop).toBe("200000");
+    expect(body.ladder.adjustedNet).toBe("800000");
+    expect(entitlementOf(seed.venuePart)).toBe("200000"); // the rental, taken first
+    // 50% of the 800 000 left after the rental = 400 000, less the 10% commission.
+    expect(entitlementOf(seed.bandPart)).toBe("360000");
+    expect(entitlementOf(seed.agencyPart)).toBe("40000"); // 10% of the band's line
+    expect(entitlementOf(seed.hostPart)).toBe("400000"); // residual absorbs the difference
     const netSum = body.breakdowns.reduce(
       (total: bigint, row: { net: string }) => total + BigInt(row.net),
       0n,
@@ -2892,7 +2895,7 @@ describe("settlement — the 2026-08-26 money rules", () => {
       .where(eq(schema.settlementTransfers.eventId, seed.event.id));
     const toAgency = transfers.find((row) => row.toParticipant === seed.agencyPart);
     expect(toAgency?.fromParticipant).toBe(seed.hostPart);
-    expect(toAgency?.amount).toBe(50000n); // 10% of the larger, door-based line
+    expect(toAgency?.amount).toBe(40000n); // 10% of the band's 400 000 line
 
     // decisions.md #14 boundary: a DISCLOSED commission is an event deal party and
     // nothing else. No representation-scoped settlement is created by it — that
@@ -3217,7 +3220,13 @@ describe("settlement — the 2026-08-26 money rules", () => {
     // The pool is the TICKET money alone: the merch never entered it, so the
     // operator's residual is untouched by a take that was never the event's…
     expect(body.pool).toBe("1000000");
-    expect(body.ladder.doorBase).toBe("1000000");
+    // THE `attributed` ROW, which is the one row of the waterfall the design does
+    // not have: 1 200 000 came in, 200 000 of it was the act's own merch, and the
+    // 1 000 000 that remains is what the night actually pooled.
+    expect(body.ladder.revenue).toBe("1200000");
+    expect(body.ladder.attributed).toBe("200000");
+    expect(body.ladder.netRevenue).toBe("1000000");
+    expect(body.ladder.adjustedNet).toBe("1000000");
     expect(rowOf(hostPart).residual).toBe("1000000");
     // …and the slice arrives ON TOP of that residual, which is what makes a share
     // a transfer of attribution rather than a change to anybody's totals.
@@ -3343,7 +3352,7 @@ describe("settlement — the 2026-08-26 money rules", () => {
     ).toBe("890000");
   });
 
-  it("pays the act its share of the door and leaves the whole loss with the operator", async () => {
+  it("floors the act at zero on a losing night and leaves the loss with the operator", async () => {
     const seed = await seedLossMakingDoorSplit("floor", false);
 
     const response = await compute(seed.event.id, seed.operator.userId);
@@ -3353,34 +3362,34 @@ describe("settlement — the 2026-08-26 money rules", () => {
       body.breakdowns.find((row: { participantId: string }) => row.participantId === id);
 
     expect(body.pool).toBe("-300000");
-    // 50% of the 200 000 that came through the door. A share of the DOOR cannot be
-    // negative, so the old floor never fires here — and the act is paid for playing
-    // a night that lost money, which the operator carries alone (#23.1).
-    expect(rowOf(seed.bandPart).entitlement).toBe("100000");
-    expect(rowOf(seed.bandPart).net).toBe("100000");
-    expect(rowOf(seed.hostPart).entitlement).toBe("-400000"); // the operator eats it
-    expect(rowOf(seed.hostPart).net).toBe("-100000"); // and owes the act its share
+    expect(body.ladder.adjustedNet).toBe("-300000");
+    // 50% of a NEGATIVE adjusted net is negative, and the floor (product owner,
+    // 2026-08-26) takes it to nothing. The act is not asked to pay for having
+    // played; it is also not paid. An act that needs the downside covered signs a
+    // guarantee — see the guarantee case, where the same night pays in full.
+    expect(rowOf(seed.bandPart).entitlement).toBe("0");
+    expect(rowOf(seed.bandPart).net).toBe("0");
+    expect(rowOf(seed.hostPart).entitlement).toBe("-300000"); // the operator eats it
+    expect(rowOf(seed.hostPart).net).toBe("0"); // and owes the act nothing
     const netSum = body.breakdowns.reduce(
       (total: bigint, row: { net: string }) => total + BigInt(row.net),
       0n,
     );
     expect(netSum).toBe(0n);
 
-    // The operator owes the act its door share, even on a night that lost money —
-    // so there IS a transfer now, where the floored settlement wrote none.
+    // Nothing is owed either way, so no transfer is written. A settlement with no
+    // movement in it is a real outcome and not an empty one.
     const transfers = await harness.db
       .select()
       .from(schema.settlementTransfers)
       .where(eq(schema.settlementTransfers.eventId, seed.event.id));
-    expect(transfers).toHaveLength(1);
-    expect(transfers[0]?.fromParticipant).toBe(seed.hostPart);
-    expect(transfers[0]?.toParticipant).toBe(seed.bandPart);
-    expect(transfers[0]?.amount).toBe(100000n);
+    expect(transfers).toHaveLength(0);
   });
 
   it("still settles a NEGATIVE net when the performer owes a deductible back", async () => {
-    // Deductions are the only route by which a cost reaches a performer (#23.1),
-    // so the hotel the operator fronted comes straight off the act's door share.
+    // The floor stops the SPLIT going negative; it does not stop the party's
+    // position going negative. The hotel the operator fronted is money genuinely
+    // owed back, and with the split floored at zero there is nothing to absorb it.
     const seed = await seedLossMakingDoorSplit("floor-deductible", true);
 
     const response = await compute(seed.event.id, seed.operator.userId);
@@ -3389,19 +3398,19 @@ describe("settlement — the 2026-08-26 money rules", () => {
     const rowOf = (id: string) =>
       body.breakdowns.find((row: { participantId: string }) => row.participantId === id);
 
-    // 100 000 door share less the 80 000 hotel — positive now, where a floored
-    // share of a negative pool left the act owing the whole 80 000 back.
-    expect(rowOf(seed.bandPart).entitlement).toBe("20000");
-    expect(rowOf(seed.bandPart).net).toBe("20000");
-    expect(rowOf(seed.hostPart).net).toBe("-20000");
+    // Nothing from the split, less the 80 000 hotel: the act owes it back.
+    expect(rowOf(seed.bandPart).entitlement).toBe("-80000");
+    expect(rowOf(seed.bandPart).net).toBe("-80000");
+    expect(rowOf(seed.hostPart).net).toBe("80000");
     const transfers = await harness.db
       .select()
       .from(schema.settlementTransfers)
       .where(eq(schema.settlementTransfers.eventId, seed.event.id));
+    // And the transfer runs the OTHER WAY: the act pays the operator back.
     expect(transfers).toHaveLength(1);
-    expect(transfers[0]?.fromParticipant).toBe(seed.hostPart);
-    expect(transfers[0]?.toParticipant).toBe(seed.bandPart);
-    expect(transfers[0]?.amount).toBe(20000n);
+    expect(transfers[0]?.fromParticipant).toBe(seed.bandPart);
+    expect(transfers[0]?.toParticipant).toBe(seed.hostPart);
+    expect(transfers[0]?.amount).toBe(80000n);
   });
 });
 

@@ -232,7 +232,11 @@ export type EntitlementBasis =
   | { kind: "guarantee"; guarantee: bigint }
   /** A fixed amount for the room — settled OFF THE TOP (`deal-order.ts`). */
   | { kind: "rental"; rental: bigint }
-  /** A share of GROSS TICKET REVENUE — the door (#23.1). `base` is what it was a share of. */
+  /**
+   * A share of the ADJUSTED NET (`PoolLadder.adjustedNet`, 2026-09-15). `base` is
+   * the figure the percentage was applied to, carried so the party reading the
+   * settlement can redo the multiplication.
+   */
   | { kind: "door_split"; basisPoints: number; base: bigint }
   /** Whichever of the two was larger, and which one won. */
   | {
@@ -269,38 +273,53 @@ export interface EntitlementLine {
 }
 
 /**
- * The ladder from gross money to the pool the percentage deals actually divide —
- * the operator's view of the night, and the number every percentage below it is
- * taken from.
+ * THE WATERFALL — gross money down to the figure every percentage divides.
  *
- * SINCE #23.1 THIS LADDER NO LONGER ENDS AT THE SPLIT BASE. A percentage deal is
- * a share of `doorBase` — gross ticket revenue — which sits outside the ladder
- * entirely because no cost reaches it. The ladder still describes the operator's
- * own position: what came in, what nobody was charged for, and what is therefore
- * left to become their residual once every deal has claimed.
+ * This is the design's Overview card expressed as data (Ran, 2026-09-10;
+ * `docs/plan-settlement-2026-09-15.md` §1 D2), and since 2026-09-15 it is also
+ * what the engine computes. Each row is the previous row less one thing, so the
+ * screen can print the chain without doing arithmetic of its own:
  *
- * `offTheTop` and `splitPool` survive as fields and are now always `0` and
- * `pool`. Rentals stopped shrinking anything the moment the split stopped being
- * a share of the pool (ClickUp 86cba8wfk), and the fields are kept only so the
- * stored snapshots and the API response shape do not change under readers that
- * have not been taught about the door yet.
+ * ```
+ *   revenue        every revenue line, gross, whoever collected it
+ * − attributed     lines another party collected AND KEEPS (#23.2)
+ * − costs          the share of the cost lines nobody was charged for
+ * = netRevenue
+ * − offTheTop      rentals, settled before anything divides
+ * = adjustedNet    what every percentage deal is a percentage of
+ * ```
+ *
+ * `attributed` is ours, not the design's — the design has no notion of a venue
+ * running its own bar. It is drawn only when it is non-zero, and when it is zero
+ * the five rows that remain are exactly the five the design draws.
+ *
+ * **This reverses #23.1.** Between 2026-09-13 and 2026-09-15 a percentage deal
+ * was a share of GROSS TICKET REVENUE and nothing came off the top; the reasoning
+ * is still in `docs/design-settlement-2026-09-10.md` and is worth reading before
+ * anyone reverses it back. The owner chose the design's order on 2026-09-15: a
+ * rental comes off before the splits, and the splits divide what is left.
  *
  * `costs` is only the share of the cost lines that nobody was charged for.
- * Costs borne by a named party never touch the pool — they come off that party's
- * own entitlement as a deductible (`cost-bearing.ts`), and show on its line.
+ * Costs borne by a named party never touch this ladder — they come off that
+ * party's own entitlement as a deductible (`cost-bearing.ts`).
  */
 export interface PoolLadder {
+  /** Every revenue line, gross, whoever collected it. The design's "Gross revenue". */
   revenue: bigint;
-  costs: bigint;
-  /** `revenue − costs`. */
-  pool: bigint;
-  /** Always `0` since #23.1 — nothing is taken off the top any more. */
-  offTheTop: bigint;
-  /** Always equal to `pool` since #23.1. Kept for the stored snapshot's shape. */
-  splitPool: bigint;
   /**
-   * GROSS TICKET REVENUE — what every percentage deal is actually a share of
-   * (#23.1). Deliberately not derived from `pool`: costs never reach it.
+   * Revenue on lines another party collected and keeps, so the event never
+   * pooled it (#23.2, `revenue-shares.ts`). Zero on an ordinary night.
    */
-  doorBase: bigint;
+  attributed: bigint;
+  /** The share of the cost lines nobody was charged for. The design's "Deductions". */
+  costs: bigint;
+  /** `revenue − attributed − costs`. The design's "Net revenue". */
+  netRevenue: bigint;
+  /** Rentals, taken off the top before any split. The design's "Venue rental". */
+  offTheTop: bigint;
+  /**
+   * `netRevenue − offTheTop` — the design's "Adjusted net", and the base every
+   * percentage deal is measured against.
+   */
+  adjustedNet: bigint;
 }

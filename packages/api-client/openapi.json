@@ -6804,29 +6804,29 @@
                         "revenue": {
                           "type": "string"
                         },
+                        "attributed": {
+                          "type": "string"
+                        },
                         "costs": {
                           "type": "string"
                         },
-                        "pool": {
+                        "netRevenue": {
                           "type": "string"
                         },
                         "offTheTop": {
                           "type": "string"
                         },
-                        "splitPool": {
-                          "type": "string"
-                        },
-                        "doorBase": {
+                        "adjustedNet": {
                           "type": "string"
                         }
                       },
                       "required": [
                         "revenue",
+                        "attributed",
                         "costs",
-                        "pool",
+                        "netRevenue",
                         "offTheTop",
-                        "splitPool",
-                        "doorBase"
+                        "adjustedNet"
                       ],
                       "additionalProperties": false
                     },
@@ -7771,29 +7771,29 @@
                         "revenue": {
                           "type": "string"
                         },
+                        "attributed": {
+                          "type": "string"
+                        },
                         "costs": {
                           "type": "string"
                         },
-                        "pool": {
+                        "netRevenue": {
                           "type": "string"
                         },
                         "offTheTop": {
                           "type": "string"
                         },
-                        "splitPool": {
-                          "type": "string"
-                        },
-                        "doorBase": {
+                        "adjustedNet": {
                           "type": "string"
                         }
                       },
                       "required": [
                         "revenue",
+                        "attributed",
                         "costs",
-                        "pool",
+                        "netRevenue",
                         "offTheTop",
-                        "splitPool",
-                        "doorBase"
+                        "adjustedNet"
                       ],
                       "additionalProperties": false,
                       "nullable": true

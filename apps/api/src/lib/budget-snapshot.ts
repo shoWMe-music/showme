@@ -1,5 +1,6 @@
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
+import { type StoredLadder, poolLadderOf } from "@showme/settlement";
 import { convertMinorUnits } from "@showme/shared";
 import { asc, desc, eq, inArray } from "drizzle-orm";
 import { badRequest, notFound } from "../errors";
@@ -662,9 +663,12 @@ export async function plannedVsActual(
       .from(schema.settlements)
       .where(eq(schema.settlements.eventId, eventId));
     for (const row of settlementRows) {
-      const ladder = (row.computed as { ladder?: { pool?: string } } | null)?.ladder;
-      if (ladder?.pool != null) {
-        settlementPool = ladder.pool;
+      // Through `poolLadderOf`, because a settlement computed before 2026-09-15
+      // stored this figure under the name `pool` and the waterfall calls it
+      // `netRevenue`. The money is the same; only the row's name moved.
+      const stored = (row.computed as { ladder?: StoredLadder } | null)?.ladder;
+      if (stored) {
+        settlementPool = poolLadderOf(stored).netRevenue;
         break;
       }
     }

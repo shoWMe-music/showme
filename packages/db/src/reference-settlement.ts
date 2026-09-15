@@ -127,8 +127,8 @@ export const REFERENCE_DOOR_SPLIT_TERMS = {
  * 50 000.00 pool and nothing more: they are ILLUSTRATIVE, not floors. Audit A-36 settled
  * that question — a floor is the deal-level `guarantee_vs_door` structure, which the
  * engine settles as max(guarantee, door); a floor inside a `door_split` would break the
- * rule that split members divide 100% of the pool. At a 20 000.00 door the headliner is
- * owed 12 000.00, not 30 000.00, and that is correct.
+ * rule that split members divide 100% of what the deal claims. At a 20 000.00 adjusted
+ * net the headliner is owed 12 000.00, not 30 000.00, and that is correct.
  *
  * Illustrative no longer means unverified, though. The seeds now put a real budget on
  * the album release (`referenceAlbumReleaseBudgetLines`) sized so that its pool IS
@@ -139,18 +139,23 @@ export const REFERENCE_DOOR_SPLIT_TERMS = {
 export const REFERENCE_DOOR_SPLIT_SHARES = {
   headlinerBasisPoints: 6_000, // Marlo Vance — 60.00%
   supportBasisPoints: 4_000, // Neon Tide — 40.00%
-  // Quoted at the DOOR since #23.1, not at the pool: 60% and 40% of the 83 000
-  // gross ticket revenue. Under the pool model these were 30 000 and 20 000 —
-  // 60/40 of the 50 000 left after the 33 000 of costs. The costs now land on the
-  // operator alone, which is what a gross door deal means.
-  headlinerAmount: 4_980_000n, // 49 800.00 SEK — 60% of the door
-  supportAmount: 3_320_000n, // 33 200.00 SEK — 40% of the door
+  // Quoted at the ADJUSTED NET (2026-09-15, the design's waterfall): 60% and 40%
+  // of the 50 000 left once the 33 000 of costs came off the 83 000 gross. These
+  // were briefly 49 800 and 33 200 under #23.1, when a split was a share of the
+  // gross door and the costs landed on the operator alone.
+  headlinerAmount: 3_000_000n, // 30 000.00 SEK — 60% of the adjusted net
+  supportAmount: 2_000_000n, // 20 000.00 SEK — 40% of the adjusted net
 } as const;
 
 /** Revenue less the costs nobody was charged for — the operator's residual base. */
 export const REFERENCE_DOOR_SPLIT_POOL = 5_000_000n; // 50 000.00 SEK
 
-/** Gross ticket revenue on the same event — what the percentages divide (#23.1). */
+/**
+ * Gross ticket revenue on the same event. NOT the split base any more — since
+ * 2026-09-15 a percentage divides the adjusted net — but still the figure a
+ * threshold bonus is measured against (#23.3), and the one the guard test uses as
+ * a stand-in for a cost-free night.
+ */
 export const REFERENCE_DOOR_SPLIT_DOOR = 8_300_000n; // 83 000.00 SEK
 
 /**

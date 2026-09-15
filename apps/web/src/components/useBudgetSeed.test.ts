@@ -2,8 +2,21 @@ import { dealEntitlementDetailed } from "@showme/settlement";
 import { describe, expect, it } from "vitest";
 import { type Deal, performerFeeOf } from "./useBudgetSeed";
 
-/** 400 tickets at 30.00 → a 12 000.00 door, in minor units. */
-const DOOR = { ticketRevenue: 1_200_000n, totalRevenue: 1_200_000n, ticketsSold: 400 };
+/**
+ * 400 tickets at 30.00 → a 12 000.00 door, with 2 000.00 of costs against it, so
+ * the ADJUSTED NET the settlement divides is 10 000.00. All minor units.
+ *
+ * The two figures are deliberately different. A fixture where the door and the
+ * split base coincide cannot fail on the one mistake these tests exist to catch —
+ * deriving a performer fee from the box office when the settlement will pay a
+ * share of what is left after costs.
+ */
+const DOOR = {
+  ticketRevenue: 1_200_000n,
+  totalRevenue: 1_200_000n,
+  splitBase: 1_000_000n,
+  ticketsSold: 400,
+};
 const ON_THE_BILL = new Set(["PERF"]);
 
 const dealWith = (over: Partial<Deal>): Deal => ({
@@ -17,7 +30,7 @@ const dealWith = (over: Partial<Deal>): Deal => ({
 
 describe("the planner's performer fee", () => {
   /**
-   * THE POINT OF THE WHOLE EXERCISE (#23.1). The planner forecasts what
+   * THE POINT OF THE WHOLE EXERCISE. The planner forecasts what
    * `reconcile()` will later compute, so it runs the engine's own function rather
    * than a second formula. Ran's prototype is the counter-example: its planner
    * split gross tickets while its settlement split adjusted net, both called it
@@ -39,12 +52,15 @@ describe("the planner's performer fee", () => {
         guaranteeAmount: 500_000n,
         splitBasisPoints: 7000,
       },
-      { doorBase: DOOR.ticketRevenue, grossRevenue: DOOR.totalRevenue },
+      { splitBase: DOOR.splitBase, grossRevenue: DOOR.totalRevenue },
       DOOR.ticketsSold,
     );
 
     expect(seeded?.amount).toBe(settled.amount.toString());
-    expect(seeded?.amount).toBe("840000"); // 70% of the 12 000 door, which beats 5 000
+    // 70% of the 10 000 adjusted net, which beats the 5 000 floor. It is NOT
+    // 840 000 — that would be 70% of the 12 000 box office, the very figure the
+    // settlement would then refuse to pay.
+    expect(seeded?.amount).toBe("700000");
   });
 
   it("takes the guarantee when the door does not reach it, and says which won", () => {
@@ -73,19 +89,20 @@ describe("the planner's performer fee", () => {
     const modest = performerFeeOf(deal, ON_THE_BILL, {
       ticketRevenue: 600_000n,
       totalRevenue: 600_000n,
+      splitBase: 400_000n, // the same 2 000 of costs against a smaller night
       ticketsSold: 200,
     });
     const busy = performerFeeOf(deal, ON_THE_BILL, DOOR);
 
-    expect(modest?.amount).toBe("360000"); // 60% of 6 000
-    expect(busy?.amount).toBe("720000"); // 60% of 12 000
+    expect(modest?.amount).toBe("240000"); // 60% of the 4 000 left
+    expect(busy?.amount).toBe("600000"); // 60% of the 10 000 left
   });
 
   it("seeds nothing from a percentage deal before the sheet has a door", () => {
     const fee = performerFeeOf(
       dealWith({ structure: "door_split", splitBasisPoints: 6000 }),
       ON_THE_BILL,
-      { ticketRevenue: 0n, totalRevenue: 0n, ticketsSold: 0 },
+      { ticketRevenue: 0n, totalRevenue: 0n, splitBase: 0n, ticketsSold: 0 },
     );
     // A confident zero would read as "this act is owed nothing", which is a
     // statement the planner has no basis for until a tier exists.

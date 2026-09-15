@@ -306,10 +306,12 @@ export function entitlementRules(
   return rules;
 }
 
-/** One rung of the pool ladder, already formatted. */
+/** One rung of the waterfall, already formatted. */
 export interface LadderRow {
   key: string;
   label: string;
+  /** The design's small grey line under the label, saying what the row is. */
+  caption: string;
   value: string;
   /** Money coming OFF the running figure — rendered as a subtraction. */
   negative?: boolean;
@@ -318,16 +320,25 @@ export interface LadderRow {
 }
 
 /**
- * Gross takings → the pool, plus the door the percentages divide.
+ * THE WATERFALL — gross revenue down to the figure every percentage divides.
  *
- * This is the prototype's "Revenue & deductions" totals block, and it is the whole
- * reason a settlement reads as arithmetic rather than as an assertion: without the
- * base, "70% of the door" names a rule nobody can check. `doorBase` is that base —
- * gross ticket revenue since #23.1, which is why no cost above it reaches it.
+ * The rows, the order and the captions are Ran's Overview card
+ * (`claude-prototype/ran-2026-09-10/renders/proto-settlement-overview.png`), and
+ * since 2026-09-15 the engine computes exactly this chain, so nothing here is a
+ * translation: each row is a field, and each row is the one above it less one
+ * thing. Formats; never computes.
+ *
+ * **It also answers a question that was asked.** Ran, on ClickUp `86cbcn1ue`:
+ * *"what does 'Pool' mean?"* — the word was a bare noun among plain descriptions.
+ * The waterfall retires it here without a rename debate, because a row that reads
+ * "Net revenue · after deductions" sitting between the two rows it is the
+ * difference of does not need defining. The other "pool" strings on the deal
+ * screens are left exactly as they are; that vocabulary is the terminology
+ * session's call, not a guess to make on the way past.
  *
  * OPERATOR ONLY, and the caller does not choose: the route serves `ladder: null`
  * to anyone without `budget.view` (story.md:44), so a party who may not read the
- * night's takings has nothing here to format. Formats; never computes.
+ * night's takings has nothing here to format.
  */
 export function ladderRows(
   ladder: PoolLadder,
@@ -336,57 +347,69 @@ export function ladderRows(
   formatAmount: (minorUnits: string) => string = (minorUnits) => formatMoney(minorUnits, currency),
 ): LadderRow[] {
   return [
-    { key: "revenue", label: "Revenue", value: formatAmount(ladder.revenue) },
+    {
+      key: "revenue",
+      label: "Gross revenue",
+      caption: "all sources",
+      value: formatAmount(ladder.revenue),
+    },
+    /*
+     * THE ONE ROW THE DESIGN DOES NOT HAVE, and it is drawn only when it is not
+     * zero — which on Ran's own demo night, and on most nights, it is.
+     *
+     * A venue running its own bar collected money the event never pooled (#23.2).
+     * The design has no notion of that, so a five-row chain would silently fail to
+     * add up the moment it happens: gross minus deductions would not be the net.
+     * Drawing the row when there is something in it keeps the arithmetic visible
+     * and leaves the common case looking exactly like the design.
+     */
+    ...(ladder.attributed !== "0"
+      ? [
+          {
+            key: "attributed",
+            label: "Collected by others",
+            caption: "kept by the party that took it",
+            value: formatAmount(ladder.attributed),
+            negative: true,
+          },
+        ]
+      : []),
     {
       key: "costs",
-      label: "Costs nobody was charged for",
+      label: "Deductions",
+      caption: "fees, tax, refunds, production",
       value: formatAmount(ladder.costs),
       negative: true,
     },
-    /*
-     * "POOL" WAS THE ONE RUNG THAT DID NOT EXPLAIN ITSELF.
-     *
-     * Ran asked outright on ClickUp `86cbcn1ue`: *"what does 'Pool' mean?"* — and
-     * read down the ladder, the question answers why. Every other rung is already
-     * a plain-English description of what it is ("Costs nobody was charged for",
-     * "Rentals settled off the top", "Adjusted net"). One bare noun sat among them
-     * naming a concept the reader was expected to already hold.
-     *
-     * The word is KEPT, not replaced. It is what the deal screens say ("Share of
-     * the pool"), what the engine calls it, and what a settlement in this industry
-     * is discussed in — deleting it here would just move the confusion one screen
-     * along and leave the two disagreeing. Pairing it with its meaning makes it
-     * learnable instead: read once, and "share of the pool" next door is suddenly
-     * a sentence about a number you have seen.
-     *
-     * NOT a definition paragraph under the row, deliberately — the same ticket
-     * objects to *"many unneeded text (so called notes to explain the features)"*.
-     * A label that says what it is costs no lines at all.
-     *
-     * The other "pool" strings (`DealComposerModal`, `EventAgreementTab`,
-     * `NewEventWizard`) are left exactly as they are. Renaming the vocabulary
-     * across the deal screens is the terminology session's call, not a guess to
-     * make on the way past — this file has a four-round rename history one screen
-     * over that says what guessing costs.
-     */
-    { key: "pool", label: "Left to divide (the pool)", value: formatAmount(ladder.pool) },
-    /**
-     * THE DOOR, and it is deliberately the last rung even though nothing above it
-     * feeds it (#23.1). A percentage deal is a share of gross ticket revenue, so
-     * the number that makes "70% of the door" checkable does not come off the
-     * bottom of the ladder — it sits beside it, untouched by the costs the two
-     * rungs above describe. Printing it here is what stops a reader assuming the
-     * percentage applies to the pool directly above.
-     *
-     * It replaces two rungs that #23.1 emptied: "Rentals settled off the top",
-     * which is now always zero, and "Adjusted net", which is now just the pool
-     * under a second name. Leaving a live-looking row at a constant zero is worse
-     * than not drawing it.
-     */
     {
-      key: "door-base",
-      label: "The door (what percentages divide)",
-      value: formatAmount(ladder.doorBase),
+      key: "net-revenue",
+      label: "Net revenue",
+      caption: "after deductions",
+      value: formatAmount(ladder.netRevenue),
+    },
+    /*
+     * The rental row, drawn only when a rental exists — same rule as `attributed`
+     * and for the same reason: a live-looking row pinned at zero teaches a reader
+     * something untrue about the night. On an event with no room hire the chain
+     * ends one row early and the adjusted net equals the net revenue, which is the
+     * truth rather than a hidden step.
+     */
+    ...(ladder.offTheTop !== "0"
+      ? [
+          {
+            key: "off-the-top",
+            label: "Venue rental",
+            caption: "paid off the top",
+            value: formatAmount(ladder.offTheTop),
+            negative: true,
+          },
+        ]
+      : []),
+    {
+      key: "adjusted-net",
+      label: "Adjusted net",
+      caption: "what percentages divide",
+      value: formatAmount(ladder.adjustedNet),
       total: true,
     },
   ];

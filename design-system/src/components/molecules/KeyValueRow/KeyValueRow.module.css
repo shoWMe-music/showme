@@ -7,6 +7,13 @@
   font-size: 13px;
 }
 .label { color: var(--muted); }
+.caption {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--dim, var(--muted));
+}
 .value { color: var(--text); font-weight: 500; }
 .mono { font-family: var(--font-mono); }
 .total {
@@ -16,3 +23,4 @@
 }
 .total .value { font-weight: 700; font-size: 15px; }
 .total .label { color: var(--text); font-weight: 600; }
+.total .caption { font-weight: 400; color: var(--muted); }
