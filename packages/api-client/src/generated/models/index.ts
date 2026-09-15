@@ -284,6 +284,7 @@ export * from './getApiV1Tasks200';
 export * from './getApiV1Tasks200ItemsItem';
 export * from './getApiV1Tasks200ItemsItemPriority';
 export * from './getApiV1TasksCompleted';
+export * from './getApiV1TasksOrder';
 export * from './getApiV1TasksParams';
 export * from './patchApiV1BookingRequestsId200';
 export * from './patchApiV1BookingRequestsIdBody';

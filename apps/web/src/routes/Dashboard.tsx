@@ -5,16 +5,23 @@ import {
   useGetApiV1Settlements,
   useGetApiV1Tasks,
 } from "@showme/api-client";
-import { Badge, EmptyState, Icon, type IconName } from "@showme/design-system";
+import { Badge, Button, EmptyState, Icon, type IconName } from "@showme/design-system";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { type AccountKind, useAuth } from "../auth/AuthProvider";
+import { TaskPriorityBadge } from "../components/TaskPriorityBadge";
 import { settlementStatusToDisplay, settlementTotals } from "../components/settlementDocument";
 import { ErrorState, LoadingState } from "../components/states";
 import { formatAmount, formatDay, formatMoney } from "../lib/format";
 import styles from "./Dashboard.module.css";
 
-type TaskItem = { id: string; title: string; dueDate: string | null; completed: boolean };
+type TaskItem = {
+  id: string;
+  title: string;
+  dueDate: string | null;
+  completed: boolean;
+  priority: string | null;
+};
 
 /** Events still waiting on an operator decision — the prototype's "needs a decision" set. */
 const NEEDS_DECISION = new Set(["pending", "suggested", "on_hold"]);
@@ -143,7 +150,16 @@ export function Dashboard() {
   });
   const requests = useGetApiV1BookingRequests({ limit: 5 });
   const settlementList = useGetApiV1Settlements();
-  const tasks = useGetApiV1Tasks({ limit: 5 });
+  /**
+   * The five that matter most, ranked BY THE SERVER (ClickUp `123qy9rnk27`:
+   * *"preview the top 5 tasks by priority and by time/date"*).
+   *
+   * `completed=false` because a done task is not a preview of work, and
+   * `order=priority` because sorting five rows here would only ever rank the five
+   * the server happened to send — an urgent task at position 40 would never
+   * appear. Six are asked for so the card can say whether there are more.
+   */
+  const tasks = useGetApiV1Tasks({ limit: 6, completed: "false", order: "priority" });
 
   const greetingName = displayNameForGreeting(user?.displayName, session?.kind, session?.email);
 
@@ -153,7 +169,10 @@ export function Dashboard() {
 
   const eventList = events.data.items;
   const requestList = requests.data?.items ?? [];
-  const taskList = ((tasks.data?.items ?? []) as TaskItem[]).filter((task) => !task.completed);
+  // Already ranked and already filtered to open by the API — `completed=false`
+  // and `order=priority` on the query above. Nothing is re-sorted here, because a
+  // second opinion about the order is exactly how two screens come to disagree.
+  const taskList = (tasks.data?.items ?? []) as TaskItem[];
   const eventsByStatus = summary.data?.eventsByStatus as Record<string, number> | undefined;
 
   const openEvent = (id: string) => navigate({ to: "/events/$eventId", params: { eventId: id } });
@@ -186,17 +205,15 @@ export function Dashboard() {
       onAction: () => navigate({ to: "/requests" }),
     });
   }
-  for (const task of taskList) {
-    attention.push({
-      id: `task-${task.id}`,
-      icon: "check",
-      color: "#6FC97A",
-      title: task.title,
-      detail: task.dueDate ? `Task · due ${formatDay(task.dueDate)}` : "Task · open",
-      action: "Open",
-      onAction: () => navigate({ to: "/tasks" }),
-    });
-  }
+  /*
+   * TASKS ARE NO LONGER FOLDED IN HERE. They have a section of their own below
+   * (`123qy9rnk27`), and listing the same five jobs twice on one screen is noise
+   * on the half of the screen that is meant to be a short list.
+   *
+   * What is left in "Needs attention" is what somebody ELSE is waiting on: an
+   * event awaiting a decision, a booking request nobody has answered. A task is
+   * your own work, which is a different kind of urgency and now reads as one.
+   */
   const attentionShown = attention.slice(0, 5);
 
   // --- Event stat band (from the insights summary, falling back to the list). ---
@@ -350,6 +367,88 @@ export function Dashboard() {
           ))}
         </div>
       )}
+
+      {/* Tasks — ClickUp `123qy9rnk27`. The top few by priority, with a way
+          through to all of them. */}
+      <div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            marginBottom: 10,
+          }}
+        >
+          <Eyebrow>Tasks</Eyebrow>
+          <Button variant="ghost" onClick={() => navigate({ to: "/tasks" })}>
+            Show all
+          </Button>
+        </div>
+        {taskList.length === 0 ? (
+          <EmptyState
+            icon={<Icon name="check" />}
+            title="Nothing on your list"
+            description="Tasks you create, on an event or on your own, appear here."
+          />
+        ) : (
+          <div className={styles.attentionCard}>
+            {taskList.slice(0, 5).map((task) => (
+              <button
+                type="button"
+                key={task.id}
+                onClick={() => navigate({ to: "/tasks" })}
+                className={styles.attentionRow}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "13px 16px",
+                  border: 0,
+                  borderRadius: 14,
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <span
+                  style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}
+                >
+                  <span
+                    style={{
+                      fontWeight: 500,
+                      color: "var(--text)",
+                      fontSize: 14.5,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {task.title}
+                  </span>
+                  <TaskPriorityBadge priority={task.priority} />
+                </span>
+                {/* The date the row is ranked by, where it is ranked by one. A
+                    task with no due date says so rather than drawing a blank
+                    column that reads as a missing value. */}
+                <span
+                  className="muted"
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {task.dueDate ? formatDay(task.dueDate) : "No date"}
+                </span>
+                <span style={{ color: "var(--muted)", display: "inline-flex" }}>
+                  <Icon name="chevron-right" size={18} />
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Events band */}
       <div>

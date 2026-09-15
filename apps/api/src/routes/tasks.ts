@@ -64,6 +64,22 @@ const ListQuery = PaginationQuery.extend({
   groupId: z.string().uuid().optional(),
   /** Scope to one event's to-do list (gated by `event.view`, not owner). */
   eventId: z.string().uuid().optional(),
+  /**
+   * HOW TO RANK THEM (ClickUp `123qy9rnk27`, the Dashboard's *"top 5 tasks by
+   * priority and by time/date"*).
+   *
+   * `created` is the default and the only PAGEABLE order — the keyset cursor is
+   * `(created_at, id)`, which is what makes walking the list stable while rows
+   * are being added underneath it.
+   *
+   * `priority` answers a different question: not "give me the next page" but
+   * "give me the few that matter most". It sorts by tag, then by due date, then
+   * by age, and deliberately returns **no cursor** — see the handler. Sorting
+   * this in the browser instead would rank only the page already loaded, so the
+   * urgent task sitting at position 40 would never reach the Dashboard's top
+   * five, which is the entire point of the card.
+   */
+  order: z.enum(["created", "priority"]).optional().default("created"),
 });
 
 const TaskResponse = z.object({
@@ -297,7 +313,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
       const { database } = request.server;
       const principal = request.principal;
       if (!principal) throw new Error("principal missing after authentication");
-      const { cursor, limit, completed, groupId, eventId } = request.query;
+      const { cursor, limit, completed, groupId, eventId, order } = request.query;
 
       // Event-scoped list = the event's shared to-do, gated by event.view (the
       // access predicate IS the filter). Otherwise the caller's own + profile tasks.
@@ -322,6 +338,27 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
         ? sql`(${createdAtMillis}, ${schema.tasks.id}) > (${decoded.createdAt}::timestamptz, ${decoded.id}::uuid)`
         : undefined;
 
+      /**
+       * THE RANKING, in SQL, so it is the same one however few rows the caller
+       * asked for (`123qy9rnk27`).
+       *
+       * `array_position(enum_range(...))` reads the ORDER THE TYPE WAS DECLARED IN
+       * — urgent, high, normal, low — instead of a CASE that has to be edited
+       * every time the enum gains a value. `NULLS LAST` puts untagged below
+       * `low`: a job nobody has triaged should not outrank one somebody called
+       * unimportant. The due date breaks a tie, with undated after dated, because
+       * "urgent, by Friday" is more actionable than "urgent, someday".
+       */
+      const orderBy =
+        order === "priority"
+          ? [
+              sql`array_position(enum_range(null::task_priority), ${schema.tasks.priority}) nulls last`,
+              sql`${schema.tasks.dueDate} asc nulls last`,
+              asc(createdAtMillis),
+              asc(schema.tasks.id),
+            ]
+          : [asc(createdAtMillis), asc(schema.tasks.id)];
+
       // The assignee's name comes along on the same query — two LEFT joins, not a
       // lookup per row: tasks → the participant it names → that participant's
       // profile. Left, because most tasks name nobody and must still be listed.
@@ -341,8 +378,29 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
             afterCursor,
           ),
         )
-        .orderBy(asc(createdAtMillis), asc(schema.tasks.id))
+        .orderBy(...orderBy)
         .limit(limit + 1);
+
+      /**
+       * A RANKED HEAD OF THE LIST DOES NOT PAGINATE, and says so by returning no
+       * cursor rather than by returning a cursor that would quietly skip rows.
+       *
+       * The keyset is `(created_at, id)`; under the priority ordering the next
+       * page's boundary is a composite of tag, due date and age, which that
+       * cursor cannot express. Handing back a `created_at` cursor here would walk
+       * the caller into a second page ordered by one rule and filtered by
+       * another — rows missed, rows repeated, and nothing to tell them apart.
+       *
+       * `order=priority` is for "the five that matter most", which is one page by
+       * construction.
+       */
+      if (order === "priority") {
+        const ranked = rows.slice(0, limit);
+        return {
+          items: ranked.map((row) => serializeTask(row.task, row.assigneeName)),
+          nextCursor: null,
+        };
+      }
 
       const { items, nextCursor } = paginate(rows, limit, (row) => ({
         createdAt: row.task.createdAt.toISOString(),

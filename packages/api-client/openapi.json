@@ -14225,6 +14225,16 @@
             "in": "query",
             "name": "eventId",
             "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": ["created", "priority"],
+              "default": "created"
+            },
+            "in": "query",
+            "name": "order",
+            "required": false
           }
         ],
         "responses": {

@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 import type { GetApiV1TasksCompleted } from './getApiV1TasksCompleted';
+import type { GetApiV1TasksOrder } from './getApiV1TasksOrder';
 
 export type GetApiV1TasksParams = {
 cursor?: string;
@@ -16,4 +17,5 @@ limit?: number;
 completed?: GetApiV1TasksCompleted;
 groupId?: string;
 eventId?: string;
+order?: GetApiV1TasksOrder;
 };

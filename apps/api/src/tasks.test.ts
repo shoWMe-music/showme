@@ -331,6 +331,113 @@ describe("tasks — priority (ClickUp 123qy9rnk29)", () => {
   });
 });
 
+describe("tasks — ranked by priority (ClickUp 123qy9rnk27)", () => {
+  /**
+   * The Dashboard asks for *"the top 5 tasks by priority and by time/date"*. That
+   * has to be answered by the DATABASE: sorting in the browser would rank only
+   * the page already loaded, so an urgent task at position 40 would never reach
+   * the top five — which is the entire point of the card.
+   */
+  it("ranks urgent first, untagged last, and breaks ties on the due date", async () => {
+    await seedUserWithProfile("t-rank");
+    const add = (title: string, priority: string | null, dueDate?: string) =>
+      app.inject({
+        method: "POST",
+        url: "/api/v1/tasks",
+        headers: auth("t-rank"),
+        payload: {
+          title,
+          ...(priority ? { priority } : {}),
+          ...(dueDate ? { dueDate } : {}),
+        },
+      });
+
+    // Inserted in a deliberately unhelpful order: creation order is the DEFAULT
+    // ordering, so if the ranking silently failed the assertion below would read
+    // back exactly this sequence.
+    await add("untagged", null);
+    await add("low", "low");
+    await add("urgent later", "urgent", "2026-12-01");
+    await add("normal", "normal");
+    await add("urgent sooner", "urgent", "2026-06-01");
+    await add("high", "high");
+
+    const ranked = await app.inject({
+      method: "GET",
+      url: "/api/v1/tasks?order=priority&limit=10",
+      headers: auth("t-rank"),
+    });
+    expect(ranked.statusCode).toBe(200);
+    expect((ranked.json().items as { title: string }[]).map((task) => task.title)).toEqual([
+      "urgent sooner",
+      "urgent later",
+      "high",
+      "normal",
+      "low",
+      "untagged",
+    ]);
+  });
+
+  it("still defaults to creation order, so paging is unchanged", async () => {
+    await seedUserWithProfile("t-rank-default");
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: auth("t-rank-default"),
+      payload: { title: "first, untagged" },
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: auth("t-rank-default"),
+      payload: { title: "second, urgent", priority: "urgent" },
+    });
+
+    const list = await app.inject({
+      method: "GET",
+      url: "/api/v1/tasks",
+      headers: auth("t-rank-default"),
+    });
+    // The urgent one is SECOND here. Changing the default order would have
+    // re-ordered every existing caller's list without asking.
+    expect((list.json().items as { title: string }[]).map((task) => task.title)).toEqual([
+      "first, untagged",
+      "second, urgent",
+    ]);
+  });
+
+  it("returns NO cursor when ranked, rather than one that would skip rows", async () => {
+    await seedUserWithProfile("t-rank-cursor");
+    for (const title of ["a", "b", "c"]) {
+      await app.inject({
+        method: "POST",
+        url: "/api/v1/tasks",
+        headers: auth("t-rank-cursor"),
+        payload: { title },
+      });
+    }
+
+    // Asked for fewer than exist: the default order hands back a cursor to walk,
+    // the ranked order deliberately does not. A `created_at` cursor under a
+    // priority ordering would page by one rule and filter by another — rows
+    // missed, rows repeated, nothing to tell them apart.
+    const paged = await app.inject({
+      method: "GET",
+      url: "/api/v1/tasks?limit=2",
+      headers: auth("t-rank-cursor"),
+    });
+    expect(paged.json().nextCursor).not.toBeNull();
+
+    const ranked = await app.inject({
+      method: "GET",
+      url: "/api/v1/tasks?order=priority&limit=2",
+      headers: auth("t-rank-cursor"),
+    });
+    expect(ranked.json().items).toHaveLength(2);
+    expect(ranked.json().nextCursor).toBeNull();
+  });
+});
+
 describe("tasks — the assignee", () => {
   /**
    * A host on their own event, plus a second profile really on the bill: the
