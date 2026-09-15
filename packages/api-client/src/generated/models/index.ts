@@ -627,6 +627,8 @@ export * from './postApiV1EventsIdSettlementCompute200BreakdownsItemLinesItemBas
 export * from './postApiV1EventsIdSettlementCompute200BreakdownsItemLinesItemBasisAnyOfThreeKind';
 export * from './postApiV1EventsIdSettlementCompute200Ladder';
 export * from './postApiV1EventsIdSettlementCompute200TransfersItem';
+export * from './postApiV1EventsIdSettlementComputeParams';
+export * from './postApiV1EventsIdSettlementComputeSeedFromBudget';
 export * from './postApiV1EventsIdSettlementFinalize200';
 export * from './postApiV1EventsIdSettlementInvitations201';
 export * from './postApiV1EventsIdSettlementInvitationsBody';

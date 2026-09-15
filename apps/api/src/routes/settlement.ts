@@ -621,6 +621,22 @@ function assertBudgetLinesAttributeTheirCash(eventId: string, lines: BudgetLineR
 async function reconcileEvent(
   database: Database | Transaction,
   eventId: string,
+  /**
+   * SEED THE SETTLEMENT FROM THE BUDGET — the design's "How do you want to enter
+   * financials?" card, answered.
+   *
+   * `false` is *"Start fresh · manual entry"*: the reconciliation runs on the
+   * deals alone and the operator types the night's real figures in. It is not a
+   * mode and nothing remembers it — the seal in `ensureSettlementLines` is
+   * established by the FIRST LINE EXISTING, so the first figure they type seals
+   * the settlement from the planner exactly as a copy would have.
+   *
+   * Recomputing before typing anything WOULD copy, and that is the right
+   * behaviour rather than a gap: an operator who chose "start fresh", changed
+   * their mind and pressed Recalculate gets the forecast they asked for, and an
+   * operator who has begun typing is already sealed.
+   */
+  { seedFromBudget = true }: { seedFromBudget?: boolean } = {},
 ): Promise<ReconciledEvent> {
   // THE DEALS COME FIRST, AHEAD OF EVERY WRITE THIS FUNCTION MAKES.
   //
@@ -669,7 +685,7 @@ async function reconcileEvent(
   // Take the settlement's copy of the budget if it does not have one yet. A
   // no-op on every run after the first — the copy is sealed, and re-pulling
   // would discard the actuals somebody typed into it (`lib/settlement-lines.ts`).
-  await ensureSettlementLines(database, eventId);
+  if (seedFromBudget) await ensureSettlementLines(database, eventId);
 
   const participantRows = await database
     .select()
@@ -1288,7 +1304,30 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
   // settlement per participant + the transfers. Idempotent (money-adjacent).
   app.post(
     "/events/:id/settlement/compute",
-    { schema: { params: EventParams, response: { 200: SummaryResponse } } },
+    {
+      schema: {
+        params: EventParams,
+        /**
+         * HOW THE OPERATOR WANTS TO ENTER THE FINANCIALS — the design's first card
+         * on that tab. `true` (the default, and what every existing caller means)
+         * copies the budget; `false` is *"start fresh · manual entry"* and copies
+         * nothing. See `reconcileEvent`.
+         *
+         * A QUERY PARAMETER rather than a body, and the reason is worth keeping:
+         * every existing caller POSTs this route with NO BODY AT ALL, and adding
+         * an optional body schema made Fastify reject all of them — 99 tests went
+         * red on a 400 before a single new assertion ran. A route that has always
+         * been bodyless stays bodyless.
+         */
+        querystring: z.object({
+          seedFromBudget: z
+            .enum(["true", "false"])
+            .optional()
+            .transform((value) => value !== "false"),
+        }),
+        response: { 200: SummaryResponse },
+      },
+    },
     async (request, reply) => {
       const { database } = request.server;
       const { id } = request.params;
@@ -1297,7 +1336,9 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
 
       assertNotFinalized(await settlementRowsOf(database, id));
 
-      const { result, baseCurrency } = await reconcileEvent(database, id);
+      const { result, baseCurrency } = await reconcileEvent(database, id, {
+        seedFromBudget: request.query.seedFromBudget,
+      });
 
       const { statusCode, body } = await withIdempotency<SerializedSummary>(
         request,

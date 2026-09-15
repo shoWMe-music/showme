@@ -12,6 +12,7 @@ import {
   EmptyState,
   Icon,
   KeyValueRow,
+  SelectCard,
   Tabs,
   TextField,
 } from "@showme/design-system";
@@ -679,7 +680,11 @@ function SettlementTab({
               // which they can only do if they are told which one.
               disabled={settlement.isBusy || settlement.unsignedAgreementsNotice != null}
               leftIcon={<Icon name="receipt" size={14} />}
-              onClick={settlement.compute}
+              // Wrapped, because a bare handler would hand React's click event
+              // to `compute` as its options object — and `event.seedFromBudget`
+              // is undefined, so it would work by accident today and break the
+              // day the options grow a second field.
+              onClick={() => settlement.compute()}
             >
               {settlement.isComputed ? "Recalculate" : "Run the settlement"}
             </Button>
@@ -1231,6 +1236,60 @@ function TotalPayouts({ settlement }: { settlement: EventSettlementData }) {
  * `Σ lines[].poolEffect === variance.pool` exactly, so every krona of the variance
  * is attributable to a row — the API asserts it and this screen simply shows it.
  */
+/**
+ * HOW DO YOU WANT TO ENTER FINANCIALS? — the design's first card on this tab.
+ *
+ * Offered ONCE, before the settlement has any lines, because after that the
+ * question is already answered and re-asking it would be offering to throw away
+ * whatever is there.
+ *
+ * "Start from Budget Planner" is what the platform has always done: the first run
+ * takes the settlement's own copy of the forecast, sealed from the planner
+ * afterwards. "Start fresh" runs the same reconciliation and copies nothing, so
+ * the operator types the night's real figures in. Neither is a mode — nothing
+ * remembers the choice, and the first line that exists is what seals the
+ * settlement from the budget either way (`lib/settlement-lines.ts`).
+ */
+function EntryMethodCard({
+  settlement,
+  hasLines,
+}: { settlement: EventSettlementData; hasLines: boolean }) {
+  if (!settlement.authority.canCompute || hasLines) return null;
+  const blocked = settlement.isBusy || settlement.unsignedAgreementsNotice != null;
+  return (
+    <Card padding="lg" style={CARD_COLUMN}>
+      <CardTitle subtitle="Choose how the revenue and costs get here. You can edit every line afterwards either way.">
+        How do you want to enter financials?
+      </CardTitle>
+      <div style={TWO_COLUMN}>
+        <SelectCard
+          icon={<Icon name="trending-up" size={18} />}
+          title="Start from the Budget Planner"
+          description="Takes the settlement's own copy of every forecast line, so you correct figures rather than retype them. Recommended — it is also what gives you planned-vs-actual."
+          onSelect={blocked ? undefined : () => settlement.compute()}
+        />
+        <SelectCard
+          icon={<Icon name="pencil" size={18} />}
+          title="Start fresh — type the real figures"
+          description="Runs the settlement on the agreements alone and copies nothing. For a night whose forecast was never written, or is not worth correcting."
+          onSelect={blocked ? undefined : () => settlement.compute({ seedFromBudget: false })}
+        />
+      </div>
+      {/* The affordance the design advertises on the ticket card, said where the
+          choice is made — and said honestly. No provider is connected, and
+          `packages/settlement/src/ticketing.ts` is the seam one would plug into. */}
+      <span
+        className="muted"
+        style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}
+      >
+        <Icon name="alert" size={13} />
+        Pulling sold counts straight from a ticketing provider is not connected yet — every figure
+        here is typed or copied from the plan.
+      </span>
+    </Card>
+  );
+}
+
 function FinancialsTab({
   eventId,
   settlement,
@@ -1264,11 +1323,17 @@ function FinancialsTab({
   //
   // So the locator is unconditional for anyone who could settle, and it carries
   // the act rather than describing it.
+  // The chooser below offers the same act with more information behind it, so
+  // while it is on screen the locator does not ALSO offer a bare "Run the
+  // settlement". Two buttons that do the same thing, one of which quietly picks
+  // an answer to a question the other is asking, is worse than either alone.
+  const chooserIsShowing = settlement.authority.canCompute && editor.lines.length === 0;
   const guide = settlement.authority.canCompute ? (
     <SettlingHappensHereCard
       eventId={eventId}
       settlement={settlement}
       onGoToSettlement={onGoToSettlement}
+      hideRun={chooserIsShowing}
     />
   ) : null;
 
@@ -1292,6 +1357,7 @@ function FinancialsTab({
     return (
       <div style={{ ...CARD_COLUMN, maxWidth: 860 }}>
         {guide}
+        <EntryMethodCard settlement={settlement} hasLines={editor.lines.length > 0} />
         <EmptyState
           icon={<Icon name="trending-up" />}
           title="No plan captured yet"
@@ -1313,6 +1379,7 @@ function FinancialsTab({
   return (
     <div style={{ ...CARD_COLUMN, maxWidth: 860 }}>
       {guide}
+      <EntryMethodCard settlement={settlement} hasLines={editor.lines.length > 0} />
       {/* Entry first, comparison second: you arrive here to correct a figure, and
           the variance is what you check afterwards. */}
       {settlement.authority.canCompute && (
@@ -1320,7 +1387,7 @@ function FinancialsTab({
           editor={editor}
           currency={currency}
           isFinalized={settlement.isFinalized}
-          onRecalculate={settlement.compute}
+          onRecalculate={() => settlement.compute()}
           recalculateBlocked={settlement.unsignedAgreementsNotice != null}
           /* The line-scoped half of the same conversation the Comments tab shows.
              One thread, two ways in: a remark about a figure is made where the
@@ -1428,10 +1495,13 @@ function SettlingHappensHereCard({
   eventId,
   settlement,
   onGoToSettlement,
+  hideRun = false,
 }: {
   eventId: string;
   settlement: EventSettlementData;
   onGoToSettlement: () => void;
+  /** The entry-method card is asking the same question with more in it. */
+  hideRun?: boolean;
 }) {
   const blocked = settlement.unsignedAgreementsNotice;
   return (
@@ -1440,12 +1510,12 @@ function SettlingHappensHereCard({
         Settling this event
       </CardTitle>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {!settlement.isFinalized && (
+        {!settlement.isFinalized && !hideRun && (
           <Button
             variant={settlement.isComputed ? "secondary" : "primary"}
             disabled={settlement.isBusy || blocked != null}
             leftIcon={<Icon name="receipt" size={14} />}
-            onClick={settlement.compute}
+            onClick={() => settlement.compute()}
           >
             {settlement.isComputed ? "Recalculate the settlement" : "Run the settlement"}
           </Button>

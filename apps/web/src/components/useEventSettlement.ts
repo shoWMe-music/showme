@@ -389,7 +389,11 @@ export interface EventSettlement {
    * remark in a general thread makes the reader hunt for which one.
    */
   postComment: (message: string, settlementLineId?: string) => void;
-  compute: () => void;
+  /**
+   * Run the reconciliation. `seedFromBudget: false` is the design's "start fresh"
+   * — the same run, copying nothing (see `reconcileEvent`).
+   */
+  compute: (options?: { seedFromBudget?: boolean }) => void;
   finalize: () => void;
   confirmOwn: (settlementId: string) => void;
   markTransfer: (transferId: string, state: "owed" | "paid" | "handled") => void;
@@ -478,22 +482,30 @@ export function useEventSettlement(
   const inviteToSettlement = usePostApiV1EventsIdSettlementInvitations();
   const addComment = usePostApiV1EventsIdSettlementComments();
 
-  const compute = useCallback(() => {
-    computeSettlement.mutate(
-      { id: eventId },
-      {
-        onSuccess: (summary) => {
-          refresh();
-          toast.success(
-            `Reconciled ${summary.breakdowns.length} parties into ${summary.transfers.length} transfers.`,
-          );
+  const compute = useCallback(
+    (options?: { seedFromBudget?: boolean }) => {
+      computeSettlement.mutate(
+        {
+          id: eventId,
+          // Sent only when the operator chose "start fresh". Every other caller
+          // means the default, and the route has always been bodyless.
+          ...(options?.seedFromBudget === false ? { params: { seedFromBudget: "false" } } : {}),
         },
-        // The API's refusals here are diagnostic on purpose (audit A-14 names the
-        // offending budget line), so the message is shown rather than replaced.
-        onError: (error) => toast.error(errorMessage(error, "Couldn't run the settlement.")),
-      },
-    );
-  }, [computeSettlement, eventId, refresh, toast]);
+        {
+          onSuccess: (summary) => {
+            refresh();
+            toast.success(
+              `Reconciled ${summary.breakdowns.length} parties into ${summary.transfers.length} transfers.`,
+            );
+          },
+          // The API's refusals here are diagnostic on purpose (audit A-14 names the
+          // offending budget line), so the message is shown rather than replaced.
+          onError: (error) => toast.error(errorMessage(error, "Couldn't run the settlement.")),
+        },
+      );
+    },
+    [computeSettlement, eventId, refresh, toast],
+  );
 
   /**
    * Address a party who is not on shoWMe, and send them their settlement.

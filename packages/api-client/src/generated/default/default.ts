@@ -246,6 +246,7 @@ import type {
   PostApiV1EventsIdSettlementComments201,
   PostApiV1EventsIdSettlementCommentsBody,
   PostApiV1EventsIdSettlementCompute200,
+  PostApiV1EventsIdSettlementComputeParams,
   PostApiV1EventsIdSettlementFinalize200,
   PostApiV1EventsIdSettlementInvitations201,
   PostApiV1EventsIdSettlementInvitationsBody,
@@ -3066,12 +3067,14 @@ export function useGetApiV1EventsIdPerformingRightsRate<TData = Awaited<ReturnTy
 
 export const postApiV1EventsIdSettlementCompute = (
     id: string,
+    params?: PostApiV1EventsIdSettlementComputeParams,
  signal?: AbortSignal
 ) => {
       
       
       return customFetch<PostApiV1EventsIdSettlementCompute200>(
-      {url: `/api/v1/events/${id}/settlement/compute`, method: 'POST', signal
+      {url: `/api/v1/events/${id}/settlement/compute`, method: 'POST',
+        params, signal
     },
       );
     }
@@ -3079,8 +3082,8 @@ export const postApiV1EventsIdSettlementCompute = (
 
 
 export const getPostApiV1EventsIdSettlementComputeMutationOptions = <TError = unknown,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdSettlementCompute>>, TError,{id: string}, TContext>, }
-): UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdSettlementCompute>>, TError,{id: string}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdSettlementCompute>>, TError,{id: string;params?: PostApiV1EventsIdSettlementComputeParams}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdSettlementCompute>>, TError,{id: string;params?: PostApiV1EventsIdSettlementComputeParams}, TContext> => {
 
 const mutationKey = ['postApiV1EventsIdSettlementCompute'];
 const {mutation: mutationOptions} = options ?
@@ -3092,10 +3095,10 @@ const {mutation: mutationOptions} = options ?
       
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1EventsIdSettlementCompute>>, {id: string}> = (props) => {
-          const {id} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1EventsIdSettlementCompute>>, {id: string;params?: PostApiV1EventsIdSettlementComputeParams}> = (props) => {
+          const {id,params} = props ?? {};
 
-          return  postApiV1EventsIdSettlementCompute(id,)
+          return  postApiV1EventsIdSettlementCompute(id,params,)
         }
 
         
@@ -3108,11 +3111,11 @@ const {mutation: mutationOptions} = options ?
     export type PostApiV1EventsIdSettlementComputeMutationError = unknown
 
     export const usePostApiV1EventsIdSettlementCompute = <TError = unknown,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdSettlementCompute>>, TError,{id: string}, TContext>, }
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdSettlementCompute>>, TError,{id: string;params?: PostApiV1EventsIdSettlementComputeParams}, TContext>, }
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof postApiV1EventsIdSettlementCompute>>,
         TError,
-        {id: string},
+        {id: string;params?: PostApiV1EventsIdSettlementComputeParams},
         TContext
       > => {
 

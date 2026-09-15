@@ -385,6 +385,79 @@ describe("settlement — an unreconciled event (empty is 'not yet', not 'not you
   });
 });
 
+describe("settlement — how the financials are entered (Ran's Financials card)", () => {
+  it("copies the budget by default, which is what every existing caller means", async () => {
+    const seed = await seedWorkedExample("seed-default");
+    const run = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(run.statusCode).toBe(200);
+    const lines = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlement/lines`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(lines.json().length).toBeGreaterThan(0);
+  });
+
+  it("starts fresh when asked, and settles on the deals alone", async () => {
+    const seed = await seedWorkedExample("seed-fresh");
+    const run = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute?seedFromBudget=false`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(run.statusCode).toBe(200);
+
+    const lines = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlement/lines`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(lines.json()).toEqual([]);
+    // The reconciliation still ran and still balances — a night with deals and no
+    // recorded cash is a legitimate one, and the whole point of "start fresh" is
+    // that the operator is about to type the cash in.
+    const net = run
+      .json()
+      .breakdowns.reduce((total: bigint, row: { net: string }) => total + BigInt(row.net), 0n);
+    expect(net).toBe(0n);
+  });
+
+  it("does NOT remember the choice — the first typed line is what seals it", async () => {
+    const seed = await seedWorkedExample("seed-fresh-then-recompute");
+    const compute = (query = "") =>
+      app.inject({
+        method: "POST",
+        url: `/api/v1/events/${seed.event.id}/settlement/compute${query}`,
+        headers: auth(seed.operator.userId),
+      });
+    const lineCount = async () =>
+      (
+        await app.inject({
+          method: "GET",
+          url: `/api/v1/events/${seed.event.id}/settlement/lines`,
+          headers: auth(seed.operator.userId),
+        })
+      ).json().length;
+
+    await compute("?seedFromBudget=false");
+    expect(await lineCount()).toBe(0);
+
+    // Changed their mind before typing anything: the forecast arrives. This is
+    // deliberate rather than a gap — there is no mode to be stuck in.
+    await compute();
+    const copied = await lineCount();
+    expect(copied).toBeGreaterThan(0);
+
+    // And now it is sealed the ordinary way: a recompute does not re-copy.
+    await compute();
+    expect(await lineCount()).toBe(copied);
+  });
+});
+
 describe("settlement — curating what each collaborator sees (Ran's §5)", () => {
   /**
    * The feature's whole point is that there is a READER on the other side of a
@@ -670,12 +743,12 @@ describe("settlement — full settlement access (decisions #24)", () => {
     // which is the strongest statement of what the grant means: nothing about the
     // settlement is redacted from them any more.
     const asOperator = await settlementsAs(seed.event.id, seed.operator.userId);
-    const byId = (rows: { participantId: string }[]) =>
-      Object.fromEntries(rows.map((row) => [row.participantId, row]));
-    const theirs = byId(body.settlements);
-    const operators = byId(asOperator.json().settlements);
-    for (const participantId of Object.keys(theirs)) {
-      expect(theirs[participantId].computed).toEqual(operators[participantId].computed);
+    type Row = { participantId: string; computed: unknown };
+    const byId = (rows: Row[]) => new Map(rows.map((row) => [row.participantId, row.computed]));
+    const theirs = byId(body.settlements as Row[]);
+    const operators = byId(asOperator.json().settlements as Row[]);
+    for (const [participantId, computed] of theirs) {
+      expect(computed).toEqual(operators.get(participantId));
     }
   });
 
