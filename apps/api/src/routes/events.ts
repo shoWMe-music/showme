@@ -548,6 +548,8 @@ const EventResponse = z.object({
       country: z.string().nullable(),
     })
     .nullable(),
+  /** The venue's public slug, so "Go to profile" has an address (`123qy9rnfab`). */
+  venueSlug: z.string().nullable(),
   capacity: z.number().nullable(),
   stageId: z.string().nullable(),
   notes: z.string().nullable(),
@@ -1148,6 +1150,24 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
     return location ?? null;
   }
 
+  /**
+   * The venue's public SLUG — what "Go to profile" needs an address for (ClickUp
+   * `123qy9rnfab`). The event stores an id, and a public profile page is reached
+   * by slug (`/profile/<slug>`), so without this the menu has an option it cannot
+   * act on.
+   *
+   * Null for an unlinked venue, exactly like the address: a free-text room name
+   * has no profile to go to.
+   */
+  async function venueSlugOf(database: FastifyInstance["database"], venueProfileId: string | null) {
+    if (!venueProfileId) return null;
+    const [profile] = await database
+      .select({ slug: schema.profiles.slug })
+      .from(schema.profiles)
+      .where(eq(schema.profiles.id, venueProfileId));
+    return profile?.slug ?? null;
+  }
+
   // Read: authorize `event.view`, then serialize by the caller's capabilities.
   app.get(
     "/events/:id",
@@ -1170,6 +1190,7 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
         capabilities,
         imageUrls,
         await venueLocationOf(database, event.venueProfileId),
+        await venueSlugOf(database, event.venueProfileId),
       );
     },
   );
@@ -1333,6 +1354,7 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
         capabilities,
         imageUrls,
         await venueLocationOf(database, updated.venueProfileId),
+        await venueSlugOf(database, updated.venueProfileId),
       );
     },
   );

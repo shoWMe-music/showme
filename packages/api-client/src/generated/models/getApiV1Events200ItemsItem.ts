@@ -23,6 +23,9 @@ export type GetApiV1Events200ItemsItem = {
   venueName: string | null;
   /** @nullable */
   venueLocation: GetApiV1Events200ItemsItemVenueLocation | null;
+  /** The venue's public slug, so "Go to profile" has an address.
+   * @nullable */
+  venueSlug: string | null;
   /** @nullable */
   capacity: number | null;
   /** @nullable */

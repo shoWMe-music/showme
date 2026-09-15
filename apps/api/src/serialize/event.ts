@@ -57,6 +57,12 @@ export interface SerializedEvent {
     /** ISO 3166-1 alpha-2, the platform's one country vocabulary. */
     country: string | null;
   } | null;
+  /**
+   * The venue's public slug — the address of its profile page (ClickUp
+   * `123qy9rnfab`, "Go to profile"). The event stores an id and the public page
+   * is reached by slug, so a menu without this has an option it cannot act on.
+   */
+  venueSlug: string | null;
   capacity: number | null;
   stageId: string | null;
   notes: string | null;
@@ -98,6 +104,7 @@ export function serializeEvent(
   capabilities: Set<Capability>,
   imageUrls?: Map<string, string>,
   venueLocation?: SerializedEvent["venueLocation"],
+  venueSlug?: string | null,
 ): SerializedEvent {
   const base: SerializedEvent = {
     id: event.id,
@@ -115,6 +122,7 @@ export function serializeEvent(
     venueProfileId: event.venueProfileId,
     venueName: event.venueName,
     venueLocation: venueLocation ?? null,
+    venueSlug: venueSlug ?? null,
     capacity: event.capacity,
     stageId: event.stageId,
     notes: event.notes,

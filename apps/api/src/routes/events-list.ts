@@ -139,6 +139,8 @@ const EventResponse = z.object({
       country: z.string().nullable(),
     })
     .nullable(),
+  /** The venue's public slug, so "Go to profile" has an address (`123qy9rnfab`). */
+  venueSlug: z.string().nullable(),
   /**
    * Same story as `venueName` one field up, and the same fix: `serializeEvent`
    * has always returned the capacity and this schema never declared it, so
@@ -507,6 +509,16 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
       const locationByProfile = new Map(
         locationRows.map(({ profileId, ...location }) => [profileId, location] as const),
       );
+      // The slugs, for "Go to profile" (`123qy9rnfab`). Separate from the
+      // addresses above because a venue can have a profile and no address, and
+      // joining them would drop those rows' slugs with the address they lack.
+      const slugRows = venueProfileIds.length
+        ? await database
+            .select({ id: schema.profiles.id, slug: schema.profiles.slug })
+            .from(schema.profiles)
+            .where(inArray(schema.profiles.id, venueProfileIds))
+        : [];
+      const slugByProfile = new Map(slugRows.map((row) => [row.id, row.slug] as const));
 
       const serialized = await Promise.all(
         items.map(async (event) => {
@@ -518,6 +530,7 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
               capabilities,
               undefined,
               (event.venueProfileId ? locationByProfile.get(event.venueProfileId) : null) ?? null,
+              (event.venueProfileId ? slugByProfile.get(event.venueProfileId) : null) ?? null,
             ),
             archived: event.archived,
             headlinePerformerName: headline?.name ?? null,

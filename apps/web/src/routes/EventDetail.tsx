@@ -609,6 +609,12 @@ function performersFrom(roster: Participant[], event: EventDetailData): DetailsP
         name,
         initials: initials(name),
         avatarUrl: party.avatarUrl,
+        // The act's own public page, for the "Go to profile" menu on their name
+        // (ClickUp `123qy9rnfab`). Already on the wire and needing no API change:
+        // `serialize/participant.ts` publishes `publicSlug` only for a PUBLISHED
+        // profile — a slug without `is_public` points at a 404 — so the menu is
+        // offered exactly when there is a page at the other end of it.
+        slug: party.publicSlug,
         sub,
         connected: party.status === "confirmed" || party.status === "accepted",
       };
@@ -669,6 +675,7 @@ function DetailsTab({
         // until it is named here: the API returned it and the card rendered
         // nothing, which reads exactly like a backend bug.
         venueLocation: event.venueLocation,
+        venueSlug: event.venueSlug,
         hostProfileId: event.hostProfileId,
         imageUrl: event.imageUrl,
         capacity: event.capacity,

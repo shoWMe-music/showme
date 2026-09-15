@@ -9,6 +9,7 @@ import { formatMoney } from "../lib/format";
 import { EventInlineInformation } from "./EventInlineInformation";
 import { EventScheduleCard } from "./EventScheduleCard";
 import { ProfileImageField } from "./ProfileImageField";
+import { ProfileNameMenu } from "./ProfileNameMenu";
 import { RidersDocumentsCard } from "./RidersDocumentsCard";
 import styles from "./eventDetailsFields.module.css";
 import { CardHeader, Eyebrow, GlyphButton, MonoPill, SectionCard, XIcon } from "./eventUi";
@@ -39,6 +40,8 @@ export interface DetailsEvent {
     city?: string | null;
     country?: string | null;
   } | null;
+  /** The venue's public slug — the address "Go to profile" needs (`123qy9rnfab`). */
+  venueSlug?: string | null;
   /** Whose event this is — a poster is uploaded into THIS profile's folder. */
   hostProfileId: string;
   /** The poster, resolved and signed by the API. Null when there is none. */
@@ -97,6 +100,8 @@ export interface DetailsPerformer {
   /** The act's own picture, straight off the roster (`serialize/participant.ts`
    * resolves it). Nullable — an off-platform act has no profile to take one from. */
   avatarUrl: string | null;
+  /** The act's public profile slug, when they have a published page. */
+  slug?: string | null;
   sub: string;
   connected: boolean;
 }
@@ -258,7 +263,10 @@ function EventInformationCard({
               />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
-                  {performer.name}
+                  {/* "Go to profile", and no map: Ran asked for the map on the
+                      VENUE only, and an act's address is not a place anybody is
+                      being sent to (ClickUp `123qy9rnfab`). */}
+                  <ProfileNameMenu name={performer.name} slug={performer.slug} />
                 </div>
                 <div style={{ color: "var(--muted)", fontSize: 12.5 }}>{performer.sub}</div>
               </div>

@@ -125,6 +125,8 @@ export interface EditableEventInformation {
     city?: string | null;
     country?: string | null;
   } | null;
+  /** The venue's public slug — the address "Go to profile" needs (`123qy9rnfab`). */
+  venueSlug?: string | null;
   version: number;
 }
 

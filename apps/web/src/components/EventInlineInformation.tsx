@@ -15,6 +15,7 @@ import {
 } from "./EventInlineField";
 import { EventPublishPanel } from "./EventPublishPanel";
 import { EventVenuePicker } from "./EventVenuePicker";
+import { ProfileNameMenu } from "./ProfileNameMenu";
 import {
   EVENT_INLINE_FIELD_LABEL,
   EVENT_STATUS_OPTIONS,
@@ -97,6 +98,29 @@ function EventVenueAddress({
       </span>
     </span>
   );
+}
+
+/**
+ * What to hand Google Maps for a venue.
+ *
+ * The NAME goes in front of the address on purpose. "The Lantern Hall,
+ * Hornsgatan 84, Stockholm" finds the venue's own map card — opening hours,
+ * photos, the entrance people actually use — where the address alone finds a
+ * building. When a street is missing, the name plus the city is still a better
+ * search than nothing, and when there is no location at all there is no map to
+ * offer and this returns null so the menu simply does not carry the option.
+ */
+function venueMapQuery(
+  venueName: string,
+  location: { street?: string | null; city?: string | null; country?: string | null } | null,
+): string | null {
+  const parts = [venueName, location?.street, location?.city, location?.country].filter(
+    (part) => typeof part === "string" && part.trim() !== "",
+  );
+  // The name on its own is not an address — it would search the whole world for
+  // a common room name — so a map is offered only once there is a place too.
+  if (!location?.street && !location?.city) return null;
+  return parts.join(", ");
 }
 
 export function EventInlineInformation({
@@ -253,7 +277,15 @@ export function EventInlineInformation({
           valueNode={
             event.venueProfileId && inline.values.venueName !== "" ? (
               <EventInlineGlyphValue glyph={<Icon name="building" size={13} />}>
-                {inline.values.venueName}
+                {/* The name is a MENU: go to the venue's profile, or open the
+                    address on a map (ClickUp `123qy9rnfab`). It stops the click
+                    from reaching the row, which would otherwise begin an inline
+                    edit of the venue field. */}
+                <ProfileNameMenu
+                  name={inline.values.venueName}
+                  slug={event.venueSlug}
+                  mapQuery={venueMapQuery(inline.values.venueName, event.venueLocation ?? null)}
+                />
                 {/* WHERE IT ACTUALLY IS (ClickUp `123qy9rnfab`: *"Event manager
                     and details should always show Address and country of the
                     event place"*). Read-only and beside the name rather than a
