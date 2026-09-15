@@ -1345,7 +1345,7 @@ function FinancialsTab({
   // money may read the plan behind it.
   if (comparison.isError) {
     return (
-      <div style={{ ...CARD_COLUMN, maxWidth: 860 }}>
+      <div style={CARD_COLUMN}>
         {guide}
         <EmptyState
           icon={<Icon name="eye-off" />}
@@ -1359,7 +1359,7 @@ function FinancialsTab({
   const data = comparison.data;
   if (!data.plan) {
     return (
-      <div style={{ ...CARD_COLUMN, maxWidth: 860 }}>
+      <div style={CARD_COLUMN}>
         {guide}
         <EntryMethodCard settlement={settlement} hasLines={editor.lines.length > 0} />
         <EmptyState
@@ -1381,7 +1381,7 @@ function FinancialsTab({
     }));
 
   return (
-    <div style={{ ...CARD_COLUMN, maxWidth: 860 }}>
+    <div style={CARD_COLUMN}>
       {guide}
       <EntryMethodCard settlement={settlement} hasLines={editor.lines.length > 0} />
       {/* Entry first, comparison second: you arrive here to correct a figure, and
@@ -1723,7 +1723,7 @@ function PayoutTab({ settlement }: { settlement: EventSettlementData }) {
   }
 
   return (
-    <div style={{ ...CARD_COLUMN, maxWidth: 900 }}>
+    <div style={CARD_COLUMN}>
       <TotalPayouts settlement={settlement} />
       {/*
        * WHO OWES WHOM, and the transfers themselves — moved here on 2026-09-15.

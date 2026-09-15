@@ -332,7 +332,11 @@ function LineRow({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <span style={{ flex: "2 1 160px", fontSize: 13.5, display: "flex", gap: 6 }}>
+        {/* The label is the item that SHRINKS when the row runs out of room —
+            its text wraps and the controls keep their size. Without `minWidth: 0`
+            it has the same min-content floor the fields had, and the row grows
+            instead of the label wrapping. */}
+        <span style={{ flex: "2 1 160px", minWidth: 0, fontSize: 13.5, display: "flex", gap: 6 }}>
           {row.label}
           {/* Never budgeted — worth saying, because it is the answer to "why is
             this not in my plan?" rather than an error. */}
@@ -342,7 +346,14 @@ function LineRow({
         </span>
         {isCounted ? (
           <>
-            <div style={{ flex: "0 0 96px" }}>
+            {/* `minWidth: 0` on every boxed field in this row, and it is
+                load-bearing rather than tidy. A flex item's automatic minimum is
+                its MIN-CONTENT, which for a text input is far wider than the
+                96px basis here — so the basis was ignored, the row measured
+                881px inside 830, and the remove button wrapped onto a line of
+                its own. CLAUDE.md's rule, applied: remove the floor, do not buy
+                pixels. */}
+            <div style={{ flex: "0 0 96px", minWidth: 0 }}>
               <Input
                 value={quantity}
                 disabled={isFinalized || editor.isBusy}
@@ -362,7 +373,7 @@ function LineRow({
               />
             </div>
             <span style={{ color: "var(--dim)", fontSize: 12.5 }}>×</span>
-            <div style={{ flex: "0 0 110px" }}>
+            <div style={{ flex: "0 0 110px", minWidth: 0 }}>
               <Input
                 value={unitAmount}
                 disabled={isFinalized || editor.isBusy}
@@ -387,7 +398,7 @@ function LineRow({
             </span>
           </>
         ) : (
-          <div style={{ flex: "0 0 130px" }}>
+          <div style={{ flex: "0 0 130px", minWidth: 0 }}>
             <Input
               value={amount}
               disabled={isFinalized || editor.isBusy}
@@ -399,7 +410,7 @@ function LineRow({
             />
           </div>
         )}
-        <div style={{ flex: "1 1 150px" }}>
+        <div style={{ flex: "1 1 150px", minWidth: 0 }}>
           <Select
             value={partyId ?? ""}
             disabled={isFinalized || editor.isBusy}
