@@ -14,6 +14,13 @@ const TaskParams = z.object({ id: z.string().uuid() });
 
 // `budgetAmount` arrives as a STRING and is parsed to bigint minor units
 // (money.md) — never a JS number, which loses precision past 2^53.
+/**
+ * Ran's four words, in his order (ClickUp `123qy9rnk29`). Declared once and used
+ * by the create body, the update body and the response, so the three can never
+ * drift into accepting different spellings of the same idea.
+ */
+const TaskPriority = z.enum(["urgent", "high", "normal", "low"]);
+
 const CreateTaskBody = z.object({
   title: z.string().min(1),
   description: z.string().optional(),
@@ -29,6 +36,8 @@ const CreateTaskBody = z.object({
   assigneeParticipantId: z.string().uuid().optional(),
   budgetType: z.string().optional(),
   budgetAmount: z.string().min(1).optional(),
+  /** Urgent / high / normal / low, or absent for untagged (ClickUp `123qy9rnk29`). */
+  priority: TaskPriority.optional(),
   // An ABSOLUTE instant, ISO-8601 (`schema.tasks.remindAt` explains why it is not
   // an offset from `dueDate`). The client resolves the wall-clock the user picked
   // in the user's own zone; the API stores the moment, never the wall-clock.
@@ -43,6 +52,8 @@ const UpdateTaskBody = z.object({
   groupId: z.string().uuid().nullable().optional(),
   /** Null hands the task back to nobody in particular — an explicit unassign. */
   assigneeParticipantId: z.string().uuid().nullable().optional(),
+  /** Null takes the tag off entirely, back to untagged. */
+  priority: TaskPriority.nullable().optional(),
   budgetAmount: z.string().min(1).nullable().optional(),
   /** A new instant re-arms the reminder; null takes it off entirely. */
   remindAt: z.string().datetime().nullable().optional(),
@@ -71,6 +82,8 @@ const TaskResponse = z.object({
   completed: z.boolean(),
   completedAt: z.string().nullable(),
   dueDate: z.string().nullable(),
+  /** Urgent / high / normal / low, or null for untagged. */
+  priority: TaskPriority.nullable(),
   remindAt: z.string().nullable(),
   /** When the sweep rang this reminder. Non-null ⇒ it has fired and will not again. */
   remindedAt: z.string().nullable(),
@@ -115,6 +128,7 @@ function serializeTask(task: TaskRow, assigneeName: string | null): z.infer<type
     completed: task.completed,
     completedAt: task.completedAt ? task.completedAt.toISOString() : null,
     dueDate: task.dueDate,
+    priority: task.priority,
     remindAt: task.remindAt ? task.remindAt.toISOString() : null,
     remindedAt: task.remindedAt ? task.remindedAt.toISOString() : null,
     budgetType: task.budgetType,
@@ -379,6 +393,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
             title: body.title,
             description: body.description ?? null,
             dueDate: body.dueDate ?? null,
+            priority: body.priority ?? null,
             remindAt: body.remindAt ? new Date(body.remindAt) : null,
             budgetType: body.budgetType ?? null,
             budgetAmount: body.budgetAmount != null ? BigInt(body.budgetAmount) : null,
@@ -433,6 +448,10 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
       if (body.title !== undefined) fields.title = body.title;
       if (body.description !== undefined) fields.description = body.description;
       if (body.dueDate !== undefined) fields.dueDate = body.dueDate;
+      // `undefined` leaves the tag alone, `null` takes it off — the same
+      // three-state convention `assigneeParticipantId` and `remindAt` use, so a
+      // PATCH that says nothing about priority never silently untags a task.
+      if (body.priority !== undefined) fields.priority = body.priority;
       // Setting a reminder RE-ARMS it: `reminded_at` goes back to null, so the
       // sweep will ring an instant the user has just moved even if the previous
       // one already fired. Without this, "remind me again tomorrow" would be

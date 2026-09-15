@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PatchApiV1TasksId200Priority } from './patchApiV1TasksId200Priority';
 
 export type PatchApiV1TasksId200 = {
   id: string;
@@ -27,6 +28,8 @@ export type PatchApiV1TasksId200 = {
   completedAt: string | null;
   /** @nullable */
   dueDate: string | null;
+  /** @nullable */
+  priority: PatchApiV1TasksId200Priority;
   /** @nullable */
   remindAt: string | null;
   /** @nullable */

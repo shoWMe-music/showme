@@ -328,3 +328,13 @@ export const representationStatus = pgEnum("representation_status", [
  * side's confirmation.
  */
 export const representationParty = pgEnum("representation_party", ["agent", "performer"]);
+
+/**
+ * How much a task matters (ClickUp `123qy9rnk29`, Ran's four words in his order).
+ *
+ * **The declaration order IS the ranking**, most urgent first, so a sort can be
+ * expressed against the type rather than a CASE somebody has to keep in step.
+ * The column is nullable: NULL means *untagged*, which ranks below `low` —
+ * a job nobody has triaged should not outrank one somebody called unimportant.
+ */
+export const taskPriority = pgEnum("task_priority", ["urgent", "high", "normal", "low"]);

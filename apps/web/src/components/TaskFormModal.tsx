@@ -2,6 +2,7 @@ import { Button, Modal, Select, TextField } from "@showme/design-system";
 import type { FormEvent } from "react";
 import type { Group, Task } from "../hooks/useTaskBoard";
 import { useTaskForm } from "../hooks/useTaskForm";
+import { TASK_PRIORITIES, TASK_PRIORITY_LABEL, type TaskPriority } from "../lib/taskPriority";
 import { DateTimeField } from "./DateTimeField";
 
 /**
@@ -137,6 +138,23 @@ export function TaskFormModal({
             }}
           />
         </label>
+        {/* ClickUp `123qy9rnk29`. "No priority" is the first option and the
+            default, because untagged is a real answer and most tasks keep it —
+            pre-selecting "Normal" would tag every task somebody merely opened. */}
+        <Select
+          label="Priority"
+          value={form.priority}
+          onChange={(value) => form.setPriority(value as TaskPriority | "")}
+          placeholder="No priority"
+          searchable={false}
+          options={[
+            { value: "", label: "No priority" },
+            ...TASK_PRIORITIES.map((priority) => ({
+              value: priority,
+              label: TASK_PRIORITY_LABEL[priority],
+            })),
+          ]}
+        />
         <DateTimeField
           label="Due"
           type="date"

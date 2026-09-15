@@ -14,7 +14,7 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
-import { adminAlertKind, calendarItemType, templateCategory } from "./enums";
+import { adminAlertKind, calendarItemType, taskPriority, templateCategory } from "./enums";
 import { events, eventParticipants } from "./events";
 import { groups, profiles, users } from "./identity";
 
@@ -146,6 +146,14 @@ export const tasks = pgTable(
     completed: boolean("completed").notNull().default(false),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     dueDate: date("due_date"),
+    /**
+     * Urgent / high / normal / low, or NULL for untagged (ClickUp `123qy9rnk29`).
+     *
+     * Nullable with no default on purpose: defaulting every existing task to
+     * `normal` would claim somebody had triaged each one. Untagged ranks BELOW
+     * `low` wherever this is sorted — see `taskPriorityRank`.
+     */
+    priority: taskPriority("priority"),
     assigneeParticipantId: uuid("assignee_participant_id").references(() => eventParticipants.id),
     /**
      * THE INSTANT to speak up at — absolute, never an offset from `dueDate`.

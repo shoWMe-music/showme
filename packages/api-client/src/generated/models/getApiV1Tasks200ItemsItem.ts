@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { GetApiV1Tasks200ItemsItemPriority } from './getApiV1Tasks200ItemsItemPriority';
 
 export type GetApiV1Tasks200ItemsItem = {
   id: string;
@@ -27,6 +28,8 @@ export type GetApiV1Tasks200ItemsItem = {
   completedAt: string | null;
   /** @nullable */
   dueDate: string | null;
+  /** @nullable */
+  priority: GetApiV1Tasks200ItemsItemPriority;
   /** @nullable */
   remindAt: string | null;
   /** @nullable */

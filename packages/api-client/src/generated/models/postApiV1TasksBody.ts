@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PostApiV1TasksBodyPriority } from './postApiV1TasksBodyPriority';
 
 export type PostApiV1TasksBody = {
   /** @minLength 1 */
@@ -19,5 +20,6 @@ export type PostApiV1TasksBody = {
   budgetType?: string;
   /** @minLength 1 */
   budgetAmount?: string;
+  priority?: PostApiV1TasksBodyPriority;
   remindAt?: string;
 };

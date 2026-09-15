@@ -247,6 +247,90 @@ describe("tasks — the event's shared to-do list", () => {
   });
 });
 
+describe("tasks — priority (ClickUp 123qy9rnk29)", () => {
+  /**
+   * Ran: *"Let's add priority tags to tasks: Urgent, High, Normal, Low."*
+   *
+   * The state worth pinning is the THIRD one he did not name: a task with no tag
+   * at all. Every task written before this column existed is untagged, and most
+   * will stay that way, so `null` has to be a first-class answer rather than a
+   * gap that reads as `normal`.
+   */
+  it("creates a task with a priority, and without one", async () => {
+    await seedUserWithProfile("t-prio");
+
+    const tagged = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: auth("t-prio"),
+      payload: { title: "Chase the rider", priority: "urgent" },
+    });
+    expect(tagged.statusCode).toBe(201);
+    expect(tagged.json().priority).toBe("urgent");
+
+    // No priority in the body is UNTAGGED, not "normal". Defaulting here would
+    // claim somebody had judged this task ordinary.
+    const untagged = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: auth("t-prio"),
+      payload: { title: "Something nobody has triaged" },
+    });
+    expect(untagged.statusCode).toBe(201);
+    expect(untagged.json().priority).toBeNull();
+  });
+
+  it("takes all four of Ran's words and refuses anything else", async () => {
+    await seedUserWithProfile("t-prio-words");
+    for (const priority of ["urgent", "high", "normal", "low"]) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/tasks",
+        headers: auth("t-prio-words"),
+        payload: { title: `A ${priority} job`, priority },
+      });
+      expect(response.statusCode, priority).toBe(201);
+      expect(response.json().priority).toBe(priority);
+    }
+
+    // An enum, not a free string — so "Urgent" and "urgent" cannot coexist and
+    // sort apart.
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: auth("t-prio-words"),
+      payload: { title: "Shouting", priority: "URGENT" },
+    });
+    expect(rejected.statusCode).toBe(400);
+  });
+
+  it("changes a tag, and takes one off with null — but leaves it alone when unmentioned", async () => {
+    await seedUserWithProfile("t-prio-patch");
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: auth("t-prio-patch"),
+      payload: { title: "Book the van", priority: "low" },
+    });
+    const taskId = created.json().id;
+    const patch = (payload: Record<string, unknown>) =>
+      app.inject({
+        method: "PATCH",
+        url: `/api/v1/tasks/${taskId}`,
+        headers: auth("t-prio-patch"),
+        payload,
+      });
+
+    expect((await patch({ priority: "high" })).json().priority).toBe("high");
+
+    // THE ONE THAT MATTERS: a PATCH about something else must not untag the task.
+    // `undefined` leaves it alone, `null` removes it — the same three-state
+    // convention `assigneeParticipantId` and `remindAt` already use here.
+    expect((await patch({ title: "Book the van (9am)" })).json().priority).toBe("high");
+    expect((await patch({ priority: null })).json().priority).toBeNull();
+  });
+});
+
 describe("tasks — the assignee", () => {
   /**
    * A host on their own event, plus a second profile really on the bill: the

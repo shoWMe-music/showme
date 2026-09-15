@@ -15,6 +15,7 @@ import {
   scopeOf,
 } from "../hooks/useTaskBoard";
 import { TaskAssigneeTag } from "./TaskAssigneeTag";
+import { TaskPriorityBadge } from "./TaskPriorityBadge";
 import { Eyebrow } from "./primitives";
 
 /**
@@ -249,6 +250,7 @@ function TaskBoardCard({
       </span>
       <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <Badge status={SCOPE_META[scope].status}>{SCOPE_META[scope].label}</Badge>
+        <TaskPriorityBadge priority={task.priority} />
         {task.dueDate && (
           <span
             style={{

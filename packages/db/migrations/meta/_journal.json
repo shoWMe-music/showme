@@ -288,6 +288,13 @@
       "when": 1788912245009,
       "tag": "0040_an_operator_may_open_the_books",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1788912245010,
+      "tag": "0041_a_task_can_say_how_much_it_matters",
+      "breakpoints": true
     }
   ]
 }

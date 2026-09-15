@@ -14285,6 +14285,11 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "priority": {
+                            "type": "string",
+                            "enum": ["urgent", "high", "normal", "low"],
+                            "nullable": true
+                          },
                           "remindAt": {
                             "type": "string",
                             "nullable": true
@@ -14321,6 +14326,7 @@
                           "completed",
                           "completedAt",
                           "dueDate",
+                          "priority",
                           "remindAt",
                           "remindedAt",
                           "budgetType",
@@ -14389,6 +14395,10 @@
                     "type": "string",
                     "minLength": 1
                   },
+                  "priority": {
+                    "type": "string",
+                    "enum": ["urgent", "high", "normal", "low"]
+                  },
                   "remindAt": {
                     "type": "string",
                     "format": "date-time"
@@ -14453,6 +14463,11 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "priority": {
+                      "type": "string",
+                      "enum": ["urgent", "high", "normal", "low"],
+                      "nullable": true
+                    },
                     "remindAt": {
                       "type": "string",
                       "nullable": true
@@ -14489,6 +14504,7 @@
                     "completed",
                     "completedAt",
                     "dueDate",
+                    "priority",
                     "remindAt",
                     "remindedAt",
                     "budgetType",
@@ -14537,6 +14553,11 @@
                   "assigneeParticipantId": {
                     "type": "string",
                     "format": "uuid",
+                    "nullable": true
+                  },
+                  "priority": {
+                    "type": "string",
+                    "enum": ["urgent", "high", "normal", "low"],
                     "nullable": true
                   },
                   "budgetAmount": {
@@ -14619,6 +14640,11 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "priority": {
+                      "type": "string",
+                      "enum": ["urgent", "high", "normal", "low"],
+                      "nullable": true
+                    },
                     "remindAt": {
                       "type": "string",
                       "nullable": true
@@ -14655,6 +14681,7 @@
                     "completed",
                     "completedAt",
                     "dueDate",
+                    "priority",
                     "remindAt",
                     "remindedAt",
                     "budgetType",

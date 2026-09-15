@@ -20,6 +20,7 @@ import { SegmentedToggle } from "../components/SegmentedToggle";
 import { TaskAssigneeTag } from "../components/TaskAssigneeTag";
 import { TaskBoard } from "../components/TaskBoard";
 import { TaskFormModal } from "../components/TaskFormModal";
+import { TaskPriorityBadge } from "../components/TaskPriorityBadge";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
 import {
@@ -497,6 +498,7 @@ function TaskRow({
           ) : (
             <Badge status={SCOPE_META[scope].status}>{SCOPE_META[scope].label}</Badge>
           )}
+          <TaskPriorityBadge priority={task.priority} />
         </span>
         {task.dueDate && (
           <span

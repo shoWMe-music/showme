@@ -6,6 +6,7 @@ import {
 import { useToast } from "@showme/design-system";
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../lib/errors";
+import type { TaskPriority } from "../lib/taskPriority";
 import type { Task } from "./useTaskBoard";
 
 /**
@@ -29,6 +30,15 @@ export interface TaskForm {
   setDescription: (description: string) => void;
   dueDate: string;
   setDueDate: (dueDate: string) => void;
+  /**
+   * Urgent / high / normal / low, or "" for untagged (ClickUp `123qy9rnk29`).
+   *
+   * "" rather than a default, because untagged is a real answer and most tasks
+   * keep it — a form that pre-selects "normal" would tag every task somebody
+   * opened the dialog on.
+   */
+  priority: TaskPriority | "";
+  setPriority: (priority: TaskPriority | "") => void;
   /** A `datetime-local` string ("yyyy-mm-ddThh:mm") in the reader's OWN zone. */
   remindAt: string;
   setRemindAt: (remindAt: string) => void;
@@ -126,6 +136,7 @@ export function useTaskForm({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [priority, setPriority] = useState<TaskPriority | "">("");
   const [remindAt, setRemindAt] = useState("");
   const [groupId, setGroupId] = useState("");
   const [assigneeParticipantId, setAssigneeParticipantId] = useState("");
@@ -138,6 +149,7 @@ export function useTaskForm({
     setDescription(task?.description ?? "");
     // "yyyy-mm-dd" — the exact shape a `type="date"` input round-trips.
     setDueDate(task?.dueDate ? task.dueDate.slice(0, 10) : (initialDueDate ?? ""));
+    setPriority((task?.priority as TaskPriority | null) ?? "");
     setRemindAt(instantToLocalInput(remindAtOf(task)));
     setGroupId(task?.groupId ?? "");
     setAssigneeParticipantId(task?.assigneeParticipantId ?? "");
@@ -200,6 +212,9 @@ export function useTaskForm({
         title: title.trim(),
         description: description.trim() || null,
         dueDate: due ?? null,
+        // Same reasoning as the reminder below: always sent, so clearing the
+        // select means "take the tag off" rather than leaving the old one on.
+        priority: priority || null,
         // Always sent, never omitted: clearing the field has to mean "take the
         // reminder off", and an omitted key would leave the old instant armed.
         remindAt: remind,
@@ -213,6 +228,7 @@ export function useTaskForm({
       title: title.trim(),
       ...(description.trim() ? { description: description.trim() } : {}),
       ...(due ? { dueDate: due } : {}),
+      ...(priority ? { priority } : {}),
       ...(remind ? { remindAt: remind } : {}),
       ...(groupId ? { groupId } : {}),
       ...(eventId ? { eventId } : {}),
@@ -230,6 +246,8 @@ export function useTaskForm({
     setDescription,
     dueDate,
     setDueDate,
+    priority,
+    setPriority,
     remindAt,
     setRemindAt,
     groupId,

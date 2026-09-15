@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PatchApiV1TasksIdBodyPriority } from './patchApiV1TasksIdBodyPriority';
 
 export type PatchApiV1TasksIdBody = {
   /** @minLength 1 */
@@ -20,6 +21,8 @@ export type PatchApiV1TasksIdBody = {
   groupId?: string | null;
   /** @nullable */
   assigneeParticipantId?: string | null;
+  /** @nullable */
+  priority?: PatchApiV1TasksIdBodyPriority;
   /**
    * @minLength 1
    * @nullable
