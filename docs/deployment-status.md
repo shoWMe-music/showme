@@ -1,3 +1,92 @@
+# Deployed — 2026-09-15 (the settlement surface, built from Ran's design)
+
+| | |
+|---|---|
+| **Database** | migrations **0039** (`settlement_lines.visible_to`) and **0040** (`settlements.full_access`). 39 applied → **41**. |
+| **API** | `showme-api-00034-mz6` (was `00033-m58`), 100% of traffic. Routine `--source` deploy; configuration untouched. |
+| **Web app** | `showme-app.web.app` — bundle `index-C6I7Bfi5.js`, served copy matches the local build byte for byte (sha256 `df24c5a2…`). |
+| **Infrastructure** | Untouched. No terraform. |
+
+## The order was forced, as it was in September
+
+Columns first, then an API that `select`s `visible_to` and `full_access` BY NAME
+— deployed ahead of the migration, every settlement route 500s — then a web app
+that reads `adjustedNet` / `netRevenue`, which the old API does not send.
+
+**The migration moved schema and not data.** Verified after applying: `visible_to`
+nullable with no default, `full_access` `NOT NULL DEFAULT false`, and **0 rows
+curated, 0 rows granted**. Nothing recomputes and no backfill is owed.
+
+## Production was NOT what the docs said, and that changed the briefing
+
+`handoff-2026-09-14` recorded **zero** settlement lines. Read on 2026-09-15
+through the proxy, before migrating:
+
+```
+settlements        8   (all 8 with `computed`)
+settlement_lines   1
+settlement_snapshots 0
+transfers          1
+```
+
+Somebody has been settling on production since. All eight sit on Ran's test
+events — `Ran Nir` ×4, `Ran test 3`, `asdasdasd`, `Hhhhh`, `adw` — and **all eight
+carry the OLD ladder shape** (`pool`, not `netRevenue`).
+
+That is safe and worth understanding rather than trusting: stored figures are
+never rewritten by a deploy, and `poolLadderOf` reads the old shape, so nothing
+restated itself. **But the waterfall (decisions.md #24.1) changes what a RECOMPUTE
+pays.** The moment anyone presses Recalculate on those events the figures move —
+by design, and only on test data. Nothing is finalized (0 snapshots), so nothing
+was legally frozen either way.
+
+## The API was verified by CONTENT
+
+CLAUDE.md's rule that a post-deploy check can be answered by the revision you just
+replaced. `GET /openapi.json` on the live service, 158 paths:
+
+- `adjustedNet` ×4, `netRevenue` ×4, `attributed` ×28, `visibleTo` ×4,
+  `seedFromBudget`, `fullAccess` — all things only the new build can emit
+- `doorBase` **×0**, `splitPool` **×0** — the old ladder's names, gone
+- `PUT /api/v1/events/{id}/settlement/curation` and
+  `GET /api/v1/events/{id}/settlement/preview` both present
+
+## Three of the four credentials had expired, in sequence
+
+Exactly as CLAUDE.md warns, and each surfaced only when the step that needed it
+ran:
+
+1. **ADC** — `cloud-sql-proxy` failed with `invalid_grant / reauth related error
+   (invalid_rapt)`, which reads nothing like "your login expired".
+   `gcloud auth application-default login`.
+2. **gcloud CLI** — `gcloud run deploy` refused: *"Reauthentication failed. cannot
+   prompt during non-interactive execution."* A separate credential from the ADC.
+   `gcloud auth login`.
+3. **firebase** — `firebase deploy` refused for the same reason.
+   `firebase login --reauth` was safe here because `firebase login:list` showed
+   **one** account; with two it would have replaced the other (use `login:add`).
+
+**Two of the three refuse to run without a TTY.** `gcloud` works backgrounded with
+the browser-callback flow (NOT `--no-launch-browser`, which then wants a code on
+stdin that a background process cannot supply). `firebase login` refuses outright
+— `script -q /dev/null npx firebase login --reauth` gives it the pseudo-terminal
+it wants and prints the URL.
+
+The impersonation ADC was restored from
+`~/.config/gcloud/application_default_credentials.firebase-impersonation.bak.json`
+after the migration, so local dev still signs Storage URLs.
+
+## What is live, and what is still not proven
+
+Live: the waterfall engine, six tabs plus Comments, per-line curation, the
+full-access grant, the send-for-review modal, the entry-method choice.
+
+**Still never done: a real event settled on production.** One settlement line and
+eight computed rows on test events is not the same thing, and the acceptance test
+for all of this is one real show settled end to end.
+
+---
+
 # Deployed — 2026-09-14 (the budget planner, rebuilt to the design)
 
 | | |

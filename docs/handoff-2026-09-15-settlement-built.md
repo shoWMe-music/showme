@@ -86,12 +86,20 @@ red since 2026-09-05" is marked as stale there; do not inherit it as the status.
 
 ## 5. What is NOT done
 
-1. **No real event has ever been settled.** Production still holds zero
-   `settlement_lines`. Every claim here is proven on fixtures, the seeded e2e
-   event and the browser — never on a real night. **Settling one real show is the
-   acceptance test that has not been run.**
-2. **Migrations 0039 and 0040 have not been applied to production.** Both are
-   additive and nullable/defaulted; neither has run there.
+1. **No real event has ever been settled.** **Corrected 2026-09-15 during the
+   deploy:** production is not empty any more — 8 settlements with `computed`, 1
+   settlement line, 1 transfer — but all eight sit on Ran's TEST events (`Ran Nir`
+   ×4, `Ran test 3`, `asdasdasd`, `Hhhhh`, `adw`) and nothing is finalized. Every
+   claim here is still proven on fixtures, the seeded e2e event and the browser,
+   never on a real night. **Settling one real show is the acceptance test that has
+   not been run.**
+
+   Those eight carry the OLD ladder shape. A deploy never rewrites stored figures
+   and `poolLadderOf` reads the old shape — but the waterfall changes what a
+   RECOMPUTE pays, so pressing Recalculate on them moves the numbers. By design,
+   and only on test data.
+2. ~~**Migrations 0039 and 0040 have not been applied to production.**~~
+   **Applied 2026-09-15** (39 → 41), with 0 rows curated and 0 granted after.
 3. **The terminology session** (`123qy9rng6d`) is still in backlog. Ran's standing
    note — *"the language across the new design is super confusing … we need to redo
    this together"* — still stands, and vocabulary decided there overrides every
