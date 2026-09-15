@@ -1,0 +1,33 @@
+-- AN OPERATOR MAY OPEN THE BOOKS, TO ONE NAMED PARTY, ON ONE SETTLEMENT.
+--
+-- This reverses a rule this codebase has called inviolable, so it says so plainly
+-- rather than arriving as a column nobody can account for.
+--
+-- `story.md:44` reads: a performer sees "only their own slice — never the event
+-- budget/pool … **even if an operator wanted to show them**", and
+-- `POOL_CAPABILITIES` in `packages/auth` is that sentence compiled. Ran's design
+-- puts the opposite in the send-for-review modal — a **Full settlement access**
+-- toggle, *"Let recipients see all parties' financial details"* — and the product
+-- owner's decision on 2026-09-15 is that the operator may grant it. See
+-- `docs/decisions.md` #24.
+--
+-- WHAT IT IS NOT. It is not `budget.view`, which remains ungrantable: it does not
+-- reach the Budget Planner, any other event, or anything else `POOL_CAPABILITIES`
+-- guards. It is a grant of THIS settlement's waterfall and the other parties'
+-- figures on THIS event, to the party whose own settlement row carries it.
+--
+-- A STORED GRANT, NOT A REQUEST FLAG, and that is the difference between a rule and
+-- a suggestion. The API decides what a caller may see by reading this column, the
+-- same way `includePool` is decided today; a client that asks nicely changes
+-- nothing. It is written by the send-for-review route, so every grant lands in the
+-- audit trail beside the act that made it — the question "who opened the books, and
+-- when" has an answer.
+--
+-- Per SETTLEMENT ROW, which is per participant, because that is the shape of the
+-- decision: an operator opening the books to the promoter has not opened them to
+-- the support act.
+--
+-- DEFAULT FALSE, as the design draws the toggle. Concealment stays the resting
+-- state; disclosure is an act somebody performed.
+ALTER TABLE "settlements"
+  ADD COLUMN IF NOT EXISTS "full_access" boolean NOT NULL DEFAULT false;

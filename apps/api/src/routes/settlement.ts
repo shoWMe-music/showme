@@ -1535,6 +1535,24 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       const visible = new Set<string>([...mine, ...(await partiesVisibleTo(database, id, mine))]);
 
       const settlementRows = await settlementRowsOf(database, id);
+      /**
+       * FULL SETTLEMENT ACCESS — the grant on this party's own settlement row
+       * (decisions.md #24, migration 0040, the design's send-for-review toggle).
+       *
+       * Read from the STORED column, never from anything the client sent. It opens
+       * two things and only two: every party's figures on this event, and the
+       * waterfall. It is not `budget.view` — the Budget Planner, other events and
+       * everything else `POOL_CAPABILITIES` guards are untouched.
+       */
+      const granted = settlementRows.some(
+        (row) => row.participantId != null && mine.has(row.participantId) && row.fullAccess,
+      );
+      if (granted) {
+        for (const row of settlementRows) {
+          if (row.participantId != null) visible.add(row.participantId);
+        }
+      }
+      const mayReadThePool = capabilities.has("budget.view") || granted;
       const transferRows = await database
         .select()
         .from(schema.settlementTransfers)
@@ -1627,7 +1645,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           // Same gate as `ladder` below, for the same figure: `basis.base` IS
           // `ladder.doorBase`, and `door / basisPoints` recovers it. Withholding
           // one while serving the other would be a ceiling that only looks closed.
-          ...serializeSettlement(row, { includePool: capabilities.has("budget.view") }),
+          ...serializeSettlement(row, { includePool: mayReadThePool }),
           isYours: mine.has(row.participantId as string),
           // Still the CALLER's own signature, never the roster's. The roster now
           // covers every visible party, and reading it here would tell an operator
@@ -1650,7 +1668,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         // ceiling already draws around pool figures (`POOL_CAPABILITIES` in
         // `packages/auth`), so asking it here means the settlement screen and the
         // budget planner can never disagree about who may read the pool.
-        ladder: capabilities.has("budget.view") ? ladderOf(visibleSettlements) : null,
+        ladder: mayReadThePool ? ladderOf(visibleSettlements) : null,
         // HOW EACH PARTY IS REACHED — the operator's half of the review step.
         //
         // Only for a caller who can send it out. Whether somebody has an account,
@@ -2046,6 +2064,17 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
            * caterer's invoice to arrive before being asked to sign.
            */
           participantIds: z.array(z.string().uuid()).min(1).optional(),
+          /**
+           * GRANT THE RECIPIENTS THE WHOLE SETTLEMENT — the design's "Full
+           * settlement access" toggle (decisions.md #24).
+           *
+           * Applied to the rows this call sends to, so the grant and the send are
+           * one act and land in one audit row. Omitted leaves each party's grant
+           * exactly as it was: a re-send is not a silent revocation, and an
+           * operator who granted access last week has not withdrawn it by pressing
+           * send again.
+           */
+          fullAccess: z.boolean().optional(),
         }),
         response: {
           200: z.object({
@@ -2060,7 +2089,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
     async (request) => {
       const { database } = request.server;
       const { id } = request.params;
-      const { status, note } = request.body;
+      const { status, note, fullAccess } = request.body;
 
       await requireEventCapability(request, id, REVIEW_STATUS_CAPABILITY[status]);
 
@@ -2105,10 +2134,18 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       const updated = await database.transaction(async (tx) => {
         let count = 0;
         for (const row of partyRows) {
-          if (row.status === status) continue;
+          // The GRANT can change even when the status does not — an operator
+          // re-sending to a party already under review, having decided to open the
+          // books. Skipping on status alone would silently drop it.
+          const grantChanged = fullAccess != null && fullAccess !== row.fullAccess;
+          if (row.status === status && !grantChanged) continue;
           const [after] = await tx
             .update(schema.settlements)
-            .set({ status, updatedAt: new Date() })
+            .set({
+              status,
+              ...(fullAccess != null ? { fullAccess } : {}),
+              updatedAt: new Date(),
+            })
             .where(eq(schema.settlements.id, row.id))
             .returning();
           if (after) count += 1;
@@ -2118,8 +2155,10 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
             targetKind: "settlement",
             targetId: row.id,
             eventId: id,
-            before: { status: row.status },
-            after: { status },
+            // The grant is in the audit row, both sides of it. "Who opened the
+            // books, and when" is the question #24 has to be able to answer.
+            before: { status: row.status, fullAccess: row.fullAccess },
+            after: { status, fullAccess: fullAccess ?? row.fullAccess },
           });
         }
         // ONE activity row for the event, not one per party. The status is a fact
@@ -2495,13 +2534,12 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
        * next reader of this route would not think to look.
        */
       const capabilities = await requireEventCapability(request, id, "event.view");
-      const mayReadEverything = capabilities.has("budget.view");
       const rows = await database
         .select()
         .from(schema.settlementLines)
         .where(eq(schema.settlementLines.eventId, id))
         .orderBy(asc(schema.settlementLines.createdAt));
-      if (mayReadEverything) {
+      if (capabilities.has("budget.view")) {
         return rows.map((row) => serializeLine(row, { includeCuration: true }));
       }
       const mine = await participantIdsOf(
@@ -2509,6 +2547,17 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         id,
         principal.memberships.map((membership) => membership.profileId),
       );
+      // A party granted full access reads every line, because that is what the
+      // grant says (#24). The curation still governs everybody else — the two are
+      // different mechanisms and the grant is the wider of them.
+      const settlementsHere = await settlementRowsOf(database, id);
+      if (
+        settlementsHere.some(
+          (row) => row.participantId != null && mine.has(row.participantId) && row.fullAccess,
+        )
+      ) {
+        return rows.map((row) => serializeLine(row));
+      }
       return rows
         .filter((row) => (visibleToOf(row) ?? []).some((participantId) => mine.has(participantId)))
         .map((row) => serializeLine(row));

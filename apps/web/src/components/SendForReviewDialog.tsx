@@ -1,0 +1,152 @@
+import { Button, Icon, Modal, Select, Toggle } from "@showme/design-system";
+import { useState } from "react";
+import { Eyebrow } from "./primitives";
+import type { EventSettlement } from "./useEventSettlement";
+
+/**
+ * SEND SETTLEMENT FOR REVIEW — Ran's modal, from the two screenshots he attached
+ * (`claude-prototype/ran-2026-09-10/send-for-review-1.png`, `-2.png`).
+ *
+ * Three decisions in one dialog: everyone or one party, which party, and whether
+ * they may see the whole thing.
+ *
+ * **The "Full settlement access" toggle is a reversal, not a convenience.**
+ * `story.md:44` said a performer never sees the pool "even if an operator wanted
+ * to show them"; the owner's decision on 2026-09-15 (decisions.md #24.2) is that
+ * they may. The switch is drawn OFF every time the dialog opens even when a
+ * standing grant exists, because it is a statement about THIS send: leaving it on
+ * because somebody was granted access last month would make an operator re-grant
+ * by not noticing.
+ *
+ * Dumb: it collects three values and hands them to `settlement.sendForReview`.
+ * What a grant means, and where it stops, is the API's.
+ */
+export function SendForReviewDialog({
+  settlement,
+  onClose,
+}: { settlement: EventSettlement; onClose: () => void }) {
+  const [mode, setMode] = useState<"all" | "one">("all");
+  /*
+   * OTHER PEOPLE FIRST. `delivery` includes the operator's own row — a
+   * co-operator reviewing is a real thing — but defaulting the recipient to
+   * YOURSELF makes the commonest use of this dialog (send it to the act) a
+   * two-step, and the commonest mistake (send it to nobody) a one-step.
+   */
+  const recipients = [...settlement.delivery].sort((left, right) => {
+    const mine = settlement.ownParty?.participantId;
+    return Number(left.participantId === mine) - Number(right.participantId === mine);
+  });
+  const [recipientId, setRecipientId] = useState<string>(recipients[0]?.participantId ?? "");
+  const [fullAccess, setFullAccess] = useState(false);
+  const chosen = recipients.find((row) => row.participantId === recipientId) ?? null;
+  const canSend = mode === "all" ? recipients.length > 0 : chosen != null;
+
+  const send = () => {
+    settlement.sendForReview({
+      ...(mode === "one" && chosen ? { participantIds: [chosen.participantId] } : {}),
+      fullAccess,
+    });
+    onClose();
+  };
+
+  return (
+    // The design system's Modal, not a hand-rolled overlay. The first attempt was
+    // a `position: fixed` scrim of its own and it rendered INSIDE the page column
+    // rather than over the viewport — an ancestor of the settlement page
+    // establishes a containing block, so "fixed" was fixed to it. `Modal` portals
+    // to `document.body` and has no such problem, which is the whole argument for
+    // not rebuilding what the system already has.
+    <Modal
+      open
+      onClose={onClose}
+      title="Send settlement for review"
+      width={520}
+      // It holds a choice the operator has made — the mode, the recipient, and a
+      // disclosure decision. A click a millimetre outside must not discard that.
+      dismissOnScrim={false}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            disabled={!canSend || settlement.isBusy}
+            leftIcon={<Icon name="mail" size={14} />}
+            onClick={send}
+          >
+            Send for review
+          </Button>
+        </>
+      }
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <p className="muted" style={{ margin: 0, fontSize: 13.5, lineHeight: 1.55 }}>
+          Collaborators see only their own settlement details unless you grant full access.
+        </p>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Button variant={mode === "all" ? "primary" : "secondary"} onClick={() => setMode("all")}>
+            All collaborators
+          </Button>
+          <Button variant={mode === "one" ? "primary" : "secondary"} onClick={() => setMode("one")}>
+            One by one
+          </Button>
+        </div>
+
+        {mode === "one" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <Eyebrow>Recipient</Eyebrow>
+            <Select
+              value={recipientId}
+              onChange={setRecipientId}
+              options={recipients.map((row) => ({
+                value: row.participantId,
+                label: `${row.name} (${row.role})`,
+              }))}
+            />
+          </div>
+        )}
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 14,
+            padding: "12px 14px",
+            borderRadius: 12,
+            border: "1px solid var(--border)",
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 600 }}>Full settlement access</div>
+            <span className="muted" style={{ fontSize: 12.5 }}>
+              Let {mode === "one" && chosen ? chosen.name : "recipients"} see all parties' financial
+              details and the event's totals.
+            </span>
+          </div>
+          <Toggle
+            checked={fullAccess}
+            onChange={setFullAccess}
+            label="Grant full settlement access"
+          />
+        </div>
+
+        {/* WHAT THE OPERATOR IS ABOUT TO DO, in a sentence, because it is a
+            disclosure they cannot un-make quietly — it is recorded, and the party
+            will have seen it. */}
+        {fullAccess && (
+          <span
+            className="muted"
+            style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 12.5 }}
+          >
+            <Icon name="eye" size={14} style={{ marginTop: 2, flexShrink: 0 }} />
+            They will see the whole night — every party's figures and what the event took. You can
+            withdraw it later, and the grant is recorded either way.
+          </span>
+        )}
+      </div>
+    </Modal>
+  );
+}

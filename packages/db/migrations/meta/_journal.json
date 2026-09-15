@@ -281,6 +281,13 @@
       "when": 1788912245008,
       "tag": "0039_a_line_is_shown_because_you_showed_it",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1788912245009,
+      "tag": "0040_an_operator_may_open_the_books",
+      "breakpoints": true
     }
   ]
 }

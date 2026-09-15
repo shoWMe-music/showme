@@ -42,7 +42,13 @@ different roles in different events.
 - **Purpose.** The act being booked — a **band, DJ, or solo artist**. They receive offers, negotiate their deal,
   perform, and get paid. Their world is "my bookings, my availability, my riders, my money."
 - **Boundary.** A performer sees **only their own slice** — never the event budget/pool or other parties'
-  financials, even within a shared event and even if an operator *wanted* to show them (an inviolable ceiling). A
+  financials, by default and unless the operator deliberately opens them.
+  **Amended 2026-09-15 (decisions.md #24).** This line used to end "even if an operator *wanted* to
+  show them (an inviolable ceiling)", and the ceiling is no longer absolute: the settlement's
+  send-for-review step carries a **Full settlement access** grant, per party, per settlement, stored
+  and audited. What has NOT moved: the default is still closed, the grant is the operator's to make
+  and not the performer's to ask for, and it reaches that one settlement only — never the Budget
+  Planner, never another event, never anything else `POOL_CAPABILITIES` guards. A
   performer promoting their own show is wearing an **operator** role for that event, not stretching the performer
   kind. Their **merch and broader career are theirs** — not the operator's, and (see Agent) not their booking
   agent's.

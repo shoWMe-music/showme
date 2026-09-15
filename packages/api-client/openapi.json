@@ -8282,6 +8282,9 @@
                       "format": "uuid"
                     },
                     "minItems": 1
+                  },
+                  "fullAccess": {
+                    "type": "boolean"
                   }
                 },
                 "required": ["status"],

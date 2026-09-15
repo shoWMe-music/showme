@@ -985,6 +985,12 @@ Removing the event cap was safe regardless — it takes a restriction away.
 
 ## 23. The door split is a share of gross ticket revenue, not of the pool (2026-09-13)
 
+> **PARTLY REVERSED 2026-09-15 — read #24.1 before implementing anything below.**
+> #23.1 (the split base) and the off-the-top retirement were overturned by the owner in
+> favour of the design's waterfall. **#23.2 and #23.3 still stand.** The reasoning here is
+> kept because it is the reasoning anyone will hit when they read `reconcile.ts`, and
+> because it is the argument a third reversal would have to answer.
+
 **Daniel, choosing between Ran's own two implementations:** *"D1 his planner."* Ran's Budget Planner
 prototype and his settlement spec disagree about what a percentage deal is a percentage OF, and the
 planner wins. Three linked calls were made in the same session; all three reverse shipped behaviour, so
@@ -1076,6 +1082,98 @@ measure?"*, open and unanswered since 2026-08-26.
 `reconcile.ts` changing its split base **alters figures on settlements already computed**. A recompute
 diff against existing events is required before it ships, not after. Everything else in 23.2 and 23.3 is
 additive or a one-line comparison change.
+
+## 24. Two reversals, both the owner's, both recorded here rather than left in a diff (2026-09-15)
+
+Ran's settlement design arrived on 2026-09-10 (ClickUp `123qy9rnwud`; the rendered
+prototype and every tab screenshot are in `claude-prototype/ran-2026-09-10/`). Two of
+its rules contradict decisions this file already holds. Both were put to the product
+owner on 2026-09-15 with the contradiction stated, and both were decided against the
+existing rule.
+
+### 24.1 The waterfall is the design's — #23.1 is REVERSED
+
+```
+Gross revenue  −  Deductions  =  Net revenue  −  Venue rental (off the top)  =  Adjusted net
+```
+
+and **every percentage divides the adjusted net**. This reverses **#23.1** (a split is a
+share of gross ticket revenue) and un-retires off-the-top rentals, both settled on
+2026-09-13, two days earlier.
+
+**#23.2 and #23.3 stand.** A deduction and a revenue share remain different things, and a
+bonus threshold still measures gross revenue — the spec's prose implies otherwise but its
+own §7 code reads `if (totalRevenue >= d.bonusThreshold)`, and the code beats the
+implication.
+
+**What it costs, said plainly and measured rather than estimated:**
+
+- On a night that **lost money, a pure door-split act is now paid nothing.** 50% of a
+  negative adjusted net is negative and the floor (product owner, 2026-08-26) takes it to
+  zero. Under #23.1 the same act took its share of the door and the operator carried the
+  loss alone. An act that cannot carry that risk signs a guarantee.
+- Every figure moves. The seeded reference event's performer went 54 600 → 48 300 → 52 800
+  → **46 500** across three rule changes; the same 6 300.00 SEK has now moved twice, both
+  times out of the performer's share. That is why this is the owner's call and not a
+  detail to be tidied by whoever is passing.
+- The **Budget Planner moves with the engine**, in the same commit. `useBudgetSeed` builds
+  its own `EntitlementBases` and calls the same function, so a split would otherwise have
+  quoted the forecast one fee and the settlement another.
+
+**The design is not self-consistent here, and that is worth knowing before anyone reads it
+as scripture.** Its Deal-structure tab states the performer earns €53,760 — 70% of the
+€76,800 box office, which is #23.1's rule — while its Overview pays €50,750, 70% of the
+€72,500 adjusted net. Same deal, same night, two answers, and its Planned-vs-actual table
+then presents the €3,010 gap between the two rules as if it were a variance in the night's
+takings. We took the Overview reading and labelled the box-office one an illustration, in
+the design's own words: *"box office only, before costs and rental."*
+
+### 24.2 An operator MAY open the books — story.md:44 is amended
+
+The send-for-review modal carries a **Full settlement access** toggle: *"Let recipients see
+all parties' financial details."* `story.md:44` said a performer sees "only their own slice
+… **even if an operator wanted to show them**", and called it an inviolable ceiling;
+`POOL_CAPABILITIES` in `packages/auth` is that sentence compiled. The toggle is precisely an
+operator wanting to show them, and the owner's answer is that they may.
+
+So the ceiling moves, and these are the limits it moves to:
+
+- **A stored grant, not a request flag.** `settlements.full_access`, on the recipient's own
+  settlement row (migration `0040`). The API decides what a caller may see by reading the
+  column; a client asking nicely changes nothing.
+- **Per party, per settlement.** Opening the books to the promoter has not opened them to
+  the support act.
+- **Not `budget.view`.** It reaches this settlement's waterfall and the other parties'
+  figures on this event. The Budget Planner, other events and everything else
+  `POOL_CAPABILITIES` guards are untouched, and a test asserts the forecast stays shut to a
+  granted party.
+- **Default off, and audited.** Concealment is the resting state; every grant lands in the
+  audit trail beside the send that made it, both sides of the change, so "who opened the
+  books, and when" has an answer.
+- **A re-send without the flag does not revoke it.** Silence about access is silence, not
+  withdrawal; withdrawing is an explicit `fullAccess: false`.
+
+### 24.3 What curation is, and what it is not
+
+Ran's §5 — *"curate what each collaborator sees"* — is a **separate, narrower** mechanism
+and not a weaker version of 24.2. It discloses individual settlement LINES to named
+participants (`settlement_lines.visible_to`, migration `0039`), and it never touches the
+totals.
+
+The polarity is the safety of it: stored as "visible to" rather than "hidden from", NULL
+means *shown to nobody*, which is exactly what was true before the column existed. The
+inverse spelling would have disclosed every cost on every event to every performer on the
+day it shipped.
+
+It is per **participant**, not per role, which is the one place we knowingly build something
+the design draws differently: its curation card has a tab per role because its prototype has
+one performer, and a real bill has two. The role tabs stay in the UI.
+
+**The prototype's own curated view leaks and ours must not.** Switch its "Viewing as" to
+Performer: six of eight lines correctly disappear, and the page then prints Total revenue,
+Total deductions, Venue rental, Adjusted net and a Total Payouts card naming the venue's
+payout — every one of them derived from the lines just withheld. A test discloses *every*
+line to a performer and asserts their `ladder` is still null.
 
 ## Still-open product calls (not yet decided)
 

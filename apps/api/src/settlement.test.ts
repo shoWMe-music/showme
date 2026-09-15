@@ -622,6 +622,174 @@ describe("settlement — curating what each collaborator sees (Ran's §5)", () =
   });
 });
 
+describe("settlement — full settlement access (decisions #24)", () => {
+  /**
+   * THE RULE THIS REVERSES, and why the tests say so.
+   *
+   * story.md:44 said a performer sees "only their own slice — never the event
+   * budget/pool … even if an operator wanted to show them". The design's
+   * send-for-review modal offers exactly that, and the owner's decision on
+   * 2026-09-15 is that the operator may grant it (#24). These pin both halves: the
+   * grant works, and it stops where #24 says it stops.
+   */
+  const settlementsAs = (eventId: string, userId: string) =>
+    app.inject({
+      method: "GET",
+      url: `/api/v1/events/${eventId}/settlements`,
+      headers: auth(userId),
+    });
+
+  it("keeps the pool shut by default, and opens it only when granted", async () => {
+    const seed = await seedWorkedExample("grant");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    // Before: the ceiling, exactly as it has always been.
+    const before = await settlementsAs(seed.event.id, seed.band.userId);
+    expect(before.json().ladder).toBeNull();
+    expect(before.json().settlements).toHaveLength(1);
+
+    const send = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/status`,
+      headers: auth(seed.operator.userId),
+      payload: { status: "pending_review", participantIds: [seed.bPart], fullAccess: true },
+    });
+    expect(send.statusCode).toBe(200);
+
+    const after = await settlementsAs(seed.event.id, seed.band.userId);
+    const body = after.json();
+    // The waterfall, and every party's figures — the two things the grant opens.
+    expect(body.ladder).not.toBeNull();
+    expect(body.ladder.adjustedNet).toBeDefined();
+    expect(body.settlements.length).toBeGreaterThan(1);
+    // …and the party rows are now IDENTICAL to the operator's own view of them,
+    // which is the strongest statement of what the grant means: nothing about the
+    // settlement is redacted from them any more.
+    const asOperator = await settlementsAs(seed.event.id, seed.operator.userId);
+    const byId = (rows: { participantId: string }[]) =>
+      Object.fromEntries(rows.map((row) => [row.participantId, row]));
+    const theirs = byId(body.settlements);
+    const operators = byId(asOperator.json().settlements);
+    for (const participantId of Object.keys(theirs)) {
+      expect(theirs[participantId].computed).toEqual(operators[participantId].computed);
+    }
+  });
+
+  it("grants ONE party, not the bill", async () => {
+    const seed = await seedWorkedExample("grant-one");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/status`,
+      headers: auth(seed.operator.userId),
+      payload: { status: "pending_review", participantIds: [seed.bPart], fullAccess: true },
+    });
+
+    expect((await settlementsAs(seed.event.id, seed.band.userId)).json().ladder).not.toBeNull();
+    // The other act on the same bill was not granted anything.
+    expect((await settlementsAs(seed.event.id, seed.venue.userId)).json().ladder).toBeNull();
+  });
+
+  it("opens every settlement LINE to a granted party, curated or not", async () => {
+    const seed = await seedWorkedExample("grant-lines");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const lines = (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${seed.event.id}/settlement/lines`,
+        headers: auth(seed.operator.userId),
+      })
+    ).json();
+    expect(lines.length).toBeGreaterThan(1);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/status`,
+      headers: auth(seed.operator.userId),
+      payload: { status: "pending_review", participantIds: [seed.bPart], fullAccess: true },
+    });
+    const theirs = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlement/lines`,
+      headers: auth(seed.band.userId),
+    });
+    // Nothing was curated to them; the grant is the wider mechanism and wins.
+    expect(theirs.json()).toHaveLength(lines.length);
+  });
+
+  it("does not become budget.view — the planner stays shut", async () => {
+    const seed = await seedWorkedExample("grant-not-budget");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/status`,
+      headers: auth(seed.operator.userId),
+      payload: { status: "pending_review", participantIds: [seed.bPart], fullAccess: true },
+    });
+
+    // THE BOUNDARY OF #24, asserted rather than assumed. The grant opens this
+    // SETTLEMENT. Planned-vs-actual is the FORECAST beside it — a different
+    // document, gated on `budget.view`, which `POOL_CAPABILITIES` still makes
+    // ungrantable to an arm's-length party.
+    const plan = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlement/planned-vs-actual`,
+      headers: auth(seed.band.userId),
+    });
+    expect(plan.statusCode).toBe(403);
+
+    // And curating is still not theirs to do, granted or not.
+    const curateAttempt = await app.inject({
+      method: "PUT",
+      url: `/api/v1/events/${seed.event.id}/settlement/curation`,
+      headers: auth(seed.band.userId),
+      payload: { participantId: seed.bPart, lineIds: [] },
+    });
+    expect(curateAttempt.statusCode).toBe(403);
+  });
+
+  it("a re-send without the flag does not silently revoke the grant", async () => {
+    const seed = await seedWorkedExample("grant-resend");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const send = (payload: Record<string, unknown>) =>
+      app.inject({
+        method: "POST",
+        url: `/api/v1/events/${seed.event.id}/settlement/status`,
+        headers: auth(seed.operator.userId),
+        payload,
+      });
+
+    await send({ status: "pending_review", participantIds: [seed.bPart], fullAccess: true });
+    // A second send that says nothing about access says nothing about access.
+    await send({ status: "revised", participantIds: [seed.bPart] });
+    expect((await settlementsAs(seed.event.id, seed.band.userId)).json().ladder).not.toBeNull();
+
+    // …and withdrawing it is an explicit act, which works.
+    await send({ status: "revised", participantIds: [seed.bPart], fullAccess: false });
+    expect((await settlementsAs(seed.event.id, seed.band.userId)).json().ladder).toBeNull();
+  });
+});
+
 describe("settlement — visibility (decisions #4)", () => {
   it("shows the paying operator every line it funds but a performer only their own", async () => {
     const seed = await seedWorkedExample("vis");

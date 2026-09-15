@@ -364,7 +364,12 @@ export interface EventSettlement {
   status: string;
   isBusy: boolean;
   /** The review conversation the API can actually move it through. */
-  sendForReview: () => void;
+  /**
+   * Send it out — to everyone, or to named parties, optionally granting them the
+   * whole settlement (#24.2). The modal composes all three; the header's plain
+   * button calls it with nothing, which is what it has always meant.
+   */
+  sendForReview: (options?: { participantIds?: string[]; fullAccess?: boolean }) => void;
   /**
    * Ask ONE party to review, leaving the rest of the bill where it is.
    *
@@ -562,9 +567,22 @@ export function useEventSettlement(
       done: string,
       /** Named parties only. Omitted means everyone, which is what the header does. */
       participantIds?: string[],
+      /**
+       * Grant or withdraw full settlement access as part of the send (#24.2).
+       * OMITTED leaves each party's grant as it was — silence about access is
+       * silence, not withdrawal.
+       */
+      fullAccess?: boolean,
     ) => {
       setStatus.mutate(
-        { id: eventId, data: participantIds ? { status, participantIds } : { status } },
+        {
+          id: eventId,
+          data: {
+            status,
+            ...(participantIds ? { participantIds } : {}),
+            ...(fullAccess != null ? { fullAccess } : {}),
+          },
+        },
         {
           onSuccess: () => {
             refresh();
@@ -864,7 +882,13 @@ export function useEventSettlement(
     // The review conversation is over once the figures freeze — after that the
     // only honest objection is a dispute, which stays available.
     canReview: partyRows.length > 0 && !partyRows.some((row) => FROZEN_STATUSES.has(row.status)),
-    sendForReview: () => moveTo("pending_review", "Sent for review."),
+    sendForReview: (options) =>
+      moveTo(
+        "pending_review",
+        options?.participantIds?.length === 1 ? "Sent for review." : "Sent for review.",
+        options?.participantIds,
+        options?.fullAccess,
+      ),
     sendForReviewTo: (participantId: string, name: string) =>
       moveTo("pending_review", `Sent to ${name}.`, [participantId]),
     reissue: () => moveTo("revised", "Figures re-issued."),

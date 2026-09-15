@@ -12,4 +12,5 @@ export type PostApiV1EventsIdSettlementStatusBody = {
   note?: string;
   /** @minItems 1 */
   participantIds?: string[];
+  fullAccess?: boolean;
 };

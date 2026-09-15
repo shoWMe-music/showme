@@ -19,6 +19,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { ConfirmDialog, useConfirmDialog } from "../components/ConfirmDialog";
 import { DateText } from "../components/DateText";
+import { SendForReviewDialog } from "../components/SendForReviewDialog";
 import { SettlementActualsCard } from "../components/SettlementActualsCard";
 import { SettlementCurationCard } from "../components/SettlementCurationCard";
 import {
@@ -612,6 +613,10 @@ function SettlementTab({
   currency,
 }: { settlement: EventSettlementData; eventId: string; currency: string }) {
   const confirmDialog = useConfirmDialog();
+  // The design makes sending a DIALOG rather than a button, because it carries
+  // three decisions — everyone or one party, which party, and whether they may
+  // see the whole thing (#24.2). A bare button could only ever mean the first.
+  const [sendOpen, setSendOpen] = useState(false);
   const askToFinalize = () =>
     confirmDialog.ask({
       title: "Finalize this settlement?",
@@ -702,7 +707,7 @@ function SettlementTab({
                 variant="secondary"
                 disabled={settlement.isBusy}
                 leftIcon={<Icon name="mail" size={14} />}
-                onClick={settlement.sendForReview}
+                onClick={() => setSendOpen(true)}
               >
                 Send for review
               </Button>
@@ -858,6 +863,9 @@ function SettlementTab({
       ))}
 
       <ConfirmDialog {...confirmDialog.dialogProps} />
+      {sendOpen && (
+        <SendForReviewDialog settlement={settlement} onClose={() => setSendOpen(false)} />
+      )}
     </div>
   );
 }

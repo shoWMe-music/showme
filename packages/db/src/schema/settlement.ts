@@ -162,6 +162,22 @@ export const settlements = pgTable(
     participantId: uuid("participant_id").references(() => eventParticipants.id),
     representationId: uuid("representation_id").references(() => representations.id),
     status: settlementStatus("status").notNull().default("open"),
+    /**
+     * THIS PARTY MAY SEE THE WHOLE SETTLEMENT — the design's "Full settlement
+     * access" toggle on the send-for-review modal, *"let recipients see all
+     * parties' financial details"*.
+     *
+     * It reverses `story.md:44`, which said a performer never sees the pool "even
+     * if an operator wanted to show them". The owner's decision on 2026-09-15 is
+     * that the operator may; `docs/decisions.md` #24 records the reversal.
+     *
+     * NOT `budget.view`, which stays ungrantable: this reaches this settlement's
+     * waterfall and the other parties' figures on this event, and nothing else.
+     * A STORED grant rather than a request flag, so the API decides from the
+     * column and a client asking nicely changes nothing — and so every grant sits
+     * in the audit trail beside the send that made it.
+     */
+    fullAccess: boolean("full_access").notNull().default(false),
     computed: jsonb("computed"),
     manualOverrides: jsonb("manual_overrides"),
     // The locked FX rates live in the finalize snapshot (`data.lockedRates`) — a MAP,
