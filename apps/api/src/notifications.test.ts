@@ -219,8 +219,9 @@ describe("notification preferences", () => {
       "events",
       "tasks",
     ]);
-    // In-app is on everywhere; email is on for the four that cost money or a date
-    // and off for `events`, which is situational awareness (`NOTIFICATION_CATEGORIES`).
+    // In-app is on everywhere; email is on for the ones that cost money or a date
+    // and off for `events`, which is situational awareness
+    // (`NOTIFICATION_CATEGORIES`).
     for (const preference of preferences) {
       expect(preference.inApp).toBe(true);
       expect(preference.isDefault).toBe(true);
@@ -228,7 +229,11 @@ describe("notification preferences", () => {
     const emailOn = preferences
       .filter((preference: { email: boolean }) => preference.email)
       .map((preference: { category: string }) => preference.category);
-    expect(emailOn).toEqual(["bookings", "holds", "deals", "settlements"]);
+    // `tasks` joined the list when the category stopped being only reminders
+    // (ClickUp `123qy9rnk3k`): being HANDED a job is somebody else acting on work
+    // you now owe, and a crew member who is not in the app that afternoon has no
+    // other way to learn of it. That is the costs-a-date side of the rule.
+    expect(emailOn).toEqual(["bookings", "holds", "deals", "settlements", "tasks"]);
   });
 
   it("stores an answer, returns the merged catalog, and leaves untouched categories default", async () => {

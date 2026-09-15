@@ -80,8 +80,10 @@ const TAB_BY_NOTIFICATION_TYPE: Record<string, string> = {
   // settlement workspace. Its stored link is a bare `/events/<id>`, so until now
   // the message that the money is final landed on the event's description.
   "settlement.finalized": "settlement",
-  // A reminder about an event task belongs on that event's To Do tab. (A personal
-  // task reminder carries `/tasks` instead and never reaches this map.)
+  // A job — handed to you, or reaching the time you asked to be reminded — is read
+  // on that event's To Do tab. (A personal task carries `/tasks` instead and never
+  // reaches this map.)
+  "task.assigned": "todo",
   "task.reminder": "todo",
 };
 

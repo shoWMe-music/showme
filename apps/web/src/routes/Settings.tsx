@@ -37,6 +37,11 @@ import {
 import { useTeamAccess } from "../hooks/useTeamAccess";
 import { errorMessage } from "../lib/errors";
 import { formatDay } from "../lib/format";
+import {
+  notificationSoundMuted,
+  playNotificationSound,
+  setNotificationSoundMuted,
+} from "../lib/notificationSound";
 import { usePageTransition } from "../shell/usePageTransition";
 import styles from "./Settings.module.css";
 
@@ -379,8 +384,80 @@ function NotificationsPanel() {
             onChange={setChannel}
           />
         ))}
+        <NotificationSoundRow />
       </div>
     </PanelCard>
+  );
+}
+
+/**
+ * The blip, and the switch that silences it (ClickUp `123qy9rnk3k`).
+ *
+ * Below the category grid rather than inside it, because it is a different KIND
+ * of preference and would read as a lie in those columns: the categories decide
+ * whether a notification exists at all, and this decides only whether the one you
+ * are already getting makes a noise. It is also per-device rather than per-account
+ * — see `lib/notificationSound.ts` — and the row says so, because a preference
+ * that silently fails to follow you to your phone is worse than one that warns it
+ * will not.
+ *
+ * "Play a sound", not "Mute": a switch reads best when ON means the thing
+ * happens. The stored value is the mute, because unmuted is the default and an
+ * absent key should mean audible.
+ */
+function NotificationSoundRow() {
+  const [muted, setMuted] = useState(notificationSoundMuted);
+  const toast = useToast();
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr auto",
+        gap: 12,
+        alignItems: "center",
+        padding: "12px 0",
+        borderTop: "1px solid var(--border)",
+      }}
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <span style={{ fontSize: 14, color: "var(--text)" }}>Play a sound</span>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
+          A short tone when a notification arrives. This one is set per browser, not on your account
+          — muting it here leaves your phone alone.
+        </span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            // The button is the only way to find out whether sound works at all
+            // here: a browser refuses audio until the page has been interacted
+            // with, and a toggle that cannot be heard is a toggle nobody trusts.
+            if (!playNotificationSound()) {
+              toast.error(
+                muted
+                  ? "Sound is off — turn it on to hear it."
+                  : "Your browser blocked the sound. Interact with the page and try again.",
+              );
+            }
+          }}
+        >
+          Test
+        </Button>
+        <Toggle
+          checked={!muted}
+          onChange={(next) => {
+            setNotificationSoundMuted(!next);
+            // Read it BACK rather than trusting the write. Storage can be full or
+            // disabled by policy, and the honest toggle shows what was stored.
+            setMuted(notificationSoundMuted());
+            if (next) playNotificationSound();
+          }}
+          label="Play a sound when a notification arrives"
+        />
+      </div>
+    </div>
   );
 }
 

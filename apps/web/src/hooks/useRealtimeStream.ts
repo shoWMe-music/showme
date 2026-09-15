@@ -5,6 +5,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { auth } from "../auth/firebase";
+import { playNotificationSound } from "../lib/notificationSound";
 
 /**
  * The client half of the realtime backbone: one SSE connection to the stream
@@ -82,6 +83,12 @@ export function useRealtimeStream(streamUrl: string | undefined): void {
       // Every event this service emits is either a notification or implies one, so
       // the feed is always refetched; the badge updates without a poll.
       void client.invalidateQueries({ queryKey: getGetApiV1NotificationsQueryKey() });
+      // …and for the same reason, every frame rings (ClickUp `123qy9rnk3k`).
+      // Rung HERE rather than off the refetched feed because the frame is the
+      // moment something arrived; watching the query result would also ring on a
+      // window refocus, a cache eviction and every other reason a list refetches.
+      // The module answers "is this device muted" itself and is silent if so.
+      playNotificationSound();
       if (event.type === "event.message_posted" && event.eventId) {
         // Refetch through the authorized endpoint — the frame deliberately carries
         // no message body, so the server re-applies visibility on the way out.

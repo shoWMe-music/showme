@@ -1,5 +1,6 @@
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
+import { notifyProfileMembers } from "@showme/db/notify";
 import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -8,6 +9,7 @@ import { badRequest, forbidden, notFound } from "../errors";
 import { writeActivity } from "../lib/activity";
 import { type Transaction, writeAudit } from "../lib/audit";
 import { eventCapabilities, requireEventCapability } from "../lib/authorize";
+import { renderNotificationEmail } from "../lib/email-templates";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
 
 const TaskParams = z.object({ id: z.string().uuid() });
@@ -260,16 +262,22 @@ async function assigneeNameOf(
  *
  * Returns the assignee's display name so the caller does not re-query for it.
  */
+/**
+ * Returns the assignee's NAME and PROFILE. The profile is what
+ * `notifyProfileMembers` addresses, so that handing somebody a job can tell them
+ * (ClickUp `123qy9rnk3k`) — and it comes off the join this check already does
+ * rather than a second query for a row just looked at.
+ */
 async function assertMayAssignParticipant(
   request: FastifyRequest,
   eventId: string | null,
   participantId: string,
-): Promise<string> {
+): Promise<{ name: string; profileId: string }> {
   if (!eventId) {
     throw badRequest("Only a task on an event can be assigned to a participant");
   }
   const [row] = await request.server.database
-    .select({ name: schema.profiles.name })
+    .select({ name: schema.profiles.name, profileId: schema.profiles.id })
     .from(schema.eventParticipants)
     .innerJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
     .where(
@@ -282,7 +290,95 @@ async function assertMayAssignParticipant(
   // 404, not 403: a participant of some other event is not this caller's
   // business to have confirmed the existence of.
   if (!row) throw notFound("That person is not on this event");
-  return row.name;
+  return row;
+}
+
+/**
+ * TELL SOMEBODY THEY HAVE BEEN HANDED A JOB (ClickUp `123qy9rnk3k`).
+ *
+ * Ran asked for *"an email notification to the team/crew member"* for task
+ * notifications — and the finding underneath the ticket is that there was no task
+ * notification of any kind to add an email to. `POST /tasks` and `PATCH /tasks/:id`
+ * wrote an audit row and an event-history line and told the assignee nothing, so a
+ * crew member learned they owed work by opening the app and looking. This is both
+ * halves at once: the bell, and the mail beside it.
+ *
+ * ADDRESSED TO THE ASSIGNEE'S PROFILE, not to one person, because that is how the
+ * rest of the app addresses somebody — a task handed to a band reaches the band
+ * (`notifyProfileMembers`), and a crew company's members are the people who do the
+ * work. `notifyUsers` drops the actor, so assigning a task to yourself is silent.
+ *
+ * NOBODY ELSE HEARS IT. A to-do is one party's slice of the show; broadcasting
+ * "chase the rider" to every profile on the bill would tell a performer what the
+ * promoter is behind on, which is the line story.md draws. The same reasoning is
+ * written out at length over the reminder sweep's recipient rule, and this is the
+ * same rule.
+ *
+ * Best-effort and logged: a task that was written must not fail because a mail
+ * server was slow.
+ */
+async function announceAssignment(
+  request: FastifyRequest,
+  task: { id: string; title: string; eventId: string | null; dueDate: string | null },
+  assignee: { name: string; profileId: string },
+): Promise<void> {
+  try {
+    const { database } = request.server;
+    const [event] = task.eventId
+      ? await database
+          .select({
+            id: schema.events.id,
+            title: schema.events.title,
+            eventDate: schema.events.eventDate,
+            venueName: schema.events.venueName,
+          })
+          .from(schema.events)
+          .where(eq(schema.events.id, task.eventId))
+      : [];
+    const handedBy = request.firebaseUser?.name ?? "Someone";
+    const due = task.dueDate ? ` Due ${task.dueDate}.` : "";
+
+    await notifyProfileMembers(
+      database,
+      assignee.profileId,
+      request.principal?.userId ?? null,
+      {
+        type: "task.assigned",
+        title: "You have a new task",
+        // The TITLE of the task travels, because a task is its title — a bell
+        // saying only "a task" is a bell that costs a trip to find out what.
+        // The description does not: it is free text on one party's slice.
+        body: event
+          ? `${handedBy} gave you "${task.title}" on ${event.title}.${due}`
+          : `${handedBy} gave you "${task.title}".${due}`,
+        eventId: task.eventId ?? undefined,
+        actorDisplay: request.firebaseUser?.name ?? undefined,
+        // A bare event path. Which TAB it opens is derived from the type by
+        // `notificationDestination` (ClickUp `86cbcgq5f`), which maps
+        // `task.assigned` to the To Do list — the job is read where the rest of
+        // the show's jobs are.
+        link: task.eventId ? `/events/${task.eventId}` : "/tasks",
+      },
+      event
+        ? {
+            sink: request.server.emailSink,
+            message: renderNotificationEmail({
+              subject: `New task: ${task.title}`,
+              preheader: `${handedBy} handed you a job on ${event.title}.`,
+              heading: "You have a new task",
+              paragraphs: [
+                `${handedBy} gave you "${task.title}" on ${event.title}.${due}`,
+                "Open the event's To Do list to see the detail, mark it done, or hand it on.",
+              ],
+              event,
+              action: { label: "Open the to-do list", path: `/events/${event.id}` },
+            }),
+          }
+        : undefined,
+    );
+  } catch (error) {
+    request.log.error({ error, taskId: task.id }, "task assignment notification failed");
+  }
 }
 
 /**
@@ -431,13 +527,14 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
         eventId: body.eventId,
       });
       if (body.groupId) await assertMayUseGroup(request, body.groupId);
-      const assigneeName = body.assigneeParticipantId
+      const assignee = body.assigneeParticipantId
         ? await assertMayAssignParticipant(
             request,
             body.eventId ?? null,
             body.assigneeParticipantId,
           )
         : null;
+      const assigneeName = assignee?.name ?? null;
 
       const created = await database.transaction(async (tx) => {
         const [task] = await tx
@@ -488,6 +585,11 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
         return serialized;
       });
 
+      // AFTER the commit, never inside it: delivery is best-effort by contract
+      // (`@showme/db/notify`) and a wobble on the mail path must not roll back a
+      // task somebody just wrote.
+      if (assignee) await announceAssignment(request, created, assignee);
+
       return reply.status(201).send(created);
     },
   );
@@ -533,9 +635,19 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
       // The assignee is checked against the event the task ALREADY belongs to —
       // `eventId` is not patchable here (a task does not move between events), so
       // `before.eventId` is the event both the caller and the assignee are on.
+      // Only a NEW assignee is announced. Re-saving a task that was already
+      // theirs, or editing its title, must not ring the same bell again — and an
+      // unassign (`null`) tells nobody, because "you no longer owe this" is not
+      // news somebody needs mailed.
+      let newAssignee: { name: string; profileId: string } | null = null;
       if (body.assigneeParticipantId !== undefined) {
         if (body.assigneeParticipantId) {
-          await assertMayAssignParticipant(request, before.eventId, body.assigneeParticipantId);
+          const assignee = await assertMayAssignParticipant(
+            request,
+            before.eventId,
+            body.assigneeParticipantId,
+          );
+          if (body.assigneeParticipantId !== before.assigneeParticipantId) newAssignee = assignee;
         }
         fields.assigneeParticipantId = body.assigneeParticipantId;
       }
@@ -584,6 +696,8 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
         }
         return serialized;
       });
+
+      if (newAssignee) await announceAssignment(request, updated, newAssignee);
 
       return updated;
     },

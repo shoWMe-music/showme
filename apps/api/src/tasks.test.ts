@@ -496,6 +496,150 @@ describe("tasks — the assignee", () => {
     };
   }
 
+  /** The `task.assigned` rows one user has been sent. */
+  async function assignmentBells(userId: string) {
+    return harness.db
+      .select({ body: schema.notifications.body, link: schema.notifications.link })
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, userId));
+  }
+
+  /**
+   * BEING HANDED A JOB (ClickUp `123qy9rnk3k`).
+   *
+   * Ran asked for an email on task notifications; the finding was that there was
+   * no task notification at all to add one to — `POST /tasks` wrote an audit row
+   * and an event-history line and told the assignee nothing. Every assertion here
+   * fails silently if it breaks: the task is still created, still assigned, still
+   * correct, and the person who owes the work simply never hears.
+   */
+  it("tells the assignee they were handed the job", async () => {
+    const seeded = await seedEventWithPerformer("assign-bell");
+
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: seeded.headers,
+      payload: {
+        title: "Chase the backline",
+        eventId: seeded.event.id,
+        assigneeParticipantId: seeded.performerParticipant.id,
+        dueDate: "2026-08-01",
+      },
+    });
+
+    const bells = await assignmentBells("assign-bell-performer");
+    expect(bells).toHaveLength(1);
+    // The TITLE travels — a bell saying only "a task" costs a trip to find out
+    // what — and so does the due date.
+    expect(bells[0]?.body).toContain("Chase the backline");
+    expect(bells[0]?.body).toContain("2026-08-01");
+    expect(bells[0]?.link).toBe(`/events/${seeded.event.id}`);
+  });
+
+  /**
+   * A to-do is one party's slice of the show. Telling the whole bill that the
+   * promoter is behind on the rider is the line story.md draws, and the reminder
+   * sweep's recipient rule draws it the same way.
+   */
+  it("tells NOBODY else on the bill", async () => {
+    const seeded = await seedEventWithPerformer("assign-private");
+
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: seeded.headers,
+      payload: {
+        title: "Chase the backline",
+        eventId: seeded.event.id,
+        assigneeParticipantId: seeded.performerParticipant.id,
+      },
+    });
+
+    expect(await assignmentBells("assign-private-performer")).toHaveLength(1);
+    // The host did the assigning; `notifyUsers` drops the actor.
+    expect(await assignmentBells("assign-private-host")).toHaveLength(0);
+  });
+
+  it("rings when a task is handed over in a PATCH, not only at create", async () => {
+    const seeded = await seedEventWithPerformer("assign-handover");
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: seeded.headers,
+      payload: { title: "Book the van", eventId: seeded.event.id },
+    });
+    expect(await assignmentBells("assign-handover-performer")).toHaveLength(0);
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/tasks/${created.json().id}`,
+      headers: seeded.headers,
+      payload: { assigneeParticipantId: seeded.performerParticipant.id },
+    });
+
+    expect(await assignmentBells("assign-handover-performer")).toHaveLength(1);
+  });
+
+  /**
+   * The one that stops the feature becoming noise. Editing a task that is already
+   * somebody's must not re-ring it, and a PATCH that re-states the same assignee
+   * is the shape a form save takes.
+   */
+  it("does not ring again when the assignee has not changed", async () => {
+    const seeded = await seedEventWithPerformer("assign-again");
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: seeded.headers,
+      payload: {
+        title: "Book the van",
+        eventId: seeded.event.id,
+        assigneeParticipantId: seeded.performerParticipant.id,
+      },
+    });
+    expect(await assignmentBells("assign-again-performer")).toHaveLength(1);
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/tasks/${created.json().id}`,
+      headers: seeded.headers,
+      payload: { title: "Book the van (9am)" },
+    });
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/tasks/${created.json().id}`,
+      headers: seeded.headers,
+      payload: { assigneeParticipantId: seeded.performerParticipant.id },
+    });
+
+    expect(await assignmentBells("assign-again-performer")).toHaveLength(1);
+  });
+
+  /** "You no longer owe this" is not news somebody needs sent to them. */
+  it("says nothing when a task is unassigned", async () => {
+    const seeded = await seedEventWithPerformer("assign-off");
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: seeded.headers,
+      payload: {
+        title: "Book the van",
+        eventId: seeded.event.id,
+        assigneeParticipantId: seeded.performerParticipant.id,
+      },
+    });
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/tasks/${created.json().id}`,
+      headers: seeded.headers,
+      payload: { assigneeParticipantId: null },
+    });
+
+    expect(await assignmentBells("assign-off-performer")).toHaveLength(1);
+  });
+
   it("assigns an event task to somebody on that event, names them, and persists the id", async () => {
     const seeded = await seedEventWithPerformer("assign-ok");
 

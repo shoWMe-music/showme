@@ -79,15 +79,27 @@ export const NOTIFICATION_CATEGORIES = [
   },
   {
     key: "tasks",
-    label: "Task reminders",
-    description: "A task you own, or one handed to you, reaches the time you asked to be reminded.",
-    // Off, by the rule above and the clearest case of it. A reminder is a nudge
-    // the user set for themselves about work only they can do — situational
-    // awareness by definition, not a date or a payment they could lose by not
-    // seeing it. It is also the one category whose volume the user dials
-    // directly, so it is the one most able to teach somebody to filter our mail.
-    // The sweep sends no mail today; this says what it would do if it did.
-    emailDefault: false,
+    label: "Tasks and reminders",
+    description:
+      "Somebody hands you a job on a show, or a task you own reaches the time you asked to be reminded.",
+    // ON, and this line used to be `false` with a paragraph arguing for it: a
+    // reminder is a nudge you set for YOURSELF about work only you can do, which
+    // is situational awareness rather than a date or a payment you could lose.
+    //
+    // That argument was about reminders, and the category stopped being only
+    // reminders. Ran, ClickUp `123qy9rnk3k`: *"Task notifications should also be
+    // an email notification to the team/crew member."* Being HANDED a job is the
+    // opposite case — somebody else acted, the person who now owes the work did
+    // not, and a crew member who is not in the app that afternoon has no way to
+    // learn of it. That is the "costs a date" side of the rule, so the default
+    // moves with it.
+    //
+    // The reminder half rides along, which is the honest trade: one switch per
+    // category is the design (a preference row per `type` would grow a checkbox
+    // with every commit), and of the two possible errors — mailing somebody their
+    // own reminder, or never telling a crew member they were given a job —
+    // Ran has named which one matters.
+    emailDefault: true,
   },
 ] as const;
 
