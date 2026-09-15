@@ -4,13 +4,15 @@ Live-events **booking + settlement** SaaS. This repo is a **from-scratch rebuild
 app, built as a **monorepo**. **Status:** scaffolded and substantially built, with the API and web app deployed.
 
 **Going to work on settlements? Start with
-[docs/handoff-2026-09-14-settlement-surface.md](./docs/handoff-2026-09-14-settlement-surface.md)**
-(what the budget-planner work moved underneath the engine, and the fact that production
-has **zero** settlement lines) and
-**[docs/design-settlement-2026-09-10.md](./docs/design-settlement-2026-09-10.md)** — the
-design, where the files live, and the **three rules in it we deliberately do not
-follow**. Implementing its §3 waterfall or §7 `compute()` literally would undo
-decisions.md #23.
+[docs/handoff-2026-09-15-settlement-built.md](./docs/handoff-2026-09-15-settlement-built.md)** —
+the surface was built from Ran's design on 2026-09-15, **two rules were reversed in
+doing it** (decisions.md **#24**: the waterfall, and an operator's power to open the
+books), and production still holds **zero** settlement lines. Then
+**[docs/design-settlement-2026-09-10.md](./docs/design-settlement-2026-09-10.md)** for the
+design itself and where it disagrees with itself, and
+[docs/plan-settlement-2026-09-15.md](./docs/plan-settlement-2026-09-15.md) for what is
+still open. `docs/handoff-2026-09-14-settlement-surface.md` is the snapshot from the day
+before and is now largely superseded.
 
 **Otherwise start with [docs/handoff-2026-08-27-ran-list-state.md](./docs/handoff-2026-08-27-ran-list-state.md)** — the
 current state of the work: what is deployed versus merely committed, the three pending migrations (one of
@@ -40,7 +42,8 @@ missing mechanism. None of that is visible from the board.
 rendered, never read: it is a `<x-dc>` runtime app, `file://` is blocked, and DesignSync cannot
 fetch it. Building from a written description of it has gone wrong twice.
 **Later product decisions override PLAN.md and live in [docs/decisions.md](./docs/decisions.md)** — read it before
-building a subsystem (most recent: the **2026-07-24 session, folded in as #16**).
+building a subsystem. **Most recent: #24 (2026-09-15), which REVERSES part of #23 and amends
+story.md:44** — the two rules a settlement session is most likely to trip over.
 
 **The *why* layer — [docs/story.md](./docs/story.md):** the purpose, role, and **boundary** of every actor (what each
 account kind is *for* and, crucially, what it is *not*). PLAN.md says *how*; story.md says *what it's for*. When a
