@@ -52,28 +52,58 @@ async function openOverview(page: import("@playwright/test").Page) {
   await expect(page.getByRole("tab", { name: "Financials" })).toBeVisible();
   await page.getByRole("tab", { name: "Financials" }).click();
 
-  // "Run the settlement" the first time, "Recalculate the settlement" after —
-  // the button says which, so the spec accepts either rather than assuming the
-  // seed's state. Its label is also the tell that the compute is DONE: the
-  // primary "Run" becomes the secondary "Recalculate" once there are figures.
+  /*
+   * THE SEED, taken through whichever control the screen is offering.
+   *
+   * On an event with no settlement lines the Financials tab opens with the
+   * design's *"How do you want to enter financials?"* card, and the bare "Run the
+   * settlement" button is withheld — two controls doing the same thing, one of
+   * them quietly answering a question the other is asking, is worse than either.
+   * On an event that already has lines the chooser is gone and "Recalculate" is
+   * the control. The spec accepts the state it finds rather than assuming one,
+   * because both are reachable depending on what ran before it.
+   */
+  const chooser = page.getByRole("button", { name: /^Start from the Budget Planner/ });
   const run = page.getByRole("button", { name: /the settlement$/ });
-  await expect(run).toBeEnabled();
-  await run.click();
+  // WAIT FOR EITHER BEFORE ASKING WHICH. `isVisible()` answers immediately, so
+  // asking it while the tab is still loading gets `false` for both and sends the
+  // spec down the wrong branch — which is precisely how this failed once: it
+  // waited out its timeout for a button that was never going to be the one the
+  // screen rendered.
+  await expect(chooser.or(run).first()).toBeVisible();
+  if (await chooser.isVisible()) {
+    await chooser.click();
+  } else {
+    await expect(run).toBeEnabled();
+    await run.click();
+  }
   await expect(page.getByRole("button", { name: /^Recalculate the settlement$/ })).toBeVisible();
 
   await page.getByRole("tab", { name: "Overview" }).click();
-  await expect(page.getByText("Event Details")).toBeVisible();
+  await expect(page.getByText("Event details")).toBeVisible();
 }
 
-test("the Overview states each agreement's kind and what it pays", async ({ page }) => {
+/**
+ * MOVED TABS, SAME QUESTION. The agreement's terms were on the Overview until
+ * 2026-09-15; Ran's design puts them on **Deal structure**, and the Overview
+ * carries the parties and the waterfall instead. ClickUp `86cbcn1ue` asked for
+ * "deal type and fee" to be reachable, and it is — one tab across, in a card
+ * named for the thing it describes.
+ */
+test("Deal structure states each agreement's kind and what it pays", async ({ page }) => {
   await openOverview(page);
+  await page.getByRole("tab", { name: "Deal structure" }).click();
 
-  await expect(page.getByText("Agreements", { exact: true })).toBeVisible();
-  await expect(page.getByText("Album Release — Door Split")).toBeVisible();
+  await expect(page.getByText("Album Release — Door Split").first()).toBeVisible();
   // The composer's own vocabulary, not the stored enum: a deal written as a door
   // split must not read back as "door_split".
   await expect(page.getByText("Door split", { exact: true })).toBeVisible();
-  await expect(page.getByText("100% of the pool")).toBeVisible();
+  // "of the adjusted net", because that is what a percentage divides since the
+  // waterfall landed (decisions.md #24.1). It read "of the pool" before.
+  // `exact`, because the sentence also appears inside each party's settled line
+  // ("Marlo Vance · 100% of the adjusted net — …"). The terms CELL is the one
+  // this test is about, and a loose match resolves to three elements.
+  await expect(page.getByText("100% of the adjusted net", { exact: true })).toBeVisible();
 });
 
 test("the Overview shows what the tickets did, counted and priced", async ({ page }) => {

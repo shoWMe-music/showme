@@ -1,5 +1,10 @@
 # Plan — building the settlement surface from Ran's 2026-09-10 design
 
+> **STATUS 2026-09-15: Phases 0 and A–D are built, proven and committed** (five
+> commits, `0fcb6d6`‥`0889e9f`). What remains is in "Still open" at the foot of
+> this file. The phase descriptions below are kept as written because they record
+> what was decided before the building, which is the part a later reader needs.
+
 Written 2026-09-15, after rendering the design rather than reading about it.
 Ground truth: `claude-prototype/ran-2026-09-10/settlement.html` and the tab
 screenshots in `renders/`. What the design says, and the three places it
@@ -191,7 +196,41 @@ And the thing that matters most: **production holds zero `settlement_lines`**, s
 none of this has ever run on a real event. Settling one real show is the
 acceptance test.
 
-## 4. Owed regardless
+## 4. What was actually built, and what is still open
+
+**Built and proven** (each commit carries its own evidence):
+
+| phase | what landed |
+|---|---|
+| **0** | the waterfall in the engine; rentals off the top again; `PoolLadder` as the design's five rows plus `attributed`; the planner moved with it |
+| **A** | six tabs in the design's order; the Overview's detail grid, waterfall card and Total settlement; Deal structure back, terms-first; Collaborators; the Payout lock |
+| **C** | curation (`settlement_lines.visible_to`, migration 0039), the curate card, and a server-answered "Viewing as" |
+| **D** | the send-for-review modal and the full-access grant (`settlements.full_access`, migration 0040, decisions.md #24.2) |
+| **B** | the entry-method chooser (`?seedFromBudget=false`) |
+
+**Checks at the end of it:** engine 62, api 1131 across 55 files, web 162,
+Playwright **112 passed / exit 0**, biome 664 clean. The curation tests were
+mutation-tested. Every claim above was also driven in the browser as the seeded
+operator and read back through a performer's own token.
+
+**Still open, in the order they matter:**
+
+1. **No real event has been settled.** Production still holds zero
+   `settlement_lines`. Everything here is proven on fixtures and the seeded e2e
+   event; settling one real show is the acceptance test that has not been run.
+2. **Migrations 0039 and 0040 are applied locally only.** Both are additive and
+   nullable/defaulted, so they are safe to apply to production, and neither has
+   run there.
+3. **The terminology session** (`123qy9rng6d`) is still in backlog, and Ran's
+   standing note — *"the language across the new design is super confusing … we
+   need to redo this together"* — still stands. Vocabulary decided there overrides
+   every caption this work drew.
+4. **Drag-to-curate** is not built; click is. The design offers both and click is
+   the half that is the contract.
+5. **A ticketing provider sync** is advertised by the design and does not exist.
+   The card says so rather than drawing a dead button.
+
+## 5. Owed regardless
 
 The `ticket-to-commit` write-backs for the budget planner work and for this
 session are still owed on `86cbcn1ue` (status: `re-do`) and `123qy9rnwud`. Ran's

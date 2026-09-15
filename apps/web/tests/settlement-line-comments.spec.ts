@@ -21,10 +21,31 @@ const ALBUM_RELEASE = "e2e00000-0000-4000-8000-0000000000e1";
 async function openFinancials(page: import("@playwright/test").Page) {
   await page.goto(`/events/${ALBUM_RELEASE}/settlement`);
   await page.getByRole("tab", { name: "Financials" }).click();
-  // The lines are the settlement's copy of the budget, taken on the first compute.
+  /*
+   * THE SEED, taken through whichever control the screen is offering.
+   *
+   * On an event with no settlement lines the Financials tab opens with the
+   * design's *"How do you want to enter financials?"* card, and the bare "Run the
+   * settlement" button is withheld — two controls doing the same thing, one of
+   * them quietly answering a question the other is asking, is worse than either.
+   * On an event that already has lines the chooser is gone and "Recalculate" is
+   * the control. The spec accepts the state it finds rather than assuming one,
+   * because both are reachable depending on what ran before it.
+   */
+  const chooser = page.getByRole("button", { name: /^Start from the Budget Planner/ });
   const run = page.getByRole("button", { name: /the settlement$/ });
-  await expect(run).toBeEnabled();
-  await run.click();
+  // WAIT FOR EITHER BEFORE ASKING WHICH. `isVisible()` answers immediately, so
+  // asking it while the tab is still loading gets `false` for both and sends the
+  // spec down the wrong branch — which is precisely how this failed once: it
+  // waited out its timeout for a button that was never going to be the one the
+  // screen rendered.
+  await expect(chooser.or(run).first()).toBeVisible();
+  if (await chooser.isVisible()) {
+    await chooser.click();
+  } else {
+    await expect(run).toBeEnabled();
+    await run.click();
+  }
   await expect(page.getByRole("button", { name: /^Recalculate the settlement$/ })).toBeVisible();
 }
 
@@ -67,6 +88,9 @@ test("a remark can be attached to one line, and shows under that line", async ({
  */
 test("a line remark is still part of the settlement's own thread", async ({ page }) => {
   await page.goto(`/events/${ALBUM_RELEASE}/settlement`);
-  await page.getByRole("tab", { name: "Comments" }).click();
+  // The thread moved out of a tab of its own and into the Settlement tab's right
+  // rail on 2026-09-15, where Ran's design puts it — beside the figures it is
+  // about, because answering a settlement comment means changing one of them.
+  await page.getByRole("tab", { name: "Settlement" }).click();
   await expect(page.getByText(/Should be 168, not 260/)).toBeVisible();
 });

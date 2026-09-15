@@ -134,6 +134,13 @@ commits, and one of them was catching a **real** bug (a deduction computed off
 capacity while the row above it computed off attendance). `main` had been red since
 2026-09-05 and nothing gated on it.
 
+**Update 2026-09-15: `pnpm test:e2e` is GREEN — 112 passed, exit 0.** Do not
+inherit the sentence above as the current state; it is the lesson, not the status.
+The settlement rebuild that day broke two specs and the suite caught both (a
+control that moved behind a chooser, and a tab that stopped existing), which is
+the whole argument for running it. **Run it, and expect green** — a failure now is
+yours.
+
 ## An error at the end of a tunnel may belong to the tunnel
 `cloud-sql-proxy` authenticates with **Application Default Credentials**, which
 `gcloud auth login` does NOT refresh. A stale ADC surfaces as
