@@ -26,7 +26,7 @@ import {
 import { eventParticipantRoleLabel, humanizeEnumValue } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BudgetPlanner,
   type CrewMember,
@@ -108,6 +108,36 @@ export function EventDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState(requestedTab ?? "details");
+
+  /**
+   * ARRIVING FROM A NOTIFICATION SHOULD LAND ON THE PANEL (ClickUp `86cbcgq5f`:
+   * *"the navigation doesn't lead to the specific tab and place in the event
+   * manager (including scroll)"*).
+   *
+   * Selecting the right tab is only half of it. The workspace opens with a
+   * breadcrumb, a title, a hold panel and a status rail above the tab bar, so a
+   * reader sent to the Deals panel still arrives looking at the event's name with
+   * the thing they were told about somewhere below the fold. This scrolls the tab
+   * bar to the top of the viewport, which puts the bar and its panel in view
+   * together — the bar has to stay visible, or landing deep in a panel reads as a
+   * different screen rather than a tab of this one.
+   *
+   * ONLY WHEN A LINK ASKED FOR A TAB. Opening the workspace normally must not
+   * move the page out from under anybody, and clicking between tabs afterwards
+   * must not either, which is why this keys off the initial `?tab=` rather than
+   * off `tab`. `requestedTab` is a search param and does not change while the
+   * screen is mounted, so this runs once.
+   */
+  const tabsBarRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!requestedTab) return;
+    // After the panel has rendered — the tab bar's position depends on what is
+    // above it, and the hold panel resolves asynchronously.
+    const timer = window.setTimeout(() => {
+      tabsBarRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [requestedTab]);
 
   const [inviteOpen, setInviteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -406,7 +436,9 @@ export function EventDetail() {
       {/* The rail SHOWS where the booking stands. SETTING it is one of the
           event's facts, so it is a row on the Event Information card with the
           rest of them — not a second control above the tabs. */}
-      <EventTabsBar tabs={tabs} value={activeTab} onChange={setTab} />
+      <div ref={tabsBarRef}>
+        <EventTabsBar tabs={tabs} value={activeTab} onChange={setTab} />
+      </div>
 
       {/* One wrapper for all nine panels: the content scoots in from whichever
           side the tab moved and cross-fades, instead of flipping while the tab

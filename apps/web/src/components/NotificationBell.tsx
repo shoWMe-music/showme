@@ -37,12 +37,19 @@ export function NotificationBell() {
   // go there. The mark-read call is scoped to this one id — the API's `ids` body
   // takes a subset — so reading one never silently clears the rest of the feed.
   const openNotification = (notification: Notification) => {
-    const destination = notificationDestination(notification.link);
+    // The WHOLE row, not just its link: which event to open is in the link, which
+    // panel of it to open is in the type (ClickUp `86cbcgq5f`).
+    const destination = notificationDestination(notification);
     if (!destination) return;
     if (notification.readAt === null) markRead.mutate({ data: { ids: [notification.id] } });
     setOpen(false);
-    if ("params" in destination) navigate({ to: destination.to, params: destination.params });
-    else navigate({ to: destination.to });
+    if ("search" in destination) {
+      navigate({ to: destination.to, params: destination.params, search: destination.search });
+    } else if ("params" in destination) {
+      navigate({ to: destination.to, params: destination.params });
+    } else {
+      navigate({ to: destination.to });
+    }
   };
 
   return (
@@ -117,7 +124,7 @@ function NotificationRow({
   onOpen: (notification: Notification) => void;
 }) {
   const unread = notification.readAt === null;
-  const linked = notificationDestination(notification.link) !== null;
+  const linked = notificationDestination(notification) !== null;
   const className = [styles.row, linked ? styles.rowLinked : "", unread ? styles.rowUnread : ""]
     .filter(Boolean)
     .join(" ");
