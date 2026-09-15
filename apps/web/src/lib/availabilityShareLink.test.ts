@@ -94,8 +94,9 @@ describe("buildAvailabilityShareLink", () => {
     const link = buildAvailabilityShareLink(snapshot);
     const [beforeHash, ...rest] = link.split("#");
     expect(rest).toHaveLength(1);
+    expect(beforeHash).toBeDefined();
     expect(beforeHash).not.toContain("?");
-    expect(beforeHash.endsWith("/availability")).toBe(true);
+    expect(beforeHash).toMatch(/\/availability$/);
     // Every value lives on the private side of the hash.
     expect(beforeHash).not.toContain("2026-10-02");
     expect(beforeHash).not.toContain("the-lantern-hall");

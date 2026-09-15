@@ -188,11 +188,17 @@ export function Events() {
             />
           ))}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {/* WRAPS, and the search box SHRINKS. Added as a rigid 240px box in a
+            non-wrapping row, this group measured 490px against a 350px phone and
+            put a sideways scrollbar on the whole page — caught by the mobile
+            sweep, not by eye. `maxWidth: 100%` did not save it: the row's
+            min-content is its children's, so the fix is to remove the floor
+            (`flex` basis + `min-width: 0`) rather than to buy pixels back. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           {/* ClickUp `123qy9rngbp`. Answered by the SERVER (`useEventList`), so it
               searches every event the caller has and not the page on screen —
               which matters here precisely because this list pages. */}
-          <div style={{ width: 240, maxWidth: "100%" }}>
+          <div style={{ flex: "1 1 240px", minWidth: 0 }}>
             <SearchInput
               value={search}
               onChange={(event) => setSearch(event.target.value)}

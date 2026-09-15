@@ -4,7 +4,7 @@ import {
   storeBreakdown,
 } from "@showme/settlement";
 import { E2E_ACCOUNTS } from "@showme/shared";
-import { inArray } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
@@ -388,6 +388,18 @@ async function main() {
     await database
       .delete(schema.settlementTransfers)
       .where(inArray(schema.settlementTransfers.eventId, eventIds)); // → participants, representations (no action)
+    // THE COMPUTED LINES, and the same argument as the three above — they were
+    // simply missed when the line table gained its deal columns. A settlement line
+    // cascades with its EVENT but holds NO ACTION references to `deals`,
+    // `budget_lines` and `event_participants`, all three of which this teardown
+    // deletes BEFORE the event. So the fixture re-seeded perfectly right up until
+    // somebody actually computed a settlement, and then failed with
+    // `settlement_lines_deal_id_fkey` — which reads as a corrupt database rather
+    // than as a stale one, and is hit precisely when a developer has just finished
+    // the walkthrough that would make them want a clean fixture back.
+    await database
+      .delete(schema.settlementLines)
+      .where(inArray(schema.settlementLines.eventId, eventIds)); // → deals, budget_lines, participants (no action)
     await database.delete(schema.settlements).where(inArray(schema.settlements.eventId, eventIds)); // → participants, representations
     await database
       .delete(schema.budgetLines)
@@ -2089,6 +2101,17 @@ async function main() {
         { base: "USD", quote: SEK, rate: "10.6270" },
         { base: "GBP", quote: SEK, rate: "13.4770" },
       ])
+      // UPSERT, because this is the one table the seed writes that the teardown
+      // above does NOT clear: the cache is global rather than scoped to the
+      // fixture's events and profiles, and the scheduled job writes the same rows
+      // six times a day. Plain inserts made a second seed die on
+      // `exchange_rate_cache_base_quote_pk` — after every other row had already
+      // been replaced, so the fixture was left half-built. Same conflict target
+      // and the same `excluded` update the job uses (`apps/jobs/exchange-rate`).
+      .onConflictDoUpdate({
+        target: [schema.exchangeRateCache.base, schema.exchangeRateCache.quote],
+        set: { rate: sql`excluded.rate`, fetchedAt: sql`excluded.fetched_at` },
+      })
       .returning({ base: schema.exchangeRateCache.base });
     record("exchange_rate_cache", exchangeRates);
 
