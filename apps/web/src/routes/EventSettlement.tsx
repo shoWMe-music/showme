@@ -403,12 +403,7 @@ function DetailGrid({
           is the one case where an index key is the honest answer rather than a
           shortcut: these are not data and never reorder. */}
       {Array.from({ length: fillers }, (_unused, index) => index).map((index) => (
-        <div
-          // biome-ignore lint/suspicious/noArrayIndexKey: position IS the identity of a blank cell
-          key={`filler-${index}`}
-          className={styles.detailCell}
-          aria-hidden="true"
-        />
+        <div key={`filler-${index}`} className={styles.detailCell} aria-hidden="true" />
       ))}
     </div>
   );

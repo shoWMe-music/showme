@@ -7,6 +7,7 @@ import { Card, Icon, Select, type Status, useToast } from "@showme/design-system
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAuth } from "../auth/AuthProvider";
 import { type CalendarEvent, type CalendarLabelMode, CalendarMonthGrid } from "../components";
 import { AvailabilityShareModal } from "../components/AvailabilityShareModal";
 import { CalendarCreatePopover } from "../components/CalendarCreatePopover";
@@ -44,6 +45,7 @@ import { useAvailabilityShare } from "../hooks/useAvailabilityShare";
 import { useCalendarSources } from "../hooks/useCalendarSources";
 import { useCalendarVenueFilter } from "../hooks/useCalendarVenueFilter";
 import { type EventItem, useAllEvents } from "../hooks/useEventList";
+import { calendarEventLabel } from "../lib/calendarEventLabel";
 import { buildCalendarInventory, placeEvents } from "../lib/calendarInventory";
 import { formatDay, parseDayLocal } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
@@ -424,6 +426,7 @@ function CalendarGridForView({
 export function Calendar() {
   const navigate = useNavigate();
   const toast = useToast();
+  const { session } = useAuth();
   const { openNewEvent, canCreateEvent } = useNewEvent();
   // `?date=yyyy-mm-dd`: what makes every date printed elsewhere in the app a link
   // back to the night it names (`components/DateText`). Validated by the route,
@@ -476,6 +479,16 @@ export function Calendar() {
     [events.items, calendarSources.sources],
   );
 
+  /**
+   * The profiles this reader operates through — what makes an event "mine to
+   * name" rather than "one I am on" (`calendarEventLabel`, ClickUp
+   * `123qy9rnfa4`). Memoised so the label pass below has a stable dependency.
+   */
+  const myProfileIds = useMemo(
+    () => (session?.memberships ?? []).map((membership) => membership.profileId),
+    [session?.memberships],
+  );
+
   const calendarEvents = useMemo<CalendarEvent[]>(() => {
     // BOTH sources, concatenated: standalone calendar items (tasks, appointments,
     // notes) and the dated events. They come from different tables and share no
@@ -504,12 +517,15 @@ export function Calendar() {
         id: event.id,
         eventId: event.id,
         date: toDayKey(event.eventDate as string),
-        eventName: event.title,
+        // ClickUp `123qy9rnfa4`: an event the reader is only ON is labelled by
+        // its VENUE, because an operator names a show after the act and a
+        // performer reading that back sees a calendar of their own name.
+        eventName: calendarEventLabel(event, myProfileIds),
         status: apiStatusToDisplay(event.status).status,
         statusLabel: apiStatusToDisplay(event.status).label,
       }));
     return [...items, ...dated];
-  }, [calendar.data, events.items]);
+  }, [calendar.data, events.items, myProfileIds]);
 
   // Who is playing: only for the events on screen, since it costs one request each.
   const visibleEventIds = useMemo(
