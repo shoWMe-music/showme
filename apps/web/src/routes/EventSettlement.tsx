@@ -210,20 +210,25 @@ export function EventSettlement() {
         value={tab}
         onChange={setTab}
         /*
-         * THE DESIGN'S SIX, in its order
-         * (`claude-prototype/ran-2026-09-10/renders/`).
+         * The design's six, in its order — plus **Comments**, which is the
+         * product owner's call and not the design's.
          *
-         * "Comments" is gone as a tab and is not gone as a feature: the design
-         * puts the thread in the Settlement tab's right rail, beside the figures
-         * it is about, which is where a remark on a settlement belongs — answering
-         * one MEANS changing a number, and a tab away from the numbers made the
-         * reader hold both in their head.
+         * The prototype puts the thread in the Settlement tab's right rail. That
+         * is a good place for a remark ABOUT A FIGURE, and those still live on
+         * their figures: every row of the read-only preview carries its own
+         * bubble. What the rail could not be was the whole conversation — a
+         * narrow column beside a long page, scrolled past by anybody reading the
+         * money, and carrying the revision history in the same strip.
+         *
+         * So the thread gets a tab and keeps its two ways in: say it against the
+         * line, read it all in one place.
          */
         tabs={[
           { key: "overview", label: "Overview" },
           { key: "deal-structure", label: "Deal structure" },
           { key: "financials", label: "Financials" },
           { key: "settlement", label: "Settlement" },
+          { key: "comments", label: "Comments" },
           { key: "collaborators", label: "Collaborators" },
           { key: "payout", label: "Payout" },
         ]}
@@ -244,6 +249,8 @@ export function EventSettlement() {
           currency={baseCurrency}
           onGoToSettlement={() => setTab("settlement")}
         />
+      ) : tab === "comments" ? (
+        <CommentsTab eventId={eventId} settlement={settlement} currency={baseCurrency} />
       ) : tab === "collaborators" ? (
         <CollaboratorsTab settlement={settlement} />
       ) : tab === "payout" ? (
@@ -768,58 +775,36 @@ function SettlementTab({
         <NothingSettledYet settlement={settlement} />
       ) : (
         <>
-          {/*
-           * THE DESIGN'S SPLIT ROW: the figures on the left, the conversation and
-           * the revision history in a rail on the right.
-           *
-           * The conversation belongs beside the money and not a tab away from it.
-           * Answering a settlement comment MEANS changing a figure — "production
-           * line looks 500 higher than our copy" is a remark about one row — and a
-           * reader who had to leave the numbers to read it was holding both in
-           * their head. `minmax(0, …)` on both columns because the left one
-           * carries tables: without it the grid sizes to content and the page
-           * scrolls sideways on a laptop (CLAUDE.md, the overflow sweep).
-           */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(0, 1.9fr) minmax(0, 1fr)",
-              gap: 20,
-              alignItems: "start",
-            }}
-          >
-            <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
-              <Card padding="lg" style={CARD_COLUMN}>
-                <CardTitle subtitle="Read-only preview of the figures entered on Financials. Edit them there.">
-                  Revenue &amp; deductions
-                </CardTitle>
-                {/* EVERY LINE, then the totals — the design's order, and the half
+          {/* The figures, full width. The conversation and the revision history
+              used to sit in a rail beside them and now have a tab of their own;
+              a remark about a FIGURE still belongs to the figure, and every row
+              of the preview below carries its own. */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
+            <Card padding="lg" style={CARD_COLUMN}>
+              <CardTitle subtitle="Read-only preview of the figures entered on Financials. Edit them there.">
+                Revenue &amp; deductions
+              </CardTitle>
+              {/* EVERY LINE, then the totals — the design's order, and the half
                     that was missing: this card stated that the night deducted
                     33 000 without ever saying what of. */}
-                <SettlementLinePreview
-                  lines={editor.lines}
-                  currency={currency}
-                  thread={{
-                    forLine: (settlementLineId) =>
-                      settlement.comments.filter(
-                        (comment) => comment.settlementLineId === settlementLineId,
-                      ),
-                    post: (message, settlementLineId) =>
-                      settlement.postComment(message, settlementLineId),
-                  }}
-                />
-                <PoolLadderRows settlement={settlement} />
-              </Card>
+              <SettlementLinePreview
+                lines={editor.lines}
+                currency={currency}
+                thread={{
+                  forLine: (settlementLineId) =>
+                    settlement.comments.filter(
+                      (comment) => comment.settlementLineId === settlementLineId,
+                    ),
+                  post: (message, settlementLineId) =>
+                    settlement.postComment(message, settlementLineId),
+                }}
+              />
+              <PoolLadderRows settlement={settlement} />
+            </Card>
 
-              {settlement.parties.map((party) => (
-                <SettlementPartyCard key={party.settlementId} party={party} />
-              ))}
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
-              <SettlementThread settlement={settlement} />
-              <RevisionHistory eventId={eventId} />
-            </div>
+            {settlement.parties.map((party) => (
+              <SettlementPartyCard key={party.settlementId} party={party} />
+            ))}
           </div>
 
           {/* Sign-off and what leaves the building, side by side — the design's
@@ -1057,21 +1042,14 @@ function NothingSettledYet({ settlement }: { settlement: EventSettlementData }) 
  * `comments_received` on its own, because the remark IS the event — which is why
  * there is no "mark as reviewed" button beside it.
  */
-function SettlementThread({ settlement }: { settlement: EventSettlementData }) {
-  /*
-   * THE SETTLEMENT-WIDE REMARKS ONLY.
-   *
-   * Since the line preview above carries each figure's own thread on its row, a
-   * panel that also listed them printed the same sentence twice within a few
-   * hundred pixels — which an e2e spec caught by resolving one remark to two
-   * elements. A comment anchored to a line belongs beside the line; this panel is
-   * for what was said about the settlement as a whole.
-   *
-   * A comment whose line was later deleted comes back here rather than
-   * disappearing: `settlement_line_id` is `set null` on delete precisely so that
-   * deleting the figure somebody questioned does not delete the question.
-   */
-  const general = settlement.comments.filter((comment) => comment.settlementLineId == null);
+function SettlementThread({
+  settlement,
+  labelOf,
+}: {
+  settlement: EventSettlementData;
+  /** Names the figure an anchored remark is about. Null for a general one. */
+  labelOf: (settlementLineId: string | null) => string | null;
+}) {
   const [draft, setDraft] = useState("");
   const send = () => {
     const message = draft.trim();
@@ -1083,13 +1061,13 @@ function SettlementThread({ settlement }: { settlement: EventSettlementData }) {
   return (
     <Card padding="lg" style={{ ...CARD_COLUMN, gap: 12 }}>
       <CardTitle size={17}>Comments</CardTitle>
-      {general.length === 0 ? (
+      {settlement.comments.length === 0 ? (
         <span className="muted" style={{ fontSize: 13 }}>
           No comments yet. If a figure looks wrong, this is where to say so.
         </span>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {general.map((comment) => (
+          {settlement.comments.map((comment) => (
             <div key={comment.id} style={{ display: "flex", gap: 10 }}>
               <Avatar initials={initialsOf(comment.author)} size={30} />
               <div style={{ minWidth: 0 }}>
@@ -1100,6 +1078,12 @@ function SettlementThread({ settlement }: { settlement: EventSettlementData }) {
                   <span className="muted" style={{ fontSize: 11.5 }}>
                     {formatDay(comment.createdAt)}
                   </span>
+                  {/* WHICH FIGURE, when the remark is about one. On the row this
+                      is the row; here it is the difference between a sentence and
+                      a sentence about nothing. */}
+                  {labelOf(comment.settlementLineId) && (
+                    <Badge>{labelOf(comment.settlementLineId)}</Badge>
+                  )}
                 </div>
                 <p style={{ margin: "2px 0 0", fontSize: 13.5, lineHeight: 1.5 }}>
                   {comment.message}
@@ -1768,6 +1752,43 @@ function PayoutTab({ settlement }: { settlement: EventSettlementData }) {
           </Button>
         </div>
       </Card>
+    </div>
+  );
+}
+
+/**
+ * COMMENTS — the whole conversation, and what has happened to the figures.
+ *
+ * The design keeps this in a rail beside the Settlement tab. It has a tab here
+ * instead (the product owner's call, 2026-09-15), and the difference is what the
+ * two are for: a remark ABOUT A FIGURE is made on the figure — every row of the
+ * Settlement tab's preview carries its own bubble — while this is the record of
+ * everything said, read in one place without scrolling a long page.
+ *
+ * Which is why an anchored remark NAMES ITS FIGURE here. On the row, the row is
+ * the context; off it, "Should be 168, not 260" is a sentence about nothing. That
+ * is the whole reason `settlement_comments.settlement_line_id` is a column rather
+ * than a prefix somebody types.
+ */
+function CommentsTab({
+  eventId,
+  settlement,
+  currency,
+}: { eventId: string; settlement: EventSettlementData; currency: string }) {
+  const editor = useSettlementLines(eventId, currency);
+  const labelOf = (settlementLineId: string | null) =>
+    settlementLineId == null
+      ? null
+      : (editor.lines.find((line) => line.id === settlementLineId)?.label ??
+        // The line was deleted after the remark was made. `set null` on delete
+        // keeps the question when the figure goes, and this says so rather than
+        // printing a bare uuid or pretending the remark was general.
+        "a figure that has since been removed");
+
+  return (
+    <div style={TWO_COLUMN}>
+      <SettlementThread settlement={settlement} labelOf={labelOf} />
+      <RevisionHistory eventId={eventId} />
     </div>
   );
 }
